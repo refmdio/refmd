@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: refmd
+      POSTGRES_USER: refmd
+      POSTGRES_PASSWORD: refmd
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U refmd"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      RUST_ENV: development
+      API_PORT: 8888
+      DATABASE_URL: postgresql://refmd:refmd@postgres:5432/refmd
+      FRONTEND_URL: http://localhost:3000
+      JWT_SECRET: change-me-please
+      ENCRYPTION_KEY: change-me-please
+      UPLOAD_MAX_BYTES: 26214400
+      RUST_LOG: api=debug,axum=debug,tower_http=debug
+      PUBLIC_BASE_URL: http://localhost:8888
+    ports:
+      - "8888:8888"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - refmd_data:/data
+      - ./plugins:/app/plugins
+      - ./uploads:/data/uploads
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:8888
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  refmd_data:

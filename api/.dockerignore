@@ -1,0 +1,6 @@
+target
+uploads
+plugins
+.env
+*.log
+.git

@@ -1,0 +1,12 @@
+pub mod access_repository_sqlx;
+pub mod document_repository_sqlx;
+pub mod files_repository_sqlx;
+pub mod git_repository_sqlx;
+pub mod linkgraph_repository_sqlx;
+pub mod plugin_installation_repository_sqlx;
+pub mod plugin_repository_sqlx;
+pub mod public_repository_sqlx;
+pub mod shares_repository_sqlx;
+pub mod tag_repository_sqlx;
+pub mod tagging_repository_sqlx;
+pub mod user_repository_sqlx;
