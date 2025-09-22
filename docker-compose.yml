@@ -16,7 +16,7 @@ services:
       retries: 5
 
   api:
-    image: ${REFMD_API_IMAGE:-ghcr.io/refmdio/refmd-api:latest}
+    image: ghcr.io/refmdio/refmd/api:latest
     environment:
       RUST_ENV: production
       API_PORT: 8888
@@ -35,10 +35,10 @@ services:
         condition: service_healthy
     volumes:
       - refmd_data:/data
-      - ./plugins:/app/plugins
+      - refmd_plugins:/app/plugins
 
   app:
-    image: ${REFMD_APP_IMAGE:-ghcr.io/refmdio/refmd-app:latest}
+    image: ghcr.io/refmdio/refmd/app:latest
     environment:
       VITE_API_BASE_URL: http://localhost:8888
     ports:
@@ -50,3 +50,4 @@ services:
 volumes:
   postgres_data:
   refmd_data:
+  refmd_plugins:
