@@ -196,6 +196,25 @@ pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderRespons
                 } else {
                     // Hashtags and directives starting with '#'
                     let start = j; // position of '#'
+                    let prev_char = if start == 0 {
+                        None
+                    } else {
+                        s[..start].chars().rev().next()
+                    };
+                    if let Some(prev) = prev_char {
+                        if prev.is_alphanumeric() || matches!(prev, '/' | ':' | '@' | '.' | '-' | '_' | '+' | '~' | '=' | '?' | '&' | '%') {
+                            let ast = Ast::new(
+                                NodeValue::Text("#".to_string()),
+                                LineColumn { line: 1, column: 1 },
+                            );
+                            let n = arena
+                                .alloc(comrak::nodes::AstNode::new(std::cell::RefCell::new(ast)));
+                            node.insert_before(n);
+                            i = start + 1;
+                            continue;
+                        }
+                    }
+
                     let rest = &s[start + 1..];
                     let mut kind = "tag";
                     let mut k = start + 1;
