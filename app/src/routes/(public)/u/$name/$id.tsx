@@ -71,10 +71,11 @@ function PublicUserDocumentPage() {
     const computedTitle = meta.title ? `${meta.title} • ${name} on RefMD` : `${name} • RefMD`
     document.title = computedTitle
 
+    const summary = plainSummary || meta.title || `Public document from @${name} on RefMD`
     const metaDefinitions: Array<{ selector: string; attr: 'name' | 'property'; value: string }> = [
-      { selector: 'description', attr: 'name', value: plainSummary || meta.title || '' },
+      { selector: 'description', attr: 'name', value: summary },
       { selector: 'og:title', attr: 'property', value: computedTitle },
-      { selector: 'og:description', attr: 'property', value: plainSummary || meta.title || '' },
+      { selector: 'og:description', attr: 'property', value: summary },
       { selector: 'og:url', attr: 'property', value: typeof window !== 'undefined' ? window.location.href : '' },
       { selector: 'og:type', attr: 'property', value: 'article' },
       { selector: 'robots', attr: 'name', value: 'index,follow' },

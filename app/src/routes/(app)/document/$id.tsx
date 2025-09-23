@@ -11,7 +11,7 @@ import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
 import SecondaryViewer from '@/widgets/secondary-viewer/SecondaryViewer'
 
-import { useCollaborativeDocument } from '@/processes/collaboration'
+import { useCollaborativeDocument, useRealtime } from '@/processes/collaboration'
 
 export type DocumentRouteSearch = {
   token?: string
@@ -51,6 +51,7 @@ function InnerDocument() {
   const { secondaryDocumentId, secondaryDocumentType, showSecondaryViewer, closeSecondaryViewer, openSecondaryViewer } = useSecondaryViewer()
   const { showBacklinks, setShowBacklinks } = useViewContext()
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id)
+  const { documentTitle: realtimeTitle } = useRealtime()
   const redirecting = usePluginDocumentRedirect(id, {
     navigate: (to) => navigate({ to }),
   })
@@ -95,6 +96,50 @@ function InnerDocument() {
       : status === 'connecting'
         ? 'Connecting…'
         : 'Loading…'
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const originalTitle = document.title
+    const computedTitle = realtimeTitle ? `${realtimeTitle} • RefMD` : 'RefMD'
+    document.title = computedTitle
+
+    const summary = realtimeTitle ? `${realtimeTitle} on RefMD` : 'Editing a document on RefMD'
+    const metaDefs: Array<{ selector: string; attr: 'name' | 'property'; value: string }> = [
+      { selector: 'description', attr: 'name', value: summary },
+      { selector: 'og:title', attr: 'property', value: computedTitle },
+      { selector: 'og:description', attr: 'property', value: summary },
+      { selector: 'og:url', attr: 'property', value: typeof window !== 'undefined' ? window.location.href : '' },
+      { selector: 'og:type', attr: 'property', value: 'article' },
+    ]
+
+    const cleanupFns: Array<() => void> = []
+    for (const def of metaDefs) {
+      if (!def.value) continue
+      const selector = def.attr === 'name' ? `meta[name="${def.selector}"]` : `meta[property="${def.selector}"]`
+      const element = document.head.querySelector(selector) as HTMLMetaElement | null
+      if (element) {
+        const prev = element.getAttribute('content')
+        element.setAttribute('content', def.value)
+        cleanupFns.push(() => {
+          if (prev == null) element.removeAttribute('content')
+          else element.setAttribute('content', prev)
+        })
+      } else {
+        const metaEl = document.createElement('meta')
+        metaEl.setAttribute(def.attr, def.selector)
+        metaEl.setAttribute('content', def.value)
+        document.head.appendChild(metaEl)
+        cleanupFns.push(() => {
+          document.head.removeChild(metaEl)
+        })
+      }
+    }
+
+    return () => {
+      document.title = originalTitle
+      cleanupFns.forEach((fn) => fn())
+    }
+  }, [id, realtimeTitle])
 
   return (
     <div className="relative flex h-full flex-1 min-h-0 flex-col">
