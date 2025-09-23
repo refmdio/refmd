@@ -8,9 +8,10 @@ type Props = {
   readOnly?: boolean
   onMount: OnMount
   onDropFiles?: (files: File[]) => Promise<void> | void
+  isMobile?: boolean
 }
 
-export default function EditorPane({ theme, readOnly, onMount, onDropFiles }: Props) {
+export default function EditorPane({ theme, readOnly, onMount, onDropFiles, isMobile = false }: Props) {
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
 
@@ -44,6 +45,8 @@ export default function EditorPane({ theme, readOnly, onMount, onDropFiles }: Pr
           detectIndentation: false,
           tabSize: 2,
           insertSpaces: true,
+          fontSize: isMobile ? 17 : 14,
+          lineHeight: isMobile ? 26 : 22,
         }}
         onMount={onMount}
       />

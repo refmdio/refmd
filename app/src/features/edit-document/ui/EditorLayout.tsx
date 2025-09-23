@@ -185,6 +185,7 @@ export function EditorLayout({
                   onDropFiles={async (files) => {
                     if (!readOnly) await onEditorDropFiles(files)
                   }}
+                  isMobile={isMobile}
                   onMount={onEditorMount}
                 />
               </div>
