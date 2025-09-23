@@ -112,11 +112,11 @@ function PublicUserDocumentPage() {
     <PublicShell pageType="document" title={meta.title} author={{ name }} publishedDate={meta.updated_at}>
       <section className="relative space-y-6">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_300px]">
-          <article className="min-w-0 overflow-hidden rounded-3xl border border-border/70 bg-card/90 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/75">
+          <article className="min-w-0 overflow-hidden rounded-none border-none bg-transparent shadow-none sm:rounded-3xl sm:border sm:border-border/70 sm:bg-card/90 sm:shadow-sm sm:backdrop-blur sm:supports-[backdrop-filter]:bg-card/75">
             <Markdown
               content={content}
               isPublic
-              className="prose prose-neutral dark:prose-invert max-w-none px-8 py-10"
+              className="prose prose-neutral dark:prose-invert max-w-none px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
               documentIdOverride={meta.id}
             />
           </article>
