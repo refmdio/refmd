@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::application::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use crate::bootstrap::app_context::AppContext;
@@ -127,10 +127,29 @@ pub async fn render_markdown(
     }
     let RenderRequest { text, options } = req;
     let options: RenderOptions = options.into();
-    let mut resp = crate::application::services::markdown::render(text, options.clone())
+
+    let assets = ctx.plugin_assets();
+    let renderer_specs = match collect_renderer_specs(assets.as_ref()).await {
+        Ok(specs) => specs,
+        Err(err) => {
+            warn!(error = ?err, "markdown_renderer_specs_failed");
+            Vec::new()
+        }
+    };
+    let placeholder_kinds: HashSet<String> = renderer_specs
+        .iter()
+        .map(|spec| spec.kind.clone())
+        .collect();
+    let placeholder_kinds_ref = if placeholder_kinds.is_empty() {
+        None
+    } else {
+        Some(&placeholder_kinds)
+    };
+
+    let mut resp = crate::application::services::markdown::render(text, options.clone(), placeholder_kinds_ref)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if !resp.placeholders.is_empty() {
-        if let Err(err) = apply_placeholder_renderers(&ctx, &mut resp, &options).await {
+    if !resp.placeholders.is_empty() && !renderer_specs.is_empty() {
+        if let Err(err) = apply_placeholder_renderers(&ctx, &mut resp, &options, &renderer_specs).await {
             warn!(error = ?err, "markdown_placeholder_render_failed");
         }
     }
@@ -156,6 +175,24 @@ pub async fn render_markdown_many(
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
+    let assets = ctx.plugin_assets();
+    let renderer_specs = match collect_renderer_specs(assets.as_ref()).await {
+        Ok(specs) => specs,
+        Err(err) => {
+            warn!(error = ?err, "markdown_renderer_specs_failed_many");
+            Vec::new()
+        }
+    };
+    let placeholder_kinds: HashSet<String> = renderer_specs
+        .iter()
+        .map(|spec| spec.kind.clone())
+        .collect();
+    let placeholder_kinds_ref = if placeholder_kinds.is_empty() {
+        None
+    } else {
+        Some(&placeholder_kinds)
+    };
+
     // Process sequentially (simple and safe). Could be parallelized if needed.
     let mut out = Vec::with_capacity(items.len());
     for item in items {
@@ -164,10 +201,10 @@ pub async fn render_markdown_many(
         }
         let RenderRequest { text, options } = item;
         let options: RenderOptions = options.into();
-        let mut res = crate::application::services::markdown::render(text, options.clone())
+        let mut res = crate::application::services::markdown::render(text, options.clone(), placeholder_kinds_ref)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if !res.placeholders.is_empty() {
-            if let Err(err) = apply_placeholder_renderers(&ctx, &mut res, &options).await {
+        if !res.placeholders.is_empty() && !renderer_specs.is_empty() {
+            if let Err(err) = apply_placeholder_renderers(&ctx, &mut res, &options, &renderer_specs).await {
                 warn!(error = ?err, "markdown_placeholder_render_failed_many");
             }
         }
@@ -176,6 +213,7 @@ pub async fn render_markdown_many(
     Ok(Json(RenderManyResponse { items: out }))
 }
 
+#[derive(Clone, Debug)]
 struct RendererSpec {
     kind: String,
     plugin_id: String,
@@ -194,19 +232,18 @@ async fn apply_placeholder_renderers(
     ctx: &AppContext,
     response: &mut RenderResponse,
     options: &RenderOptions,
+    specs: &[RendererSpec],
 ) -> anyhow::Result<()> {
-    let runtime = ctx.plugin_runtime();
-    let assets = ctx.plugin_assets();
-
-    let specs = collect_renderer_specs(assets.as_ref()).await?;
     if specs.is_empty() {
         return Ok(());
     }
 
+    let runtime = ctx.plugin_runtime();
+
     let mut html = response.html.clone();
     let mut remaining: Vec<PlaceholderItem> = Vec::new();
     let mut kind_map: HashMap<&str, Vec<&RendererSpec>> = HashMap::new();
-    for spec in &specs {
+    for spec in specs {
         kind_map.entry(spec.kind.as_str()).or_default().push(spec);
     }
 
@@ -246,6 +283,13 @@ async fn apply_placeholder_renderers(
                                 handled = true;
                                 break;
                             }
+                        } else {
+                            warn!(
+                                plugin = spec.plugin_id.as_str(),
+                                kind = placeholder.kind.as_str(),
+                                id = placeholder.id.as_str(),
+                                "placeholder_renderer_missing_html"
+                            );
                         }
                     }
                     Ok(resp) => {
@@ -328,12 +372,16 @@ async fn collect_renderer_specs(
         if let Some(items) = manifest.get("renderers").and_then(|v| v.as_array()) {
             for item in items {
                 if let Some(kind) = item.get("kind").and_then(|v| v.as_str()) {
+                    let normalized_kind = kind.trim().to_lowercase();
+                    if normalized_kind.is_empty() {
+                        continue;
+                    }
                     let function = item
                         .get("function")
                         .and_then(|v| v.as_str())
                         .unwrap_or("render");
                     specs.push(RendererSpec {
-                        kind: kind.to_string(),
+                        kind: normalized_kind,
                         plugin_id: plugin_id.clone(),
                         function: function.to_string(),
                     });
@@ -345,15 +393,37 @@ async fn collect_renderer_specs(
 }
 
 fn replace_placeholder_markup(target: &mut String, id: &str, replacement: &str) -> bool {
-    let needle = format!("<div data-mermaid=\"{}\"></div>", id);
-    if let Some(pos) = target.find(&needle) {
-        target.replace_range(pos..pos + needle.len(), replacement);
-        return true;
+    let needle = format!("data-placeholder-id=\"{}\"", id);
+    let Some(attr_pos) = target.find(&needle) else {
+        return false;
+    };
+
+    let Some(open_start) = target[..attr_pos].rfind("<div") else {
+        return false;
+    };
+
+    let remainder = &target[open_start..];
+    let Some(close_tag_offset) = remainder.find('>') else {
+        return false;
+    };
+    let open_tag_end = open_start + close_tag_offset + 1;
+
+    // Simple guard to ensure we only replace placeholders rendered by the markdown service
+    if !remainder[..close_tag_offset].contains("data-refmd-placeholder=\"true\"") {
+        return false;
     }
-    let needle_newline = format!("<div data-mermaid=\"{}\"></div>\n", id);
-    if let Some(pos) = target.find(&needle_newline) {
-        target.replace_range(pos..pos + needle_newline.len(), replacement);
-        return true;
+
+    let Some(close_div_offset) = target[open_tag_end..].find("</div>") else {
+        return false;
+    };
+    let close_div_end = open_tag_end + close_div_offset + "</div>".len();
+
+    // Include a trailing newline to avoid leaving empty lines behind if one existed
+    let mut replace_end = close_div_end;
+    if target[replace_end..].starts_with('\n') {
+        replace_end += 1;
     }
-    false
+
+    target.replace_range(open_start..replace_end, replacement);
+    true
 }
