@@ -44,6 +44,8 @@ export function useCollaborativeDocument(id: string) {
 
     let onStatus: ((ev: { status: string }) => void) | null = null
     let onAwareness: (() => void) | null = null
+    let onOnline: (() => void) | null = null
+    let onOffline: (() => void) | null = null
     let lastStatus: RealtimeStatus = 'connecting'
 
     ;(async () => {
@@ -59,7 +61,15 @@ export function useCollaborativeDocument(id: string) {
 
         const { provider } = connection
 
-        provider.connect()
+        const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
+        provider.shouldConnect = isOnline
+        if (isOnline) {
+          provider.connect()
+        } else {
+          setStatus('disconnected')
+          rt.setConnected(false)
+          lastStatus = 'disconnected'
+        }
 
         onStatus = (ev: { status: string }) => {
           if (ev.status === 'connected') {
@@ -69,7 +79,8 @@ export function useCollaborativeDocument(id: string) {
           } else if (ev.status === 'disconnected') {
             setStatus('disconnected')
             rt.setConnected(false)
-            if (lastStatus !== 'disconnected') toast.error('Disconnected from realtime server')
+            const shouldNotify = typeof navigator === 'undefined' ? true : navigator.onLine
+            if (shouldNotify && lastStatus !== 'disconnected') toast.error('Disconnected from realtime server')
             lastStatus = 'disconnected'
           } else {
             setStatus('connecting')
@@ -77,6 +88,28 @@ export function useCollaborativeDocument(id: string) {
           }
         }
         provider.on('status', onStatus)
+
+        onOnline = () => {
+          provider.shouldConnect = true
+          try {
+            provider.connect()
+            setStatus('connecting')
+            lastStatus = 'connecting'
+          } catch {}
+        }
+
+        onOffline = () => {
+          provider.shouldConnect = false
+          try {
+            provider.disconnect()
+          } catch {}
+          setStatus('disconnected')
+          rt.setConnected(false)
+          lastStatus = 'disconnected'
+        }
+
+        window.addEventListener('online', onOnline)
+        window.addEventListener('offline', onOffline)
 
         const prevCountRef = { current: rt.userCount }
         const lastIdsRef = { current: new Set<string>() }
@@ -149,6 +182,12 @@ export function useCollaborativeDocument(id: string) {
         try {
           if (onAwareness) provider.awareness.off('update', onAwareness)
         } catch {}
+      }
+      if (onOnline) {
+        try { window.removeEventListener('online', onOnline) } catch {}
+      }
+      if (onOffline) {
+        try { window.removeEventListener('offline', onOffline) } catch {}
       }
       destroyYjsConnection(connectionRef.current)
       connectionRef.current = null

@@ -51,6 +51,7 @@
     "tailwind-merge": "^3.0.2",
     "tailwindcss": "^4.0.6",
     "tw-animate-css": "^1.3.6",
+    "y-indexeddb": "^9.0.12",
     "y-monaco": "^0.1.6",
     "y-websocket": "^1.5.4",
     "yjs": "^13.6.27"
