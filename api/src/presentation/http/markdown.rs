@@ -3,9 +3,13 @@ use std::collections::{HashMap, HashSet};
 use crate::application::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use crate::bootstrap::app_context::AppContext;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tracing::warn;
 use utoipa::ToSchema;
+use uuid::Uuid;
 // no bearer injection; renderer should receive token via options when needed
 
 pub fn routes(ctx: AppContext) -> Router {
@@ -146,10 +150,16 @@ pub async fn render_markdown(
         Some(&placeholder_kinds)
     };
 
-    let mut resp = crate::application::services::markdown::render(text, options.clone(), placeholder_kinds_ref)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut resp = crate::application::services::markdown::render(
+        text,
+        options.clone(),
+        placeholder_kinds_ref,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if !resp.placeholders.is_empty() && !renderer_specs.is_empty() {
-        if let Err(err) = apply_placeholder_renderers(&ctx, &mut resp, &options, &renderer_specs).await {
+        if let Err(err) =
+            apply_placeholder_renderers(&ctx, &mut resp, &options, &renderer_specs).await
+        {
             warn!(error = ?err, "markdown_placeholder_render_failed");
         }
     }
@@ -201,10 +211,16 @@ pub async fn render_markdown_many(
         }
         let RenderRequest { text, options } = item;
         let options: RenderOptions = options.into();
-        let mut res = crate::application::services::markdown::render(text, options.clone(), placeholder_kinds_ref)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut res = crate::application::services::markdown::render(
+            text,
+            options.clone(),
+            placeholder_kinds_ref,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         if !res.placeholders.is_empty() && !renderer_specs.is_empty() {
-            if let Err(err) = apply_placeholder_renderers(&ctx, &mut res, &options, &renderer_specs).await {
+            if let Err(err) =
+                apply_placeholder_renderers(&ctx, &mut res, &options, &renderer_specs).await
+            {
                 warn!(error = ?err, "markdown_placeholder_render_failed_many");
             }
         }
@@ -217,7 +233,44 @@ pub async fn render_markdown_many(
 struct RendererSpec {
     kind: String,
     plugin_id: String,
-    function: String,
+    plugin_version: String,
+    scope: RendererScope,
+    function: Option<String>,
+    hydrate: Option<HydrateSpec>,
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+enum RendererScope {
+    Global,
+    User { user_id: Uuid },
+}
+
+impl RendererScope {
+    fn as_str(&self) -> &'static str {
+        match self {
+            RendererScope::Global => "global",
+            RendererScope::User { .. } => "user",
+        }
+    }
+
+    fn asset_prefix(&self, plugin_id: &str, version: &str) -> String {
+        match self {
+            RendererScope::Global => {
+                format!("/api/plugin-assets/global/{}/{}", plugin_id, version)
+            }
+            RendererScope::User { user_id } => {
+                format!("/api/plugin-assets/{}/{}/{}", user_id, plugin_id, version)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct HydrateSpec {
+    module: String,
+    export: Option<String>,
+    etag: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -261,8 +314,21 @@ async fn apply_placeholder_renderers(
         let mut handled = false;
         for spec in candidates {
             let request = build_renderer_request(&placeholder, options);
+
+            if let Some(hydrate) = &spec.hydrate {
+                if attach_hydrate_metadata(&mut html, &placeholder, &request, spec, hydrate) {
+                    handled = true;
+                    break;
+                }
+                continue;
+            }
+
+            let Some(function) = spec.function.as_deref() else {
+                continue;
+            };
+
             match runtime
-                .render_placeholder(None, &spec.plugin_id, &spec.function, &request)
+                .render_placeholder(None, &spec.plugin_id, function, &request)
                 .await
             {
                 Ok(Some(value)) => match serde_json::from_value::<RendererPluginResponse>(value) {
@@ -368,7 +434,7 @@ async fn collect_renderer_specs(
 ) -> anyhow::Result<Vec<RendererSpec>> {
     let manifests = assets.list_latest_global_manifests().await?;
     let mut specs = Vec::new();
-    for (plugin_id, _version, manifest) in manifests {
+    for (plugin_id, version, manifest) in manifests {
         if let Some(items) = manifest.get("renderers").and_then(|v| v.as_array()) {
             for item in items {
                 if let Some(kind) = item.get("kind").and_then(|v| v.as_str()) {
@@ -376,20 +442,74 @@ async fn collect_renderer_specs(
                     if normalized_kind.is_empty() {
                         continue;
                     }
-                    let function = item
+                    let hydrate = parse_hydrate_spec(item.get("hydrate"));
+                    let mut function = item
                         .get("function")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("render");
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    if function.is_none() && hydrate.is_none() {
+                        function = Some("render".to_string());
+                    }
                     specs.push(RendererSpec {
                         kind: normalized_kind,
                         plugin_id: plugin_id.clone(),
-                        function: function.to_string(),
+                        plugin_version: version.clone(),
+                        scope: RendererScope::Global,
+                        function,
+                        hydrate,
                     });
                 }
             }
         }
     }
     Ok(specs)
+}
+
+fn parse_hydrate_spec(value: Option<&serde_json::Value>) -> Option<HydrateSpec> {
+    let obj = value?.as_object()?;
+    let module_value = obj.get("module")?.as_str()?.trim();
+    let module = sanitize_module_path(module_value)?;
+    let export = obj
+        .get("export")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let etag = obj
+        .get("etag")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    Some(HydrateSpec {
+        module,
+        export,
+        etag,
+    })
+}
+
+fn sanitize_module_path(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.contains("://") {
+        return None;
+    }
+    let without_leading = trimmed.trim_start_matches('/');
+    if without_leading.is_empty() {
+        return None;
+    }
+    if without_leading
+        .split('/')
+        .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return None;
+    }
+    Some(without_leading.to_string())
 }
 
 fn replace_placeholder_markup(target: &mut String, id: &str, replacement: &str) -> bool {
@@ -425,5 +545,99 @@ fn replace_placeholder_markup(target: &mut String, id: &str, replacement: &str) 
     }
 
     target.replace_range(open_start..replace_end, replacement);
+    true
+}
+
+fn attach_hydrate_metadata(
+    target: &mut String,
+    placeholder: &PlaceholderItem,
+    request: &serde_json::Value,
+    spec: &RendererSpec,
+    hydrate: &HydrateSpec,
+) -> bool {
+    let module_url = build_hydrate_module_url(spec, hydrate);
+    let export_name = hydrate.export.as_deref().unwrap_or("default");
+    let context = json!({
+        "request": request,
+        "plugin": {
+            "id": spec.plugin_id,
+            "version": spec.plugin_version,
+            "scope": spec.scope.as_str(),
+        }
+    });
+    let context_str = match serde_json::to_string(&context) {
+        Ok(v) => v,
+        Err(err) => {
+            warn!(
+                plugin = spec.plugin_id.as_str(),
+                kind = placeholder.kind.as_str(),
+                id = placeholder.id.as_str(),
+                error = ?err,
+                "placeholder_hydrate_context_serialize_failed"
+            );
+            return false;
+        }
+    };
+    let context_b64 = BASE64_STANDARD.encode(context_str);
+
+    let attrs = format!(
+        " data-placeholder-hydrate=\"{}\" data-placeholder-hydrate-export=\"{}\" data-placeholder-hydrate-context=\"{}\" data-placeholder-plugin=\"{}\" data-placeholder-version=\"{}\" data-placeholder-scope=\"{}\"",
+        htmlescape::encode_minimal(&module_url),
+        htmlescape::encode_minimal(export_name),
+        htmlescape::encode_minimal(&context_b64),
+        htmlescape::encode_minimal(&spec.plugin_id),
+        htmlescape::encode_minimal(&spec.plugin_version),
+        htmlescape::encode_minimal(spec.scope.as_str()),
+    );
+
+    insert_placeholder_attributes(target, &placeholder.id, &attrs)
+}
+
+fn build_hydrate_module_url(spec: &RendererSpec, hydrate: &HydrateSpec) -> String {
+    let base = spec
+        .scope
+        .asset_prefix(&spec.plugin_id, &spec.plugin_version);
+    let module_path = hydrate.module.trim_start_matches('/');
+    let mut url = format!("{}/{}", base.trim_end_matches('/'), module_path);
+    if let Some(etag) = &hydrate.etag {
+        if !etag.is_empty() {
+            let encoded = urlencoding::encode(etag);
+            if url.contains('?') {
+                url.push_str("&v=");
+                url.push_str(&encoded);
+            } else {
+                url.push_str("?v=");
+                url.push_str(&encoded);
+            }
+        }
+    }
+    url
+}
+
+fn insert_placeholder_attributes(target: &mut String, id: &str, attrs: &str) -> bool {
+    let needle = format!("data-placeholder-id=\"{}\"", id);
+    let Some(attr_pos) = target.find(&needle) else {
+        return false;
+    };
+
+    let Some(open_start) = target[..attr_pos].rfind("<div") else {
+        return false;
+    };
+
+    let remainder = &target[open_start..];
+    let Some(close_tag_offset) = remainder.find('>') else {
+        return false;
+    };
+
+    if remainder[..close_tag_offset].contains("data-placeholder-hydrate=\"") {
+        return true;
+    }
+
+    if !remainder[..close_tag_offset].contains("data-refmd-placeholder=\"true\"") {
+        return false;
+    }
+
+    let insert_pos = open_start + close_tag_offset;
+    target.insert_str(insert_pos, attrs);
     true
 }

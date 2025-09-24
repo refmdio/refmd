@@ -451,8 +451,7 @@ pub fn render(
                         });
                         let html = format!(
                             "<div data-refmd-placeholder=\"true\" data-placeholder-id=\"{}\" data-placeholder-kind=\"{}\"></div>",
-                            id,
-                            lang_norm,
+                            id, lang_norm,
                         );
                         replace_with = Some(html);
                     } else if enable_highlight {
