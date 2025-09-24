@@ -314,16 +314,15 @@ async fn apply_placeholder_renderers(
         let mut handled = false;
         for spec in candidates {
             let request = build_renderer_request(&placeholder, options);
-
-            if let Some(hydrate) = &spec.hydrate {
-                if attach_hydrate_metadata(&mut html, &placeholder, &request, spec, hydrate) {
-                    handled = true;
-                    break;
-                }
-                continue;
-            }
+            let hydrate = spec.hydrate.as_ref();
 
             let Some(function) = spec.function.as_deref() else {
+                if let Some(hydrate) = hydrate {
+                    if attach_hydrate_metadata(&mut html, &placeholder, &request, spec, hydrate) {
+                        handled = true;
+                        break;
+                    }
+                }
                 continue;
             };
 
@@ -346,6 +345,22 @@ async fn apply_placeholder_renderers(
                         }
                         if let Some(fragment) = resp.html {
                             if replace_placeholder_markup(&mut html, &placeholder.id, &fragment) {
+                                if let Some(hydrate) = hydrate {
+                                    if !attach_hydrate_metadata(
+                                        &mut html,
+                                        &placeholder,
+                                        &request,
+                                        spec,
+                                        hydrate,
+                                    ) {
+                                        warn!(
+                                            plugin = spec.plugin_id.as_str(),
+                                            kind = placeholder.kind.as_str(),
+                                            id = placeholder.id.as_str(),
+                                            "placeholder_hydrate_metadata_failed"
+                                        );
+                                    }
+                                }
                                 handled = true;
                                 break;
                             }
