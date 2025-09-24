@@ -82,12 +82,9 @@ function InnerDocument() {
     }
   }, [showBacklinks, showSecondaryViewer, closeSecondaryViewer])
   // Backlinks are controlled via ViewContext; no window events
-  const shouldShowOverlay =
-    redirecting ||
-    Boolean(realtimeError) ||
-    status !== 'connected' ||
-    !doc ||
-    !awareness
+  const hasCollaborativeState = Boolean(doc && awareness)
+
+  const shouldShowOverlay = redirecting || Boolean(realtimeError) || !hasCollaborativeState
 
   const overlayLabel = realtimeError
     ? realtimeError

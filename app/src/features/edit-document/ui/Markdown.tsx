@@ -41,6 +41,8 @@ const latestKeyRef = useRef<string>('')
     queuedRef.current = null
   }, [])
 
+  const lastSuccessfulHtmlRef = useRef<string>('')
+
   const runRender = useCallback(
     async (text: string, override?: string) => {
       const requestKey = `${override ?? ''}::${text}`
@@ -68,14 +70,16 @@ const latestKeyRef = useRef<string>('')
       try {
         const out = await promise
         if (latestKeyRef.current === requestKey) {
-          setHtml(out?.html || '')
+          const nextHtml = out?.html || ''
+          lastSuccessfulHtmlRef.current = nextHtml
+          setHtml(nextHtml)
         }
       } catch (error: any) {
         if (error?.name === 'AbortError' || error?.message === 'Cancelled') {
           return
         }
         if (latestKeyRef.current === requestKey) {
-          setHtml('')
+          setHtml(lastSuccessfulHtmlRef.current)
         }
       } finally {
         requestRef.current = null
