@@ -479,16 +479,19 @@ fn manifest_item_from_json(
         })
         .unwrap_or_else(|| vec![format!("/{id}/*")]);
 
-    let frontend_entry = manifest
-        .get("frontend")
-        .and_then(|x| x.get("entry"))
-        .and_then(|x| x.as_str())
-        .unwrap_or("index.mjs");
-    let frontend_mode = manifest
-        .get("frontend")
-        .and_then(|x| x.get("mode"))
-        .and_then(|x| x.as_str())
-        .unwrap_or("esm");
+    let frontend_value = manifest.get("frontend");
+    let (frontend_entry, frontend_mode) = match frontend_value {
+        Some(v) => {
+            let entry = v.get("entry").and_then(|x| x.as_str());
+            let mode = v
+                .get("mode")
+                .and_then(|x| x.as_str())
+                .unwrap_or("esm")
+                .to_string();
+            (entry.map(|e| e.to_string()), Some(mode))
+        }
+        None => (None, None),
+    };
 
     let perms = manifest
         .get("permissions")
@@ -517,10 +520,13 @@ fn manifest_item_from_json(
         version: version.to_string(),
         scope: scope.to_string(),
         mounts,
-        frontend: json!({
-            "entry": format!("{}/{}", entry_prefix.trim_end_matches('/'), frontend_entry),
-            "mode": frontend_mode,
-        }),
+        frontend: match frontend_entry {
+            Some(entry) => json!({
+                "entry": format!("{}/{}", entry_prefix.trim_end_matches('/'), entry),
+                "mode": frontend_mode.unwrap_or_else(|| "esm".to_string()),
+            }),
+            None => serde_json::Value::Null,
+        },
         permissions: perms,
         config,
         ui,
