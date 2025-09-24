@@ -1,5 +1,6 @@
 pub mod create_document;
 pub mod delete_document;
+pub mod download_document;
 pub mod get_backlinks;
 pub mod get_document;
 pub mod get_outgoing_links;

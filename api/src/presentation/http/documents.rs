@@ -1,7 +1,8 @@
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::get,
 };
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use uuid::Uuid;
 use crate::application::access;
 use crate::application::use_cases::documents::create_document::CreateDocument;
 use crate::application::use_cases::documents::delete_document::DeleteDocument;
+use crate::application::use_cases::documents::download_document::DownloadDocument as DownloadDocumentUseCase;
 use crate::application::use_cases::documents::get_backlinks::GetBacklinks;
 use crate::application::use_cases::documents::get_document::GetDocument;
 use crate::application::use_cases::documents::get_outgoing_links::GetOutgoingLinks;
@@ -254,6 +256,74 @@ pub async fn get_document_content(
     Ok(Json(serde_json::json!({"content": content})))
 }
 
+#[allow(dead_code)]
+#[derive(ToSchema)]
+pub struct DocumentArchiveBinary(#[schema(value_type = String, format = Binary)] Vec<u8>);
+
+#[utoipa::path(
+    get,
+    path = "/api/documents/{id}/download",
+    tag = "Documents",
+    operation_id = "download_document",
+    params(
+        ("id" = Uuid, Path, description = "Document ID"),
+        ("token" = Option<String>, Query, description = "Share token (optional)")
+    ),
+    responses(
+        (status = 200, description = "Document archive", body = DocumentArchiveBinary, content_type = "application/zip"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Document not found")
+    )
+)]
+pub async fn download_document(
+    State(ctx): State<AppContext>,
+    bearer: Option<Bearer>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    Path(id): Path<Uuid>,
+) -> Result<Response, StatusCode> {
+    let token = params.get("token").map(|s| s.as_str());
+    let actor =
+        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let documents = ctx.document_repo();
+    let files = ctx.files_repo();
+    let storage = ctx.storage_port();
+    let realtime = ctx.realtime_port();
+    let access = ctx.access_repo();
+    let shares = ctx.share_access_port();
+
+    let uc = DownloadDocumentUseCase {
+        documents: documents.as_ref(),
+        files: files.as_ref(),
+        storage: storage.as_ref(),
+        realtime: realtime.as_ref(),
+        access: access.as_ref(),
+        shares: shares.as_ref(),
+    };
+
+    let download = uc
+        .execute(&actor, id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/zip"),
+    );
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    let disposition = format!("attachment; filename=\"{}\"", download.filename);
+    let content_disposition =
+        HeaderValue::from_str(&disposition).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
+
+    Ok((headers, download.bytes).into_response())
+}
+
 #[utoipa::path(patch, path = "/api/documents/{id}", tag = "Documents", request_body = UpdateDocumentRequest,
     params(("id" = Uuid, Path, description = "Document ID"),), responses((status = 200, body = Document)))]
 pub async fn update_document(
@@ -303,6 +373,7 @@ pub fn routes(ctx: AppContext) -> Router {
                 .patch(update_document),
         )
         .route("/documents/:id/content", get(get_document_content))
+        .route("/documents/:id/download", get(download_document))
         .route("/documents/:id/backlinks", get(get_backlinks))
         .route("/documents/:id/links", get(get_outgoing_links))
         .route("/documents/search", get(search_documents))

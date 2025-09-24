@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Blocks, Columns, Eye, FileCode, FileText, Github, LogOut, Share2, Sun, X } from 'lucide-react'
+import { Blocks, Columns, Download, Eye, FileCode, FileText, Github, LogOut, Share2, Sun, X } from 'lucide-react'
 
 import { Button } from '@/shared/ui/button'
 
@@ -11,7 +11,10 @@ type MobileHeaderMenuProps = {
   changeView: (mode: 'editor' | 'split' | 'preview') => void
   isCompact: boolean
   canShare: boolean
+  canDownload: boolean
   onShare: () => void
+  onDownload: () => void
+  downloading: boolean
   onToggleTheme: () => void
   onSignOut: () => void
 }
@@ -24,7 +27,10 @@ export function MobileHeaderMenu({
   changeView,
   isCompact,
   canShare,
+  canDownload,
   onShare,
+  onDownload,
+  downloading,
   onToggleTheme,
   onSignOut,
 }: MobileHeaderMenuProps) {
@@ -103,6 +109,16 @@ export function MobileHeaderMenu({
             {canShare && (
               <Button onClick={() => { onShare(); onClose() }} variant="ghost" className="justify-start">
                 <Share2 className="h-4 w-4 mr-2" /> Share
+              </Button>
+            )}
+            {canDownload && (
+              <Button
+                onClick={() => { onDownload(); onClose() }}
+                variant="ghost"
+                className="justify-start"
+                disabled={downloading}
+              >
+                <Download className="h-4 w-4 mr-2" /> {downloading ? 'Preparing…' : 'Download'}
               </Button>
             )}
             <Button onClick={onSignOut} variant="ghost" className="justify-start">

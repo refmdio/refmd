@@ -1,5 +1,6 @@
-import { Columns, Eye, FileCode, Link2, Menu, Moon, Search, Share2, Sun } from 'lucide-react'
+import { Columns, Download, Eye, FileCode, Link2, Menu, Moon, Search, Share2, Sun } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { toast } from 'sonner'
 
 import { useTheme } from '@/shared/contexts/theme-context'
 import { cn } from '@/shared/lib/utils'
@@ -7,6 +8,7 @@ import { Button } from '@/shared/ui/button'
 import { SidebarTrigger } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
+import { downloadDocumentArchive } from '@/entities/document'
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
 import ShareDialog from '@/features/sharing/ShareDialog'
@@ -54,8 +56,10 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const [headerViewMode, setHeaderViewMode] = useState<'editor' | 'split' | 'preview'>('split')
   const [isCompact, setIsCompact] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   
   const canShare = Boolean(rt.documentId)
+  const canDownload = Boolean(rt.documentId)
   const iconClass = 'h-[18px] w-[18px]'
 
   useEffect(() => { setMounted(true) }, [])
@@ -101,6 +105,19 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     if (!rt.documentId) return
     setShareOpen(true)
   }
+  const handleDownload = useCallback(async () => {
+    if (!rt.documentId || downloading) return
+    setDownloading(true)
+    try {
+      const filename = await downloadDocumentArchive(rt.documentId, { title: rt.documentTitle })
+      toast.success(`Download ready: ${filename}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to download document'
+      toast.error(message)
+    } finally {
+      setDownloading(false)
+    }
+  }, [rt.documentId, rt.documentTitle, downloading])
   const handleSignOut = useCallback(() => {
     void signOut()
   }, [signOut])
@@ -240,6 +257,24 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
             </div>
           )}
 
+          {canDownload && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    onClick={handleDownload}
+                    variant="ghost"
+                    className="h-8 w-8 rounded-full transition-colors hover:bg-muted/70"
+                    disabled={downloading}
+                  >
+                    <Download className={iconClass} />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{downloading ? 'Preparing…' : 'Download'}</TooltipContent>
+            </Tooltip>
+          )}
+
           {canShare && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -323,7 +358,10 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         changeView={changeView}
         isCompact={isCompact}
         canShare={canShare}
-        onShare={() => { shareHandler(); setMobileMenuOpen(false) }}
+        canDownload={canDownload}
+        onShare={shareHandler}
+        onDownload={handleDownload}
+        downloading={downloading}
         onToggleTheme={() => { toggleTheme(); setMobileMenuOpen(false) }}
         onSignOut={() => { handleSignOut(); setMobileMenuOpen(false) }}
       />

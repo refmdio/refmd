@@ -19,6 +19,7 @@ export type { CreateRecordBody } from './models/CreateRecordBody';
 export type { CreateShareRequest } from './models/CreateShareRequest';
 export type { CreateShareResponse } from './models/CreateShareResponse';
 export type { Document } from './models/Document';
+export type { DocumentArchiveBinary } from './models/DocumentArchiveBinary';
 export type { DocumentListResponse } from './models/DocumentListResponse';
 export type { ExecBody } from './models/ExecBody';
 export type { ExecResultResponse } from './models/ExecResultResponse';

@@ -84,3 +84,35 @@ export async function updateDocumentParent(id: string, parent_id: string | null)
 export async function deleteDocument(id: string) {
   return DocumentsService.deleteDocument({ id })
 }
+
+export async function downloadDocumentArchive(id: string, options?: { token?: string; title?: string }) {
+  const blob = await DocumentsService.downloadDocument({ id, token: options?.token ?? null })
+  const filename = `${sanitizeExportName(options?.title)}.zip`
+  const blobUrl = URL.createObjectURL(blob)
+  try {
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  } finally {
+    URL.revokeObjectURL(blobUrl)
+  }
+  return filename
+}
+
+function sanitizeExportName(input?: string) {
+  const invalid = new Set(['/','\\',':','*','?','"','<','>','|','\0'])
+  let base = (input ?? '').trim()
+  if (!base) base = 'document'
+  let sanitized = ''
+  for (const ch of base) {
+    sanitized += invalid.has(ch) ? '-' : ch
+  }
+  sanitized = sanitized.replace(/ /g, '_')
+  if (sanitized.length > 100) sanitized = sanitized.slice(0, 100)
+  if (!sanitized) sanitized = 'document'
+  return sanitized
+}

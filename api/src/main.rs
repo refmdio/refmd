@@ -34,6 +34,7 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::documents::update_document,
             api::presentation::http::documents::delete_document,
             api::presentation::http::documents::get_document_content,
+            api::presentation::http::documents::download_document,
             api::presentation::http::documents::search_documents,
             api::presentation::http::documents::get_backlinks,
             api::presentation::http::documents::get_outgoing_links,

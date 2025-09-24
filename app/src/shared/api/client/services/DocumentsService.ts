@@ -5,6 +5,7 @@
 import type { BacklinksResponse } from '../models/BacklinksResponse';
 import type { CreateDocumentRequest } from '../models/CreateDocumentRequest';
 import type { Document } from '../models/Document';
+import type { DocumentArchiveBinary } from '../models/DocumentArchiveBinary';
 import type { DocumentListResponse } from '../models/DocumentListResponse';
 import type { OutgoingLinksResponse } from '../models/OutgoingLinksResponse';
 import type { SearchResult } from '../models/SearchResult';
@@ -184,6 +185,38 @@ export class DocumentsService {
             url: '/api/documents/{id}/content',
             path: {
                 'id': id,
+            },
+        });
+    }
+    /**
+     * @returns DocumentArchiveBinary Document archive
+     * @throws ApiError
+     */
+    public static downloadDocument({
+        id,
+        token,
+    }: {
+        /**
+         * Document ID
+         */
+        id: string,
+        /**
+         * Share token (optional)
+         */
+        token?: string | null,
+    }): CancelablePromise<DocumentArchiveBinary> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/documents/{id}/download',
+            path: {
+                'id': id,
+            },
+            query: {
+                'token': token,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Document not found`,
             },
         });
     }
