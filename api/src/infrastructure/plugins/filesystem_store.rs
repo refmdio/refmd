@@ -108,6 +108,21 @@ impl FilesystemPluginStore {
         Ok(best)
     }
 
+    fn locate_plugin_dir(
+        &self,
+        user_id: Option<Uuid>,
+        plugin: &str,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        if let Some(uid) = user_id {
+            let base = self.user_root(&uid).join(plugin);
+            if let Some(dir) = self.latest_version_dir(&base)? {
+                return Ok(Some(dir));
+            }
+        }
+        let base = self.global_root().join(plugin);
+        self.latest_version_dir(&base)
+    }
+
     fn validate_manifest(
         manifest: &serde_json::Value,
     ) -> Result<(String, String), PluginInstallError> {
@@ -400,20 +415,7 @@ impl PluginRuntime for FilesystemPluginStore {
         action: &str,
         payload: &serde_json::Value,
     ) -> anyhow::Result<Option<ExecResult>> {
-        let user_candidate = match user_id {
-            Some(uid) => {
-                let base = self.user_root(&uid).join(plugin);
-                self.latest_version_dir(&base)?
-            }
-            None => None,
-        };
-
-        let plugin_dir = if let Some(dir) = user_candidate {
-            Some(dir)
-        } else {
-            let base = self.global_root().join(plugin);
-            self.latest_version_dir(&base)?
-        };
+        let plugin_dir = self.locate_plugin_dir(user_id, plugin)?;
 
         let Some(plugin_dir) = plugin_dir else {
             return Ok(None);
@@ -431,5 +433,30 @@ impl PluginRuntime for FilesystemPluginStore {
         })?;
         let res: ExecResult = serde_json::from_slice(&out)?;
         Ok(Some(res))
+    }
+
+    async fn render_placeholder(
+        &self,
+        user_id: Option<Uuid>,
+        plugin: &str,
+        function: &str,
+        request: &serde_json::Value,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        let plugin_dir = self.locate_plugin_dir(user_id, plugin)?;
+        let Some(plugin_dir) = plugin_dir else {
+            return Ok(None);
+        };
+
+        let input = serde_json::to_vec(request)?;
+        let out = call_extism(ExtismExecOptions {
+            plugin_dir: &plugin_dir,
+            func: function,
+            input,
+        })?;
+        if out.is_empty() {
+            return Ok(None);
+        }
+        let value = serde_json::from_slice(&out)?;
+        Ok(Some(value))
     }
 }

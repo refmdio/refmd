@@ -12,4 +12,12 @@ pub trait PluginRuntime: Send + Sync {
         action: &str,
         payload: &serde_json::Value,
     ) -> anyhow::Result<Option<ExecResult>>;
+
+    async fn render_placeholder(
+        &self,
+        user_id: Option<Uuid>,
+        plugin: &str,
+        function: &str,
+        request: &serde_json::Value,
+    ) -> anyhow::Result<Option<serde_json::Value>>;
 }
