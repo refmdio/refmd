@@ -74,6 +74,7 @@ export { FilesService } from './services/FilesService';
 export { GitService } from './services/GitService';
 export { HealthService } from './services/HealthService';
 export { MarkdownService } from './services/MarkdownService';
+export { OpenGraphService } from './services/OpenGraphService';
 export { PluginsService } from './services/PluginsService';
 export { PublicDocumentsService } from './services/PublicDocumentsService';
 export { RealtimeService } from './services/RealtimeService';

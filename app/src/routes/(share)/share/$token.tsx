@@ -1,6 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { FileText } from 'lucide-react'
-import { useEffect } from 'react'
 
 import { browseShare } from '@/entities/share'
 
@@ -61,50 +60,6 @@ export const Route = createFileRoute('/(share)/share/$token')({
 function ShareEntry() {
   const navigate = useNavigate()
   const { token, items, title } = Route.useLoaderData() as LoaderData
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return
-    const originalTitle = document.title
-    const computedTitle = title ? `${title} • RefMD Share` : 'Shared Documents • RefMD'
-    document.title = computedTitle
-
-    const summary = title ? `Shared folder “${title}” on RefMD` : 'Shared documents on RefMD'
-    const metaDefs: Array<{ selector: string; attr: 'name' | 'property'; value: string }> = [
-      { selector: 'description', attr: 'name', value: summary },
-      { selector: 'og:title', attr: 'property', value: computedTitle },
-      { selector: 'og:description', attr: 'property', value: summary },
-      { selector: 'og:url', attr: 'property', value: typeof window !== 'undefined' ? window.location.href : '' },
-      { selector: 'og:type', attr: 'property', value: 'website' },
-    ]
-
-    const cleanup: Array<() => void> = []
-    for (const def of metaDefs) {
-      if (!def.value) continue
-      const selector = def.attr === 'name' ? `meta[name="${def.selector}"]` : `meta[property="${def.selector}"]`
-      const element = document.head.querySelector(selector) as HTMLMetaElement | null
-      if (element) {
-        const prev = element.getAttribute('content')
-        element.setAttribute('content', def.value)
-        cleanup.push(() => {
-          if (prev == null) element.removeAttribute('content')
-          else element.setAttribute('content', prev)
-        })
-      } else {
-        const metaEl = document.createElement('meta')
-        metaEl.setAttribute(def.attr, def.selector)
-        metaEl.setAttribute('content', def.value)
-        document.head.appendChild(metaEl)
-        cleanup.push(() => {
-          document.head.removeChild(metaEl)
-        })
-      }
-    }
-
-    return () => {
-      document.title = originalTitle
-      cleanup.forEach((fn) => fn())
-    }
-  }, [title])
 
   const handleClick = (id: string) => {
     navigate({

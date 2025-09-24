@@ -30,7 +30,7 @@ export class RealtimeService {
     }): CancelablePromise<void> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/yjs/{id}',
+            url: '/api/yjs/{id}',
             path: {
                 'id': id,
             },

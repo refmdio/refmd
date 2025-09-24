@@ -202,7 +202,22 @@ pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderRespons
                         s[..start].chars().rev().next()
                     };
                     if let Some(prev) = prev_char {
-                        if prev.is_alphanumeric() || matches!(prev, '/' | ':' | '@' | '.' | '-' | '_' | '+' | '~' | '=' | '?' | '&' | '%') {
+                        if prev.is_alphanumeric()
+                            || matches!(
+                                prev,
+                                '/' | ':'
+                                    | '@'
+                                    | '.'
+                                    | '-'
+                                    | '_'
+                                    | '+'
+                                    | '~'
+                                    | '='
+                                    | '?'
+                                    | '&'
+                                    | '%'
+                            )
+                        {
                             let ast = Ast::new(
                                 NodeValue::Text("#".to_string()),
                                 LineColumn { line: 1, column: 1 },

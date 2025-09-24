@@ -55,60 +55,6 @@ function PublicUserDocumentPage() {
   const { name, meta, content } = Route.useLoaderData() as LoaderData
   const [showToc, setShowToc] = React.useState(false)
 
-  const plainSummary = React.useMemo(() => {
-    if (!content) return ''
-    const withoutCodeBlocks = content.replace(/```[\s\S]*?```/g, ' ')
-    const withoutInlineCode = withoutCodeBlocks.replace(/`[^`]*`/g, ' ')
-    const withoutImages = withoutInlineCode.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    const linkTextRestored = withoutImages.replace(/\[[^\]]*\]\(([^)]*)\)/g, (_m, p1) => p1 || ' ')
-    const strippedMarkdown = linkTextRestored.replace(/[\*#_>~-]/g, ' ')
-    return strippedMarkdown.replace(/\s+/g, ' ').trim().slice(0, 200)
-  }, [content])
-
-  React.useEffect(() => {
-    if (!meta) return
-    const originalTitle = document.title
-    const computedTitle = meta.title ? `${meta.title} • ${name} on RefMD` : `${name} • RefMD`
-    document.title = computedTitle
-
-    const summary = plainSummary || meta.title || `Public document from @${name} on RefMD`
-    const metaDefinitions: Array<{ selector: string; attr: 'name' | 'property'; value: string }> = [
-      { selector: 'description', attr: 'name', value: summary },
-      { selector: 'og:title', attr: 'property', value: computedTitle },
-      { selector: 'og:description', attr: 'property', value: summary },
-      { selector: 'og:url', attr: 'property', value: typeof window !== 'undefined' ? window.location.href : '' },
-      { selector: 'og:type', attr: 'property', value: 'article' },
-      { selector: 'robots', attr: 'name', value: 'index,follow' },
-    ]
-
-    const cleanupFns: Array<() => void> = []
-
-    for (const def of metaDefinitions) {
-      if (!def.value) continue
-      const selector = def.attr === 'name' ? `meta[name="${def.selector}"]` : `meta[property="${def.selector}"]`
-      const element = document.head.querySelector(selector) as HTMLMetaElement | null
-      if (element) {
-        const prev = element.getAttribute('content')
-        element.setAttribute('content', def.value)
-        cleanupFns.push(() => {
-          if (prev == null) element.removeAttribute('content')
-          else element.setAttribute('content', prev)
-        })
-      } else {
-        const metaEl = document.createElement('meta')
-        metaEl.setAttribute(def.attr, def.selector)
-        metaEl.setAttribute('content', def.value)
-        document.head.appendChild(metaEl)
-        cleanupFns.push(() => { document.head.removeChild(metaEl) })
-      }
-    }
-
-    return () => {
-      document.title = originalTitle
-      cleanupFns.forEach((fn) => fn())
-    }
-  }, [meta, name, plainSummary])
-
   return (
     <PublicShell pageType="document" title={meta.title} author={{ name }} publishedDate={meta.updated_at}>
       <section className="relative space-y-6">
