@@ -36,6 +36,21 @@ struct CachedPlugin {
     plugin: Arc<Mutex<Plugin>>,
 }
 
+#[derive(Clone, Copy)]
+enum InvocationKind {
+    Exec,
+    Render,
+}
+
+impl InvocationKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            InvocationKind::Exec => "exec",
+            InvocationKind::Render => "render",
+        }
+    }
+}
+
 impl FilesystemPluginStore {
     pub fn new(configured_dir: &str) -> anyhow::Result<Self> {
         let root = Self::resolve_root(configured_dir)?;
@@ -236,28 +251,61 @@ impl FilesystemPluginStore {
         plugin: &str,
         invocation: &str,
         doc_id: Option<Uuid>,
+        kind: InvocationKind,
     ) -> JsonValue {
+        let timestamp = Utc::now().to_rfc3339();
         let mut ctx = JsonMap::new();
         ctx.insert("plugin".to_string(), json!({ "id": plugin }));
         ctx.insert("invocation".to_string(), json!(invocation));
+        ctx.insert("timestamp".to_string(), json!(timestamp));
+        ctx.insert(
+            "invocation_meta".to_string(),
+            json!({
+                "name": invocation,
+                "kind": kind.as_str(),
+                "timestamp": timestamp,
+            }),
+        );
         if let Some(uid) = user_id {
             ctx.insert("user".to_string(), json!({ "id": uid }));
+            ctx.insert("user_id".to_string(), json!(uid));
         }
         if let Some(doc) = doc_id {
             ctx.insert("doc".to_string(), json!({ "id": doc }));
+            ctx.insert("doc_id".to_string(), json!(doc));
         }
-        ctx.insert("timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        ctx.insert("kind".to_string(), json!(kind.as_str()));
         JsonValue::Object(ctx)
     }
 
     fn extract_doc_id(value: &JsonValue) -> Option<Uuid> {
         match value {
             JsonValue::Object(map) => {
-                if let Some(candidate) = map.get("docId").or_else(|| map.get("doc_id")) {
-                    return Self::value_to_uuid(candidate);
+                let direct_keys = ["docId", "doc_id", "doc", "document"];
+                for key in direct_keys {
+                    if let Some(candidate) = map.get(key) {
+                        if let Some(id) = Self::value_to_uuid(candidate) {
+                            return Some(id);
+                        }
+                    }
                 }
-                if let Some(doc) = map.get("doc") {
-                    return Self::value_to_uuid(doc);
+
+                let nested_keys = ["options", "payload", "context", "meta"]; // fallback search
+                for key in nested_keys {
+                    if let Some(nested) = map.get(key) {
+                        if let Some(id) = Self::extract_doc_id(nested) {
+                            return Some(id);
+                        }
+                    }
+                }
+                None
+            }
+            JsonValue::String(s) => Uuid::parse_str(s).ok(),
+            JsonValue::Array(items) => {
+                for item in items {
+                    if let Some(id) = Self::extract_doc_id(item) {
+                        return Some(id);
+                    }
                 }
                 None
             }
@@ -575,7 +623,8 @@ impl PluginRuntime for FilesystemPluginStore {
         };
 
         let doc_hint = Self::extract_doc_id(payload);
-        let ctx = Self::build_invocation_context(user_id, plugin, action, doc_hint);
+        let ctx =
+            Self::build_invocation_context(user_id, plugin, action, doc_hint, InvocationKind::Exec);
         let input = json!({
             "action": action,
             "payload": payload,
@@ -606,9 +655,15 @@ impl PluginRuntime for FilesystemPluginStore {
             return Ok(None);
         };
 
-        let doc_hint = request.get("options").and_then(Self::extract_doc_id);
+        let doc_hint = Self::extract_doc_id(request);
 
-        let ctx = Self::build_invocation_context(user_id, plugin, function, doc_hint);
+        let ctx = Self::build_invocation_context(
+            user_id,
+            plugin,
+            function,
+            doc_hint,
+            InvocationKind::Render,
+        );
 
         let envelope = match request.clone() {
             JsonValue::Object(mut map) => {

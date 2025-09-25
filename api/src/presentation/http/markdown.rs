@@ -392,12 +392,13 @@ async fn apply_placeholder_renderers(
                                     hydrate,
                                     &fragment,
                                 ) {
-                                    Some(wrapped) => wrapped,
-                                    None => {
+                                    Ok(wrapped) => wrapped,
+                                    Err(err) => {
                                         warn!(
                                             plugin = spec.plugin_id.as_str(),
                                             kind = placeholder.kind.as_str(),
                                             id = placeholder.id.as_str(),
+                                            error = ?err,
                                             "placeholder_hydrate_metadata_failed"
                                         );
                                         fragment
@@ -572,31 +573,9 @@ fn build_hydrated_fragment(
     spec: &RendererSpec,
     hydrate: &HydrateSpec,
     fragment: &str,
-) -> Option<String> {
-    let module_url = build_hydrate_module_url(spec, hydrate);
-    let export_name = hydrate.export.as_deref().unwrap_or("default");
-    let context = json!({
-        "request": request,
-        "plugin": {
-            "id": spec.plugin_id,
-            "version": spec.plugin_version,
-            "scope": spec.scope.as_str(),
-        }
-    });
-    let context_str = serde_json::to_string(&context).ok()?;
-    let context_b64 = BASE64_STANDARD.encode(context_str);
-
-    let attrs = format!(
-        " data-placeholder-hydrate=\"{}\" data-placeholder-hydrate-export=\"{}\" data-placeholder-hydrate-context=\"{}\" data-placeholder-plugin=\"{}\" data-placeholder-version=\"{}\" data-placeholder-scope=\"{}\"",
-        htmlescape::encode_minimal(&module_url),
-        htmlescape::encode_minimal(export_name),
-        htmlescape::encode_minimal(&context_b64),
-        htmlescape::encode_minimal(&spec.plugin_id),
-        htmlescape::encode_minimal(&spec.plugin_version),
-        htmlescape::encode_minimal(spec.scope.as_str()),
-    );
-
-    Some(format!(
+) -> Result<String, serde_json::Error> {
+    let attrs = build_hydrate_attr_string(request, spec, hydrate)?;
+    Ok(format!(
         "<div data-refmd-placeholder=\"true\" data-placeholder-id=\"{}\" data-placeholder-kind=\"{}\"{}>{}</div>",
         htmlescape::encode_minimal(&placeholder.id),
         htmlescape::encode_minimal(&placeholder.kind),
@@ -715,18 +694,8 @@ fn attach_hydrate_metadata(
     spec: &RendererSpec,
     hydrate: &HydrateSpec,
 ) -> bool {
-    let module_url = build_hydrate_module_url(spec, hydrate);
-    let export_name = hydrate.export.as_deref().unwrap_or("default");
-    let context = json!({
-        "request": request,
-        "plugin": {
-            "id": spec.plugin_id,
-            "version": spec.plugin_version,
-            "scope": spec.scope.as_str(),
-        }
-    });
-    let context_str = match serde_json::to_string(&context) {
-        Ok(v) => v,
+    let attrs = match build_hydrate_attr_string(request, spec, hydrate) {
+        Ok(value) => value,
         Err(err) => {
             warn!(
                 plugin = spec.plugin_id.as_str(),
@@ -738,17 +707,6 @@ fn attach_hydrate_metadata(
             return false;
         }
     };
-    let context_b64 = BASE64_STANDARD.encode(context_str);
-
-    let attrs = format!(
-        " data-placeholder-hydrate=\"{}\" data-placeholder-hydrate-export=\"{}\" data-placeholder-hydrate-context=\"{}\" data-placeholder-plugin=\"{}\" data-placeholder-version=\"{}\" data-placeholder-scope=\"{}\"",
-        htmlescape::encode_minimal(&module_url),
-        htmlescape::encode_minimal(export_name),
-        htmlescape::encode_minimal(&context_b64),
-        htmlescape::encode_minimal(&spec.plugin_id),
-        htmlescape::encode_minimal(&spec.plugin_version),
-        htmlescape::encode_minimal(spec.scope.as_str()),
-    );
 
     insert_placeholder_attributes(target, &placeholder.id, &attrs)
 }
@@ -772,6 +730,35 @@ fn build_hydrate_module_url(spec: &RendererSpec, hydrate: &HydrateSpec) -> Strin
         }
     }
     url
+}
+
+fn build_hydrate_attr_string(
+    request: &serde_json::Value,
+    spec: &RendererSpec,
+    hydrate: &HydrateSpec,
+) -> Result<String, serde_json::Error> {
+    let module_url = build_hydrate_module_url(spec, hydrate);
+    let export_name = hydrate.export.as_deref().unwrap_or("default");
+    let context = json!({
+        "request": request,
+        "plugin": {
+            "id": spec.plugin_id,
+            "version": spec.plugin_version,
+            "scope": spec.scope.as_str(),
+        }
+    });
+    let context_str = serde_json::to_string(&context)?;
+    let context_b64 = BASE64_STANDARD.encode(context_str);
+
+    Ok(format!(
+        " data-placeholder-hydrate=\"{}\" data-placeholder-hydrate-export=\"{}\" data-placeholder-hydrate-context=\"{}\" data-placeholder-plugin=\"{}\" data-placeholder-version=\"{}\" data-placeholder-scope=\"{}\"",
+        htmlescape::encode_minimal(&module_url),
+        htmlescape::encode_minimal(export_name),
+        htmlescape::encode_minimal(&context_b64),
+        htmlescape::encode_minimal(&spec.plugin_id),
+        htmlescape::encode_minimal(&spec.plugin_version),
+        htmlescape::encode_minimal(spec.scope.as_str()),
+    ))
 }
 
 fn insert_placeholder_attributes(target: &mut String, id: &str, attrs: &str) -> bool {
