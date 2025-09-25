@@ -366,8 +366,13 @@ async fn apply_placeholder_renderers(
                 continue;
             };
 
+            let user_scope = match &spec.scope {
+                RendererScope::Global => None,
+                RendererScope::User { user_id } => Some(*user_id),
+            };
+
             match runtime
-                .render_placeholder(None, &spec.plugin_id, function, &request)
+                .render_placeholder(user_scope, &spec.plugin_id, function, &request)
                 .await
             {
                 Ok(Some(value)) => match serde_json::from_value::<RendererPluginResponse>(value) {
