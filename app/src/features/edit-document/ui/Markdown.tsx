@@ -56,7 +56,7 @@ const latestKeyRef = useRef<string>('')
         text,
         options: {
           flavor: 'doc',
-          features: ['gfm', 'mermaid', 'highlight'],
+          features: ['gfm', 'highlight'],
           sanitize: true,
           absolute_attachments: true as any,
           base_origin: apiOrigin as any,

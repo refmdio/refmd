@@ -1,5 +1,6 @@
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -7,7 +8,7 @@ use std::sync::Mutex;
 pub struct RenderOptions {
     pub flavor: Option<String>,
     pub theme: Option<String>,
-    pub features: Option<Vec<String>>, // e.g., ["gfm","mermaid","highlight"]
+    pub features: Option<Vec<String>>,
     pub sanitize: Option<bool>,
     /// If provided, rewrite attachment-relative links/images to absolute under /uploads/{doc_id}
     pub doc_id: Option<uuid::Uuid>,
@@ -21,7 +22,7 @@ pub struct RenderOptions {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct PlaceholderItem {
-    pub kind: String, // e.g., "mermaid" | "math"
+    pub kind: String,
     pub id: String,
     pub code: String,
 }
@@ -80,7 +81,11 @@ fn normalize_wikilink_label(raw: &str) -> (String, bool) {
     (label.trim().to_string(), inline)
 }
 
-pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderResponse> {
+pub fn render(
+    text: String,
+    opts: RenderOptions,
+    placeholder_kinds: Option<&HashSet<String>>,
+) -> anyhow::Result<RenderResponse> {
     // Build comrak options (GFM-like)
     let mut c_opts = comrak::ComrakOptions::default();
     c_opts.parse.smart = false;
@@ -103,7 +108,7 @@ pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderRespons
     let arena = comrak::Arena::new();
     let root = comrak::parse_document(&arena, &text, &c_opts);
 
-    // Transform: capture code fences like ```mermaid, highlight code blocks, and inline tag links
+    // Transform: capture code fences, highlight code blocks, and inline tag links
     let mut placeholders: Vec<PlaceholderItem> = Vec::new();
     let mut counter: usize = 0;
 
@@ -353,6 +358,7 @@ pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderRespons
         enable_highlight: bool,
         theme_name: &str,
         opts: &RenderOptions,
+        placeholder_kinds: Option<&HashSet<String>>,
     ) {
         use comrak::nodes::NodeValue;
         fn is_attachment_url(url: &str) -> bool {
@@ -418,6 +424,7 @@ pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderRespons
                 enable_highlight,
                 theme_name,
                 opts,
+                placeholder_kinds,
             );
 
             // Prepare replacement outside the borrow scope to avoid RefCell double-borrows
@@ -429,16 +436,23 @@ pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderRespons
                     is_code_block = true;
                     let info = cb.info.trim().to_string();
                     let lang = info.split(|c: char| c.is_whitespace()).next().unwrap_or("");
-                    if lang.eq_ignore_ascii_case("mermaid") {
+                    let lang_norm = lang.trim().to_lowercase();
+                    let should_placeholder = placeholder_kinds
+                        .map(|set| set.contains(lang_norm.as_str()))
+                        .unwrap_or(false);
+                    if should_placeholder {
                         *counter += 1;
-                        let id = format!("m{}", counter);
+                        let id = format!("p{}", counter);
                         let code = cb.literal.clone();
                         placeholders.push(PlaceholderItem {
-                            kind: "mermaid".into(),
+                            kind: lang_norm.clone(),
                             id: id.clone(),
                             code,
                         });
-                        let html = format!("<div data-mermaid=\"{}\"></div>", id);
+                        let html = format!(
+                            "<div data-refmd-placeholder=\"true\" data-placeholder-id=\"{}\" data-placeholder-kind=\"{}\"></div>",
+                            id, lang_norm,
+                        );
                         replace_with = Some(html);
                     } else if enable_highlight {
                         let code = cb.literal.clone();
@@ -564,6 +578,7 @@ pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderRespons
         enable_highlight,
         theme_name,
         &opts,
+        placeholder_kinds,
     );
 
     // Render HTML
@@ -573,12 +588,14 @@ pub fn render(text: String, opts: RenderOptions) -> anyhow::Result<RenderRespons
 
     // Sanitize
     let mut builder = ammonia::Builder::default();
-    // Allow common attributes + class, data-mermaid
+    // Allow common attributes + placeholder metadata
     builder.add_generic_attributes([
         "class",
         "id",
         "title",
-        "data-mermaid",
+        "data-refmd-placeholder",
+        "data-placeholder-id",
+        "data-placeholder-kind",
         "data-sourcepos",
         // for client hydration of custom components
         "data-wiki-target",

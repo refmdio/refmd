@@ -1,10 +1,17 @@
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
+use anyhow::Context;
 use async_trait::async_trait;
+use chrono::Utc;
+use extism::{Manifest, Plugin, Wasm};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde_json::json;
+use serde_json::{Map as JsonMap, Value as JsonValue, json};
+use tokio::{sync::RwLock, task};
 use uuid::Uuid;
 
 use crate::application::dto::plugins::ExecResult;
@@ -13,7 +20,6 @@ use crate::application::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
 };
 use crate::application::ports::plugin_runtime::PluginRuntime;
-use crate::infrastructure::plugins::runtime_extism::{ExtismExecOptions, call_extism};
 
 static PLUGIN_ID_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[A-Za-z0-9_-]+$").expect("valid regex"));
@@ -22,12 +28,36 @@ static PLUGIN_VERSION_RE: Lazy<Regex> =
 
 pub struct FilesystemPluginStore {
     root: PathBuf,
+    plugin_cache: Arc<RwLock<HashMap<PathBuf, CachedPlugin>>>,
+}
+
+struct CachedPlugin {
+    modified: SystemTime,
+    plugin: Arc<Mutex<Plugin>>,
+}
+
+#[derive(Clone, Copy)]
+enum InvocationKind {
+    Exec,
+    Render,
+}
+
+impl InvocationKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            InvocationKind::Exec => "exec",
+            InvocationKind::Render => "render",
+        }
+    }
 }
 
 impl FilesystemPluginStore {
     pub fn new(configured_dir: &str) -> anyhow::Result<Self> {
         let root = Self::resolve_root(configured_dir)?;
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            plugin_cache: Arc::new(RwLock::new(HashMap::new())),
+        })
     }
 
     pub fn root(&self) -> &Path {
@@ -106,6 +136,192 @@ impl FilesystemPluginStore {
             }
         }
         Ok(best)
+    }
+
+    fn locate_plugin_dir(
+        &self,
+        user_id: Option<Uuid>,
+        plugin: &str,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        if let Some(uid) = user_id {
+            let base = self.user_root(&uid).join(plugin);
+            if let Some(dir) = self.latest_version_dir(&base)? {
+                return Ok(Some(dir));
+            }
+        }
+        let base = self.global_root().join(plugin);
+        self.latest_version_dir(&base)
+    }
+
+    async fn resolve_backend_wasm_path(&self, plugin_dir: &Path) -> anyhow::Result<PathBuf> {
+        let manifest_path = plugin_dir.join("plugin.json");
+        let manifest_str = tokio::fs::read_to_string(&manifest_path)
+            .await
+            .with_context(|| format!("read plugin manifest at {}", manifest_path.display()))?;
+        let manifest: JsonValue = serde_json::from_str(&manifest_str)
+            .with_context(|| format!("parse plugin manifest at {}", manifest_path.display()))?;
+
+        let wasm_rel = manifest
+            .get("backend")
+            .and_then(|b| b.get("wasm"))
+            .and_then(|w| w.as_str())
+            .unwrap_or("backend/plugin.wasm");
+        let sanitized = Self::sanitize_relative_path(wasm_rel)?;
+        Ok(plugin_dir.join(sanitized))
+    }
+
+    async fn load_plugin_instance(&self, plugin_dir: &Path) -> anyhow::Result<Arc<Mutex<Plugin>>> {
+        let wasm_path = self.resolve_backend_wasm_path(plugin_dir).await?;
+        let metadata = tokio::fs::metadata(&wasm_path)
+            .await
+            .with_context(|| format!("read metadata for {}", wasm_path.display()))?;
+        let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+
+        {
+            let cache = self.plugin_cache.read().await;
+            if let Some(entry) = cache.get(&wasm_path) {
+                if entry.modified == modified {
+                    return Ok(entry.plugin.clone());
+                }
+            }
+        }
+
+        let wasm_bytes = tokio::fs::read(&wasm_path)
+            .await
+            .with_context(|| format!("read wasm module at {}", wasm_path.display()))?;
+        let wasm_key = wasm_path.clone();
+        let plugin = task::spawn_blocking(move || -> anyhow::Result<Plugin> {
+            let manifest = Manifest::new([Wasm::data(wasm_bytes)]);
+            Plugin::new(manifest, [], true).context("create plugin")
+        })
+        .await
+        .context("join extism initialization task")??;
+
+        let plugin_arc = Arc::new(Mutex::new(plugin));
+        let mut cache = self.plugin_cache.write().await;
+        cache.insert(
+            wasm_key,
+            CachedPlugin {
+                modified,
+                plugin: plugin_arc.clone(),
+            },
+        );
+        Ok(plugin_arc)
+    }
+
+    async fn invoke_plugin(
+        &self,
+        plugin_dir: &Path,
+        function: &str,
+        input: Vec<u8>,
+    ) -> anyhow::Result<Vec<u8>> {
+        let plugin = self.load_plugin_instance(plugin_dir).await?;
+        let function = function.to_string();
+        let output = task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
+            let mut guard = plugin
+                .lock()
+                .map_err(|_| anyhow::anyhow!("extism plugin mutex poisoned"))?;
+            let bytes: &[u8] = guard
+                .call(&function, &input)
+                .map_err(|err| anyhow::anyhow!(format!("extism call error: {err}")))?;
+            Ok(bytes.to_vec())
+        })
+        .await
+        .context("join extism call task")??;
+        Ok(output)
+    }
+
+    fn sanitize_relative_path(path: &str) -> anyhow::Result<String> {
+        let trimmed = path.trim();
+        let without_root = trimmed.trim_start_matches('/');
+        if without_root.is_empty() {
+            anyhow::bail!("invalid backend wasm path");
+        }
+        if without_root
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+        {
+            anyhow::bail!("invalid backend wasm path segment");
+        }
+        Ok(without_root.to_string())
+    }
+
+    fn build_invocation_context(
+        user_id: Option<Uuid>,
+        plugin: &str,
+        invocation: &str,
+        doc_id: Option<Uuid>,
+        kind: InvocationKind,
+    ) -> JsonValue {
+        let timestamp = Utc::now().to_rfc3339();
+        let mut ctx = JsonMap::new();
+        ctx.insert("plugin".to_string(), json!({ "id": plugin }));
+        ctx.insert("invocation".to_string(), json!(invocation));
+        ctx.insert("timestamp".to_string(), json!(timestamp));
+        ctx.insert(
+            "invocation_meta".to_string(),
+            json!({
+                "name": invocation,
+                "kind": kind.as_str(),
+                "timestamp": timestamp,
+            }),
+        );
+        if let Some(uid) = user_id {
+            ctx.insert("user".to_string(), json!({ "id": uid }));
+            ctx.insert("user_id".to_string(), json!(uid));
+        }
+        if let Some(doc) = doc_id {
+            ctx.insert("doc".to_string(), json!({ "id": doc }));
+            ctx.insert("doc_id".to_string(), json!(doc));
+        }
+        ctx.insert("kind".to_string(), json!(kind.as_str()));
+        JsonValue::Object(ctx)
+    }
+
+    fn extract_doc_id(value: &JsonValue) -> Option<Uuid> {
+        match value {
+            JsonValue::Object(map) => {
+                let direct_keys = ["docId", "doc_id", "doc", "document"];
+                for key in direct_keys {
+                    if let Some(candidate) = map.get(key) {
+                        if let Some(id) = Self::value_to_uuid(candidate) {
+                            return Some(id);
+                        }
+                    }
+                }
+
+                let nested_keys = ["options", "payload", "context", "meta"]; // fallback search
+                for key in nested_keys {
+                    if let Some(nested) = map.get(key) {
+                        if let Some(id) = Self::extract_doc_id(nested) {
+                            return Some(id);
+                        }
+                    }
+                }
+                None
+            }
+            JsonValue::String(s) => Uuid::parse_str(s).ok(),
+            JsonValue::Array(items) => {
+                for item in items {
+                    if let Some(id) = Self::extract_doc_id(item) {
+                        return Some(id);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn value_to_uuid(value: &JsonValue) -> Option<Uuid> {
+        match value {
+            JsonValue::String(s) => Uuid::parse_str(s).ok(),
+            JsonValue::Object(obj) => obj
+                .get("id")
+                .and_then(|id| id.as_str())
+                .and_then(|s| Uuid::parse_str(s).ok()),
+            _ => None,
+        }
     }
 
     fn validate_manifest(
@@ -400,36 +616,73 @@ impl PluginRuntime for FilesystemPluginStore {
         action: &str,
         payload: &serde_json::Value,
     ) -> anyhow::Result<Option<ExecResult>> {
-        let user_candidate = match user_id {
-            Some(uid) => {
-                let base = self.user_root(&uid).join(plugin);
-                self.latest_version_dir(&base)?
-            }
-            None => None,
-        };
-
-        let plugin_dir = if let Some(dir) = user_candidate {
-            Some(dir)
-        } else {
-            let base = self.global_root().join(plugin);
-            self.latest_version_dir(&base)?
-        };
+        let plugin_dir = self.locate_plugin_dir(user_id, plugin)?;
 
         let Some(plugin_dir) = plugin_dir else {
             return Ok(None);
         };
 
+        let doc_hint = Self::extract_doc_id(payload);
+        let ctx =
+            Self::build_invocation_context(user_id, plugin, action, doc_hint, InvocationKind::Exec);
         let input = json!({
             "action": action,
             "payload": payload,
-            "ctx": {}
+            "ctx": ctx
         });
-        let out = call_extism(ExtismExecOptions {
-            plugin_dir: &plugin_dir,
-            func: "exec",
-            input: serde_json::to_vec(&input)?,
-        })?;
+
+        let out = self
+            .invoke_plugin(&plugin_dir, "exec", serde_json::to_vec(&input)?)
+            .await?;
+
+        if out.is_empty() {
+            return Ok(None);
+        }
+
         let res: ExecResult = serde_json::from_slice(&out)?;
         Ok(Some(res))
+    }
+
+    async fn render_placeholder(
+        &self,
+        user_id: Option<Uuid>,
+        plugin: &str,
+        function: &str,
+        request: &serde_json::Value,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        let plugin_dir = self.locate_plugin_dir(user_id, plugin)?;
+        let Some(plugin_dir) = plugin_dir else {
+            return Ok(None);
+        };
+
+        let doc_hint = Self::extract_doc_id(request);
+
+        let ctx = Self::build_invocation_context(
+            user_id,
+            plugin,
+            function,
+            doc_hint,
+            InvocationKind::Render,
+        );
+
+        let envelope = match request.clone() {
+            JsonValue::Object(mut map) => {
+                map.insert("context".to_string(), ctx);
+                JsonValue::Object(map)
+            }
+            other => json!({
+                "payload": other,
+                "context": ctx
+            }),
+        };
+
+        let out = self
+            .invoke_plugin(&plugin_dir, function, serde_json::to_vec(&envelope)?)
+            .await?;
+        if out.is_empty() {
+            return Ok(None);
+        }
+        let value = serde_json::from_slice(&out)?;
+        Ok(Some(value))
     }
 }
