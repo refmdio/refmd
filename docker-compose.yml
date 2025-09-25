@@ -18,15 +18,14 @@ services:
   api:
     image: ghcr.io/refmdio/refmd/api:latest
     environment:
-      RUST_ENV: production
       API_PORT: 8888
       DATABASE_URL: postgresql://refmd:refmd@postgres:5432/refmd
-      FRONTEND_URL: http://localhost:8080
+      FRONTEND_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:8888
       JWT_SECRET: change-me-please
       ENCRYPTION_KEY: change-me-please
+      UPLOADS_DIR: /data/uploads
       UPLOAD_MAX_BYTES: 26214400
-      RUST_LOG: api=info,axum=info,tower_http=info
-      PUBLIC_BASE_URL: http://localhost:8888
       PLUGINS_DIR: /app/plugins
     ports:
       - "8888:8888"

@@ -24,11 +24,13 @@ services:
       API_PORT: 8888
       DATABASE_URL: postgresql://refmd:refmd@postgres:5432/refmd
       FRONTEND_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:8888
       JWT_SECRET: change-me-please
       ENCRYPTION_KEY: change-me-please
       UPLOAD_MAX_BYTES: 26214400
+      UPLOADS_DIR: /data/uploads
+      PLUGINS_DIR: /app/plugins
       RUST_LOG: api=debug,axum=debug,tower_http=debug
-      PUBLIC_BASE_URL: http://localhost:8888
     ports:
       - "8888:8888"
     depends_on:
