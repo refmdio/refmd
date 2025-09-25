@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
+use crate::application::access;
 use crate::application::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use crate::bootstrap::app_context::AppContext;
+use crate::presentation::http::auth::{self, Bearer};
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -123,6 +126,7 @@ pub struct RenderManyResponse {
     responses((status = 200, body = RenderResponseBody)))]
 pub async fn render_markdown(
     State(ctx): State<AppContext>,
+    bearer: Option<Bearer>,
     Json(req): Json<RenderRequest>,
 ) -> Result<Json<RenderResponseBody>, StatusCode> {
     // Per-item size guard (2MB)
@@ -132,14 +136,22 @@ pub async fn render_markdown(
     let RenderRequest { text, options } = req;
     let options: RenderOptions = options.into();
 
+    let bearer_token = bearer.as_ref().map(|b| b.0.as_str());
+    let user_scope =
+        resolve_user_scope_from_inputs(&ctx.cfg, bearer_token, options.token.as_deref());
+
     let assets = ctx.plugin_assets();
-    let renderer_specs = match collect_renderer_specs(assets.as_ref()).await {
-        Ok(specs) => specs,
-        Err(err) => {
-            warn!(error = ?err, "markdown_renderer_specs_failed");
-            Vec::new()
-        }
-    };
+    let installations = ctx.plugin_installations();
+    let renderer_specs =
+        match collect_renderer_specs(assets.as_ref(), Some(installations.as_ref()), user_scope)
+            .await
+        {
+            Ok(specs) => specs,
+            Err(err) => {
+                warn!(error = ?err, "markdown_renderer_specs_failed");
+                Vec::new()
+            }
+        };
     let placeholder_kinds: HashSet<String> = renderer_specs
         .iter()
         .map(|spec| spec.kind.clone())
@@ -171,6 +183,7 @@ pub async fn render_markdown(
     responses((status = 200, body = RenderManyResponse)))]
 pub async fn render_markdown_many(
     State(ctx): State<AppContext>,
+    bearer: Option<Bearer>,
     Json(req): Json<RenderManyRequest>,
 ) -> Result<Json<RenderManyResponse>, StatusCode> {
     // Guard: item count and total size
@@ -185,23 +198,10 @@ pub async fn render_markdown_many(
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
+    let bearer_token = bearer.as_ref().map(|b| b.0.clone());
     let assets = ctx.plugin_assets();
-    let renderer_specs = match collect_renderer_specs(assets.as_ref()).await {
-        Ok(specs) => specs,
-        Err(err) => {
-            warn!(error = ?err, "markdown_renderer_specs_failed_many");
-            Vec::new()
-        }
-    };
-    let placeholder_kinds: HashSet<String> = renderer_specs
-        .iter()
-        .map(|spec| spec.kind.clone())
-        .collect();
-    let placeholder_kinds_ref = if placeholder_kinds.is_empty() {
-        None
-    } else {
-        Some(&placeholder_kinds)
-    };
+    let installations = ctx.plugin_installations();
+    let mut spec_cache: HashMap<Option<Uuid>, Arc<Vec<RendererSpec>>> = HashMap::new();
 
     // Process sequentially (simple and safe). Could be parallelized if needed.
     let mut out = Vec::with_capacity(items.len());
@@ -211,19 +211,59 @@ pub async fn render_markdown_many(
         }
         let RenderRequest { text, options } = item;
         let options: RenderOptions = options.into();
+
+        let user_scope = resolve_user_scope_from_inputs(
+            &ctx.cfg,
+            bearer_token.as_deref(),
+            options.token.as_deref(),
+        );
+
+        let specs_arc = if let Some(existing) = spec_cache.get(&user_scope) {
+            existing.clone()
+        } else {
+            let specs_vec = match collect_renderer_specs(
+                assets.as_ref(),
+                Some(installations.as_ref()),
+                user_scope,
+            )
+            .await
+            {
+                Ok(specs) => specs,
+                Err(err) => {
+                    let scope_label = user_scope.map(|id| id.to_string());
+                    warn!(error = ?err, scope = ?scope_label, "markdown_renderer_specs_failed_many");
+                    Vec::new()
+                }
+            };
+            let arc = Arc::new(specs_vec);
+            spec_cache.insert(user_scope, arc.clone());
+            arc
+        };
+
+        let placeholder_kinds: HashSet<String> =
+            specs_arc.iter().map(|spec| spec.kind.clone()).collect();
+        let placeholder_kinds_ref = if placeholder_kinds.is_empty() {
+            None
+        } else {
+            Some(&placeholder_kinds)
+        };
+
         let mut res = crate::application::services::markdown::render(
             text,
             options.clone(),
             placeholder_kinds_ref,
         )
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if !res.placeholders.is_empty() && !renderer_specs.is_empty() {
+
+        if !res.placeholders.is_empty() && !specs_arc.is_empty() {
             if let Err(err) =
-                apply_placeholder_renderers(&ctx, &mut res, &options, &renderer_specs).await
+                apply_placeholder_renderers(&ctx, &mut res, &options, specs_arc.as_ref().as_slice())
+                    .await
             {
                 warn!(error = ?err, "markdown_placeholder_render_failed_many");
             }
         }
+
         out.push(RenderResponseBody::from(res));
     }
     Ok(Json(RenderManyResponse { items: out }))
@@ -344,23 +384,30 @@ async fn apply_placeholder_renderers(
                             }
                         }
                         if let Some(fragment) = resp.html {
-                            if replace_placeholder_markup(&mut html, &placeholder.id, &fragment) {
-                                if let Some(hydrate) = hydrate {
-                                    if !attach_hydrate_metadata(
-                                        &mut html,
-                                        &placeholder,
-                                        &request,
-                                        spec,
-                                        hydrate,
-                                    ) {
+                            let fragment = if let Some(hydrate) = hydrate {
+                                match build_hydrated_fragment(
+                                    &placeholder,
+                                    &request,
+                                    spec,
+                                    hydrate,
+                                    &fragment,
+                                ) {
+                                    Some(wrapped) => wrapped,
+                                    None => {
                                         warn!(
                                             plugin = spec.plugin_id.as_str(),
                                             kind = placeholder.kind.as_str(),
                                             id = placeholder.id.as_str(),
                                             "placeholder_hydrate_metadata_failed"
                                         );
+                                        fragment
                                     }
                                 }
+                            } else {
+                                fragment
+                            };
+
+                            if replace_placeholder_markup(&mut html, &placeholder.id, &fragment) {
                                 handled = true;
                                 break;
                             }
@@ -446,40 +493,138 @@ fn build_renderer_request(
 
 async fn collect_renderer_specs(
     assets: &dyn crate::application::ports::plugin_asset_store::PluginAssetStore,
+    installations: Option<&dyn crate::application::ports::plugin_installation_repository::PluginInstallationRepository>,
+    user_scope: Option<Uuid>,
 ) -> anyhow::Result<Vec<RendererSpec>> {
-    let manifests = assets.list_latest_global_manifests().await?;
     let mut specs = Vec::new();
+    let manifests = assets.list_latest_global_manifests().await?;
     for (plugin_id, version, manifest) in manifests {
-        if let Some(items) = manifest.get("renderers").and_then(|v| v.as_array()) {
-            for item in items {
-                if let Some(kind) = item.get("kind").and_then(|v| v.as_str()) {
-                    let normalized_kind = kind.trim().to_lowercase();
-                    if normalized_kind.is_empty() {
-                        continue;
-                    }
-                    let hydrate = parse_hydrate_spec(item.get("hydrate"));
-                    let mut function = item
-                        .get("function")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .map(|s| s.to_string());
-                    if function.is_none() && hydrate.is_none() {
-                        function = Some("render".to_string());
-                    }
-                    specs.push(RendererSpec {
-                        kind: normalized_kind,
-                        plugin_id: plugin_id.clone(),
-                        plugin_version: version.clone(),
-                        scope: RendererScope::Global,
-                        function,
-                        hydrate,
-                    });
-                }
+        push_renderers_from_manifest(
+            &mut specs,
+            &manifest,
+            &plugin_id,
+            &version,
+            RendererScope::Global,
+        );
+    }
+
+    if let (Some(install_repo), Some(user_id)) = (installations, user_scope) {
+        let installs = install_repo.list_for_user(user_id).await?;
+        for inst in installs.into_iter().filter(|i| i.status == "enabled") {
+            if let Some(manifest) = assets
+                .load_user_manifest(&user_id, &inst.plugin_id, &inst.version)
+                .await?
+            {
+                push_renderers_from_manifest(
+                    &mut specs,
+                    &manifest,
+                    &inst.plugin_id,
+                    &inst.version,
+                    RendererScope::User { user_id },
+                );
             }
         }
     }
+
     Ok(specs)
+}
+
+fn push_renderers_from_manifest(
+    specs: &mut Vec<RendererSpec>,
+    manifest: &serde_json::Value,
+    plugin_id: &str,
+    version: &str,
+    scope: RendererScope,
+) {
+    if let Some(items) = manifest.get("renderers").and_then(|v| v.as_array()) {
+        for item in items {
+            if let Some(kind) = item.get("kind").and_then(|v| v.as_str()) {
+                let normalized_kind = kind.trim().to_lowercase();
+                if normalized_kind.is_empty() {
+                    continue;
+                }
+                let hydrate = parse_hydrate_spec(item.get("hydrate"));
+                let mut function = item
+                    .get("function")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+                if function.is_none() && hydrate.is_none() {
+                    function = Some("render".to_string());
+                }
+                specs.push(RendererSpec {
+                    kind: normalized_kind,
+                    plugin_id: plugin_id.to_string(),
+                    plugin_version: version.to_string(),
+                    scope: scope.clone(),
+                    function,
+                    hydrate,
+                });
+            }
+        }
+    }
+}
+
+fn build_hydrated_fragment(
+    placeholder: &PlaceholderItem,
+    request: &serde_json::Value,
+    spec: &RendererSpec,
+    hydrate: &HydrateSpec,
+    fragment: &str,
+) -> Option<String> {
+    let module_url = build_hydrate_module_url(spec, hydrate);
+    let export_name = hydrate.export.as_deref().unwrap_or("default");
+    let context = json!({
+        "request": request,
+        "plugin": {
+            "id": spec.plugin_id,
+            "version": spec.plugin_version,
+            "scope": spec.scope.as_str(),
+        }
+    });
+    let context_str = serde_json::to_string(&context).ok()?;
+    let context_b64 = BASE64_STANDARD.encode(context_str);
+
+    let attrs = format!(
+        " data-placeholder-hydrate=\"{}\" data-placeholder-hydrate-export=\"{}\" data-placeholder-hydrate-context=\"{}\" data-placeholder-plugin=\"{}\" data-placeholder-version=\"{}\" data-placeholder-scope=\"{}\"",
+        htmlescape::encode_minimal(&module_url),
+        htmlescape::encode_minimal(export_name),
+        htmlescape::encode_minimal(&context_b64),
+        htmlescape::encode_minimal(&spec.plugin_id),
+        htmlescape::encode_minimal(&spec.plugin_version),
+        htmlescape::encode_minimal(spec.scope.as_str()),
+    );
+
+    Some(format!(
+        "<div data-refmd-placeholder=\"true\" data-placeholder-id=\"{}\" data-placeholder-kind=\"{}\"{}>{}</div>",
+        htmlescape::encode_minimal(&placeholder.id),
+        htmlescape::encode_minimal(&placeholder.kind),
+        attrs,
+        fragment
+    ))
+}
+
+fn resolve_user_scope_from_inputs(
+    cfg: &crate::bootstrap::config::Config,
+    bearer_token: Option<&str>,
+    share_token: Option<&str>,
+) -> Option<Uuid> {
+    if let Some(token) = bearer_token {
+        if let Ok(sub) = auth::validate_bearer_str(cfg, token) {
+            if let Ok(uid) = Uuid::parse_str(&sub) {
+                return Some(uid);
+            }
+        }
+    }
+    if let Some(token) = share_token {
+        if let Some(actor) = auth::resolve_actor_from_token_str(cfg, token) {
+            if let access::Actor::User(uid) = actor {
+                return Some(uid);
+            }
+        }
+    }
+    None
 }
 
 fn parse_hydrate_spec(value: Option<&serde_json::Value>) -> Option<HydrateSpec> {
