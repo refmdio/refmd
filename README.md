@@ -20,7 +20,8 @@ RefMD is a real-time Markdown collaboration platform that lets teams co-author d
 
 For local development or when you need to rebuild the images, use `docker compose -f docker-compose.dev.yml up --build` instead.
 
-Additional assets (screens, recordings) live in `docs/`.
+## Documentation
+Looking for guides and API docs? Head over to https://refmdio.github.io/docs/ for the full documentation site.
 
 ## Tech Stack
 - **Backend:** Rust + Axum, SQLx, Tokio, PostgreSQL
