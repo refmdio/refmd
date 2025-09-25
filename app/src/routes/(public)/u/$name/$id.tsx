@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Menu, X } from 'lucide-react'
 import React, { Suspense, lazy } from 'react'
 
+import type { CancelablePromise } from '@/shared/api'
 import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
 
@@ -12,6 +13,7 @@ import { Markdown } from '@/features/edit-document'
 import PublicShell from '@/widgets/layouts/PublicShell'
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
+import { OpenGraphService } from '@/shared/api'
 
 const TocLazy = lazy(async () => {
   const m = await import('@/shared/components/toc/Toc')
@@ -54,6 +56,116 @@ export const Route = createFileRoute('/(public)/u/$name/$id')({
 function PublicUserDocumentPage() {
   const { name, meta, content } = Route.useLoaderData() as LoaderData
   const [showToc, setShowToc] = React.useState(false)
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return
+    let disposed = false
+    const cleanupFns: Array<() => void> = []
+    const originalTitle = document.title
+    let request: CancelablePromise<string> | null = null
+
+    const applyMetaTag = (attr: 'name' | 'property', key: string, value: string | null | undefined) => {
+      if (!key || !value) return
+      const selector = attr === 'name' ? `meta[name="${key}"]` : `meta[property="${key}"]`
+      const existing = document.head.querySelector(selector) as HTMLMetaElement | null
+      if (existing) {
+        const prev = existing.getAttribute('content')
+        existing.setAttribute('content', value)
+        cleanupFns.push(() => {
+          if (!existing.parentElement) return
+          if (prev == null) existing.removeAttribute('content')
+          else existing.setAttribute('content', prev)
+        })
+      } else {
+        const metaEl = document.createElement('meta')
+        metaEl.setAttribute(attr, key)
+        metaEl.setAttribute('content', value)
+        document.head.appendChild(metaEl)
+        cleanupFns.push(() => {
+          if (metaEl.parentElement) {
+            document.head.removeChild(metaEl)
+          }
+        })
+      }
+    }
+
+    const applyLinkTag = (rel: string, href: string | null | undefined) => {
+      if (!rel || !href) return
+      const selector = `link[rel="${rel}"]`
+      const existing = document.head.querySelector(selector) as HTMLLinkElement | null
+      if (existing) {
+        const prev = existing.getAttribute('href')
+        existing.setAttribute('href', href)
+        cleanupFns.push(() => {
+          if (!existing.parentElement) return
+          if (prev == null) existing.removeAttribute('href')
+          else existing.setAttribute('href', prev)
+        })
+      } else {
+        const linkEl = document.createElement('link')
+        linkEl.setAttribute('rel', rel)
+        linkEl.setAttribute('href', href)
+        document.head.appendChild(linkEl)
+        cleanupFns.push(() => {
+          if (linkEl.parentElement) {
+            document.head.removeChild(linkEl)
+          }
+        })
+      }
+    }
+
+    const applyOgDocument = (htmlString: string) => {
+      const parser = new DOMParser()
+      const parsed = parser.parseFromString(htmlString, 'text/html')
+      const parseError = parsed.querySelector('parsererror')
+      if (parseError) {
+        throw new Error('Failed to parse OpenGraph response')
+      }
+      const ogTitle = parsed.querySelector('head > title')?.textContent?.trim()
+      if (ogTitle) {
+        document.title = ogTitle
+      }
+      parsed.querySelectorAll('head meta[name], head meta[property]').forEach((metaEl) => {
+        const nameAttr = metaEl.getAttribute('name')
+        const propAttr = metaEl.getAttribute('property')
+        const contentAttr = metaEl.getAttribute('content')
+        if (nameAttr) applyMetaTag('name', nameAttr, contentAttr)
+        else if (propAttr) applyMetaTag('property', propAttr, contentAttr)
+      })
+      const canonical = parsed.querySelector('head link[rel="canonical"]')?.getAttribute('href')
+      applyLinkTag('canonical', canonical)
+    }
+
+    if (meta.title) {
+      document.title = `${meta.title} • RefMD`
+    }
+
+    ;(async () => {
+      try {
+        request = OpenGraphService.publicDocumentOg({ name, id: meta.id })
+        const html = await request
+        if (disposed) return
+        applyOgDocument(html)
+      } catch (error) {
+        if (disposed) {
+          return
+        }
+        console.warn('[public-og] failed to apply OpenGraph metadata', error)
+      }
+    })()
+
+    return () => {
+      disposed = true
+      try {
+        request?.cancel?.()
+      } catch {}
+      for (let i = cleanupFns.length - 1; i >= 0; i--) {
+        try {
+          cleanupFns[i]()
+        } catch {}
+      }
+      document.title = originalTitle
+    }
+  }, [name, meta.id, meta.title])
 
   return (
     <PublicShell pageType="document" title={meta.title} author={{ name }} publishedDate={meta.updated_at}>
