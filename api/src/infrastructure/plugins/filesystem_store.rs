@@ -170,6 +170,19 @@ impl FilesystemPluginStore {
         Ok(plugin_dir.join(sanitized))
     }
 
+    fn extract_permissions(manifest: &JsonValue) -> Vec<String> {
+        manifest
+            .get("permissions")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_else(Vec::new)
+    }
+
     async fn load_plugin_instance(&self, plugin_dir: &Path) -> anyhow::Result<Arc<Mutex<Plugin>>> {
         let wasm_path = self.resolve_backend_wasm_path(plugin_dir).await?;
         let metadata = tokio::fs::metadata(&wasm_path)
@@ -684,5 +697,25 @@ impl PluginRuntime for FilesystemPluginStore {
         }
         let value = serde_json::from_slice(&out)?;
         Ok(Some(value))
+    }
+
+    async fn permissions(
+        &self,
+        user_id: Option<Uuid>,
+        plugin: &str,
+    ) -> anyhow::Result<Option<Vec<String>>> {
+        let plugin_dir = self.locate_plugin_dir(user_id, plugin)?;
+        let Some(plugin_dir) = plugin_dir else {
+            return Ok(None);
+        };
+
+        let manifest_path = plugin_dir.join("plugin.json");
+        let manifest_str = tokio::fs::read_to_string(&manifest_path)
+            .await
+            .with_context(|| format!("read plugin manifest at {}", manifest_path.display()))?;
+        let manifest: JsonValue = serde_json::from_str(&manifest_str)
+            .with_context(|| format!("parse plugin manifest at {}", manifest_path.display()))?;
+
+        Ok(Some(Self::extract_permissions(&manifest)))
     }
 }

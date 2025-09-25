@@ -9,6 +9,7 @@ use futures_util::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -25,6 +26,9 @@ use crate::application::use_cases::plugins::records::{
 };
 use crate::bootstrap::app_context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
+
+const PERMISSION_DOC_READ: &str = "doc.read";
+const PERMISSION_DOC_WRITE: &str = "doc.write";
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
@@ -131,6 +135,15 @@ pub async fn list_records(
         .unwrap_or(0)
         .max(0);
 
+    let runtime = ctx.plugin_runtime();
+    ensure_plugin_permission(
+        &runtime,
+        actor_user_id(&actor),
+        &p.plugin,
+        PERMISSION_DOC_READ,
+    )
+    .await?;
+
     let repo = ctx.plugin_repo();
     let list_uc = ListPluginRecords {
         repo: repo.as_ref(),
@@ -194,6 +207,15 @@ pub async fn create_record(
     )
     .await
     .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    let runtime = ctx.plugin_runtime();
+    ensure_plugin_permission(
+        &runtime,
+        actor_user_id(&actor),
+        &p.plugin,
+        PERMISSION_DOC_WRITE,
+    )
+    .await?;
 
     // Attach authorId and timestamps if not provided
     let mut data = body.data;
@@ -273,6 +295,9 @@ pub async fn update_record(
     .await
     .map_err(|_| StatusCode::FORBIDDEN)?;
 
+    let runtime = ctx.plugin_runtime();
+    ensure_plugin_permission(&runtime, Some(user_id), &p.plugin, PERMISSION_DOC_WRITE).await?;
+
     let update_uc = UpdatePluginRecord {
         repo: repo.as_ref(),
     };
@@ -329,6 +354,9 @@ pub async fn delete_record(
     )
     .await
     .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    let runtime = ctx.plugin_runtime();
+    ensure_plugin_permission(&runtime, Some(user_id), &p.plugin, PERMISSION_DOC_WRITE).await?;
 
     let delete_uc = DeletePluginRecord {
         repo: repo.as_ref(),
@@ -389,6 +417,15 @@ pub async fn get_kv_value(
     .await
     .map_err(|_| StatusCode::FORBIDDEN)?;
 
+    let runtime = ctx.plugin_runtime();
+    ensure_plugin_permission(
+        &runtime,
+        actor_user_id(&actor),
+        &p.plugin,
+        PERMISSION_DOC_READ,
+    )
+    .await?;
+
     let repo = ctx.plugin_repo();
     let get_uc = GetPluginKv {
         repo: repo.as_ref(),
@@ -431,6 +468,15 @@ pub async fn put_kv_value(
     )
     .await
     .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    let runtime = ctx.plugin_runtime();
+    ensure_plugin_permission(
+        &runtime,
+        actor_user_id(&actor),
+        &p.plugin,
+        PERMISSION_DOC_WRITE,
+    )
+    .await?;
 
     let repo = ctx.plugin_repo();
     let put_uc = PutPluginKv {
@@ -796,4 +842,31 @@ pub async fn uninstall(
     };
     let _ = publisher.publish(&event).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn ensure_plugin_permission(
+    runtime: &Arc<dyn crate::application::ports::plugin_runtime::PluginRuntime>,
+    user_id: Option<Uuid>,
+    plugin_id: &str,
+    permission: &str,
+) -> Result<(), StatusCode> {
+    let perms = runtime
+        .permissions(user_id, plugin_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let Some(perms) = perms else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    if perms.iter().any(|p| p == permission) {
+        Ok(())
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
+}
+
+fn actor_user_id(actor: &access::Actor) -> Option<Uuid> {
+    match actor {
+        access::Actor::User(uid) => Some(*uid),
+        _ => None,
+    }
 }

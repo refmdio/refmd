@@ -1,9 +1,24 @@
+use std::collections::HashSet;
+
 use uuid::Uuid;
 
 use crate::application::dto::plugins::ExecResult;
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::plugin_runtime::PluginRuntime;
+
+const PERMISSION_DOC_WRITE: &str = "doc.write";
+
+enum PluginEffectError {
+    PermissionDenied { permission: String },
+    Other(anyhow::Error),
+}
+
+impl From<anyhow::Error> for PluginEffectError {
+    fn from(err: anyhow::Error) -> Self {
+        Self::Other(err)
+    }
+}
 
 pub struct ExecutePluginAction<'a, RT, PR, DR>
 where
@@ -30,6 +45,13 @@ where
         payload: Option<serde_json::Value>,
     ) -> anyhow::Result<Option<ExecResult>> {
         let payload = payload.unwrap_or(serde_json::Value::Null);
+        let permissions = self
+            .runtime
+            .permissions(Some(user_id), plugin)
+            .await?
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<HashSet<String>>();
         let try_result = self
             .runtime
             .execute(Some(user_id), plugin, action, &payload)
@@ -40,7 +62,7 @@ where
 
         if !res.effects.is_empty() {
             match self
-                .apply_server_effects(user_id, plugin, &res.effects)
+                .apply_server_effects(user_id, plugin, &res.effects, &permissions)
                 .await
             {
                 Ok(passthrough) => {
@@ -51,7 +73,19 @@ where
                         error: None,
                     }));
                 }
-                Err(err) => {
+                Err(PluginEffectError::PermissionDenied { permission }) => {
+                    self.log_only(&res.effects);
+                    return Ok(Some(ExecResult {
+                        ok: false,
+                        data: None,
+                        effects: vec![],
+                        error: Some(serde_json::json!({
+                            "code": "PERMISSION_DENIED",
+                            "permission": permission,
+                        })),
+                    }));
+                }
+                Err(PluginEffectError::Other(err)) => {
                     self.log_only(&res.effects);
                     return Err(err);
                 }
@@ -67,7 +101,8 @@ where
         user_id: Uuid,
         plugin: &str,
         effects: &[serde_json::Value],
-    ) -> anyhow::Result<Vec<serde_json::Value>> {
+        permissions: &HashSet<String>,
+    ) -> Result<Vec<serde_json::Value>, PluginEffectError> {
         let mut doc_id_created: Option<Uuid> = None;
         let mut passthrough: Vec<serde_json::Value> = Vec::new();
 
@@ -82,6 +117,7 @@ where
                     self.log_effect(effect);
                 }
                 "createDocument" => {
+                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
                     let title = effect
                         .get("title")
                         .and_then(|v| v.as_str())
@@ -97,10 +133,12 @@ where
                     let doc = self
                         .document_repo
                         .create_for_user(user_id, title, parent_id, doc_type)
-                        .await?;
+                        .await
+                        .map_err(PluginEffectError::from)?;
                     doc_id_created = Some(doc.id);
                 }
                 "putKv" => {
+                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
                     let Some(key) = effect.get("key").and_then(|v| v.as_str()) else {
                         continue;
                     };
@@ -116,10 +154,12 @@ where
                     if let Some(did) = doc_id {
                         self.plugin_repo
                             .kv_set(plugin, "doc", Some(did), key, &value)
-                            .await?;
+                            .await
+                            .map_err(PluginEffectError::from)?;
                     }
                 }
                 "createRecord" => {
+                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
                     let Some(kind) = effect.get("kind").and_then(|v| v.as_str()) else {
                         continue;
                     };
@@ -136,10 +176,12 @@ where
                         let _ = self
                             .plugin_repo
                             .insert_record(plugin, "doc", did, kind, &data)
-                            .await?;
+                            .await
+                            .map_err(PluginEffectError::from)?;
                     }
                 }
                 "updateRecord" => {
+                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
                     if let Some(record_id) = effect
                         .get("recordId")
                         .and_then(|v| v.as_str())
@@ -152,16 +194,22 @@ where
                         let _ = self
                             .plugin_repo
                             .update_record_data(record_id, &patch)
-                            .await?;
+                            .await
+                            .map_err(PluginEffectError::from)?;
                     }
                 }
                 "deleteRecord" => {
+                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
                     if let Some(record_id) = effect
                         .get("recordId")
                         .and_then(|v| v.as_str())
                         .and_then(|s| Uuid::parse_str(s).ok())
                     {
-                        let _ = self.plugin_repo.delete_record(record_id).await?;
+                        let _ = self
+                            .plugin_repo
+                            .delete_record(record_id)
+                            .await
+                            .map_err(PluginEffectError::from)?;
                     }
                 }
                 "navigate" => {
@@ -191,6 +239,20 @@ where
         }
 
         Ok(passthrough)
+    }
+
+    fn ensure_permission(
+        &self,
+        permissions: &HashSet<String>,
+        permission: &str,
+    ) -> Result<(), PluginEffectError> {
+        if permissions.iter().any(|p| p == permission) {
+            Ok(())
+        } else {
+            Err(PluginEffectError::PermissionDenied {
+                permission: permission.to_string(),
+            })
+        }
     }
 
     fn log_only(&self, effects: &[serde_json::Value]) {

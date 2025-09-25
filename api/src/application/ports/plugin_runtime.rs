@@ -20,4 +20,10 @@ pub trait PluginRuntime: Send + Sync {
         function: &str,
         request: &serde_json::Value,
     ) -> anyhow::Result<Option<serde_json::Value>>;
+
+    async fn permissions(
+        &self,
+        user_id: Option<Uuid>,
+        plugin: &str,
+    ) -> anyhow::Result<Option<Vec<String>>>;
 }
