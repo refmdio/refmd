@@ -405,6 +405,7 @@ export const FileNode = memo(function FileNode({
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
         title={node.title}
+        description={`The "${node.title}" document will be deleted permanently. This action cannot be undone.`}
         onConfirm={handleDelete}
       />
     </SidebarMenuItem>
