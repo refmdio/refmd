@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::sync::Arc;
@@ -166,7 +166,7 @@ impl GitWorkspaceService {
                 repo_path,
                 FileSnapshot {
                     hash,
-                    bytes,
+                    data: FileSnapshotData::Inline(bytes),
                     is_text: true,
                 },
             );
@@ -186,13 +186,11 @@ impl GitWorkspaceService {
             let storage_path: String = row.get("storage_path");
             let hash: String = row.get("content_hash");
             let repo_path = repo_relative_path(&storage_path)?;
-            let abs = self.storage.absolute_from_relative(&storage_path);
-            let bytes = self.storage.read_bytes(abs.as_path()).await?;
             state.insert(
                 repo_path,
                 FileSnapshot {
                     hash,
-                    bytes,
+                    data: FileSnapshotData::StoragePath(storage_path),
                     is_text: false,
                 },
             );
@@ -236,12 +234,30 @@ impl GitWorkspaceService {
         user_id: Uuid,
         commit_id: &[u8],
         state: &HashMap<String, FileSnapshot>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<BlobKey>> {
+        let mut stored = Vec::new();
         for (path, snapshot) in state.iter() {
             let key = blob_key(user_id, commit_id, path);
-            self.git_storage.put_blob(&key, &snapshot.bytes).await?;
+            let bytes = self.snapshot_bytes(snapshot).await?;
+            if let Err(err) = self.git_storage.put_blob(&key, &bytes).await {
+                for key in stored.iter().rev() {
+                    let _ = self.git_storage.delete_blob(key).await;
+                }
+                return Err(err);
+            }
+            stored.push(key);
         }
-        Ok(())
+        Ok(stored)
+    }
+
+    async fn snapshot_bytes(&self, snapshot: &FileSnapshot) -> anyhow::Result<Vec<u8>> {
+        match &snapshot.data {
+            FileSnapshotData::Inline(bytes) => Ok(bytes.clone()),
+            FileSnapshotData::StoragePath(path) => {
+                let abs = self.storage.absolute_from_relative(path);
+                self.storage.read_bytes(abs.as_path()).await
+            }
+        }
     }
 
     async fn load_file_snapshot(
@@ -338,21 +354,18 @@ impl GitWorkspaceService {
         from_meta: Option<&CommitMeta>,
         to_meta: &CommitMeta,
     ) -> anyhow::Result<Vec<DiffResult>> {
-        let mut packs_to = collect_pack_chain(
+        let packs_to = collect_pack_chain(
             self.git_storage.as_ref(),
             user_id,
             Some(to_meta.commit_id.as_slice()),
         )
-        .await?;
-        if packs_to.is_empty() {
-            self.rebuild_missing_commit_packs(user_id).await?;
-            packs_to = collect_pack_chain(
-                self.git_storage.as_ref(),
-                user_id,
-                Some(to_meta.commit_id.as_slice()),
+        .await?
+        .ok_or_else(|| {
+            anyhow!(
+                "missing pack data for commit {}",
+                encode_commit_id(&to_meta.commit_id)
             )
-            .await?;
-        }
+        })?;
 
         let temp_dir = TempDirBuilder::new()
             .prefix("git-diff-")
@@ -363,21 +376,18 @@ impl GitWorkspaceService {
         apply_pack_sequence(&repo, &packs_to)?;
         if let Some(from_meta) = from_meta {
             if from_meta.commit_id != to_meta.commit_id {
-                let mut packs_from = collect_pack_chain(
+                let packs_from = collect_pack_chain(
                     self.git_storage.as_ref(),
                     user_id,
                     Some(from_meta.commit_id.as_slice()),
                 )
-                .await?;
-                if packs_from.is_empty() {
-                    self.rebuild_missing_commit_packs(user_id).await?;
-                    packs_from = collect_pack_chain(
-                        self.git_storage.as_ref(),
-                        user_id,
-                        Some(from_meta.commit_id.as_slice()),
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "missing pack data for commit {}",
+                        encode_commit_id(&from_meta.commit_id)
                     )
-                    .await?;
-                }
+                })?;
                 apply_pack_sequence(&repo, &packs_from)?;
             }
         }
@@ -419,111 +429,6 @@ impl GitWorkspaceService {
             ));
         }
         Ok(results)
-    }
-
-    async fn rebuild_missing_commit_packs(&self, user_id: Uuid) -> anyhow::Result<()> {
-        let rows = sqlx::query(
-            r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
-                      committed_at, pack_key, file_hash_index
-               FROM git_commits
-               WHERE user_id = $1
-               ORDER BY committed_at ASC"#,
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await?;
-
-        if rows.is_empty() {
-            return Ok(());
-        }
-
-        let mut commits = Vec::with_capacity(rows.len());
-        for row in rows {
-            commits.push(row_to_commit_meta(row)?);
-        }
-
-        let temp_dir = TempDirBuilder::new()
-            .prefix("git-pack-repair-")
-            .tempdir()
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let repo = Repository::init_bare(temp_dir.path())?;
-
-        let mut materialized: HashMap<Vec<u8>, git2::Oid> = HashMap::new();
-
-        for meta in commits.iter() {
-            let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-            for path in meta.file_hash_index.keys() {
-                if let Some(bytes) = self
-                    .load_file_snapshot(user_id, meta.commit_id.as_slice(), path)
-                    .await?
-                {
-                    entries.insert(path.clone(), bytes);
-                }
-            }
-
-            let pack_bytes = {
-                let tree_oid = build_tree_from_entries(&repo, &entries)?;
-                let tree = repo.find_tree(tree_oid)?;
-
-                let mut parent_commits = Vec::new();
-                if let Some(parent_id) = meta.parent_commit_id.as_ref() {
-                    if let Some(parent_oid) = materialized.get(parent_id) {
-                        parent_commits.push(repo.find_commit(*parent_oid)?);
-                    } else {
-                        anyhow::bail!(
-                            "missing parent commit {} while rebuilding git packs",
-                            encode_commit_id(parent_id)
-                        );
-                    }
-                }
-                let parent_refs: Vec<&Commit> = parent_commits.iter().collect();
-
-                let author_name = meta
-                    .author_name
-                    .clone()
-                    .unwrap_or_else(|| "RefMD".to_string());
-                let author_email = meta
-                    .author_email
-                    .clone()
-                    .unwrap_or_else(|| "refmd@example.com".to_string());
-                let message = meta.message.clone().unwrap_or_default();
-                let author_sig =
-                    signature_from_parts(&author_name, &author_email, meta.committed_at)?;
-
-                let commit_oid = repo.commit(
-                    None,
-                    &author_sig,
-                    &author_sig,
-                    &message,
-                    &tree,
-                    &parent_refs,
-                )?;
-
-                if commit_oid.as_bytes() != meta.commit_id.as_slice() {
-                    anyhow::bail!(
-                        "reconstructed commit {} has mismatched id {}",
-                        encode_commit_id(&meta.commit_id),
-                        encode_commit_id(commit_oid.as_bytes())
-                    );
-                }
-
-                let mut pack_builder = repo.packbuilder()?;
-                pack_builder.insert_commit(commit_oid)?;
-                let mut pack_buf = git2::Buf::new();
-                pack_builder.write_buf(&mut pack_buf)?;
-                materialized.insert(meta.commit_id.clone(), commit_oid);
-                pack_buf.to_vec()
-            };
-
-            self.git_storage
-                .store_pack(user_id, &pack_bytes, meta)
-                .await?;
-        }
-
-        drop(repo);
-        let _ = temp_dir.close();
-
-        Ok(())
     }
 
     async fn commit_diff_from_storage(
@@ -707,7 +612,8 @@ impl GitWorkspacePort for GitWorkspaceService {
         for path in delta.added.iter().chain(delta.modified.iter()) {
             if let Some(snapshot) = current.get(path) {
                 if snapshot.is_text {
-                    let new_content = String::from_utf8_lossy(&snapshot.bytes).to_string();
+                    let new_bytes = self.snapshot_bytes(snapshot).await?;
+                    let new_content = String::from_utf8_lossy(&new_bytes).to_string();
                     let old_bytes = match (&latest_commit_id, previous_index.get(path)) {
                         (Some(commit_id), Some(_)) => {
                             self.load_file_snapshot(user_id, commit_id.as_slice(), path)
@@ -872,37 +778,6 @@ impl GitWorkspacePort for GitWorkspaceService {
             });
         }
 
-        let temp_dir = TempDirBuilder::new()
-            .prefix("git-sync-")
-            .tempdir()
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let repo = Repository::init_bare(temp_dir.path())?;
-
-        let mut pack_lookup: HashMap<Vec<u8>, PackBlob> = HashMap::new();
-        if !existing_commits.is_empty() {
-            let mut pack_stream = self.git_storage.load_pack_chain(user_id, None).await?;
-            while let Some(pack_res) = pack_stream.next().await {
-                let pack = pack_res?;
-                pack_lookup.insert(pack.commit_id.clone(), pack);
-                if pack_lookup.len() >= existing_commits.len() {
-                    break;
-                }
-            }
-        }
-        let mut ordered_existing: Vec<(CommitMeta, PackBlob)> = Vec::new();
-        for meta in existing_commits.iter() {
-            if let Some(pack) = pack_lookup.remove(&meta.commit_id) {
-                ordered_existing.push((meta.clone(), pack));
-            } else {
-                anyhow::bail!(
-                    "missing pack blob for commit {}",
-                    encode_commit_id(&meta.commit_id)
-                );
-            }
-        }
-
-        let existing_map = materialize_commits(&repo, &ordered_existing)?;
-
         let committed_at = Utc::now();
         let author_name = "RefMD".to_string();
         let author_email = "refmd@example.com".to_string();
@@ -913,15 +788,63 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         let files_changed = (delta.added.len() + delta.modified.len() + delta.deleted.len()) as u32;
 
-        let (meta, pack_bytes, commit_hex, commit_oid) = {
-            let tree_oid = build_tree_from_snapshots(&repo, &current)?;
+        let packs_to_apply = if let Some(prev_meta) = latest_meta.as_ref() {
+            let packs = collect_pack_chain(
+                self.git_storage.as_ref(),
+                user_id,
+                Some(prev_meta.commit_id.as_slice()),
+            )
+            .await?;
+            Some(packs.ok_or_else(|| {
+                anyhow!(
+                    "missing pack data for commit {}",
+                    encode_commit_id(&prev_meta.commit_id)
+                )
+            })?)
+        } else {
+            None
+        };
+
+        let (meta, pack_bytes, commit_hex, pushed) = {
+            let temp_dir = TempDirBuilder::new()
+                .prefix("git-sync-")
+                .tempdir()
+                .map_err(|e| anyhow::anyhow!(e))?;
+            let repo = Repository::init_bare(temp_dir.path())?;
+
+            if let Some(packs) = packs_to_apply.as_ref() {
+                apply_pack_sequence(&repo, packs)?;
+            }
+
+            let mut changed_paths: HashSet<String> = delta.added.iter().cloned().collect();
+            changed_paths.extend(delta.modified.iter().cloned());
+
+            let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+            for (path, snapshot) in current.iter() {
+                let needs_fresh_bytes = latest_meta.is_none() || changed_paths.contains(path);
+                let bytes = if needs_fresh_bytes {
+                    self.snapshot_bytes(snapshot).await?
+                } else if let Some(prev_meta) = latest_meta.as_ref() {
+                    match self
+                        .load_file_snapshot(user_id, prev_meta.commit_id.as_slice(), path)
+                        .await?
+                    {
+                        Some(data) => data,
+                        None => self.snapshot_bytes(snapshot).await?,
+                    }
+                } else {
+                    self.snapshot_bytes(snapshot).await?
+                };
+                entries.insert(path.clone(), bytes);
+            }
+
+            let tree_oid = build_tree_from_entries(&repo, &entries)?;
             let tree = repo.find_tree(tree_oid)?;
 
             let mut parent_commits = Vec::new();
             if let Some(prev_meta) = latest_meta.as_ref() {
-                if let Some(parent_oid) = existing_map.get(&prev_meta.commit_id) {
-                    parent_commits.push(repo.find_commit(*parent_oid)?);
-                }
+                let parent_oid = git2::Oid::from_bytes(&prev_meta.commit_id)?;
+                parent_commits.push(repo.find_commit(parent_oid)?);
             }
             let parent_refs: Vec<&Commit> = parent_commits.iter().collect();
 
@@ -942,6 +865,10 @@ impl GitWorkspacePort for GitWorkspaceService {
             let mut pack_buf = git2::Buf::new();
             pack_builder.write_buf(&mut pack_buf)?;
             let pack_bytes = pack_buf.to_vec();
+            drop(pack_builder);
+            drop(tree);
+            drop(parent_commits);
+            drop(author_sig);
 
             let mut file_hash_index: HashMap<String, String> = HashMap::new();
             for (path, snapshot) in current.iter() {
@@ -965,24 +892,18 @@ impl GitWorkspacePort for GitWorkspaceService {
                 file_hash_index,
             };
 
-            (meta, pack_bytes, commit_hex, commit_oid)
-        };
-
-        let mut pushed = false;
-        if let Some(cfg) = cfg {
-            if !cfg.repository_url.is_empty() {
-                pushed = perform_push(&repo, cfg, &branch_name, commit_oid)?;
+            let mut pushed = false;
+            if let Some(cfg) = cfg {
+                if !cfg.repository_url.is_empty() {
+                    pushed = perform_push(&repo, cfg, &branch_name, commit_oid)?;
+                }
             }
-        }
 
-        drop(repo);
-        let _ = temp_dir.close();
+            drop(repo);
+            let _ = temp_dir.close();
 
-        self.git_storage
-            .store_pack(user_id, &pack_bytes, &meta)
-            .await?;
-        self.store_commit_snapshots(user_id, &meta.commit_id, &current)
-            .await?;
+            (meta, pack_bytes, commit_hex, pushed)
+        };
 
         sqlx::query(
             r#"INSERT INTO git_commits (
@@ -1014,7 +935,53 @@ impl GitWorkspacePort for GitWorkspaceService {
             .execute(&mut *tx)
             .await?;
 
-        tx.commit().await?;
+        let snapshot_keys = match self
+            .store_commit_snapshots(user_id, &meta.commit_id, &current)
+            .await
+        {
+            Ok(keys) => keys,
+            Err(err) => {
+                tx.rollback().await.ok();
+                return Err(err);
+            }
+        };
+
+        if let Err(err) = self
+            .git_storage
+            .store_pack(user_id, &pack_bytes, &meta)
+            .await
+        {
+            for key in snapshot_keys.iter().rev() {
+                let _ = self.git_storage.delete_blob(key).await;
+            }
+            tx.rollback().await.ok();
+            return Err(err);
+        }
+
+        if let Err(err) = self
+            .git_storage
+            .set_latest_commit(user_id, Some(&meta))
+            .await
+        {
+            let _ = self.git_storage.delete_pack(user_id, &meta.commit_id).await;
+            for key in snapshot_keys.iter().rev() {
+                let _ = self.git_storage.delete_blob(key).await;
+            }
+            tx.rollback().await.ok();
+            return Err(err);
+        }
+
+        if let Err(err) = tx.commit().await {
+            let _ = self.git_storage.delete_pack(user_id, &meta.commit_id).await;
+            for key in snapshot_keys.iter().rev() {
+                let _ = self.git_storage.delete_blob(key).await;
+            }
+            let _ = self
+                .git_storage
+                .set_latest_commit(user_id, latest_meta.as_ref())
+                .await;
+            return Err(err.into());
+        }
         Ok(GitSyncOutcome {
             files_changed,
             commit_hash: Some(commit_hex),
@@ -1050,19 +1017,6 @@ fn row_to_commit_meta(row: sqlx::postgres::PgRow) -> anyhow::Result<CommitMeta> 
     })
 }
 
-fn materialize_commits(
-    repo: &Repository,
-    commits: &[(CommitMeta, PackBlob)],
-) -> anyhow::Result<HashMap<Vec<u8>, git2::Oid>> {
-    let mut materialized = HashMap::new();
-    for (meta, pack) in commits.iter() {
-        apply_pack_to_repo(repo, &pack.bytes)?;
-        let oid = git2::Oid::from_bytes(&meta.commit_id)?;
-        materialized.insert(meta.commit_id.clone(), oid);
-    }
-    Ok(materialized)
-}
-
 fn apply_pack_to_repo(repo: &Repository, pack: &[u8]) -> anyhow::Result<()> {
     let objects_dir = repo.path().join("objects").join("pack");
     fs::create_dir_all(&objects_dir)?;
@@ -1077,14 +1031,17 @@ async fn collect_pack_chain(
     storage: &dyn GitStorage,
     user_id: Uuid,
     until: Option<&[u8]>,
-) -> anyhow::Result<Vec<PackBlob>> {
+) -> anyhow::Result<Option<Vec<PackBlob>>> {
     let mut stream = storage.load_pack_chain(user_id, until).await?;
     let mut packs = Vec::new();
     while let Some(pack) = stream.next().await {
         packs.push(pack?);
     }
+    if packs.is_empty() {
+        return Ok(None);
+    }
     packs.reverse();
-    Ok(packs)
+    Ok(Some(packs))
 }
 
 fn apply_pack_sequence(repo: &Repository, packs: &[PackBlob]) -> anyhow::Result<()> {
@@ -1175,17 +1132,6 @@ fn perform_push(
     Ok(true)
 }
 
-fn build_tree_from_snapshots(
-    repo: &Repository,
-    state: &HashMap<String, FileSnapshot>,
-) -> anyhow::Result<git2::Oid> {
-    let mut entries = BTreeMap::new();
-    for (path, snapshot) in state.iter() {
-        entries.insert(path.clone(), snapshot.bytes.clone());
-    }
-    build_tree_from_entries(repo, &entries)
-}
-
 fn build_tree_from_entries(
     repo: &Repository,
     entries: &BTreeMap<String, Vec<u8>>,
@@ -1274,9 +1220,14 @@ fn write_dir(repo: &Repository, dir: &DirNode) -> anyhow::Result<git2::Oid> {
     Ok(builder.write()?)
 }
 
+enum FileSnapshotData {
+    Inline(Vec<u8>),
+    StoragePath(String),
+}
+
 struct FileSnapshot {
     hash: String,
-    bytes: Vec<u8>,
+    data: FileSnapshotData,
     is_text: bool,
 }
 

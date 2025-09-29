@@ -102,8 +102,7 @@ impl GitStorage for FilesystemGitStorage {
         fs::write(&pack_path, pack).await?;
         let meta_path = self.meta_path(user_id, &commit_hex);
         self.write_meta(meta_path.as_path(), meta).await?;
-        let latest_path = self.latest_path(user_id);
-        self.write_meta(latest_path.as_path(), meta).await
+        Ok(())
     }
 
     async fn load_pack_chain(
@@ -170,10 +169,54 @@ impl GitStorage for FilesystemGitStorage {
         Ok(bytes)
     }
 
+    async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
+        let root = self.blobs_root();
+        let path = sanitize_blob_path(root.as_path(), &key.path)?;
+        if fs::try_exists(&path).await.unwrap_or(false) {
+            fs::remove_file(path).await?;
+        }
+        Ok(())
+    }
+
+    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> anyhow::Result<()> {
+        let commit_hex = encode_commit_id(commit_id);
+        let pack_path = self.pack_path(user_id, &commit_hex);
+        if fs::try_exists(&pack_path).await.unwrap_or(false) {
+            fs::remove_file(&pack_path).await?;
+        }
+        let meta_path = self.meta_path(user_id, &commit_hex);
+        if fs::try_exists(&meta_path).await.unwrap_or(false) {
+            fs::remove_file(&meta_path).await?;
+        }
+        Ok(())
+    }
+
+    async fn set_latest_commit(
+        &self,
+        user_id: Uuid,
+        meta: Option<&CommitMeta>,
+    ) -> anyhow::Result<()> {
+        let latest_path = self.latest_path(user_id);
+        if let Some(meta) = meta {
+            self.write_meta(latest_path.as_path(), meta).await?
+        } else if fs::try_exists(&latest_path).await.unwrap_or(false) {
+            fs::remove_file(&latest_path).await?;
+        }
+        Ok(())
+    }
+
     async fn delete_all(&self, user_id: Uuid) -> anyhow::Result<()> {
         let dir = self.user_dir(user_id);
         if fs::try_exists(&dir).await.unwrap_or(false) {
             fs::remove_dir_all(&dir).await?;
+        }
+        let blobs_root = self.blobs_root().join(user_id.to_string());
+        if fs::try_exists(&blobs_root).await.unwrap_or(false) {
+            fs::remove_dir_all(&blobs_root).await?;
+        }
+        let latest_path = self.latest_path(user_id);
+        if fs::try_exists(&latest_path).await.unwrap_or(false) {
+            fs::remove_file(&latest_path).await?;
         }
         Ok(())
     }
@@ -410,10 +453,7 @@ impl GitStorage for S3GitStorage {
         let meta_key = self.key_for_meta(user_id, &commit_hex);
         let stored = StoredCommitMeta::from_meta(meta);
         let data = serde_json::to_vec_pretty(&stored)?;
-        self.put_object(&meta_key, &data).await?;
-        let latest_key = self.key_for_latest(user_id);
-        let _guard = self.latest_lock.lock().await;
-        self.put_object(&latest_key, &data).await
+        self.put_object(&meta_key, &data).await
     }
 
     async fn load_pack_chain(
@@ -476,8 +516,71 @@ impl GitStorage for S3GitStorage {
         }
     }
 
+    async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
+        let key = self.key_for_blob(&key.path);
+        let _ = self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(&key)
+            .send()
+            .await;
+        Ok(())
+    }
+
+    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> anyhow::Result<()> {
+        let commit_hex = encode_commit_id(commit_id);
+        let pack_key = self.key_for_pack(user_id, &commit_hex);
+        let meta_key = self.key_for_meta(user_id, &commit_hex);
+        let _ = self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(&pack_key)
+            .send()
+            .await;
+        let _ = self
+            .client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(&meta_key)
+            .send()
+            .await;
+        Ok(())
+    }
+
+    async fn set_latest_commit(
+        &self,
+        user_id: Uuid,
+        meta: Option<&CommitMeta>,
+    ) -> anyhow::Result<()> {
+        let latest_key = self.key_for_latest(user_id);
+        match meta {
+            Some(meta) => {
+                let stored = StoredCommitMeta::from_meta(meta);
+                let data = serde_json::to_vec_pretty(&stored)?;
+                let _guard = self.latest_lock.lock().await;
+                self.put_object(&latest_key, &data).await
+            }
+            None => {
+                let _guard = self.latest_lock.lock().await;
+                let _ = self
+                    .client
+                    .delete_object()
+                    .bucket(&self.bucket)
+                    .key(&latest_key)
+                    .send()
+                    .await;
+                Ok(())
+            }
+        }
+    }
+
     async fn delete_all(&self, user_id: Uuid) -> anyhow::Result<()> {
-        let prefix = format!("{}/git/packs/{}/", self.root_prefix, user_id);
-        self.delete_prefix(&prefix).await
+        let pack_prefix = format!("{}/git/packs/{}/", self.root_prefix, user_id);
+        self.delete_prefix(&pack_prefix).await?;
+        let blob_prefix = format!("{}/git/blobs/{}/", self.root_prefix, user_id);
+        self.delete_prefix(&blob_prefix).await?;
+        self.set_latest_commit(user_id, None).await
     }
 }

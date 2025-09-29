@@ -45,6 +45,13 @@ pub trait GitStorage: Send + Sync {
     ) -> anyhow::Result<PackStream>;
     async fn put_blob(&self, key: &BlobKey, data: &[u8]) -> anyhow::Result<()>;
     async fn fetch_blob(&self, key: &BlobKey) -> anyhow::Result<Vec<u8>>;
+    async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()>;
+    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> anyhow::Result<()>;
+    async fn set_latest_commit(
+        &self,
+        user_id: Uuid,
+        meta: Option<&CommitMeta>,
+    ) -> anyhow::Result<()>;
     async fn delete_all(&self, user_id: Uuid) -> anyhow::Result<()>;
 }
 
