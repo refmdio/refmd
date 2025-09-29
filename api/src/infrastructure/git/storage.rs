@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use futures_util::{StreamExt, stream};
 use tokio::fs;
@@ -59,6 +59,49 @@ impl FilesystemGitStorage {
         self.user_dir(user_id).join("latest.json")
     }
 
+    async fn load_meta_or_err(
+        &self,
+        user_id: Uuid,
+        commit_id: &[u8],
+    ) -> anyhow::Result<CommitMeta> {
+        let commit_hex = encode_commit_id(commit_id);
+        let meta_path = self.meta_path(user_id, &commit_hex);
+        match self.read_meta(meta_path.as_path()).await? {
+            Some(meta) => Ok(meta),
+            None => Err(anyhow!("metadata not found for commit {}", commit_hex)),
+        }
+    }
+
+    async fn collect_meta_chain(
+        &self,
+        user_id: Uuid,
+        until: Option<&[u8]>,
+    ) -> anyhow::Result<Vec<CommitMeta>> {
+        let mut metas = Vec::new();
+        match until {
+            Some(target) => {
+                let mut current = self.load_meta_or_err(user_id, target).await?;
+                metas.push(current.clone());
+                while let Some(parent) = current.parent_commit_id.clone() {
+                    current = self.load_meta_or_err(user_id, parent.as_slice()).await?;
+                    metas.push(current.clone());
+                }
+            }
+            None => {
+                let Some(mut current) = self.latest_commit(user_id).await? else {
+                    return Ok(metas);
+                };
+                metas.push(current.clone());
+                while let Some(parent) = current.parent_commit_id.clone() {
+                    current = self.load_meta_or_err(user_id, parent.as_slice()).await?;
+                    metas.push(current.clone());
+                }
+            }
+        }
+        metas.reverse();
+        Ok(metas)
+    }
+
     async fn read_meta(&self, path: &Path) -> anyhow::Result<Option<CommitMeta>> {
         if !fs::try_exists(path).await.unwrap_or(false) {
             return Ok(None);
@@ -110,45 +153,11 @@ impl GitStorage for FilesystemGitStorage {
         user_id: Uuid,
         until: Option<&[u8]>,
     ) -> anyhow::Result<PackStream> {
-        let storage = self.clone();
-        let Some(first_meta) = storage.latest_commit(user_id).await? else {
+        let metas = self.collect_meta_chain(user_id, until).await?;
+        if metas.is_empty() {
             return Ok(Box::pin(stream::empty()));
-        };
-        let until = until.map(|b| b.to_vec());
-
-        let mut metas = Vec::new();
-        let mut current = first_meta;
-        loop {
-            let reached_target = until
-                .as_ref()
-                .map(|target| target == &current.commit_id)
-                .unwrap_or(false);
-            metas.push(current.clone());
-            if reached_target {
-                break;
-            }
-            let Some(parent_id) = current.parent_commit_id.clone() else {
-                break;
-            };
-            let parent_hex = encode_commit_id(&parent_id);
-            let meta_path = storage.meta_path(user_id, &parent_hex);
-            let Some(next_meta) = storage.read_meta(meta_path.as_path()).await? else {
-                anyhow::bail!("metadata not found for commit {}", parent_hex);
-            };
-            current = next_meta;
         }
-
-        if let Some(target) = until.as_ref() {
-            let reached = metas
-                .last()
-                .map(|meta| meta.commit_id.as_slice() == target.as_slice())
-                .unwrap_or(false);
-            if !reached {
-                anyhow::bail!("metadata not found for commit {}", encode_commit_id(target));
-            }
-        }
-
-        metas.reverse();
+        let storage = self.clone();
         let storage_for_stream = storage.clone();
         let stream = stream::iter(metas.into_iter()).then(move |meta| {
             let storage = storage_for_stream.clone();
@@ -459,6 +468,49 @@ impl S3GitStorage {
         let stored: StoredCommitMeta = serde_json::from_slice(&bytes)?;
         stored.into_meta().map(Some)
     }
+
+    async fn load_meta_or_err(
+        &self,
+        user_id: Uuid,
+        commit_id: &[u8],
+    ) -> anyhow::Result<CommitMeta> {
+        let commit_hex = encode_commit_id(commit_id);
+        let meta_key = self.key_for_meta(user_id, &commit_hex);
+        match self.fetch_meta(&meta_key).await? {
+            Some(meta) => Ok(meta),
+            None => Err(anyhow!("metadata not found for commit {}", commit_hex)),
+        }
+    }
+
+    async fn collect_meta_chain(
+        &self,
+        user_id: Uuid,
+        until: Option<&[u8]>,
+    ) -> anyhow::Result<Vec<CommitMeta>> {
+        let mut metas = Vec::new();
+        match until {
+            Some(target) => {
+                let mut current = self.load_meta_or_err(user_id, target).await?;
+                metas.push(current.clone());
+                while let Some(parent) = current.parent_commit_id.clone() {
+                    current = self.load_meta_or_err(user_id, parent.as_slice()).await?;
+                    metas.push(current.clone());
+                }
+            }
+            None => {
+                let Some(mut current) = self.latest_commit(user_id).await? else {
+                    return Ok(metas);
+                };
+                metas.push(current.clone());
+                while let Some(parent) = current.parent_commit_id.clone() {
+                    current = self.load_meta_or_err(user_id, parent.as_slice()).await?;
+                    metas.push(current.clone());
+                }
+            }
+        }
+        metas.reverse();
+        Ok(metas)
+    }
 }
 
 #[async_trait]
@@ -488,45 +540,11 @@ impl GitStorage for S3GitStorage {
         user_id: Uuid,
         until: Option<&[u8]>,
     ) -> anyhow::Result<PackStream> {
-        let storage = self.clone();
-        let Some(first_meta) = storage.latest_commit(user_id).await? else {
+        let metas = self.collect_meta_chain(user_id, until).await?;
+        if metas.is_empty() {
             return Ok(Box::pin(stream::empty()));
-        };
-        let until = until.map(|b| b.to_vec());
-
-        let mut metas = Vec::new();
-        let mut current = first_meta;
-        loop {
-            let reached_target = until
-                .as_ref()
-                .map(|target| target == &current.commit_id)
-                .unwrap_or(false);
-            metas.push(current.clone());
-            if reached_target {
-                break;
-            }
-            let Some(parent_id) = current.parent_commit_id.clone() else {
-                break;
-            };
-            let parent_hex = encode_commit_id(&parent_id);
-            let meta_key = storage.key_for_meta(user_id, &parent_hex);
-            let Some(next_meta) = storage.fetch_meta(&meta_key).await? else {
-                anyhow::bail!("metadata not found for commit {}", parent_hex);
-            };
-            current = next_meta;
         }
-
-        if let Some(target) = until.as_ref() {
-            let reached = metas
-                .last()
-                .map(|meta| meta.commit_id.as_slice() == target.as_slice())
-                .unwrap_or(false);
-            if !reached {
-                anyhow::bail!("metadata not found for commit {}", encode_commit_id(target));
-            }
-        }
-
-        metas.reverse();
+        let storage = self.clone();
         let storage_for_stream = storage.clone();
         let stream = stream::iter(metas.into_iter()).then(move |meta| {
             let storage = storage_for_stream.clone();
