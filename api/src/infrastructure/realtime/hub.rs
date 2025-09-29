@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -11,7 +10,6 @@ use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
 // use yrs::Text; // not needed; referencing via fully qualified yrs::Text
 use crate::application::ports::storage_port::StoragePort;
 use crate::infrastructure::db::PgPool;
-use crate::infrastructure::storage;
 use sqlx::Row;
 use uuid::Uuid;
 use yrs::GetString;
@@ -35,21 +33,15 @@ pub struct DocumentRoom {
 pub struct Hub {
     inner: Arc<RwLock<HashMap<String, Arc<DocumentRoom>>>>,
     pool: PgPool,
-    uploads_root: PathBuf,
     storage: Arc<dyn StoragePort>,
     save_flags: Arc<Mutex<HashMap<String, bool>>>,
 }
 
 impl Hub {
-    pub fn new(
-        pool: PgPool,
-        uploads_root: impl Into<PathBuf>,
-        storage: Arc<dyn StoragePort>,
-    ) -> Self {
+    pub fn new(pool: PgPool, storage: Arc<dyn StoragePort>) -> Self {
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
             pool,
-            uploads_root: uploads_root.into(),
             storage,
             save_flags: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -68,8 +60,6 @@ impl Hub {
 
         // Persist Yrs updates to DB
         let pool = self.pool.clone();
-        let uploads_root_clone = self.uploads_root.clone();
-        let uploads_for_observer = uploads_root_clone.clone();
         let save_flags = self.save_flags.clone();
         let start_seq: i64 = sqlx::query(
             "SELECT COALESCE(MAX(seq), 0) AS max_seq FROM document_updates WHERE document_id = $1",
@@ -136,7 +126,6 @@ impl Hub {
                 // schedule fs save (debounced)
                 let save_flags = save_flags.clone();
                 let pool = pool.clone();
-                let uploads_root = uploads_for_observer.clone();
                 let doc_id_s = doc_id_str.clone();
                 let hub_clone = hub_for_save.clone();
                 tokio::spawn(async move {
@@ -151,10 +140,7 @@ impl Hub {
                         m.remove(&doc_id_s).is_some()
                     };
                     if should_run {
-                        if let Err(e) =
-                            save_doc_to_fs(&pool, uploads_root.as_path(), &hub_clone, &doc_id_s)
-                                .await
-                        {
+                        if let Err(e) = save_doc_to_fs(&pool, &hub_clone, &doc_id_s).await {
                             tracing::error!(document_id = %doc_id_s, error = ?e, "debounced_save_failed");
                         }
                     }
@@ -175,7 +161,7 @@ impl Hub {
             .insert(doc_id.to_string(), room.clone());
         // Hydrate in background (snapshot + updates). Non-blocking for WS subscription
         let pool_h = self.pool.clone();
-        let uploads_h = uploads_root_clone.clone();
+        let storage_h = self.storage.clone();
         let bcast_h = bcast.clone();
         tokio::spawn(async move {
             tracing::debug!(%doc_uuid, "hydrate:start");
@@ -241,32 +227,34 @@ impl Hub {
                 }
             }
             if !hydrated {
-                // Try to hydrate from existing filesystem .md (fallback when DB has no state)
+                // Try to hydrate from existing stored markdown (fallback when DB has no state)
                 if let Ok(row) = sqlx::query("SELECT path FROM documents WHERE id = $1")
                     .bind(doc_uuid)
                     .fetch_one(&pool_h)
                     .await
                 {
                     if let Ok::<String, _>(rel) = row.try_get("path") {
-                        let full = uploads_h.join(rel);
-                        if let Ok(data) = tokio::fs::read_to_string(&full).await {
-                            // Strip simple frontmatter --- ... ---
-                            let content = if data.starts_with("---\n") {
-                                match data[4..].find("\n---\n") {
-                                    Some(pos) => data[(4 + pos + 5)..].to_string(),
-                                    None => data,
+                        let full = storage_h.absolute_from_relative(&rel);
+                        if let Ok(bytes) = storage_h.read_bytes(full.as_path()).await {
+                            if let Ok(data) = String::from_utf8(bytes) {
+                                // Strip simple frontmatter --- ... ---
+                                let content = if data.starts_with("---\n") {
+                                    match data[4..].find("\n---\n") {
+                                        Some(pos) => data[(4 + pos + 5)..].to_string(),
+                                        None => data,
+                                    }
+                                } else {
+                                    data
+                                };
+                                let txt = doc.get_or_insert_text("content");
+                                let mut txn = doc.transact_mut();
+                                let l = yrs::Text::len(&txt, &txn);
+                                if l > 0 {
+                                    yrs::Text::remove_range(&txt, &mut txn, 0, l);
                                 }
-                            } else {
-                                data
-                            };
-                            let txt = doc.get_or_insert_text("content");
-                            let mut txn = doc.transact_mut();
-                            let l = yrs::Text::len(&txt, &txn);
-                            if l > 0 {
-                                yrs::Text::remove_range(&txt, &mut txn, 0, l);
+                                yrs::Text::insert(&txt, &mut txn, 0, &content);
+                                hydrated = true;
                             }
-                            yrs::Text::insert(&txt, &mut txn, 0, &content);
-                            hydrated = true;
                         }
                     }
                 }
@@ -359,7 +347,7 @@ impl Hub {
     }
 
     pub async fn force_save_to_fs(&self, doc_id: &str) -> anyhow::Result<()> {
-        save_doc_to_fs(&self.pool, self.uploads_root.as_path(), self, doc_id).await
+        save_doc_to_fs(&self.pool, self, doc_id).await
     }
 
     pub async fn subscribe(
@@ -405,12 +393,7 @@ impl yrs::sync::Protocol for ReadOnlyProtocol {
     }
 }
 
-async fn save_doc_to_fs(
-    pool: &PgPool,
-    uploads_root: &Path,
-    hub: &Hub,
-    doc_id: &str,
-) -> anyhow::Result<()> {
+async fn save_doc_to_fs(pool: &PgPool, hub: &Hub, doc_id: &str) -> anyhow::Result<()> {
     let uuid = Uuid::parse_str(doc_id)?;
     // Fetch meta
     let row = sqlx::query("SELECT id, owner_id, title, type, path FROM documents WHERE id = $1")
@@ -425,8 +408,6 @@ async fn save_doc_to_fs(
     if dtype == "folder" {
         return Ok(());
     }
-    // Build file path
-    let filepath = storage::build_doc_file_path(pool, uploads_root, uuid).await?;
     // Build content with frontmatter (deterministic; avoid timestamp/CRDT metadata)
     let title: String = row.get("title");
     let content = hub.get_content(doc_id).await?.unwrap_or_default();
@@ -434,15 +415,20 @@ async fn save_doc_to_fs(
     if !formatted.ends_with('\n') {
         formatted.push('\n');
     }
-    let _ = storage::move_doc_paths(pool, uploads_root, uuid).await;
+    if let Err(e) = hub.storage.sync_doc_paths(uuid).await {
+        tracing::debug!(%uuid, error = ?e, "sync_doc_paths_failed");
+    }
+    let filepath = hub.storage.build_doc_file_path(uuid).await?;
     let formatted_bytes = formatted.into_bytes();
-    if let Ok(existing) = hub.storage.read_bytes(&filepath).await {
+    if let Ok(existing) = hub.storage.read_bytes(filepath.as_path()).await {
         if existing == formatted_bytes {
             return Ok(());
         }
     }
     let owner_id: Uuid = row.get("owner_id");
-    hub.storage.write_bytes(&filepath, &formatted_bytes).await?;
+    hub.storage
+        .write_bytes(filepath.as_path(), &formatted_bytes)
+        .await?;
     // Update document link graph (best-effort)
     let lg_repo = crate::infrastructure::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository::new(pool.clone());
     if let Err(e) =

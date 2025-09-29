@@ -325,6 +325,10 @@ impl StoragePort for S3StoragePort {
         self.root.join(rel)
     }
 
+    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
+        self.move_doc_paths(doc_id).await
+    }
+
     async fn resolve_upload_path(&self, doc_id: Uuid, rest_path: &str) -> anyhow::Result<PathBuf> {
         let doc_dir = crate::infrastructure::storage::build_doc_dir(&self.pool, &self.root, doc_id)
             .await?

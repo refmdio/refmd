@@ -70,6 +70,15 @@ impl StoragePort for FsStoragePort {
         self.uploads_root.join(rel)
     }
 
+    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
+        crate::infrastructure::storage::move_doc_paths(
+            &self.pool,
+            self.uploads_root.as_path(),
+            doc_id,
+        )
+        .await
+    }
+
     async fn resolve_upload_path(&self, doc_id: Uuid, rest_path: &str) -> anyhow::Result<PathBuf> {
         use std::path::Component;
         use tokio::fs;

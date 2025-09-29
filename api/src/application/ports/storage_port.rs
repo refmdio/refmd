@@ -20,6 +20,7 @@ pub trait StoragePort: Send + Sync {
     fn relative_from_uploads(&self, abs: &Path) -> String;
     fn user_repo_dir(&self, user_id: Uuid) -> String;
     fn absolute_from_relative(&self, rel: &str) -> PathBuf;
+    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()>;
     async fn resolve_upload_path(&self, doc_id: Uuid, rest_path: &str) -> anyhow::Result<PathBuf>;
     async fn read_bytes(&self, abs_path: &Path) -> anyhow::Result<Vec<u8>>;
     async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> anyhow::Result<()>;

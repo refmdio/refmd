@@ -199,11 +199,7 @@ async fn main() -> anyhow::Result<()> {
         };
 
     // Build Realtime Hub
-    let hub = api::infrastructure::realtime::Hub::new(
-        pool.clone(),
-        cfg.storage_root.clone(),
-        storage_port.clone(),
-    );
+    let hub = api::infrastructure::realtime::Hub::new(pool.clone(), storage_port.clone());
     let (plugin_tx, _plugin_rx) = tokio::sync::broadcast::channel::<PluginScopedEvent>(64);
 
     let document_repo = Arc::new(

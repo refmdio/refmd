@@ -1,2 +1,3 @@
-plugins/
-uploads/
+/plugins/
+/uploads/
+deploy/dev/uploads/
