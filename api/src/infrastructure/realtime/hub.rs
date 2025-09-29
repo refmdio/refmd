@@ -9,6 +9,7 @@ use yrs::sync::protocol::{MSG_SYNC, MSG_SYNC_UPDATE};
 use yrs::updates::encoder::{Encoder, EncoderV1};
 use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
 // use yrs::Text; // not needed; referencing via fully qualified yrs::Text
+use crate::application::ports::storage_port::StoragePort;
 use crate::infrastructure::db::PgPool;
 use crate::infrastructure::storage;
 use sqlx::Row;
@@ -35,15 +36,21 @@ pub struct Hub {
     inner: Arc<RwLock<HashMap<String, Arc<DocumentRoom>>>>,
     pool: PgPool,
     uploads_root: PathBuf,
+    storage: Arc<dyn StoragePort>,
     save_flags: Arc<Mutex<HashMap<String, bool>>>,
 }
 
 impl Hub {
-    pub fn new(pool: PgPool, uploads_root: impl Into<PathBuf>) -> Self {
+    pub fn new(
+        pool: PgPool,
+        uploads_root: impl Into<PathBuf>,
+        storage: Arc<dyn StoragePort>,
+    ) -> Self {
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
             pool,
             uploads_root: uploads_root.into(),
+            storage,
             save_flags: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -420,9 +427,6 @@ async fn save_doc_to_fs(
     }
     // Build file path
     let filepath = storage::build_doc_file_path(pool, uploads_root, uuid).await?;
-    if let Some(parent) = filepath.parent() {
-        let _ = tokio::fs::create_dir_all(parent).await;
-    }
     // Build content with frontmatter (deterministic; avoid timestamp/CRDT metadata)
     let title: String = row.get("title");
     let content = hub.get_content(doc_id).await?.unwrap_or_default();
@@ -431,23 +435,14 @@ async fn save_doc_to_fs(
         formatted.push('\n');
     }
     let _ = storage::move_doc_paths(pool, uploads_root, uuid).await;
-    if tokio::fs::try_exists(&filepath).await.unwrap_or(false) {
-        if let Ok(existing) = tokio::fs::read_to_string(&filepath).await {
-            if existing == formatted {
-                return Ok(());
-            }
+    let formatted_bytes = formatted.into_bytes();
+    if let Ok(existing) = hub.storage.read_bytes(&filepath).await {
+        if existing == formatted_bytes {
+            return Ok(());
         }
     }
     let owner_id: Uuid = row.get("owner_id");
-    // Write atomically (content changed or no prior file)
-    let tmp_path = filepath.with_extension("md.tmp");
-    use tokio::io::AsyncWriteExt;
-    let mut f = tokio::fs::File::create(&tmp_path).await?;
-    f.write_all(formatted.as_bytes()).await?;
-    f.flush().await?;
-    f.sync_all().await?;
-    drop(f);
-    let _ = tokio::fs::rename(&tmp_path, &filepath).await;
+    hub.storage.write_bytes(&filepath, &formatted_bytes).await?;
     // Update document link graph (best-effort)
     let lg_repo = crate::infrastructure::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository::new(pool.clone());
     if let Err(e) =

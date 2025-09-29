@@ -143,7 +143,7 @@ pub async fn move_doc_paths(
                 for row in files {
                     let filename: String = row.get("filename");
                     let old_path: String = row.get("storage_path");
-                    let old_full = PathBuf::from(&old_path);
+                    let old_full = uploads_root.join(&old_path);
 
                     // Only move if file exists and is in the old attachments directory
                     if tokio::fs::try_exists(&old_full).await.unwrap_or(false) {
@@ -151,9 +151,10 @@ pub async fn move_doc_paths(
                         let _ = tokio::fs::rename(&old_full, &new_path).await;
 
                         // Update DB with new path
+                        let new_rel = relative_from_uploads(uploads_root, &new_path);
                         let _ = sqlx::query("UPDATE files SET storage_path = $2 WHERE document_id = $1 AND filename = $3")
                             .bind(doc_id)
-                            .bind(new_path.to_string_lossy().to_string())
+                            .bind(new_rel)
                             .bind(&filename)
                             .execute(pool).await;
                     }
@@ -238,7 +239,7 @@ pub async fn delete_doc_physical(
 
     for file_row in files {
         if let Ok(storage_path) = file_row.try_get::<String, _>("storage_path") {
-            let file_path = PathBuf::from(&storage_path);
+            let file_path = uploads_root.join(&storage_path);
             if tokio::fs::try_exists(&file_path).await.unwrap_or(false) {
                 let _ = tokio::fs::remove_file(&file_path).await;
             }

@@ -1,7 +1,9 @@
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::application::ports::storage_port::{StoragePort, StoredAttachment};
+use sha2::{Digest, Sha256};
 
 pub struct FsStoragePort {
     pub pool: crate::infrastructure::db::PgPool,
@@ -64,6 +66,10 @@ impl StoragePort for FsStoragePort {
         path.to_string_lossy().to_string()
     }
 
+    fn absolute_from_relative(&self, rel: &str) -> PathBuf {
+        self.uploads_root.join(rel)
+    }
+
     async fn resolve_upload_path(&self, doc_id: Uuid, rest_path: &str) -> anyhow::Result<PathBuf> {
         use std::path::Component;
         use tokio::fs;
@@ -110,6 +116,14 @@ impl StoragePort for FsStoragePort {
     async fn read_bytes(&self, abs_path: &Path) -> anyhow::Result<Vec<u8>> {
         let data = tokio::fs::read(abs_path).await?;
         Ok(data)
+    }
+
+    async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> anyhow::Result<()> {
+        if let Some(parent) = abs_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::write(abs_path, data).await?;
+        Ok(())
     }
 
     async fn store_doc_attachment(
@@ -175,14 +189,23 @@ impl StoragePort for FsStoragePort {
         let relative = crate::infrastructure::storage::relative_from_uploads(
             self.uploads_root.as_path(),
             &candidate,
-        );
+        )
+        .replace('\\', "/");
         let size = bytes.len() as i64;
+
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        let digest = hasher.finalize();
+        let mut content_hash = String::with_capacity(64);
+        for byte in digest {
+            let _ = write!(&mut content_hash, "{:02x}", byte);
+        }
 
         Ok(StoredAttachment {
             filename: safe,
-            absolute_path: candidate,
             relative_path: relative,
             size,
+            content_hash,
         })
     }
 }

@@ -73,7 +73,7 @@ where
         let stored_attachments = self.files.list_storage_paths_for_document(doc_id).await?;
         let mut attachments: Vec<(String, Vec<u8>)> = Vec::new();
         for stored_path in stored_attachments {
-            let full_path = PathBuf::from(&stored_path);
+            let full_path = self.storage.absolute_from_relative(&stored_path);
             if !full_path.starts_with(&doc_dir) {
                 continue;
             }

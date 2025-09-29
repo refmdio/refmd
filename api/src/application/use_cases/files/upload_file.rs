@@ -40,7 +40,11 @@ where
         let stored = self
             .storage
             .store_doc_attachment(doc_id, orig_filename.as_deref(), &bytes)
-            .await?;
+            .await
+            .map_err(|err| {
+                tracing::error!(error = ?err, doc_id = %doc_id, "store_doc_attachment_failed");
+                err
+            })?;
         let id = self
             .repo
             .insert_file(
@@ -48,9 +52,14 @@ where
                 &stored.filename,
                 content_type.as_deref(),
                 stored.size,
-                &stored.absolute_path.to_string_lossy(),
+                &stored.relative_path,
+                &stored.content_hash,
             )
-            .await?;
+            .await
+            .map_err(|err| {
+                tracing::error!(error = ?err, doc_id = %doc_id, "insert_file_failed");
+                err
+            })?;
         let relative = stored.relative_path.trim_start_matches('/');
         let url = if let Some(base) = self.public_base_url.as_deref() {
             let origin = base.trim_end_matches('/');

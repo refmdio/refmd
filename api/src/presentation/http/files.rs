@@ -6,7 +6,6 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -146,8 +145,9 @@ pub async fn get_file(
     if owner_id != user_id {
         return Err(StatusCode::FORBIDDEN);
     }
+    let abs_path = storage.absolute_from_relative(&path);
     let data = storage
-        .read_bytes(Path::new(&path))
+        .read_bytes(&abs_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
     let mut headers = HeaderMap::new();
@@ -209,8 +209,9 @@ pub async fn get_file_by_name(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     let storage = ctx.storage_port();
+    let abs_path = storage.absolute_from_relative(&path);
     let data = storage
-        .read_bytes(Path::new(&path))
+        .read_bytes(&abs_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
     let mut headers = HeaderMap::new();
