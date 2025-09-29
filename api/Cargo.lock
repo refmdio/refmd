@@ -182,6 +182,7 @@ dependencies = [
  "comrak",
  "dotenvy",
  "extism",
+ "futures-core",
  "futures-util",
  "git2",
  "htmlescape",
@@ -196,9 +197,11 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "similar",
  "sqlx",
  "syntect",
  "syntect-assets",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
@@ -4739,6 +4742,12 @@ dependencies = [
  "digest",
  "rand_core 0.6.4",
 ]
+
+[[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "simple_asn1"

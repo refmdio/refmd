@@ -243,9 +243,15 @@ async fn main() -> anyhow::Result<()> {
             cfg.encryption_key.clone(),
         ),
     );
+    let git_storage = api::infrastructure::git::storage::build_git_storage(&cfg).await?;
     let gitignore_port = Arc::new(api::infrastructure::storage::gitignore::FsGitignorePort);
-    let git_workspace =
-        Arc::new(api::infrastructure::git::workspace::GitWorkspaceService::new(&cfg.storage_root)?);
+    let git_workspace = Arc::new(
+        api::infrastructure::git::workspace::GitWorkspaceService::new(
+            pool.clone(),
+            git_storage.clone(),
+            storage_port.clone(),
+        )?,
+    );
     let realtime_port =
         Arc::new(api::infrastructure::realtime::port_impl::HubRealtimePort { hub: hub.clone() });
     let plugin_repo = Arc::new(
@@ -307,6 +313,7 @@ async fn main() -> anyhow::Result<()> {
         user_repo,
         tag_repo,
         git_repo,
+        git_storage,
         gitignore_port,
         git_workspace,
         storage_port,
