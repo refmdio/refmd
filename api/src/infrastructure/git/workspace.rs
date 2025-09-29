@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -8,12 +9,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use git2::{
-    CertificateCheckStatus, Commit, Cred, FileMode, Indexer, ObjectType, PushOptions,
+    CertificateCheckStatus, Commit, Cred, FetchOptions, FileMode, Indexer, ObjectType, PushOptions,
     RemoteCallbacks, Repository, Signature, Time, TreeWalkMode, TreeWalkResult,
 };
 use similar::{Algorithm, ChangeTag, TextDiff};
 use sqlx::{Row, types::Json};
-use tempfile::Builder as TempDirBuilder;
+use tempfile::{Builder as TempDirBuilder, TempDir};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -22,9 +23,7 @@ use crate::application::dto::git::{
     GitSyncRequestDto, GitWorkspaceStatus,
 };
 use crate::application::ports::git_repository::UserGitCfg;
-use crate::application::ports::git_storage::{
-    BlobKey, CommitMeta, GitStorage, PackBlob, encode_commit_id,
-};
+use crate::application::ports::git_storage::{BlobKey, CommitMeta, GitStorage, encode_commit_id};
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::storage_port::StoragePort;
 use crate::infrastructure::db::PgPool;
@@ -128,6 +127,79 @@ impl GitWorkspaceService {
         .fetch_optional(&self.pool)
         .await?;
         row.map(|r| row_to_commit_meta(r)).transpose()
+    }
+
+    async fn ensure_latest_meta(&self, user_id: Uuid) -> anyhow::Result<Option<CommitMeta>> {
+        if let Some(meta) = self.latest_commit_meta(user_id).await? {
+            return Ok(Some(meta));
+        }
+        let Some(storage_latest) = self.git_storage.latest_commit(user_id).await? else {
+            return Ok(None);
+        };
+        self.backfill_commits_from_storage(user_id, &storage_latest)
+            .await?;
+        Ok(Some(storage_latest))
+    }
+
+    async fn backfill_commits_from_storage(
+        &self,
+        user_id: Uuid,
+        latest: &CommitMeta,
+    ) -> anyhow::Result<()> {
+        let mut pending = Vec::new();
+        let mut cursor = Some(latest.clone());
+        while let Some(meta) = cursor {
+            if self
+                .commit_meta_by_id(user_id, meta.commit_id.as_slice())
+                .await?
+                .is_some()
+            {
+                break;
+            }
+            pending.push(meta.clone());
+            cursor = match meta.parent_commit_id.clone() {
+                Some(parent) => {
+                    self.git_storage
+                        .commit_meta(user_id, parent.as_slice())
+                        .await?
+                }
+                None => None,
+            };
+        }
+        if pending.is_empty() {
+            return Ok(());
+        }
+        pending.reverse();
+        let mut tx = self.pool.begin().await?;
+        for meta in pending.into_iter() {
+            sqlx::query(
+                r#"INSERT INTO git_commits (
+                        commit_id,
+                        parent_commit_id,
+                        user_id,
+                        message,
+                        author_name,
+                        author_email,
+                        committed_at,
+                        pack_key,
+                        file_hash_index
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                    ON CONFLICT (commit_id) DO NOTHING"#,
+            )
+            .bind(meta.commit_id.clone())
+            .bind(meta.parent_commit_id.clone())
+            .bind(user_id)
+            .bind(meta.message.clone())
+            .bind(meta.author_name.clone())
+            .bind(meta.author_email.clone())
+            .bind(meta.committed_at)
+            .bind(meta.pack_key.clone())
+            .bind(Json(&meta.file_hash_index))
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn collect_current_state(
@@ -354,7 +426,7 @@ impl GitWorkspaceService {
         from_meta: Option<&CommitMeta>,
         to_meta: &CommitMeta,
     ) -> anyhow::Result<Vec<DiffResult>> {
-        let packs_to = collect_pack_chain(
+        let (to_pack_dir, to_pack_paths) = persist_pack_chain(
             self.git_storage.as_ref(),
             user_id,
             Some(to_meta.commit_id.as_slice()),
@@ -367,29 +439,38 @@ impl GitWorkspaceService {
             )
         })?;
 
+        let from_pack = if let Some(from_meta) = from_meta {
+            if from_meta.commit_id != to_meta.commit_id {
+                Some(
+                    persist_pack_chain(
+                        self.git_storage.as_ref(),
+                        user_id,
+                        Some(from_meta.commit_id.as_slice()),
+                    )
+                    .await?
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "missing pack data for commit {}",
+                            encode_commit_id(&from_meta.commit_id)
+                        )
+                    })?,
+                )
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let temp_dir = TempDirBuilder::new()
             .prefix("git-diff-")
             .tempdir()
             .map_err(|e| anyhow::anyhow!(e))?;
         let repo = Repository::init_bare(temp_dir.path())?;
 
-        apply_pack_sequence(&repo, &packs_to)?;
-        if let Some(from_meta) = from_meta {
-            if from_meta.commit_id != to_meta.commit_id {
-                let packs_from = collect_pack_chain(
-                    self.git_storage.as_ref(),
-                    user_id,
-                    Some(from_meta.commit_id.as_slice()),
-                )
-                .await?
-                .ok_or_else(|| {
-                    anyhow!(
-                        "missing pack data for commit {}",
-                        encode_commit_id(&from_meta.commit_id)
-                    )
-                })?;
-                apply_pack_sequence(&repo, &packs_from)?;
-            }
+        apply_pack_files(&repo, &to_pack_paths)?;
+        if let Some((_, ref paths)) = from_pack {
+            apply_pack_files(&repo, paths)?;
         }
 
         let from_files = if let Some(from_meta) = from_meta {
@@ -401,6 +482,10 @@ impl GitWorkspaceService {
 
         drop(repo);
         let _ = temp_dir.close();
+        drop(to_pack_dir);
+        if let Some((dir, _)) = from_pack {
+            drop(dir);
+        }
 
         let mut paths: BTreeSet<String> = BTreeSet::new();
         paths.extend(from_files.keys().cloned());
@@ -746,18 +831,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             anyhow::bail!("repository not initialized")
         }
 
-        let latest_row = sqlx::query(
-            r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
-                      committed_at, pack_key, file_hash_index
-               FROM git_commits
-               WHERE user_id = $1
-               ORDER BY committed_at DESC
-               LIMIT 1"#,
-        )
-        .bind(user_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let latest_meta = latest_row.map(|row| row_to_commit_meta(row)).transpose()?;
+        let latest_meta = self.ensure_latest_meta(user_id).await?;
 
         let storage_latest = self.git_storage.latest_commit(user_id).await?;
         let storage_commit_hex = storage_latest
@@ -797,19 +871,21 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         let files_changed = (delta.added.len() + delta.modified.len() + delta.deleted.len()) as u32;
 
-        let packs_to_apply = if let Some(prev_meta) = latest_meta.as_ref() {
-            let packs = collect_pack_chain(
-                self.git_storage.as_ref(),
-                user_id,
-                Some(prev_meta.commit_id.as_slice()),
-            )
-            .await?;
-            Some(packs.ok_or_else(|| {
-                anyhow!(
-                    "missing pack data for commit {}",
-                    encode_commit_id(&prev_meta.commit_id)
+        let previous_pack = if let Some(prev_meta) = latest_meta.as_ref() {
+            Some(
+                persist_pack_chain(
+                    self.git_storage.as_ref(),
+                    user_id,
+                    Some(prev_meta.commit_id.as_slice()),
                 )
-            })?)
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "missing pack data for commit {}",
+                        encode_commit_id(&prev_meta.commit_id)
+                    )
+                })?,
+            )
         } else {
             None
         };
@@ -821,8 +897,19 @@ impl GitWorkspacePort for GitWorkspaceService {
                 .map_err(|e| anyhow::anyhow!(e))?;
             let repo = Repository::init_bare(temp_dir.path())?;
 
-            if let Some(packs) = packs_to_apply.as_ref() {
-                apply_pack_sequence(&repo, packs)?;
+            if let Some((_, ref pack_paths)) = previous_pack {
+                apply_pack_files(&repo, pack_paths)?;
+            }
+
+            if let Some(cfg) = cfg {
+                if !cfg.repository_url.is_empty() {
+                    fetch_remote_and_verify(
+                        &repo,
+                        cfg,
+                        branch_name.as_str(),
+                        latest_meta.as_ref(),
+                    )?;
+                }
             }
 
             let mut changed_paths: HashSet<String> = delta.added.iter().cloned().collect();
@@ -913,6 +1000,10 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             (meta, pack_bytes, commit_hex, pushed)
         };
+
+        if let Some((dir, _)) = previous_pack {
+            drop(dir);
+        }
 
         sqlx::query(
             r#"INSERT INTO git_commits (
@@ -1036,26 +1127,135 @@ fn apply_pack_to_repo(repo: &Repository, pack: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn collect_pack_chain(
+async fn persist_pack_chain(
     storage: &dyn GitStorage,
     user_id: Uuid,
     until: Option<&[u8]>,
-) -> anyhow::Result<Option<Vec<PackBlob>>> {
+) -> anyhow::Result<Option<(TempDir, Vec<PathBuf>)>> {
     let mut stream = storage.load_pack_chain(user_id, until).await?;
-    let mut packs = Vec::new();
+    let temp_dir = tempfile::tempdir()?;
+    let mut pack_paths = Vec::new();
+    let mut index: usize = 0;
     while let Some(pack) = stream.next().await {
-        packs.push(pack?);
+        let pack = pack?;
+        let path = temp_dir.path().join(format!("{:08}.pack", index));
+        tokio::fs::write(&path, &pack.bytes).await?;
+        pack_paths.push(path);
+        index += 1;
     }
-    if packs.is_empty() {
-        return Ok(None);
+    if pack_paths.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some((temp_dir, pack_paths)))
     }
-    packs.reverse();
-    Ok(Some(packs))
 }
 
-fn apply_pack_sequence(repo: &Repository, packs: &[PackBlob]) -> anyhow::Result<()> {
-    for pack in packs {
-        apply_pack_to_repo(repo, &pack.bytes)?;
+fn apply_pack_files(repo: &Repository, pack_paths: &[PathBuf]) -> anyhow::Result<()> {
+    for path in pack_paths {
+        let bytes = fs::read(path)?;
+        apply_pack_to_repo(repo, &bytes)?;
+    }
+    Ok(())
+}
+
+fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallbacks<'static> {
+    let auth_type = cfg.auth_type.clone().unwrap_or_default();
+    let auth_data = cfg.auth_data.clone();
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.credentials(
+        move |_url, username_from_url, _allowed| match auth_type.as_str() {
+            "token" => {
+                if let Some(token) = auth_data
+                    .as_ref()
+                    .and_then(|v| v.get("token"))
+                    .and_then(|v| v.as_str())
+                {
+                    let user = username_from_url.unwrap_or("x-access-token");
+                    Cred::userpass_plaintext(user, token)
+                } else {
+                    Cred::default()
+                }
+            }
+            "ssh" => {
+                if let Some(key) = auth_data
+                    .as_ref()
+                    .and_then(|v| v.get("private_key"))
+                    .and_then(|v| v.as_str())
+                {
+                    let user = username_from_url.unwrap_or("git");
+                    Cred::ssh_key_from_memory(user, None, key, None)
+                } else {
+                    Cred::default()
+                }
+            }
+            _ => Cred::default(),
+        },
+    );
+    callbacks.certificate_check(|_, _| Ok(CertificateCheckStatus::CertificateOk));
+    callbacks
+}
+
+fn prepare_remote<'repo>(
+    repo: &'repo Repository,
+    cfg: &UserGitCfg,
+) -> anyhow::Result<git2::Remote<'repo>> {
+    let mut remote = match repo.find_remote("origin") {
+        Ok(remote) => remote,
+        Err(_) => repo.remote("origin", &cfg.repository_url)?,
+    };
+    if remote.url() != Some(cfg.repository_url.as_str()) {
+        repo.remote_set_url("origin", &cfg.repository_url)?;
+        remote = repo.find_remote("origin")?;
+    }
+    Ok(remote)
+}
+
+fn fetch_remote_head(
+    repo: &Repository,
+    cfg: &UserGitCfg,
+    branch: &str,
+) -> anyhow::Result<Option<git2::Oid>> {
+    let mut remote = prepare_remote(repo, cfg)?;
+    let callbacks = build_remote_callbacks(cfg);
+    let mut fetch_options = FetchOptions::new();
+    fetch_options.remote_callbacks(callbacks);
+    let refspec = format!("refs/heads/{branch}:refs/remotes/origin/{branch}");
+    remote.fetch(&[&refspec], Some(&mut fetch_options), None)?;
+    let reference_name = format!("refs/remotes/origin/{branch}");
+    match repo.find_reference(&reference_name) {
+        Ok(reference) => Ok(reference.target()),
+        Err(err) if err.code() == git2::ErrorCode::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn fetch_remote_and_verify(
+    repo: &Repository,
+    cfg: &UserGitCfg,
+    branch: &str,
+    latest_meta: Option<&CommitMeta>,
+) -> anyhow::Result<()> {
+    if cfg.repository_url.is_empty() {
+        return Ok(());
+    }
+    let remote_head = fetch_remote_head(repo, cfg, branch)?;
+    match (latest_meta, remote_head) {
+        (Some(meta), Some(oid)) => {
+            if oid.as_bytes() != meta.commit_id.as_slice() {
+                anyhow::bail!(
+                    "remote repository state diverged: remote head {} does not match latest recorded commit {}",
+                    oid.to_string(),
+                    encode_commit_id(&meta.commit_id)
+                );
+            }
+        }
+        (None, Some(oid)) => {
+            anyhow::bail!(
+                "remote repository already contains commit {} but local repository has no history",
+                oid.to_string()
+            );
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -1091,49 +1291,8 @@ fn perform_push(
     let ref_name = format!("refs/heads/{}", branch);
     repo.reference(&ref_name, commit_oid, true, "update branch for sync")?;
 
-    let mut remote = match repo.find_remote("origin") {
-        Ok(remote) => remote,
-        Err(_) => repo.remote("origin", &cfg.repository_url)?,
-    };
-    if remote.url() != Some(cfg.repository_url.as_str()) {
-        repo.remote_set_url("origin", &cfg.repository_url)?;
-        remote = repo.find_remote("origin")?;
-    }
-
-    let auth_type = cfg.auth_type.clone().unwrap_or_default();
-    let auth_data = cfg.auth_data.clone();
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.credentials(
-        move |_url, username_from_url, _allowed| match auth_type.as_str() {
-            "token" => {
-                if let Some(token) = auth_data
-                    .as_ref()
-                    .and_then(|v| v.get("token"))
-                    .and_then(|v| v.as_str())
-                {
-                    let user = username_from_url.unwrap_or("x-access-token");
-                    Cred::userpass_plaintext(user, token)
-                } else {
-                    Cred::default()
-                }
-            }
-            "ssh" => {
-                if let Some(key) = auth_data
-                    .as_ref()
-                    .and_then(|v| v.get("private_key"))
-                    .and_then(|v| v.as_str())
-                {
-                    let user = username_from_url.unwrap_or("git");
-                    Cred::ssh_key_from_memory(user, None, key, None)
-                } else {
-                    Cred::default()
-                }
-            }
-            _ => Cred::default(),
-        },
-    );
-    callbacks.certificate_check(|_, _| Ok(CertificateCheckStatus::CertificateOk));
-
+    let mut remote = prepare_remote(repo, cfg)?;
+    let callbacks = build_remote_callbacks(cfg);
     let mut push_options = PushOptions::new();
     push_options.remote_callbacks(callbacks);
     let refspec = format!("refs/heads/{}:refs/heads/{}", branch, cfg.branch_name);

@@ -7,6 +7,9 @@ impl GitignorePort for FsGitignorePort {
     async fn ensure_gitignore(&self, dir: &str) -> anyhow::Result<bool> {
         use tokio::io::AsyncWriteExt;
         let path = std::path::Path::new(dir).join(".gitignore");
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
         let defaults = vec![
             "# RefMD auto-generated .gitignore",
             "*.md.tmp",
@@ -55,6 +58,9 @@ impl GitignorePort for FsGitignorePort {
     ) -> anyhow::Result<usize> {
         use tokio::io::AsyncWriteExt;
         let path = std::path::Path::new(dir).join(".gitignore");
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
         let mut set: std::collections::BTreeSet<String> =
             if tokio::fs::try_exists(&path).await.unwrap_or(false) {
                 tokio::fs::read_to_string(&path)

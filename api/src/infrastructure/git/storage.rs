@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use async_trait::async_trait;
-use futures_util::stream;
+use futures_util::{StreamExt, stream};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
@@ -115,40 +115,57 @@ impl GitStorage for FilesystemGitStorage {
             return Ok(Box::pin(stream::empty()));
         };
         let until = until.map(|b| b.to_vec());
-        let stream = futures_util::stream::try_unfold(
-            (storage, user_id, Some(first_meta), until),
-            |(storage, user_id, state_opt, until)| async move {
-                let current = match state_opt {
-                    Some(meta) => meta,
-                    None => return Ok(None),
-                };
-                let commit_hex = encode_commit_id(&current.commit_id);
+
+        let mut metas = Vec::new();
+        let mut current = first_meta;
+        loop {
+            let reached_target = until
+                .as_ref()
+                .map(|target| target == &current.commit_id)
+                .unwrap_or(false);
+            metas.push(current.clone());
+            if reached_target {
+                break;
+            }
+            let Some(parent_id) = current.parent_commit_id.clone() else {
+                break;
+            };
+            let parent_hex = encode_commit_id(&parent_id);
+            let meta_path = storage.meta_path(user_id, &parent_hex);
+            let Some(next_meta) = storage.read_meta(meta_path.as_path()).await? else {
+                anyhow::bail!("metadata not found for commit {}", parent_hex);
+            };
+            current = next_meta;
+        }
+
+        if let Some(target) = until.as_ref() {
+            let reached = metas
+                .last()
+                .map(|meta| meta.commit_id.as_slice() == target.as_slice())
+                .unwrap_or(false);
+            if !reached {
+                anyhow::bail!("metadata not found for commit {}", encode_commit_id(target));
+            }
+        }
+
+        metas.reverse();
+        let storage_for_stream = storage.clone();
+        let stream = stream::iter(metas.into_iter()).then(move |meta| {
+            let storage = storage_for_stream.clone();
+            async move {
+                let commit_hex = encode_commit_id(&meta.commit_id);
                 let pack_path = storage.pack_path(user_id, &commit_hex);
                 if !fs::try_exists(&pack_path).await.unwrap_or(false) {
                     anyhow::bail!("pack not found for commit {}", commit_hex);
                 }
                 let bytes = fs::read(&pack_path).await?;
-                let pack = PackBlob {
-                    commit_id: current.commit_id.clone(),
+                Ok(PackBlob {
+                    commit_id: meta.commit_id.clone(),
                     bytes,
-                    pack_key: current.pack_key.clone(),
-                };
-                let stop = until
-                    .as_ref()
-                    .map(|target| target == &current.commit_id)
-                    .unwrap_or(false);
-                let next_state = if stop {
-                    None
-                } else if let Some(parent_id) = current.parent_commit_id.clone() {
-                    let parent_hex = encode_commit_id(&parent_id);
-                    let meta_path = storage.meta_path(user_id, &parent_hex);
-                    storage.read_meta(meta_path.as_path()).await?
-                } else {
-                    None
-                };
-                Ok(Some((pack, (storage, user_id, next_state, until))))
-            },
-        );
+                    pack_key: meta.pack_key.clone(),
+                })
+            }
+        });
         Ok(Box::pin(stream))
     }
 
@@ -167,6 +184,16 @@ impl GitStorage for FilesystemGitStorage {
         let path = sanitize_blob_path(root.as_path(), &key.path)?;
         let bytes = fs::read(path).await?;
         Ok(bytes)
+    }
+
+    async fn commit_meta(
+        &self,
+        user_id: Uuid,
+        commit_id: &[u8],
+    ) -> anyhow::Result<Option<CommitMeta>> {
+        let commit_hex = encode_commit_id(commit_id);
+        let meta_path = self.meta_path(user_id, &commit_hex);
+        self.read_meta(meta_path.as_path()).await
     }
 
     async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
@@ -466,40 +493,57 @@ impl GitStorage for S3GitStorage {
             return Ok(Box::pin(stream::empty()));
         };
         let until = until.map(|b| b.to_vec());
-        let stream = futures_util::stream::try_unfold(
-            (storage, user_id, Some(first_meta), until),
-            |(storage, user_id, state_opt, until)| async move {
-                let current = match state_opt {
-                    Some(meta) => meta,
-                    None => return Ok(None),
-                };
-                let commit_hex = encode_commit_id(&current.commit_id);
+
+        let mut metas = Vec::new();
+        let mut current = first_meta;
+        loop {
+            let reached_target = until
+                .as_ref()
+                .map(|target| target == &current.commit_id)
+                .unwrap_or(false);
+            metas.push(current.clone());
+            if reached_target {
+                break;
+            }
+            let Some(parent_id) = current.parent_commit_id.clone() else {
+                break;
+            };
+            let parent_hex = encode_commit_id(&parent_id);
+            let meta_key = storage.key_for_meta(user_id, &parent_hex);
+            let Some(next_meta) = storage.fetch_meta(&meta_key).await? else {
+                anyhow::bail!("metadata not found for commit {}", parent_hex);
+            };
+            current = next_meta;
+        }
+
+        if let Some(target) = until.as_ref() {
+            let reached = metas
+                .last()
+                .map(|meta| meta.commit_id.as_slice() == target.as_slice())
+                .unwrap_or(false);
+            if !reached {
+                anyhow::bail!("metadata not found for commit {}", encode_commit_id(target));
+            }
+        }
+
+        metas.reverse();
+        let storage_for_stream = storage.clone();
+        let stream = stream::iter(metas.into_iter()).then(move |meta| {
+            let storage = storage_for_stream.clone();
+            async move {
+                let commit_hex = encode_commit_id(&meta.commit_id);
                 let pack_key = storage.key_for_pack(user_id, &commit_hex);
                 let bytes = match storage.get_object(&pack_key).await? {
                     Some(b) => b,
                     None => anyhow::bail!("pack missing for commit {commit_hex}"),
                 };
-                let pack = PackBlob {
-                    commit_id: current.commit_id.clone(),
+                Ok(PackBlob {
+                    commit_id: meta.commit_id.clone(),
                     bytes,
-                    pack_key: current.pack_key.clone(),
-                };
-                let stop = until
-                    .as_ref()
-                    .map(|target| target == &current.commit_id)
-                    .unwrap_or(false);
-                let next_state = if stop {
-                    None
-                } else if let Some(parent_id) = current.parent_commit_id.clone() {
-                    let parent_hex = encode_commit_id(&parent_id);
-                    let meta_key = storage.key_for_meta(user_id, &parent_hex);
-                    storage.fetch_meta(&meta_key).await?
-                } else {
-                    None
-                };
-                Ok(Some((pack, (storage, user_id, next_state, until))))
-            },
-        );
+                    pack_key: meta.pack_key.clone(),
+                })
+            }
+        });
         Ok(Box::pin(stream))
     }
 
@@ -514,6 +558,16 @@ impl GitStorage for S3GitStorage {
             Some(bytes) => Ok(bytes),
             None => anyhow::bail!("blob not found"),
         }
+    }
+
+    async fn commit_meta(
+        &self,
+        user_id: Uuid,
+        commit_id: &[u8],
+    ) -> anyhow::Result<Option<CommitMeta>> {
+        let commit_hex = encode_commit_id(commit_id);
+        let meta_key = self.key_for_meta(user_id, &commit_hex);
+        self.fetch_meta(&meta_key).await
     }
 
     async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
