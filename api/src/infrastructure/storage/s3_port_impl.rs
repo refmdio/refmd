@@ -183,6 +183,7 @@ impl S3StoragePort {
                 let dst_key = self.relative_to_key(&new_rel);
                 if self.object_exists(&src_key).await? {
                     self.copy_object(&src_key, &dst_key).await?;
+                    self.delete_object(&src_key).await?;
                 }
             }
         }
@@ -211,6 +212,7 @@ impl S3StoragePort {
                     let dst_key = self.relative_to_key(&new_rel_attachment);
                     if self.object_exists(&src_key).await? {
                         self.copy_object(&src_key, &dst_key).await?;
+                        self.delete_object(&src_key).await?;
                     }
                     sqlx::query(
                         "UPDATE files SET storage_path = $2 WHERE document_id = $1 AND filename = $3",
