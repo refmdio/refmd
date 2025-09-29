@@ -746,21 +746,30 @@ impl GitWorkspacePort for GitWorkspaceService {
             anyhow::bail!("repository not initialized")
         }
 
-        let history_rows = sqlx::query(
+        let latest_row = sqlx::query(
             r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
                       committed_at, pack_key, file_hash_index
                FROM git_commits
                WHERE user_id = $1
-               ORDER BY committed_at ASC"#,
+               ORDER BY committed_at DESC
+               LIMIT 1"#,
         )
         .bind(user_id)
-        .fetch_all(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
-        let mut existing_commits = Vec::new();
-        for row in history_rows {
-            existing_commits.push(row_to_commit_meta(row)?);
+        let latest_meta = latest_row.map(|row| row_to_commit_meta(row)).transpose()?;
+
+        let storage_latest = self.git_storage.latest_commit(user_id).await?;
+        let storage_commit_hex = storage_latest
+            .as_ref()
+            .map(|m| encode_commit_id(&m.commit_id));
+        let db_commit_hex = latest_meta.as_ref().map(|m| encode_commit_id(&m.commit_id));
+        if storage_commit_hex != db_commit_hex {
+            tx.rollback().await.ok();
+            anyhow::bail!(
+                "repository latest commit mismatch between database ({db_commit_hex:?}) and storage ({storage_commit_hex:?})"
+            );
         }
-        let latest_meta = existing_commits.last().cloned();
 
         let previous_index = latest_meta
             .as_ref()
