@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
 use std::sync::Arc;
@@ -8,12 +8,13 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use git2::{
-    CertificateCheckStatus, Commit, Cred, FileMode, Indexer, PushOptions, RemoteCallbacks,
-    Repository, Signature, Time,
+    CertificateCheckStatus, Commit, Cred, FileMode, Indexer, ObjectType, PushOptions,
+    RemoteCallbacks, Repository, Signature, Time, TreeWalkMode, TreeWalkResult,
 };
 use similar::{Algorithm, ChangeTag, TextDiff};
 use sqlx::{Row, types::Json};
 use tempfile::Builder as TempDirBuilder;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::application::dto::git::{
@@ -71,6 +72,42 @@ impl GitWorkspaceService {
         .await?;
 
         row.map(|r| row_to_commit_meta(r)).transpose()
+    }
+
+    async fn load_commit_meta_ref(
+        &self,
+        user_id: Uuid,
+        rev: &str,
+    ) -> anyhow::Result<Option<CommitMeta>> {
+        if let Some(base) = rev.strip_suffix('^') {
+            let Some(meta) = self.commit_meta_by_hex(user_id, base).await? else {
+                return Ok(None);
+            };
+            if let Some(parent_id) = meta.parent_commit_id.clone() {
+                return self.commit_meta_by_id(user_id, parent_id.as_slice()).await;
+            }
+            return Ok(None);
+        }
+        self.commit_meta_by_hex(user_id, rev).await
+    }
+
+    async fn commit_meta_by_id(
+        &self,
+        user_id: Uuid,
+        commit_id: &[u8],
+    ) -> anyhow::Result<Option<CommitMeta>> {
+        let row = sqlx::query(
+            r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
+                      committed_at, pack_key, file_hash_index
+               FROM git_commits
+               WHERE user_id = $1 AND commit_id = $2
+               LIMIT 1"#,
+        )
+        .bind(user_id)
+        .bind(commit_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| row_to_commit_meta(row)).transpose()
     }
 
     async fn commit_meta_by_hex(
@@ -294,6 +331,266 @@ impl GitWorkspaceService {
             },
         }
     }
+
+    async fn commit_diff_via_packs(
+        &self,
+        user_id: Uuid,
+        from_meta: Option<&CommitMeta>,
+        to_meta: &CommitMeta,
+    ) -> anyhow::Result<Vec<DiffResult>> {
+        let mut packs_to = collect_pack_chain(
+            self.git_storage.as_ref(),
+            user_id,
+            Some(to_meta.commit_id.as_slice()),
+        )
+        .await?;
+        if packs_to.is_empty() {
+            self.rebuild_missing_commit_packs(user_id).await?;
+            packs_to = collect_pack_chain(
+                self.git_storage.as_ref(),
+                user_id,
+                Some(to_meta.commit_id.as_slice()),
+            )
+            .await?;
+        }
+
+        let temp_dir = TempDirBuilder::new()
+            .prefix("git-diff-")
+            .tempdir()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let repo = Repository::init_bare(temp_dir.path())?;
+
+        apply_pack_sequence(&repo, &packs_to)?;
+        if let Some(from_meta) = from_meta {
+            if from_meta.commit_id != to_meta.commit_id {
+                let mut packs_from = collect_pack_chain(
+                    self.git_storage.as_ref(),
+                    user_id,
+                    Some(from_meta.commit_id.as_slice()),
+                )
+                .await?;
+                if packs_from.is_empty() {
+                    self.rebuild_missing_commit_packs(user_id).await?;
+                    packs_from = collect_pack_chain(
+                        self.git_storage.as_ref(),
+                        user_id,
+                        Some(from_meta.commit_id.as_slice()),
+                    )
+                    .await?;
+                }
+                apply_pack_sequence(&repo, &packs_from)?;
+            }
+        }
+
+        let from_files = if let Some(from_meta) = from_meta {
+            read_commit_files(&repo, from_meta.commit_id.as_slice())?
+        } else {
+            HashMap::new()
+        };
+        let to_files = read_commit_files(&repo, to_meta.commit_id.as_slice())?;
+
+        drop(repo);
+        let _ = temp_dir.close();
+
+        let mut paths: BTreeSet<String> = BTreeSet::new();
+        paths.extend(from_files.keys().cloned());
+        paths.extend(to_files.keys().cloned());
+
+        let mut results = Vec::new();
+        for path in paths {
+            let old_bytes = from_files.get(&path);
+            let new_bytes = to_files.get(&path);
+            let old_content = old_bytes
+                .and_then(|b| std::str::from_utf8(b).ok())
+                .map(|s| s.to_string());
+            let new_content = new_bytes
+                .and_then(|b| std::str::from_utf8(b).ok())
+                .map(|s| s.to_string());
+            if old_content.is_none() && new_content.is_none() {
+                if old_bytes.is_some() || new_bytes.is_some() {
+                    results.push(self.build_diff_result(&path, None, None));
+                }
+                continue;
+            }
+            results.push(self.build_diff_result(
+                &path,
+                old_content.as_deref(),
+                new_content.as_deref(),
+            ));
+        }
+        Ok(results)
+    }
+
+    async fn rebuild_missing_commit_packs(&self, user_id: Uuid) -> anyhow::Result<()> {
+        let rows = sqlx::query(
+            r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
+                      committed_at, pack_key, file_hash_index
+               FROM git_commits
+               WHERE user_id = $1
+               ORDER BY committed_at ASC"#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let mut commits = Vec::with_capacity(rows.len());
+        for row in rows {
+            commits.push(row_to_commit_meta(row)?);
+        }
+
+        let temp_dir = TempDirBuilder::new()
+            .prefix("git-pack-repair-")
+            .tempdir()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let repo = Repository::init_bare(temp_dir.path())?;
+
+        let mut materialized: HashMap<Vec<u8>, git2::Oid> = HashMap::new();
+
+        for meta in commits.iter() {
+            let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+            for path in meta.file_hash_index.keys() {
+                if let Some(bytes) = self
+                    .load_file_snapshot(user_id, meta.commit_id.as_slice(), path)
+                    .await?
+                {
+                    entries.insert(path.clone(), bytes);
+                }
+            }
+
+            let pack_bytes = {
+                let tree_oid = build_tree_from_entries(&repo, &entries)?;
+                let tree = repo.find_tree(tree_oid)?;
+
+                let mut parent_commits = Vec::new();
+                if let Some(parent_id) = meta.parent_commit_id.as_ref() {
+                    if let Some(parent_oid) = materialized.get(parent_id) {
+                        parent_commits.push(repo.find_commit(*parent_oid)?);
+                    } else {
+                        anyhow::bail!(
+                            "missing parent commit {} while rebuilding git packs",
+                            encode_commit_id(parent_id)
+                        );
+                    }
+                }
+                let parent_refs: Vec<&Commit> = parent_commits.iter().collect();
+
+                let author_name = meta
+                    .author_name
+                    .clone()
+                    .unwrap_or_else(|| "RefMD".to_string());
+                let author_email = meta
+                    .author_email
+                    .clone()
+                    .unwrap_or_else(|| "refmd@example.com".to_string());
+                let message = meta.message.clone().unwrap_or_default();
+                let author_sig =
+                    signature_from_parts(&author_name, &author_email, meta.committed_at)?;
+
+                let commit_oid = repo.commit(
+                    None,
+                    &author_sig,
+                    &author_sig,
+                    &message,
+                    &tree,
+                    &parent_refs,
+                )?;
+
+                if commit_oid.as_bytes() != meta.commit_id.as_slice() {
+                    anyhow::bail!(
+                        "reconstructed commit {} has mismatched id {}",
+                        encode_commit_id(&meta.commit_id),
+                        encode_commit_id(commit_oid.as_bytes())
+                    );
+                }
+
+                let mut pack_builder = repo.packbuilder()?;
+                pack_builder.insert_commit(commit_oid)?;
+                let mut pack_buf = git2::Buf::new();
+                pack_builder.write_buf(&mut pack_buf)?;
+                materialized.insert(meta.commit_id.clone(), commit_oid);
+                pack_buf.to_vec()
+            };
+
+            self.git_storage
+                .store_pack(user_id, &pack_bytes, meta)
+                .await?;
+        }
+
+        drop(repo);
+        let _ = temp_dir.close();
+
+        Ok(())
+    }
+
+    async fn commit_diff_from_storage(
+        &self,
+        user_id: Uuid,
+        from_meta: Option<&CommitMeta>,
+        to_meta: Option<&CommitMeta>,
+    ) -> anyhow::Result<Vec<DiffResult>> {
+        let Some(to_meta) = to_meta else {
+            return Ok(Vec::new());
+        };
+
+        let mut paths: BTreeSet<String> = BTreeSet::new();
+        if let Some(meta) = from_meta {
+            paths.extend(meta.file_hash_index.keys().cloned());
+        }
+        paths.extend(to_meta.file_hash_index.keys().cloned());
+
+        let mut results = Vec::new();
+        for path in paths {
+            let old_hash = from_meta.and_then(|meta| meta.file_hash_index.get(&path));
+            let new_hash = to_meta.file_hash_index.get(&path);
+            if let (Some(old), Some(new)) = (old_hash, new_hash) {
+                if old == new {
+                    continue;
+                }
+            }
+
+            let old_bytes = match (from_meta, old_hash) {
+                (Some(meta), Some(_)) => {
+                    self.load_file_snapshot(user_id, meta.commit_id.as_slice(), &path)
+                        .await?
+                }
+                _ => None,
+            };
+            let new_bytes = match new_hash {
+                Some(_) => {
+                    self.load_file_snapshot(user_id, to_meta.commit_id.as_slice(), &path)
+                        .await?
+                }
+                None => None,
+            };
+
+            let old_text = old_bytes
+                .as_ref()
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .map(|s| s.to_string());
+            let new_text = new_bytes
+                .as_ref()
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .map(|s| s.to_string());
+
+            if old_text.is_none() && new_text.is_none() {
+                if old_bytes.is_some() || new_bytes.is_some() {
+                    results.push(self.build_diff_result(&path, None, None));
+                }
+            } else {
+                results.push(self.build_diff_result(
+                    &path,
+                    old_text.as_deref(),
+                    new_text.as_deref(),
+                ));
+            }
+        }
+
+        Ok(results)
+    }
 }
 
 #[async_trait]
@@ -413,7 +710,8 @@ impl GitWorkspacePort for GitWorkspaceService {
                     let new_content = String::from_utf8_lossy(&snapshot.bytes).to_string();
                     let old_bytes = match (&latest_commit_id, previous_index.get(path)) {
                         (Some(commit_id), Some(_)) => {
-                            self.load_file_snapshot(user_id, commit_id, path).await?
+                            self.load_file_snapshot(user_id, commit_id.as_slice(), path)
+                                .await?
                         }
                         _ => None,
                     };
@@ -438,7 +736,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             let old_bytes = if let (Some(commit_id), Some(_)) =
                 (&latest_commit_id, previous_index.get(&path))
             {
-                self.load_file_snapshot(user_id, commit_id, &path).await?
+                self.load_file_snapshot(user_id, commit_id.as_slice(), &path)
+                    .await?
             } else {
                 None
             };
@@ -455,37 +754,31 @@ impl GitWorkspacePort for GitWorkspaceService {
         from: &str,
         to: &str,
     ) -> anyhow::Result<Vec<DiffResult>> {
-        let Some(from_meta) = self.commit_meta_by_hex(user_id, from).await? else {
-            return Ok(Vec::new());
-        };
-        let Some(to_meta) = self.commit_meta_by_hex(user_id, to).await? else {
-            return Ok(Vec::new());
-        };
+        let from_meta = self.load_commit_meta_ref(user_id, from).await?;
+        let to_meta = self.load_commit_meta_ref(user_id, to).await?;
 
-        let mut paths: HashSet<String> = HashSet::new();
-        paths.extend(from_meta.file_hash_index.keys().cloned());
-        paths.extend(to_meta.file_hash_index.keys().cloned());
-
-        let mut results = Vec::new();
-        for path in paths {
-            let old_content = self
-                .load_file_snapshot(user_id, &from_meta.commit_id, &path)
-                .await?
-                .and_then(|b| String::from_utf8(b).ok());
-            let new_content = self
-                .load_file_snapshot(user_id, &to_meta.commit_id, &path)
-                .await?
-                .and_then(|b| String::from_utf8(b).ok());
-            if old_content.is_none() && new_content.is_none() {
-                continue;
+        if let Some(to_meta_ref) = to_meta.as_ref() {
+            match self
+                .commit_diff_via_packs(user_id, from_meta.as_ref(), to_meta_ref)
+                .await
+            {
+                Ok(results) => return Ok(results),
+                Err(err) => {
+                    warn!(
+                        %err,
+                        from = from_meta
+                            .as_ref()
+                            .map(|m| encode_commit_id(&m.commit_id))
+                            .unwrap_or_else(|| "(root)".to_string()),
+                        to = encode_commit_id(&to_meta_ref.commit_id),
+                        "failed to compute commit diff from pack data, using stored snapshots"
+                    );
+                }
             }
-            results.push(self.build_diff_result(
-                &path,
-                old_content.as_deref(),
-                new_content.as_deref(),
-            ));
         }
-        Ok(results)
+
+        self.commit_diff_from_storage(user_id, from_meta.as_ref(), to_meta.as_ref())
+            .await
     }
 
     async fn history(&self, user_id: Uuid) -> anyhow::Result<Vec<GitCommitInfo>> {
@@ -778,6 +1071,49 @@ fn apply_pack_to_repo(repo: &Repository, pack: &[u8]) -> anyhow::Result<()> {
     indexer.write_all(pack)?;
     indexer.commit()?;
     Ok(())
+}
+
+async fn collect_pack_chain(
+    storage: &dyn GitStorage,
+    user_id: Uuid,
+    until: Option<&[u8]>,
+) -> anyhow::Result<Vec<PackBlob>> {
+    let mut stream = storage.load_pack_chain(user_id, until).await?;
+    let mut packs = Vec::new();
+    while let Some(pack) = stream.next().await {
+        packs.push(pack?);
+    }
+    packs.reverse();
+    Ok(packs)
+}
+
+fn apply_pack_sequence(repo: &Repository, packs: &[PackBlob]) -> anyhow::Result<()> {
+    for pack in packs {
+        apply_pack_to_repo(repo, &pack.bytes)?;
+    }
+    Ok(())
+}
+
+fn read_commit_files(
+    repo: &Repository,
+    commit_id: &[u8],
+) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+    let oid = git2::Oid::from_bytes(commit_id)?;
+    let commit = repo.find_commit(oid)?;
+    let tree = commit.tree()?;
+    let mut files = HashMap::new();
+    tree.walk(TreeWalkMode::PreOrder, |root, entry| {
+        if entry.kind() == Some(ObjectType::Blob) {
+            if let Some(name) = entry.name() {
+                if let Ok(blob) = repo.find_blob(entry.id()) {
+                    let key = format!("{}{}", root, name);
+                    files.insert(key, blob.content().to_vec());
+                }
+            }
+        }
+        TreeWalkResult::Ok
+    })?;
+    Ok(files)
 }
 
 fn perform_push(
