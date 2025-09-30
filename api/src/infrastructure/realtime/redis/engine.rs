@@ -15,6 +15,7 @@ use yrs::updates::decoder::DecoderV1;
 use yrs::updates::encoder::{Encoder, EncoderV1};
 use yrs::{Doc, GetString, ReadTxn, StateVector, Transact};
 
+use crate::application::ports::awareness_port::AwarenessPublisher;
 use crate::application::ports::linkgraph_repository::LinkGraphRepository;
 use crate::application::ports::realtime_hydration_port::{DocStateReader, RealtimeBacklogReader};
 use crate::application::ports::realtime_persistence_port::DocPersistencePort;
@@ -199,10 +200,11 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
             .hydration_service
             .hydrate(&doc_uuid, HydrationOptions::default())
             .await?;
+        let awareness_publisher: Arc<dyn AwarenessPublisher> = self.bus.clone();
         let awareness_service = AwarenessService::new(
             hydrated.doc.clone(),
             self.awareness_ttl,
-            self.bus.clone(),
+            awareness_publisher,
             doc_id.to_string(),
         );
         let ttl_handle = awareness_service.spawn_ttl_task();
@@ -315,6 +317,9 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         }
         if let Some(handle) = awareness_handle {
             handle.abort();
+        }
+        if let Err(err) = awareness_service.clear_local_clients().await {
+            tracing::debug!(document_id = %doc_id, error = ?err, "redis_cluster_awareness_clear_failed");
         }
         ttl_handle.abort();
 

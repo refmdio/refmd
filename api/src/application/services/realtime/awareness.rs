@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -8,7 +8,9 @@ use tokio::time::sleep;
 use yrs::Doc;
 use yrs::block::ClientID;
 use yrs::encoding::read::Cursor;
-use yrs::sync::awareness::{Awareness, AwarenessUpdate, AwarenessUpdateEntry};
+use yrs::sync::awareness::{
+    Awareness, AwarenessUpdate, AwarenessUpdateEntry, AwarenessUpdateSummary,
+};
 use yrs::sync::{Message, MessageReader};
 use yrs::updates::decoder::DecoderV1;
 use yrs::updates::encoder::Encode;
@@ -22,6 +24,7 @@ pub struct AwarenessService {
     ttl: Duration,
     publisher: Arc<dyn AwarenessPublisher>,
     doc_id: String,
+    local_clients: Arc<Mutex<HashSet<ClientID>>>,
 }
 
 impl AwarenessService {
@@ -37,6 +40,7 @@ impl AwarenessService {
             ttl,
             publisher,
             doc_id: doc_id.into(),
+            local_clients: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -45,16 +49,56 @@ impl AwarenessService {
     }
 
     pub async fn apply_remote_frame(&self, frame: &[u8]) -> anyhow::Result<()> {
-        self.process_frame(frame).await
+        self.process_frame(frame, FrameOrigin::Remote).await
     }
 
     pub async fn record_local_frame(&self, frame: &[u8]) -> anyhow::Result<()> {
-        self.process_frame(frame).await
+        self.process_frame(frame, FrameOrigin::Local).await
     }
 
-    async fn process_frame(&self, frame: &[u8]) -> anyhow::Result<()> {
+    pub async fn clear_local_clients(&self) -> anyhow::Result<()> {
+        let clients: Vec<ClientID> = {
+            let mut guard = self.local_clients.lock().await;
+            guard.drain().collect()
+        };
+
+        if clients.is_empty() {
+            return Ok(());
+        }
+
+        {
+            let mut seen = self.last_seen.lock().await;
+            for client in &clients {
+                seen.remove(client);
+            }
+        }
+
+        let entries = self.build_null_entries(&clients);
+        for client in &clients {
+            self.awareness.remove_state(*client);
+        }
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let update = AwarenessUpdate { clients: entries };
+        let frame = Message::Awareness(update).encode_v1();
+        self.publisher
+            .publish_awareness(&self.doc_id, frame)
+            .await
+            .context("awareness_publish_local_clear")?;
+        Ok(())
+    }
+
+    async fn process_frame(&self, frame: &[u8], origin: FrameOrigin) -> anyhow::Result<()> {
         let mut decoder = DecoderV1::new(Cursor::new(frame));
         let mut reader = MessageReader::new(&mut decoder);
+        let mut combined = AwarenessUpdateSummary {
+            added: Vec::new(),
+            updated: Vec::new(),
+            removed: Vec::new(),
+        };
+        let mut any = false;
         while let Some(message) = reader.next() {
             let message = message?;
             if let Message::Awareness(update) = message {
@@ -63,27 +107,24 @@ impl AwarenessService {
                     .apply_update_summary(update)
                     .context("awareness_apply_update")?
                 {
-                    let now = Instant::now();
-                    if !summary.added.is_empty() || !summary.updated.is_empty() {
-                        let mut guard = self.last_seen.lock().await;
-                        for client_id in summary.added.iter().chain(summary.updated.iter()) {
-                            guard.insert(*client_id, now);
-                        }
-                    }
-                    if !summary.removed.is_empty() {
-                        let mut guard = self.last_seen.lock().await;
-                        for client_id in &summary.removed {
-                            guard.remove(client_id);
-                        }
-                    }
+                    any = true;
+                    combined.added.extend(summary.added);
+                    combined.updated.extend(summary.updated);
+                    combined.removed.extend(summary.removed);
                 }
             }
+        }
+        if any {
+            self.apply_summary(combined, origin).await;
         }
         Ok(())
     }
 
     pub async fn encode_full_state_frame(&self) -> anyhow::Result<Option<Vec<u8>>> {
-        let update = self.awareness.update().context("awareness_encode_full")?;
+        let update = self
+            .awareness
+            .update()
+            .context("awareness_encode_full_state")?;
         if update.clients.is_empty() {
             Ok(None)
         } else {
@@ -133,15 +174,62 @@ impl AwarenessService {
             return Ok(());
         }
 
+        {
+            let mut locals = self.local_clients.lock().await;
+            for client in &expired {
+                locals.remove(client);
+            }
+        }
+
+        let entries = self.build_null_entries(&expired);
         for client in &expired {
             self.awareness.remove_state(*client);
         }
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let update = AwarenessUpdate { clients: entries };
+        let frame = Message::Awareness(update).encode_v1();
+        self.publisher
+            .publish_awareness(&self.doc_id, frame)
+            .await
+            .context("awareness_publish_removal")?;
+        Ok(())
+    }
 
-        let mut clients_map: HashMap<ClientID, AwarenessUpdateEntry> = HashMap::new();
-        for client in expired {
-            if let Some((clock, _)) = self.awareness.meta(client) {
-                clients_map.insert(
-                    client,
+    async fn apply_summary(&self, summary: AwarenessUpdateSummary, origin: FrameOrigin) {
+        let now = Instant::now();
+        let added: HashSet<ClientID> = summary.added.into_iter().collect();
+        let updated: HashSet<ClientID> = summary.updated.into_iter().collect();
+        let removed: HashSet<ClientID> = summary.removed.into_iter().collect();
+
+        {
+            let mut guard = self.last_seen.lock().await;
+            for client in added.iter().chain(updated.iter()) {
+                guard.insert(*client, now);
+            }
+            for client in &removed {
+                guard.remove(client);
+            }
+        }
+
+        if matches!(origin, FrameOrigin::Local) {
+            let mut locals = self.local_clients.lock().await;
+            for client in added.iter().chain(updated.iter()) {
+                locals.insert(*client);
+            }
+            for client in &removed {
+                locals.remove(client);
+            }
+        }
+    }
+
+    fn build_null_entries(&self, clients: &[ClientID]) -> HashMap<ClientID, AwarenessUpdateEntry> {
+        let mut entries = HashMap::new();
+        for client in clients {
+            if let Some((clock, _)) = self.awareness.meta(*client) {
+                entries.insert(
+                    *client,
                     AwarenessUpdateEntry {
                         clock,
                         json: Arc::<str>::from("null"),
@@ -149,18 +237,7 @@ impl AwarenessService {
                 );
             }
         }
-        if clients_map.is_empty() {
-            return Ok(());
-        }
-        let update = AwarenessUpdate {
-            clients: clients_map,
-        };
-        let frame = Message::Awareness(update).encode_v1();
-        self.publisher
-            .publish_awareness(&self.doc_id, frame)
-            .await
-            .context("awareness_publish_removal")?;
-        Ok(())
+        entries
     }
 }
 
@@ -171,4 +248,10 @@ pub fn encode_awareness_state(awareness: &Awareness) -> anyhow::Result<Option<Ve
     } else {
         Ok(Some(Message::Awareness(update).encode_v1()))
     }
+}
+
+#[derive(Clone, Copy)]
+enum FrameOrigin {
+    Local,
+    Remote,
 }
