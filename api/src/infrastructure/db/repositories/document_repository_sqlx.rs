@@ -80,6 +80,14 @@ impl DocumentRepository for SqlxDocumentRepository {
         Ok(items)
     }
 
+    async fn list_ids_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Uuid>> {
+        let rows = sqlx::query("SELECT id FROM documents WHERE owner_id = $1")
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|r| r.get("id")).collect())
+    }
+
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>> {
         let row = sqlx::query(
             r#"SELECT id, title, parent_id, type, created_at, updated_at, path

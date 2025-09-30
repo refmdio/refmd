@@ -187,4 +187,28 @@ impl PluginRepository for SqlxPluginRepository {
         }
         Ok(out)
     }
+
+    async fn delete_scoped_kv(&self, scope: &str, scope_ids: &[Uuid]) -> anyhow::Result<()> {
+        if scope_ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query("DELETE FROM plugin_kv WHERE scope = $1 AND scope_id = ANY($2)")
+            .bind(scope)
+            .bind(scope_ids)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_scoped_records(&self, scope: &str, scope_ids: &[Uuid]) -> anyhow::Result<()> {
+        if scope_ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query("DELETE FROM plugin_records WHERE scope = $1 AND scope_id = ANY($2)")
+            .bind(scope)
+            .bind(scope_ids)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

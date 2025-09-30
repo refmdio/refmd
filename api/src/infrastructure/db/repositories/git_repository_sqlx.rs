@@ -175,4 +175,20 @@ impl GitRepository for SqlxGitRepository {
             .await?;
         Ok(())
     }
+
+    async fn delete_sync_logs(&self, user_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM git_sync_logs WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_repository_state(&self, user_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM git_repository_state WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

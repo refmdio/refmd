@@ -11,6 +11,7 @@ use utoipa::OpenApi;
         auth::login,
         auth::logout,
         auth::me,
+        auth::delete_account,
         ws::axum_ws_entry,
         tags::list_tags,
         documents::list_documents,

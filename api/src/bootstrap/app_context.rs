@@ -23,7 +23,7 @@ use crate::application::ports::storage_port::StoragePort;
 use crate::application::ports::tag_repository::TagRepository;
 use crate::application::ports::user_repository::UserRepository;
 use crate::bootstrap::config::Config;
-use futures_util::{stream::BoxStream};
+use futures_util::stream::BoxStream;
 
 use crate::infrastructure::plugins::event_bus_pg::PgPluginEventBus;
 

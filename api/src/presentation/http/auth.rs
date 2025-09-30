@@ -1,4 +1,5 @@
 use crate::application::access;
+use crate::application::use_cases::auth::delete_account::DeleteAccount;
 use crate::application::use_cases::auth::login::{Login as LoginUc, LoginRequest as LoginDto};
 use crate::application::use_cases::auth::me::GetMe;
 use crate::application::use_cases::auth::register::{
@@ -54,7 +55,7 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/logout", post(logout))
-        .route("/me", get(me))
+        .route("/me", get(me).delete(delete_account))
         .with_state(ctx)
 }
 
@@ -164,6 +165,60 @@ pub async fn me(
         email: row.email,
         name: row.name,
     }))
+}
+
+#[utoipa::path(delete, path = "/api/auth/me", tag = "Auth", responses((status = 204)))]
+pub async fn delete_account(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+) -> Result<(HeaderMap, StatusCode), StatusCode> {
+    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let user_repo = ctx.user_repo();
+    let document_repo = ctx.document_repo();
+    let storage = ctx.storage_port();
+    let plugin_installations = ctx.plugin_installations();
+    let plugin_repo = ctx.plugin_repo();
+    let plugin_assets = ctx.plugin_assets();
+    let git_repo = ctx.git_repo();
+    let git_workspace = ctx.git_workspace();
+
+    let uc = DeleteAccount {
+        user_repo: user_repo.as_ref(),
+        document_repo: document_repo.as_ref(),
+        storage: storage.as_ref(),
+        plugin_installations: plugin_installations.as_ref(),
+        plugin_repo: plugin_repo.as_ref(),
+        plugin_assets: plugin_assets.as_ref(),
+        git_repo: git_repo.as_ref(),
+        git_workspace: git_workspace.as_ref(),
+    };
+
+    uc.execute(user_id).await.map_err(|err| {
+        tracing::error!(user_id = %user_id, error = ?err, "account deletion failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let mut headers = HeaderMap::new();
+    let secure = ctx
+        .cfg
+        .frontend_url
+        .as_deref()
+        .map(|u| u.starts_with("https://"))
+        .unwrap_or(false);
+    let cookie = if secure {
+        "access_token=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Lax"
+    } else {
+        "access_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax"
+    };
+    headers.insert(
+        axum::http::header::SET_COOKIE,
+        axum::http::HeaderValue::from_str(cookie)
+            .unwrap_or(axum::http::HeaderValue::from_static("")),
+    );
+
+    Ok((headers, StatusCode::NO_CONTENT))
 }
 
 // --- Bearer extractor & JWT utils ---

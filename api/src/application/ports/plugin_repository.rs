@@ -62,4 +62,8 @@ pub trait PluginRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> anyhow::Result<Vec<PluginRecord>>;
+
+    async fn delete_scoped_kv(&self, scope: &str, scope_ids: &[Uuid]) -> anyhow::Result<()>;
+
+    async fn delete_scoped_records(&self, scope: &str, scope_ids: &[Uuid]) -> anyhow::Result<()>;
 }

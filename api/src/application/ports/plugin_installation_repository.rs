@@ -28,4 +28,6 @@ pub trait PluginInstallationRepository: Send + Sync {
     async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<PluginInstallation>>;
 
     async fn remove(&self, user_id: Uuid, plugin_id: &str) -> anyhow::Result<bool>;
+
+    async fn remove_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()>;
 }

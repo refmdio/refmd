@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import type { UserResponse } from '@/shared/api'
 import { queryClient } from '@/shared/lib/queryClient'
 
-import { login as loginApi, register as registerApi, me as meApi, AuthService, userKeys } from '@/entities/user'
+import { login as loginApi, register as registerApi, me as meApi, deleteAccount as deleteAccountApi, AuthService, userKeys } from '@/entities/user'
 
 type AuthState = {
   user: UserResponse | null
@@ -12,6 +12,7 @@ type AuthState = {
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, name: string, password: string) => Promise<void>
   signOut: () => Promise<void>
+  deleteAccount: () => Promise<void>
 }
 
 const Ctx = createContext<AuthState | null>(null)
@@ -58,9 +59,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     navigate({ to: '/auth/signin' })
   }, [navigate])
 
+  const deleteAccount = useCallback(async () => {
+    await deleteAccountApi()
+    queryClient.clear()
+    setUser(null)
+    navigate({ to: '/auth/signin' })
+  }, [navigate])
+
   const value = useMemo(
-    () => ({ user, loading, signIn, signUp, signOut }),
-    [user, loading, signIn, signUp, signOut],
+    () => ({ user, loading, signIn, signUp, signOut, deleteAccount }),
+    [user, loading, signIn, signUp, signOut, deleteAccount],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

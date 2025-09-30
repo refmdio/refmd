@@ -47,6 +47,16 @@ export class AuthService {
         });
     }
     /**
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteAccount(): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/auth/me',
+        });
+    }
+    /**
      * @returns UserResponse
      * @throws ApiError
      */

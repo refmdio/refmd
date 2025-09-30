@@ -24,3 +24,7 @@ export async function register(email: string, name: string, password: string) {
 export async function me() {
   return AuthService.me()
 }
+
+export async function deleteAccount() {
+  return AuthService.deleteAccount()
+}

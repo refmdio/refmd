@@ -64,4 +64,8 @@ pub trait GitRepository: Send + Sync {
         message: Option<&str>,
         commit_hash: Option<&str>,
     ) -> anyhow::Result<()>;
+
+    async fn delete_sync_logs(&self, user_id: Uuid) -> anyhow::Result<()>;
+
+    async fn delete_repository_state(&self, user_id: Uuid) -> anyhow::Result<()>;
 }

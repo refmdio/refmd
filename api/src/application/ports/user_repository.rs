@@ -19,4 +19,5 @@ pub trait UserRepository: Send + Sync {
     ) -> anyhow::Result<UserRow>;
     async fn find_by_email(&self, email: &str) -> anyhow::Result<Option<UserRow>>;
     async fn find_by_id(&self, id: Uuid) -> anyhow::Result<Option<UserRow>>;
+    async fn delete_user(&self, id: Uuid) -> anyhow::Result<bool>;
 }

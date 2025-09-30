@@ -1,10 +1,13 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { ArrowRight, Globe, Mail, Shield, Users } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { toast } from 'sonner'
 
 import { Avatar, AvatarFallback } from '@/shared/ui/avatar'
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
+import ConfirmDialog from '@/shared/ui/confirm-dialog'
 
 import { appBeforeLoadGuard, useAuthContext } from '@/features/auth'
 
@@ -20,11 +23,30 @@ export const Route = createFileRoute('/(app)/profile')({
 })
 
 function ProfilePage() {
-  const { user } = useAuthContext()
+  const { user, deleteAccount } = useAuthContext()
   const displayName = user?.name || 'User'
   const initials = displayName.slice(0, 1).toUpperCase()
   const email = user?.email || 'No email attached'
   const publicUrl = `/u/${encodeURIComponent(user?.name || '')}/`
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const performAccountDeletion = useCallback(async () => {
+    setIsDeleting(true)
+    try {
+      await deleteAccount()
+      toast.success('Your account has been deleted.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete account.'
+      toast.error(message)
+      setIsDeleting(false)
+      setDeleteDialogOpen(true)
+    }
+  }, [deleteAccount])
+
+  const handleConfirmDelete = useCallback(() => {
+    void performAccountDeletion()
+  }, [performAccountDeletion])
 
   return (
     <div className="h-full overflow-y-auto">
@@ -72,9 +94,20 @@ function ProfilePage() {
                 <p className="text-sm text-muted-foreground">
                   Your account is protected by workspace authentication. Sign out from other devices to keep things secure.
                 </p>
-                <Button variant="outline" size="sm" className="rounded-full px-4" disabled>
-                  Manage sessions
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="rounded-full px-4" disabled>
+                    Manage sessions
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="rounded-full px-4"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    disabled={isDeleting}
+                  >
+                    Delete account
+                  </Button>
+                </div>
               </div>
             </div>
           </Card>
@@ -98,6 +131,14 @@ function ProfilePage() {
           </Card>
         </section>
       </div>
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete account"
+        description="This will permanently remove your account, documents, and integrations. This action cannot be undone."
+        confirmText="Delete"
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   )
 }

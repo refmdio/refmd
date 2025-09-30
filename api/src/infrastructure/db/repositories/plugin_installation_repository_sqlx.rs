@@ -87,4 +87,12 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
                 .await?;
         Ok(res.rows_affected() > 0)
     }
+
+    async fn remove_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM plugin_installations WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

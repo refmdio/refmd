@@ -15,6 +15,8 @@ pub trait DocumentRepository: Send + Sync {
         tag: Option<String>,
     ) -> anyhow::Result<Vec<DomainDocument>>;
 
+    async fn list_ids_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
+
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>>;
 
     async fn search_for_user(
