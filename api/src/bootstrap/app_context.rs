@@ -23,9 +23,9 @@ use crate::application::ports::storage_port::StoragePort;
 use crate::application::ports::tag_repository::TagRepository;
 use crate::application::ports::user_repository::UserRepository;
 use crate::bootstrap::config::Config;
-use futures_util::{StreamExt, stream::BoxStream};
-use tokio::sync::broadcast;
-use tokio_stream::wrappers::BroadcastStream;
+use futures_util::{stream::BoxStream};
+
+use crate::infrastructure::plugins::event_bus_pg::PgPluginEventBus;
 
 #[derive(Clone)]
 pub struct AppContext {
@@ -54,7 +54,7 @@ pub struct AppServices {
     plugin_runtime: Arc<dyn PluginRuntime>,
     plugin_installer: Arc<dyn PluginInstaller>,
     plugin_fetcher: Arc<dyn PluginPackageFetcher>,
-    plugin_events: broadcast::Sender<PluginScopedEvent>,
+    plugin_event_bus: Arc<PgPluginEventBus>,
     plugin_event_publisher: Arc<dyn PluginEventPublisher>,
     plugin_assets: Arc<dyn PluginAssetStore>,
 }
@@ -81,7 +81,7 @@ impl AppServices {
         plugin_runtime: Arc<dyn PluginRuntime>,
         plugin_installer: Arc<dyn PluginInstaller>,
         plugin_fetcher: Arc<dyn PluginPackageFetcher>,
-        plugin_events: broadcast::Sender<PluginScopedEvent>,
+        plugin_event_bus: Arc<PgPluginEventBus>,
         plugin_event_publisher: Arc<dyn PluginEventPublisher>,
         plugin_assets: Arc<dyn PluginAssetStore>,
     ) -> Self {
@@ -105,7 +105,7 @@ impl AppServices {
             plugin_runtime,
             plugin_installer,
             plugin_fetcher,
-            plugin_events,
+            plugin_event_bus,
             plugin_event_publisher,
             plugin_assets,
         }
@@ -196,6 +196,10 @@ impl AppContext {
         self.services.plugin_fetcher.clone()
     }
 
+    pub fn plugin_event_bus(&self) -> Arc<PgPluginEventBus> {
+        self.services.plugin_event_bus.clone()
+    }
+
     pub fn plugin_event_publisher(&self) -> Arc<dyn PluginEventPublisher> {
         self.services.plugin_event_publisher.clone()
     }
@@ -204,10 +208,10 @@ impl AppContext {
         self.services.plugin_assets.clone()
     }
 
-    pub fn subscribe_plugin_events(&self) -> BoxStream<'static, PluginScopedEvent> {
-        BroadcastStream::new(self.services.plugin_events.subscribe())
-            .filter_map(|evt| async move { evt.ok() })
-            .boxed()
+    pub async fn subscribe_plugin_events(
+        &self,
+    ) -> anyhow::Result<BoxStream<'static, PluginScopedEvent>> {
+        self.services.plugin_event_bus.subscribe().await
     }
 
     pub async fn subscribe_realtime(
