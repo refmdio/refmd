@@ -9,6 +9,7 @@ import { SidebarTrigger } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { downloadDocumentArchive } from '@/entities/document'
+
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
 import ShareDialog from '@/features/sharing/ShareDialog'

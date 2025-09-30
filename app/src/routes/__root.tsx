@@ -4,6 +4,7 @@ import { Outlet, createRootRoute, useRouterState } from '@tanstack/react-router'
 
 
 
+import { ShareTokenProvider } from '@/shared/contexts/share-token-context'
 import { ThemeProvider } from '@/shared/contexts/theme-context'
 import { queryClient } from '@/shared/lib/queryClient'
 import { Toaster } from '@/shared/ui/sonner'
@@ -18,7 +19,6 @@ import PublicLayout from '@/widgets/layouts/PublicLayout'
 import PluginFallback from '@/widgets/routes/PluginFallback'
 
 import { RealtimeProvider, useRealtime } from '@/processes/collaboration/contexts/realtime-context'
-import { ShareTokenProvider } from '@/shared/contexts/share-token-context'
 
 export const Route = createRootRoute({
   notFoundComponent: () => <PluginFallback />,

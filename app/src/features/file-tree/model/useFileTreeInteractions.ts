@@ -7,9 +7,9 @@ import {
   updateDocumentParent,
   updateDocumentTitle,
 } from '@/entities/document'
+import { usePluginExecutor, usePluginManifest, type PluginCommand } from '@/entities/plugin'
 
 import type { DocumentNode } from '@/features/file-tree/model/types'
-import { usePluginExecutor, usePluginManifest, type PluginCommand } from '@/entities/plugin'
 
 export type PluginMenuItem = {
   title: string

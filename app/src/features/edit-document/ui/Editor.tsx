@@ -98,6 +98,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   useAwarenessStyles(awareness, { userId, userName })
 
   const { uploadFiles } = useEditorUploads(documentId, readOnly)
+  const uploadFilesRef = useRef(uploadFiles)
+  useEffect(() => {
+    uploadFilesRef.current = uploadFiles
+  }, [uploadFiles])
 
   const handleTaskToggle = useCallback((lineNumber: number, checked: boolean) => {
     if (readOnly) return
@@ -192,52 +196,39 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
     // Handle paste (Ctrl+V) with files from clipboard
     const dom = editor.getDomNode() as HTMLElement | null
-    const extractFiles = (ev: ClipboardEvent): File[] => {
-      const direct = Array.from(ev.clipboardData?.files || []).filter((f) => f.size > 0)
-      const fromItems = Array.from(ev.clipboardData?.items || [])
-        .map((item) => (item.kind === 'file' ? item.getAsFile() : null))
-        .filter((f): f is File => !!f && f.size > 0)
-      const map = new Map<string, File>()
-      const key = (f: File) => `${f.name}::${f.size}::${f.lastModified}`
-      for (const f of direct) map.set(key(f), f)
-      for (const f of fromItems) map.set(key(f), f)
-      return Array.from(map.values())
-    }
-
-    const pasteHandler = async (e: ClipboardEvent) => {
+    const pasteHandler = async (event: ClipboardEvent) => {
       try {
-        const files = extractFiles(e)
-        if (files.length) {
-          e.preventDefault()
-          await uploadFiles(files)
+        const editorDomNode = dom
+        const target = event.target as HTMLElement | null
+        if (!editorDomNode || !target || !editorDomNode.contains(target)) return
+
+        const clipboardData = event.clipboardData
+        const fileList = clipboardData?.files
+        if (!fileList || fileList.length === 0) return
+
+        const files = Array.from(fileList).filter((file) => file.size > 0)
+        if (files.length === 0) return
+
+        event.preventDefault()
+        event.stopPropagation()
+        const handler = uploadFilesRef.current
+        if (handler) {
+          await handler(files)
         }
       } catch (error) {
-        logEditorError('inline paste handler', error)
+        logEditorError('paste handler', error)
       }
     }
-    if (dom) dom.addEventListener('paste', pasteHandler as any)
 
-    // Capture global paste when editor has focus (some environments stop bubbling to container).
-    const globalPasteHandler = async (e: ClipboardEvent) => {
-      try {
-        if (!editorRef.current?.hasTextFocus?.()) return
-        const files = extractFiles(e)
-        if (files.length) {
-          e.preventDefault()
-          await uploadFiles(files)
-        }
-      } catch (error) {
-        logEditorError('global paste handler', error)
-      }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('paste', pasteHandler as any, true)
     }
-    window.addEventListener('paste', globalPasteHandler as any, true)
 
     ;(editor as any).__disposePaste = () => {
-      safeExecute('remove inline paste listener', () => {
-        if (dom) dom.removeEventListener('paste', pasteHandler as any)
-      })
-      safeExecute('remove global paste listener', () => {
-        window.removeEventListener('paste', globalPasteHandler as any, true)
+      safeExecute('remove document paste listener', () => {
+        if (typeof document !== 'undefined') {
+          document.removeEventListener('paste', pasteHandler as any, true)
+        }
       })
     }
 
@@ -266,7 +257,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         }
       })()
     }
-  }, [onMonacoMount, isVimMode, syncScroll, view, handleEditorScroll, uploadFiles])
+  }, [onMonacoMount, isVimMode, syncScroll, view, handleEditorScroll])
 
   useEffect(() => () => {
     const anyEditor = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | undefined

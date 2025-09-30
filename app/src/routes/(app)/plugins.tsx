@@ -9,10 +9,9 @@ import { Card, CardFooter } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
-import { installPluginFromUrl, uninstallPlugin } from '@/entities/plugin'
+import { installPluginFromUrl, uninstallPlugin, usePluginManifest } from '@/entities/plugin'
 
 import { appBeforeLoadGuard } from '@/features/auth'
-import { usePluginManifest } from '@/entities/plugin'
 
 export const Route = createFileRoute('/(app)/plugins')({
   staticData: { layout: 'app' },

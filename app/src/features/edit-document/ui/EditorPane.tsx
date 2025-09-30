@@ -39,6 +39,7 @@ export default function EditorPane({ theme, readOnly, onMount, onDropFiles, isMo
           wordWrap: 'on',
           scrollBeyondLastLine: true,
           readOnly,
+          domReadOnly: readOnly,
           suggestOnTriggerCharacters: true,
           quickSuggestions: { other: true, comments: true, strings: true },
           quickSuggestionsDelay: 0,

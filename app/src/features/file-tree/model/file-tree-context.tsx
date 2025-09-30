@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 
+import { useShareToken } from '@/shared/contexts/share-token-context'
+
 import { listDocuments } from '@/entities/document'
 import { listUserPublicDocuments } from '@/entities/public'
 import { browseShare, listActiveShares, shareKeys } from '@/entities/share'
 import { meQuery } from '@/entities/user'
-import { useShareToken } from '@/shared/contexts/share-token-context'
 
 import type { DocumentNode } from '@/features/file-tree/model/types'
 
