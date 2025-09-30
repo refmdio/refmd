@@ -8,7 +8,7 @@ static TAG_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\B#([a-zA-Z0-9\u{3040}-\u{309F}\u{30A0}-\u{30FF}\u{4E00}-\u{9FAF}\u{3400}-\u{4DBF}\u{AC00}-\u{D7AF}_-]+)").unwrap()
 });
 
-pub async fn update_document_tags<R: TaggingRepository>(
+pub async fn update_document_tags<R: TaggingRepository + ?Sized>(
     repo: &R,
     doc_id: Uuid,
     owner_id: Uuid,

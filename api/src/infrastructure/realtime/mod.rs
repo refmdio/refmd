@@ -1,19 +1,18 @@
-use std::{pin::Pin, sync::Arc};
+pub use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 
-use futures_util::{Sink, Stream};
-use tokio::sync::Mutex;
-
-use crate::application::ports::realtime_port::RealtimeError;
-
-pub type DynRealtimeSink =
-    Arc<Mutex<Pin<Box<dyn Sink<Vec<u8>, Error = RealtimeError> + Send + Sync + 'static>>>>;
-pub type DynRealtimeStream =
-    Pin<Box<dyn Stream<Item = Result<Vec<u8>, RealtimeError>> + Send + Sync + 'static>>;
-
+mod doc_persistence;
+mod doc_state_reader;
 mod hub;
-mod realtime_port_impl;
+mod local_engine;
+mod noop_ports;
+mod redis;
+pub use doc_persistence::SqlxDocPersistenceAdapter;
+pub use doc_state_reader::SqlxDocStateReader;
 pub use hub::*;
+pub use local_engine::*;
+pub use noop_ports::{NoopAwarenessPublisher, NoopBacklogReader};
+pub use redis::*;
 // Keep backward-compatible module path `port_impl`
 pub mod port_impl {
-    pub use super::realtime_port_impl::*;
+    pub use super::local_engine::*;
 }

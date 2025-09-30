@@ -53,6 +53,13 @@ pub struct Config {
     pub upload_max_bytes: usize,
     pub public_base_url: Option<String>,
     pub is_production: bool,
+    pub cluster_mode: bool,
+    pub redis_url: Option<String>,
+    pub redis_stream_prefix: String,
+    pub redis_min_message_lifetime_ms: u64,
+    pub redis_task_debounce_ms: u64,
+    pub redis_awareness_ttl_ms: u64,
+    pub redis_stream_max_len: usize,
 }
 
 impl Config {
@@ -113,6 +120,24 @@ impl Config {
         let runtime_env = env_var(&["RUST_ENV", "APP_ENV"]).unwrap_or_else(|| "production".into());
         let is_production = matches!(runtime_env.as_str(), "production" | "prod" | "release");
 
+        let cluster_mode = env_var(&["CLUSTER_MODE"])
+            .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(false);
+        let redis_url = env_var(&["REDIS_URL"]);
+        let redis_stream_prefix = env_var(&["REDIS_STREAM_PREFIX"]).unwrap_or_else(|| "yrs".into());
+        let redis_min_message_lifetime_ms = env_var(&["REDIS_MIN_MESSAGE_LIFETIME_MS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(60_000);
+        let redis_task_debounce_ms = env_var(&["REDIS_TASK_DEBOUNCE_MS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10_000);
+        let redis_awareness_ttl_ms = env_var(&["REDIS_AWARENESS_TTL_MS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(45_000);
+        let redis_stream_max_len = env_var(&["REDIS_STREAM_MAX_LEN"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4096);
+
         // Production hardening: require proper FRONTEND_URL and robust secrets
         if is_production {
             if frontend_url
@@ -147,6 +172,10 @@ impl Config {
             }
         }
 
+        if cluster_mode && redis_url.is_none() {
+            anyhow::bail!("REDIS_URL must be configured when CLUSTER_MODE is enabled");
+        }
+
         Ok(Self {
             api_port,
             frontend_url,
@@ -169,6 +198,13 @@ impl Config {
             upload_max_bytes,
             public_base_url,
             is_production,
+            cluster_mode,
+            redis_url,
+            redis_stream_prefix,
+            redis_min_message_lifetime_ms,
+            redis_task_debounce_ms,
+            redis_awareness_ttl_ms,
+            redis_stream_max_len,
         })
     }
 }

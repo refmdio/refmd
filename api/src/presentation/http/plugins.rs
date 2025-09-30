@@ -713,7 +713,11 @@ pub async fn sse_updates(
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let initial = stream::iter(vec![Ok(Event::default().event("ready").data("{}\n"))]);
-    let broadcast = ctx.subscribe_plugin_events().filter_map(move |ev| {
+    let event_stream = ctx
+        .subscribe_plugin_events()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let broadcast = event_stream.filter_map(move |ev| {
         let user_id = user_id.clone();
         async move {
             if ev.user_id.is_some() && ev.user_id != Some(user_id) {

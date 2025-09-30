@@ -15,29 +15,17 @@ use crate::application::ports::plugin_package_fetcher::PluginPackageFetcher;
 use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::plugin_runtime::PluginRuntime;
 use crate::application::ports::public_repository::PublicRepository;
-use crate::application::ports::realtime_port::RealtimePort;
+use crate::application::ports::realtime_port::RealtimeEngine;
+pub use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 use crate::application::ports::share_access_port::ShareAccessPort;
 use crate::application::ports::shares_repository::SharesRepository;
 use crate::application::ports::storage_port::StoragePort;
 use crate::application::ports::tag_repository::TagRepository;
 use crate::application::ports::user_repository::UserRepository;
 use crate::bootstrap::config::Config;
-pub use crate::infrastructure::realtime::{DynRealtimeSink, DynRealtimeStream};
-use async_trait::async_trait;
-use futures_util::{StreamExt, stream::BoxStream};
-use tokio::sync::broadcast;
-use tokio_stream::wrappers::BroadcastStream;
+use futures_util::{stream::BoxStream};
 
-#[async_trait]
-pub trait RealtimeSubscriptionPort: Send + Sync {
-    async fn subscribe(
-        &self,
-        doc_id: &str,
-        sink: DynRealtimeSink,
-        stream: DynRealtimeStream,
-        can_edit: bool,
-    ) -> anyhow::Result<()>;
-}
+use crate::infrastructure::plugins::event_bus_pg::PgPluginEventBus;
 
 #[derive(Clone)]
 pub struct AppContext {
@@ -60,14 +48,13 @@ pub struct AppServices {
     gitignore_port: Arc<dyn GitignorePort>,
     git_workspace: Arc<dyn GitWorkspacePort>,
     storage_port: Arc<dyn StoragePort>,
-    realtime_port: Arc<dyn RealtimePort>,
-    realtime_subscriber: Arc<dyn RealtimeSubscriptionPort>,
+    realtime_engine: Arc<dyn RealtimeEngine>,
     plugin_repo: Arc<dyn PluginRepository>,
     plugin_installations: Arc<dyn PluginInstallationRepository>,
     plugin_runtime: Arc<dyn PluginRuntime>,
     plugin_installer: Arc<dyn PluginInstaller>,
     plugin_fetcher: Arc<dyn PluginPackageFetcher>,
-    plugin_events: broadcast::Sender<PluginScopedEvent>,
+    plugin_event_bus: Arc<PgPluginEventBus>,
     plugin_event_publisher: Arc<dyn PluginEventPublisher>,
     plugin_assets: Arc<dyn PluginAssetStore>,
 }
@@ -88,14 +75,13 @@ impl AppServices {
         gitignore_port: Arc<dyn GitignorePort>,
         git_workspace: Arc<dyn GitWorkspacePort>,
         storage_port: Arc<dyn StoragePort>,
-        realtime_port: Arc<dyn RealtimePort>,
-        realtime_subscriber: Arc<dyn RealtimeSubscriptionPort>,
+        realtime_engine: Arc<dyn RealtimeEngine>,
         plugin_repo: Arc<dyn PluginRepository>,
         plugin_installations: Arc<dyn PluginInstallationRepository>,
         plugin_runtime: Arc<dyn PluginRuntime>,
         plugin_installer: Arc<dyn PluginInstaller>,
         plugin_fetcher: Arc<dyn PluginPackageFetcher>,
-        plugin_events: broadcast::Sender<PluginScopedEvent>,
+        plugin_event_bus: Arc<PgPluginEventBus>,
         plugin_event_publisher: Arc<dyn PluginEventPublisher>,
         plugin_assets: Arc<dyn PluginAssetStore>,
     ) -> Self {
@@ -113,14 +99,13 @@ impl AppServices {
             gitignore_port,
             git_workspace,
             storage_port,
-            realtime_port,
-            realtime_subscriber,
+            realtime_engine,
             plugin_repo,
             plugin_installations,
             plugin_runtime,
             plugin_installer,
             plugin_fetcher,
-            plugin_events,
+            plugin_event_bus,
             plugin_event_publisher,
             plugin_assets,
         }
@@ -187,8 +172,8 @@ impl AppContext {
         self.services.storage_port.clone()
     }
 
-    pub fn realtime_port(&self) -> Arc<dyn RealtimePort> {
-        self.services.realtime_port.clone()
+    pub fn realtime_engine(&self) -> Arc<dyn RealtimeEngine> {
+        self.services.realtime_engine.clone()
     }
 
     pub fn plugin_repo(&self) -> Arc<dyn PluginRepository> {
@@ -211,6 +196,10 @@ impl AppContext {
         self.services.plugin_fetcher.clone()
     }
 
+    pub fn plugin_event_bus(&self) -> Arc<PgPluginEventBus> {
+        self.services.plugin_event_bus.clone()
+    }
+
     pub fn plugin_event_publisher(&self) -> Arc<dyn PluginEventPublisher> {
         self.services.plugin_event_publisher.clone()
     }
@@ -219,10 +208,10 @@ impl AppContext {
         self.services.plugin_assets.clone()
     }
 
-    pub fn subscribe_plugin_events(&self) -> BoxStream<'static, PluginScopedEvent> {
-        BroadcastStream::new(self.services.plugin_events.subscribe())
-            .filter_map(|evt| async move { evt.ok() })
-            .boxed()
+    pub async fn subscribe_plugin_events(
+        &self,
+    ) -> anyhow::Result<BoxStream<'static, PluginScopedEvent>> {
+        self.services.plugin_event_bus.subscribe().await
     }
 
     pub async fn subscribe_realtime(
@@ -233,21 +222,8 @@ impl AppContext {
         can_edit: bool,
     ) -> anyhow::Result<()> {
         self.services
-            .realtime_subscriber
+            .realtime_engine
             .subscribe(doc_id, sink, stream, can_edit)
             .await
-    }
-}
-
-#[async_trait]
-impl RealtimeSubscriptionPort for crate::infrastructure::realtime::port_impl::HubRealtimePort {
-    async fn subscribe(
-        &self,
-        doc_id: &str,
-        sink: DynRealtimeSink,
-        stream: DynRealtimeStream,
-        can_edit: bool,
-    ) -> anyhow::Result<()> {
-        self.hub.subscribe(doc_id, sink, stream, can_edit).await
     }
 }

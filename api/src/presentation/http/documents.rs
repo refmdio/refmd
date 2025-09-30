@@ -243,8 +243,8 @@ pub async fn get_document_content(
     access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, id)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    // Load content via RealtimePort
-    let realtime = ctx.realtime_port();
+    // Load content via realtime engine abstraction
+    let realtime = ctx.realtime_engine();
     let content = realtime
         .get_content(&id.to_string())
         .await
@@ -288,7 +288,7 @@ pub async fn download_document(
     let documents = ctx.document_repo();
     let files = ctx.files_repo();
     let storage = ctx.storage_port();
-    let realtime = ctx.realtime_port();
+    let realtime = ctx.realtime_engine();
     let access = ctx.access_repo();
     let shares = ctx.share_access_port();
 
@@ -336,7 +336,7 @@ pub async fn update_document(
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.document_repo();
     let storage = ctx.storage_port();
-    let realtime = ctx.realtime_port();
+    let realtime = ctx.realtime_engine();
     let uc = UpdateDocument {
         repo: repo.as_ref(),
         storage: storage.as_ref(),

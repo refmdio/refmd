@@ -1,0 +1,191 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: refmd-ha-postgres
+    environment:
+      POSTGRES_DB: refmd
+      POSTGRES_USER: refmd
+      POSTGRES_PASSWORD: refmd
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U refmd"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: refmd-ha-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: refmd-ha-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: refmd
+      MINIO_ROOT_PASSWORD: refmd-minio-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-setup:
+    image: quay.io/minio/mc:latest
+    container_name: refmd-ha-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      set -euo pipefail
+      until mc alias set local http://minio:9000 refmd refmd-minio-secret --insecure; do
+        sleep 1
+      done
+      until mc ready --insecure local; do
+        sleep 1
+      done
+      mc mb --ignore-existing local/refmd
+      mc anonymous set download local/refmd
+
+  api-a:
+    build:
+      context: ../../api
+      dockerfile: Dockerfile
+    container_name: refmd-ha-api-a
+    environment:
+      RUST_ENV: development
+      API_PORT: 8888
+      DATABASE_URL: postgresql://refmd:refmd@postgres:5432/refmd
+      FRONTEND_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:8888
+      JWT_SECRET: change-me-please
+      ENCRYPTION_KEY: change-me-please
+      UPLOAD_MAX_BYTES: 26214400
+      STORAGE_BACKEND: s3
+      STORAGE_ROOT: uploads
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: refmd
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: refmd
+      S3_SECRET_KEY: refmd-minio-secret
+      S3_USE_PATH_STYLE: "true"
+      PLUGINS_DIR: /app/plugins
+      RUST_LOG: api=debug,axum=info
+      CLUSTER_MODE: true
+      REDIS_URL: redis://redis:6379/0
+      REDIS_STREAM_PREFIX: yrs
+      REDIS_MIN_MESSAGE_LIFETIME_MS: 120000
+      REDIS_TASK_DEBOUNCE_MS: 5000
+      REDIS_AWARENESS_TTL_MS: 45000
+      REDIS_STREAM_MAX_LEN: 4096
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  api-b:
+    build:
+      context: ../../api
+      dockerfile: Dockerfile
+    container_name: refmd-ha-api-b
+    environment:
+      RUST_ENV: development
+      API_PORT: 8888
+      DATABASE_URL: postgresql://refmd:refmd@postgres:5432/refmd
+      FRONTEND_URL: http://localhost:3000
+      BACKEND_URL: http://localhost:8888
+      JWT_SECRET: change-me-please
+      ENCRYPTION_KEY: change-me-please
+      UPLOAD_MAX_BYTES: 26214400
+      STORAGE_BACKEND: s3
+      STORAGE_ROOT: uploads
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: refmd
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: refmd
+      S3_SECRET_KEY: refmd-minio-secret
+      S3_USE_PATH_STYLE: "true"
+      PLUGINS_DIR: /app/plugins
+      RUST_LOG: api=debug,axum=info
+      CLUSTER_MODE: true
+      REDIS_URL: redis://redis:6379/0
+      REDIS_STREAM_PREFIX: yrs
+      REDIS_MIN_MESSAGE_LIFETIME_MS: 120000
+      REDIS_TASK_DEBOUNCE_MS: 5000
+      REDIS_AWARENESS_TTL_MS: 45000
+      REDIS_STREAM_MAX_LEN: 4096
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  app-a:
+    build:
+      context: ../../app
+    container_name: refmd-ha-frontend-a
+    environment:
+      VITE_API_BASE_URL: http://localhost:8888
+    depends_on:
+      api-a:
+        condition: service_started
+      api-b:
+        condition: service_started
+
+  app-b:
+    build:
+      context: ../../app
+    container_name: refmd-ha-frontend-b
+    environment:
+      VITE_API_BASE_URL: http://localhost:8888
+    depends_on:
+      api-a:
+        condition: service_started
+      api-b:
+        condition: service_started
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: refmd-ha-nginx
+    depends_on:
+      api-a:
+        condition: service_started
+      api-b:
+        condition: service_started
+      app-a:
+        condition: service_started
+      app-b:
+        condition: service_started
+    ports:
+      - "8888:80"
+      - "3000:81"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  postgres_data:
+  minio_data:

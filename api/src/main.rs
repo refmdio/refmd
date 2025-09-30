@@ -14,7 +14,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
 use api::application::ports::plugin_asset_store::PluginAssetStore;
-use api::application::ports::plugin_event_publisher::PluginScopedEvent;
+use api::application::ports::plugin_event_publisher::PluginEventPublisher;
 use api::application::ports::plugin_installer::PluginInstaller;
 use api::application::ports::plugin_runtime::PluginRuntime;
 use api::bootstrap::app_context::{AppContext, AppServices};
@@ -200,8 +200,6 @@ async fn main() -> anyhow::Result<()> {
 
     // Build Realtime Hub
     let hub = api::infrastructure::realtime::Hub::new(pool.clone(), storage_port.clone());
-    let (plugin_tx, _plugin_rx) = tokio::sync::broadcast::channel::<PluginScopedEvent>(64);
-
     let document_repo = Arc::new(
         api::infrastructure::db::repositories::document_repository_sqlx::SqlxDocumentRepository::new(
             pool.clone(),
@@ -252,8 +250,20 @@ async fn main() -> anyhow::Result<()> {
             storage_port.clone(),
         )?,
     );
-    let realtime_port =
-        Arc::new(api::infrastructure::realtime::port_impl::HubRealtimePort { hub: hub.clone() });
+    let realtime_engine: Arc<dyn api::application::ports::realtime_port::RealtimeEngine> =
+        if cfg.cluster_mode {
+            tracing::info!("cluster_mode_enabled");
+            Arc::new(
+                api::infrastructure::realtime::RedisRealtimeEngine::from_config(
+                    &cfg,
+                    pool.clone(),
+                    storage_port.clone(),
+                )?,
+            )
+        } else {
+            tracing::info!("cluster_mode_disabled_using_local_hub");
+            Arc::new(api::infrastructure::realtime::LocalRealtimeEngine { hub: hub.clone() })
+        };
     let plugin_repo = Arc::new(
         api::infrastructure::db::repositories::plugin_repository_sqlx::SqlxPluginRepository::new(
             pool.clone(),
@@ -297,11 +307,13 @@ async fn main() -> anyhow::Result<()> {
     let plugin_fetcher = Arc::new(
         api::infrastructure::plugins::package_fetcher_reqwest::ReqwestPluginPackageFetcher::new(),
     );
-    let plugin_event_publisher = Arc::new(
-        api::infrastructure::plugins::event_publisher_broadcast::BroadcastPluginEventPublisher::new(
-            plugin_tx.clone(),
+    let plugin_event_bus = Arc::new(
+        api::infrastructure::plugins::event_bus_pg::PgPluginEventBus::new(
+            pool.clone(),
+            "plugin_events",
         ),
     );
+    let plugin_event_publisher: Arc<dyn PluginEventPublisher> = plugin_event_bus.clone();
 
     let services = AppServices::new(
         document_repo,
@@ -317,14 +329,13 @@ async fn main() -> anyhow::Result<()> {
         gitignore_port,
         git_workspace,
         storage_port,
-        realtime_port.clone(),
-        realtime_port,
+        realtime_engine.clone(),
         plugin_repo,
         plugin_installations,
         plugin_runtime.clone(),
         plugin_installer.clone(),
         plugin_fetcher,
-        plugin_tx.clone(),
+        plugin_event_bus.clone(),
         plugin_event_publisher,
         plugin_assets.clone(),
     );
@@ -485,31 +496,40 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Background snapshots
-    let hub_for_snap = hub.clone();
-    let cfg_for_snap = cfg.clone();
-    let snap_handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
-        let interval = Duration::from_secs(cfg_for_snap.snapshot_interval_secs);
-        loop {
-            if let Err(e) = hub_for_snap
-                .snapshot_all(
-                    cfg_for_snap.snapshot_keep_versions,
-                    cfg_for_snap.updates_keep_window,
-                )
-                .await
-            {
-                tracing::error!(error = ?e, "snapshot_loop_failed");
+    let snap_handle: Option<JoinHandle<anyhow::Result<()>>> = if cfg.cluster_mode {
+        None
+    } else {
+        let hub_for_snap = hub.clone();
+        let cfg_for_snap = cfg.clone();
+        Some(tokio::spawn(async move {
+            let interval = Duration::from_secs(cfg_for_snap.snapshot_interval_secs);
+            loop {
+                if let Err(e) = hub_for_snap
+                    .snapshot_all(
+                        cfg_for_snap.snapshot_keep_versions,
+                        cfg_for_snap.updates_keep_window,
+                    )
+                    .await
+                {
+                    tracing::error!(error = ?e, "snapshot_loop_failed");
+                }
+                sleep(interval).await;
             }
-            sleep(interval).await;
-        }
-    });
+        }))
+    };
 
-    // Wait tasks
-    let (api_res, snap_res) = tokio::join!(api_handle, snap_handle);
-    if let Err(e) = api_res {
-        error!(?e, "API server task panicked");
+    match api_handle.await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => error!(?e, "API server task failed"),
+        Err(e) => error!(?e, "API server task panicked"),
     }
-    if let Err(e) = snap_res {
-        error!(?e, "Snapshot task panicked");
+
+    if let Some(handle) = snap_handle {
+        match handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => error!(?e, "Snapshot task failed"),
+            Err(e) => error!(?e, "Snapshot task panicked"),
+        }
     }
     Ok(())
 }

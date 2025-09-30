@@ -2,19 +2,21 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use uuid::Uuid;
 
-use crate::application::ports::{public_repository::PublicRepository, realtime_port::RealtimePort};
+use crate::application::ports::{
+    public_repository::PublicRepository, realtime_port::RealtimeEngine,
+};
 
 pub struct PublicOgPreview {
     pub title: String,
     pub summary: String,
 }
 
-pub struct GeneratePublicOgPreview<'a, R: PublicRepository + ?Sized, RT: RealtimePort + ?Sized> {
+pub struct GeneratePublicOgPreview<'a, R: PublicRepository + ?Sized, RT: RealtimeEngine + ?Sized> {
     pub repo: &'a R,
     pub realtime: &'a RT,
 }
 
-impl<'a, R: PublicRepository + ?Sized, RT: RealtimePort + ?Sized>
+impl<'a, R: PublicRepository + ?Sized, RT: RealtimeEngine + ?Sized>
     GeneratePublicOgPreview<'a, R, RT>
 {
     pub async fn execute(

@@ -112,7 +112,7 @@ fn parse_target(txt: &str) -> LinkTarget {
     }
 }
 
-pub async fn update_document_links<R: LinkGraphRepository>(
+pub async fn update_document_links<R: LinkGraphRepository + ?Sized>(
     repo: &R,
     owner_id: Uuid,
     source_id: Uuid,

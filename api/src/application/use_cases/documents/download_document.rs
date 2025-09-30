@@ -7,7 +7,7 @@ use crate::application::access::{self, Actor, Capability};
 use crate::application::ports::access_repository::AccessRepository;
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
-use crate::application::ports::realtime_port::RealtimePort;
+use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::share_access_port::ShareAccessPort;
 use crate::application::ports::storage_port::StoragePort;
 
@@ -21,7 +21,7 @@ where
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
     S: StoragePort + ?Sized,
-    RT: RealtimePort + ?Sized,
+    RT: RealtimeEngine + ?Sized,
     A: AccessRepository + ?Sized,
     SH: ShareAccessPort + ?Sized,
 {
@@ -38,7 +38,7 @@ where
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
     S: StoragePort + ?Sized,
-    RT: RealtimePort + ?Sized,
+    RT: RealtimeEngine + ?Sized,
     A: AccessRepository + ?Sized,
     SH: ShareAccessPort + ?Sized,
 {

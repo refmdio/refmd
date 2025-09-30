@@ -29,7 +29,7 @@ comrak = { version = "0.22" }
 ammonia = { version = "3" }
 
 # Database & security
-sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "uuid", "chrono", "macros"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "macros"] }
 argon2 = "0.5"
 password-hash = "0.5"
 jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
@@ -56,3 +56,4 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1"
 walkdir = "2.5"
 tempfile = "3"
+redis = { version = "0.27", features = ["tokio-comp", "aio", "streams", "script", "connection-manager"] }
