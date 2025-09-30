@@ -391,7 +391,7 @@ fn spawn_persistence_worker(
     snapshot_service: Arc<SnapshotService>,
     trim_lifetime: Option<Duration>,
 ) -> Option<JoinHandle<()>> {
-    if !cfg.realtime_cluster_mode {
+    if !cfg.cluster_mode {
         return None;
     }
 

@@ -53,7 +53,7 @@ pub struct Config {
     pub upload_max_bytes: usize,
     pub public_base_url: Option<String>,
     pub is_production: bool,
-    pub realtime_cluster_mode: bool,
+    pub cluster_mode: bool,
     pub redis_url: Option<String>,
     pub redis_stream_prefix: String,
     pub redis_min_message_lifetime_ms: u64,
@@ -120,7 +120,7 @@ impl Config {
         let runtime_env = env_var(&["RUST_ENV", "APP_ENV"]).unwrap_or_else(|| "production".into());
         let is_production = matches!(runtime_env.as_str(), "production" | "prod" | "release");
 
-        let realtime_cluster_mode = env_var(&["REALTIME_CLUSTER_MODE"])
+        let cluster_mode = env_var(&["CLUSTER_MODE"])
             .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false);
         let redis_url = env_var(&["REDIS_URL"]);
@@ -172,8 +172,8 @@ impl Config {
             }
         }
 
-        if realtime_cluster_mode && redis_url.is_none() {
-            anyhow::bail!("REDIS_URL must be configured when REALTIME_CLUSTER_MODE is enabled");
+        if cluster_mode && redis_url.is_none() {
+            anyhow::bail!("REDIS_URL must be configured when CLUSTER_MODE is enabled");
         }
 
         Ok(Self {
@@ -198,7 +198,7 @@ impl Config {
             upload_max_bytes,
             public_base_url,
             is_production,
-            realtime_cluster_mode,
+            cluster_mode,
             redis_url,
             redis_stream_prefix,
             redis_min_message_lifetime_ms,

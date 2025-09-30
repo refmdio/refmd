@@ -253,8 +253,8 @@ async fn main() -> anyhow::Result<()> {
         )?,
     );
     let realtime_engine: Arc<dyn api::application::ports::realtime_port::RealtimeEngine> =
-        if cfg.realtime_cluster_mode {
-            tracing::info!("realtime_cluster_mode_enabled");
+        if cfg.cluster_mode {
+            tracing::info!("cluster_mode_enabled");
             Arc::new(
                 api::infrastructure::realtime::RedisRealtimeEngine::from_config(
                     &cfg,
@@ -263,7 +263,7 @@ async fn main() -> anyhow::Result<()> {
                 )?,
             )
         } else {
-            tracing::info!("realtime_cluster_mode_disabled_using_local_hub");
+            tracing::info!("cluster_mode_disabled_using_local_hub");
             Arc::new(api::infrastructure::realtime::LocalRealtimeEngine { hub: hub.clone() })
         };
     let plugin_repo = Arc::new(
@@ -496,7 +496,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Background snapshots
-    let snap_handle: Option<JoinHandle<anyhow::Result<()>>> = if cfg.realtime_cluster_mode {
+    let snap_handle: Option<JoinHandle<anyhow::Result<()>>> = if cfg.cluster_mode {
         None
     } else {
         let hub_for_snap = hub.clone();
