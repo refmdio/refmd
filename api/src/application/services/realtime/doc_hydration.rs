@@ -143,16 +143,6 @@ pub struct HydratedDoc {
     pub awareness_frames: Vec<Vec<u8>>,
 }
 
-impl HydratedDoc {
-    pub fn is_empty(&self) -> bool {
-        let txt = self.doc.get_or_insert_text("content");
-        let txn = self.doc.transact();
-        let len = yrs::Text::len(&txt, &txn);
-        drop(txn);
-        len == 0
-    }
-}
-
 fn apply_update_bytes(doc: &Doc, bytes: &[u8]) -> anyhow::Result<()> {
     let update = Update::decode_v1(bytes)?;
     let mut txn = doc.transact_mut();

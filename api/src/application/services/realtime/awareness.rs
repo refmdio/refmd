@@ -58,20 +58,17 @@ impl AwarenessService {
 
     pub async fn clear_local_clients(&self) -> anyhow::Result<()> {
         let clients: Vec<ClientID> = {
-            let mut guard = self.local_clients.lock().await;
-            guard.drain().collect()
-        };
-
-        if clients.is_empty() {
-            return Ok(());
-        }
-
-        {
             let mut seen = self.last_seen.lock().await;
-            for client in &clients {
+            let mut locals = self.local_clients.lock().await;
+            if locals.is_empty() {
+                return Ok(());
+            }
+            let drained: Vec<ClientID> = locals.drain().collect();
+            for client in &drained {
                 seen.remove(client);
             }
-        }
+            drained
+        };
 
         let entries = self.build_null_entries(&clients);
         for client in &clients {
