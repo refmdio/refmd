@@ -13,25 +13,30 @@ use yrs::sync::{Message, MessageReader};
 use yrs::updates::decoder::DecoderV1;
 use yrs::updates::encoder::Encode;
 
-use super::cluster_bus::RedisClusterBus;
+use crate::application::ports::awareness_port::AwarenessPublisher;
 
 #[derive(Clone)]
-pub struct RedisAwarenessManager {
+pub struct AwarenessService {
     awareness: Arc<Awareness>,
     last_seen: Arc<Mutex<HashMap<ClientID, Instant>>>,
     ttl: Duration,
-    bus: Arc<RedisClusterBus>,
+    publisher: Arc<dyn AwarenessPublisher>,
     doc_id: String,
 }
 
-impl RedisAwarenessManager {
-    pub fn new(doc: Doc, bus: Arc<RedisClusterBus>, doc_id: String, ttl: Duration) -> Self {
+impl AwarenessService {
+    pub fn new(
+        doc: Doc,
+        ttl: Duration,
+        publisher: Arc<dyn AwarenessPublisher>,
+        doc_id: impl Into<String>,
+    ) -> Self {
         Self {
             awareness: Arc::new(Awareness::new(doc)),
             last_seen: Arc::new(Mutex::new(HashMap::new())),
             ttl,
-            bus,
-            doc_id,
+            publisher,
+            doc_id: doc_id.into(),
         }
     }
 
@@ -56,7 +61,7 @@ impl RedisAwarenessManager {
                 if let Some(summary) = self
                     .awareness
                     .apply_update_summary(update)
-                    .context("apply_awareness_update")?
+                    .context("awareness_apply_update")?
                 {
                     let now = Instant::now();
                     if !summary.added.is_empty() || !summary.updated.is_empty() {
@@ -78,31 +83,29 @@ impl RedisAwarenessManager {
     }
 
     pub async fn encode_full_state_frame(&self) -> anyhow::Result<Option<Vec<u8>>> {
-        let update = self
-            .awareness
-            .update()
-            .context("awareness_encode_full_state")?;
+        let update = self.awareness.update().context("awareness_encode_full")?;
         if update.clients.is_empty() {
-            return Ok(None);
+            Ok(None)
+        } else {
+            Ok(Some(Message::Awareness(update).encode_v1()))
         }
-        Ok(Some(Message::Awareness(update).encode_v1()))
     }
 
     pub fn spawn_ttl_task(&self) -> tokio::task::JoinHandle<()> {
         let manager = self.clone();
         tokio::spawn(async move {
             loop {
-                let sleep_dur = if manager.ttl.is_zero() {
+                let sleep_for = if manager.ttl.is_zero() {
                     Duration::from_secs(10)
                 } else {
                     manager.ttl / 2
                 };
-                sleep(sleep_dur).await;
+                sleep(sleep_for).await;
                 if let Err(err) = manager.prune_stale().await {
                     tracing::debug!(
                         document_id = %manager.doc_id,
                         error = ?err,
-                        "redis_awareness_prune_failed"
+                        "awareness_prune_failed"
                     );
                 }
             }
@@ -133,6 +136,7 @@ impl RedisAwarenessManager {
         for client in &expired {
             self.awareness.remove_state(*client);
         }
+
         let mut clients_map: HashMap<ClientID, AwarenessUpdateEntry> = HashMap::new();
         for client in expired {
             if let Some((clock, _)) = self.awareness.meta(client) {
@@ -152,10 +156,10 @@ impl RedisAwarenessManager {
             clients: clients_map,
         };
         let frame = Message::Awareness(update).encode_v1();
-        self.bus
+        self.publisher
             .publish_awareness(&self.doc_id, frame)
             .await
-            .context("redis_awareness_publish_removal")?;
+            .context("awareness_publish_removal")?;
         Ok(())
     }
 }

@@ -1,9 +1,8 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use futures_util::{SinkExt, StreamExt};
-use sqlx::Row;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -16,21 +15,30 @@ use yrs::updates::decoder::DecoderV1;
 use yrs::updates::encoder::{Encoder, EncoderV1};
 use yrs::{Doc, GetString, ReadTxn, StateVector, Transact};
 
+use crate::application::ports::linkgraph_repository::LinkGraphRepository;
+use crate::application::ports::realtime_hydration_port::{DocStateReader, RealtimeBacklogReader};
+use crate::application::ports::realtime_persistence_port::DocPersistencePort;
 use crate::application::ports::realtime_port::RealtimeEngine as RealtimeEngineTrait;
 use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::tagging_repository::TaggingRepository;
+use crate::application::services::realtime::awareness::{AwarenessService, encode_awareness_state};
+use crate::application::services::realtime::doc_hydration::{
+    DocHydrationService, HydrationOptions,
+};
+use crate::application::services::realtime::snapshot::{SnapshotPersistOptions, SnapshotService};
 use crate::bootstrap::config::Config;
 use crate::infrastructure::db::PgPool;
+use crate::infrastructure::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository;
+use crate::infrastructure::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository;
+use crate::infrastructure::realtime::{SqlxDocPersistenceAdapter, SqlxDocStateReader};
 
-use super::awareness_manager::{RedisAwarenessManager, encode_awareness_state};
 use super::cluster_bus::{RedisClusterBus, StreamItem};
-use super::doc_hydrator::DocHydrator;
 
 pub struct RedisRealtimeEngine {
     bus: Arc<RedisClusterBus>,
-    hydrator: DocHydrator,
-    pool: PgPool,
-    storage: Arc<dyn StoragePort>,
+    hydration_service: Arc<DocHydrationService>,
+    snapshot_service: Arc<SnapshotService>,
     task_debounce: Duration,
     awareness_ttl: Duration,
     _worker: Option<JoinHandle<()>>,
@@ -53,14 +61,47 @@ impl RedisRealtimeEngine {
             Some(cfg.redis_stream_max_len),
             Duration::from_millis(cfg.redis_task_debounce_ms),
         ));
-        let hydrator = DocHydrator::new(pool.clone(), storage.clone(), bus.clone());
-        let worker = spawn_persistence_worker(cfg, pool.clone(), storage.clone(), bus.clone());
+        let doc_state_reader: Arc<dyn DocStateReader> =
+            Arc::new(SqlxDocStateReader::new(pool.clone()));
+        let backlog_reader: Arc<dyn RealtimeBacklogReader> = bus.clone();
+        let hydration_service = Arc::new(DocHydrationService::new(
+            doc_state_reader.clone(),
+            backlog_reader,
+            storage.clone(),
+        ));
+
+        let doc_persistence: Arc<dyn DocPersistencePort> =
+            Arc::new(SqlxDocPersistenceAdapter::new(pool.clone()));
+        let linkgraph_repo: Arc<dyn LinkGraphRepository> =
+            Arc::new(SqlxLinkGraphRepository::new(pool.clone()));
+        let tagging_repo: Arc<dyn TaggingRepository> =
+            Arc::new(SqlxTaggingRepository::new(pool.clone()));
+        let snapshot_service = Arc::new(SnapshotService::new(
+            doc_state_reader,
+            doc_persistence,
+            storage.clone(),
+            linkgraph_repo,
+            tagging_repo,
+        ));
+
+        let trim_lifetime = if cfg.redis_min_message_lifetime_ms > 0 {
+            Some(Duration::from_millis(cfg.redis_min_message_lifetime_ms))
+        } else {
+            None
+        };
+
+        let worker = spawn_persistence_worker(
+            cfg,
+            bus.clone(),
+            hydration_service.clone(),
+            snapshot_service.clone(),
+            trim_lifetime,
+        );
 
         Ok(Self {
             bus,
-            hydrator,
-            pool,
-            storage,
+            hydration_service,
+            snapshot_service,
             task_debounce: Duration::from_millis(cfg.redis_task_debounce_ms),
             awareness_ttl: Duration::from_millis(cfg.redis_awareness_ttl_ms),
             _worker: worker,
@@ -91,7 +132,7 @@ impl RedisRealtimeEngine {
         sink: &DynRealtimeSink,
         frames: &[Vec<u8>],
         doc_id: &str,
-        awareness_manager: &RedisAwarenessManager,
+        awareness_manager: &AwarenessService,
     ) -> anyhow::Result<()> {
         for payload in frames {
             awareness_manager.apply_remote_frame(payload).await?;
@@ -113,7 +154,7 @@ impl RedisRealtimeEngine {
         sink: DynRealtimeSink,
         doc_id: String,
         channel: &'static str,
-        awareness_manager: Option<RedisAwarenessManager>,
+        awareness_manager: Option<AwarenessService>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             while let Some(item) = stream.next().await {
@@ -154,14 +195,17 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         can_edit: bool,
     ) -> anyhow::Result<()> {
         let doc_uuid = Uuid::parse_str(doc_id)?;
-        let hydrated = self.hydrator.hydrate(&doc_uuid).await?;
-        let awareness_manager = RedisAwarenessManager::new(
+        let hydrated = self
+            .hydration_service
+            .hydrate(&doc_uuid, HydrationOptions::default())
+            .await?;
+        let awareness_service = AwarenessService::new(
             hydrated.doc.clone(),
+            self.awareness_ttl,
             self.bus.clone(),
             doc_id.to_string(),
-            self.awareness_ttl,
         );
-        let ttl_handle = awareness_manager.spawn_ttl_task();
+        let ttl_handle = awareness_service.spawn_ttl_task();
         let mut updates_handle: Option<JoinHandle<()>> = None;
         let mut awareness_handle: Option<JoinHandle<()>> = None;
 
@@ -171,10 +215,10 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                 &sink,
                 &hydrated.awareness_frames,
                 doc_id,
-                &awareness_manager,
+                &awareness_service,
             )
             .await?;
-            if let Ok(Some(frame)) = encode_awareness_state(&awareness_manager.awareness()) {
+            if let Ok(Some(frame)) = encode_awareness_state(&awareness_service.awareness()) {
                 let mut guard = sink.lock().await;
                 let _ = guard.send(frame).await;
             }
@@ -200,7 +244,7 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                 sink.clone(),
                 doc_id.to_string(),
                 "awareness",
-                Some(awareness_manager.clone()),
+                Some(awareness_service.clone()),
             ));
 
             while let Some(frame) = stream.next().await {
@@ -225,7 +269,7 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                                 }
                             }
                             if summary.has_awareness {
-                                awareness_manager.record_local_frame(&bytes).await.ok();
+                                awareness_service.record_local_frame(&bytes).await.ok();
                                 if let Err(e) =
                                     self.bus.publish_awareness(doc_id, bytes.clone()).await
                                 {
@@ -279,7 +323,10 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
 
     async fn get_content(&self, doc_id: &str) -> anyhow::Result<Option<String>> {
         let uuid = Uuid::parse_str(doc_id)?;
-        let hydrated = self.hydrator.hydrate(&uuid).await?;
+        let hydrated = self
+            .hydration_service
+            .hydrate(&uuid, HydrationOptions::default())
+            .await?;
         let txt = hydrated.doc.get_or_insert_text("content");
         let txn = hydrated.doc.transact();
         Ok(Some(txt.get_string(&txn)))
@@ -287,8 +334,24 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
 
     async fn force_persist(&self, doc_id: &str) -> anyhow::Result<()> {
         let uuid = Uuid::parse_str(doc_id)?;
-        let hydrated = self.hydrator.hydrate(&uuid).await?;
-        persist_document_snapshot(&self.pool, &self.storage, &uuid, &hydrated.doc).await
+        let hydrated = self
+            .hydration_service
+            .hydrate(&uuid, HydrationOptions::default())
+            .await?;
+        self.snapshot_service
+            .write_markdown(&uuid, &hydrated.doc)
+            .await?;
+        self.snapshot_service
+            .persist_snapshot(
+                &uuid,
+                &hydrated.doc,
+                SnapshotPersistOptions {
+                    clear_updates: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        Ok(())
     }
 }
 
@@ -318,16 +381,17 @@ struct FrameSummary {
 
 fn spawn_persistence_worker(
     cfg: &Config,
-    pool: PgPool,
-    storage: Arc<dyn StoragePort>,
     bus: Arc<RedisClusterBus>,
+    hydration_service: Arc<DocHydrationService>,
+    snapshot_service: Arc<SnapshotService>,
+    trim_lifetime: Option<Duration>,
 ) -> Option<JoinHandle<()>> {
     if !cfg.realtime_cluster_mode {
         return None;
     }
+
     Some(tokio::spawn(async move {
         tracing::info!("redis_persistence_worker_started");
-        let hydrator = DocHydrator::new(pool.clone(), storage.clone(), bus.clone());
         let mut tasks = match bus.subscribe_tasks(None).await {
             Ok(stream) => stream,
             Err(e) => {
@@ -339,16 +403,37 @@ fn spawn_persistence_worker(
         while let Some(task) = tasks.next().await {
             match task {
                 Ok((entry_id, doc_id_str)) => match Uuid::parse_str(&doc_id_str) {
-                    Ok(doc_uuid) => match hydrator.hydrate(&doc_uuid).await {
+                    Ok(doc_uuid) => match hydration_service
+                        .hydrate(&doc_uuid, HydrationOptions::default())
+                        .await
+                    {
                         Ok(hydrated) => {
-                            if let Err(e) =
-                                persist_document_snapshot(&pool, &storage, &doc_uuid, &hydrated.doc)
-                                    .await
+                            let doc_id_owned = doc_uuid.to_string();
+                            if let Err(e) = snapshot_service
+                                .write_markdown(&doc_uuid, &hydrated.doc)
+                                .await
                             {
                                 tracing::error!(
                                     document_id = %doc_uuid,
                                     error = ?e,
-                                    "redis_worker_persist_failed"
+                                    "redis_worker_markdown_failed"
+                                );
+                            }
+                            if let Err(e) = snapshot_service
+                                .persist_snapshot(
+                                    &doc_uuid,
+                                    &hydrated.doc,
+                                    SnapshotPersistOptions {
+                                        clear_updates: true,
+                                        ..Default::default()
+                                    },
+                                )
+                                .await
+                            {
+                                tracing::error!(
+                                    document_id = %doc_uuid,
+                                    error = ?e,
+                                    "redis_worker_snapshot_failed"
                                 );
                             }
                             if let Err(e) = bus.ack_task(&entry_id).await {
@@ -357,6 +442,35 @@ fn spawn_persistence_worker(
                                     error = ?e,
                                     "redis_worker_ack_failed"
                                 );
+                            }
+                            if let Some(lifetime) = trim_lifetime {
+                                let cutoff = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis()
+                                    as i64
+                                    - lifetime.as_millis() as i64;
+                                if cutoff > 0 {
+                                    let min_id = format!("{}-0", cutoff);
+                                    if let Err(e) =
+                                        bus.trim_updates_minid(&doc_id_owned, &min_id).await
+                                    {
+                                        tracing::debug!(
+                                            document_id = %doc_uuid,
+                                            error = ?e,
+                                            "redis_worker_trim_updates_failed"
+                                        );
+                                    }
+                                    if let Err(e) =
+                                        bus.trim_awareness_minid(&doc_id_owned, &min_id).await
+                                    {
+                                        tracing::debug!(
+                                            document_id = %doc_uuid,
+                                            error = ?e,
+                                            "redis_worker_trim_awareness_failed"
+                                        );
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
@@ -385,90 +499,4 @@ fn spawn_persistence_worker(
 
         tracing::info!("redis_persistence_worker_stopped");
     }))
-}
-
-async fn persist_document_snapshot(
-    pool: &PgPool,
-    storage: &Arc<dyn StoragePort>,
-    doc_id: &Uuid,
-    doc: &Doc,
-) -> anyhow::Result<()> {
-    let row = sqlx::query("SELECT id, owner_id, title, type, path FROM documents WHERE id = $1")
-        .bind(doc_id)
-        .fetch_optional(pool)
-        .await?
-        .context("document_not_found")?;
-    let dtype: String = row.get("type");
-    if dtype == "folder" {
-        return Ok(());
-    }
-    let title: String = row.get("title");
-    let owner_id: Uuid = row.get("owner_id");
-
-    let txt = doc.get_or_insert_text("content");
-    let txn = doc.transact();
-    let contents = txt.get_string(&txn);
-    let snapshot_bin = txn.encode_state_as_update_v1(&StateVector::default());
-    drop(txn);
-
-    if let Err(e) = storage.sync_doc_paths(*doc_id).await {
-        tracing::debug!(document_id = %doc_id, error = ?e, "redis_cluster_sync_paths_failed");
-    }
-    let path = storage.build_doc_file_path(*doc_id).await?;
-    let mut formatted = format!("---\nid: {}\ntitle: {}\n---\n\n{}", doc_id, title, contents);
-    if !formatted.ends_with('\n') {
-        formatted.push('\n');
-    }
-    let bytes = formatted.into_bytes();
-    let should_write = match storage.read_bytes(path.as_path()).await {
-        Ok(existing) => existing != bytes,
-        Err(_) => true,
-    };
-    if should_write {
-        storage.write_bytes(path.as_path(), &bytes).await?;
-    }
-
-    let next_version: i64 = sqlx::query(
-        "SELECT COALESCE(MAX(version), 0) + 1 AS next FROM document_snapshots WHERE document_id = $1",
-    )
-    .bind(doc_id)
-    .fetch_one(pool)
-    .await?
-    .get("next");
-
-    sqlx::query(
-        "INSERT INTO document_snapshots (document_id, version, snapshot) VALUES ($1, $2, $3)
-         ON CONFLICT (document_id, version) DO UPDATE SET snapshot = EXCLUDED.snapshot",
-    )
-    .bind(doc_id)
-    .bind(next_version as i32)
-    .bind(&snapshot_bin)
-    .execute(pool)
-    .await?;
-
-    sqlx::query("DELETE FROM document_updates WHERE document_id = $1")
-        .bind(doc_id)
-        .execute(pool)
-        .await?;
-
-    let lg_repo =
-        crate::infrastructure::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository::new(pool.clone());
-    if let Err(e) =
-        crate::application::linkgraph::update_document_links(&lg_repo, owner_id, *doc_id, &contents)
-            .await
-    {
-        tracing::debug!(document_id = %doc_id, error = ?e, "redis_cluster_update_links_failed");
-    }
-
-    let tag_repo =
-        crate::infrastructure::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository::new(pool.clone());
-    if let Err(e) = crate::application::services::tagging::update_document_tags(
-        &tag_repo, *doc_id, owner_id, &contents,
-    )
-    .await
-    {
-        tracing::debug!(document_id = %doc_id, error = ?e, "redis_cluster_update_tags_failed");
-    }
-
-    Ok(())
 }

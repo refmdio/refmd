@@ -1,7 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::application::ports::awareness_port::AwarenessPublisher;
+use crate::application::ports::realtime_hydration_port::{RealtimeBacklogReader, StreamFrame};
 use anyhow::Context;
+use async_trait::async_trait;
 use redis::AsyncCommands;
 use redis::streams::{StreamRangeReply, StreamReadOptions, StreamReadReply};
 use tokio::sync::mpsc;
@@ -210,6 +213,32 @@ impl RedisClusterBus {
         Ok(())
     }
 
+    pub async fn trim_updates_minid(&self, doc_id: &str, min_id: &str) -> anyhow::Result<()> {
+        self.trim_stream_minid(self.updates_key(doc_id), min_id)
+            .await
+    }
+
+    pub async fn trim_awareness_minid(&self, doc_id: &str, min_id: &str) -> anyhow::Result<()> {
+        self.trim_stream_minid(self.awareness_key(doc_id), min_id)
+            .await
+    }
+
+    async fn trim_stream_minid(&self, key: String, min_id: &str) -> anyhow::Result<()> {
+        let mut conn = self
+            .client
+            .get_async_connection()
+            .await
+            .context("redis_get_async_connection")?;
+        let _: i64 = redis::cmd("XTRIM")
+            .arg(&key)
+            .arg("MINID")
+            .arg(min_id)
+            .query_async(&mut conn)
+            .await
+            .context("redis_xtrim_minid")?;
+        Ok(())
+    }
+
     fn spawn_stream_reader_bytes(
         &self,
         key: String,
@@ -318,5 +347,40 @@ impl RedisClusterBus {
         });
 
         UnboundedReceiverStream::new(rx)
+    }
+}
+
+#[async_trait]
+impl RealtimeBacklogReader for RedisClusterBus {
+    async fn read_update_backlog(
+        &self,
+        doc_id: &str,
+        last_stream_id: Option<&str>,
+    ) -> anyhow::Result<Vec<StreamFrame>> {
+        let items = RedisClusterBus::read_update_backlog(self, doc_id, last_stream_id).await?;
+        Ok(items
+            .into_iter()
+            .map(|(id, payload)| StreamFrame { id, payload })
+            .collect())
+    }
+
+    async fn read_awareness_backlog(
+        &self,
+        doc_id: &str,
+        last_stream_id: Option<&str>,
+    ) -> anyhow::Result<Vec<StreamFrame>> {
+        let items = RedisClusterBus::read_awareness_backlog(self, doc_id, last_stream_id).await?;
+        Ok(items
+            .into_iter()
+            .map(|(id, payload)| StreamFrame { id, payload })
+            .collect())
+    }
+}
+
+#[async_trait]
+impl AwarenessPublisher for RedisClusterBus {
+    async fn publish_awareness(&self, doc_id: &str, frame: Vec<u8>) -> anyhow::Result<()> {
+        let _id = RedisClusterBus::publish_awareness(self, doc_id, frame).await?;
+        Ok(())
     }
 }
