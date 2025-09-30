@@ -4,6 +4,7 @@ use crate::application::ports::access_repository::AccessRepository;
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::git_repository::GitRepository;
+use crate::application::ports::git_storage::GitStorage;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::gitignore_port::GitignorePort;
 use crate::application::ports::plugin_asset_store::PluginAssetStore;
@@ -55,6 +56,7 @@ pub struct AppServices {
     user_repo: Arc<dyn UserRepository>,
     tag_repo: Arc<dyn TagRepository>,
     git_repo: Arc<dyn GitRepository>,
+    git_storage: Arc<dyn GitStorage>,
     gitignore_port: Arc<dyn GitignorePort>,
     git_workspace: Arc<dyn GitWorkspacePort>,
     storage_port: Arc<dyn StoragePort>,
@@ -82,6 +84,7 @@ impl AppServices {
         user_repo: Arc<dyn UserRepository>,
         tag_repo: Arc<dyn TagRepository>,
         git_repo: Arc<dyn GitRepository>,
+        git_storage: Arc<dyn GitStorage>,
         gitignore_port: Arc<dyn GitignorePort>,
         git_workspace: Arc<dyn GitWorkspacePort>,
         storage_port: Arc<dyn StoragePort>,
@@ -106,6 +109,7 @@ impl AppServices {
             user_repo,
             tag_repo,
             git_repo,
+            git_storage,
             gitignore_port,
             git_workspace,
             storage_port,
@@ -165,6 +169,10 @@ impl AppContext {
 
     pub fn git_repo(&self) -> Arc<dyn GitRepository> {
         self.services.git_repo.clone()
+    }
+
+    pub fn git_storage(&self) -> Arc<dyn GitStorage> {
+        self.services.git_storage.clone()
     }
 
     pub fn gitignore_port(&self) -> Arc<dyn GitignorePort> {

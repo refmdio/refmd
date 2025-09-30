@@ -35,10 +35,11 @@ impl FilesRepository for SqlxFilesRepository {
         content_type: Option<&str>,
         size: i64,
         storage_path: &str,
+        content_hash: &str,
     ) -> anyhow::Result<Uuid> {
         let row = sqlx::query(
-            r#"INSERT INTO files (document_id, filename, content_type, size, storage_path)
-               VALUES ($1, $2, $3, $4, $5)
+            r#"INSERT INTO files (document_id, filename, content_type, size, storage_path, content_hash)
+               VALUES ($1, $2, $3, $4, $5, $6)
                RETURNING id"#,
         )
         .bind(doc_id)
@@ -46,6 +47,7 @@ impl FilesRepository for SqlxFilesRepository {
         .bind(content_type)
         .bind(size)
         .bind(storage_path)
+        .bind(content_hash)
         .fetch_one(&self.pool)
         .await?;
         Ok(row.get("id"))

@@ -1,7 +1,6 @@
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::storage_port::StoragePort;
-use std::path::PathBuf;
 use uuid::Uuid;
 
 fn strip_user_prefix(owner_id: Uuid, rel_from_uploads: &str) -> String {
@@ -63,7 +62,7 @@ pub async fn compute_doc_patterns_with<
     // 2) Attachment paths (exact files for the document)
     let file_paths = files.list_storage_paths_for_document(node_id).await?;
     for storage_path in file_paths {
-        let full = PathBuf::from(storage_path);
+        let full = storage.absolute_from_relative(&storage_path);
         let rel_from_uploads = storage.relative_from_uploads(&full);
         let repo_rel = strip_user_prefix(owner_id, &rel_from_uploads);
         patterns.push(repo_rel);

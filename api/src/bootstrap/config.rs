@@ -1,4 +1,5 @@
 use std::env;
+use std::str::FromStr;
 
 fn env_var(keys: &[&str]) -> Option<String> {
     for key in keys {
@@ -11,6 +12,24 @@ fn env_var(keys: &[&str]) -> Option<String> {
     None
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StorageBackend {
+    Filesystem,
+    S3,
+}
+
+impl FromStr for StorageBackend {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "filesystem" | "fs" => Ok(StorageBackend::Filesystem),
+            "s3" => Ok(StorageBackend::S3),
+            other => Err(anyhow::anyhow!("unsupported storage backend: {}", other)),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub api_port: u16,
@@ -21,7 +40,14 @@ pub struct Config {
     pub snapshot_interval_secs: u64,
     pub snapshot_keep_versions: i64,
     pub updates_keep_window: i64,
-    pub uploads_dir: String,
+    pub storage_backend: StorageBackend,
+    pub storage_root: String,
+    pub s3_endpoint: Option<String>,
+    pub s3_bucket: Option<String>,
+    pub s3_region: Option<String>,
+    pub s3_access_key: Option<String>,
+    pub s3_secret_key: Option<String>,
+    pub s3_use_path_style: bool,
     pub plugin_dir: String,
     pub encryption_key: String,
     pub upload_max_bytes: usize,
@@ -52,7 +78,20 @@ impl Config {
         let updates_keep_window = env_var(&["UPDATES_KEEP_WINDOW"])
             .and_then(|s| s.parse().ok())
             .unwrap_or(500);
-        let uploads_dir = env_var(&["UPLOADS_DIR"]).unwrap_or_else(|| "./uploads".into());
+        let storage_backend = env_var(&["STORAGE_BACKEND"])
+            .as_deref()
+            .unwrap_or("filesystem")
+            .parse::<StorageBackend>()?;
+        let storage_root =
+            env_var(&["STORAGE_ROOT", "UPLOADS_DIR"]).unwrap_or_else(|| "./uploads".into());
+        let s3_endpoint = env_var(&["S3_ENDPOINT"]);
+        let s3_bucket = env_var(&["S3_BUCKET"]);
+        let s3_region = env_var(&["S3_REGION"]);
+        let s3_access_key = env_var(&["S3_ACCESS_KEY"]);
+        let s3_secret_key = env_var(&["S3_SECRET_KEY"]);
+        let s3_use_path_style = env_var(&["S3_USE_PATH_STYLE"])
+            .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true"))
+            .unwrap_or(false);
         let plugin_dir = env_var(&["PLUGINS_DIR"]).unwrap_or_else(|| "./plugins".into());
         let encryption_key = env_var(&["ENCRYPTION_KEY"]).unwrap_or_else(|| jwt_secret_pem.clone());
         let upload_max_bytes = env_var(&["UPLOAD_MAX_BYTES"])
@@ -92,6 +131,20 @@ impl Config {
             if encryption_key == "development-secret-change-me" || encryption_key.len() < 16 {
                 anyhow::bail!("ENCRYPTION_KEY must be set to a strong secret in production");
             }
+            if matches!(storage_backend, StorageBackend::S3) {
+                if s3_bucket.as_deref().unwrap_or("").is_empty() {
+                    anyhow::bail!(
+                        "S3_BUCKET must be configured in production when storage backend is S3"
+                    );
+                }
+                if s3_access_key.as_deref().unwrap_or("").is_empty()
+                    || s3_secret_key.as_deref().unwrap_or("").is_empty()
+                {
+                    anyhow::bail!(
+                        "S3_ACCESS_KEY and S3_SECRET_KEY must be configured in production when storage backend is S3"
+                    );
+                }
+            }
         }
 
         Ok(Self {
@@ -103,7 +156,14 @@ impl Config {
             snapshot_interval_secs,
             snapshot_keep_versions,
             updates_keep_window,
-            uploads_dir,
+            storage_backend,
+            storage_root,
+            s3_endpoint,
+            s3_bucket,
+            s3_region,
+            s3_access_key,
+            s3_secret_key,
+            s3_use_path_style,
             plugin_dir,
             encryption_key,
             upload_max_bytes,

@@ -17,7 +17,7 @@ services:
 
   api:
     build:
-      context: ./api
+      context: ../../api
       dockerfile: Dockerfile
     environment:
       RUST_ENV: development
@@ -43,7 +43,7 @@ services:
 
   app:
     build:
-      context: ./app
+      context: ../../app
       dockerfile: Dockerfile
     environment:
       VITE_API_BASE_URL: http://localhost:8888

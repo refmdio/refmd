@@ -13,9 +13,12 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
+use api::application::ports::plugin_asset_store::PluginAssetStore;
 use api::application::ports::plugin_event_publisher::PluginScopedEvent;
+use api::application::ports::plugin_installer::PluginInstaller;
+use api::application::ports::plugin_runtime::PluginRuntime;
 use api::bootstrap::app_context::{AppContext, AppServices};
-use api::bootstrap::config::Config;
+use api::bootstrap::config::{Config, StorageBackend};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -182,8 +185,21 @@ async fn main() -> anyhow::Result<()> {
     let pool = api::infrastructure::db::connect_pool(&cfg.database_url).await?;
     api::infrastructure::db::migrate(&pool).await?;
 
+    let storage_port: Arc<dyn api::application::ports::storage_port::StoragePort> =
+        match cfg.storage_backend {
+            StorageBackend::Filesystem => {
+                Arc::new(api::infrastructure::storage::port_impl::FsStoragePort {
+                    pool: pool.clone(),
+                    uploads_root: std::path::PathBuf::from(&cfg.storage_root),
+                })
+            }
+            StorageBackend::S3 => Arc::new(
+                api::infrastructure::storage::s3::S3StoragePort::new(pool.clone(), &cfg).await?,
+            ),
+        };
+
     // Build Realtime Hub
-    let hub = api::infrastructure::realtime::Hub::new(pool.clone(), cfg.uploads_dir.clone());
+    let hub = api::infrastructure::realtime::Hub::new(pool.clone(), storage_port.clone());
     let (plugin_tx, _plugin_rx) = tokio::sync::broadcast::channel::<PluginScopedEvent>(64);
 
     let document_repo = Arc::new(
@@ -227,13 +243,15 @@ async fn main() -> anyhow::Result<()> {
             cfg.encryption_key.clone(),
         ),
     );
+    let git_storage = api::infrastructure::git::storage::build_git_storage(&cfg).await?;
     let gitignore_port = Arc::new(api::infrastructure::storage::gitignore::FsGitignorePort);
-    let git_workspace =
-        Arc::new(api::infrastructure::git::workspace::GitWorkspaceService::new(&cfg.uploads_dir)?);
-    let storage_port = Arc::new(api::infrastructure::storage::port_impl::FsStoragePort {
-        pool: pool.clone(),
-        uploads_root: std::path::PathBuf::from(&cfg.uploads_dir),
-    });
+    let git_workspace = Arc::new(
+        api::infrastructure::git::workspace::GitWorkspaceService::new(
+            pool.clone(),
+            git_storage.clone(),
+            storage_port.clone(),
+        )?,
+    );
     let realtime_port =
         Arc::new(api::infrastructure::realtime::port_impl::HubRealtimePort { hub: hub.clone() });
     let plugin_repo = Arc::new(
@@ -246,11 +264,36 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
-    let plugin_store = Arc::new(
-        api::infrastructure::plugins::filesystem_store::FilesystemPluginStore::new(
-            &cfg.plugin_dir,
-        )?,
-    );
+    let (plugin_runtime, plugin_installer, plugin_assets): (
+        Arc<dyn PluginRuntime>,
+        Arc<dyn PluginInstaller>,
+        Arc<dyn PluginAssetStore>,
+    ) = match cfg.storage_backend {
+        StorageBackend::Filesystem => {
+            let store = Arc::new(
+                api::infrastructure::plugins::filesystem_store::FilesystemPluginStore::new(
+                    &cfg.plugin_dir,
+                )?,
+            );
+            let runtime: Arc<dyn PluginRuntime> = store.clone();
+            let installer: Arc<dyn PluginInstaller> = store.clone();
+            let assets: Arc<dyn PluginAssetStore> = store.clone();
+            (runtime, installer, assets)
+        }
+        StorageBackend::S3 => {
+            let store = Arc::new(
+                api::infrastructure::plugins::s3_store::S3BackedPluginStore::new(
+                    &cfg.plugin_dir,
+                    &cfg,
+                )
+                .await?,
+            );
+            let runtime: Arc<dyn PluginRuntime> = store.clone();
+            let installer: Arc<dyn PluginInstaller> = store.clone();
+            let assets: Arc<dyn PluginAssetStore> = store.clone();
+            (runtime, installer, assets)
+        }
+    };
     let plugin_fetcher = Arc::new(
         api::infrastructure::plugins::package_fetcher_reqwest::ReqwestPluginPackageFetcher::new(),
     );
@@ -270,6 +313,7 @@ async fn main() -> anyhow::Result<()> {
         user_repo,
         tag_repo,
         git_repo,
+        git_storage,
         gitignore_port,
         git_workspace,
         storage_port,
@@ -277,12 +321,12 @@ async fn main() -> anyhow::Result<()> {
         realtime_port,
         plugin_repo,
         plugin_installations,
-        plugin_store.clone(),
-        plugin_store.clone(),
+        plugin_runtime.clone(),
+        plugin_installer.clone(),
         plugin_fetcher,
         plugin_tx.clone(),
         plugin_event_publisher,
-        plugin_store.clone(),
+        plugin_assets.clone(),
     );
 
     let ctx = AppContext::new(cfg.clone(), services);
@@ -349,8 +393,10 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Ensure uploads dir exists
-    if let Err(e) = tokio::fs::create_dir_all(&cfg.uploads_dir).await {
-        tracing::warn!(error=?e, dir=%cfg.uploads_dir, "Failed to create uploads dir");
+    if matches!(cfg.storage_backend, StorageBackend::Filesystem) {
+        if let Err(e) = tokio::fs::create_dir_all(&cfg.storage_root).await {
+            tracing::warn!(error=?e, dir=%cfg.storage_root, "Failed to create uploads dir");
+        }
     }
 
     // Build upload router with state

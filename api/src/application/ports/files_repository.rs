@@ -11,6 +11,7 @@ pub trait FilesRepository: Send + Sync {
         content_type: Option<&str>,
         size: i64,
         storage_path: &str,
+        content_hash: &str,
     ) -> anyhow::Result<Uuid>;
     async fn get_file_meta(
         &self,
