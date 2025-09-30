@@ -57,7 +57,7 @@ impl RedisClusterBus {
     pub async fn publish_update(&self, doc_id: &str, frame: Vec<u8>) -> anyhow::Result<String> {
         let mut conn = self
             .client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .context("redis_get_async_connection")?;
         let key = self.updates_key(doc_id);
@@ -84,7 +84,7 @@ impl RedisClusterBus {
             .arg("*")
             .arg("doc")
             .arg(doc_id)
-            .query_async::<_, redis::Value>(&mut conn)
+            .query_async::<()>(&mut conn)
             .await;
         Ok(id)
     }
@@ -96,7 +96,7 @@ impl RedisClusterBus {
     ) -> anyhow::Result<String> {
         let mut conn = self
             .client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .context("redis_get_async_connection")?;
         let key = self.awareness_key(doc_id);
@@ -126,7 +126,7 @@ impl RedisClusterBus {
             .unwrap_or_else(|| "-".to_string());
         let mut conn = self
             .client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .context("redis_get_async_connection")?;
         let reply: StreamRangeReply = conn
@@ -155,7 +155,7 @@ impl RedisClusterBus {
             .unwrap_or_else(|| "-".to_string());
         let mut conn = self
             .client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .context("redis_get_async_connection")?;
         let reply: StreamRangeReply = conn
@@ -201,7 +201,7 @@ impl RedisClusterBus {
     pub async fn ack_task(&self, entry_id: &str) -> anyhow::Result<()> {
         let mut conn = self
             .client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .context("redis_get_async_connection")?;
         let _: i64 = redis::cmd("XDEL")
@@ -226,7 +226,7 @@ impl RedisClusterBus {
     async fn trim_stream_minid(&self, key: String, min_id: &str) -> anyhow::Result<()> {
         let mut conn = self
             .client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .context("redis_get_async_connection")?;
         let _: i64 = redis::cmd("XTRIM")
@@ -252,7 +252,7 @@ impl RedisClusterBus {
 
         tokio::spawn(async move {
             loop {
-                match client.get_async_connection().await {
+                match client.get_multiplexed_async_connection().await {
                     Ok(mut conn) => {
                         let opts = StreamReadOptions::default().block(1000).count(128);
                         let keys = [key.as_str()];
@@ -307,7 +307,7 @@ impl RedisClusterBus {
 
         tokio::spawn(async move {
             loop {
-                match client.get_async_connection().await {
+                match client.get_multiplexed_async_connection().await {
                     Ok(mut conn) => {
                         let opts = StreamReadOptions::default().block(1000).count(128);
                         let keys = [key.as_str()];
