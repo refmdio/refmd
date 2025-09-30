@@ -206,7 +206,7 @@ pub async fn get_public_content_by_owner_and_id(
     if !exists {
         return Err(StatusCode::NOT_FOUND);
     }
-    let realtime = ctx.realtime_port();
+    let realtime = ctx.realtime_engine();
     let content = realtime
         .get_content(&id.to_string())
         .await

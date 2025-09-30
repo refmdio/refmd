@@ -56,3 +56,4 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1"
 walkdir = "2.5"
 tempfile = "3"
+redis = { version = "0.24", features = ["tokio-comp", "aio", "streams", "script", "connection-manager"] }

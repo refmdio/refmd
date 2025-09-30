@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::application::ports::document_repository::DocumentRepository;
-use crate::application::ports::realtime_port::RealtimePort;
+use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::storage_port::StoragePort;
 use crate::domain::documents::document::Document as DomainDocument;
 
@@ -9,7 +9,7 @@ pub struct UpdateDocument<'a, R, S, RT>
 where
     R: DocumentRepository + ?Sized,
     S: StoragePort + ?Sized,
-    RT: RealtimePort + ?Sized,
+    RT: RealtimeEngine + ?Sized,
 {
     pub repo: &'a R,
     pub storage: &'a S,
@@ -20,7 +20,7 @@ impl<'a, R, S, RT> UpdateDocument<'a, R, S, RT>
 where
     R: DocumentRepository + ?Sized,
     S: StoragePort + ?Sized,
-    RT: RealtimePort + ?Sized,
+    RT: RealtimeEngine + ?Sized,
 {
     // parent_id: None => not provided; Some(None) => set null; Some(Some(uuid)) => set value
     pub async fn execute(

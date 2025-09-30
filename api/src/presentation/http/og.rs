@@ -35,7 +35,7 @@ async fn public_document_og(
     Path((name, id)): Path<(String, Uuid)>,
 ) -> Result<Response, StatusCode> {
     let repo = ctx.public_repo();
-    let realtime = ctx.realtime_port();
+    let realtime = ctx.realtime_engine();
     let uc = GeneratePublicOgPreview {
         repo: repo.as_ref(),
         realtime: realtime.as_ref(),

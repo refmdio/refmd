@@ -393,7 +393,7 @@ impl yrs::sync::Protocol for ReadOnlyProtocol {
     }
 }
 
-async fn save_doc_to_fs(pool: &PgPool, hub: &Hub, doc_id: &str) -> anyhow::Result<()> {
+pub(crate) async fn save_doc_to_fs(pool: &PgPool, hub: &Hub, doc_id: &str) -> anyhow::Result<()> {
     let uuid = Uuid::parse_str(doc_id)?;
     // Fetch meta
     let row = sqlx::query("SELECT id, owner_id, title, type, path FROM documents WHERE id = $1")

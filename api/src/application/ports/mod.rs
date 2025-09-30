@@ -15,6 +15,7 @@ pub mod plugin_repository;
 pub mod plugin_runtime;
 pub mod public_repository;
 pub mod realtime_port;
+pub mod realtime_types;
 pub mod share_access_port;
 pub mod shares_repository;
 pub mod storage_port;
