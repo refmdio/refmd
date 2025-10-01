@@ -19,14 +19,19 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     try { localStorage.setItem('theme', theme) } catch {}
 
     try {
-      const color = theme === 'dark' ? '#0b0b0b' : '#ffffff'
-      let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
-      if (!meta) {
-        meta = document.createElement('meta')
+      const color = theme === 'dark' ? '#1e1e1e' : '#ffffff'
+      const metas = Array.from(document.querySelectorAll('meta[name="theme-color"]')) as HTMLMetaElement[]
+      if (metas.length === 0) {
+        const meta = document.createElement('meta')
         meta.name = 'theme-color'
         document.head.appendChild(meta)
+        metas.push(meta)
       }
-      meta.content = color
+
+      metas.forEach((meta) => {
+        if (meta.hasAttribute('media')) meta.removeAttribute('media')
+        meta.content = color
+      })
     } catch {}
   }, [theme])
   return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>

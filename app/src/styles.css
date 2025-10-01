@@ -130,10 +130,24 @@
     @apply border-border outline-ring/50;
   }
   html, body { @apply h-full; }
+  html { background-color: var(--background); }
   body { @apply bg-background text-foreground; }
   ::selection {
     background-color: color-mix(in srgb, var(--primary) 35%, transparent);
     color: var(--primary-foreground);
+  }
+  @supports (padding: env(safe-area-inset-top)) {
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: env(safe-area-inset-top);
+      background: var(--header);
+      pointer-events: none;
+      z-index: 10;
+    }
   }
 }
 
