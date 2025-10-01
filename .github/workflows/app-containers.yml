@@ -1,14 +1,16 @@
-name: Build and Publish Containers
+name: Build and Publish App Container
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'app/**'
+      - '.github/workflows/app-containers.yml'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  DEFAULT_BRANCH: main
 
 jobs:
   build-and-publish:
@@ -53,23 +55,3 @@ jobs:
           push: true
           tags: ${{ steps.meta_app.outputs.tags }}
           labels: ${{ steps.meta_app.outputs.labels }}
-
-      - name: Metadata for api image
-        id: meta_api
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ steps.vars.outputs.namespace }}/api
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha
-
-      - name: Build and push api image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./api
-          file: ./api/Dockerfile
-          push: true
-          tags: ${{ steps.meta_api.outputs.tags }}
-          labels: ${{ steps.meta_api.outputs.labels }}
