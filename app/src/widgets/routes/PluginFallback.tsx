@@ -1,7 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import React from 'react'
 
-import { resolveAuthRedirect } from '@/features/auth'
+import { useAuthContext } from '@/features/auth'
 import {
   mountRoutePlugin,
   resolvePluginForRoute,
@@ -10,8 +10,8 @@ import {
 
 export default function PluginFallback() {
   const navigate = useNavigate()
-  const [authChecking, setAuthChecking] = React.useState(true)
-  const [authReady, setAuthReady] = React.useState(false)
+  const { user, loading: authLoading } = useAuthContext()
+  const authReady = !authLoading && !!user
   const [manifestLoading, setManifestLoading] = React.useState(true)
   const [pluginMounting, setPluginMounting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -20,40 +20,28 @@ export default function PluginFallback() {
   const disposeRef = React.useRef<null | (() => void)>(null)
 
   React.useEffect(() => {
-    let cancelled = false
+    if (authLoading || authReady) return
 
-    const run = async () => {
-      setAuthChecking(true)
-      setAuthReady(false)
+    const location = (() => {
       try {
-        const locationCtx = typeof window !== 'undefined'
-          ? { location: { pathname: window.location.pathname, search: window.location.search } }
-          : undefined
-        const redirectTarget = await resolveAuthRedirect(locationCtx)
-        if (cancelled) return
-        if (redirectTarget) {
-          navigate(redirectTarget)
-          return
+        if (typeof window === 'undefined') {
+          return { pathname: '/', search: '' }
         }
-        setAuthReady(true)
-      } catch (e) {
-        if (!cancelled) {
-          console.error('[plugins] route auth precheck failed', e)
-          setAuthReady(true)
-        }
-      } finally {
-        if (!cancelled) {
-          setAuthChecking(false)
-        }
+        return { pathname: window.location.pathname, search: window.location.search }
+      } catch {
+        return { pathname: '/', search: '' }
       }
-    }
+    })()
 
-    run()
+    const redirectSearch = location.search && location.search !== '?' ? location.search : ''
 
-    return () => {
-      cancelled = true
-    }
-  }, [navigate])
+    navigate({
+      to: '/auth/signin',
+      search: redirectSearch
+        ? { redirect: location.pathname, redirectSearch }
+        : { redirect: location.pathname },
+    })
+  }, [authLoading, authReady, navigate])
 
   React.useEffect(() => {
     if (!authReady) return
@@ -168,7 +156,7 @@ export default function PluginFallback() {
     }
   }, [plugin, navigate, authReady])
 
-  if (authChecking) {
+  if (authLoading || !authReady) {
     return <div className="p-6 text-sm text-muted-foreground">Checking access…</div>
   }
 
