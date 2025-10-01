@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
@@ -10,6 +12,7 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use aws_sdk_s3::{Client, error::SdkError};
 use tokio::fs;
+use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -23,6 +26,46 @@ use crate::bootstrap::config::Config;
 use crate::infrastructure::plugins::filesystem_store::FilesystemPluginStore;
 
 const PLUGINS_PREFIX: &str = "plugins";
+const GLOBAL_MANIFEST_CACHE_TTL_SECS: u64 = 300;
+
+#[derive(Default)]
+struct GlobalManifestCache {
+    last_sync_epoch_secs: AtomicU64,
+    refresh_lock: AsyncMutex<()>,
+}
+
+impl GlobalManifestCache {
+    fn new() -> Self {
+        Self {
+            last_sync_epoch_secs: AtomicU64::new(0),
+            refresh_lock: AsyncMutex::new(()),
+        }
+    }
+
+    fn needs_refresh(&self, now_epoch_secs: u64) -> bool {
+        let last = self.last_sync_epoch_secs.load(Ordering::Relaxed);
+        if last == 0 {
+            return true;
+        }
+        now_epoch_secs.saturating_sub(last) >= GLOBAL_MANIFEST_CACHE_TTL_SECS
+    }
+
+    fn mark_refreshed(&self, now_epoch_secs: u64) {
+        self.last_sync_epoch_secs
+            .store(now_epoch_secs, Ordering::Relaxed);
+    }
+
+    fn invalidate(&self) {
+        self.last_sync_epoch_secs.store(0, Ordering::Relaxed);
+    }
+}
+
+fn epoch_secs_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 async fn build_client(cfg: &Config) -> anyhow::Result<Client> {
     let mut loader = aws_config::defaults(BehaviorVersion::latest());
@@ -219,6 +262,7 @@ pub struct S3BackedPluginStore {
     local: Arc<FilesystemPluginStore>,
     client: Client,
     bucket: String,
+    global_cache: GlobalManifestCache,
 }
 
 impl S3BackedPluginStore {
@@ -248,6 +292,7 @@ impl S3BackedPluginStore {
             local,
             client,
             bucket,
+            global_cache: GlobalManifestCache::new(),
         })
     }
 
@@ -307,13 +352,22 @@ impl PluginAssetStore for S3BackedPluginStore {
         tokio::spawn(async move {
             let _ = delete_prefix(&client, &bucket, &prefix).await;
         });
+        self.global_cache.invalidate();
         Ok(())
     }
 
     async fn list_latest_global_manifests(
         &self,
     ) -> anyhow::Result<Vec<(String, String, serde_json::Value)>> {
-        download_prefix(&self.client, &self.bucket, "global", self.local.root()).await?;
+        let now = epoch_secs_now();
+        if self.global_cache.needs_refresh(now) {
+            let _guard = self.global_cache.refresh_lock.lock().await;
+            let refreshed_now = epoch_secs_now();
+            if self.global_cache.needs_refresh(refreshed_now) {
+                download_prefix(&self.client, &self.bucket, "global", self.local.root()).await?;
+                self.global_cache.mark_refreshed(refreshed_now);
+            }
+        }
         self.local.list_latest_global_manifests().await
     }
 
@@ -346,6 +400,8 @@ impl PluginInstaller for S3BackedPluginStore {
         upload_directory(&self.client, &self.bucket, self.local.root(), &install_dir)
             .await
             .map_err(PluginInstallError::Storage)?;
+        // Ensure subsequent manifest reads refetch latest artifacts after an install/update.
+        self.global_cache.invalidate();
         Ok(installed)
     }
 }
