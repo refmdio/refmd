@@ -109,6 +109,7 @@ pub async fn list_records(
     Query(params): Query<HashMap<String, String>>,
     Path(p): Path<RecordsPath>,
 ) -> Result<Json<RecordsResponse>, StatusCode> {
+    ensure_valid_plugin_id(&p.plugin)?;
     let token = params.get("token").map(|s| s.as_str());
     let actor =
         auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
@@ -193,6 +194,7 @@ pub async fn create_record(
     Path(p): Path<RecordsPath>,
     Json(body): Json<CreateRecordBody>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_valid_plugin_id(&p.plugin)?;
     let token = params.get("token").map(|s| s.as_str());
     let actor =
         auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
@@ -265,6 +267,7 @@ pub async fn update_record(
     Path(p): Path<UpdateRecordPath>,
     Json(body): Json<UpdateRecordBody>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_valid_plugin_id(&p.plugin)?;
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
@@ -327,6 +330,7 @@ pub async fn delete_record(
     bearer: Bearer,
     Path(p): Path<UpdateRecordPath>,
 ) -> Result<StatusCode, StatusCode> {
+    ensure_valid_plugin_id(&p.plugin)?;
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.plugin_repo();
@@ -402,6 +406,7 @@ pub async fn get_kv_value(
     Query(params): Query<HashMap<String, String>>,
     Path(p): Path<KvPath>,
 ) -> Result<Json<KvValueResponse>, StatusCode> {
+    ensure_valid_plugin_id(&p.plugin)?;
     let token = params.get("token").map(|s| s.as_str());
     let actor =
         auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
@@ -454,6 +459,7 @@ pub async fn put_kv_value(
     Path(p): Path<KvPath>,
     Json(body): Json<KvValueBody>,
 ) -> Result<StatusCode, StatusCode> {
+    ensure_valid_plugin_id(&p.plugin)?;
     let token = params.get("token").map(|s| s.as_str());
     let actor =
         auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
@@ -581,6 +587,21 @@ fn manifest_item_from_json(
     })
 }
 
+fn ensure_valid_plugin_id(id: &str) -> Result<(), StatusCode> {
+    const MAX_LEN: usize = 128;
+    if id.is_empty() || id.len() > MAX_LEN {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    {
+        Ok(())
+    } else {
+        Err(StatusCode::BAD_REQUEST)
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/me/plugins/manifest",
@@ -671,6 +692,7 @@ pub async fn exec_action(
     Path((plugin, action)): Path<(String, String)>,
     Json(body): Json<ExecBody>,
 ) -> Result<Json<ExecResultResponse>, StatusCode> {
+    ensure_valid_plugin_id(&plugin)?;
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
@@ -820,13 +842,17 @@ pub async fn uninstall(
 ) -> Result<StatusCode, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let UninstallBody { id } = body;
+    let trimmed_id = id.trim();
+    ensure_valid_plugin_id(trimmed_id)?;
+    let plugin_id = trimmed_id.to_string();
     // For global plugins, uninstall endpoint no longer updates per-user list.
     // Optionally we could implement deletion from disk by id+version (not done here).
     let installations = ctx.plugin_installations();
-    let _ = installations.remove(user_id, &body.id).await;
+    let _ = installations.remove(user_id, &plugin_id).await;
 
     let store = ctx.plugin_assets();
-    let plugin_id_for_remove = body.id.clone();
+    let plugin_id_for_remove = plugin_id.clone();
     let store_for_remove = store.clone();
     let user_id_for_remove = user_id;
     match tokio::task::spawn_blocking(move || {
@@ -842,7 +868,7 @@ pub async fn uninstall(
     let publisher = ctx.plugin_event_publisher();
     let event = crate::application::ports::plugin_event_publisher::PluginScopedEvent {
         user_id: Some(user_id),
-        payload: json!({ "event": "uninstalled", "id": body.id }),
+        payload: json!({ "event": "uninstalled", "id": plugin_id }),
     };
     let _ = publisher.publish(&event).await;
     Ok(StatusCode::NO_CONTENT)
@@ -854,6 +880,7 @@ async fn ensure_plugin_permission(
     plugin_id: &str,
     permission: &str,
 ) -> Result<(), StatusCode> {
+    ensure_valid_plugin_id(plugin_id)?;
     let perms = runtime
         .permissions(user_id, plugin_id)
         .await

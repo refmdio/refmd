@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use async_trait::async_trait;
 use chrono::Utc;
 use extism::{Manifest, Plugin, Wasm};
@@ -52,6 +52,18 @@ impl InvocationKind {
 }
 
 impl FilesystemPluginStore {
+    pub(crate) fn is_valid_plugin_id(plugin_id: &str) -> bool {
+        !plugin_id.is_empty() && PLUGIN_ID_RE.is_match(plugin_id)
+    }
+
+    pub(crate) fn ensure_valid_plugin_id(plugin_id: &str) -> anyhow::Result<()> {
+        if Self::is_valid_plugin_id(plugin_id) {
+            Ok(())
+        } else {
+            bail!("invalid plugin id");
+        }
+    }
+
     pub fn new(configured_dir: &str) -> anyhow::Result<Self> {
         let root = Self::resolve_root(configured_dir)?;
         Ok(Self {
@@ -143,6 +155,9 @@ impl FilesystemPluginStore {
         user_id: Option<Uuid>,
         plugin: &str,
     ) -> anyhow::Result<Option<PathBuf>> {
+        if !Self::is_valid_plugin_id(plugin) {
+            return Ok(None);
+        }
         if let Some(uid) = user_id {
             let base = self.user_root(&uid).join(plugin);
             if let Some(dir) = self.latest_version_dir(&base)? {
@@ -445,7 +460,12 @@ impl FilesystemPluginStore {
     }
 
     pub fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> anyhow::Result<()> {
-        let path = self.user_root(user_id).join(plugin_id);
+        Self::ensure_valid_plugin_id(plugin_id)?;
+        let root = self.user_root(user_id);
+        let path = root.join(plugin_id);
+        if !path.starts_with(&root) {
+            bail!("invalid plugin path");
+        }
         if path.exists() {
             std::fs::remove_dir_all(&path)?;
         }

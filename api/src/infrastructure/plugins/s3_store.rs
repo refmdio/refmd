@@ -311,22 +311,23 @@ impl S3BackedPluginStore {
         })
     }
 
-    fn runtime_store(&self, user_id: Option<Uuid>, plugin: &str) -> (PathBuf, String) {
+    fn runtime_store(&self, user_id: Option<Uuid>, plugin: &str) -> anyhow::Result<(PathBuf, String)> {
+        FilesystemPluginStore::ensure_valid_plugin_id(plugin)?;
         if let Some(uid) = user_id {
-            (
+            Ok((
                 self.local.user_root(&uid).join(plugin),
                 format!("{}/{}", uid, plugin),
-            )
+            ))
         } else {
-            (
+            Ok((
                 self.local.global_root().join(plugin),
                 format!("global/{}", plugin),
-            )
+            ))
         }
     }
 
     async fn ensure_local(&self, user_id: Option<Uuid>, plugin: &str) -> anyhow::Result<()> {
-        let (base_dir, prefix) = self.runtime_store(user_id, plugin);
+        let (base_dir, prefix) = self.runtime_store(user_id, plugin)?;
         if base_dir.exists() {
             if self.local.latest_version_dir(&base_dir)?.is_some() {
                 return Ok(());
@@ -417,6 +418,9 @@ impl PluginAssetStore for S3BackedPluginStore {
         plugin_id: &str,
         version: &str,
     ) -> anyhow::Result<Option<serde_json::Value>> {
+        if !FilesystemPluginStore::is_valid_plugin_id(plugin_id) {
+            return Ok(None);
+        }
         self.ensure_local(Some(*user_id), plugin_id).await?;
         self.local
             .load_user_manifest(user_id, plugin_id, version)
@@ -455,6 +459,9 @@ impl PluginRuntime for S3BackedPluginStore {
         action: &str,
         payload: &serde_json::Value,
     ) -> anyhow::Result<Option<ExecResult>> {
+        if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
+            return Ok(None);
+        }
         self.ensure_local(user_id, plugin).await?;
         self.local.execute(user_id, plugin, action, payload).await
     }
@@ -466,6 +473,9 @@ impl PluginRuntime for S3BackedPluginStore {
         function: &str,
         request: &serde_json::Value,
     ) -> anyhow::Result<Option<serde_json::Value>> {
+        if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
+            return Ok(None);
+        }
         self.ensure_local(user_id, plugin).await?;
         self.local
             .render_placeholder(user_id, plugin, function, request)
@@ -477,6 +487,9 @@ impl PluginRuntime for S3BackedPluginStore {
         user_id: Option<Uuid>,
         plugin: &str,
     ) -> anyhow::Result<Option<Vec<String>>> {
+        if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
+            return Ok(None);
+        }
         self.ensure_local(user_id, plugin).await?;
         self.local.permissions(user_id, plugin).await
     }
