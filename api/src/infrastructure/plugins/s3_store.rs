@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
@@ -11,18 +11,22 @@ use aws_sdk_s3::operation::head_bucket::HeadBucketError;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use aws_sdk_s3::{Client, error::SdkError};
+use futures_util::StreamExt;
 use tokio::fs;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::time::sleep;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::application::dto::plugins::ExecResult;
 use crate::application::ports::plugin_asset_store::PluginAssetStore;
+use crate::application::ports::plugin_event_publisher::PluginScopedEvent;
 use crate::application::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
 };
 use crate::application::ports::plugin_runtime::PluginRuntime;
 use crate::bootstrap::config::Config;
+use crate::infrastructure::plugins::event_bus_pg::PgPluginEventBus;
 use crate::infrastructure::plugins::filesystem_store::FilesystemPluginStore;
 
 const PLUGINS_PREFIX: &str = "plugins";
@@ -57,6 +61,17 @@ impl GlobalManifestCache {
 
     fn invalidate(&self) {
         self.last_sync_epoch_secs.store(0, Ordering::Relaxed);
+    }
+}
+
+fn is_manifest_affecting_event(event: &PluginScopedEvent) -> bool {
+    if let Some(kind) = event.payload.get("event").and_then(|value| value.as_str()) {
+        matches!(
+            kind,
+            "installed" | "uninstalled" | "updated" | "publish" | "unpublish"
+        )
+    } else {
+        false
     }
 }
 
@@ -318,6 +333,31 @@ impl S3BackedPluginStore {
             }
         }
         download_prefix(&self.client, &self.bucket, &prefix, self.local.root()).await
+    }
+
+    fn handle_plugin_event(&self, event: &PluginScopedEvent) {
+        if is_manifest_affecting_event(event) {
+            self.global_cache.invalidate();
+        }
+    }
+
+    pub fn spawn_event_listener(self: &Arc<Self>, bus: Arc<PgPluginEventBus>) {
+        let store = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                match bus.subscribe().await {
+                    Ok(mut stream) => {
+                        while let Some(event) = stream.next().await {
+                            store.handle_plugin_event(&event);
+                        }
+                    }
+                    Err(err) => {
+                        tracing::error!(error = ?err, "plugin_manifest_event_listener_failed");
+                    }
+                }
+                sleep(Duration::from_secs(1)).await;
+            }
+        });
     }
 }
 

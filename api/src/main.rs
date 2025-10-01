@@ -274,6 +274,9 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    let mut s3_plugin_store: Option<
+        Arc<api::infrastructure::plugins::s3_store::S3BackedPluginStore>,
+    > = None;
     let (plugin_runtime, plugin_installer, plugin_assets): (
         Arc<dyn PluginRuntime>,
         Arc<dyn PluginInstaller>,
@@ -298,6 +301,7 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?,
             );
+            s3_plugin_store = Some(store.clone());
             let runtime: Arc<dyn PluginRuntime> = store.clone();
             let installer: Arc<dyn PluginInstaller> = store.clone();
             let assets: Arc<dyn PluginAssetStore> = store.clone();
@@ -313,6 +317,9 @@ async fn main() -> anyhow::Result<()> {
             "plugin_events",
         ),
     );
+    if let Some(store) = &s3_plugin_store {
+        store.spawn_event_listener(plugin_event_bus.clone());
+    }
     let plugin_event_publisher: Arc<dyn PluginEventPublisher> = plugin_event_bus.clone();
 
     let services = AppServices::new(
