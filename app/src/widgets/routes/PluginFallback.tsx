@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import React from 'react'
 
+import { resolveAuthRedirect } from '@/features/auth'
 import {
   mountRoutePlugin,
   resolvePluginForRoute,
@@ -9,6 +10,8 @@ import {
 
 export default function PluginFallback() {
   const navigate = useNavigate()
+  const [authChecking, setAuthChecking] = React.useState(true)
+  const [authReady, setAuthReady] = React.useState(false)
   const [manifestLoading, setManifestLoading] = React.useState(true)
   const [pluginMounting, setPluginMounting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -17,6 +20,43 @@ export default function PluginFallback() {
   const disposeRef = React.useRef<null | (() => void)>(null)
 
   React.useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      setAuthChecking(true)
+      setAuthReady(false)
+      try {
+        const locationCtx = typeof window !== 'undefined'
+          ? { location: { pathname: window.location.pathname, search: window.location.search } }
+          : undefined
+        const redirectTarget = await resolveAuthRedirect(locationCtx)
+        if (cancelled) return
+        if (redirectTarget) {
+          navigate(redirectTarget)
+          return
+        }
+        setAuthReady(true)
+      } catch (e) {
+        if (!cancelled) {
+          console.error('[plugins] route auth precheck failed', e)
+          setAuthReady(true)
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthChecking(false)
+        }
+      }
+    }
+
+    run()
+
+    return () => {
+      cancelled = true
+    }
+  }, [navigate])
+
+  React.useEffect(() => {
+    if (!authReady) return
     let cancelled = false
 
     const path = (() => {
@@ -54,9 +94,10 @@ export default function PluginFallback() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [authReady])
 
   React.useEffect(() => {
+    if (!authReady) return
     let cancelled = false
     const container = containerRef.current
 
@@ -125,7 +166,11 @@ export default function PluginFallback() {
         /* noop */
       }
     }
-  }, [plugin, navigate])
+  }, [plugin, navigate, authReady])
+
+  if (authChecking) {
+    return <div className="p-6 text-sm text-muted-foreground">Checking access…</div>
+  }
 
   if (manifestLoading) {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>

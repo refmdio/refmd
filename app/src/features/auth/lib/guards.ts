@@ -5,6 +5,14 @@ import { me as fetchCurrentUser } from '@/entities/user'
 
 type MaybeSearch = string | Record<string, unknown> | null | undefined
 
+export type AuthRedirectTarget = {
+  to: string
+  search: {
+    redirect: string
+    redirectSearch?: string
+  }
+}
+
 function normalizeSearch(value: MaybeSearch): string {
   if (typeof value === 'string') return value
   return ''
@@ -53,19 +61,40 @@ function extractShareToken(ctx: any, search: string, tokenOverride: string | nul
   }
 }
 
-export async function appBeforeLoadGuard(ctx?: any) {
-  const { pathname, search } = resolveLocation(ctx)
+function createAuthRedirect(pathname: string, search: string): AuthRedirectTarget {
+  const redirectSearch = search && search !== '?' ? search : ''
+  const searchParams: AuthRedirectTarget['search'] = { redirect: pathname }
+  if (redirectSearch) {
+    searchParams.redirectSearch = redirectSearch
+  }
+  return {
+    to: '/auth/signin',
+    search: searchParams,
+  }
+}
+
+async function hasCurrentUser() {
   try {
     await fetchCurrentUser()
+    return true
   } catch {
-    const redirectSearch = search && search !== '?' ? search : ''
-    throw redirect({
-      to: '/auth/signin',
-      search: {
-        redirect: pathname,
-        ...(redirectSearch ? { redirectSearch } : {}),
-      },
-    })
+    return false
+  }
+}
+
+export async function resolveAuthRedirect(ctx?: any): Promise<AuthRedirectTarget | null> {
+  const { pathname, search } = resolveLocation(ctx)
+  const authenticated = await hasCurrentUser()
+  if (!authenticated) {
+    return createAuthRedirect(pathname, search)
+  }
+  return null
+}
+
+export async function appBeforeLoadGuard(ctx?: any) {
+  const result = await resolveAuthRedirect(ctx)
+  if (result) {
+    throw redirect(result)
   }
 }
 
@@ -81,16 +110,8 @@ export async function documentBeforeLoadGuard(ctx?: any) {
     }
   }
 
-  try {
-    await fetchCurrentUser()
-  } catch {
-    const redirectSearch = search && search !== '?' ? search : ''
-    throw redirect({
-      to: '/auth/signin',
-      search: {
-        redirect: pathname,
-        ...(redirectSearch ? { redirectSearch } : {}),
-      },
-    })
+  const authenticated = await hasCurrentUser()
+  if (!authenticated) {
+    throw redirect(createAuthRedirect(pathname, search))
   }
 }
