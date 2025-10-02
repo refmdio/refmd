@@ -72,6 +72,7 @@ export const Route = createFileRoute('/(public)/u/$name/$id')({
     return {
       meta: [
         { title },
+        { name: 'robots', content: 'index, follow' },
         { name: 'description', content: description },
         { property: 'og:title', content: title },
         { property: 'og:description', content: description },

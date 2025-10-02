@@ -34,6 +34,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         { charSet: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1.0' },
         { name: 'description', content: 'RefMD - Real-time Collaborative Markdown Editor' },
+        { name: 'robots', content: 'noindex, nofollow' },
         { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' },
         { name: 'theme-color', content: '#0b0b0b', media: '(prefers-color-scheme: dark)' },
       ],
