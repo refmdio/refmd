@@ -85,126 +85,137 @@ async function fetchDoc(id: string): Promise<DocInfo | null> {
   }
 }
 
-class RefmdWikiLink extends HTMLElement {
-  private static cache = new Map<string, DocInfo | null>()
-  private static pending = new Map<string, Promise<DocInfo | null>>()
+const canUseWikiLinkElement =
+  typeof globalThis !== 'undefined' &&
+  typeof (globalThis as any).HTMLElement !== 'undefined' &&
+  typeof (globalThis as any).customElements !== 'undefined'
 
-  connectedCallback() {
-    if (!this.dataset.originalLabel) this.dataset.originalLabel = (this.textContent || '').trim()
-    this.render()
-  }
+let RefmdWikiLink: any
 
-  static get observedAttributes() { return ['target','variant','href'] }
+if (canUseWikiLinkElement) {
+  class RefmdWikiLinkElement extends (globalThis as any).HTMLElement {
+    private static cache = new Map<string, DocInfo | null>()
+    private static pending = new Map<string, Promise<DocInfo | null>>()
 
-  attributeChangedCallback() {
-    this.render()
-  }
-
-  private key(target: string): string {
-    return `${target}|${shareToken()}`
-  }
-
-  private getCached(target: string) {
-    return RefmdWikiLink.cache.get(this.key(target))
-  }
-
-  private setCached(target: string, doc: DocInfo | null) {
-    RefmdWikiLink.cache.set(this.key(target), doc)
-  }
-
-  private async load(target: string) {
-    const key = this.key(target)
-    if (!RefmdWikiLink.pending.has(key)) {
-      RefmdWikiLink.pending.set(key, fetchDoc(target).finally(() => RefmdWikiLink.pending.delete(key)))
+    connectedCallback() {
+      if (!this.dataset.originalLabel) this.dataset.originalLabel = (this.textContent || '').trim()
+      this.render()
     }
-    return RefmdWikiLink.pending.get(key)!
-  }
 
-  private renderInline(doc: DocInfo | null | undefined, fallback: string) {
-    if (doc === null) {
-      this.innerHTML = `<span class="inline-flex items-center gap-2 px-3 py-1.5 text-sm border rounded-md bg-muted text-muted-foreground">Not found</span>`
-      return
-    }
-    if (!doc) {
-      this.innerHTML = `<span class="text-sm text-muted-foreground">${escapeHtml(fallback)}</span>`
-      return
-    }
-    const path = filePath(doc.path)
-    this.innerHTML = `
-      <a href="/document/${encodeURIComponent(doc.id)}" class="no-underline hover:no-underline decoration-transparent hover:decoration-transparent">
-        <span class="inline-flex items-center gap-2 px-3 py-1.5 text-sm border rounded-md bg-card hover:bg-accent/50 transition-colors">
-          <span class="flex-shrink-0">${typeIcon(doc.type)}</span>
-          <span class="flex-1 min-w-0">
-            <span class="font-medium">${escapeHtml(doc.title || fallback)}</span>
-            ${path ? `<span class="text-xs text-muted-foreground ml-2">${escapeHtml(path)}</span>` : ''}
-          </span>
-        </span>
-      </a>
-    `
-  }
+    static get observedAttributes() { return ['target','variant','href'] }
 
-  private renderEmbed(doc: DocInfo | null | undefined, fallback: string) {
-    if (doc === null) {
-      this.innerHTML = `<div class="border rounded-md px-4 py-3 bg-card text-xs text-muted-foreground">Not found</div>`
-      return
+    attributeChangedCallback() {
+      this.render()
     }
-    if (!doc) {
-      this.innerHTML = `<div class="border rounded-md px-4 py-3 bg-card text-xs text-muted-foreground">Loading…</div>`
-      return
+
+    private key(target: string): string {
+      return `${target}|${shareToken()}`
     }
-    const path = filePath(doc.path)
-    const updated = relativeTime(doc.updated_at)
-    this.innerHTML = `
-      <div class="wikilink-embed">
-        <a href="/document/${encodeURIComponent(doc.id)}" class="block no-underline hover:no-underline decoration-transparent hover:decoration-transparent">
-          <span class="flex items-center gap-2 px-4 py-3 border rounded-md bg-card hover:bg-accent/50 transition-colors group w-full">
+
+    private getCached(target: string) {
+      return RefmdWikiLinkElement.cache.get(this.key(target))
+    }
+
+    private setCached(target: string, doc: DocInfo | null) {
+      RefmdWikiLinkElement.cache.set(this.key(target), doc)
+    }
+
+    private async load(target: string) {
+      const key = this.key(target)
+      if (!RefmdWikiLinkElement.pending.has(key)) {
+        RefmdWikiLinkElement.pending.set(key, fetchDoc(target).finally(() => RefmdWikiLinkElement.pending.delete(key)))
+      }
+      return RefmdWikiLinkElement.pending.get(key)!
+    }
+
+    private renderInline(doc: DocInfo | null | undefined, fallback: string) {
+      if (doc === null) {
+        this.innerHTML = `<span class="inline-flex items-center gap-2 px-3 py-1.5 text-sm border rounded-md bg-muted text-muted-foreground">Not found</span>`
+        return
+      }
+      if (!doc) {
+        this.innerHTML = `<span class="text-sm text-muted-foreground">${escapeHtml(fallback)}</span>`
+        return
+      }
+      const path = filePath(doc.path)
+      this.innerHTML = `
+        <a href="/document/${encodeURIComponent(doc.id)}" class="no-underline hover:no-underline decoration-transparent hover:decoration-transparent">
+          <span class="inline-flex items-centered gap-2 px-3 py-1.5 text-sm border rounded-md bg-card hover:bg-accent/50 transition-colors">
             <span class="flex-shrink-0">${typeIcon(doc.type)}</span>
-            <span class="flex-1 min-w-0 flex flex-col justify-center">
-              <span class="text-sm font-medium text-foreground truncate" title="${escapeHtml(doc.title || fallback)}">${escapeHtml(doc.title || fallback)}</span>
-              ${path ? `<span class="text-xs text-muted-foreground truncate">${escapeHtml(path)}</span>` : ''}
+            <span class="flex-1 min-w-0">
+              <span class="font-medium">${escapeHtml(doc.title || fallback)}</span>
+              ${path ? `<span class="text-xs text-muted-foreground ml-2">${escapeHtml(path)}</span>` : ''}
             </span>
-            ${updated ? `<span class="flex items-center gap-1 text-xs text-muted-foreground opacity-60 group-hover:opacity-100 transition-opacity h-8"><svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>${escapeHtml(updated)}</span></span>` : ''}
-            <span class="${badgeClasses()}">${escapeHtml((doc.type || 'document').toUpperCase())}</span>
           </span>
         </a>
-      </div>
-    `
-  }
-
-  async render() {
-    const target = (this.getAttribute('target') || '').trim()
-    const variant = (this.getAttribute('variant') || 'inline').toLowerCase()
-    const inline = variant !== 'embed'
-    const fallback = this.dataset.originalLabel || target || 'Untitled'
-
-    if (!target) {
-      this.innerHTML = `<span class="text-sm text-muted-foreground">${escapeHtml(fallback)}</span>`
-      return
+      `
     }
 
-    if (!isUuid(target)) {
-      const doc: DocInfo = { id: target, title: fallback || target }
+    private renderEmbed(doc: DocInfo | null | undefined, fallback: string) {
+      if (doc === null) {
+        this.innerHTML = `<div class="border rounded-md px-4 py-3 bg-card text-xs text-muted-foreground">Not found</div>`
+        return
+      }
+      if (!doc) {
+        this.innerHTML = `<div class="border rounded-md px-4 py-3 bg-card text-xs text-muted-foreground">Loading…</div>`
+        return
+      }
+      const path = filePath(doc.path)
+      const updated = relativeTime(doc.updated_at)
+      this.innerHTML = `
+        <div class="wikilink-embed">
+          <a href="/document/${encodeURIComponent(doc.id)}" class="block no-underline hover:no-underline decoration-transparent hover:decoration-transparent">
+            <span class="flex items-center gap-2 px-4 py-3 border rounded-md bg-card hover:bg-accent/50 transition-colors group w-full">
+              <span class="flex-shrink-0">${typeIcon(doc.type)}</span>
+              <span class="flex-1 min-w-0 flex flex-col justify-center"> 
+                <span class="text-sm font-medium text-foreground truncate" title="${escapeHtml(doc.title || fallback)}">${escapeHtml(doc.title || fallback)}</span>
+                ${path ? `<span class="text-xs text-muted-foreground truncate">${escapeHtml(path)}</span>` : ''}
+              </span>
+              ${updated ? `<span class="flex items-center gap-1 text-xs text-muted-foreground opacity-60 group-hover:opacity-100 transition-opacity h-8"><svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>${escapeHtml(updated)}</span></span>` : ''}
+              <span class="${badgeClasses()}">${escapeHtml((doc.type || 'document').toUpperCase())}</span>
+            </span>
+          </a>
+        </div>
+      `
+    }
+
+    async render() {
+      const target = (this.getAttribute('target') || '').trim()
+      const variant = (this.getAttribute('variant') || 'inline').toLowerCase()
+      const inline = variant !== 'embed'
+      const fallback = this.dataset.originalLabel || target || 'Untitled'
+
+      if (!target) {
+        this.innerHTML = `<span class="text-sm text-muted-foreground">${escapeHtml(fallback)}</span>`
+        return
+      }
+
+      if (!isUuid(target)) {
+        const doc: DocInfo = { id: target, title: fallback || target }
+        inline ? this.renderInline(doc, fallback) : this.renderEmbed(doc, fallback)
+        return
+      }
+
+      const cached = this.getCached(target)
+      if (cached !== undefined) {
+        inline ? this.renderInline(cached, fallback) : this.renderEmbed(cached, fallback)
+        return
+      }
+
+      inline ? this.renderInline(undefined as any, fallback) : this.renderEmbed(undefined as any, fallback)
+
+      const doc = await this.load(target)
+      this.setCached(target, doc)
+      if (!this.isConnected) return
       inline ? this.renderInline(doc, fallback) : this.renderEmbed(doc, fallback)
-      return
     }
-
-    const cached = this.getCached(target)
-    if (cached !== undefined) {
-      inline ? this.renderInline(cached, fallback) : this.renderEmbed(cached, fallback)
-      return
-    }
-
-    inline ? this.renderInline(undefined as any, fallback) : this.renderEmbed(undefined as any, fallback)
-
-    const doc = await this.load(target)
-    this.setCached(target, doc)
-    if (!this.isConnected) return
-    inline ? this.renderInline(doc, fallback) : this.renderEmbed(doc, fallback)
   }
-}
 
-if (!customElements.get('refmd-wikilink')) {
-  customElements.define('refmd-wikilink', RefmdWikiLink)
+  RefmdWikiLink = RefmdWikiLinkElement
+
+  if (!(globalThis as any).customElements.get('refmd-wikilink')) {
+    (globalThis as any).customElements.define('refmd-wikilink', RefmdWikiLink)
+  }
 }
 
 export { RefmdWikiLink }

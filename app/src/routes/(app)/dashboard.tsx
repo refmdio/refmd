@@ -4,8 +4,6 @@ import { FileText, Clock } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-import { queryClient } from '@/shared/lib/queryClient'
-
 import { listDocumentsQuery, useCreateDocument } from '@/entities/document'
 import { meQuery } from '@/entities/user'
 
@@ -18,12 +16,13 @@ type Document = { id: string; title: string; created_at: string; updated_at: str
 
 export const Route = createFileRoute('/(app)/dashboard')({
   staticData: { layout: 'app' },
+  ssr: false,
   pendingComponent: () => <RoutePending label="Loading dashboard…" />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   beforeLoad: appBeforeLoadGuard,
-  loader: async () => {
-    await queryClient.ensureQueryData(meQuery())
-    await queryClient.ensureQueryData(listDocumentsQuery())
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(meQuery())
+    await context.queryClient.ensureQueryData(listDocumentsQuery())
     return null
   },
   component: Dashboard,

@@ -1,6 +1,12 @@
 export function getEnv(name: string, fallback?: string): string {
   const rt = (typeof window !== 'undefined' ? (window as any).__ENV__?.[name] : undefined) as string | undefined
   if (rt !== undefined && rt !== null && String(rt).trim() !== '') return String(rt)
+  if (typeof process !== 'undefined' && typeof process.env !== 'undefined') {
+    const fromProcess = process.env[name] as string | undefined
+    if (fromProcess !== undefined && fromProcess !== null && String(fromProcess).trim() !== '') {
+      return String(fromProcess)
+    }
+  }
   const v = (import.meta as any).env?.[name] as string | undefined
   return v ?? fallback ?? ''
 }

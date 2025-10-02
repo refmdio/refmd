@@ -90,11 +90,11 @@ services:
     build:
       context: ../../app
       dockerfile: Dockerfile
-    container_name: refmd-frontend
+    container_name: refmd-app
     environment:
       VITE_API_BASE_URL: http://localhost:8888
     ports:
-      - "3000:80"
+      - "3000:3000"
     depends_on:
       api:
         condition: service_started

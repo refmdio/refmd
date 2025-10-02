@@ -15,6 +15,7 @@ import { appBeforeLoadGuard } from '@/features/auth'
 
 export const Route = createFileRoute('/(app)/plugins')({
   staticData: { layout: 'app' },
+  ssr: false,
   beforeLoad: appBeforeLoadGuard,
   component: PluginsPage,
 })

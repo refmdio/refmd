@@ -16,6 +16,7 @@ import RoutePending from '@/widgets/routes/RoutePending'
 
 export const Route = createFileRoute('/(app)/profile')({
   staticData: { layout: 'app' },
+  ssr: false,
   pendingComponent: () => <RoutePending />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   beforeLoad: appBeforeLoadGuard,

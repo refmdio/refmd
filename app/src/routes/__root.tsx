@@ -1,12 +1,12 @@
-// react import not required with react-jsx runtime
 import { QueryClientProvider } from '@tanstack/react-query'
-import { Outlet, createRootRoute, useRouterState } from '@tanstack/react-router'
+import { HeadContent, Scripts, Outlet, createRootRouteWithContext, useRouter, useRouterState } from '@tanstack/react-router'
+import { type ReactNode } from 'react'
 
+import '@/styles.css'
 
-
+import { getEnv } from '@/shared/lib/config'
 import { ShareTokenProvider } from '@/shared/contexts/share-token-context'
 import { ThemeProvider } from '@/shared/contexts/theme-context'
-import { queryClient } from '@/shared/lib/queryClient'
 import { Toaster } from '@/shared/ui/sonner'
 
 import { AuthProvider } from '@/features/auth'
@@ -19,54 +19,109 @@ import PublicLayout from '@/widgets/layouts/PublicLayout'
 import PluginFallback from '@/widgets/routes/PluginFallback'
 
 import { RealtimeProvider, useRealtime } from '@/processes/collaboration/contexts/realtime-context'
+import type { RouterContext } from '@/router'
 
-export const Route = createRootRoute({
-  notFoundComponent: () => <PluginFallback />,
-  component: () => {
-    const layout =
-      useRouterState({
-        select: (s) => {
-          const m = (s.matches as any)?.[(s.matches as any)?.length - 1]
-          return (m?.staticData?.layout as 'app' | 'document' | 'public' | 'share' | 'auth' | undefined) ?? 'app'
+export const Route = createRootRouteWithContext<RouterContext>()({
+  head: () => {
+    const env = {
+      VITE_API_BASE_URL: getEnv('VITE_API_BASE_URL'),
+    }
+
+    return {
+      title: 'RefMD',
+      meta: [
+        { charSet: 'utf-8' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1.0' },
+        { name: 'description', content: 'RefMD - Real-time Collaborative Markdown Editor' },
+        { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' },
+        { name: 'theme-color', content: '#0b0b0b', media: '(prefers-color-scheme: dark)' },
+      ],
+      links: [
+        { rel: 'icon', href: '/favicon.ico' },
+        { rel: 'apple-touch-icon', href: '/refmd-192.png' },
+        { rel: 'manifest', href: '/manifest.json' },
+      ],
+      scripts: [
+        {
+          type: 'application/javascript',
+          children: `window.__ENV__ = ${JSON.stringify(env)};`,
         },
-      }) ?? 'app'
-    const shareToken = useRouterState({
-      select: (s) => {
-        const matches = (s.matches as any[]) ?? []
-        for (let i = matches.length - 1; i >= 0; i--) {
-          const match = matches[i]
-          const fromLoader = match?.loaderData?.token
-          if (typeof fromLoader === 'string' && fromLoader.length > 0) {
-            return fromLoader
-          }
-          const fromSearch = match?.search?.token
-          if (typeof fromSearch === 'string' && fromSearch.length > 0) {
-            return fromSearch
-          }
-        }
-        return undefined
-      },
-    })
-    return (
-      <ThemeProvider>
-        <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <RealtimeProvider>
-              <SecondaryViewerProvider>
-                <ShareTokenProvider token={shareToken}>
-                  <LayoutContent layout={layout} />
-                </ShareTokenProvider>
-                <Toaster richColors position="bottom-right" />
-              </SecondaryViewerProvider>
-            </RealtimeProvider>
-          </AuthProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    )
+      ],
+    }
   },
+  notFoundComponent: () => <PluginFallback />,
+  component: RootComponent,
+  shellComponent: RootDocument,
 })
 
 type LayoutKey = 'app' | 'document' | 'public' | 'share' | 'auth'
+
+function RootComponent() {
+  const router = useRouter()
+  const queryClient = router.options.context.queryClient
+
+  if (!queryClient) {
+    throw new Error('QueryClient is not available in the router context')
+  }
+
+  const layout =
+    useRouterState({
+      select: (state) => {
+        const matches = state.matches as Array<{ staticData?: { layout?: LayoutKey } }> | undefined
+        const last = matches?.[matches.length - 1]
+        return last?.staticData?.layout ?? 'app'
+      },
+    }) ?? 'app'
+
+  const shareToken = useRouterState({
+    select: (state) => {
+      const matches = (state.matches as any[]) ?? []
+      for (let i = matches.length - 1; i >= 0; i--) {
+        const match = matches[i]
+        const fromLoader = match?.loaderData?.token
+        if (typeof fromLoader === 'string' && fromLoader.length > 0) {
+          return fromLoader
+        }
+        const fromSearch = match?.search?.token
+        if (typeof fromSearch === 'string' && fromSearch.length > 0) {
+          return fromSearch
+        }
+      }
+      return undefined
+    },
+  })
+
+  return (
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <RealtimeProvider>
+            <SecondaryViewerProvider>
+              <ShareTokenProvider token={shareToken}>
+                <LayoutContent layout={layout} />
+              </ShareTokenProvider>
+              <Toaster richColors position="bottom-right" />
+            </SecondaryViewerProvider>
+          </RealtimeProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
+  )
+}
+
+function RootDocument({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <head>
+        <HeadContent />
+      </head>
+      <body>
+        {children}
+        <Scripts />
+      </body>
+    </html>
+  )
+}
 
 function LayoutContent({ layout }: { layout: LayoutKey }) {
   const realtime = useRealtime()

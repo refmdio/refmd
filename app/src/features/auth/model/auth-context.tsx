@@ -1,8 +1,8 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
 import type { UserResponse } from '@/shared/api'
-import { queryClient } from '@/shared/lib/queryClient'
 
 import { login as loginApi, register as registerApi, me as meApi, deleteAccount as deleteAccountApi, AuthService, userKeys } from '@/entities/user'
 
@@ -21,6 +21,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const [user, setUser] = useState<UserResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     const init = async () => {

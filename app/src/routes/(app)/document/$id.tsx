@@ -37,6 +37,7 @@ function normalizeDocumentSearch(search: Record<string, unknown>): DocumentRoute
 
 export const Route = createFileRoute('/(app)/document/$id')({
   staticData: { layout: 'document' },
+  ssr: false,
   validateSearch: normalizeDocumentSearch,
   pendingComponent: () => <RoutePending label="Loading editor…" />,
   errorComponent: ({ error }) => <RouteError error={error} />,
