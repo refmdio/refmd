@@ -24,9 +24,16 @@ type MiddlewareAuthContext = {
 }
 
 function getMiddlewareAuthContext(ctx: any): MiddlewareAuthContext | undefined {
-  const candidate = ctx?.context?.auth ?? ctx?.auth
-  if (candidate && typeof candidate === 'object') {
-    return candidate as MiddlewareAuthContext
+  const candidates = [
+    ctx?.serverContext?.auth,
+    ctx?.context?.auth,
+    ctx?.auth,
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === 'object') {
+      return candidate as MiddlewareAuthContext
+    }
   }
   return undefined
 }
@@ -49,12 +56,13 @@ function extractTokenFromObject(value: MaybeSearch): string | null {
 }
 
 function resolveLocation(ctx: any) {
+  const locationSource = ctx?.location ?? ctx?.serverContext?.location ?? null
   const fallbackPath = typeof window !== 'undefined' ? window.location.pathname : '/'
   const fallbackSearch = typeof window !== 'undefined' ? window.location.search : ''
-  const pathnameCandidate = ctx?.location?.pathname
+  const pathnameCandidate = locationSource?.pathname ?? ctx?.pathname
   const pathname = typeof pathnameCandidate === 'string' && pathnameCandidate.length > 0 ? pathnameCandidate : fallbackPath
 
-  const tokenFromLocation = extractTokenFromObject(ctx?.location?.search)
+  const tokenFromLocation = extractTokenFromObject(locationSource?.search ?? ctx?.search)
   if (tokenFromLocation) {
     return {
       pathname,
@@ -63,14 +71,14 @@ function resolveLocation(ctx: any) {
     }
   }
 
-  const searchCandidate = normalizeSearch(ctx?.location?.search)
+  const searchCandidate = normalizeSearch(locationSource?.search ?? ctx?.search)
   const search = searchCandidate.length > 0 ? searchCandidate : fallbackSearch
   return { pathname, search, tokenOverride: null as string | null }
 }
 
 function extractShareToken(ctx: any, search: string, tokenOverride: string | null) {
   if (tokenOverride) return tokenOverride
-  const tokenFromCtx = extractTokenFromObject(ctx?.search)
+  const tokenFromCtx = extractTokenFromObject(ctx?.search ?? ctx?.serverContext?.search)
   if (tokenFromCtx) return tokenFromCtx
   if (!search) return null
   try {
@@ -94,16 +102,16 @@ function createAuthRedirect(pathname: string, search: string): AuthRedirectTarge
 }
 
 function resolveCookieHeader(ctx: any): string | null {
-  const candidates = [ctx?.headers, ctx?.request?.headers, ctx?.event?.node?.req?.headers]
+  const layers = [ctx?.serverContext, ctx?.context, ctx]
 
-  for (const candidate of candidates) {
-    if (!candidate) continue
+  const extractFromCandidate = (candidate: unknown): string | null => {
+    if (!candidate) return null
     if (typeof candidate === 'string' && candidate.trim().length > 0) {
       return candidate
     }
     if (Array.isArray(candidate)) {
       const merged = candidate.filter(Boolean).join('; ')
-      if (merged.trim().length > 0) return merged
+      return merged.trim().length > 0 ? merged : null
     }
     if (typeof candidate === 'object') {
       const value = (candidate as Record<string, string | string[] | undefined>).cookie
@@ -115,18 +123,38 @@ function resolveCookieHeader(ctx: any): string | null {
         if (merged.trim().length > 0) return merged
       }
     }
+    return null
   }
 
+  for (const layer of layers) {
+    const candidates = [layer?.headers, layer?.request?.headers, layer?.event?.node?.req?.headers]
+    for (const candidate of candidates) {
+      const resolved = extractFromCandidate(candidate)
+      if (resolved) {
+        return resolved
+      }
+    }
+  }
   return null
 }
 
 function resolveApiBase(ctx: any): string {
-  const fromCtx = typeof ctx?.apiBaseUrl === 'string' ? ctx.apiBaseUrl.trim() : ''
-  if (fromCtx.length > 0) return fromCtx
+  const layered = [ctx?.serverContext, ctx?.context, ctx]
+  for (const layer of layered) {
+    const candidate = typeof layer?.apiBaseUrl === 'string' ? layer.apiBaseUrl.trim() : ''
+    if (candidate.length > 0) return candidate
+  }
 
   const envBase = getEnv('SSR_API_BASE_URL', API_BASE_URL)
   if (envBase && envBase.trim().length > 0) {
     return envBase.trim()
+  }
+
+  for (const layer of layered) {
+    const originCandidate = typeof layer?.origin === 'string' ? layer.origin.trim() : ''
+    if (originCandidate.length > 0) {
+      return originCandidate
+    }
   }
 
   const fromOrigin = typeof ctx?.origin === 'string' ? ctx.origin.trim() : ''

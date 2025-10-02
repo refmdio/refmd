@@ -49,8 +49,8 @@ export const Route = createFileRoute('/(app)/document/$id')({
   pendingComponent: () => <RoutePending label="Loading editor…" />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   beforeLoad: documentBeforeLoadGuard,
-  loader: async ({ params, context }) => {
-    const normalizedSearch = normalizeDocumentSearch(((context as any)?.search ?? {}) as Record<string, unknown>)
+  loader: async ({ params, location }) => {
+    const normalizedSearch = normalizeDocumentSearch((location?.search ?? {}) as Record<string, unknown>)
     const token = typeof normalizedSearch.token === 'string' && normalizedSearch.token.trim().length > 0 ? normalizedSearch.token.trim() : undefined
     try {
       const meta = await fetchDocumentMeta(params.id, token)

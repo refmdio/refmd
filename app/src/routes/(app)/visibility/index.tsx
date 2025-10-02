@@ -10,7 +10,6 @@ import VisibilityPage from '@/widgets/visibility/VisibilityPage'
 
 export const Route = createFileRoute('/(app)/visibility/')({
   staticData: { layout: 'app' },
-  ssr: false,
   pendingComponent: () => <RoutePending />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   beforeLoad: appBeforeLoadGuard,

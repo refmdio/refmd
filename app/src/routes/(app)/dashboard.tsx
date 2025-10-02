@@ -16,7 +16,6 @@ type Document = { id: string; title: string; created_at: string; updated_at: str
 
 export const Route = createFileRoute('/(app)/dashboard')({
   staticData: { layout: 'app' },
-  ssr: false,
   pendingComponent: () => <RoutePending label="Loading dashboard…" />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   beforeLoad: appBeforeLoadGuard,
