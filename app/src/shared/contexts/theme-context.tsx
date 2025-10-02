@@ -5,6 +5,12 @@ interface ThemeProviderProps { children: React.ReactNode }
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const [theme, setTheme] = useState<string>(() => {
     try {
+      if (typeof document !== 'undefined') {
+        const preset = document.documentElement.dataset.theme
+        if (preset === 'dark' || preset === 'light') {
+          return preset
+        }
+      }
       const saved = localStorage.getItem('theme')
       if (saved === 'dark' || saved === 'light') return saved
       if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'
@@ -16,6 +22,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     const root = document.documentElement
     if (theme === 'dark') root.classList.add('dark')
     else root.classList.remove('dark')
+    root.dataset.theme = theme
     try { localStorage.setItem('theme', theme) } catch {}
 
     try {

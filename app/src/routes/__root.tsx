@@ -4,9 +4,9 @@ import { type ReactNode } from 'react'
 
 import '@/styles.css'
 
-import { getEnv } from '@/shared/lib/config'
 import { ShareTokenProvider } from '@/shared/contexts/share-token-context'
 import { ThemeProvider } from '@/shared/contexts/theme-context'
+import { getEnv } from '@/shared/lib/config'
 import { Toaster } from '@/shared/ui/sonner'
 
 import { AuthProvider } from '@/features/auth'
@@ -19,6 +19,7 @@ import PublicLayout from '@/widgets/layouts/PublicLayout'
 import PluginFallback from '@/widgets/routes/PluginFallback'
 
 import { RealtimeProvider, useRealtime } from '@/processes/collaboration/contexts/realtime-context'
+
 import type { RouterContext } from '@/router'
 
 export const Route = createRootRouteWithContext<RouterContext>()({
@@ -27,6 +28,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       VITE_API_BASE_URL: getEnv('VITE_API_BASE_URL'),
       VITE_PUBLIC_BASE_URL: getEnv('VITE_PUBLIC_BASE_URL'),
     }
+
+    const themeBootstrapScript = `;(function(){try{var root=document.documentElement;var stored=localStorage.getItem('theme');var theme=stored==='dark'||stored==='light'?stored:null;if(!theme&&window.matchMedia){theme=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}if(!theme){theme='light';}root.classList.toggle('dark',theme==='dark');root.dataset.theme=theme;}catch(_){}})();`
 
     return {
       title: 'RefMD',
@@ -44,6 +47,10 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         { rel: 'manifest', href: '/manifest.json' },
       ],
       scripts: [
+        {
+          type: 'application/javascript',
+          children: themeBootstrapScript,
+        },
         {
           type: 'application/javascript',
           children: `window.__ENV__ = ${JSON.stringify(env)};`,
