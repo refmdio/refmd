@@ -15,6 +15,22 @@ export type AuthRedirectTarget = {
   }
 }
 
+type MiddlewareAuthContext = {
+  redirectChecked?: boolean
+  redirectTarget?: AuthRedirectTarget | null
+  isAuthenticated?: boolean
+  shareToken?: string
+  shareTokenValidated?: boolean
+}
+
+function getMiddlewareAuthContext(ctx: any): MiddlewareAuthContext | undefined {
+  const candidate = ctx?.context?.auth ?? ctx?.auth
+  if (candidate && typeof candidate === 'object') {
+    return candidate as MiddlewareAuthContext
+  }
+  return undefined
+}
+
 const SSR_AUTH_ENDPOINT = '/api/auth/me'
 
 function normalizeSearch(value: MaybeSearch): string {
@@ -169,6 +185,17 @@ async function hasCurrentUser(ctx?: any) {
 
 export async function resolveAuthRedirect(ctx?: any): Promise<AuthRedirectTarget | null> {
   const { pathname, search } = resolveLocation(ctx)
+  const middlewareAuth = getMiddlewareAuthContext(ctx)
+
+  if (middlewareAuth?.redirectChecked) {
+    if (middlewareAuth.redirectTarget) {
+      return middlewareAuth.redirectTarget
+    }
+    if (middlewareAuth.isAuthenticated) {
+      return null
+    }
+  }
+
   const authenticated = await hasCurrentUser(ctx)
   if (!authenticated) {
     return createAuthRedirect(pathname, search)
@@ -186,6 +213,16 @@ export async function appBeforeLoadGuard(ctx?: any) {
 export async function documentBeforeLoadGuard(ctx?: any) {
   const { pathname, search, tokenOverride } = resolveLocation(ctx)
   const shareToken = extractShareToken(ctx, search, tokenOverride)
+  const middlewareAuth = getMiddlewareAuthContext(ctx)
+
+  if (
+    shareToken &&
+    middlewareAuth?.shareTokenValidated &&
+    middlewareAuth.shareToken === shareToken
+  ) {
+    return
+  }
+
   if (shareToken) {
     try {
       await validateShareToken(shareToken)
