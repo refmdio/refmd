@@ -146,6 +146,7 @@ export const authMiddleware = createMiddleware().server<AuthServerContext>(
     const apiBaseUrl = getEnv('SSR_API_BASE_URL', API_BASE_URL)
 
     const redirectTarget = await resolveAuthRedirect({
+      auth: middlewareContext.auth,
       location: { pathname: currentPath, search: requestUrl.search },
       search: paramsToObject(searchParams),
       headers,

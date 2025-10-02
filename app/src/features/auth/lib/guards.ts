@@ -212,8 +212,25 @@ async function hasCurrentUser(ctx?: any) {
 }
 
 export async function resolveAuthRedirect(ctx?: any): Promise<AuthRedirectTarget | null> {
-  const { pathname, search } = resolveLocation(ctx)
+  const { pathname, search, tokenOverride } = resolveLocation(ctx)
   const middlewareAuth = getMiddlewareAuthContext(ctx)
+  const shareToken = extractShareToken(ctx, search, tokenOverride)
+
+  if (shareToken) {
+    if (
+      middlewareAuth?.shareTokenValidated &&
+      middlewareAuth.shareToken === shareToken
+    ) {
+      return null
+    }
+
+    try {
+      await validateShareToken(shareToken)
+      return null
+    } catch {
+      // fall through to auth checks when validation fails
+    }
+  }
 
   if (middlewareAuth?.redirectChecked) {
     if (middlewareAuth.redirectTarget) {

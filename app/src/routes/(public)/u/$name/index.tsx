@@ -1,7 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { listUserPublicDocuments } from '@/entities/public'
-import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
+import { buildCanonicalUrl, buildOgImageUrl, listUserPublicDocuments } from '@/entities/public'
 
 import { PublicDocCard } from '@/features/public'
 

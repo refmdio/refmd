@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 import { GitService } from '@/entities/git'
 
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
-import ShareDialog from '@/features/sharing/ShareDialog'
+import { ShareDialog } from '@/features/sharing'
 
 
 

@@ -5,9 +5,13 @@ import React, { Suspense, lazy } from 'react'
 import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
 
-import { getPublicByOwnerAndId, getPublicContentByOwnerAndId } from '@/entities/public'
-import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
-import { summarizeMarkdown } from '@/entities/public/lib/summarizeMarkdown'
+import {
+  buildCanonicalUrl,
+  buildOgImageUrl,
+  getPublicByOwnerAndId,
+  getPublicContentByOwnerAndId,
+  summarizeMarkdown,
+} from '@/entities/public'
 
 import { Markdown } from '@/features/edit-document'
 

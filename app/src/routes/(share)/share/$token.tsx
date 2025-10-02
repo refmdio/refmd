@@ -1,9 +1,8 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { FileText } from 'lucide-react'
 
-import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
-import { browseShare } from '@/entities/share'
-import { buildShareSummary } from '@/entities/share/lib/summary'
+import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
+import { browseShare, buildShareSummary } from '@/entities/share'
 
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'

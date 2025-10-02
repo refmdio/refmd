@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import { fetchDocumentMeta } from '@/entities/document'
-import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
+import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 
 import { documentBeforeLoadGuard, useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
