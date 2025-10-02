@@ -19,23 +19,78 @@ const Ctx = createContext<AuthState | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
-  const [user, setUser] = useState<UserResponse | null>(null)
-  const [loading, setLoading] = useState(true)
   const queryClient = useQueryClient()
+  const meState = queryClient.getQueryState(userKeys.me())
+  const initialUser = ((meState?.data as UserResponse | null | undefined) ?? null) as UserResponse | null
+  const hasInitialData = meState?.status === 'success'
+  const [user, setUser] = useState<UserResponse | null>(initialUser)
+  const [loading, setLoading] = useState(() => !hasInitialData)
 
   useEffect(() => {
+    if (hasInitialData) {
+      setUser(initialUser)
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+
     const init = async () => {
       try {
         const me = await meApi()
+        if (cancelled) return
         setUser(me)
+        queryClient.setQueryData(userKeys.me(), me)
       } catch {
-        // not signed in
+        if (cancelled) return
+        setUser(null)
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
-    init()
-  }, [])
+
+    void init()
+
+    return () => {
+      cancelled = true
+    }
+  }, [hasInitialData, initialUser, queryClient])
+
+  useEffect(() => {
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      const typed = event as {
+        type: string
+        query?: { queryKey: readonly unknown[]; state: { status: string; data?: unknown } }
+      }
+
+      if (typed.type !== 'updated' || !typed.query) return
+      if (typed.query.queryKey?.[0] !== userKeys.me()[0]) return
+
+      const status = typed.query.state.status
+      if (status === 'pending') {
+        setLoading(true)
+        return
+      }
+
+      if (status === 'success') {
+        const data = typed.query.state.data as UserResponse | undefined
+        setUser(data ?? null)
+        setLoading(false)
+        return
+      }
+
+      if (status === 'error') {
+        setUser(null)
+        setLoading(false)
+      }
+    })
+
+    return () => {
+      unsubscribe()
+    }
+  }, [queryClient])
 
   const signIn = useCallback(async (email: string, password: string) => {
     const res = await loginApi(email, password)

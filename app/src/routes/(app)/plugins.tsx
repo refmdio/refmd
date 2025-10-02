@@ -9,13 +9,17 @@ import { Card, CardFooter } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
-import { installPluginFromUrl, uninstallPlugin, usePluginManifest } from '@/entities/plugin'
+import { installPluginFromUrl, pluginManifestQuery, uninstallPlugin, usePluginManifest } from '@/entities/plugin'
 
 import { appBeforeLoadGuard } from '@/features/auth'
 
 export const Route = createFileRoute('/(app)/plugins')({
   staticData: { layout: 'app' },
   beforeLoad: appBeforeLoadGuard,
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(pluginManifestQuery())
+    return null
+  },
   component: PluginsPage,
 })
 
@@ -165,7 +169,7 @@ export default function PluginsPage() {
                   <div>
                     <p className="mb-1 text-xs font-semibold text-foreground/90">Mounts</p>
                     <div className="flex flex-wrap gap-2">
-                      {(plugin.mounts ?? []).map((mount) => (
+                      {(plugin.mounts ?? []).map((mount: string) => (
                         <Badge key={mount} variant="secondary" className="rounded-full px-2 py-0.5 text-[11px]">
                           {mount}
                         </Badge>
@@ -176,7 +180,7 @@ export default function PluginsPage() {
                   <div>
                     <p className="mb-1 text-xs font-semibold text-foreground/90">Permissions</p>
                     <div className="flex flex-wrap gap-2">
-                      {(plugin.permissions ?? []).map((permission) => (
+                      {(plugin.permissions ?? []).map((permission: string) => (
                         <Badge key={permission} variant="outline" className="rounded-full px-2 py-0.5 text-[11px]">
                           {permission}
                         </Badge>

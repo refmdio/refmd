@@ -3,6 +3,16 @@ import type { ManifestItem as ClientManifestItem } from '@/shared/api/client'
 
 export type PluginManifestItem = ClientManifestItem
 
+export const pluginKeys = {
+  manifest: () => ['plugins', 'manifest'] as const,
+}
+
+export const pluginManifestQuery = () => ({
+  queryKey: pluginKeys.manifest(),
+  queryFn: () => getPluginManifest(),
+  staleTime: 60_000,
+})
+
 export async function getPluginManifest(): Promise<PluginManifestItem[]> {
   return PluginsService.pluginsGetManifest()
 }

@@ -13,6 +13,7 @@ type AuthMiddlewareContext = {
   isAuthenticated: boolean
   shareToken?: string
   shareTokenValidated?: boolean
+  requestHeaders?: Record<string, string>
 }
 
 type AuthServerContext = {
@@ -141,6 +142,7 @@ export const authMiddleware = createMiddleware().server<AuthServerContext>(
     }
 
     const headers = toHeaderRecord(request.headers)
+    middlewareContext.auth.requestHeaders = headers
     const apiBaseUrl = getEnv('SSR_API_BASE_URL', API_BASE_URL)
 
     const redirectTarget = await resolveAuthRedirect({

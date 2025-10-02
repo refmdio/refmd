@@ -1,6 +1,9 @@
 import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 
+import { fetchDocumentMeta } from '@/entities/document'
+import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
+
 import { documentBeforeLoadGuard, useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
 import { EditorOverlay, MarkdownEditor, useViewContext } from '@/features/edit-document'
@@ -12,8 +15,6 @@ import RoutePending from '@/widgets/routes/RoutePending'
 import SecondaryViewer from '@/widgets/secondary-viewer/SecondaryViewer'
 
 import { useCollaborativeDocument, useRealtime } from '@/processes/collaboration'
-import { fetchDocumentMeta } from '@/entities/document'
-import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
 
 export type DocumentRouteSearch = {
   token?: string
