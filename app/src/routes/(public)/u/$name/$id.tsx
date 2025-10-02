@@ -6,6 +6,8 @@ import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
 
 import { getPublicByOwnerAndId, getPublicContentByOwnerAndId } from '@/entities/public'
+import { summarizeMarkdown } from '@/entities/public/lib/summarizeMarkdown'
+import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
 
 import { Markdown } from '@/features/edit-document'
 
@@ -32,6 +34,7 @@ type LoaderData = {
   name: string
   meta: PublicDoc
   content: string
+  summary: string
 }
 
 export const Route = createFileRoute('/(public)/u/$name/$id')({
@@ -42,11 +45,46 @@ export const Route = createFileRoute('/(public)/u/$name/$id')({
     const meta = (await getPublicByOwnerAndId(params.name, params.id)) as unknown as PublicDoc
     const contentResp = await getPublicContentByOwnerAndId(params.name, params.id)
     const contentValue = typeof (contentResp as any)?.content === 'string' ? String((contentResp as any).content) : ''
+    const summary = summarizeMarkdown(
+      contentValue,
+      `@${params.name} shared a public document on RefMD.`,
+    )
     return {
       name: params.name,
       meta,
       content: contentValue,
+      summary,
     } satisfies LoaderData
+  },
+  head: ({ loaderData, params }) => {
+    const data = loaderData as LoaderData | undefined
+    if (!data) return {}
+
+    const canonicalPath = `/u/${encodeURIComponent(params.name)}/${data.meta.id}`
+    const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
+    const ogImage = buildOgImageUrl(base)
+    const rawTitle = data.meta.title?.trim()
+    const title = rawTitle
+      ? `${rawTitle} • ${params.name} on RefMD`
+      : `@${params.name} • RefMD`
+    const description = data.summary
+
+    return {
+      meta: [
+        { title },
+        { name: 'description', content: description },
+        { property: 'og:title', content: title },
+        { property: 'og:description', content: description },
+        { property: 'og:type', content: 'article' },
+        { property: 'og:url', content: canonicalUrl },
+        { property: 'og:image', content: ogImage },
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:title', content: title },
+        { name: 'twitter:description', content: description },
+        { name: 'twitter:image', content: ogImage },
+      ],
+      links: [{ rel: 'canonical', href: canonicalUrl }],
+    }
   },
   component: PublicUserDocumentPage,
 })

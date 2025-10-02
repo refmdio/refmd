@@ -14,6 +14,9 @@ export function getEnv(name: string, fallback?: string): string {
 // API base URL: prefer runtime (window.__ENV__), otherwise use build-time Vite env
 export const API_BASE_URL = getEnv('VITE_API_BASE_URL', '')
 
+// Public site base URL (used for SEO canonical/OG tags)
+export const PUBLIC_BASE_URL = getEnv('VITE_PUBLIC_BASE_URL', '')
+
 // Derived Yjs WebSocket server URL (ws(s)://<api-origin>/yjs)
 export const YJS_SERVER_URL = (() => {
   if (!API_BASE_URL) return ''

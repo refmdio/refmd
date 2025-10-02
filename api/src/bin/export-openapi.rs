@@ -1,5 +1,5 @@
 use api::presentation::{
-    http::{auth, documents, files, git, health, markdown, og, plugins, public, shares, tags},
+    http::{auth, documents, files, git, health, markdown, plugins, public, shares, tags},
     ws,
 };
 use utoipa::OpenApi;
@@ -59,7 +59,6 @@ use utoipa::OpenApi;
         git::check_path_ignored,
         markdown::render_markdown,
         markdown::render_markdown_many,
-        og::public_document_og,
         plugins::get_manifest,
         plugins::exec_action,
         plugins::list_records,
@@ -146,8 +145,7 @@ use utoipa::OpenApi;
         (name = "Git", description = "Git integration"),
         (name = "Markdown", description = "Markdown rendering"),
         (name = "Plugins", description = "Plugins management & data APIs"),
-        (name = "Health", description = "System health checks"),
-        (name = "OpenGraph", description = "Public metadata endpoints for social previews")
+        (name = "Health", description = "System health checks")
     )
 )]
 struct ApiDoc;

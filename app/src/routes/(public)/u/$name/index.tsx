@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { listUserPublicDocuments } from '@/entities/public'
+import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
 
 import { PublicDocCard } from '@/features/public'
 
@@ -22,6 +23,39 @@ export const Route = createFileRoute('/(public)/u/$name/')({
   loader: async ({ params }) => {
     const items = await listUserPublicDocuments(params.name)
     return { name: params.name, items: items as Summary[] } satisfies LoaderData
+  },
+  head: ({ loaderData, params }) => {
+    const data = loaderData as LoaderData | undefined
+    if (!data) return {}
+
+    const canonicalPath = `/u/${encodeURIComponent(params.name)}`
+    const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
+    const ogImage = buildOgImageUrl(base)
+    const total = data.items.length
+    const hasItems = total > 0
+    const title = hasItems
+      ? `@${params.name} • Public documents on RefMD`
+      : `@${params.name} • RefMD`
+    const description = hasItems
+      ? `Browse ${total} public ${total === 1 ? 'document' : 'documents'} from @${params.name} on RefMD.`
+      : `@${params.name} has not published any public documents on RefMD yet.`
+
+    return {
+      meta: [
+        { title },
+        { name: 'description', content: description },
+        { property: 'og:title', content: title },
+        { property: 'og:description', content: description },
+        { property: 'og:type', content: 'profile' },
+        { property: 'og:url', content: canonicalUrl },
+        { property: 'og:image', content: ogImage },
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:title', content: title },
+        { name: 'twitter:description', content: description },
+        { name: 'twitter:image', content: ogImage },
+      ],
+      links: [{ rel: 'canonical', href: canonicalUrl }],
+    }
   },
   component: PublicUserListPage,
 })

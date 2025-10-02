@@ -2,6 +2,8 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { FileText } from 'lucide-react'
 
 import { browseShare } from '@/entities/share'
+import { buildShareSummary } from '@/entities/share/lib/summary'
+import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public/lib/seo'
 
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
@@ -10,6 +12,8 @@ type LoaderData = {
   token: string
   title: string
   items: Array<{ id: string; title: string; path?: string }>
+  tree: Array<{ id: string; title: string; parent_id?: string | null; type: string }>
+  description: string
 }
 
 export const Route = createFileRoute('/(share)/share/$token')({
@@ -47,11 +51,50 @@ export const Route = createFileRoute('/(share)/share/$token')({
       .sort((a: any, b: any) => String(a.title).localeCompare(String(b.title)))
       .map((n: any) => ({ id: String(n.id), title: String(n.title ?? 'Untitled Document'), path: getPath(String(n.id)) }))
 
+    const normalizedTree = treeData.map((n: any) => ({
+      id: String(n.id),
+      title: String(n.title ?? ''),
+      parent_id: n.parent_id ? String(n.parent_id) : null,
+      type: String(n.type ?? ''),
+    }))
+    const summary = buildShareSummary(normalizedTree)
+
     return {
       token,
       title: String(root.title ?? 'Shared Folder'),
       items: documents,
+      tree: normalizedTree,
+      description: summary.description,
     } satisfies LoaderData
+  },
+  head: ({ loaderData, params }) => {
+    const data = loaderData as LoaderData | undefined
+    if (!data) return {}
+
+    const canonicalPath = `/share/${encodeURIComponent(params.token)}`
+    const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
+    const ogImage = buildOgImageUrl(base)
+    const summary = buildShareSummary(data.tree)
+
+    const metaTitle = `${summary.folderTitle} • Shared RefMD folder`
+    const description = summary.description
+
+    return {
+      meta: [
+        { title: metaTitle },
+        { name: 'description', content: description },
+        { property: 'og:title', content: metaTitle },
+        { property: 'og:description', content: description },
+        { property: 'og:type', content: 'website' },
+        { property: 'og:url', content: canonicalUrl },
+        { property: 'og:image', content: ogImage },
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:title', content: metaTitle },
+        { name: 'twitter:description', content: description },
+        { name: 'twitter:image', content: ogImage },
+      ],
+      links: [{ rel: 'canonical', href: canonicalUrl }],
+    }
   },
   component: ShareEntry,
 })

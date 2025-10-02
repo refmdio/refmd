@@ -25,6 +25,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => {
     const env = {
       VITE_API_BASE_URL: getEnv('VITE_API_BASE_URL'),
+      VITE_PUBLIC_BASE_URL: getEnv('VITE_PUBLIC_BASE_URL'),
     }
 
     return {
