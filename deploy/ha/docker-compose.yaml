@@ -150,6 +150,7 @@ services:
     container_name: refmd-ha-app-a
     environment:
       VITE_API_BASE_URL: http://localhost:8888
+      SSR_API_BASE_URL: http://nginx
     depends_on:
       api-a:
         condition: service_started
@@ -162,6 +163,7 @@ services:
     container_name: refmd-ha-app-b
     environment:
       VITE_API_BASE_URL: http://localhost:8888
+      SSR_API_BASE_URL: http://nginx
     depends_on:
       api-a:
         condition: service_started

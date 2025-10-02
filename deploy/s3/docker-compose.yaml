@@ -93,6 +93,7 @@ services:
     container_name: refmd-app
     environment:
       VITE_API_BASE_URL: http://localhost:8888
+      SSR_API_BASE_URL: http://api:8888
     ports:
       - "3000:3000"
     depends_on:
