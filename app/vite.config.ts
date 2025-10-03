@@ -12,7 +12,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   plugins: [
     tanstackStart(),
-    nitroV2Plugin({ preset: 'node-server' }),
+    nitroV2Plugin({
+      preset: 'node-server',
+    }),
     viteReact(),
     tailwindcss(),
     viteTsConfigPaths({

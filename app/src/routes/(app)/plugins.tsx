@@ -27,7 +27,7 @@ type PluginLike = (ReturnType<typeof usePluginManifest>['plugins'])[number]
 
 type CommandLike = (ReturnType<typeof usePluginManifest>['commands'])[number]
 
-export default function PluginsPage() {
+function PluginsPage() {
   const { plugins, commands, loading, refresh } = usePluginManifest()
   const [installUrl, setInstallUrl] = useState('')
   const [installToken, setInstallToken] = useState('')
