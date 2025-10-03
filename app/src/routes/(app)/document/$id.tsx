@@ -132,7 +132,7 @@ function DocumentClient({
   const { user } = useAuthContext()
   const { secondaryDocumentId, secondaryDocumentType, showSecondaryViewer, closeSecondaryViewer, openSecondaryViewer } = useSecondaryViewer()
   const { showBacklinks, setShowBacklinks } = useViewContext()
-  const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id)
+  const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const { documentTitle: realtimeTitle } = useRealtime()
   const redirecting = usePluginDocumentRedirect(id, {
     navigate: (to) => navigate({ to }),

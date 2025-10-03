@@ -29,6 +29,11 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       VITE_PUBLIC_BASE_URL: getEnv('VITE_PUBLIC_BASE_URL'),
     }
 
+    const serializedEnv = JSON.stringify(env)
+      .replace(/</g, '\\u003c')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029')
+
     const themeBootstrapScript = `;(function(){try{var root=document.documentElement;var stored=localStorage.getItem('theme');var theme=stored==='dark'||stored==='light'?stored:null;if(!theme&&window.matchMedia){theme=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}if(!theme){theme='light';}root.classList.toggle('dark',theme==='dark');root.dataset.theme=theme;}catch(_){}})();`
 
     return {
@@ -53,7 +58,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         },
         {
           type: 'application/javascript',
-          children: `window.__ENV__ = ${JSON.stringify(env)};`,
+          children: `window.__ENV__ = ${serializedEnv};`,
         },
       ],
     }

@@ -11,7 +11,7 @@ import { useRealtime } from '@/processes/collaboration/contexts/realtime-context
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
 
-export function useCollaborativeDocument(id: string) {
+export function useCollaborativeDocument(id: string, shareToken?: string) {
   const rt = useRealtime()
   const [status, setStatus] = React.useState<RealtimeStatus>('connecting')
   const [isReadOnly, setIsReadOnly] = React.useState(false)
@@ -20,22 +20,23 @@ export function useCollaborativeDocument(id: string) {
 
   // Validate share token and set readonly. Also set documentId early for attachments.
   React.useEffect(() => {
-    const searchParams = new URLSearchParams(window.location.search)
-    const token = searchParams.get('token')
-    if (token) {
-      ;(async () => {
-        try {
-          const info = await validateShareToken(token)
-          setIsReadOnly(info?.permission !== 'edit')
-        } catch {
-          toast.error('Invalid or expired share link')
-          setIsReadOnly(true)
-        }
-      })()
-    }
-    // Set document ID immediately so image paths can be resolved
     rt.setDocumentId(id)
-  }, [id])
+    const token = resolveShareToken(shareToken)
+    if (!token) {
+      setIsReadOnly(false)
+      return
+    }
+
+    ;(async () => {
+      try {
+        const info = await validateShareToken(token)
+        setIsReadOnly(info?.permission !== 'edit')
+      } catch {
+        toast.error('Invalid or expired share link')
+        setIsReadOnly(true)
+      }
+    })()
+  }, [id, shareToken])
 
   React.useEffect(() => {
     setStatus('connecting')
@@ -50,8 +51,7 @@ export function useCollaborativeDocument(id: string) {
 
     ;(async () => {
       try {
-        const searchParams = new URLSearchParams(window.location.search)
-        const urlShareToken = searchParams.get('token')
+        const urlShareToken = resolveShareToken(shareToken)
 
         const connection = await createYjsConnection(id, {
           token: urlShareToken,
@@ -151,8 +151,6 @@ export function useCollaborativeDocument(id: string) {
         provider.awareness.on('update', onAwareness)
 
         try {
-          const searchParams = new URLSearchParams(window.location.search)
-          const urlShareToken = searchParams.get('token')
           const meta = await fetchDocumentMeta(id, urlShareToken ?? undefined)
           if (meta) {
             rt.setDocumentTitle(meta.title)
@@ -199,7 +197,7 @@ export function useCollaborativeDocument(id: string) {
       rt.setDocumentPath(undefined)
       setError(null)
     }
-  }, [id])
+  }, [id, shareToken])
 
   return {
     status,
@@ -208,5 +206,25 @@ export function useCollaborativeDocument(id: string) {
     doc: connectionRef.current?.doc ?? null,
     awareness: connectionRef.current?.provider.awareness ?? null,
     error,
+  }
+}
+
+function normalizeShareToken(token?: string | null) {
+  if (typeof token !== 'string') return undefined
+  const trimmed = token.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+function resolveShareToken(explicitToken?: string) {
+  const normalized = normalizeShareToken(explicitToken)
+  if (normalized) return normalized
+
+  if (typeof window === 'undefined') return undefined
+
+  try {
+    const candidate = new URLSearchParams(window.location.search).get('token')
+    return normalizeShareToken(candidate)
+  } catch {
+    return undefined
   }
 }
