@@ -20,6 +20,7 @@ FROM node:22-bullseye-slim AS runtime
 ENV NODE_ENV=production
 ENV TSS_APP_BASE=/
 ENV TSS_SERVER_FN_BASE=/_serverFn
+ENV PORT=80
 WORKDIR /app
 
 COPY package*.json ./
@@ -28,5 +29,5 @@ RUN npm ci --omit=dev --ignore-scripts
 COPY --from=build /app/.output ./.output
 COPY --from=build /app/dist ./dist
 
-EXPOSE 3000
+EXPOSE 80
 CMD ["node", ".output/server/index.mjs"]

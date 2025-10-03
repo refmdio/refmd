@@ -149,8 +149,8 @@ services:
       context: ../../app
     container_name: refmd-ha-app-a
     environment:
-      VITE_API_BASE_URL: http://localhost:8888
       SSR_API_BASE_URL: http://nginx
+      VITE_API_BASE_URL: http://localhost:8888
       VITE_PUBLIC_BASE_URL: http://localhost:3000
     depends_on:
       api-a:
@@ -163,8 +163,8 @@ services:
       context: ../../app
     container_name: refmd-ha-app-b
     environment:
-      VITE_API_BASE_URL: http://localhost:8888
       SSR_API_BASE_URL: http://nginx
+      VITE_API_BASE_URL: http://localhost:8888
       VITE_PUBLIC_BASE_URL: http://localhost:3000
     depends_on:
       api-a:
@@ -186,7 +186,7 @@ services:
         condition: service_started
     ports:
       - "8888:80"
-      - "3000:3000"
+      - "3000:81"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
 
