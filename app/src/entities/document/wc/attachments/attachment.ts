@@ -43,73 +43,84 @@ function downloadSvg(): string {
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>'
 }
 
-export class RefmdAttachment extends HTMLElement {
-  private previewOpen = false
+const canUseCustomElements =
+  typeof globalThis !== 'undefined' &&
+  typeof (globalThis as any).HTMLElement !== 'undefined' &&
+  typeof (globalThis as any).customElements !== 'undefined'
 
-  connectedCallback() {
-    if (!this.dataset.label) this.dataset.label = (this.getAttribute('label') || '').trim()
-    this.render()
-  }
+if (canUseCustomElements) {
+  class RefmdAttachment extends (globalThis as any).HTMLElement {
+    private previewOpen = false
 
-  static get observedAttributes() { return ['href','label'] }
-
-  attributeChangedCallback() {
-    this.render()
-  }
-
-  render() {
-    const href = this.getAttribute('href') || '#'
-    const labelAttr = (this.getAttribute('label') || this.dataset.label || '').trim()
-    const label = labelAttr || fileName(href)
-    const ext = extFromUrl(label)
-    const isFile = href.includes('/api/uploads/') || href.startsWith('./attachments/') || href.startsWith('./')
-
-    if (!isFile) {
-      this.innerHTML = `<a href="${href}" class="text-primary hover:underline">${escapeHtml(label || href)}</a>`
-      return
-    }
-
-    const { svg: icon, color } = iconSvg(ext)
-    const badge = ext ? `<span class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium border-transparent bg-secondary text-secondary-foreground">${escapeHtml(ext.toUpperCase())}</span>` : ''
-    const previewable = ['mp3','wav','flac','aac','ogg','wma','mp4','avi','mov','wmv','flv','webm','mkv','pdf'].includes(ext)
-    if (!previewable) this.previewOpen = false
-
-    const preview = this.previewOpen && previewable ? this.previewContent(ext, href) : ''
-
-    this.innerHTML = `
-      <div class="w-full">
-        <span data-refmd-attachment-card class="flex items-center gap-2 px-4 py-3 border rounded-md bg-card hover:bg-accent/50 transition-colors group file-attachment w-full${previewable ? ' cursor-pointer' : ''}">
-          <span class="flex-shrink-0 ${color}">${icon}</span>
-          <span class="text-sm font-medium text-foreground flex-1" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
-          ${badge}
-          <a data-refmd-attachment-download href="${href}" download="${escapeHtml(label)}" class="h-8 w-8 ml-auto opacity-60 hover:opacity-100 inline-flex items-center justify-center" title="Download file">
-            ${downloadSvg()}
-          </a>
-        </span>
-        ${preview}
-      </div>
-    `
-
-    const download = this.querySelector('[data-refmd-attachment-download]') as HTMLAnchorElement | null
-    download?.addEventListener('click', (e) => e.stopPropagation())
-    if (!previewable) return
-
-    const card = this.querySelector('[data-refmd-attachment-card]') as HTMLElement | null
-    card?.addEventListener('click', () => {
-      this.previewOpen = !this.previewOpen
+    connectedCallback() {
+      if (!this.dataset.label) this.dataset.label = (this.getAttribute('label') || '').trim()
       this.render()
-    })
+    }
+
+    static get observedAttributes() { return ['href','label'] }
+
+    attributeChangedCallback() {
+      this.render()
+    }
+
+    render() {
+      const href = this.getAttribute('href') || '#'
+      const labelAttr = (this.getAttribute('label') || this.dataset.label || '').trim()
+      const label = labelAttr || fileName(href)
+      const ext = extFromUrl(label)
+      const isFile = href.includes('/api/uploads/') || href.startsWith('./attachments/') || href.startsWith('./')
+
+      if (!isFile) {
+        this.innerHTML = `<a href="${href}" class="text-primary hover:underline">${escapeHtml(label || href)}</a>`
+        return
+      }
+
+      const { svg: icon, color } = iconSvg(ext)
+      const badge = ext ? `<span class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium border-transparent bg-secondary text-secondary-foreground">${escapeHtml(ext.toUpperCase())}</span>` : ''
+      const previewable = ['mp3','wav','flac','aac','ogg','wma','mp4','avi','mov','wmv','flv','webm','mkv','pdf'].includes(ext)
+      if (!previewable) this.previewOpen = false
+
+      const preview = this.previewOpen && previewable ? this.previewContent(ext, href) : ''
+
+      this.innerHTML = `
+        <div class="w-full">
+          <span data-refmd-attachment-card class="flex items-center gap-2 px-4 py-3 border rounded-md bg-card hover:bg-accent/50 transition-colors group file-attachment w-full${previewable ? ' cursor-pointer' : ''}">
+            <span class="flex-shrink-0 ${color}">${icon}</span>
+            <span class="text-sm font-medium text-foreground flex-1" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+            ${badge}
+            <a data-refmd-attachment-download href="${href}" download="${escapeHtml(label)}" class="h-8 w-8 ml-auto opacity-60 hover:opacity-100 inline-flex items-center justify-center" title="Download file">
+              ${downloadSvg()}
+            </a>
+          </span>
+          ${preview}
+        </div>
+      `
+
+      const download = this.querySelector('[data-refmd-attachment-download]') as HTMLAnchorElement | null
+      download?.addEventListener('click', (e) => e.stopPropagation())
+      if (!previewable) return
+
+      const card = this.querySelector('[data-refmd-attachment-card]') as HTMLElement | null
+      card?.addEventListener('click', () => {
+        this.previewOpen = !this.previewOpen
+        this.render()
+      })
+    }
+
+    private previewContent(ext: string, href: string): string {
+      if (['mp3','wav','flac','aac','ogg','wma'].includes(ext)) {
+        return `<div class="mt-3 p-4 border rounded-md bg-background"><audio controls class="w-full" src="${href}"></audio></div>`
+      }
+      if (['mp4','avi','mov','wmv','flv','webm','mkv'].includes(ext)) {
+        return `<div class="mt-3 p-4 border rounded-md bg-background"><video controls class="w-full rounded" src="${href}"></video></div>`
+      }
+      return `<div class="mt-3 p-4 border rounded-md bg-background"><iframe class="w-full h-[600px] border-0" src="${href}" title="PDF Viewer"></iframe></div>`
+    }
   }
 
-  private previewContent(ext: string, href: string): string {
-    if (['mp3','wav','flac','aac','ogg','wma'].includes(ext)) {
-      return `<div class="mt-3 p-4 border rounded-md bg-background"><audio controls class="w-full" src="${href}"></audio></div>`
-    }
-    if (['mp4','avi','mov','wmv','flv','webm','mkv'].includes(ext)) {
-      return `<div class="mt-3 p-4 border rounded-md bg-background"><video controls class="w-full rounded" src="${href}"></video></div>`
-    }
-    return `<div class="mt-3 p-4 border rounded-md bg-background"><iframe class="w-full h-[600px] border-0" src="${href}" title="PDF Viewer"></iframe></div>`
+  if (!(globalThis as any).customElements.get('refmd-attachment')) {
+    (globalThis as any).customElements.define('refmd-attachment', RefmdAttachment)
   }
 }
 
-if (!customElements.get('refmd-attachment')) customElements.define('refmd-attachment', RefmdAttachment)
+export {}

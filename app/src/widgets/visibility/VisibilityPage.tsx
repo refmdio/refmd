@@ -11,9 +11,8 @@ import { useUserPublicDocuments, unpublishDocument } from '@/entities/public'
 import { activeSharesQuery, deleteShare } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
-import type { ActiveShareItem } from '@/features/sharing/types'
-import DocumentShareCard from '@/features/sharing/ui/DocumentShareCard'
-import FolderShareTree from '@/features/sharing/ui/FolderShareTree'
+import { DocumentShareCard, FolderShareTree } from '@/features/sharing'
+import type { ActiveShareItem } from '@/features/sharing'
 
 export type PublicDoc = { id: string; title: string; updated_at: string; published_at: string }
 

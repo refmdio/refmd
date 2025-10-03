@@ -1,7 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { queryClient } from '@/shared/lib/queryClient'
-
 import { activeSharesQuery } from '@/entities/share'
 
 import { appBeforeLoadGuard } from '@/features/auth'
@@ -15,8 +13,8 @@ export const Route = createFileRoute('/(app)/visibility/')({
   pendingComponent: () => <RoutePending />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   beforeLoad: appBeforeLoadGuard,
-  loader: async () => {
-    await queryClient.ensureQueryData(activeSharesQuery())
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(activeSharesQuery())
     return null
   },
   component: VisibilityPage,

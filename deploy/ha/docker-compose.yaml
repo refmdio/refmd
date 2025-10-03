@@ -147,9 +147,11 @@ services:
   app-a:
     build:
       context: ../../app
-    container_name: refmd-ha-frontend-a
+    container_name: refmd-ha-app-a
     environment:
+      SSR_API_BASE_URL: http://nginx
       VITE_API_BASE_URL: http://localhost:8888
+      VITE_PUBLIC_BASE_URL: http://localhost:3000
     depends_on:
       api-a:
         condition: service_started
@@ -159,9 +161,11 @@ services:
   app-b:
     build:
       context: ../../app
-    container_name: refmd-ha-frontend-b
+    container_name: refmd-ha-app-b
     environment:
+      SSR_API_BASE_URL: http://nginx
       VITE_API_BASE_URL: http://localhost:8888
+      VITE_PUBLIC_BASE_URL: http://localhost:3000
     depends_on:
       api-a:
         condition: service_started

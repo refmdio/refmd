@@ -1,5 +1,7 @@
 import { redirect } from '@tanstack/react-router'
 
+import { API_BASE_URL, getEnv } from '@/shared/lib/config'
+
 import { validateShareToken } from '@/entities/share'
 import { me as fetchCurrentUser } from '@/entities/user'
 
@@ -12,6 +14,31 @@ export type AuthRedirectTarget = {
     redirectSearch?: string
   }
 }
+
+type MiddlewareAuthContext = {
+  redirectChecked?: boolean
+  redirectTarget?: AuthRedirectTarget | null
+  isAuthenticated?: boolean
+  shareToken?: string
+  shareTokenValidated?: boolean
+}
+
+function getMiddlewareAuthContext(ctx: any): MiddlewareAuthContext | undefined {
+  const candidates = [
+    ctx?.serverContext?.auth,
+    ctx?.context?.auth,
+    ctx?.auth,
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === 'object') {
+      return candidate as MiddlewareAuthContext
+    }
+  }
+  return undefined
+}
+
+const SSR_AUTH_ENDPOINT = '/api/auth/me'
 
 function normalizeSearch(value: MaybeSearch): string {
   if (typeof value === 'string') return value
@@ -29,12 +56,13 @@ function extractTokenFromObject(value: MaybeSearch): string | null {
 }
 
 function resolveLocation(ctx: any) {
+  const locationSource = ctx?.location ?? ctx?.serverContext?.location ?? null
   const fallbackPath = typeof window !== 'undefined' ? window.location.pathname : '/'
   const fallbackSearch = typeof window !== 'undefined' ? window.location.search : ''
-  const pathnameCandidate = ctx?.location?.pathname
+  const pathnameCandidate = locationSource?.pathname ?? ctx?.pathname
   const pathname = typeof pathnameCandidate === 'string' && pathnameCandidate.length > 0 ? pathnameCandidate : fallbackPath
 
-  const tokenFromLocation = extractTokenFromObject(ctx?.location?.search)
+  const tokenFromLocation = extractTokenFromObject(locationSource?.search ?? ctx?.search)
   if (tokenFromLocation) {
     return {
       pathname,
@@ -43,14 +71,14 @@ function resolveLocation(ctx: any) {
     }
   }
 
-  const searchCandidate = normalizeSearch(ctx?.location?.search)
+  const searchCandidate = normalizeSearch(locationSource?.search ?? ctx?.search)
   const search = searchCandidate.length > 0 ? searchCandidate : fallbackSearch
   return { pathname, search, tokenOverride: null as string | null }
 }
 
 function extractShareToken(ctx: any, search: string, tokenOverride: string | null) {
   if (tokenOverride) return tokenOverride
-  const tokenFromCtx = extractTokenFromObject(ctx?.search)
+  const tokenFromCtx = extractTokenFromObject(ctx?.search ?? ctx?.serverContext?.search)
   if (tokenFromCtx) return tokenFromCtx
   if (!search) return null
   try {
@@ -73,7 +101,89 @@ function createAuthRedirect(pathname: string, search: string): AuthRedirectTarge
   }
 }
 
-async function hasCurrentUser() {
+function resolveCookieHeader(ctx: any): string | null {
+  const layers = [ctx?.serverContext, ctx?.context, ctx]
+
+  const extractFromCandidate = (candidate: unknown): string | null => {
+    if (!candidate) return null
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate
+    }
+    if (Array.isArray(candidate)) {
+      const merged = candidate.filter(Boolean).join('; ')
+      return merged.trim().length > 0 ? merged : null
+    }
+    if (typeof candidate === 'object') {
+      const value = (candidate as Record<string, string | string[] | undefined>).cookie
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value
+      }
+      if (Array.isArray(value)) {
+        const merged = value.filter(Boolean).join('; ')
+        if (merged.trim().length > 0) return merged
+      }
+    }
+    return null
+  }
+
+  for (const layer of layers) {
+    const candidates = [layer?.headers, layer?.request?.headers, layer?.event?.node?.req?.headers]
+    for (const candidate of candidates) {
+      const resolved = extractFromCandidate(candidate)
+      if (resolved) {
+        return resolved
+      }
+    }
+  }
+  return null
+}
+
+function resolveApiBase(ctx: any): string {
+  const layered = [ctx?.serverContext, ctx?.context, ctx]
+  for (const layer of layered) {
+    const candidate = typeof layer?.apiBaseUrl === 'string' ? layer.apiBaseUrl.trim() : ''
+    if (candidate.length > 0) return candidate
+  }
+
+  const envBase = getEnv('SSR_API_BASE_URL', API_BASE_URL)
+  if (envBase && envBase.trim().length > 0) {
+    return envBase.trim()
+  }
+
+  for (const layer of layered) {
+    const originCandidate = typeof layer?.origin === 'string' ? layer.origin.trim() : ''
+    if (originCandidate.length > 0) {
+      return originCandidate
+    }
+  }
+
+  const fromOrigin = typeof ctx?.origin === 'string' ? ctx.origin.trim() : ''
+  return fromOrigin
+}
+
+async function hasCurrentUserRemote(ctx: any, cookieHeader: string | null) {
+  if (!cookieHeader || typeof fetch === 'undefined') return false
+
+  const base = resolveApiBase(ctx)
+  if (!base || base.length === 0) return false
+
+  try {
+    const endpoint = new URL(SSR_AUTH_ENDPOINT, base)
+    const res = await fetch(endpoint.toString(), {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        cookie: cookieHeader,
+      },
+    })
+    return res.ok
+  } catch (error) {
+    console.warn('[auth] remote auth check failed', error)
+    return false
+  }
+}
+
+async function hasCurrentUserFallback() {
   try {
     await fetchCurrentUser()
     return true
@@ -82,9 +192,56 @@ async function hasCurrentUser() {
   }
 }
 
+async function hasCurrentUser(ctx?: any) {
+  const isServer = typeof window === 'undefined'
+  const cookieHeader = resolveCookieHeader(ctx)
+  if (cookieHeader) {
+    const authenticated = await hasCurrentUserRemote(ctx, cookieHeader)
+    if (authenticated) return true
+  }
+
+  if (isServer) {
+    if (!ctx?.event) {
+      // SSR beforeLoad (no Nitro event) relies on middleware that already handled auth
+      return true
+    }
+    return false
+  }
+
+  return hasCurrentUserFallback()
+}
+
 export async function resolveAuthRedirect(ctx?: any): Promise<AuthRedirectTarget | null> {
-  const { pathname, search } = resolveLocation(ctx)
-  const authenticated = await hasCurrentUser()
+  const { pathname, search, tokenOverride } = resolveLocation(ctx)
+  const middlewareAuth = getMiddlewareAuthContext(ctx)
+  const shareToken = extractShareToken(ctx, search, tokenOverride)
+
+  if (shareToken) {
+    if (
+      middlewareAuth?.shareTokenValidated &&
+      middlewareAuth.shareToken === shareToken
+    ) {
+      return null
+    }
+
+    try {
+      await validateShareToken(shareToken)
+      return null
+    } catch {
+      // fall through to auth checks when validation fails
+    }
+  }
+
+  if (middlewareAuth?.redirectChecked) {
+    if (middlewareAuth.redirectTarget) {
+      return middlewareAuth.redirectTarget
+    }
+    if (middlewareAuth.isAuthenticated) {
+      return null
+    }
+  }
+
+  const authenticated = await hasCurrentUser(ctx)
   if (!authenticated) {
     return createAuthRedirect(pathname, search)
   }
@@ -101,6 +258,16 @@ export async function appBeforeLoadGuard(ctx?: any) {
 export async function documentBeforeLoadGuard(ctx?: any) {
   const { pathname, search, tokenOverride } = resolveLocation(ctx)
   const shareToken = extractShareToken(ctx, search, tokenOverride)
+  const middlewareAuth = getMiddlewareAuthContext(ctx)
+
+  if (
+    shareToken &&
+    middlewareAuth?.shareTokenValidated &&
+    middlewareAuth.shareToken === shareToken
+  ) {
+    return
+  }
+
   if (shareToken) {
     try {
       await validateShareToken(shareToken)
@@ -110,7 +277,7 @@ export async function documentBeforeLoadGuard(ctx?: any) {
     }
   }
 
-  const authenticated = await hasCurrentUser()
+  const authenticated = await hasCurrentUser(ctx)
   if (!authenticated) {
     throw redirect(createAuthRedirect(pathname, search))
   }

@@ -1,4 +1,6 @@
 export function upgradeAttachments(root: Element) {
+  if (typeof document === 'undefined' || typeof customElements === 'undefined') return
+
   const anchors = Array.from(root.querySelectorAll('a.file-attachment, a[href^="/api/uploads/"], a[href^="./attachments/"], a[href^="attachments/"]')) as HTMLAnchorElement[]
   for (const a of anchors) {
     if ((a as any)._upgraded) continue

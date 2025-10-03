@@ -12,7 +12,7 @@ import { downloadDocumentArchive } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
-import ShareDialog from '@/features/sharing/ShareDialog'
+import { ShareDialog } from '@/features/sharing'
 
 import { DocumentPresence } from '@/widgets/header/components/DocumentPresence'
 import { MobileHeaderMenu } from '@/widgets/header/components/MobileHeaderMenu'

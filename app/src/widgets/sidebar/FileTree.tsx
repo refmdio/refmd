@@ -18,7 +18,7 @@ import {
   useFileTreeInteractions,
   type DocumentNode,
 } from '@/features/file-tree'
-import GitSyncButton from '@/features/git-sync/ui/git-sync-button'
+import { GitSyncButton } from '@/features/git-sync'
 
 import FileNode from '@/widgets/sidebar/FileNode'
 import FileTreeActions from '@/widgets/sidebar/FileTreeActions'

@@ -88,7 +88,6 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::plugins::uninstall,
             api::presentation::http::plugins::sse_updates,
             api::presentation::http::health::health,
-            api::presentation::http::og::public_document_og,
         ),
         components(schemas(
             api::presentation::http::auth::RegisterRequest,
@@ -162,7 +161,7 @@ use utoipa_swagger_ui::SwaggerUi;
             (name = "Markdown", description = "Markdown rendering"),
             (name = "Plugins", description = "Plugins management & data APIs"),
             (name = "Health", description = "System health checks"),
-            (name = "OpenGraph", description = "Public metadata endpoints for social previews")
+            
         )
     )]
 struct ApiDoc;
@@ -464,7 +463,6 @@ async fn main() -> anyhow::Result<()> {
             "/api/public",
             api::presentation::http::public::routes(ctx.clone()),
         )
-        .nest("/api/og", api::presentation::http::og::routes(ctx.clone()))
         .nest_service("/api/plugin-assets", ServeDir::new(plugin_root))
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(cors)

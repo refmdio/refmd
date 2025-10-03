@@ -3,7 +3,7 @@ import React from 'react'
 const isDev = import.meta.env.DEV
 
 type LoadedModules = {
-  Devtools: typeof import('@tanstack/react-devtools')['TanstackDevtools']
+  Devtools: typeof import('@tanstack/react-devtools')['TanStackDevtools']
   RouterPanel: typeof import('@tanstack/react-router-devtools')['TanStackRouterDevtoolsPanel']
 }
 
@@ -21,7 +21,7 @@ export function DevtoolsPortal() {
           import('@tanstack/react-router-devtools'),
         ])
         if (!cancelled) {
-          setMods({ Devtools: devtools.TanstackDevtools, RouterPanel: router.TanStackRouterDevtoolsPanel })
+          setMods({ Devtools: devtools.TanStackDevtools, RouterPanel: router.TanStackRouterDevtoolsPanel })
         }
       } catch (error) {
         console.warn('[devtools] failed to load TanStack devtools', error)

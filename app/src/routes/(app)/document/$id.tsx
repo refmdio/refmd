@@ -1,5 +1,8 @@
 import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+
+import { fetchDocumentMeta } from '@/entities/document'
+import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 
 import { documentBeforeLoadGuard, useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
@@ -16,6 +19,11 @@ import { useCollaborativeDocument, useRealtime } from '@/processes/collaboration
 export type DocumentRouteSearch = {
   token?: string
   [key: string]: string | string[] | undefined
+}
+
+type LoaderData = {
+  title: string
+  token?: string
 }
 
 function normalizeDocumentSearch(search: Record<string, unknown>): DocumentRouteSearch {
@@ -37,25 +45,105 @@ function normalizeDocumentSearch(search: Record<string, unknown>): DocumentRoute
 
 export const Route = createFileRoute('/(app)/document/$id')({
   staticData: { layout: 'document' },
+  ssr: true,
   validateSearch: normalizeDocumentSearch,
   pendingComponent: () => <RoutePending label="Loading editor…" />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   beforeLoad: documentBeforeLoadGuard,
+  loader: async ({ params, location }) => {
+    const normalizedSearch = normalizeDocumentSearch((location?.search ?? {}) as Record<string, unknown>)
+    const token = typeof normalizedSearch.token === 'string' && normalizedSearch.token.trim().length > 0 ? normalizedSearch.token.trim() : undefined
+    try {
+      const meta = await fetchDocumentMeta(params.id, token)
+      const title = typeof meta?.title === 'string' ? meta.title.trim() : ''
+      return { title, token } satisfies LoaderData
+    } catch {
+      return { title: '', token } satisfies LoaderData
+    }
+  },
+  head: ({ loaderData, params }) => {
+    const data = (loaderData as LoaderData | undefined) ?? { title: '', token: undefined }
+    const token = data.token
+    const baseTitle = data.title?.trim() || 'Untitled Document'
+    const isShare = Boolean(token)
+    const metaTitle = isShare ? baseTitle : `${baseTitle} • RefMD`
+    const description = isShare ? baseTitle : `${baseTitle} on RefMD`
+    const query = token ? `?token=${encodeURIComponent(token)}` : ''
+    const canonicalPath = `/document/${encodeURIComponent(params.id)}${query}`
+    const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
+    const ogImage = buildOgImageUrl(base, {
+      variant: 'document',
+      title: baseTitle,
+      subtitle: isShare ? 'Shared document on RefMD' : 'Workspace document',
+      description,
+      badge: isShare ? 'Shared Document' : 'Document',
+      meta: isShare ? 'refmd.io - share link' : 'refmd.io',
+    })
+
+    return {
+      meta: [
+        { title: metaTitle },
+        { name: 'description', content: description },
+        { property: 'og:title', content: metaTitle },
+        { property: 'og:description', content: description },
+        { property: 'og:type', content: 'article' },
+        { property: 'og:url', content: canonicalUrl },
+        { property: 'og:image', content: ogImage },
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:title', content: metaTitle },
+        { name: 'twitter:description', content: description },
+        { name: 'twitter:image', content: ogImage },
+      ],
+      links: [{ rel: 'canonical', href: canonicalUrl }],
+    }
+  },
   component: InnerDocument,
 })
 
 function InnerDocument() {
   const { id } = useParams({ from: '/(app)/document/$id' })
+  const loaderData = Route.useLoaderData() as LoaderData | undefined
+  const search = Route.useSearch() as DocumentRouteSearch
+  const shareToken = loaderData?.token ?? (typeof search.token === 'string' && search.token.trim().length > 0 ? search.token.trim() : undefined)
+  const [isClient, setIsClient] = useState(typeof window !== 'undefined')
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  if (!isClient) {
+    return <DocumentSSRPlaceholder />
+  }
+
+  return <DocumentClient id={id} loaderData={loaderData} shareToken={shareToken} />
+}
+
+function DocumentSSRPlaceholder() {
+  return (
+    <div className="relative flex h-full flex-1 min-h-0 flex-col">
+      <EditorOverlay label="Loading…" />
+    </div>
+  )
+}
+
+function DocumentClient({
+  id,
+  loaderData,
+  shareToken,
+}: {
+  id: string
+  loaderData?: LoaderData
+  shareToken?: string
+}) {
   const navigate = useNavigate()
   const { user } = useAuthContext()
   const { secondaryDocumentId, secondaryDocumentType, showSecondaryViewer, closeSecondaryViewer, openSecondaryViewer } = useSecondaryViewer()
   const { showBacklinks, setShowBacklinks } = useViewContext()
-  const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id)
+  const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const { documentTitle: realtimeTitle } = useRealtime()
   const redirecting = usePluginDocumentRedirect(id, {
     navigate: (to) => navigate({ to }),
   })
-  // Prepare user identity for awareness (host shows proper name, anonymous gets distinct label)
   const anonIdentity = useMemo(() => {
     if (user) return null
     try {
@@ -71,17 +159,17 @@ function InnerDocument() {
       return { id: `guest:${rnd}`, name: `Guest-${rnd}` }
     }
   }, [user])
-  // loader state is derived inline in JSX
+
   useEffect(() => {
     setShowBacklinks(false)
   }, [id, setShowBacklinks])
+
   useEffect(() => {
     if (showBacklinks && showSecondaryViewer) {
-      // hide secondary viewer when backlinks open (exclusive right pane)
       closeSecondaryViewer()
     }
   }, [showBacklinks, showSecondaryViewer, closeSecondaryViewer])
-  // Backlinks are controlled via ViewContext; no window events
+
   const hasCollaborativeState = Boolean(doc && awareness)
 
   const shouldShowOverlay = redirecting || Boolean(realtimeError) || !hasCollaborativeState
@@ -97,10 +185,20 @@ function InnerDocument() {
   useEffect(() => {
     if (typeof document === 'undefined') return
     const originalTitle = document.title
-    const computedTitle = realtimeTitle ? `${realtimeTitle} • RefMD` : 'RefMD'
+    const baseTitle = (realtimeTitle && realtimeTitle.trim()) || loaderData?.title?.trim() || ''
+    const computedTitle = (() => {
+      if (!baseTitle) return 'RefMD'
+      if (shareToken) return baseTitle
+      return `${baseTitle} • RefMD`
+    })()
     document.title = computedTitle
 
-    const summary = realtimeTitle ? `${realtimeTitle} on RefMD` : 'Editing a document on RefMD'
+    const summary = (() => {
+      if (!baseTitle) return shareToken ? 'Shared document on RefMD' : 'Editing a document on RefMD'
+      if (shareToken) return baseTitle
+      return `${baseTitle} on RefMD`
+    })()
+
     const metaDefs: Array<{ selector: string; attr: 'name' | 'property'; value: string }> = [
       { selector: 'description', attr: 'name', value: summary },
       { selector: 'og:title', attr: 'property', value: computedTitle },
@@ -136,7 +234,7 @@ function InnerDocument() {
       document.title = originalTitle
       cleanupFns.forEach((fn) => fn())
     }
-  }, [id, realtimeTitle])
+  }, [id, realtimeTitle, loaderData?.title, shareToken])
 
   return (
     <div className="relative flex h-full flex-1 min-h-0 flex-col">
@@ -159,7 +257,7 @@ function InnerDocument() {
                 documentId={secondaryDocumentId}
                 documentType={secondaryDocumentType}
                 onClose={closeSecondaryViewer}
-                onDocumentChange={(id, type) => openSecondaryViewer(id, type)}
+                onDocumentChange={(docId, type) => openSecondaryViewer(docId, type)}
                 className="h-full"
               />
             ) : undefined)}
