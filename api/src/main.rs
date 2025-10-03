@@ -15,6 +15,7 @@ use tracing::{error, info};
 
 use api::application::ports::plugin_asset_store::PluginAssetStore;
 use api::application::ports::plugin_event_publisher::PluginEventPublisher;
+use api::application::ports::plugin_installation_repository::PluginInstallationRepository;
 use api::application::ports::plugin_installer::PluginInstaller;
 use api::application::ports::plugin_runtime::PluginRuntime;
 use api::bootstrap::app_context::{AppContext, AppServices};
@@ -317,6 +318,32 @@ async fn main() -> anyhow::Result<()> {
     );
     if let Some(store) = &s3_plugin_store {
         store.spawn_event_listener(plugin_event_bus.clone());
+
+        let installations = plugin_installations.clone();
+        let assets = store.clone();
+        tokio::spawn(async move {
+            match installations.list_all().await {
+                Ok(installs) => {
+                    for inst in installs.into_iter().filter(|i| i.status == "enabled") {
+                        if let Err(err) = assets
+                            .load_user_manifest(&inst.user_id, &inst.plugin_id, &inst.version)
+                            .await
+                        {
+                            tracing::warn!(
+                                error = ?err,
+                                user_id = %inst.user_id,
+                                plugin = inst.plugin_id.as_str(),
+                                version = inst.version.as_str(),
+                                "prefetch_user_plugin_failed"
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(error = ?err, "list_all_plugin_installations_failed");
+                }
+            }
+        });
     }
     let plugin_event_publisher: Arc<dyn PluginEventPublisher> = plugin_event_bus.clone();
 

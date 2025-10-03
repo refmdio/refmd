@@ -375,6 +375,25 @@ impl S3BackedPluginStore {
         });
     }
 
+    fn schedule_refresh_user_plugin(self: &Arc<Self>, key: UserPluginKey) {
+        self.mark_user_plugin_dirty(key.clone());
+        let store = Arc::clone(self);
+        tokio::spawn(async move {
+            match store.ensure_local(Some(key.user_id), &key.plugin).await {
+                Ok(_) => {}
+                Err(err) => {
+                    tracing::warn!(
+                        error = ?err,
+                        user_id = %key.user_id,
+                        plugin = key.plugin.as_str(),
+                        "refresh_user_plugin_failed"
+                    );
+                    store.requeue_user_plugin_dirty(key);
+                }
+            }
+        });
+    }
+
     fn runtime_store(
         &self,
         user_id: Option<Uuid>,
@@ -407,12 +426,10 @@ impl S3BackedPluginStore {
             }
         }
 
-        if !force_refresh && base_dir.exists() {
+        if base_dir.exists() && !force_refresh {
             if self.local.latest_version_dir(&base_dir)?.is_some() {
                 return Ok(());
             }
-        } else if force_refresh && base_dir.exists() {
-            let _ = fs::remove_dir_all(&base_dir).await;
         }
 
         let result = download_prefix(&self.client, &self.bucket, &prefix, self.local.root()).await;
@@ -424,7 +441,7 @@ impl S3BackedPluginStore {
         result
     }
 
-    fn handle_plugin_event(&self, event: &PluginScopedEvent) {
+    fn handle_plugin_event(self: &Arc<Self>, event: &PluginScopedEvent) {
         let kind = event
             .payload
             .get("event")
@@ -441,7 +458,7 @@ impl S3BackedPluginStore {
                 if kind == "uninstalled" {
                     self.schedule_remove_user_plugin(key);
                 } else {
-                    self.mark_user_plugin_dirty(key);
+                    self.schedule_refresh_user_plugin(key);
                 }
             }
         }

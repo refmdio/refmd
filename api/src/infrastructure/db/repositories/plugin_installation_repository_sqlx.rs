@@ -78,6 +78,31 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
         Ok(out)
     }
 
+    async fn list_all(&self) -> anyhow::Result<Vec<PluginInstallation>> {
+        let rows = sqlx::query(
+            r#"SELECT user_id, plugin_id, version, scope, origin_url, status, installed_at, updated_at
+               FROM plugin_installations"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            out.push(PluginInstallation {
+                user_id: row.get("user_id"),
+                plugin_id: row.get("plugin_id"),
+                version: row.get("version"),
+                scope: row.get("scope"),
+                origin_url: row.try_get("origin_url").ok(),
+                status: row.get("status"),
+                installed_at: row.get("installed_at"),
+                updated_at: row.get("updated_at"),
+            });
+        }
+
+        Ok(out)
+    }
+
     async fn remove(&self, user_id: Uuid, plugin_id: &str) -> anyhow::Result<bool> {
         let res =
             sqlx::query("DELETE FROM plugin_installations WHERE user_id = $1 AND plugin_id = $2")
