@@ -7,6 +7,8 @@ import {
   loadPluginModule,
 } from '@/features/plugins/lib/runtime'
 
+import type { DocumentHeaderAction } from '@/processes/collaboration/contexts/realtime-context'
+
 export type RoutePluginMatch = {
   manifest: PluginManifestItem
   module: any
@@ -226,11 +228,22 @@ export async function mountResolvedPlugin(
 export async function mountRoutePlugin(
   match: RoutePluginMatch,
   container: HTMLElement,
-  navigate?: (to: string) => void | Promise<void>,
+  options: {
+    navigate?: (to: string) => void | Promise<void>
+    setDocumentTitle?: (title?: string | null) => void
+    setDocumentStatus?: (status?: string | null) => void
+    setDocumentBadge?: (badge?: string | null) => void
+    setDocumentActions?: (actions: DocumentHeaderAction[]) => void
+  } = {},
 ) {
+  const { navigate, setDocumentTitle, setDocumentStatus, setDocumentBadge, setDocumentActions } = options
   const host = await createPluginHost(match.manifest, {
     mode: 'primary',
     navigate,
+    setDocumentTitle,
+    setDocumentStatus,
+    setDocumentBadge,
+    setDocumentActions,
   })
   try {
     ;(match.module as any).__host__ = host
@@ -238,6 +251,34 @@ export async function mountRoutePlugin(
     /* noop */
   }
 
+  try { setDocumentStatus?.(undefined) } catch {}
+  try { setDocumentBadge?.(undefined) } catch {}
+  try { setDocumentActions?.([]) } catch {}
+
+  const defaultTitle = match.manifest.name ?? match.manifest.id
+  if (defaultTitle) {
+    try {
+      setDocumentTitle?.(defaultTitle)
+    } catch {}
+  }
+
   const dispose = await Promise.resolve(match.module?.default?.(container, host))
-  return typeof dispose === 'function' ? dispose : null
+  return typeof dispose === 'function'
+    ? () => {
+        try {
+          dispose()
+        } catch {
+          /* noop */
+        }
+        try { setDocumentTitle?.(undefined) } catch {}
+        try { setDocumentStatus?.(undefined) } catch {}
+        try { setDocumentBadge?.(undefined) } catch {}
+        try { setDocumentActions?.([]) } catch {}
+      }
+    : () => {
+        try { setDocumentTitle?.(undefined) } catch {}
+        try { setDocumentStatus?.(undefined) } catch {}
+        try { setDocumentBadge?.(undefined) } catch {}
+        try { setDocumentActions?.([]) } catch {}
+      }
 }

@@ -154,6 +154,9 @@ export function useCollaborativeDocument(id: string, shareToken?: string) {
           const meta = await fetchDocumentMeta(id, urlShareToken ?? undefined)
           if (meta) {
             rt.setDocumentTitle(meta.title)
+            rt.setDocumentStatus(undefined)
+            rt.setDocumentBadge(undefined)
+            rt.setDocumentActions([])
             rt.setDocumentPath(undefined)
             rt.setDocumentId(id)
             rt.setShowEditorFeatures(true)
@@ -194,6 +197,9 @@ export function useCollaborativeDocument(id: string, shareToken?: string) {
       rt.setOnlineUsers([])
       rt.setConnected(false)
       rt.setDocumentTitle(undefined)
+      rt.setDocumentStatus(undefined)
+      rt.setDocumentBadge(undefined)
+      rt.setDocumentActions([])
       rt.setDocumentPath(undefined)
       setError(null)
     }

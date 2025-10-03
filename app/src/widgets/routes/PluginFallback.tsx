@@ -8,9 +8,12 @@ import {
   type RoutePluginMatch,
 } from '@/features/plugins'
 
+import { useRealtime } from '@/processes/collaboration/contexts/realtime-context'
+
 export default function PluginFallback() {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuthContext()
+  const realtime = useRealtime()
   const authReady = !authLoading && !!user
   const [manifestLoading, setManifestLoading] = React.useState(true)
   const [pluginMounting, setPluginMounting] = React.useState(false)
@@ -105,6 +108,10 @@ export default function PluginFallback() {
           /* noop */
         }
       }
+      realtime.setDocumentTitle(undefined)
+      realtime.setDocumentStatus(undefined)
+      realtime.setDocumentBadge(undefined)
+      realtime.setDocumentActions([])
       setPluginMounting(false)
       return
     }
@@ -114,7 +121,17 @@ export default function PluginFallback() {
 
     ;(async () => {
       try {
-        const dispose = await mountRoutePlugin(plugin, container, (to) => navigate({ to }))
+        const dispose = await mountRoutePlugin(
+          plugin,
+          container,
+          {
+            navigate: (to) => navigate({ to }),
+            setDocumentTitle: realtime.setDocumentTitle,
+            setDocumentStatus: realtime.setDocumentStatus,
+            setDocumentBadge: realtime.setDocumentBadge,
+            setDocumentActions: realtime.setDocumentActions,
+          },
+        )
         if (cancelled) {
           if (typeof dispose === 'function') {
             try {
@@ -153,6 +170,10 @@ export default function PluginFallback() {
       } catch {
         /* noop */
       }
+      realtime.setDocumentTitle(undefined)
+      realtime.setDocumentStatus(undefined)
+      realtime.setDocumentBadge(undefined)
+      realtime.setDocumentActions([])
     }
   }, [plugin, navigate, authReady])
 

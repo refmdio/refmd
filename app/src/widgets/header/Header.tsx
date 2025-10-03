@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import { useTheme } from '@/shared/contexts/theme-context'
 import { cn } from '@/shared/lib/utils'
+import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 import { SidebarTrigger } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
@@ -18,6 +19,8 @@ import { DocumentPresence } from '@/widgets/header/components/DocumentPresence'
 import { MobileHeaderMenu } from '@/widgets/header/components/MobileHeaderMenu'
 import SearchDialog from '@/widgets/header/SearchDialog'
 
+import type { DocumentHeaderAction } from '@/processes/collaboration/contexts/realtime-context'
+
 // Using ViewContext instead of window events
 
 export type HeaderRealtimeState = {
@@ -26,6 +29,9 @@ export type HeaderRealtimeState = {
   documentTitle?: string
   documentId?: string
   documentPath?: string
+  documentStatus?: string
+  documentBadge?: string
+  documentActions?: DocumentHeaderAction[]
   onlineUsers: Array<{ id: string; name: string; color?: string; clientId?: number }>
 }
 
@@ -41,6 +47,9 @@ const defaultRealtimeState: HeaderRealtimeState = {
   documentTitle: undefined,
   documentId: undefined,
   documentPath: undefined,
+  documentStatus: undefined,
+  documentBadge: undefined,
+  documentActions: [],
   onlineUsers: [],
 }
 
@@ -58,6 +67,27 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const [isCompact, setIsCompact] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const documentBadge = rt.documentBadge
+  const documentStatus = rt.documentStatus
+  const documentActions = rt.documentActions ?? []
+  const handleDocumentActionClick = useCallback((action: DocumentHeaderAction) => {
+    try {
+      action.onSelect?.()
+    } catch (error) {
+      console.error('[header] document action handler failed', error)
+    }
+  }, [])
+
+  const resolveActionVariant = useCallback((variant?: DocumentHeaderAction['variant']) => {
+    switch (variant) {
+      case 'primary':
+        return 'default' as const
+      case 'outline':
+        return 'outline' as const
+      default:
+        return 'secondary' as const
+    }
+  }, [])
   
   const canShare = Boolean(rt.documentId)
   const canDownload = Boolean(rt.documentId)
@@ -184,9 +214,17 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
               <div className="hidden lg:flex items-center gap-2 text-xs text-muted-foreground/80">
                 <DocumentPresence realtime={rt} onCollaboratorSelect={handleCollaboratorSelect} showTitle={false} />
               </div>
+              {documentBadge && (
+                <Badge variant="outline" className="hidden md:inline-flex items-center gap-1 rounded-full border-border/60 bg-muted/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">
+                  {documentBadge}
+                </Badge>
+              )}
             </div>
             {rt.documentPath && (
               <p className="truncate text-xs text-muted-foreground/70">{rt.documentPath}</p>
+            )}
+            {documentStatus && (
+              <p className="truncate text-xs text-muted-foreground/65">{documentStatus}</p>
             )}
           </div>
         </div>
@@ -208,6 +246,21 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         </div>
 
         <div className="flex items-center gap-2">
+          {documentActions.length > 0 && (
+            <div className="flex items-center gap-1">
+              {documentActions.map((action) => (
+                <Button
+                  key={action.id ?? action.label}
+                  onClick={() => handleDocumentActionClick(action)}
+                  variant={resolveActionVariant(action.variant)}
+                  disabled={action.disabled}
+                  className="h-9 rounded-full px-3 text-sm"
+                >
+                  {action.label}
+                </Button>
+              ))}
+            </div>
+          )}
           {rt.showEditorFeatures && (
             <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-1 py-0.5">
               {viewModeButtons.map((item, idx) => {
@@ -322,9 +375,17 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
                 <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground/80">
                   <DocumentPresence realtime={rt} onCollaboratorSelect={handleCollaboratorSelect} showTitle={false} />
                 </div>
+                {documentBadge && (
+                  <Badge variant="outline" className="hidden sm:inline-flex items-center gap-1 rounded-full border-border/60 bg-muted/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">
+                    {documentBadge}
+                  </Badge>
+                )}
               </div>
               {rt.documentPath && (
                 <span className="truncate text-[11px] text-muted-foreground/70">{rt.documentPath}</span>
+              )}
+              {documentStatus && (
+                <span className="truncate text-[11px] text-muted-foreground/65">{documentStatus}</span>
               )}
             </div>
             <div className="flex items-center gap-2">
@@ -365,6 +426,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         downloading={downloading}
         onToggleTheme={() => { toggleTheme(); setMobileMenuOpen(false) }}
         onSignOut={() => { handleSignOut(); setMobileMenuOpen(false) }}
+        documentActions={documentActions}
       />
       {rt.documentId && (
         <ShareDialog open={shareOpen} onOpenChange={setShareOpen} targetId={rt.documentId} />

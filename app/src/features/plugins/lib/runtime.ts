@@ -12,6 +12,8 @@ import {
   type ManifestItem,
 } from '@/shared/api/client'
 
+import type { DocumentHeaderAction } from '@/processes/collaboration/contexts/realtime-context'
+
 export type HostMode = 'primary' | 'secondary'
 
 export type PluginHostContext = {
@@ -20,6 +22,10 @@ export type PluginHostContext = {
   token?: string | null
   mode: HostMode
   navigate?: (to: string) => void | Promise<void>
+  setDocumentTitle?: (title?: string | null) => void
+  setDocumentStatus?: (status?: string | null) => void
+  setDocumentBadge?: (badge?: string | null) => void
+  setDocumentActions?: (actions: DocumentHeaderAction[]) => void
 }
 
 const pluginModuleCache = new Map<string, Promise<any>>()
@@ -168,6 +174,38 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
         const wc = await import('@/entities/document/wc')
         try {
           wc.upgradeAll(root)
+        } catch {}
+      },
+      setDocumentTitle: (title?: string | null) => {
+        try {
+          ctx.setDocumentTitle?.(title ?? undefined)
+        } catch {}
+      },
+      setDocumentStatus: (status?: string | null) => {
+        try {
+          ctx.setDocumentStatus?.(status ?? undefined)
+        } catch {}
+      },
+      setDocumentBadge: (badge?: string | null) => {
+        try {
+          ctx.setDocumentBadge?.(badge ?? undefined)
+        } catch {}
+      },
+      setDocumentActions: (actions: Array<{ id?: string; label?: string; onSelect?: () => void; disabled?: boolean; variant?: string }> | null | undefined) => {
+        try {
+          if (!ctx.setDocumentActions) return
+          const normalized: DocumentHeaderAction[] = Array.isArray(actions)
+            ? actions
+                .filter((action) => action && typeof action.label === 'string')
+                .map((action) => ({
+                  id: action.id,
+                  label: String(action.label),
+                  onSelect: typeof action.onSelect === 'function' ? action.onSelect : undefined,
+                  disabled: Boolean(action.disabled),
+                  variant: action.variant === 'primary' ? 'primary' : action.variant === 'outline' ? 'outline' : 'default',
+                }))
+            : []
+          ctx.setDocumentActions(normalized)
         } catch {}
       },
     },

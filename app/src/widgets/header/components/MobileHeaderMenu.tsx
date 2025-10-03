@@ -3,6 +3,8 @@ import { Blocks, Columns, Download, Eye, FileCode, FileText, Github, LogOut, Sha
 
 import { Button } from '@/shared/ui/button'
 
+import type { DocumentHeaderAction } from '@/processes/collaboration/contexts/realtime-context'
+
 type MobileHeaderMenuProps = {
   open: boolean
   onClose: () => void
@@ -17,6 +19,7 @@ type MobileHeaderMenuProps = {
   downloading: boolean
   onToggleTheme: () => void
   onSignOut: () => void
+  documentActions?: DocumentHeaderAction[]
 }
 
 export function MobileHeaderMenu({
@@ -33,6 +36,7 @@ export function MobileHeaderMenu({
   downloading,
   onToggleTheme,
   onSignOut,
+  documentActions = [],
 }: MobileHeaderMenuProps) {
   if (!open) return null
 
@@ -121,6 +125,17 @@ export function MobileHeaderMenu({
                 <Download className="h-4 w-4 mr-2" /> {downloading ? 'Preparing…' : 'Download'}
               </Button>
             )}
+            {documentActions.map((action) => (
+              <Button
+                key={action.id ?? action.label}
+                onClick={() => { action.onSelect?.(); onClose() }}
+                variant={action.variant === 'primary' ? 'default' : action.variant === 'outline' ? 'outline' : 'ghost'}
+                className="justify-start"
+                disabled={action.disabled}
+              >
+                {action.label}
+              </Button>
+            ))}
             <Button onClick={onSignOut} variant="ghost" className="justify-start">
               <LogOut className="h-4 w-4 mr-2" /> Sign out
             </Button>
