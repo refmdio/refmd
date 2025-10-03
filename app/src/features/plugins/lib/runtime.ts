@@ -12,8 +12,6 @@ import {
   type ManifestItem,
 } from '@/shared/api/client'
 
-import type { PluginChromeController, PluginChromeApi } from './chrome'
-
 export type HostMode = 'primary' | 'secondary'
 
 export type PluginHostContext = {
@@ -22,7 +20,6 @@ export type PluginHostContext = {
   token?: string | null
   mode: HostMode
   navigate?: (to: string) => void | Promise<void>
-  chrome?: PluginChromeController | null
 }
 
 const pluginModuleCache = new Map<string, Promise<any>>()
@@ -106,16 +103,6 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
     }
     fallbackNavigate(to)
   }
-  const chromeApi: PluginChromeApi | undefined = ctx.chrome
-    ? {
-        setTitle: (value?: string | null) => ctx.chrome?.setTitle?.(value ?? ''),
-        setStatus: (value?: string | null) => ctx.chrome?.setStatus?.(value ?? ''),
-        setDocBadge: (value?: string | null) => ctx.chrome?.setDocBadge?.(value ?? ''),
-        setActions: (actions) => ctx.chrome?.setActions?.(actions ?? []),
-        reset: () => ctx.chrome?.reset?.(),
-      }
-    : undefined
-
   const host = {
     exec: async (action: string, args: any = {}) => {
       const json = await PluginsService.pluginsExecAction({
@@ -188,7 +175,6 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
       yjs: () => loadHostYjs(),
       yWebsocket: () => loadHostYWebsocket(),
     },
-    chrome: chromeApi,
     context: {
       docId: resolvedDocId ?? null,
       route: fallbackRoute ?? null,

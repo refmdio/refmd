@@ -7,8 +7,6 @@ import {
   loadPluginModule,
 } from '@/features/plugins/lib/runtime'
 
-import { createPluginChrome } from './chrome'
-
 export type RoutePluginMatch = {
   manifest: PluginManifestItem
   module: any
@@ -208,16 +206,11 @@ export async function mountResolvedPlugin(
   container: HTMLElement,
   mode: 'primary' | 'secondary',
 ) {
-  const chrome = createPluginChrome(container)
-  chrome.reset()
-  chrome.setTitle(match.manifest.name ?? match.manifest.id)
-
   const host = await createPluginHost(match.manifest, {
     docId: match.docId,
     route: match.route,
     token: match.token ?? undefined,
     mode,
-    chrome,
   })
 
   try {
@@ -226,26 +219,8 @@ export async function mountResolvedPlugin(
     /* noop */
   }
 
-  let dispose: any
-  try {
-    dispose = await Promise.resolve(match.module?.default?.(chrome.body, host))
-  } catch (error) {
-    chrome.destroy()
-    throw error
-  }
-
-  return typeof dispose === 'function'
-    ? () => {
-        try {
-          dispose()
-        } catch {
-          /* noop */
-        }
-        chrome.destroy()
-      }
-    : () => {
-        chrome.destroy()
-      }
+  const dispose = await Promise.resolve(match.module?.default?.(container, host))
+  return typeof dispose === 'function' ? dispose : null
 }
 
 export async function mountRoutePlugin(
@@ -253,14 +228,9 @@ export async function mountRoutePlugin(
   container: HTMLElement,
   navigate?: (to: string) => void | Promise<void>,
 ) {
-  const chrome = createPluginChrome(container)
-  chrome.reset()
-  chrome.setTitle(match.manifest.name ?? match.manifest.id)
-
   const host = await createPluginHost(match.manifest, {
     mode: 'primary',
     navigate,
-    chrome,
   })
   try {
     ;(match.module as any).__host__ = host
@@ -268,24 +238,6 @@ export async function mountRoutePlugin(
     /* noop */
   }
 
-  let dispose: any
-  try {
-    dispose = await Promise.resolve(match.module?.default?.(chrome.body, host))
-  } catch (error) {
-    chrome.destroy()
-    throw error
-  }
-
-  return typeof dispose === 'function'
-    ? () => {
-        try {
-          dispose()
-        } catch {
-          /* noop */
-        }
-        chrome.destroy()
-      }
-    : () => {
-        chrome.destroy()
-      }
+  const dispose = await Promise.resolve(match.module?.default?.(container, host))
+  return typeof dispose === 'function' ? dispose : null
 }
