@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as OgVariantDotpngRouteImport } from './routes/og/$variant[.]png'
 import { Route as appProfileRouteImport } from './routes/(app)/profile'
 import { Route as appPluginsRouteImport } from './routes/(app)/plugins'
 import { Route as appDashboardRouteImport } from './routes/(app)/dashboard'
@@ -24,6 +25,11 @@ import { Route as publicUNameIdRouteImport } from './routes/(public)/u/$name/$id
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OgVariantDotpngRoute = OgVariantDotpngRouteImport.update({
+  id: '/og/$variant.png',
+  path: '/og/$variant.png',
   getParentRoute: () => rootRouteImport,
 } as any)
 const appProfileRoute = appProfileRouteImport.update({
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof appDashboardRoute
   '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
+  '/og/$variant.png': typeof OgVariantDotpngRoute
   '/document/$id': typeof appDocumentIdRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof appDashboardRoute
   '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
+  '/og/$variant.png': typeof OgVariantDotpngRoute
   '/document/$id': typeof appDocumentIdRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
@@ -109,6 +117,7 @@ export interface FileRoutesById {
   '/(app)/dashboard': typeof appDashboardRoute
   '/(app)/plugins': typeof appPluginsRoute
   '/(app)/profile': typeof appProfileRoute
+  '/og/$variant.png': typeof OgVariantDotpngRoute
   '/(app)/document/$id': typeof appDocumentIdRoute
   '/(auth)/auth/signin': typeof authAuthSigninRoute
   '/(auth)/auth/signup': typeof authAuthSignupRoute
@@ -124,6 +133,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/plugins'
     | '/profile'
+    | '/og/$variant.png'
     | '/document/$id'
     | '/auth/signin'
     | '/auth/signup'
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/plugins'
     | '/profile'
+    | '/og/$variant.png'
     | '/document/$id'
     | '/auth/signin'
     | '/auth/signup'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/(app)/dashboard'
     | '/(app)/plugins'
     | '/(app)/profile'
+    | '/og/$variant.png'
     | '/(app)/document/$id'
     | '/(auth)/auth/signin'
     | '/(auth)/auth/signup'
@@ -164,6 +176,7 @@ export interface RootRouteChildren {
   appDashboardRoute: typeof appDashboardRoute
   appPluginsRoute: typeof appPluginsRoute
   appProfileRoute: typeof appProfileRoute
+  OgVariantDotpngRoute: typeof OgVariantDotpngRoute
   appDocumentIdRoute: typeof appDocumentIdRoute
   authAuthSigninRoute: typeof authAuthSigninRoute
   authAuthSignupRoute: typeof authAuthSignupRoute
@@ -180,6 +193,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/og/$variant.png': {
+      id: '/og/$variant.png'
+      path: '/og/$variant.png'
+      fullPath: '/og/$variant.png'
+      preLoaderRoute: typeof OgVariantDotpngRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(app)/profile': {
@@ -260,6 +280,7 @@ const rootRouteChildren: RootRouteChildren = {
   appDashboardRoute: appDashboardRoute,
   appPluginsRoute: appPluginsRoute,
   appProfileRoute: appProfileRoute,
+  OgVariantDotpngRoute: OgVariantDotpngRoute,
   appDocumentIdRoute: appDocumentIdRoute,
   authAuthSigninRoute: authAuthSigninRoute,
   authAuthSignupRoute: authAuthSignupRoute,

@@ -1,3 +1,3 @@
 export * from './api'
 export { buildCanonicalUrl, buildOgImageUrl } from './lib/seo'
-export { summarizeMarkdown } from './lib/summarizeMarkdown'
+export type { OgImageUrlOptions } from './lib/seo'

@@ -10,7 +10,6 @@ import {
   buildOgImageUrl,
   getPublicByOwnerAndId,
   getPublicContentByOwnerAndId,
-  summarizeMarkdown,
 } from '@/entities/public'
 
 import { Markdown } from '@/features/edit-document'
@@ -38,7 +37,6 @@ type LoaderData = {
   name: string
   meta: PublicDoc
   content: string
-  summary: string
 }
 
 export const Route = createFileRoute('/(public)/u/$name/$id')({
@@ -49,29 +47,33 @@ export const Route = createFileRoute('/(public)/u/$name/$id')({
     const meta = (await getPublicByOwnerAndId(params.name, params.id)) as unknown as PublicDoc
     const contentResp = await getPublicContentByOwnerAndId(params.name, params.id)
     const contentValue = typeof (contentResp as any)?.content === 'string' ? String((contentResp as any).content) : ''
-    const summary = summarizeMarkdown(
-      contentValue,
-      `@${params.name} shared a public document on RefMD.`,
-    )
     return {
       name: params.name,
       meta,
       content: contentValue,
-      summary,
     } satisfies LoaderData
   },
   head: ({ loaderData, params }) => {
     const data = loaderData as LoaderData | undefined
     if (!data) return {}
 
-    const canonicalPath = `/u/${encodeURIComponent(params.name)}/${data.meta.id}`
-    const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
-    const ogImage = buildOgImageUrl(base)
     const rawTitle = data.meta.title?.trim()
     const title = rawTitle
       ? `${rawTitle} • ${params.name} on RefMD`
       : `@${params.name} • RefMD`
-    const description = data.summary
+    const description = rawTitle
+      ? `${rawTitle} — shared by @${params.name} on RefMD.`
+      : `@${params.name} shared a document on RefMD.`
+    const canonicalPath = `/u/${encodeURIComponent(params.name)}/${data.meta.id}`
+    const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
+    const ogImage = buildOgImageUrl(base, {
+      variant: 'public-document',
+      title: rawTitle || `@${params.name}`,
+      subtitle: `@${params.name} • Public document`,
+      description: 'Shared via RefMD',
+      badge: 'Public Document',
+      meta: 'refmd.io/public',
+    })
 
     return {
       meta: [

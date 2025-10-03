@@ -70,13 +70,20 @@ export const Route = createFileRoute('/(share)/share/$token')({
     const data = loaderData as LoaderData | undefined
     if (!data) return {}
 
+    const summary = buildShareSummary(data.tree)
     const canonicalPath = `/share/${encodeURIComponent(params.token)}`
     const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
-    const ogImage = buildOgImageUrl(base)
-    const summary = buildShareSummary(data.tree)
+    const description = summary.description
+    const ogImage = buildOgImageUrl(base, {
+      variant: 'share-folder',
+      title: summary.folderTitle,
+      subtitle: 'Shared via RefMD',
+      description: summary.documentCount > 0 ? `${summary.documentCount} documents` : undefined,
+      badge: 'Shared Folder',
+      meta: 'refmd.io/share',
+    })
 
     const metaTitle = `${summary.folderTitle} • Shared RefMD folder`
-    const description = summary.description
 
     return {
       meta: [

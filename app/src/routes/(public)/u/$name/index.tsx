@@ -29,7 +29,6 @@ export const Route = createFileRoute('/(public)/u/$name/')({
 
     const canonicalPath = `/u/${encodeURIComponent(params.name)}`
     const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
-    const ogImage = buildOgImageUrl(base)
     const total = data.items.length
     const hasItems = total > 0
     const title = hasItems
@@ -38,6 +37,15 @@ export const Route = createFileRoute('/(public)/u/$name/')({
     const description = hasItems
       ? `Browse ${total} public ${total === 1 ? 'document' : 'documents'} from @${params.name} on RefMD.`
       : `@${params.name} has not published any public documents on RefMD yet.`
+
+    const ogImage = buildOgImageUrl(base, {
+      variant: 'public-profile',
+      title: `@${params.name}`,
+      subtitle: 'Public documents on RefMD',
+      description: hasItems ? 'Shared by the community' : 'RefMD profile',
+      badge: 'Public Profile',
+      meta: 'refmd.io/public',
+    })
 
     return {
       meta: [

@@ -71,7 +71,14 @@ export const Route = createFileRoute('/(app)/document/$id')({
     const query = token ? `?token=${encodeURIComponent(token)}` : ''
     const canonicalPath = `/document/${encodeURIComponent(params.id)}${query}`
     const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
-    const ogImage = buildOgImageUrl(base)
+    const ogImage = buildOgImageUrl(base, {
+      variant: 'document',
+      title: baseTitle,
+      subtitle: isShare ? 'Shared document on RefMD' : 'Workspace document',
+      description,
+      badge: isShare ? 'Shared Document' : 'Document',
+      meta: isShare ? 'refmd.io - share link' : 'refmd.io',
+    })
 
     return {
       meta: [

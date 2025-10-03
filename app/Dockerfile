@@ -8,6 +8,7 @@ COPY vite.config.ts ./
 COPY vite.wc.config.ts ./
 COPY components.json ./
 COPY eslint.config.js ./
+COPY nitro.config.ts ./
 COPY public ./public
 COPY src ./src
 
