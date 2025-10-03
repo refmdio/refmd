@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -61,6 +63,21 @@ impl GlobalManifestCache {
 
     fn invalidate(&self) {
         self.last_sync_epoch_secs.store(0, Ordering::Relaxed);
+    }
+}
+
+#[derive(Hash, Eq, PartialEq, Clone)]
+struct UserPluginKey {
+    user_id: Uuid,
+    plugin: String,
+}
+
+impl UserPluginKey {
+    fn new(user_id: Uuid, plugin: &str) -> Self {
+        Self {
+            user_id,
+            plugin: plugin.to_string(),
+        }
     }
 }
 
@@ -278,6 +295,7 @@ pub struct S3BackedPluginStore {
     client: Client,
     bucket: String,
     global_cache: GlobalManifestCache,
+    user_refresh: Mutex<HashSet<UserPluginKey>>,
 }
 
 impl S3BackedPluginStore {
@@ -308,10 +326,60 @@ impl S3BackedPluginStore {
             client,
             bucket,
             global_cache: GlobalManifestCache::new(),
+            user_refresh: Mutex::new(HashSet::new()),
         })
     }
 
-    fn runtime_store(&self, user_id: Option<Uuid>, plugin: &str) -> anyhow::Result<(PathBuf, String)> {
+    fn mark_user_plugin_dirty(&self, key: UserPluginKey) {
+        let mut guard = self.user_refresh.lock().unwrap();
+        guard.insert(key);
+    }
+
+    fn take_user_plugin_dirty(&self, key: &UserPluginKey) -> bool {
+        let mut guard = self.user_refresh.lock().unwrap();
+        guard.remove(key)
+    }
+
+    fn requeue_user_plugin_dirty(&self, key: UserPluginKey) {
+        self.mark_user_plugin_dirty(key);
+    }
+
+    fn schedule_remove_user_plugin(&self, key: UserPluginKey) {
+        self.take_user_plugin_dirty(&key);
+
+        let store = self.local.clone();
+        let user_id = key.user_id;
+        let plugin = key.plugin.clone();
+
+        tokio::spawn(async move {
+            let plugin_for_log = plugin.clone();
+            match tokio::task::spawn_blocking(move || {
+                store.remove_user_plugin_dir(&user_id, &plugin)
+            })
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => tracing::warn!(
+                    error = ?err,
+                    user_id = %user_id,
+                    plugin = plugin_for_log.as_str(),
+                    "remove_user_plugin_dir_failed"
+                ),
+                Err(err) => tracing::warn!(
+                    error = ?err,
+                    user_id = %user_id,
+                    plugin = plugin_for_log.as_str(),
+                    "remove_user_plugin_dir_join_failed"
+                ),
+            }
+        });
+    }
+
+    fn runtime_store(
+        &self,
+        user_id: Option<Uuid>,
+        plugin: &str,
+    ) -> anyhow::Result<(PathBuf, String)> {
         FilesystemPluginStore::ensure_valid_plugin_id(plugin)?;
         if let Some(uid) = user_id {
             Ok((
@@ -328,17 +396,54 @@ impl S3BackedPluginStore {
 
     async fn ensure_local(&self, user_id: Option<Uuid>, plugin: &str) -> anyhow::Result<()> {
         let (base_dir, prefix) = self.runtime_store(user_id, plugin)?;
-        if base_dir.exists() {
+        let mut force_refresh = false;
+        let mut retry_key: Option<UserPluginKey> = None;
+
+        if let Some(uid) = user_id {
+            let key = UserPluginKey::new(uid, plugin);
+            if self.take_user_plugin_dirty(&key) {
+                force_refresh = true;
+                retry_key = Some(key);
+            }
+        }
+
+        if !force_refresh && base_dir.exists() {
             if self.local.latest_version_dir(&base_dir)?.is_some() {
                 return Ok(());
             }
+        } else if force_refresh && base_dir.exists() {
+            let _ = fs::remove_dir_all(&base_dir).await;
         }
-        download_prefix(&self.client, &self.bucket, &prefix, self.local.root()).await
+
+        let result = download_prefix(&self.client, &self.bucket, &prefix, self.local.root()).await;
+        if result.is_err() {
+            if let Some(key) = retry_key {
+                self.requeue_user_plugin_dirty(key);
+            }
+        }
+        result
     }
 
     fn handle_plugin_event(&self, event: &PluginScopedEvent) {
+        let kind = event
+            .payload
+            .get("event")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+
         if is_manifest_affecting_event(event) {
             self.global_cache.invalidate();
+        }
+
+        if let Some(user_id) = event.user_id {
+            if let Some(plugin_id) = event.payload.get("id").and_then(|v| v.as_str()) {
+                let key = UserPluginKey::new(user_id, plugin_id);
+                if kind == "uninstalled" {
+                    self.schedule_remove_user_plugin(key);
+                } else {
+                    self.mark_user_plugin_dirty(key);
+                }
+            }
         }
     }
 

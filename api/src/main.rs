@@ -161,7 +161,6 @@ use utoipa_swagger_ui::SwaggerUi;
             (name = "Markdown", description = "Markdown rendering"),
             (name = "Plugins", description = "Plugins management & data APIs"),
             (name = "Health", description = "System health checks"),
-            
         )
     )]
 struct ApiDoc;
