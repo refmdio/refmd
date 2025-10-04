@@ -29,7 +29,9 @@ use crate::application::ports::plugin_installer::{
 use crate::application::ports::plugin_runtime::PluginRuntime;
 use crate::bootstrap::config::Config;
 use crate::infrastructure::plugins::event_bus_pg::PgPluginEventBus;
-use crate::infrastructure::plugins::filesystem_store::FilesystemPluginStore;
+use crate::infrastructure::plugins::filesystem_store::{
+    FilesystemPluginStore, PluginExecutionLimits,
+};
 
 const PLUGINS_PREFIX: &str = "plugins";
 const GLOBAL_MANIFEST_CACHE_TTL_SECS: u64 = 300;
@@ -299,8 +301,12 @@ pub struct S3BackedPluginStore {
 }
 
 impl S3BackedPluginStore {
-    pub async fn new(configured_dir: &str, cfg: &Config) -> anyhow::Result<Self> {
-        let local = Arc::new(FilesystemPluginStore::new(configured_dir)?);
+    pub async fn new(
+        configured_dir: &str,
+        cfg: &Config,
+        limits: PluginExecutionLimits,
+    ) -> anyhow::Result<Self> {
+        let local = Arc::new(FilesystemPluginStore::new(configured_dir, limits)?);
         let bucket = cfg
             .s3_bucket
             .clone()

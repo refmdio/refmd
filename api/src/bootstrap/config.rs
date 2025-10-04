@@ -49,6 +49,9 @@ pub struct Config {
     pub s3_secret_key: Option<String>,
     pub s3_use_path_style: bool,
     pub plugin_dir: String,
+    pub plugin_timeout_secs: u64,
+    pub plugin_memory_max_mb: u64,
+    pub plugin_fuel_limit: Option<u64>,
     pub encryption_key: String,
     pub upload_max_bytes: usize,
     pub public_base_url: Option<String>,
@@ -100,6 +103,20 @@ impl Config {
             .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true"))
             .unwrap_or(false);
         let plugin_dir = env_var(&["PLUGINS_DIR"]).unwrap_or_else(|| "./plugins".into());
+        let plugin_timeout_secs = env_var(&["PLUGIN_TIMEOUT_SECS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
+        let plugin_memory_max_mb = env_var(&["PLUGIN_MEMORY_MAX_MB"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(256);
+        let plugin_fuel_limit = env_var(&["PLUGIN_FUEL_LIMIT"]).and_then(|s| {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                trimmed.parse().ok()
+            }
+        });
         let encryption_key = env_var(&["ENCRYPTION_KEY"]).unwrap_or_else(|| jwt_secret_pem.clone());
         let upload_max_bytes = env_var(&["UPLOAD_MAX_BYTES"])
             .and_then(|s| s.parse().ok())
@@ -194,6 +211,9 @@ impl Config {
             s3_secret_key,
             s3_use_path_style,
             plugin_dir,
+            plugin_timeout_secs,
+            plugin_memory_max_mb,
+            plugin_fuel_limit,
             encryption_key,
             upload_max_bytes,
             public_base_url,

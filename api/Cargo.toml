@@ -57,3 +57,4 @@ aws-sdk-s3 = "1"
 walkdir = "2.5"
 tempfile = "3"
 redis = { version = "0.27", features = ["tokio-comp", "aio", "streams", "script", "connection-manager"] }
+semver = "1"

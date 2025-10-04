@@ -25,36 +25,23 @@ export type DocumentPluginMatch = {
 export async function resolvePluginForRoute(path: string): Promise<RoutePluginMatch | null> {
   const manifest = await getPluginManifest()
 
-  const candidates = manifest
-    .map((item) => {
-      const mounts = Array.isArray(item.mounts) ? item.mounts : []
-      const matched = mounts.some((mount) => matchesMount(mount, path))
-      if (!matched) return null
+  for (const item of manifest) {
+    const mounts = Array.isArray(item.mounts) ? item.mounts : []
+    const matched = mounts.some((mount) => matchesMount(mount, path))
+    if (!matched) continue
 
-      const frontend = item?.frontend as { entry?: string; mode?: string } | undefined
-      const entry = frontend?.entry?.trim()
-      if (!entry) return null
-      if ((frontend?.mode || 'esm').toLowerCase() !== 'esm') return null
+    const frontend = item?.frontend as { entry?: string; mode?: string } | undefined
+    const entry = frontend?.entry?.trim()
+    if (!entry) continue
+    if ((frontend?.mode || 'esm').toLowerCase() !== 'esm') continue
 
-      return {
-        item,
-        loader: loadPluginModule(item),
-      }
-    })
-    .filter((value): value is { item: PluginManifestItem; loader: Promise<any> } => value !== null)
-
-  if (candidates.length === 0) return null
-
-  const results = await Promise.allSettled(candidates.map((c) => c.loader))
-  for (let index = 0; index < candidates.length; index += 1) {
-    const result = results[index]
-    if (result.status !== 'fulfilled') {
-      console.error('[plugins] failed to load route plugin', candidates[index]?.item?.id, result.reason)
-      continue
+    try {
+      const mod = await loadPluginModule(item)
+      if (!mod) continue
+      return { manifest: item, module: mod }
+    } catch (error) {
+      console.error('[plugins] failed to load route plugin', item?.id, error)
     }
-    const mod = result.value
-    if (!mod) continue
-    return { manifest: candidates[index].item, module: mod }
   }
 
   return null
@@ -75,32 +62,19 @@ export async function resolvePluginForDocument(
     },
   }
 
-  const candidates = manifest
-    .map((item) => {
-      const frontend = item?.frontend as { entry?: string; mode?: string } | undefined
-      const entry = frontend?.entry?.trim()
-      if (!entry) return null
-      if ((frontend?.mode || 'esm').toLowerCase() !== 'esm') return null
-      return {
-        item,
-        loader: loadPluginModule(item),
-      }
-    })
-    .filter((value): value is { item: PluginManifestItem; loader: Promise<any> } => value !== null)
+  for (const item of manifest) {
+    const frontend = item?.frontend as { entry?: string; mode?: string } | undefined
+    const entry = frontend?.entry?.trim()
+    if (!entry) continue
+    if ((frontend?.mode || 'esm').toLowerCase() !== 'esm') continue
 
-  if (candidates.length === 0) return null
-
-  const results = await Promise.allSettled(candidates.map((c) => c.loader))
-
-  for (let index = 0; index < candidates.length; index += 1) {
-    const item = candidates[index].item
-    const result = results[index]
-    if (result.status !== 'fulfilled') {
-      console.error('[plugins] failed to load document plugin', item?.id, result.reason)
+    let mod: any
+    try {
+      mod = await loadPluginModule(item)
+    } catch (error) {
+      console.error('[plugins] failed to load document plugin', item?.id, error)
       continue
     }
-
-    const mod = result.value
     if (!mod) continue
 
     let route = `/document/${docId}`

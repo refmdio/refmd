@@ -20,6 +20,7 @@ use api::application::ports::plugin_installer::PluginInstaller;
 use api::application::ports::plugin_runtime::PluginRuntime;
 use api::bootstrap::app_context::{AppContext, AppServices};
 use api::bootstrap::config::{Config, StorageBackend};
+use api::infrastructure::plugins::filesystem_store::PluginExecutionLimits;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -273,6 +274,23 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    let plugin_limits = {
+        let timeout = if cfg.plugin_timeout_secs == 0 {
+            None
+        } else {
+            Some(std::time::Duration::from_secs(cfg.plugin_timeout_secs))
+        };
+        let memory_pages_raw = cfg.plugin_memory_max_mb.saturating_mul(16);
+        let memory_max_pages = if memory_pages_raw == 0 {
+            None
+        } else {
+            Some(memory_pages_raw.min(u32::MAX as u64) as u32)
+        };
+        let fuel_limit = cfg
+            .plugin_fuel_limit
+            .and_then(|limit| if limit == 0 { None } else { Some(limit) });
+        PluginExecutionLimits::new(timeout, memory_max_pages, fuel_limit)
+    };
     let mut s3_plugin_store: Option<
         Arc<api::infrastructure::plugins::s3_store::S3BackedPluginStore>,
     > = None;
@@ -285,6 +303,7 @@ async fn main() -> anyhow::Result<()> {
             let store = Arc::new(
                 api::infrastructure::plugins::filesystem_store::FilesystemPluginStore::new(
                     &cfg.plugin_dir,
+                    plugin_limits,
                 )?,
             );
             let runtime: Arc<dyn PluginRuntime> = store.clone();
@@ -297,6 +316,7 @@ async fn main() -> anyhow::Result<()> {
                 api::infrastructure::plugins::s3_store::S3BackedPluginStore::new(
                     &cfg.plugin_dir,
                     &cfg,
+                    plugin_limits,
                 )
                 .await?,
             );

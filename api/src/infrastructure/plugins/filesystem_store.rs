@@ -2,14 +2,15 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, bail};
 use async_trait::async_trait;
 use chrono::Utc;
-use extism::{Manifest, Plugin, Wasm};
+use extism::{Manifest, Plugin, PluginBuilder, Wasm};
 use once_cell::sync::Lazy;
 use regex::Regex;
+use semver::Version;
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tokio::{sync::RwLock, task};
 use uuid::Uuid;
@@ -29,11 +30,43 @@ static PLUGIN_VERSION_RE: Lazy<Regex> =
 pub struct FilesystemPluginStore {
     root: PathBuf,
     plugin_cache: Arc<RwLock<HashMap<PathBuf, CachedPlugin>>>,
+    limits: PluginExecutionLimits,
 }
 
 struct CachedPlugin {
     modified: SystemTime,
     plugin: Arc<Mutex<Plugin>>,
+}
+
+#[derive(Clone, Copy)]
+pub struct PluginExecutionLimits {
+    pub timeout: Option<Duration>,
+    pub memory_max_pages: Option<u32>,
+    pub fuel_limit: Option<u64>,
+}
+
+impl PluginExecutionLimits {
+    pub const fn new(
+        timeout: Option<Duration>,
+        memory_max_pages: Option<u32>,
+        fuel_limit: Option<u64>,
+    ) -> Self {
+        Self {
+            timeout,
+            memory_max_pages,
+            fuel_limit,
+        }
+    }
+}
+
+impl Default for PluginExecutionLimits {
+    fn default() -> Self {
+        Self {
+            timeout: Some(Duration::from_secs(10)),
+            memory_max_pages: Some(4096), // ~256 MiB
+            fuel_limit: Some(50_000_000),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -64,11 +97,12 @@ impl FilesystemPluginStore {
         }
     }
 
-    pub fn new(configured_dir: &str) -> anyhow::Result<Self> {
+    pub fn new(configured_dir: &str, limits: PluginExecutionLimits) -> anyhow::Result<Self> {
         let root = Self::resolve_root(configured_dir)?;
         Ok(Self {
             root,
             plugin_cache: Arc::new(RwLock::new(HashMap::new())),
+            limits,
         })
     }
 
@@ -130,24 +164,30 @@ impl FilesystemPluginStore {
         if !base.exists() {
             return Ok(None);
         }
-        let mut best: Option<PathBuf> = None;
+        let mut best: Option<(PathBuf, String, Option<Version>)> = None;
         for entry in std::fs::read_dir(base)? {
             let entry = entry?;
             if !entry.file_type()?.is_dir() {
                 continue;
             }
+            let candidate_name = entry.file_name().to_string_lossy().into_owned();
+            let candidate_semver = Version::parse(&candidate_name).ok();
             match &best {
-                Some(current) => {
-                    let current_name = current.file_name().and_then(|v| v.to_str()).unwrap_or("");
-                    let candidate_name = entry.file_name().to_string_lossy().into_owned();
-                    if candidate_name.as_str() > current_name {
-                        best = Some(entry.path());
+                Some((_path, current_name, current_semver)) => {
+                    let is_newer = match (&candidate_semver, current_semver) {
+                        (Some(candidate), Some(current)) => candidate > current,
+                        (Some(_), None) => true,
+                        (None, Some(_)) => false,
+                        (None, None) => candidate_name.as_str() > current_name.as_str(),
+                    };
+                    if is_newer {
+                        best = Some((entry.path(), candidate_name, candidate_semver));
                     }
                 }
-                None => best = Some(entry.path()),
+                None => best = Some((entry.path(), candidate_name, candidate_semver)),
             }
         }
-        Ok(best)
+        Ok(best.map(|(path, _, _)| path))
     }
 
     fn locate_plugin_dir(
@@ -218,9 +258,22 @@ impl FilesystemPluginStore {
             .await
             .with_context(|| format!("read wasm module at {}", wasm_path.display()))?;
         let wasm_key = wasm_path.clone();
+        let limits = self.limits;
         let plugin = task::spawn_blocking(move || -> anyhow::Result<Plugin> {
-            let manifest = Manifest::new([Wasm::data(wasm_bytes)]);
-            Plugin::new(manifest, [], true).context("create plugin")
+            let mut manifest = Manifest::new([Wasm::data(wasm_bytes)]);
+            if let Some(timeout) = limits.timeout {
+                manifest = manifest.with_timeout(timeout);
+            }
+            if let Some(memory_max) = limits.memory_max_pages {
+                manifest = manifest.with_memory_max(memory_max);
+            }
+            let builder = PluginBuilder::new(manifest).with_wasi(true);
+            let builder = if let Some(fuel_limit) = limits.fuel_limit {
+                builder.with_fuel_limit(fuel_limit)
+            } else {
+                builder
+            };
+            builder.build().context("create plugin")
         })
         .await
         .context("join extism initialization task")??;
@@ -637,6 +690,48 @@ impl PluginAssetStore for FilesystemPluginStore {
             Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn prefers_semver_when_available() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("plugins_test");
+        std::fs::create_dir_all(root.as_path()).unwrap();
+
+        let store =
+            FilesystemPluginStore::new(root.to_str().unwrap(), PluginExecutionLimits::default())
+                .unwrap();
+
+        let base = store.root().join("marp");
+        std::fs::create_dir_all(base.join("1.9.0")).unwrap();
+        std::fs::create_dir_all(base.join("1.10.0")).unwrap();
+
+        let latest = store.latest_version_dir(&base).unwrap().unwrap();
+        assert_eq!(latest.file_name().unwrap(), "1.10.0");
+    }
+
+    #[test]
+    fn falls_back_to_lexical_for_non_semver() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("plugins_test_non_semver");
+        std::fs::create_dir_all(root.as_path()).unwrap();
+
+        let store =
+            FilesystemPluginStore::new(root.to_str().unwrap(), PluginExecutionLimits::default())
+                .unwrap();
+
+        let base = store.root().join("example");
+        std::fs::create_dir_all(base.join("beta")).unwrap();
+        std::fs::create_dir_all(base.join("alpha")).unwrap();
+
+        let latest = store.latest_version_dir(&base).unwrap().unwrap();
+        assert_eq!(latest.file_name().unwrap(), "beta");
     }
 }
 
