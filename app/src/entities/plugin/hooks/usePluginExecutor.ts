@@ -3,14 +3,7 @@ import { toast } from 'sonner'
 
 import { API_BASE_URL } from '@/shared/lib/config'
 
-import { createDocument } from '@/entities/document'
-
-import {
-  createPluginRecord,
-  execPluginAction,
-  getPluginKv,
-  putPluginKv,
-} from '../api'
+import { execPluginAction, getPluginKv } from '../api'
 import type { PluginManifestItem } from '../api'
 
 type Options = {
@@ -175,12 +168,6 @@ export function usePluginExecutor({
             api: {
               exec: (actionName: string, payload: any) =>
                 execPluginAction(pluginId, actionName, payload),
-              createDocument: (title: string, parentId?: string | null, type?: string) =>
-                createDocument({ title, parent_id: parentId ?? null, type: type as any }),
-              putKv: (pluginId2: string, docId2: string, key: string, value: any, token?: string) =>
-                putPluginKv(pluginId2, docId2, key, value, token),
-              createRecord: (pluginId2: string, docId2: string, kind: string, data: any, token?: string) =>
-                createPluginRecord(pluginId2, docId2, kind, data, token),
             },
           }
 

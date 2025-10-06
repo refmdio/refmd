@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import {
   PluginsService,
   MarkdownService,
-  DocumentsService,
   FilesService,
   AuthService,
   OpenAPI,
@@ -111,6 +110,14 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
   }
   const host = {
     exec: async (action: string, args: any = {}) => {
+      const hostHandled = await executeHostAction(action, args, {
+        pluginId: manifest.id,
+        docId: resolvedDocId,
+        token: resolvedToken,
+        navigate: performNavigate,
+      })
+      if (hostHandled) return hostHandled
+
       const json = await PluginsService.pluginsExecAction({
         plugin: manifest.id,
         action,
@@ -132,27 +139,6 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
         MarkdownService.renderMarkdown({ requestBody: { text, options } }),
       renderMarkdownMany: (items: Array<{ text: string; options: any }>) =>
         MarkdownService.renderMarkdownMany({ requestBody: { items } }),
-      listRecords: (pluginId: string, docId: string, kind: string, token?: string) =>
-        PluginsService.listRecords({ plugin: pluginId, docId, kind, token }),
-      createRecord: (pluginId: string, docId: string, kind: string, data: any, token?: string) =>
-        PluginsService.pluginsCreateRecord({
-          plugin: pluginId,
-          docId,
-          kind,
-          requestBody: { data },
-          token,
-        }),
-      patchRecord: (pluginId: string, id: string, patch: any) =>
-        PluginsService.pluginsUpdateRecord({ plugin: pluginId, id, requestBody: { patch } }),
-      deleteRecord: (pluginId: string, id: string) => PluginsService.pluginsDeleteRecord({ plugin: pluginId, id }),
-      getKv: (pluginId: string, docId: string, key: string, token?: string) =>
-        PluginsService.pluginsGetKv({ plugin: pluginId, docId, key, token }),
-      putKv: (pluginId: string, docId: string, key: string, value: any, token?: string) =>
-        PluginsService.pluginsPutKv({ plugin: pluginId, docId, key, requestBody: { value }, token }),
-      createDocument: (title: string, parentId?: string | null, type?: string) =>
-        DocumentsService.createDocument({ requestBody: { title, parent_id: parentId as any, type } }),
-      uploadFile: (docId: string, file: File) =>
-        FilesService.uploadFile({ formData: { document_id: docId, file } as any }),
     },
     ui: {
       hydrateAttachments: async (root: Element) => {
@@ -376,4 +362,100 @@ async function loadHostYWebsocket() {
     sharedYWebsocketImport = import('y-websocket')
   }
   return sharedYWebsocketImport
+}
+
+type HostActionContext = {
+  pluginId: string
+  docId: string | null
+  token: string | null
+  navigate: (to: string) => void
+}
+
+async function executeHostAction(
+  action: string,
+  args: any,
+  ctx: HostActionContext,
+): Promise<any | null> {
+  const ok = (data: any) => ({ ok: true, data, effects: [], error: null })
+  const fail = (code: string, message?: string) => ({
+    ok: false,
+    data: null,
+    effects: [],
+    error: { code, message },
+  })
+
+  const ensureDocId = (explicit?: string | null) => {
+    const docId = explicit ?? ctx.docId
+    if (!docId) throw fail('BAD_REQUEST', 'docId required')
+    return docId
+  }
+
+  try {
+    switch (action) {
+      case 'host.records.list': {
+        const docId = ensureDocId(args?.docId)
+        const kind = args?.kind
+        if (typeof kind !== 'string' || !kind) throw fail('BAD_REQUEST', 'kind required')
+        const token = (args?.token ?? ctx.token) || undefined
+        const response = await PluginsService.listRecords({
+          plugin: ctx.pluginId,
+          docId,
+          kind,
+          token,
+        })
+        return ok(response)
+      }
+      case 'host.kv.get': {
+        const docId = ensureDocId(args?.docId)
+        const key = args?.key
+        if (typeof key !== 'string' || !key) throw fail('BAD_REQUEST', 'key required')
+        const token = (args?.token ?? ctx.token) || undefined
+        const response = await PluginsService.pluginsGetKv({
+          plugin: ctx.pluginId,
+          docId,
+          key,
+          token,
+        })
+        return ok(response)
+      }
+      case 'host.kv.put': {
+        const docId = ensureDocId(args?.docId)
+        const key = args?.key
+        if (typeof key !== 'string' || !key) throw fail('BAD_REQUEST', 'key required')
+        const value = args?.value ?? null
+        const token = (args?.token ?? ctx.token) || undefined
+        const response = await PluginsService.pluginsPutKv({
+          plugin: ctx.pluginId,
+          docId,
+          key,
+          requestBody: { value },
+          token,
+        })
+        return ok(response)
+      }
+      case 'host.files.upload': {
+        const docId = ensureDocId(args?.docId)
+        const file: File | undefined = args?.file
+        if (!(file instanceof File)) throw fail('BAD_REQUEST', 'file required')
+        const response = await FilesService.uploadFile({
+          formData: { document_id: docId, file } as any,
+        })
+        return ok(response)
+      }
+      case 'host.navigate': {
+        const to = args?.to
+        if (typeof to !== 'string' || !to) throw fail('BAD_REQUEST', 'destination required')
+        ctx.navigate(to)
+        return ok({})
+      }
+      default:
+        return null
+    }
+  } catch (err) {
+    if (err && typeof err === 'object' && 'ok' in (err as any) && (err as any).ok === false) {
+      return err
+    }
+    const message = err instanceof Error ? err.message : String(err)
+    return fail('HOST_ACTION_FAILED', message)
+  }
 }

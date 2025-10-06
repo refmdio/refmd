@@ -54,13 +54,6 @@ export async function resolvePluginForDocument(
 ): Promise<DocumentPluginMatch | null> {
   const manifest = await getPluginManifest()
   const apiOrigin = getApiOrigin()
-  const detectionHost = {
-    origin: apiOrigin,
-    api: {
-      getKv: (pluginId: string, docId2: string, key: string, tok?: string) =>
-        getPluginKv(pluginId, docId2, key, tok),
-    },
-  }
 
   for (const item of manifest) {
     const frontend = item?.frontend as { entry?: string; mode?: string } | undefined
@@ -76,6 +69,42 @@ export async function resolvePluginForDocument(
       continue
     }
     if (!mod) continue
+
+    const detectionHost = {
+      origin: apiOrigin,
+      exec: async (action: string, payload: any) => {
+        const ok = (data: any) => ({ ok: true, data, effects: [], error: null })
+        const fail = (code: string, message?: string) => ({
+          ok: false,
+          data: null,
+          effects: [],
+          error: { code, message },
+        })
+        try {
+          switch (action) {
+            case 'host.kv.get': {
+              const lookupDocId = payload?.docId ?? docId
+              const key = payload?.key
+              const tok = payload?.token ?? token ?? undefined
+              if (!lookupDocId || typeof key !== 'string' || !key) {
+                return fail('BAD_REQUEST', 'docId and key required')
+              }
+              const data = await getPluginKv(item.id, lookupDocId, key, tok)
+              return ok(data)
+            }
+            default:
+              return fail('UNSUPPORTED_ACTION', `Unsupported host action: ${action}`)
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          return fail('HOST_ACTION_FAILED', message)
+        }
+      },
+      api: {
+        getKv: (pluginId: string, docId2: string, key: string, tok?: string) =>
+          getPluginKv(pluginId, docId2, key, tok),
+      },
+    }
 
     let route = `/document/${docId}`
     if (typeof mod.getRoute === 'function') {
