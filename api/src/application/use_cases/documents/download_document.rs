@@ -592,14 +592,21 @@ impl PandocCommandConfig {
 #[derive(Debug)]
 struct DocumentDownloadAssets {
     safe_title: String,
+    display_title: Option<String>,
     markdown: Vec<u8>,
     attachments: Vec<DocumentAttachment>,
 }
 
 impl DocumentDownloadAssets {
-    fn new(safe_title: String, markdown: Vec<u8>, attachments: Vec<DocumentAttachment>) -> Self {
+    fn new(
+        display_title: Option<String>,
+        safe_title: String,
+        markdown: Vec<u8>,
+        attachments: Vec<DocumentAttachment>,
+    ) -> Self {
         Self {
             safe_title,
+            display_title,
             markdown,
             attachments,
         }
@@ -619,6 +626,10 @@ impl DocumentDownloadAssets {
 
     fn markdown_string(&self) -> anyhow::Result<String> {
         String::from_utf8(self.markdown.clone()).context("document markdown is not valid UTF-8")
+    }
+
+    fn display_title(&self) -> Option<&str> {
+        self.display_title.as_deref()
     }
 }
 
@@ -743,7 +754,15 @@ where
         }
 
         let safe_title = sanitize_filename(&document.title);
-        let assets = DocumentDownloadAssets::new(safe_title, markdown_bytes, attachments);
+        let display_title = {
+            let trimmed = document.title.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        };
+        let assets = DocumentDownloadAssets::new(display_title, safe_title, markdown_bytes, attachments);
         let bytes = match format {
             DocumentDownloadFormat::Archive => build_archive(&assets)?,
             DocumentDownloadFormat::Markdown => assets.markdown_bytes().to_vec(),
@@ -809,6 +828,7 @@ async fn render_with_pandoc(
 ) -> anyhow::Result<Vec<u8>> {
     let tmp_dir = tempdir().context("unable to create temporary directory for pandoc")?;
     let markdown_source = assets.markdown_string()?;
+    let display_title = assets.display_title().map(|s| s.to_owned());
 
     for attachment in assets.attachments() {
         attachment.materialize_under(tmp_dir.path()).await?;
@@ -823,6 +843,18 @@ async fn render_with_pandoc(
         pandoc_cmd.set_input(InputKind::Pipe(markdown_source));
         pandoc_cmd.set_input_format(InputFormat::Markdown, Vec::new());
         pandoc_cmd.add_option(PandocOption::ResourcePath(vec![resource_dir.clone()]));
+        pandoc_cmd.add_option(PandocOption::Meta(
+            "title".to_string(),
+            Some(String::new()),
+        ));
+        if let Some(ref title) = display_title {
+            if !title.is_empty() {
+                pandoc_cmd.add_option(PandocOption::Meta(
+                    "pagetitle".to_string(),
+                    Some(title.clone()),
+                ));
+            }
+        }
 
         pandoc_cmd.set_output_format(config.output_format, Vec::new());
         match config.destination {
