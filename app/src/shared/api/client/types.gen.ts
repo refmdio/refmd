@@ -20,6 +20,25 @@ export type AddPatternsRequest = {
     patterns: Array<string>;
 };
 
+export type ApiTokenCreateRequest = {
+    name?: (string) | null;
+};
+
+export type ApiTokenCreateResponse = {
+    created_at: string;
+    id: string;
+    name: string;
+    token: string;
+};
+
+export type ApiTokenItem = {
+    created_at: string;
+    id: string;
+    last_used_at?: (string) | null;
+    name: string;
+    revoked_at?: (string) | null;
+};
+
 export type ApplicableShareItem = {
     excluded: boolean;
     permission: string;
@@ -402,6 +421,10 @@ export type UninstallBody = {
     id: string;
 };
 
+export type UpdateDocumentContentRequest = {
+    content: string;
+};
+
 export type UpdateDocumentRequest = {
     parent_id?: (string) | null;
     title?: (string) | null;
@@ -552,6 +575,20 @@ export type GetDocumentContentData = {
 };
 
 export type GetDocumentContentResponse = (unknown);
+
+export type UpdateDocumentContentData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: UpdateDocumentContentRequest;
+    /**
+     * Share token (optional)
+     */
+    token?: (string) | null;
+};
+
+export type UpdateDocumentContentResponse = (Document);
 
 export type DownloadDocumentData = {
     /**
@@ -782,6 +819,23 @@ export type RenderMarkdownManyData = {
 };
 
 export type RenderMarkdownManyResponse = (RenderManyResponse);
+
+export type ListApiTokensResponse = (Array<ApiTokenItem>);
+
+export type CreateApiTokenData = {
+    requestBody: ApiTokenCreateRequest;
+};
+
+export type CreateApiTokenResponse = (ApiTokenCreateResponse);
+
+export type RevokeApiTokenData = {
+    /**
+     * Token ID
+     */
+    id: string;
+};
+
+export type RevokeApiTokenResponse = (void);
 
 export type PluginsInstallFromUrlData = {
     requestBody: InstallFromUrlBody;

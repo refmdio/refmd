@@ -9,6 +9,7 @@ RefMD is a real-time Markdown collaboration platform that lets teams co-author d
 - **Anonymous sharing** through one-off links and public publish flows.
 - **Git Sync** so documents stay in step with your repositories.
 - **Plugin extensibility** powered by the RefMD Plugin SDK, enabling community-built integrations that can be toggled per user.
+- **API tokens** generated from the profile page for automations and external integrations.
 
 ## Quick Start
 1. Pull the latest images and start the stack:

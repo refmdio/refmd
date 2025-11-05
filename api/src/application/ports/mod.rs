@@ -1,4 +1,5 @@
 pub mod access_repository;
+pub mod api_token_repository;
 pub mod awareness_port;
 pub mod document_repository;
 pub mod document_snapshot_archive_repository;

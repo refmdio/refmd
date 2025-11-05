@@ -36,6 +36,7 @@ use crate::bootstrap::app_context::AppContext;
 use crate::domain::documents::document as domain;
 use crate::presentation::http::auth::{self, Bearer};
 use crate::presentation::http::git::DocumentDiffResult;
+use yrs::{Doc, Text, Transact};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Document {
@@ -256,7 +257,7 @@ pub async fn list_documents(
     bearer: Bearer,
     q: Option<Query<ListDocumentsQuery>>,
 ) -> Result<Json<DocumentListResponse>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let (qstr, tag, state_param) = q
         .map(|Query(v)| (v.query, v.tag, v.state))
@@ -284,7 +285,7 @@ pub async fn create_document(
     bearer: Bearer,
     Json(req): Json<CreateDocumentRequest>,
 ) -> Result<Json<Document>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let title = req.title.unwrap_or_else(|| "Untitled".into());
     let dtype = req.r#type.unwrap_or_else(|| "document".into());
@@ -326,8 +327,9 @@ pub async fn get_document(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Document>, StatusCode> {
     let token = params.get("token").map(|s| s.as_str());
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let repo = ctx.document_repo();
     let share_access = ctx.share_access_port();
@@ -352,7 +354,7 @@ pub async fn delete_document(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.document_repo();
     let storage = ctx.storage_port();
@@ -377,7 +379,7 @@ pub async fn get_document_content(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     // authorization via access policy
     let share_access = ctx.share_access_port();
@@ -397,6 +399,77 @@ pub async fn get_document_content(
         })?
         .unwrap_or_default();
     Ok(Json(serde_json::json!({"content": content})))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateDocumentContentRequest {
+    pub content: String,
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/documents/{id}/content",
+    tag = "Documents",
+    params(
+        ("id" = Uuid, Path, description = "Document ID"),
+        ("token" = Option<String>, Query, description = "Share token (optional)")
+    ),
+    request_body = UpdateDocumentContentRequest,
+    responses((status = 200, body = Document))
+)]
+pub async fn update_document_content(
+    State(ctx): State<AppContext>,
+    bearer: Option<Bearer>,
+    Path(id): Path<Uuid>,
+    q: Option<Query<SnapshotTokenQuery>>,
+    Json(body): Json<UpdateDocumentContentRequest>,
+) -> Result<Json<Document>, StatusCode> {
+    let params = q.map(|Query(v)| v).unwrap_or_default();
+    let token = params.token.as_deref();
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let access_repo = ctx.access_repo();
+    let share_access = ctx.share_access_port();
+    access::require_edit(access_repo.as_ref(), share_access.as_ref(), &actor, id)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let doc = Doc::new();
+    {
+        let txt = doc.get_or_insert_text("content");
+        let mut txn = doc.transact_mut();
+        let len = txt.len(&txn);
+        if len > 0 {
+            txt.remove_range(&mut txn, 0, len);
+        }
+        if !body.content.is_empty() {
+            txt.insert(&mut txn, 0, &body.content);
+        }
+    }
+
+    let realtime = ctx.realtime_engine();
+    realtime
+        .apply_snapshot(&id.to_string(), &doc)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if let Err(err) = realtime.force_persist(&id.to_string()).await {
+        tracing::warn!(
+            document_id = %id,
+            error = ?err,
+            "document_force_persist_after_update_failed"
+        );
+    }
+
+    let repo = ctx.document_repo();
+    let updated = repo
+        .get_by_id(id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(to_http_document(updated)))
 }
 
 #[allow(dead_code)]
@@ -542,7 +615,7 @@ pub async fn download_document(
         )
     };
 
-    let actor = match auth::resolve_actor_from_parts(&ctx.cfg, bearer, token) {
+    let actor = match auth::resolve_actor_from_parts(&ctx, bearer, token).await {
         Some(actor) => actor,
         None => {
             return Err(error_response(
@@ -634,7 +707,7 @@ pub async fn update_document(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateDocumentRequest>,
 ) -> Result<Json<Document>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.document_repo();
     let meta = repo
@@ -696,7 +769,7 @@ pub async fn archive_document(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Document>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.document_repo();
     let meta = repo
@@ -739,7 +812,7 @@ pub async fn unarchive_document(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Document>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.document_repo();
     let meta = repo
@@ -784,8 +857,9 @@ pub async fn list_document_snapshots(
 ) -> Result<Json<SnapshotListResponse>, StatusCode> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let access_repo = ctx.access_repo();
     let share_access = ctx.share_access_port();
@@ -830,8 +904,9 @@ pub async fn get_document_snapshot_diff(
 ) -> Result<Json<SnapshotDiffResponse>, StatusCode> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let access_repo = ctx.access_repo();
     let share_access = ctx.share_access_port();
@@ -882,8 +957,9 @@ pub async fn restore_document_snapshot(
 ) -> Result<Json<SnapshotRestoreResponse>, StatusCode> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let access_repo = ctx.access_repo();
     let share_access = ctx.share_access_port();
@@ -936,8 +1012,9 @@ pub async fn download_document_snapshot(
 ) -> Result<Response, StatusCode> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let access_repo = ctx.access_repo();
     let share_access = ctx.share_access_port();
@@ -981,7 +1058,10 @@ pub fn routes(ctx: AppContext) -> Router {
                 .delete(delete_document)
                 .patch(update_document),
         )
-        .route("/documents/:id/content", get(get_document_content))
+        .route(
+            "/documents/:id/content",
+            get(get_document_content).put(update_document_content),
+        )
         .route("/documents/:id/archive", post(archive_document))
         .route("/documents/:id/unarchive", post(unarchive_document))
         .route("/documents/:id/snapshots", get(list_document_snapshots))
@@ -1046,7 +1126,7 @@ pub async fn search_documents(
     bearer: crate::presentation::http::auth::Bearer,
     q: Option<Query<SearchQuery>>,
 ) -> Result<Json<Vec<SearchResult>>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let query_text = q.and_then(|Query(v)| v.q);
 
@@ -1114,7 +1194,7 @@ pub async fn get_backlinks(
     bearer: crate::presentation::http::auth::Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<BacklinksResponse>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let share_access = ctx.share_access_port();
     let access_repo = ctx.access_repo();
@@ -1157,7 +1237,7 @@ pub async fn get_outgoing_links(
     bearer: crate::presentation::http::auth::Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<OutgoingLinksResponse>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let share_access = ctx.share_access_port();
     let access_repo = ctx.access_repo();

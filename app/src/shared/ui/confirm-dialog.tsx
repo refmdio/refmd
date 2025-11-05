@@ -11,9 +11,16 @@ type Props = {
   confirmText?: string
   cancelText?: string
   onConfirm: () => void
+  confirmDisabled?: boolean
 }
 
-export default function ConfirmDialog({ open, onOpenChange, title, description, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm }: Props) {
+export default function ConfirmDialog({ open, onOpenChange, title, description, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm, confirmDisabled }: Props) {
+  const handleConfirm = () => {
+    if (confirmDisabled) return
+    onConfirm()
+    onOpenChange(false)
+  }
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -31,7 +38,13 @@ export default function ConfirmDialog({ open, onOpenChange, title, description, 
           <div className="px-4 py-3">
             <div className="flex justify-end gap-2">
               <button className="px-3 py-1.5 rounded border" onClick={() => onOpenChange(false)}>{cancelText}</button>
-              <button className="px-3 py-1.5 rounded bg-red-600 text-white" onClick={() => { onConfirm(); onOpenChange(false) }}>{confirmText}</button>
+              <button
+                className={cn('px-3 py-1.5 rounded bg-red-600 text-white disabled:opacity-60 disabled:cursor-not-allowed')}
+                onClick={handleConfirm}
+                disabled={confirmDisabled}
+              >
+                {confirmText}
+              </button>
             </div>
           </div>
         </Dialog.Content>

@@ -35,7 +35,7 @@ pub async fn list_tags(
     bearer: crate::presentation::http::auth::Bearer,
     q: Option<Query<std::collections::HashMap<String, String>>>,
 ) -> Result<Json<Vec<TagItem>>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let filter = q.and_then(|Query(m)| m.get("q").cloned());
     let repo = ctx.tag_repo();

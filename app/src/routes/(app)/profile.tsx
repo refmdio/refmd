@@ -1,5 +1,6 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { ArrowRight, Globe, Mail, Shield, Users } from 'lucide-react'
+import { ArrowRight, Copy, Globe, Key, Mail, Shield, Trash2, Users } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -8,8 +9,10 @@ import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
 import ConfirmDialog from '@/shared/ui/confirm-dialog'
+import { Input } from '@/shared/ui/input'
 
 import { appBeforeLoadGuard, useAuthContext } from '@/features/auth'
+import { createApiToken, listApiTokens, revokeApiToken } from '@/shared/api'
 
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
@@ -30,6 +33,73 @@ function ProfilePage() {
   const publicUrl = `/u/${encodeURIComponent(user?.name || '')}/`
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const qc = useQueryClient()
+  const [newTokenName, setNewTokenName] = useState('')
+  const [generatedToken, setGeneratedToken] = useState<string | null>(null)
+  const [revokeDialogFor, setRevokeDialogFor] = useState<{ id: string; name: string } | null>(null)
+
+  const tokensQuery = useQuery({
+    queryKey: ['api-tokens'],
+    queryFn: () => listApiTokens(),
+  })
+
+  const createTokenMutation = useMutation({
+    mutationFn: async (name: string | undefined) =>
+      createApiToken({ requestBody: { name } }),
+    onSuccess: (data) => {
+      setGeneratedToken(data.token)
+      setNewTokenName('')
+      toast.success('API token issued')
+      qc.invalidateQueries({ queryKey: ['api-tokens'] })
+    },
+    onError: () => {
+      toast.error('Failed to create API token')
+    },
+  })
+
+  const revokeTokenMutation = useMutation({
+    mutationFn: (id: string) => revokeApiToken({ id }),
+    onSuccess: () => {
+      toast.success('API token revoked')
+      qc.invalidateQueries({ queryKey: ['api-tokens'] })
+      setRevokeDialogFor(null)
+    },
+    onError: () => {
+      toast.error('Failed to revoke API token')
+    },
+  })
+
+  const handleGenerateToken = useCallback(() => {
+    const trimmed = newTokenName.trim()
+    setGeneratedToken(null)
+    createTokenMutation.mutate(trimmed.length > 0 ? trimmed : undefined)
+  }, [createTokenMutation, newTokenName])
+
+  const handleConfirmRevoke = useCallback(() => {
+    if (!revokeDialogFor) return
+    revokeTokenMutation.mutate(revokeDialogFor.id)
+  }, [revokeDialogFor, revokeTokenMutation])
+
+  const formatTimestamp = useCallback((value?: string | null) => {
+    if (!value) return 'Never used'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return date.toLocaleString()
+  }, [])
+
+  const tokens = tokensQuery.data ?? []
+
+  const handleCopyToken = useCallback((value: string) => {
+    if (!value) return
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      void navigator.clipboard
+        .writeText(value)
+        .then(() => toast.success('Copied token to clipboard'))
+        .catch(() => toast.error('Failed to copy token'))
+    } else {
+      toast.error('Clipboard is not available')
+    }
+  }, [])
 
   const performAccountDeletion = useCallback(async () => {
     setIsDeleting(true)
@@ -130,6 +200,109 @@ function ProfilePage() {
             </div>
           </Card>
         </section>
+
+        <section className="space-y-4">
+          <Card className="border-border/60 p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <Key className="h-5 w-5 text-primary" />
+              <div className="flex-1 space-y-4">
+                <div className="space-y-2">
+                  <h2 className="text-base font-semibold text-foreground">API tokens</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Generate long-lived API tokens for CLI tools or MCP integrations. Tokens are shown only once—store them securely.
+                  </p>
+                </div>
+                <form
+                  className="flex flex-col gap-3 sm:flex-row"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    handleGenerateToken()
+                  }}
+                >
+                  <Input
+                    value={newTokenName}
+                    onChange={(event) => setNewTokenName(event.target.value)}
+                    placeholder="Token label (optional)"
+                    autoComplete="off"
+                  />
+                  <Button
+                    type="submit"
+                    className="shrink-0 sm:w-auto"
+                    disabled={createTokenMutation.isPending}
+                  >
+                    {createTokenMutation.isPending ? 'Creating…' : 'Create token'}
+                  </Button>
+                </form>
+
+                {generatedToken && (
+                  <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-4 text-sm">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-1">
+                        <p className="font-medium text-primary">New token</p>
+                        <p className="text-muted-foreground">
+                          Copy this value now. You won&apos;t be able to see it again.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="rounded bg-background px-2 py-1 text-xs">{generatedToken}</code>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => handleCopyToken(generatedToken)}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-foreground">Active tokens</h3>
+                    {tokensQuery.isFetching && <span className="text-xs text-muted-foreground">Refreshing…</span>}
+                  </div>
+                  {tokensQuery.isError ? (
+                    <p className="text-sm text-destructive">Failed to load tokens. Please try again.</p>
+                  ) : tokens.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No API tokens yet.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {tokens.map((token) => (
+                        <li
+                          key={token.id}
+                          className="flex flex-col gap-2 rounded-md border border-border/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="space-y-1">
+                            <p className="font-medium text-sm text-foreground">{token.name}</p>
+                            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                              <span>Created: {formatTimestamp(token.created_at)}</span>
+                              <span>Last used: {formatTimestamp(token.last_used_at)}</span>
+                              {token.revoked_at && <span>Revoked: {formatTimestamp(token.revoked_at)}</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setRevokeDialogFor({ id: token.id, name: token.name })}
+                              disabled={revokeTokenMutation.isPending}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Card>
+        </section>
       </div>
       <ConfirmDialog
         open={deleteDialogOpen}
@@ -138,6 +311,21 @@ function ProfilePage() {
         description="This will permanently remove your account, documents, and integrations. This action cannot be undone."
         confirmText="Delete"
         onConfirm={handleConfirmDelete}
+      />
+      <ConfirmDialog
+        open={!!revokeDialogFor}
+        onOpenChange={(open) => {
+          if (!open) setRevokeDialogFor(null)
+        }}
+        title="Revoke token"
+        description={
+          revokeDialogFor
+            ? `Revoke the token "${revokeDialogFor.name}"? This action cannot be undone.`
+            : undefined
+        }
+        confirmText={revokeTokenMutation.isPending ? 'Revoking…' : 'Revoke'}
+        onConfirm={handleConfirmRevoke}
+        confirmDisabled={revokeTokenMutation.isPending}
       />
     </div>
   )

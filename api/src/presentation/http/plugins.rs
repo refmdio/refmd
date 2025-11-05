@@ -117,8 +117,9 @@ pub async fn list_records(
 ) -> Result<Json<RecordsResponse>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let token = params.get("token").map(|s| s.as_str());
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     // View permission required on doc
     let share_access = ctx.share_access_port();
     let access_repo = ctx.access_repo();
@@ -200,8 +201,9 @@ pub async fn create_record(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let token = params.get("token").map(|s| s.as_str());
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     // Edit permission required on doc
     let share_access = ctx.share_access_port();
     let access_repo = ctx.access_repo();
@@ -270,7 +272,7 @@ pub async fn update_record(
     Json(body): Json<UpdateRecordBody>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let repo = ctx.plugin_repo();
@@ -333,7 +335,7 @@ pub async fn delete_record(
     Path(p): Path<UpdateRecordPath>,
 ) -> Result<StatusCode, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.plugin_repo();
     // Get record to authorize
@@ -410,8 +412,9 @@ pub async fn get_kv_value(
 ) -> Result<Json<KvValueResponse>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let token = params.get("token").map(|s| s.as_str());
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     // View permission required on doc
     let share_access = ctx.share_access_port();
     let access_repo = ctx.access_repo();
@@ -461,8 +464,9 @@ pub async fn put_kv_value(
 ) -> Result<StatusCode, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let token = params.get("token").map(|s| s.as_str());
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     // Edit permission required on doc
     let share_access = ctx.share_access_port();
     let access_repo = ctx.access_repo();
@@ -695,7 +699,8 @@ pub async fn get_manifest(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let token_hint = raw_token.as_deref();
-    let actor = auth::resolve_actor_from_parts(&ctx.cfg, bearer, token_hint)
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token_hint)
+        .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     let asset_token = match actor {
         access::Actor::ShareToken(_) => token_hint,
@@ -811,8 +816,9 @@ pub async fn exec_action(
 ) -> Result<Json<ExecResultResponse>, StatusCode> {
     ensure_valid_plugin_id(&plugin)?;
     let token = params.get("token").map(|s| s.as_str());
-    let actor =
-        auth::resolve_actor_from_parts(&ctx.cfg, bearer, token).ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let owner_user_id = resolve_plugin_owner_id(&ctx, &actor, token)
         .await
@@ -870,7 +876,7 @@ pub async fn sse_updates(
     bearer: Bearer,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, StatusCode> {
     // authenticate user (per-user stream)
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let initial = stream::iter(vec![Ok(Event::default().event("ready").data("{}\n"))]);
@@ -920,7 +926,7 @@ pub async fn install_from_url(
     bearer: Bearer,
     Json(body): Json<InstallFromUrlBody>,
 ) -> Result<Json<InstallResponse>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let fetcher = ctx.plugin_fetcher();
@@ -979,7 +985,7 @@ pub async fn uninstall(
     bearer: Bearer,
     Json(body): Json<UninstallBody>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let UninstallBody { id } = body;
     let trimmed_id = id.trim();
