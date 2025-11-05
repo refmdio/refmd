@@ -1,7 +1,8 @@
-import { SlidersHorizontal, X } from 'lucide-react'
+import { AlertTriangle, Check, Loader2, SlidersHorizontal, X } from 'lucide-react'
 import type * as monacoNs from 'monaco-editor'
 import { useCallback, useMemo, type CSSProperties, type ReactNode, type MutableRefObject } from 'react'
 
+import type { UploadStatus } from '@/features/edit-document/hooks/useEditorUploads'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import type { ViewMode } from '@/shared/types/view-mode'
@@ -33,6 +34,7 @@ export type EditorLayoutProps = {
   content: string
   vimStatusBarRef: MutableRefObject<HTMLDivElement | null>
   showVimStatusBar: boolean
+  uploadStatus: UploadStatus
 }
 
 export function EditorLayout({
@@ -58,7 +60,44 @@ export function EditorLayout({
   content,
   vimStatusBarRef,
   showVimStatusBar,
+  uploadStatus,
 }: EditorLayoutProps) {
+  const uploadStatusNode = (() => {
+    if (uploadStatus.state === 'idle') return null
+    let primary = ''
+    let secondary: string | null = null
+    let icon: ReactNode = null
+
+    if (uploadStatus.state === 'uploading') {
+      const currentIndex = Math.min(uploadStatus.completed + 1, uploadStatus.total)
+      primary = `Uploading ${currentIndex} / ${uploadStatus.total}`
+      secondary = uploadStatus.currentFile ?? null
+      icon = <Loader2 className="h-4 w-4 shrink-0 text-primary animate-spin" aria-hidden="true" />
+    } else if (uploadStatus.state === 'success') {
+      const label = uploadStatus.total === 1 ? 'file' : 'files'
+      primary = `Uploaded ${uploadStatus.completed} ${label}`
+      icon = <Check className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />
+    } else {
+      const failedLabel = uploadStatus.failed === 1 ? 'file' : 'files'
+      primary = 'Upload incomplete'
+      secondary = `${uploadStatus.completed} of ${uploadStatus.total} files succeeded (${uploadStatus.failed} ${failedLabel} failed)`
+      icon = <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+    }
+
+    return (
+      <div
+        className="pointer-events-auto flex max-w-xs items-start gap-2 rounded-lg border border-border/60 bg-background/95 px-3 py-2 text-xs shadow-lg backdrop-blur-sm"
+        aria-live="polite"
+      >
+        {icon}
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="font-medium text-foreground">{primary}</span>
+          {secondary ? <span className="text-[11px] text-muted-foreground truncate">{secondary}</span> : null}
+        </div>
+      </div>
+    )
+  })()
+
   const layoutState = useMemo(() => {
     let wEditor = '0%'
     let wPreview = '0%'
@@ -155,6 +194,7 @@ export function EditorLayout({
           >
             <div className="relative flex flex-1 min-h-0">
               <div className="pointer-events-none absolute bottom-6 right-6 z-40 flex flex-col items-end gap-3">
+                {uploadStatusNode}
                 {toolbarOpen ? (
                   <div className={`${overlayPanelClass} pointer-events-auto flex items-start gap-2 px-3 py-3`}>
                     <div className="max-h-[60vh] overflow-y-auto pr-1">{toolbar}</div>

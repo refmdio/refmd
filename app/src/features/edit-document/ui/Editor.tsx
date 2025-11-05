@@ -130,7 +130,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
   useAwarenessStyles(awareness, { userId, userName })
 
-  const { uploadFiles } = useEditorUploads(documentId, readOnly, emitReadOnlyWarning)
+  const { uploadFiles, uploadStatus } = useEditorUploads(documentId, readOnly, emitReadOnlyWarning)
   const uploadFilesRef = useRef(uploadFiles)
   useEffect(() => {
     uploadFilesRef.current = uploadFiles
@@ -504,6 +504,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         content={boundText}
         vimStatusBarRef={vimStatusBarRef}
         showVimStatusBar={isVimMode}
+        uploadStatus={uploadStatus}
       />
 
       <CursorDisplay awareness={awareness} />
