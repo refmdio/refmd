@@ -19,10 +19,26 @@ export function useMonacoBinding(params: UseMonacoBindingParams) {
   const modelRef = useRef<monacoNs.editor.ITextModel | null>(null)
   const bindingRef = useRef<MonacoBinding | null>(null)
   const [text, setText] = useState('')
+  useEffect(() => {
+    const metaMap = doc.getMap('__refmd_internal')
+    if (metaMap.get('eol') === 'lf') return
+    const ytext = doc.getText('content')
+    const current = ytext.toString()
+    const hasCR = current.includes('\r')
+    doc.transact(() => {
+      if (hasCR) {
+        const normalized = current.replace(/\r\n?/g, '\n')
+        ytext.delete(0, ytext.length)
+        ytext.insert(0, normalized)
+      }
+      metaMap.set('eol', 'lf')
+    })
+  }, [doc])
 
   const onMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor
     const model = monaco.editor.createModel('', language)
+    model.setEOL(monaco.editor.EndOfLineSequence.LF)
     editor.setModel(model)
     modelRef.current = model
 

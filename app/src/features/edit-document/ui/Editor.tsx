@@ -189,7 +189,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     const lineEnd = nextNewline === -1 ? text.length : nextNewline
     const lineText = text.slice(offset, lineEnd)
     // Allow optional blockquote and ordered list prefixes before the task checkbox
-    const taskMatch = lineText.match(/^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s*\[)([ xX])(\]\s*)([\s\S]*)$/)
+    const taskMatch = lineText.match(/^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s*\[)([ xX])(\]\s*)(.*)$/)
     if (!taskMatch) return
     const [, prefix, currentChar, closing, rest] = taskMatch
     const nextChar = checked ? 'x' : ' '
