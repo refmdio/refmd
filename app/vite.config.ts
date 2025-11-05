@@ -1,9 +1,10 @@
-import { defineConfig } from 'vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import { nitroV2Plugin } from '@tanstack/nitro-v2-vite-plugin'
 import tailwindcss from '@tailwindcss/vite'
 import viteReact from '@vitejs/plugin-react'
 import viteTsConfigPaths from 'vite-tsconfig-paths'
+import { defineConfig } from 'vite'
+import { VitePWA } from 'vite-plugin-pwa'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -19,6 +20,83 @@ export default defineConfig({
     tailwindcss(),
     viteTsConfigPaths({
       projects: ['./tsconfig.json'],
+    }),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.ico', 'robots.txt', 'refmd-192.png', 'refmd-512.png'],
+      manifest: {
+        name: 'RefMD',
+        short_name: 'RefMD',
+        description: 'RefMD - Real-time Collaborative Markdown Editor',
+        theme_color: '#000000',
+        background_color: '#ffffff',
+        display: 'standalone',
+        display_override: ['standalone', 'browser'],
+        scope: '/',
+        start_url: '/',
+        lang: 'en',
+        icons: [
+          {
+            src: 'favicon.ico',
+            sizes: '64x64 32x32 24x24 16x16',
+            type: 'image/x-icon',
+          },
+          {
+            src: 'refmd-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: 'refmd-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
+        navigateFallback: '/',
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'refmd-pages',
+            },
+          },
+          {
+            urlPattern: ({ request }) => request.destination === 'script' || request.destination === 'style',
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'refmd-assets',
+            },
+          },
+          {
+            urlPattern: ({ request }) => request.destination === 'image' || request.destination === 'font',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'refmd-static-assets',
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
+            },
+          },
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'refmd-api',
+              networkTimeoutSeconds: 10,
+            },
+          },
+        ],
+      },
+      devOptions: {
+        enabled: true,
+        navigateFallback: '/',
+        suppressWarnings: true,
+      },
     }),
   ],
   resolve: {

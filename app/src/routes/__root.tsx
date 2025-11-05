@@ -19,6 +19,7 @@ import PublicLayout from '@/widgets/layouts/PublicLayout'
 import PluginFallback from '@/widgets/routes/PluginFallback'
 
 import { RealtimeProvider, useRealtime } from '@/processes/collaboration/contexts/realtime-context'
+import { useServiceWorker } from '@/processes/pwa/use-service-worker'
 
 import type { RouterContext } from '@/router'
 
@@ -49,7 +50,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       links: [
         { rel: 'icon', href: '/favicon.ico' },
         { rel: 'apple-touch-icon', href: '/refmd-192.png' },
-        { rel: 'manifest', href: '/manifest.json' },
+        { rel: 'manifest', href: '/manifest.webmanifest' },
       ],
       scripts: [
         {
@@ -73,6 +74,8 @@ type LayoutKey = 'app' | 'document' | 'public' | 'share' | 'auth'
 function RootComponent() {
   const router = useRouter()
   const queryClient = router.options.context.queryClient
+
+  useServiceWorker()
 
   if (!queryClient) {
     throw new Error('QueryClient is not available in the router context')
