@@ -46,7 +46,7 @@ export default function EditorPane({ theme, readOnly, onMount, onDropFiles, isMo
           quickSuggestions: { other: true, comments: true, strings: true },
           quickSuggestionsDelay: 0,
           detectIndentation: false,
-          tabSize: 2,
+          tabSize: 4,
           insertSpaces: true,
           fontSize: isMobile ? 17 : 14,
           lineHeight: isMobile ? 26 : 22,

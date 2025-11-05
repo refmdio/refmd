@@ -85,6 +85,8 @@
   --glow-1: rgba(110, 99, 214, 0.15);
   --glow-2: rgba(95, 179, 179, 0.1);
   --panel-overlay: rgba(0, 0, 0, 0.04);
+  --prose-list-indent: 1.5rem;
+  --prose-task-offset: 1.1rem;
 }
 
 .dark {
@@ -175,21 +177,64 @@
 .prose h5 { @apply text-lg font-medium mb-2 mt-3; }
 .prose h6 { @apply text-base font-medium mb-2 mt-3; }
 .prose p { @apply mb-4 leading-7; }
-.prose ul { @apply list-disc mb-4 pl-6 space-y-1; list-style-position: outside; }
-.prose ol { @apply list-decimal mb-4 pl-6 space-y-1; list-style-position: outside; }
+.prose li > p {
+  margin: 0 0 0.25rem;
+}
+.prose li > p:last-child {
+  margin-bottom: 0;
+}
+.prose ul,
+.prose ol,
+.prose dl {
+  margin-bottom: 1rem;
+  padding-left: var(--prose-list-indent);
+}
+.prose ul { @apply list-disc space-y-1; list-style-position: outside; }
+.prose ol { @apply list-decimal space-y-1; list-style-position: outside; }
+.prose dl { @apply space-y-1; }
 .prose li { @apply leading-7; }
+.prose dt { @apply font-medium leading-7; }
+.prose dd { @apply leading-7; margin: 0; }
+.prose li > ul,
+.prose li > ol,
+.prose li > dl {
+  margin-top: 0.25rem;
+  margin-bottom: 0;
+  margin-left: var(--prose-list-indent);
+  padding-left: var(--prose-list-indent);
+}
 .prose input[type='checkbox'] { @apply cursor-pointer; margin: 0; }
 .prose li:has(> input[type='checkbox']) {
-  @apply list-none ml-0;
-  display: flex;
+  @apply list-none;
+  margin-left: calc(-1 * var(--prose-task-offset));
+  padding-left: var(--prose-task-offset);
+  display: grid;
+  grid-template-columns: min-content 1fr;
+  column-gap: 0.5rem;
+  row-gap: 0.25rem;
   align-items: flex-start;
-  gap: 0.5rem;
 }
-.prose li:has(> input[type='checkbox']) > p { @apply m-0; }
+.prose li:has(> input[type='checkbox']) > p {
+  @apply m-0;
+  grid-column: 2;
+  grid-row: 1;
+}
 .prose li:has(> input[type='checkbox']) > input[type='checkbox'] {
+  grid-column: 1;
+  grid-row: 1;
+  margin-left: calc(-1 * var(--prose-task-offset));
   margin-top: 0.35rem;
 }
-.prose ul:has(li input[type='checkbox']) { @apply ml-0 pl-0; }
+.prose li:has(> input[type='checkbox']) > ul,
+.prose li:has(> input[type='checkbox']) > ol {
+  grid-column: 2;
+  margin: 0.25rem 0 0 var(--prose-list-indent);
+  padding-left: var(--prose-list-indent);
+}
+.prose ul:has(li input[type='checkbox']) {
+  margin-left: 0;
+  padding-left: var(--prose-list-indent);
+}
 .prose pre:not(:has(.syntax-highlighter)) { @apply mb-4 overflow-x-auto bg-gray-900 text-gray-100 p-4 rounded-lg; max-width: 100%; }
 .prose pre:has(.syntax-highlighter) { @apply p-0 bg-transparent m-0; max-width: 100%; }
 .prose .syntax-highlighter { margin: 0 !important; }
