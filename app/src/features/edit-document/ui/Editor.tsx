@@ -90,6 +90,29 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     language: 'markdown',
     onTextChange: () => {},
   })
+  const disableVimMode = useCallback(() => {
+    if (vimModeRef.current) {
+      safeExecute('disable vim mode', () => vimModeRef.current?.dispose())
+      vimModeRef.current = null
+    }
+    if (vimStatusBarRef.current) {
+      vimStatusBarRef.current.textContent = ''
+    }
+  }, [])
+  const enableVimMode = useCallback(async (targetEditor?: monacoNs.editor.IStandaloneCodeEditor) => {
+    const editorInstance = targetEditor ?? (editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null)
+    const statusBar = vimStatusBarRef.current
+    if (!editorInstance || !statusBar) return
+    disableVimMode()
+    try {
+      const { initVimMode } = await import('monaco-vim')
+      statusBar.textContent = ''
+      vimModeRef.current = initVimMode(editorInstance, statusBar)
+      editorInstance.focus()
+    } catch (error) {
+      logEditorError('enable vim mode', error)
+    }
+  }, [disableVimMode, editorRef])
   const { previewScrollPct, previewAnchorLine, handleEditorScroll, handlePreviewScroll, onEditorContentChange, onCaretAtEndChange, lockActive } = useScrollSync(editorRef)
   const { runCommand } = useMarkdownCommands(editorRef)
   const handleToolbarCommand = useCallback(
@@ -299,30 +322,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
     // Apply vim if enabled
     if (isVimMode) {
-      ;(async () => {
-        try {
-          const { initVimMode } = await import('monaco-vim')
-          if (!vimStatusBarRef.current) {
-            const statusBar = document.createElement('div')
-            statusBar.style.display = 'none'
-            statusBar.style.position = 'fixed'
-            statusBar.style.visibility = 'hidden'
-            statusBar.style.top = '-9999px'
-            statusBar.style.left = '-9999px'
-            statusBar.style.width = '1px'
-            statusBar.style.height = '1px'
-            statusBar.style.overflow = 'hidden'
-            document.body.appendChild(statusBar)
-            vimStatusBarRef.current = statusBar
-          }
-          vimModeRef.current = initVimMode(editor, vimStatusBarRef.current as HTMLDivElement)
-          editor.focus()
-        } catch (error) {
-          logEditorError('enable vim mode on mount', error)
-        }
-      })()
+      void enableVimMode(editor)
     }
-  }, [onMonacoMount, isVimMode, syncScroll, handleEditorScroll, emitReadOnlyWarning, readOnly, setReadOnlyOverlay])
+  }, [onMonacoMount, isVimMode, syncScroll, handleEditorScroll, emitReadOnlyWarning, readOnly, setReadOnlyOverlay, enableVimMode])
 
   useEffect(() => {
     const editorInstance = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | null
@@ -350,50 +352,20 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         delete (anyEditor as any).__monaco
       }
     })
-    safeExecute('dispose vim mode', () => {
-      if (vimModeRef.current) {
-        vimModeRef.current.dispose()
-        vimModeRef.current = null
-      }
-    })
-    if (vimStatusBarRef.current?.parentNode) {
-      safeExecute('remove vim status bar', () => {
-        vimStatusBarRef.current?.parentNode?.removeChild(vimStatusBarRef.current as HTMLDivElement)
-      })
-      vimStatusBarRef.current = null
-    }
+    disableVimMode()
     setEditor(null)
-  }, [editorRef, setEditor])
+  }, [editorRef, setEditor, disableVimMode])
 
   const toggleVim = useCallback(async () => {
     const next = !isVimMode
     setIsVimMode(next)
     if (typeof window !== 'undefined') localStorage.setItem('editorVimMode', String(next))
-    // If editor is mounted, apply immediately
-    const anyEditor = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | undefined
-    if (!anyEditor) return
-    if (next && !vimModeRef.current) {
-      const { initVimMode } = await import('monaco-vim')
-      if (!vimStatusBarRef.current) {
-        const statusBar = document.createElement('div')
-        statusBar.style.display = 'none'
-        statusBar.style.position = 'fixed'
-        statusBar.style.visibility = 'hidden'
-        statusBar.style.top = '-9999px'
-        statusBar.style.left = '-9999px'
-        statusBar.style.width = '1px'
-        statusBar.style.height = '1px'
-        statusBar.style.overflow = 'hidden'
-        document.body.appendChild(statusBar)
-        vimStatusBarRef.current = statusBar
-      }
-      vimModeRef.current = initVimMode(anyEditor, vimStatusBarRef.current as HTMLDivElement)
-      anyEditor.focus()
-    } else if (!next && vimModeRef.current) {
-      safeExecute('disable vim mode', () => vimModeRef.current?.dispose())
-      vimModeRef.current = null
+    if (next) {
+      await enableVimMode()
+    } else {
+      disableVimMode()
     }
-  }, [isVimMode])
+  }, [isVimMode, enableVimMode, disableVimMode])
 
   const handleFileUpload = useCallback(() => {
     if (readOnly) {
@@ -530,6 +502,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         documentId={documentId}
         onToggleTask={handleTaskToggle}
         content={boundText}
+        vimStatusBarRef={vimStatusBarRef}
+        showVimStatusBar={isVimMode}
       />
 
       <CursorDisplay awareness={awareness} />

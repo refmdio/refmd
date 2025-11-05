@@ -1,6 +1,6 @@
 import { SlidersHorizontal, X } from 'lucide-react'
 import type * as monacoNs from 'monaco-editor'
-import { useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useMemo, type CSSProperties, type ReactNode, type MutableRefObject } from 'react'
 
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -21,7 +21,7 @@ export type EditorLayoutProps = {
   readOnly: boolean
   onEditorDropFiles: (files: File[]) => Promise<void>
   onEditorMount: (editor: monacoNs.editor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => void
-  editorRef: React.MutableRefObject<monacoNs.editor.IStandaloneCodeEditor | null>
+  editorRef: MutableRefObject<monacoNs.editor.IStandaloneCodeEditor | null>
   syncScroll: boolean
   onPreviewScroll: (percentage: number) => void
   previewScrollPct?: number
@@ -31,6 +31,8 @@ export type EditorLayoutProps = {
   documentId: string
   onToggleTask?: (lineNumber: number, checked: boolean) => void
   content: string
+  vimStatusBarRef: MutableRefObject<HTMLDivElement | null>
+  showVimStatusBar: boolean
 }
 
 export function EditorLayout({
@@ -54,6 +56,8 @@ export function EditorLayout({
   documentId,
   onToggleTask,
   content,
+  vimStatusBarRef,
+  showVimStatusBar,
 }: EditorLayoutProps) {
   const layoutState = useMemo(() => {
     let wEditor = '0%'
@@ -187,6 +191,8 @@ export function EditorLayout({
                   }}
                   isMobile={isMobile}
                   onMount={onEditorMount}
+                  vimStatusBarRef={vimStatusBarRef}
+                  showVimStatusBar={showVimStatusBar}
                 />
               </div>
             </div>

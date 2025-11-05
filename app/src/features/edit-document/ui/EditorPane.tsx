@@ -1,7 +1,7 @@
 import Editor from '@monaco-editor/react'
 import type { OnMount } from '@monaco-editor/react'
 import { Image as ImageIcon } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useRef, useState, type MutableRefObject } from 'react'
 
 type Props = {
   theme: string
@@ -9,9 +9,11 @@ type Props = {
   onMount: OnMount
   onDropFiles?: (files: File[]) => Promise<void> | void
   isMobile?: boolean
+  vimStatusBarRef: MutableRefObject<HTMLDivElement | null>
+  showVimStatusBar?: boolean
 }
 
-export default function EditorPane({ theme, readOnly, onMount, onDropFiles, isMobile = false }: Props) {
+export default function EditorPane({ theme, readOnly, onMount, onDropFiles, isMobile = false, vimStatusBarRef, showVimStatusBar = false }: Props) {
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
 
@@ -50,6 +52,13 @@ export default function EditorPane({ theme, readOnly, onMount, onDropFiles, isMo
           lineHeight: isMobile ? 26 : 22,
         }}
         onMount={onMount}
+      />
+      <div
+        ref={vimStatusBarRef}
+        role="status"
+        aria-live="polite"
+        aria-hidden={!showVimStatusBar}
+        className={`pointer-events-none absolute bottom-3 left-3 rounded-md border border-border/40 bg-muted/95 px-3 py-1 text-xs font-mono text-muted-foreground shadow-sm whitespace-pre-wrap ${showVimStatusBar ? '' : 'hidden'}`}
       />
       {isDragging && !readOnly && (
         <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center">
