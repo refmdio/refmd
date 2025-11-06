@@ -72,7 +72,7 @@ pub async fn create_share(
     bearer: Bearer,
     Json(req): Json<CreateShareRequest>,
 ) -> Result<Json<CreateShareResponse>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.shares_repo();
     let uc = CreateShare {
@@ -119,7 +119,7 @@ pub async fn list_document_shares(
     bearer: Bearer,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> Result<Json<Vec<ShareItem>>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     // authorization: require edit on the document
     let share_access = ctx.share_access_port();
@@ -177,7 +177,7 @@ pub async fn delete_share(
     bearer: Bearer,
     axum::extract::Path(token): axum::extract::Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.shares_repo();
     let uc = DeleteShare {
@@ -227,7 +227,7 @@ pub async fn list_applicable_shares(
     bearer: Bearer,
     Query(q): Query<ApplicableQuery>,
 ) -> Result<Json<Vec<ApplicableShareItem>>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     // authorize: require view on the document
     let share_access = ctx.share_access_port();
@@ -328,7 +328,7 @@ pub async fn list_active_shares(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<Vec<ActiveShareItem>>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.shares_repo();
     let uc = crate::application::use_cases::shares::list_active::ListActiveShares {
@@ -449,7 +449,7 @@ pub async fn materialize_folder_share(
     bearer: Bearer,
     axum::extract::Path(token): axum::extract::Path<String>,
 ) -> Result<Json<MaterializeResponse>, StatusCode> {
-    let sub = auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.shares_repo();
     let created = repo

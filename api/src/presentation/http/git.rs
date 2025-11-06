@@ -111,7 +111,7 @@ pub async fn get_config(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<Option<GitConfigResponse>>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.git_repo();
     let uc = GetGitConfig {
@@ -131,7 +131,7 @@ pub async fn create_or_update_config(
     bearer: Bearer,
     Json(req): Json<CreateGitConfigRequest>,
 ) -> Result<Json<GitConfigResponse>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.git_repo();
     let gitignore = ctx.gitignore_port();
@@ -157,7 +157,7 @@ pub async fn delete_config(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.git_repo();
     let uc = DeleteGitConfig {
@@ -213,7 +213,7 @@ pub async fn ignore_document(
     bearer: Bearer,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let doc_id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let gitignore = ctx.gitignore_port();
@@ -243,7 +243,7 @@ pub async fn ignore_folder(
     bearer: Bearer,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let folder_id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let gitignore = ctx.gitignore_port();
@@ -278,7 +278,7 @@ pub async fn add_gitignore_patterns(
     bearer: Bearer,
     Json(req): Json<AddPatternsRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let gitignore = ctx.gitignore_port();
     let storage = ctx.storage_port();
@@ -300,7 +300,7 @@ pub async fn get_gitignore_patterns(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let gitignore = ctx.gitignore_port();
     let storage = ctx.storage_port();
@@ -326,7 +326,7 @@ pub async fn check_path_ignored(
     bearer: Bearer,
     Json(req): Json<CheckIgnoredRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let storage = ctx.storage_port();
     let gitignore = ctx.gitignore_port();
@@ -348,7 +348,7 @@ pub async fn get_status(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<GitStatus>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.git_repo();
     let workspace = ctx.git_workspace();
@@ -384,7 +384,7 @@ pub async fn sync_now(
     bearer: Bearer,
     Json(req): Json<GitSyncRequest>,
 ) -> Result<Json<GitSyncResponse>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.git_repo();
     let workspace = ctx.git_workspace();
@@ -429,7 +429,7 @@ pub async fn get_changes(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<GitChangesResponse>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace = ctx.git_workspace();
     let uc = crate::application::use_cases::git::get_changes::GetChanges {
@@ -528,7 +528,7 @@ pub async fn get_history(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<GitHistoryResponse>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace = ctx.git_workspace();
     let uc = crate::application::use_cases::git::get_history::GetHistory {
@@ -561,7 +561,7 @@ pub async fn get_working_diff(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<Vec<DocumentDiffResult>>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace = ctx.git_workspace();
     let uc = crate::application::use_cases::git::get_working_diff::GetWorkingDiff {
@@ -587,7 +587,7 @@ pub async fn get_commit_diff(
     bearer: Bearer,
     axum::extract::Path((from, to)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<Vec<DocumentDiffResult>>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace = ctx.git_workspace();
     let uc = crate::application::use_cases::git::get_commit_diff::GetCommitDiff {
@@ -608,7 +608,7 @@ pub async fn init_repository(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.git_repo();
     let gitignore = ctx.gitignore_port();
@@ -631,7 +631,7 @@ pub async fn deinit_repository(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace = ctx.git_workspace();
     let uc = DeinitRepo {

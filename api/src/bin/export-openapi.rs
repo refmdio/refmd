@@ -1,5 +1,7 @@
 use api::presentation::{
-    http::{auth, documents, files, git, health, markdown, plugins, public, shares, tags},
+    http::{
+        api_tokens, auth, documents, files, git, health, markdown, plugins, public, shares, tags,
+    },
     ws,
 };
 use utoipa::OpenApi;
@@ -11,6 +13,9 @@ use utoipa::OpenApi;
         auth::login,
         auth::logout,
         auth::me,
+        api_tokens::list_api_tokens,
+        api_tokens::create_api_token,
+        api_tokens::revoke_api_token,
         auth::delete_account,
         ws::axum_ws_entry,
         tags::list_tags,
@@ -20,6 +25,7 @@ use utoipa::OpenApi;
         documents::update_document,
         documents::delete_document,
         documents::get_document_content,
+        documents::update_document_content,
         documents::archive_document,
         documents::unarchive_document,
         documents::download_document,
@@ -83,11 +89,15 @@ use utoipa::OpenApi;
         auth::LoginRequest,
         auth::LoginResponse,
         auth::UserResponse,
+        api_tokens::ApiTokenItem,
+        api_tokens::ApiTokenCreateRequest,
+        api_tokens::ApiTokenCreateResponse,
         tags::TagItem,
         documents::Document,
         documents::DocumentListResponse,
         documents::CreateDocumentRequest,
         documents::UpdateDocumentRequest,
+        documents::UpdateDocumentContentRequest,
         documents::SearchResult,
         documents::BacklinkInfo,
         documents::BacklinksResponse,

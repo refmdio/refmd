@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::application::ports::access_repository::AccessRepository;
+use crate::application::ports::api_token_repository::ApiTokenRepository;
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository;
 use crate::application::ports::files_repository::FilesRepository;
@@ -46,6 +47,7 @@ pub struct AppServices {
     public_repo: Arc<dyn PublicRepository>,
     user_repo: Arc<dyn UserRepository>,
     tag_repo: Arc<dyn TagRepository>,
+    api_token_repo: Arc<dyn ApiTokenRepository>,
     git_repo: Arc<dyn GitRepository>,
     git_storage: Arc<dyn GitStorage>,
     gitignore_port: Arc<dyn GitignorePort>,
@@ -76,6 +78,7 @@ impl AppServices {
         public_repo: Arc<dyn PublicRepository>,
         user_repo: Arc<dyn UserRepository>,
         tag_repo: Arc<dyn TagRepository>,
+        api_token_repo: Arc<dyn ApiTokenRepository>,
         git_repo: Arc<dyn GitRepository>,
         git_storage: Arc<dyn GitStorage>,
         gitignore_port: Arc<dyn GitignorePort>,
@@ -103,6 +106,7 @@ impl AppServices {
             public_repo,
             user_repo,
             tag_repo,
+            api_token_repo,
             git_repo,
             git_storage,
             gitignore_port,
@@ -162,6 +166,10 @@ impl AppContext {
 
     pub fn tag_repo(&self) -> Arc<dyn TagRepository> {
         self.services.tag_repo.clone()
+    }
+
+    pub fn api_token_repo(&self) -> Arc<dyn ApiTokenRepository> {
+        self.services.api_token_repo.clone()
     }
 
     pub fn git_repo(&self) -> Arc<dyn GitRepository> {

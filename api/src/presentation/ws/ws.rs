@@ -75,10 +75,12 @@ pub async fn axum_ws_entry(
     let doc_uuid = Uuid::parse_str(&doc_id).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     // Resolve actor capability
-    let actor = token
-        .as_deref()
-        .and_then(|t| auth::resolve_actor_from_token_str(&state.cfg, t))
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let actor = if let Some(token_str) = token.as_deref() {
+        auth::resolve_actor_from_token_str(&state, token_str).await
+    } else {
+        None
+    }
+    .ok_or(StatusCode::UNAUTHORIZED)?;
 
     let share_access = state.share_access_port();
     let access_repo = state.access_repo();

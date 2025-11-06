@@ -1,4 +1,5 @@
 use crate::application::access;
+use crate::application::services::auth::api_tokens::{compute_digest, verify_token};
 use crate::application::use_cases::auth::delete_account::DeleteAccount;
 use crate::application::use_cases::auth::login::{Login as LoginUc, LoginRequest as LoginDto};
 use crate::application::use_cases::auth::me::GetMe;
@@ -6,7 +7,6 @@ use crate::application::use_cases::auth::register::{
     Register as RegisterUc, RegisterRequest as RegisterDto,
 };
 use crate::bootstrap::app_context::AppContext;
-use crate::bootstrap::config::Config;
 use axum::{
     Json, Router,
     extract::State,
@@ -149,7 +149,7 @@ pub async fn me(
     State(ctx): State<AppContext>,
     bearer: Result<Bearer, StatusCode>,
 ) -> Result<Json<UserResponse>, StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer?)?;
+    let sub = validate_bearer(&ctx, bearer?).await?;
     let id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.user_repo();
     let uc = GetMe {
@@ -172,7 +172,7 @@ pub async fn delete_account(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<(HeaderMap, StatusCode), StatusCode> {
-    let sub = validate_bearer(&ctx.cfg, bearer)?;
+    let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let user_repo = ctx.user_repo();
@@ -261,52 +261,55 @@ where
     }
 }
 
-pub(crate) fn validate_bearer(cfg: &Config, bearer: Bearer) -> Result<String, StatusCode> {
-    let token = bearer.0;
-    let data = jsonwebtoken::decode::<Claims>(
-        &token,
-        &DecodingKey::from_secret(cfg.jwt_secret_pem.as_bytes()),
-        &Validation::default(),
-    )
-    .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Ok(data.claims.sub)
+pub(crate) async fn validate_bearer(
+    ctx: &AppContext,
+    bearer: Bearer,
+) -> Result<String, StatusCode> {
+    validate_bearer_str(ctx, &bearer.0).await
 }
 
-pub fn validate_bearer_public(cfg: &Config, bearer: Bearer) -> Result<String, StatusCode> {
-    validate_bearer(cfg, bearer)
+pub async fn validate_bearer_public(
+    ctx: &AppContext,
+    bearer: Bearer,
+) -> Result<String, StatusCode> {
+    validate_bearer(ctx, bearer).await
 }
 
-pub fn validate_bearer_str(cfg: &Config, token: &str) -> Result<String, StatusCode> {
-    let data = jsonwebtoken::decode::<Claims>(
+pub async fn validate_bearer_str(ctx: &AppContext, token: &str) -> Result<String, StatusCode> {
+    if let Ok(data) = jsonwebtoken::decode::<Claims>(
         token,
-        &DecodingKey::from_secret(cfg.jwt_secret_pem.as_bytes()),
+        &DecodingKey::from_secret(ctx.cfg.jwt_secret_pem.as_bytes()),
         &Validation::default(),
-    )
-    .map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Ok(data.claims.sub)
+    ) {
+        return Ok(data.claims.sub);
+    }
+    validate_api_token(ctx, token).await
 }
 
-pub fn resolve_actor_from_parts(
-    cfg: &Config,
+pub async fn resolve_actor_from_parts(
+    ctx: &AppContext,
     bearer: Option<Bearer>,
     share_token: Option<&str>,
 ) -> Option<access::Actor> {
     if let Some(b) = bearer {
-        if let Ok(sub) = validate_bearer(cfg, b) {
+        if let Ok(sub) = validate_bearer(ctx, b).await {
             if let Ok(uid) = Uuid::parse_str(&sub) {
                 return Some(access::Actor::User(uid));
             }
         }
     }
-    share_token.and_then(|t| resolve_actor_from_token_str(cfg, t))
+    if let Some(token) = share_token {
+        return resolve_actor_from_token_str(ctx, token).await;
+    }
+    None
 }
 
-pub fn resolve_actor_from_token_str(cfg: &Config, token: &str) -> Option<access::Actor> {
+pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Option<access::Actor> {
     let trimmed = token.trim();
     if trimmed.is_empty() {
         return None;
     }
-    if let Ok(sub) = validate_bearer_str(cfg, trimmed) {
+    if let Ok(sub) = validate_bearer_str(ctx, trimmed).await {
         if let Ok(uid) = Uuid::parse_str(&sub) {
             return Some(access::Actor::User(uid));
         } else {
@@ -314,6 +317,30 @@ pub fn resolve_actor_from_token_str(cfg: &Config, token: &str) -> Option<access:
         }
     }
     Some(access::Actor::ShareToken(trimmed.to_string()))
+}
+
+async fn validate_api_token(ctx: &AppContext, token: &str) -> Result<String, StatusCode> {
+    let digest = compute_digest(token);
+    let repo = ctx.api_token_repo();
+    let record = repo
+        .find_by_digest(&digest)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let Some(secret) = record else {
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    if secret.token.revoked_at.is_some() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let ok =
+        verify_token(token, &secret.token_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !ok {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    repo.touch_last_used(secret.token.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(secret.token.user_id.to_string())
 }
 
 // --- Cookie helpers & logout ---

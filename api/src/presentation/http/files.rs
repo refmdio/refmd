@@ -58,7 +58,7 @@ pub async fn upload_file(
     mut multipart: Multipart,
 ) -> Result<Json<UploadFileResponse>, StatusCode> {
     // Validate user via bearer
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let mut document_id: Option<Uuid> = None;
@@ -133,7 +133,7 @@ pub async fn get_file(
     bearer: Bearer,
     AxumPath(id): AxumPath<Uuid>,
 ) -> Result<Response, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.files_repo();
     let storage = ctx.storage_port();
@@ -185,7 +185,7 @@ pub async fn get_file_by_name(
     Query(q): Query<FileByNameQuery>,
 ) -> Result<Response, StatusCode> {
     // auth: owner of the document only
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     // authorize: owner must have at least view permission
@@ -272,10 +272,13 @@ pub async fn serve_upload(
     let doc_id = Uuid::parse_str(parts[0]).map_err(|_| StatusCode::FORBIDDEN)?;
 
     // Build actor and require at least view capability (or public)
-    let actor = token
-        .as_deref()
-        .and_then(|t| auth::resolve_actor_from_token_str(&ctx.cfg, t))
-        .unwrap_or(access::Actor::Public);
+    let actor = if let Some(token_str) = token.as_deref() {
+        auth::resolve_actor_from_token_str(&ctx, token_str)
+            .await
+            .unwrap_or(access::Actor::Public)
+    } else {
+        access::Actor::Public
+    };
     let share_access = ctx.share_access_port();
     let access_repo = ctx.access_repo();
     let _cap = access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, doc_id)

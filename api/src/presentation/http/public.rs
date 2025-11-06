@@ -38,7 +38,7 @@ pub async fn publish_document(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PublishResponse>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.public_repo();
     let uc = PublishDocument {
@@ -67,7 +67,7 @@ pub async fn unpublish_document(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.public_repo();
     let uc = UnpublishDocument {
@@ -97,7 +97,7 @@ pub async fn get_publish_status(
     Path(id): Path<Uuid>,
 ) -> Result<Json<PublishResponse>, StatusCode> {
     // Validate ownership
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx.cfg, bearer)?;
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let repo = ctx.public_repo();
     let uc = GetPublishStatus {

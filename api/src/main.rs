@@ -32,6 +32,9 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::auth::login,
             api::presentation::http::auth::logout,
             api::presentation::http::auth::me,
+            api::presentation::http::api_tokens::list_api_tokens,
+            api::presentation::http::api_tokens::create_api_token,
+            api::presentation::http::api_tokens::revoke_api_token,
             api::presentation::http::tags::list_tags,
             api::presentation::ws::axum_ws_entry,
             api::presentation::http::documents::list_documents,
@@ -101,6 +104,9 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::auth::LoginRequest,
             api::presentation::http::auth::LoginResponse,
             api::presentation::http::auth::UserResponse,
+            api::presentation::http::api_tokens::ApiTokenItem,
+            api::presentation::http::api_tokens::ApiTokenCreateRequest,
+            api::presentation::http::api_tokens::ApiTokenCreateResponse,
             api::presentation::http::tags::TagItem,
             api::presentation::http::documents::Document,
             api::presentation::http::documents::DocumentListResponse,
@@ -256,6 +262,11 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    let api_token_repo = Arc::new(
+        api::infrastructure::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository::new(
+            pool.clone(),
+        ),
+    );
     let git_repo = Arc::new(
         api::infrastructure::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
             pool.clone(),
@@ -408,6 +419,7 @@ async fn main() -> anyhow::Result<()> {
         public_repo,
         user_repo,
         tag_repo,
+        api_token_repo,
         git_repo,
         git_storage,
         gitignore_port,
@@ -527,6 +539,10 @@ async fn main() -> anyhow::Result<()> {
         .nest(
             "/api",
             api::presentation::http::plugins::routes(ctx.clone()),
+        )
+        .nest(
+            "/api",
+            api::presentation::http::api_tokens::routes(ctx.clone()),
         )
         .nest(
             "/api/public",

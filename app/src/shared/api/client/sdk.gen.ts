@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, RegisterData, RegisterResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, InitRepositoryResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestData, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListUserPublicDocumentsData, ListUserPublicDocumentsResponse, GetPublicByOwnerAndIdData, GetPublicByOwnerAndIdResponse, GetPublicContentByOwnerAndIdData, GetPublicContentByOwnerAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, ListTagsData, ListTagsResponse, AxumWsEntryData } from './types.gen';
+import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, RegisterData, RegisterResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, InitRepositoryResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestData, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListUserPublicDocumentsData, ListUserPublicDocumentsResponse, GetPublicByOwnerAndIdData, GetPublicByOwnerAndIdResponse, GetPublicContentByOwnerAndIdData, GetPublicContentByOwnerAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, ListTagsData, ListTagsResponse, AxumWsEntryData } from './types.gen';
 
 /**
  * @param data The data for the request.
@@ -223,6 +223,29 @@ export const getDocumentContent = (data: GetDocumentContentData): CancelableProm
         path: {
             id: data.id
         }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Document ID
+ * @param data.requestBody
+ * @param data.token Share token (optional)
+ * @returns Document
+ * @throws ApiError
+ */
+export const updateDocumentContent = (data: UpdateDocumentContentData): CancelablePromise<UpdateDocumentContentResponse> => {
+    return __request(OpenAPI, {
+        method: 'PUT',
+        url: '/api/documents/{id}/content',
+        path: {
+            id: data.id
+        },
+        query: {
+            token: data.token
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
     });
 };
 
@@ -693,6 +716,48 @@ export const renderMarkdownMany = (data: RenderMarkdownManyData): CancelableProm
         url: '/api/markdown/render-many',
         body: data.requestBody,
         mediaType: 'application/json'
+    });
+};
+
+/**
+ * @returns ApiTokenItem
+ * @throws ApiError
+ */
+export const listApiTokens = (): CancelablePromise<ListApiTokensResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/me/api-tokens'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ApiTokenCreateResponse
+ * @throws ApiError
+ */
+export const createApiToken = (data: CreateApiTokenData): CancelablePromise<CreateApiTokenResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/me/api-tokens',
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Token ID
+ * @returns void
+ * @throws ApiError
+ */
+export const revokeApiToken = (data: RevokeApiTokenData): CancelablePromise<RevokeApiTokenResponse> => {
+    return __request(OpenAPI, {
+        method: 'DELETE',
+        url: '/api/me/api-tokens/{id}',
+        path: {
+            id: data.id
+        }
     });
 };
 

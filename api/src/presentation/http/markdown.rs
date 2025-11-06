@@ -139,7 +139,7 @@ pub async fn render_markdown(
 
     let bearer_token = bearer.as_ref().map(|b| b.0.as_str());
     let user_scope =
-        resolve_user_scope_from_inputs(&ctx.cfg, bearer_token, options.token.as_deref());
+        resolve_user_scope_from_inputs(&ctx, bearer_token, options.token.as_deref()).await;
 
     let assets = ctx.plugin_assets();
     let installations = ctx.plugin_installations();
@@ -213,11 +213,9 @@ pub async fn render_markdown_many(
         let RenderRequest { text, options } = item;
         let options: RenderOptions = options.into();
 
-        let user_scope = resolve_user_scope_from_inputs(
-            &ctx.cfg,
-            bearer_token.as_deref(),
-            options.token.as_deref(),
-        );
+        let user_scope =
+            resolve_user_scope_from_inputs(&ctx, bearer_token.as_deref(), options.token.as_deref())
+                .await;
 
         let specs_arc = if let Some(existing) = spec_cache.get(&user_scope) {
             existing.clone()
@@ -592,20 +590,20 @@ fn build_hydrated_fragment(
     ))
 }
 
-fn resolve_user_scope_from_inputs(
-    cfg: &crate::bootstrap::config::Config,
+async fn resolve_user_scope_from_inputs(
+    ctx: &AppContext,
     bearer_token: Option<&str>,
     share_token: Option<&str>,
 ) -> Option<Uuid> {
     if let Some(token) = bearer_token {
-        if let Ok(sub) = auth::validate_bearer_str(cfg, token) {
+        if let Ok(sub) = auth::validate_bearer_str(ctx, token).await {
             if let Ok(uid) = Uuid::parse_str(&sub) {
                 return Some(uid);
             }
         }
     }
     if let Some(token) = share_token {
-        if let Some(actor) = auth::resolve_actor_from_token_str(cfg, token) {
+        if let Some(actor) = auth::resolve_actor_from_token_str(ctx, token).await {
             if let access::Actor::User(uid) = actor {
                 return Some(uid);
             }

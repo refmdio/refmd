@@ -762,7 +762,8 @@ where
                 Some(trimmed.to_string())
             }
         };
-        let assets = DocumentDownloadAssets::new(display_title, safe_title, markdown_bytes, attachments);
+        let assets =
+            DocumentDownloadAssets::new(display_title, safe_title, markdown_bytes, attachments);
         let bytes = match format {
             DocumentDownloadFormat::Archive => build_archive(&assets)?,
             DocumentDownloadFormat::Markdown => assets.markdown_bytes().to_vec(),
@@ -843,10 +844,7 @@ async fn render_with_pandoc(
         pandoc_cmd.set_input(InputKind::Pipe(markdown_source));
         pandoc_cmd.set_input_format(InputFormat::Markdown, Vec::new());
         pandoc_cmd.add_option(PandocOption::ResourcePath(vec![resource_dir.clone()]));
-        pandoc_cmd.add_option(PandocOption::Meta(
-            "title".to_string(),
-            Some(String::new()),
-        ));
+        pandoc_cmd.add_option(PandocOption::Meta("title".to_string(), Some(String::new())));
         if let Some(ref title) = display_title {
             if !title.is_empty() {
                 pandoc_cmd.add_option(PandocOption::Meta(
