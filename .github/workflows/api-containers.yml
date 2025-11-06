@@ -7,6 +7,10 @@ on:
     paths:
       - 'api/**'
       - '.github/workflows/api-containers.yml'
+  pull_request:
+    paths:
+      - 'api/**'
+      - '.github/workflows/api-containers.yml'
   workflow_dispatch:
 
 env:
@@ -52,6 +56,6 @@ jobs:
         with:
           context: ./api
           file: ./api/Dockerfile
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta_api.outputs.tags }}
           labels: ${{ steps.meta_api.outputs.labels }}
