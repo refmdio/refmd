@@ -18,11 +18,17 @@ import { Dialog, DialogContent } from '@/shared/ui/dialog'
 import { fetchDocumentContent, listDocuments, type Document } from '@/entities/document'
 import { listTags } from '@/entities/tag'
 
+const trimLeadingOwner = (segments: string[]) => {
+  if (segments.length <= 1) return segments
+  const first = segments[0] ?? ''
+  const looksLikeOwner = /^[0-9a-f-]{36}$/i.test(first) || first.toLowerCase().includes('@')
+  return looksLikeOwner ? segments.slice(1) : segments
+}
+
 const getPathSegments = (path?: string | null) => {
   if (!path) return []
   const parts = path.split('/').filter((part) => part.length > 0)
-  if (parts.length <= 1) return []
-  return parts.slice(1)
+  return trimLeadingOwner(parts)
 }
 
 const formatDisplayPath = (path?: string | null) => {
@@ -63,6 +69,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
   const folderFilter = folderFilterRaw ? folderFilterRaw.toLowerCase() : null
   const docQueryInput = hasPathShortcut ? normalizedQuery.slice(lastSlashIndex + 1) : normalizedQuery
   const docQuery = isTagShortcut ? '' : docQueryInput.trim()
+  const serverQuery = !hasPathShortcut && !isTagShortcut ? (docQuery || null) : null
 
   const lastDocValueRef = React.useRef<string | null>(null)
   const previewCache = React.useRef<Map<string, string>>(new Map())
@@ -117,7 +124,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       setLoading(true)
       try {
         const res = await listDocuments({
-          query: docQuery || null,
+          query: serverQuery,
           tag: selectedTag ?? null,
         })
         const items = (res?.items ?? []) as DocumentHit[]
@@ -133,17 +140,54 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       active = false
       clearTimeout(handle)
     }
-  }, [open, docQuery, selectedTag])
+  }, [open, docQuery, selectedTag, serverQuery])
 
-  const visibleDocs = React.useMemo(() => {
-    if (!folderFilter) return docs
-    const normalized = folderFilter
-    return docs.filter((doc) => {
-      const filterable = normalizePathValue(doc.path)
-      if (!filterable) return false
-      return filterable.startsWith(normalized)
-    })
-  }, [docs, folderFilter])
+  const { visibleDocs, resolvedFolderLabel } = React.useMemo(() => {
+    const filterByPath = (list: DocumentHit[], normalized: string) =>
+      list.filter((doc) => {
+        const filterable = normalizePathValue(doc.path)
+        if (!filterable) return false
+        return filterable.startsWith(normalized)
+      })
+
+    if (!folderFilter) {
+      if (!docQuery) return { visibleDocs: docs, resolvedFolderLabel: null }
+      const lowered = docQuery.toLowerCase()
+      return {
+        visibleDocs: docs.filter((doc) => doc.title.toLowerCase().includes(lowered)),
+        resolvedFolderLabel: null,
+      }
+    }
+
+    let normalized = folderFilter
+    let matches = filterByPath(docs, normalized)
+    let label = folderFilterRaw || null
+
+    if (docQuery) {
+      const lowered = docQuery.toLowerCase()
+      const deeperRaw = folderFilterRaw ? `${folderFilterRaw}/${docQuery}` : docQuery
+      const deeperNormalized = deeperRaw.toLowerCase()
+
+      const hasDeeperMatches = matches.some((doc) => {
+        const filterable = normalizePathValue(doc.path)
+        if (!filterable) return false
+        return (
+          filterable === deeperNormalized ||
+          filterable.startsWith(`${deeperNormalized}/`)
+        )
+      })
+
+      if (hasDeeperMatches) {
+        normalized = deeperNormalized
+        matches = filterByPath(docs, normalized)
+        label = deeperRaw
+      } else {
+        matches = matches.filter((doc) => doc.title.toLowerCase().includes(lowered))
+      }
+    }
+
+    return { visibleDocs: matches, resolvedFolderLabel: label }
+  }, [docs, folderFilter, folderFilterRaw, docQuery])
 
   React.useEffect(() => {
     if (!open) return
@@ -260,10 +304,11 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
   }, [tags, tagFilter])
 
   const tagHeading = selectedTag ? `Tags • #${selectedTag}` : 'Tags'
+  const folderHeadingLabel = resolvedFolderLabel ?? folderFilterRaw
   const documentHeading = selectedTag
     ? `Documents • #${selectedTag}`
-    : folderFilterRaw
-      ? `Documents • ${folderFilterRaw}`
+    : folderHeadingLabel
+      ? `Documents • ${folderHeadingLabel}`
       : 'Documents'
   const truncatedPreview = previewContent.length > 8000 ? `${previewContent.slice(0, 8000)}\n...` : previewContent
 
