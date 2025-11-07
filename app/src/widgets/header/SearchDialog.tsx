@@ -142,6 +142,31 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
     }
   }, [open, docQuery, selectedTag, serverQuery])
 
+  const folderIndex = React.useMemo(() => {
+    const index = new Map<string, Array<{ normalized: string; value: string }>>()
+    docs.forEach((doc) => {
+      const segments = [...getPathSegments(doc.path)]
+      if (segments.length === 0) return
+      const titleNormalized = (doc.title ?? '').trim().toLowerCase()
+      if (segments.length > 0 && titleNormalized && segments[segments.length - 1]?.toLowerCase() === titleNormalized) {
+        segments.pop()
+      }
+      if (segments.length === 0) return
+      let parentNormalized = ''
+      segments.forEach((segment) => {
+        const normalizedSegment = segment.toLowerCase()
+        const list = index.get(parentNormalized) ?? []
+        if (!list.some((item) => item.normalized === normalizedSegment)) {
+          list.push({ normalized: normalizedSegment, value: segment })
+          list.sort((a, b) => a.value.localeCompare(b.value))
+        }
+        index.set(parentNormalized, list)
+        parentNormalized = parentNormalized ? `${parentNormalized}/${normalizedSegment}` : normalizedSegment
+      })
+    })
+    return index
+  }, [docs])
+
   const { visibleDocs, resolvedFolderLabel } = React.useMemo(() => {
     const filterByPath = (list: DocumentHit[], normalized: string) =>
       list.filter((doc) => {
@@ -188,6 +213,39 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
 
     return { visibleDocs: matches, resolvedFolderLabel: label }
   }, [docs, folderFilter, folderFilterRaw, docQuery])
+
+  const handleInputKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key !== 'Tab') return
+      const target = event.currentTarget
+      if (target.selectionStart !== target.selectionEnd || target.selectionStart !== target.value.length) return
+      const currentValue = target.value
+      if (currentValue.trim().startsWith('#')) return
+
+      const slashIndex = currentValue.lastIndexOf('/')
+      const baseDisplay = slashIndex >= 0 ? currentValue.slice(0, slashIndex) : ''
+      const partial = slashIndex >= 0 ? currentValue.slice(slashIndex + 1) : currentValue
+
+      const cleanedBase = baseDisplay.replace(/^\/+|\/+$/g, '')
+      const baseNormalized = cleanedBase.toLowerCase()
+      const candidates = folderIndex.get(baseNormalized) ?? []
+      if (candidates.length === 0) return
+
+      const loweredPartial = partial.toLowerCase()
+      let match =
+        loweredPartial.length === 0
+          ? candidates[0]
+          : candidates.find((candidate) => candidate.normalized.startsWith(loweredPartial))
+
+      if (!match) return
+
+      event.preventDefault()
+      const prefix = slashIndex >= 0 ? `${currentValue.slice(0, slashIndex + 1)}` : ''
+      const nextValue = `${prefix}${match.value}/`
+      setQuery(nextValue)
+    },
+    [folderIndex],
+  )
 
   React.useEffect(() => {
     if (!open) return
@@ -365,6 +423,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
                 autoFocus
                 placeholder="Search documents or #tag..."
                 onValueChange={setQuery}
+                onKeyDown={handleInputKeyDown}
                 className="text-base"
               />
               <CommandList className="flex-1 min-h-0 space-y-4 overflow-y-auto px-3 py-4 max-h-none">
