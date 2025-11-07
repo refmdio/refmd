@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useShortcutRegistry } from '@/shared/contexts/shortcut-context'
 import type { KeyBinding, ShortcutAssignmentMap } from '@/shared/types/shortcuts'
@@ -22,8 +22,15 @@ export function useShortcutSettings() {
   const registry = useShortcutRegistry()
   const [draft, setDraft] = useState<ShortcutAssignmentMap>(() => cloneAssignments(registry.profile.assignments))
   const [saving, setSaving] = useState(false)
+  const hasLocalChangesRef = useRef(false)
 
   const resetDraft = useCallback(() => {
+    hasLocalChangesRef.current = false
+    setDraft(cloneAssignments(registry.profile.assignments))
+  }, [registry.profile.assignments])
+
+  useEffect(() => {
+    if (hasLocalChangesRef.current) return
     setDraft(cloneAssignments(registry.profile.assignments))
   }, [registry.profile.assignments])
 
@@ -31,6 +38,7 @@ export function useShortcutSettings() {
 
   const handleChange = useCallback(
     (actionId: string, binding: KeyBinding | null) => {
+      hasLocalChangesRef.current = true
       setDraft((prev) => {
         const next: ShortcutAssignmentMap = { ...prev }
         const modes = { ...(next[actionId] ?? {}) }
