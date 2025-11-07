@@ -92,11 +92,24 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
 
   useEffect(() => { setMounted(true) }, [])
   useEffect(() => {
+    const listenerOptions = { capture: true } as const
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpenLocal(true) }
+      if (!(e.metaKey || e.ctrlKey)) return
+      if ((e.key ?? '').toLowerCase() !== 'k') return
+
+      const target = e.target as HTMLElement | null
+      if (target) {
+        const tagName = target.tagName
+        const isInputElement = tagName === 'INPUT' || tagName === 'TEXTAREA' || target.isContentEditable
+        const insideMonacoEditor = Boolean(target.closest('.monaco-editor'))
+        if (isInputElement && !insideMonacoEditor) return
+      }
+
+      e.preventDefault()
+      setSearchOpenLocal(true)
     }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    document.addEventListener('keydown', handleKeyDown, listenerOptions)
+    return () => document.removeEventListener('keydown', handleKeyDown, listenerOptions)
   }, [])
   useEffect(() => { setHeaderViewMode(vc.viewMode) }, [vc.viewMode])
   useEffect(() => {
