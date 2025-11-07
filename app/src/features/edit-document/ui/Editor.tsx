@@ -38,6 +38,8 @@ const safeExecute = (scope: string, fn: () => void) => {
   }
 }
 
+import { loadMonacoVim } from '../lib/monaco/vim-loader'
+
 import CursorDisplay from './CursorDisplay'
 import EditorLayout from './EditorLayout'
 import EditorToolbar from './Toolbar'
@@ -105,7 +107,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     if (!editorInstance || !statusBar) return
     disableVimMode()
     try {
-      const { initVimMode } = await import('monaco-vim')
+      const { initVimMode } = await loadMonacoVim()
       statusBar.textContent = ''
       vimModeRef.current = initVimMode(editorInstance, statusBar)
       editorInstance.focus()
