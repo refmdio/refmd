@@ -51,6 +51,7 @@ type ShortcutRegistryValue = {
   formatBinding: (binding: KeyBinding) => string
   registerHandler: (actionId: string, handler: HandlerEntry['handler'], options?: HandlerOptions) => () => void
   saveProfile: (assignments: ShortcutAssignmentMap, leaderKey: string | null) => Promise<void>
+  setDispatchSuspended: (suspended: boolean) => void
 }
 
 const defaultProfile: ShortcutProfileState = {
@@ -66,6 +67,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
   const queryClient = useQueryClient()
   const [profile, setProfile] = useState<ShortcutProfileState>(defaultProfile)
   const [platform, setPlatform] = useState<ShortcutPlatform>('windows')
+  const dispatchSuspendedRef = useRef(false)
 
   useEffect(() => {
     setPlatform(detectPlatform())
@@ -117,6 +119,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
+      if (dispatchSuspendedRef.current) return
       const resolved = resolvedRef.current
       for (const [actionId, bindings] of Object.entries(resolved)) {
         if (!bindings.some((binding) => matchBinding(binding, event))) continue
@@ -198,6 +201,10 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
     [mutation, user?.id],
   )
 
+  const setDispatchSuspended = useCallback((suspended: boolean) => {
+    dispatchSuspendedRef.current = suspended
+  }, [])
+
   const value = useMemo<ShortcutRegistryValue>(
     () => ({
       actions: SHORTCUT_ACTIONS,
@@ -208,6 +215,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
       formatBinding: (binding: KeyBinding) => formatShortcutBinding(binding, platform),
       registerHandler,
       saveProfile,
+      setDispatchSuspended,
     }),
     [
       platform,
@@ -215,6 +223,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
       registerHandler,
       resolvedBindings,
       saveProfile,
+      setDispatchSuspended,
       shortcutsQuery.isFetching,
       shortcutsQuery.isLoading,
     ],

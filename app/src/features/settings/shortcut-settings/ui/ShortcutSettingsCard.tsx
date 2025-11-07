@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import { useShortcutRegistry } from '@/shared/contexts/shortcut-context'
 import { chordFromEvent, resolveBindings } from '@/shared/lib/shortcuts'
 import type { KeyBinding, ShortcutAction } from '@/shared/types/shortcuts'
 import { Badge } from '@/shared/ui/badge'
@@ -17,6 +18,16 @@ type RecorderProps = {
 
 function ShortcutRecorder({ value, onCapture, formatBinding, disabled }: RecorderProps) {
   const [recording, setRecording] = useState(false)
+  const { setDispatchSuspended } = useShortcutRegistry()
+
+  useEffect(() => {
+    setDispatchSuspended(recording)
+    return () => {
+      if (recording) {
+        setDispatchSuspended(false)
+      }
+    }
+  }, [recording, setDispatchSuspended])
 
   useEffect(() => {
     if (!recording) return
@@ -102,7 +113,7 @@ export function ShortcutSettingsCard() {
       result.set(action.category, bucket)
     }
     return result
-  }, [actions, draft])
+  }, [actions, draft, platform])
 
   const handleSave = useCallback(async () => {
     try {

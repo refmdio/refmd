@@ -7,10 +7,11 @@ use uuid::Uuid;
 
 use crate::application::use_cases::user_shortcuts::get_shortcuts::GetUserShortcuts;
 use crate::application::use_cases::user_shortcuts::update_shortcuts::{
-    UpdateUserShortcuts, UpdateUserShortcutsPayload,
+    UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,
 };
 use crate::bootstrap::app_context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
+use tracing::error;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct UserShortcutResponse {
@@ -108,7 +109,13 @@ pub async fn update_user_shortcuts(
             },
         )
         .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+        .map_err(|err| match err {
+            UpdateUserShortcutsError::Validation(_) => StatusCode::BAD_REQUEST,
+            UpdateUserShortcutsError::Storage(inner) => {
+                error!(error = ?inner, "update_user_shortcuts_failed");
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })?;
     Ok(Json(UserShortcutResponse::from(result)))
 }
 
