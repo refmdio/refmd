@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, RegisterData, RegisterResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, InitRepositoryResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestData, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListUserPublicDocumentsData, ListUserPublicDocumentsResponse, GetPublicByOwnerAndIdData, GetPublicByOwnerAndIdResponse, GetPublicContentByOwnerAndIdData, GetPublicContentByOwnerAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, ListTagsData, ListTagsResponse, AxumWsEntryData } from './types.gen';
+import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, RegisterData, RegisterResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, InitRepositoryResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestData, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListUserPublicDocumentsData, ListUserPublicDocumentsResponse, GetPublicByOwnerAndIdData, GetPublicByOwnerAndIdResponse, GetPublicContentByOwnerAndIdData, GetPublicContentByOwnerAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, ListTagsData, ListTagsResponse, AxumWsEntryData } from './types.gen';
 
 /**
  * @param data The data for the request.
@@ -815,6 +815,32 @@ export const sseUpdates = (): CancelablePromise<SseUpdatesResponse> => {
     return __request(OpenAPI, {
         method: 'GET',
         url: '/api/me/plugins/updates'
+    });
+};
+
+/**
+ * @returns UserShortcutResponse
+ * @throws ApiError
+ */
+export const getUserShortcuts = (): CancelablePromise<GetUserShortcutsResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/me/shortcuts'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserShortcutResponse
+ * @throws ApiError
+ */
+export const updateUserShortcuts = (data: UpdateUserShortcutsData): CancelablePromise<UpdateUserShortcutsResponse> => {
+    return __request(OpenAPI, {
+        method: 'PUT',
+        url: '/api/me/shortcuts',
+        body: data.requestBody,
+        mediaType: 'application/json'
     });
 };
 

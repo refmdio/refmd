@@ -60,6 +60,12 @@ function SidebarUserMenu() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
+          <Link to="/settings">
+            <Settings className={cn('mr-2', userMenuIconClass)} />
+            <span>Settings</span>
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
           <Link to="/visibility">
             <Eye className={cn('mr-2', userMenuIconClass)} />
             <span>Visibility</span>

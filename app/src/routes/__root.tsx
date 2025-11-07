@@ -5,6 +5,7 @@ import { type ReactNode } from 'react'
 import '@/styles.css'
 
 import { ShareTokenProvider } from '@/shared/contexts/share-token-context'
+import { ShortcutRegistryProvider } from '@/shared/contexts/shortcut-context'
 import { ThemeProvider } from '@/shared/contexts/theme-context'
 import { getEnv } from '@/shared/lib/config'
 import { Toaster } from '@/shared/ui/sonner'
@@ -112,14 +113,16 @@ function RootComponent() {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <RealtimeProvider>
-            <SecondaryViewerProvider>
-              <ShareTokenProvider token={shareToken}>
-                <LayoutContent layout={layout} />
-              </ShareTokenProvider>
-              <Toaster richColors position="bottom-right" />
-            </SecondaryViewerProvider>
-          </RealtimeProvider>
+          <ShortcutRegistryProvider>
+            <RealtimeProvider>
+              <SecondaryViewerProvider>
+                <ShareTokenProvider token={shareToken}>
+                  <LayoutContent layout={layout} />
+                </ShareTokenProvider>
+                <Toaster richColors position="bottom-right" />
+              </SecondaryViewerProvider>
+            </RealtimeProvider>
+          </ShortcutRegistryProvider>
         </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>

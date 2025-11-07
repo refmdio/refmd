@@ -9,6 +9,7 @@ import * as Y from 'yjs'
 
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
+import { useShortcut } from '@/shared/hooks/use-shortcut'
 import type { ViewMode } from '@/shared/types/view-mode'
 
 import { listDocuments } from '@/entities/document'
@@ -393,6 +394,17 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       readOnly={readOnly}
     />
   ), [handleToolbarCommand, view, syncScroll, isVimMode, toggleVim, handleFileUpload, readOnly])
+
+  const shortcutToggleSync = useCallback(() => {
+    setSyncScroll((value) => !value)
+  }, [])
+  const shortcutToggleVim = useCallback(() => {
+    void toggleVim()
+  }, [toggleVim])
+
+  useShortcut('editor.sync-scroll.toggle', shortcutToggleSync)
+  useShortcut('editor.vim.toggle', shortcutToggleVim)
+  useShortcut('editor.upload.trigger', handleFileUpload)
 
   const onPreviewNavigate = useCallback(async (target: string) => {
     const uuidRe = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/

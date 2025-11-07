@@ -1,11 +1,13 @@
+import { useNavigate } from '@tanstack/react-router'
 import { Columns, Eye, FileCode, Link2, Menu, Moon, Search, Share2, Sun } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
 
 import { useTheme } from '@/shared/contexts/theme-context'
+import { useShortcut } from '@/shared/hooks/use-shortcut'
 import { cn } from '@/shared/lib/utils'
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
-import { SidebarTrigger } from '@/shared/ui/sidebar'
+import { SidebarTrigger, useSidebar } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { useAuthContext } from '@/features/auth'
@@ -56,6 +58,8 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const rt = realtime ?? defaultRealtimeState
   const vc = useViewController()
   const { editor } = useEditorContext()
+  const { toggleSidebar } = useSidebar()
+  const navigate = useNavigate()
   const [mounted, setMounted] = useState(false)
   const [searchOpenLocal, setSearchOpenLocal] = useState(false)
   const [searchPresetTag, setSearchPresetTag] = useState<string | null>(null)
@@ -91,26 +95,54 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const iconClass = 'h-[18px] w-[18px]'
 
   useEffect(() => { setMounted(true) }, [])
-  useEffect(() => {
-    const listenerOptions = { capture: true } as const
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return
-      if ((e.key ?? '').toLowerCase() !== 'k') return
-
-      const target = e.target as HTMLElement | null
-      if (target) {
-        const tagName = target.tagName
-        const isInputElement = tagName === 'INPUT' || tagName === 'TEXTAREA' || target.isContentEditable
-        const insideMonacoEditor = Boolean(target.closest('.monaco-editor'))
-        if (isInputElement && !insideMonacoEditor) return
-      }
-
-      e.preventDefault()
-      setSearchOpenLocal(true)
-    }
-    document.addEventListener('keydown', handleKeyDown, listenerOptions)
-    return () => document.removeEventListener('keydown', handleKeyDown, listenerOptions)
-  }, [])
+  useShortcut(
+    'global.search.open',
+    useCallback(
+      (event) => {
+        const target = event.target as HTMLElement | null
+        if (target) {
+          const tagName = target.tagName
+          const isInputElement = tagName === 'INPUT' || tagName === 'TEXTAREA' || target.isContentEditable
+          const insideMonacoEditor = Boolean(target.closest('.monaco-editor'))
+          if (isInputElement && !insideMonacoEditor) {
+            return
+          }
+        }
+        setSearchOpenLocal(true)
+      },
+      [setSearchOpenLocal],
+    ),
+  )
+  useShortcut(
+    'global.settings.open',
+    useCallback(() => {
+      navigate({ to: '/settings' })
+    }, [navigate]),
+  )
+  useShortcut(
+    'global.profile.open',
+    useCallback(() => {
+      navigate({ to: '/profile' })
+    }, [navigate]),
+  )
+  useShortcut(
+    'global.plugins.open',
+    useCallback(() => {
+      navigate({ to: '/plugins' })
+    }, [navigate]),
+  )
+  useShortcut(
+    'global.theme.toggle',
+    useCallback(() => {
+      toggleTheme()
+    }, [toggleTheme]),
+  )
+  useShortcut(
+    'global.sidebar.toggle',
+    useCallback(() => {
+      toggleSidebar()
+    }, [toggleSidebar]),
+  )
   useEffect(() => { setHeaderViewMode(vc.viewMode) }, [vc.viewMode])
   useEffect(() => {
     setSearchPresetTag(vc.searchPresetTag)

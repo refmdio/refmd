@@ -442,6 +442,13 @@ export type UpdateRecordBody = {
     patch: unknown;
 };
 
+export type UpdateUserShortcutRequest = {
+    bindings?: {
+        [key: string]: unknown;
+    };
+    leader_key?: (string) | null;
+};
+
 export type UploadFileMultipart = {
     /**
      * Target document ID
@@ -465,6 +472,14 @@ export type UserResponse = {
     email: string;
     id: string;
     name: string;
+};
+
+export type UserShortcutResponse = {
+    bindings: {
+        [key: string]: unknown;
+    };
+    leader_key?: (string) | null;
+    updated_at?: (string) | null;
 };
 
 export type LoginData = {
@@ -859,6 +874,14 @@ export type PluginsUninstallData = {
 export type PluginsUninstallResponse = (void);
 
 export type SseUpdatesResponse = (unknown);
+
+export type GetUserShortcutsResponse = (UserShortcutResponse);
+
+export type UpdateUserShortcutsData = {
+    requestBody: UpdateUserShortcutRequest;
+};
+
+export type UpdateUserShortcutsResponse = (UserShortcutResponse);
 
 export type PluginsGetKvData = {
     /**

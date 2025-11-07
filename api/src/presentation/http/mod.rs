@@ -8,4 +8,5 @@ pub mod markdown;
 pub mod plugins;
 pub mod public;
 pub mod shares;
+pub mod shortcuts;
 pub mod tags;
