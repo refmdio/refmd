@@ -18,9 +18,21 @@ declare module 'monaco-vim' {
     dispose(): void
   }
 
+  export interface RegisterController {
+    pushText(
+      registerName: string | undefined,
+      operator: string | undefined,
+      text: string,
+      linewise?: boolean,
+      blockwise?: boolean,
+    ): void
+  }
+
   export interface CodeMirrorShim {
     Vim?: {
       defineMotion: (name: string, fn: (...args: any[]) => any) => void
+      getRegisterController?: () => RegisterController | undefined
+      resetVimGlobalState_?: () => void
     }
   }
 

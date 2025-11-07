@@ -4,6 +4,7 @@ import { ArrowRight, Copy, Globe, Key, Mail, Shield, Trash2, Users } from 'lucid
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 
+import { createApiToken, listApiTokens, revokeApiToken } from '@/shared/api'
 import { Avatar, AvatarFallback } from '@/shared/ui/avatar'
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
@@ -12,7 +13,6 @@ import ConfirmDialog from '@/shared/ui/confirm-dialog'
 import { Input } from '@/shared/ui/input'
 
 import { appBeforeLoadGuard, useAuthContext } from '@/features/auth'
-import { createApiToken, listApiTokens, revokeApiToken } from '@/shared/api'
 
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'

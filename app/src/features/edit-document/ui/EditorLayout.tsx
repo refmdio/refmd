@@ -2,11 +2,12 @@ import { AlertTriangle, Check, Loader2, SlidersHorizontal, X } from 'lucide-reac
 import type * as monacoNs from 'monaco-editor'
 import { useCallback, useMemo, type CSSProperties, type ReactNode, type MutableRefObject } from 'react'
 
-import type { UploadStatus } from '@/features/edit-document/hooks/useEditorUploads'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import type { ViewMode } from '@/shared/types/view-mode'
 import { Button } from '@/shared/ui/button'
+
+import type { UploadStatus } from '@/features/edit-document/hooks/useEditorUploads'
 
 import EditorPane from './EditorPane'
 import PreviewPane from './PreviewPane'

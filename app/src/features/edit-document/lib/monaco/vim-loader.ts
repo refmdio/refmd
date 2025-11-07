@@ -1,4 +1,5 @@
 import type * as monacoNs from 'monaco-editor'
+import type { CodeMirrorShim, RegisterController } from 'monaco-vim'
 
 type MonacoVimModule = typeof import('monaco-vim')
 
@@ -38,6 +39,49 @@ const toModelPosition = (pos: { line: number; ch: number }) => ({
   lineNumber: pos.line + 1,
   column: pos.ch + 1,
 })
+
+type PatchedRegisterController = RegisterController & { __clipboardHooked?: boolean }
+type ResetFn = ((...args: unknown[]) => void) & { __clipboardWrapped?: boolean }
+
+const maybeCopyToSystemClipboard = (operator?: string, text?: string) => {
+  if (operator !== 'yank') return
+  if (!text) return
+  if (typeof navigator === 'undefined') return
+  const clipboard = navigator.clipboard
+  if (!clipboard?.writeText) return
+  void clipboard.writeText(text).catch(() => {})
+}
+
+const patchRegisterClipboardSync = (vimApi: CodeMirrorShim['Vim']) => {
+  if (!vimApi?.getRegisterController) return
+  const controller = vimApi.getRegisterController() as PatchedRegisterController | undefined
+  if (!controller || controller.__clipboardHooked) return
+  const originalPushText = controller.pushText.bind(controller)
+  controller.pushText = function patchedPushText(registerName, operator, text, linewise, blockwise) {
+    maybeCopyToSystemClipboard(operator, text)
+    return originalPushText(registerName, operator, text, linewise, blockwise)
+  }
+  controller.__clipboardHooked = true
+}
+
+const patchResetForClipboard = (vimApi: CodeMirrorShim['Vim']) => {
+  if (!vimApi) return
+  const api = vimApi as NonNullable<CodeMirrorShim['Vim']>
+  const reset = api.resetVimGlobalState_ as ResetFn | undefined
+  if (!reset || reset.__clipboardWrapped) return
+  const wrapped: ResetFn = function wrappedReset(this: unknown, ...args: unknown[]) {
+    reset.apply(this, args)
+    patchRegisterClipboardSync(api)
+  }
+  wrapped.__clipboardWrapped = true
+  api.resetVimGlobalState_ = wrapped as NonNullable<CodeMirrorShim['Vim']>['resetVimGlobalState_']
+}
+
+const setupClipboardSync = (vimApi: CodeMirrorShim['Vim']) => {
+  if (!vimApi) return
+  patchRegisterClipboardSync(vimApi)
+  patchResetForClipboard(vimApi)
+}
 
 const patchDisplayLineMotion = (module: MonacoVimModule) => {
   if (vimPatched) return
@@ -100,6 +144,7 @@ const patchDisplayLineMotion = (module: MonacoVimModule) => {
     return candidate
   })
 
+  setupClipboardSync(vimApi)
   vimPatched = true
 }
 
