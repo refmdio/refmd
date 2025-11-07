@@ -110,7 +110,7 @@ export default function GitHistoryDialog({ open, onOpenChange }: Props) {
   }
 
   const historyListContent = (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full w-full flex-col">
       <div className="flex items-center justify-between border-b px-4 py-2">
         <h3 className="text-sm font-medium">Commits</h3>
         <Button
@@ -165,7 +165,7 @@ export default function GitHistoryDialog({ open, onOpenChange }: Props) {
   )
 
   const detailContent = (
-    <div className="flex h-full min-w-0 flex-col">
+    <div className="flex h-full w-full min-w-0 flex-col">
       <div className="flex items-center justify-between border-b p-4">
         <div>
           <h3 className="mb-1 text-lg font-semibold">Commit {selectedCommit?.hash?.slice(0, 7) ?? ''}</h3>
@@ -279,9 +279,9 @@ export default function GitHistoryDialog({ open, onOpenChange }: Props) {
                   )}
                 </div>
               ) : (
-                <div className="flex h-full min-w-0 flex-row">
-                  <div className="w-[30%] min-w-[240px] max-w-[360px] border-r">{historyListContent}</div>
-                  <div className="flex h-full flex-1 flex-col">{detailContent}</div>
+                <div className="grid h-full w-full min-w-0 grid-cols-[minmax(240px,360px)_1fr]">
+                  <div className="border-r">{historyListContent}</div>
+                  <div className="flex h-full min-w-0 flex-col">{detailContent}</div>
                 </div>
               )}
             </div>
