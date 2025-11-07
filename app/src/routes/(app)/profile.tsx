@@ -88,6 +88,7 @@ function ProfilePage() {
   }, [])
 
   const tokens = tokensQuery.data ?? []
+  const activeTokens = tokens.filter((token) => !token.revoked_at)
 
   const handleCopyToken = useCallback((value: string) => {
     if (!value) return
@@ -265,11 +266,11 @@ function ProfilePage() {
                   </div>
                   {tokensQuery.isError ? (
                     <p className="text-sm text-destructive">Failed to load tokens. Please try again.</p>
-                  ) : tokens.length === 0 ? (
+                  ) : activeTokens.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No API tokens yet.</p>
                   ) : (
                     <ul className="space-y-2">
-                      {tokens.map((token) => (
+                      {activeTokens.map((token) => (
                         <li
                           key={token.id}
                           className="flex flex-col gap-2 rounded-md border border-border/70 p-3 sm:flex-row sm:items-center sm:justify-between"
