@@ -24,6 +24,7 @@ use crate::application::ports::shares_repository::SharesRepository;
 use crate::application::ports::storage_port::StoragePort;
 use crate::application::ports::tag_repository::TagRepository;
 use crate::application::ports::user_repository::UserRepository;
+use crate::application::ports::user_shortcut_repository::UserShortcutRepository;
 use crate::application::services::plugins::asset_signer::AssetSigner;
 use crate::application::services::realtime::snapshot::SnapshotService;
 use crate::bootstrap::config::Config;
@@ -48,6 +49,7 @@ pub struct AppServices {
     user_repo: Arc<dyn UserRepository>,
     tag_repo: Arc<dyn TagRepository>,
     api_token_repo: Arc<dyn ApiTokenRepository>,
+    user_shortcuts: Arc<dyn UserShortcutRepository>,
     git_repo: Arc<dyn GitRepository>,
     git_storage: Arc<dyn GitStorage>,
     gitignore_port: Arc<dyn GitignorePort>,
@@ -79,6 +81,7 @@ impl AppServices {
         user_repo: Arc<dyn UserRepository>,
         tag_repo: Arc<dyn TagRepository>,
         api_token_repo: Arc<dyn ApiTokenRepository>,
+        user_shortcuts: Arc<dyn UserShortcutRepository>,
         git_repo: Arc<dyn GitRepository>,
         git_storage: Arc<dyn GitStorage>,
         gitignore_port: Arc<dyn GitignorePort>,
@@ -107,6 +110,7 @@ impl AppServices {
             user_repo,
             tag_repo,
             api_token_repo,
+            user_shortcuts,
             git_repo,
             git_storage,
             gitignore_port,
@@ -170,6 +174,10 @@ impl AppContext {
 
     pub fn api_token_repo(&self) -> Arc<dyn ApiTokenRepository> {
         self.services.api_token_repo.clone()
+    }
+
+    pub fn user_shortcuts(&self) -> Arc<dyn UserShortcutRepository> {
+        self.services.user_shortcuts.clone()
     }
 
     pub fn git_repo(&self) -> Arc<dyn GitRepository> {

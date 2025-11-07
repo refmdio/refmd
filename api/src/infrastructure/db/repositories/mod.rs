@@ -12,3 +12,4 @@ pub mod shares_repository_sqlx;
 pub mod tag_repository_sqlx;
 pub mod tagging_repository_sqlx;
 pub mod user_repository_sqlx;
+pub mod user_shortcut_repository_sqlx;

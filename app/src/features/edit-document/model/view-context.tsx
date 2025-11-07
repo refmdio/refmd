@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
+import { useShortcut } from '@/shared/hooks/use-shortcut'
 import type { ViewMode } from '@/shared/types/view-mode'
 
 type Ctx = {
@@ -38,6 +39,34 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('refmd:open-search', handler as EventListener)
     return () => { window.removeEventListener('refmd:open-search', handler as EventListener) }
   }, [openSearch])
+
+  useShortcut(
+    'view.mode.editor',
+    useCallback(() => {
+      setViewMode('editor')
+    }, [setViewMode]),
+  )
+
+  useShortcut(
+    'view.mode.split',
+    useCallback(() => {
+      setViewMode('split')
+    }, [setViewMode]),
+  )
+
+  useShortcut(
+    'view.mode.preview',
+    useCallback(() => {
+      setViewMode('preview')
+    }, [setViewMode]),
+  )
+
+  useShortcut(
+    'view.backlinks.toggle',
+    useCallback(() => {
+      toggleBacklinks()
+    }, [toggleBacklinks]),
+  )
 
   const value = useMemo<Ctx>(() => ({
     viewMode,

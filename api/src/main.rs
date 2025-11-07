@@ -35,6 +35,8 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::api_tokens::list_api_tokens,
             api::presentation::http::api_tokens::create_api_token,
             api::presentation::http::api_tokens::revoke_api_token,
+            api::presentation::http::shortcuts::get_user_shortcuts,
+            api::presentation::http::shortcuts::update_user_shortcuts,
             api::presentation::http::tags::list_tags,
             api::presentation::ws::axum_ws_entry,
             api::presentation::http::documents::list_documents,
@@ -163,6 +165,8 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::plugins::InstallResponse,
             api::presentation::http::plugins::UninstallBody,
             api::presentation::http::health::HealthResp,
+            api::presentation::http::shortcuts::UserShortcutResponse,
+            api::presentation::http::shortcuts::UpdateUserShortcutRequest,
         )),
         tags(
             (name = "Auth", description = "Authentication"),
@@ -264,6 +268,11 @@ async fn main() -> anyhow::Result<()> {
     );
     let api_token_repo = Arc::new(
         api::infrastructure::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository::new(
+            pool.clone(),
+        ),
+    );
+    let user_shortcuts = Arc::new(
+        api::infrastructure::db::repositories::user_shortcut_repository_sqlx::SqlxUserShortcutRepository::new(
             pool.clone(),
         ),
     );
@@ -420,6 +429,7 @@ async fn main() -> anyhow::Result<()> {
         user_repo,
         tag_repo,
         api_token_repo,
+        user_shortcuts,
         git_repo,
         git_storage,
         gitignore_port,
@@ -543,6 +553,10 @@ async fn main() -> anyhow::Result<()> {
         .nest(
             "/api",
             api::presentation::http::api_tokens::routes(ctx.clone()),
+        )
+        .nest(
+            "/api",
+            api::presentation::http::shortcuts::routes(ctx.clone()),
         )
         .nest(
             "/api/public",

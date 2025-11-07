@@ -7,3 +7,4 @@ pub mod plugins;
 pub mod public;
 pub mod shares;
 pub mod tags;
+pub mod user_shortcuts;

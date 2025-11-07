@@ -1,6 +1,7 @@
 use api::presentation::{
     http::{
-        api_tokens, auth, documents, files, git, health, markdown, plugins, public, shares, tags,
+        api_tokens, auth, documents, files, git, health, markdown, plugins, public, shares,
+        shortcuts, tags,
     },
     ws,
 };
@@ -16,6 +17,8 @@ use utoipa::OpenApi;
         api_tokens::list_api_tokens,
         api_tokens::create_api_token,
         api_tokens::revoke_api_token,
+        shortcuts::get_user_shortcuts,
+        shortcuts::update_user_shortcuts,
         auth::delete_account,
         ws::axum_ws_entry,
         tags::list_tags,
@@ -92,6 +95,8 @@ use utoipa::OpenApi;
         api_tokens::ApiTokenItem,
         api_tokens::ApiTokenCreateRequest,
         api_tokens::ApiTokenCreateResponse,
+        shortcuts::UserShortcutResponse,
+        shortcuts::UpdateUserShortcutRequest,
         tags::TagItem,
         documents::Document,
         documents::DocumentListResponse,

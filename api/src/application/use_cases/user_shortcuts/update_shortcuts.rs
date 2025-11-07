@@ -1,0 +1,70 @@
+use anyhow::Context;
+use serde_json::{Map, Value};
+use thiserror::Error;
+use uuid::Uuid;
+
+use crate::application::ports::user_shortcut_repository::{
+    UserShortcutProfile, UserShortcutRepository,
+};
+
+#[derive(Debug, Error)]
+pub enum UpdateUserShortcutsError {
+    #[error("{0}")]
+    Validation(String),
+    #[error("{0}")]
+    Storage(#[from] anyhow::Error),
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateUserShortcutsPayload {
+    pub bindings: Value,
+    pub leader_key: Option<String>,
+}
+
+pub struct UpdateUserShortcuts<'a, R: UserShortcutRepository + ?Sized> {
+    pub repo: &'a R,
+    pub max_payload_bytes: usize,
+}
+
+impl<'a, R> UpdateUserShortcuts<'a, R>
+where
+    R: UserShortcutRepository + ?Sized,
+{
+    pub async fn execute(
+        &self,
+        user_id: Uuid,
+        payload: UpdateUserShortcutsPayload,
+    ) -> Result<UserShortcutProfile, UpdateUserShortcutsError> {
+        let bindings = match payload.bindings {
+            Value::Object(map) => Value::Object(map),
+            Value::Null => Value::Object(Map::new()),
+            _ => {
+                return Err(UpdateUserShortcutsError::Validation(
+                    "bindings must be a JSON object".into(),
+                ));
+            }
+        };
+
+        if let Some(ref leader) = payload.leader_key {
+            if leader.len() > 16 {
+                return Err(UpdateUserShortcutsError::Validation(
+                    "leader key is too long".into(),
+                ));
+            }
+        }
+
+        let encoded = serde_json::to_vec(&bindings)
+            .context("serialize bindings")
+            .map_err(UpdateUserShortcutsError::Storage)?;
+        if encoded.len() > self.max_payload_bytes {
+            return Err(UpdateUserShortcutsError::Validation(
+                "bindings payload too large".into(),
+            ));
+        }
+
+        self.repo
+            .upsert(user_id, bindings, payload.leader_key)
+            .await
+            .map_err(UpdateUserShortcutsError::Storage)
+    }
+}
