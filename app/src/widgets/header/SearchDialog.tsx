@@ -140,7 +140,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       active = false
       clearTimeout(handle)
     }
-  }, [open, docQuery, selectedTag, serverQuery])
+  }, [open, selectedTag, serverQuery])
 
   const folderIndex = React.useMemo(() => {
     const index = new Map<string, Array<{ normalized: string; value: string }>>()
