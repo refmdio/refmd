@@ -51,7 +51,7 @@ type ShortcutRegistryValue = {
   formatBinding: (binding: KeyBinding) => string
   registerHandler: (actionId: string, handler: HandlerEntry['handler'], options?: HandlerOptions) => () => void
   saveProfile: (assignments: ShortcutAssignmentMap, leaderKey: string | null) => Promise<void>
-  setDispatchSuspended: (suspended: boolean) => void
+  suspendDispatch: () => () => void
 }
 
 const defaultProfile: ShortcutProfileState = {
@@ -67,7 +67,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
   const queryClient = useQueryClient()
   const [profile, setProfile] = useState<ShortcutProfileState>(defaultProfile)
   const [platform, setPlatform] = useState<ShortcutPlatform>('windows')
-  const dispatchSuspendedRef = useRef(false)
+  const dispatchSuspendedCountRef = useRef(0)
 
   useEffect(() => {
     setPlatform(detectPlatform())
@@ -119,7 +119,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
-      if (dispatchSuspendedRef.current) return
+      if (dispatchSuspendedCountRef.current > 0) return
       const resolved = resolvedRef.current
       for (const [actionId, bindings] of Object.entries(resolved)) {
         if (!bindings.some((binding) => matchBinding(binding, event))) continue
@@ -201,8 +201,14 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
     [mutation, user?.id],
   )
 
-  const setDispatchSuspended = useCallback((suspended: boolean) => {
-    dispatchSuspendedRef.current = suspended
+  const suspendDispatch = useCallback(() => {
+    dispatchSuspendedCountRef.current += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      dispatchSuspendedCountRef.current = Math.max(0, dispatchSuspendedCountRef.current - 1)
+    }
   }, [])
 
   const value = useMemo<ShortcutRegistryValue>(
@@ -215,7 +221,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
       formatBinding: (binding: KeyBinding) => formatShortcutBinding(binding, platform),
       registerHandler,
       saveProfile,
-      setDispatchSuspended,
+      suspendDispatch,
     }),
     [
       platform,
@@ -223,7 +229,7 @@ export function ShortcutRegistryProvider({ children }: { children: React.ReactNo
       registerHandler,
       resolvedBindings,
       saveProfile,
-      setDispatchSuspended,
+      suspendDispatch,
       shortcutsQuery.isFetching,
       shortcutsQuery.isLoading,
     ],

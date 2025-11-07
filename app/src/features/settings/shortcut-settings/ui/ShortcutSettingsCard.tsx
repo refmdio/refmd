@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useShortcutRegistry } from '@/shared/contexts/shortcut-context'
@@ -18,16 +18,24 @@ type RecorderProps = {
 
 function ShortcutRecorder({ value, onCapture, formatBinding, disabled }: RecorderProps) {
   const [recording, setRecording] = useState(false)
-  const { setDispatchSuspended } = useShortcutRegistry()
+  const { suspendDispatch } = useShortcutRegistry()
+  const releaseSuspensionRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
-    setDispatchSuspended(recording)
+    if (recording && !releaseSuspensionRef.current) {
+      releaseSuspensionRef.current = suspendDispatch()
+    } else if (!recording && releaseSuspensionRef.current) {
+      releaseSuspensionRef.current()
+      releaseSuspensionRef.current = null
+    }
+
     return () => {
-      if (recording) {
-        setDispatchSuspended(false)
+      if (releaseSuspensionRef.current) {
+        releaseSuspensionRef.current()
+        releaseSuspensionRef.current = null
       }
     }
-  }, [recording, setDispatchSuspended])
+  }, [recording, suspendDispatch])
 
   useEffect(() => {
     if (!recording) return
