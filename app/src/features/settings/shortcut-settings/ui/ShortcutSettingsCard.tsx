@@ -109,7 +109,18 @@ function ShortcutRow({ action, binding, customized, onChange, formatBinding, dis
 }
 
 export function ShortcutSettingsCard() {
-  const { actions, platform, formatBinding, draft, dirty, saving, handleBindingChange, resetDraft, save } = useShortcutSettings()
+  const {
+    actions,
+    platform,
+    formatBinding,
+    draft,
+    dirty,
+    saving,
+    handleBindingChange,
+    resetDraft,
+    resetToDefaults,
+    save,
+  } = useShortcutSettings()
 
   const grouped = useMemo(() => {
     const result = new Map<string, Array<{ action: ShortcutAction; binding: KeyBinding | null; customized: boolean }>>()
@@ -158,6 +169,9 @@ export function ShortcutSettingsCard() {
       ))}
 
       <div className="flex flex-wrap justify-end gap-2 pt-2">
+        <Button type="button" variant="destructive" onClick={resetToDefaults} disabled={saving}>
+          Reset to defaults
+        </Button>
         <Button type="button" variant="ghost" onClick={resetDraft} disabled={!dirty || saving}>
           Discard
         </Button>

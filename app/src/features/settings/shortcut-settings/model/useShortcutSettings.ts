@@ -59,6 +59,11 @@ export function useShortcutSettings() {
     [],
   )
 
+  const resetToDefaults = useCallback(() => {
+    hasLocalChangesRef.current = true
+    setDraft({})
+  }, [])
+
   const save = useCallback(async () => {
     setSaving(true)
     try {
@@ -78,6 +83,7 @@ export function useShortcutSettings() {
     saving,
     handleBindingChange: handleChange,
     resetDraft,
+    resetToDefaults,
     save,
   }
 }
