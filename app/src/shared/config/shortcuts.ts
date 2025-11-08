@@ -62,6 +62,18 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: 'global.temporary.open',
+    label: 'Open temporary document',
+    description: 'Jump to the local-only scratchpad',
+    category: 'Navigation',
+    scope: 'global',
+    allowInInputs: true,
+    default: {
+      mac: [chord('t', { meta: true, shift: true })],
+      windows: [chord('t', { ctrl: true, shift: true })],
+    },
+  },
+  {
     id: 'global.sidebar.toggle',
     label: 'Toggle sidebar',
     description: 'Collapse or expand the workspace sidebar',

@@ -132,6 +132,12 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     }, [navigate]),
   )
   useShortcut(
+    'global.temporary.open',
+    useCallback(() => {
+      navigate({ to: '/temporary' })
+    }, [navigate]),
+  )
+  useShortcut(
     'global.theme.toggle',
     useCallback(() => {
       toggleTheme()

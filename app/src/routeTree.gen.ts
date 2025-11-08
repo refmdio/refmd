@@ -15,6 +15,7 @@ import { Route as appSettingsRouteImport } from './routes/(app)/settings'
 import { Route as appProfileRouteImport } from './routes/(app)/profile'
 import { Route as appPluginsRouteImport } from './routes/(app)/plugins'
 import { Route as appDashboardRouteImport } from './routes/(app)/dashboard'
+import { Route as appTemporaryRouteImport } from './routes/(app)/temporary'
 import { Route as appVisibilityIndexRouteImport } from './routes/(app)/visibility/index'
 import { Route as shareShareTokenRouteImport } from './routes/(share)/share/$token'
 import { Route as authAuthSignupRouteImport } from './routes/(auth)/auth/signup'
@@ -51,6 +52,11 @@ const appPluginsRoute = appPluginsRouteImport.update({
 const appDashboardRoute = appDashboardRouteImport.update({
   id: '/(app)/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appTemporaryRoute = appTemporaryRouteImport.update({
+  id: '/(app)/temporary',
+  path: '/temporary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const appVisibilityIndexRoute = appVisibilityIndexRouteImport.update({
@@ -92,6 +98,7 @@ const publicUNameIdRoute = publicUNameIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof appDashboardRoute
+  '/temporary': typeof appTemporaryRoute
   '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof appDashboardRoute
+  '/temporary': typeof appTemporaryRoute
   '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsRoute
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/(app)/dashboard': typeof appDashboardRoute
+  '/(app)/temporary': typeof appTemporaryRoute
   '/(app)/plugins': typeof appPluginsRoute
   '/(app)/profile': typeof appProfileRoute
   '/(app)/settings': typeof appSettingsRoute
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
+    | '/temporary'
     | '/plugins'
     | '/profile'
     | '/settings'
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/dashboard'
+    | '/temporary'
     | '/plugins'
     | '/profile'
     | '/settings'
@@ -170,6 +181,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/(app)/dashboard'
+    | '/(app)/temporary'
     | '/(app)/plugins'
     | '/(app)/profile'
     | '/(app)/settings'
@@ -186,6 +198,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   appDashboardRoute: typeof appDashboardRoute
+  appTemporaryRoute: typeof appTemporaryRoute
   appPluginsRoute: typeof appPluginsRoute
   appProfileRoute: typeof appProfileRoute
   appSettingsRoute: typeof appSettingsRoute
@@ -243,6 +256,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof appDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/(app)/temporary': {
+      id: '/(app)/temporary'
+      path: '/temporary'
+      fullPath: '/temporary'
+      preLoaderRoute: typeof appTemporaryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/(app)/visibility/': {
       id: '/(app)/visibility/'
       path: '/visibility'
@@ -298,6 +318,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   appDashboardRoute: appDashboardRoute,
+  appTemporaryRoute: appTemporaryRoute,
   appPluginsRoute: appPluginsRoute,
   appProfileRoute: appProfileRoute,
   appSettingsRoute: appSettingsRoute,

@@ -1,6 +1,6 @@
 import { Link, useRouter, useRouterState } from '@tanstack/react-router'
 import { Archive, Blocks, Eye, FileText, Github, LogOut, Settings, Users, ChevronDown, ChevronRight } from 'lucide-react'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -19,6 +19,7 @@ import {
   type DocumentNode,
 } from '@/features/file-tree'
 import { GitSyncButton } from '@/features/git-sync'
+import { TEMPORARY_DOCUMENT_META_KEY } from '@/features/temporary-document'
 
 import FileNode from '@/widgets/sidebar/FileNode'
 import FileTreeActions from '@/widgets/sidebar/FileTreeActions'
@@ -126,6 +127,34 @@ function FileTreeInner() {
   const isShare = shareToken.length > 0
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [docPickerOpen, setDocPickerOpen] = useState(false)
+  const [tempDialogOpen, setTempDialogOpen] = useState(false)
+  const [temporaryEntries, setTemporaryEntries] = useState<TempEntry[]>([])
+  const openTemporaryDocument = useCallback(() => {
+    router.navigate({ to: '/temporary' })
+  }, [router])
+  const refreshTempEntries = useCallback(() => {
+    if (typeof window === 'undefined') return [] as TempEntry[]
+    try {
+      const raw = window.localStorage.getItem(TEMPORARY_DOCUMENT_META_KEY)
+      if (!raw) return []
+      const parsed = JSON.parse(raw) as Partial<TempEntry> & { updatedAt?: number }
+      if (!parsed?.updatedAt) return []
+      return [
+        {
+          id: 'local-temp',
+          updatedAt: parsed.updatedAt,
+          preview: parsed.preview ?? '',
+          length: typeof parsed.length === 'number' ? parsed.length : undefined,
+        },
+      ]
+    } catch {
+      return []
+    }
+  }, [])
+  const openTempList = useCallback(() => {
+    setTemporaryEntries(refreshTempEntries())
+    setTempDialogOpen(true)
+  }, [refreshTempEntries])
   const docPickerPromiseRef = React.useRef<((value: string | null) => void) | null>(null)
   const hasActiveDocuments = documents.length > 0
   const hasArchivedDocuments = archivedDocuments.length > 0
@@ -285,22 +314,23 @@ function FileTreeInner() {
     <div className="flex h-full flex-1 flex-col">
       <div className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-border/50 bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <SidebarHeader className="gap-0 border-b border-border/50 px-4 pb-3 pt-4">
-          <div className="flex items-center justify-between">
+          {isShare ? (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">{isShare ? 'Shared' : 'Workspace'}</p>
-              <h2 className="text-lg font-semibold text-foreground">{isShare ? 'Shared Library' : 'Files'}</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Shared</p>
+              <h2 className="text-lg font-semibold text-foreground">Shared Library</h2>
             </div>
-            {!isShare && (
-              <div className="flex items-center gap-2">
-                <FileTreeActions
-                  onCreateDocument={() => createDocument(null)}
-                  onCreateFolder={() => createFolder(null)}
-                  pluginCommands={pluginMenu}
-                  trailing={<GitSyncButton compact />}
-                />
-              </div>
-            )}
-          </div>
+          ) : (
+            <div className="flex w-full flex-col items-center gap-3">
+              <FileTreeActions
+                className="flex flex-wrap items-center justify-center gap-3"
+                onCreateDocument={() => createDocument(null)}
+                onCreateFolder={() => createFolder(null)}
+                pluginCommands={pluginMenu}
+                trailing={<GitSyncButton compact />}
+                temporaryActions={{ onCreate: openTemporaryDocument, onShowList: openTempList }}
+              />
+            </div>
+          )}
         </SidebarHeader>
 
         <SidebarContent
@@ -399,6 +429,13 @@ function FileTreeInner() {
         onCancel={() => closeDocumentPicker(null)}
         onSelect={(id) => closeDocumentPicker(id)}
       />
+
+      <TemporaryScratchpadDialog
+        open={tempDialogOpen}
+        onOpenChange={setTempDialogOpen}
+        entries={temporaryEntries}
+        onOpenTemporary={openTemporaryDocument}
+      />
     </div>
   )
 }
@@ -456,4 +493,71 @@ function DocumentPickerDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+type TempEntry = {
+  id: string
+  updatedAt: number
+  preview?: string
+  length?: number
+}
+
+function TemporaryScratchpadDialog({
+  open,
+  onOpenChange,
+  entries,
+  onOpenTemporary,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  entries: TempEntry[]
+  onOpenTemporary: () => void
+}) {
+  const formattedEntries = useMemo(() => entries.slice().sort((a, b) => b.updatedAt - a.updatedAt), [entries])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={cn('max-w-md', overlayPanelClass)}>
+        <DialogHeader>
+          <DialogTitle>Saved temporary drafts</DialogTitle>
+          <DialogDescription>Temporaries are stored locally in this browser for 24 hours of inactivity.</DialogDescription>
+        </DialogHeader>
+        {formattedEntries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No temporary drafts detected on this device.</p>
+        ) : (
+          <div className="space-y-2">
+            {formattedEntries.map((entry) => (
+              <div key={entry.id} className="rounded-2xl border border-border/60 bg-background/80 p-3">
+                <p className="text-sm font-medium text-foreground">{entry.preview?.trim() || 'Untitled temporary note'}</p>
+                <p className="text-xs text-muted-foreground">{formatRelative(entry.updatedAt)} · {entry.length ?? '—'} chars</p>
+                <div className="mt-2">
+                  <Button size="sm" onClick={onOpenTemporary}>
+                    Continue editing
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function formatRelative(timestamp: number) {
+  const delta = Date.now() - timestamp
+  if (delta < 60 * 1000) return 'Just now'
+  if (delta < 60 * 60 * 1000) {
+    const mins = Math.floor(delta / (60 * 1000))
+    return `${mins} min${mins === 1 ? '' : 's'} ago`
+  }
+  if (delta < 24 * 60 * 60 * 1000) {
+    const hrs = Math.floor(delta / (60 * 60 * 1000))
+    return `${hrs} hour${hrs === 1 ? '' : 's'} ago`
+  }
+  const d = new Date(timestamp)
+  return d.toLocaleString()
 }

@@ -1,4 +1,4 @@
-import { Plus, Folder, Blocks, Image as ImageIcon, FileSpreadsheet } from 'lucide-react'
+import { Plus, Folder, Blocks, Image as ImageIcon, FileSpreadsheet, Sparkles, List } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -20,6 +20,11 @@ type Props = {
   onCreateFolder?: () => void
   pluginCommands?: PluginAction[]
   trailing?: React.ReactNode
+  temporaryActions?: {
+    onCreate?: () => void
+    onShowList?: () => void
+  }
+  className?: string
 }
 
 // Minimal actions aligned to current API (document creation + refresh).
@@ -52,15 +57,16 @@ function renderPluginIcon(name?: string) {
   return <Blocks className={iconCls} />
 }
 
-export default function FileTreeActions({ onCreateDocument, onCreateFolder, pluginCommands, trailing }: Props) {
+export default function FileTreeActions({ onCreateDocument, onCreateFolder, pluginCommands, trailing, temporaryActions, className }: Props) {
   const buttonClass = cn(
-    'h-9 w-9 rounded-full border border-border/40 bg-background/70 text-muted-foreground transition-colors',
+    'h-9 w-9 rounded-full border border-border/40 text-muted-foreground transition-colors',
     'hover:bg-muted/70 hover:text-foreground disabled:opacity-50'
   )
   const hasEnabledPluginCommand = pluginCommands?.some((cmd) => !cmd.disabled && typeof cmd.onClick === 'function') ?? false
+  const hasTemporaryMenu = Boolean(temporaryActions?.onCreate || temporaryActions?.onShowList)
 
   return (
-    <div className="flex items-center gap-2 rounded-2xl border border-border/40 bg-muted/20 px-2 py-1">
+    <div className={cn('flex items-center gap-2', className)}>
       <Tooltip>
         <TooltipTrigger asChild>
           <span>
@@ -82,6 +88,39 @@ export default function FileTreeActions({ onCreateDocument, onCreateFolder, plug
         </TooltipTrigger>
         <TooltipContent>{onCreateFolder ? 'New folder' : 'New folder (coming soon)'}</TooltipContent>
       </Tooltip>
+
+      {hasTemporaryMenu && (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <DropdownMenuTrigger asChild>
+                  <span>
+                    <Button variant="ghost" size="icon" className={buttonClass}>
+                      <Sparkles className="h-4 w-4" />
+                    </Button>
+                  </span>
+                </DropdownMenuTrigger>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Temporary notes</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" className={overlayMenuClass}>
+            {temporaryActions?.onCreate && (
+              <DropdownMenuItem onClick={() => temporaryActions.onCreate?.()}>
+                <Sparkles className={iconCls} />
+                New temporary note
+              </DropdownMenuItem>
+            )}
+            {temporaryActions?.onShowList && (
+              <DropdownMenuItem onClick={() => temporaryActions.onShowList?.()}>
+                <List className={iconCls} />
+                Saved temporary notes
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       <DropdownMenu>
         <Tooltip>
