@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Awareness } from 'y-protocols/awareness'
 import type { IndexeddbPersistence } from 'y-indexeddb'
+import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 
 import {

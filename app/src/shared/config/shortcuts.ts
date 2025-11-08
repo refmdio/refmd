@@ -62,6 +62,18 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: 'global.document.new',
+    label: 'New document',
+    description: 'Create a new workspace document',
+    category: 'Workspace',
+    scope: 'global',
+    allowInInputs: true,
+    default: {
+      mac: [chord('n', { meta: true, shift: true })],
+      windows: [chord('n', { ctrl: true, shift: true })],
+    },
+  },
+  {
     id: 'global.temporary.open',
     label: 'Open temporary document',
     description: 'Jump to the local-only scratchpad',
@@ -69,8 +81,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     scope: 'global',
     allowInInputs: true,
     default: {
-      mac: [chord('t', { meta: true, shift: true })],
-      windows: [chord('t', { ctrl: true, shift: true })],
+      mac: [chord('m', { meta: true, shift: true })],
+      windows: [chord('m', { ctrl: true, shift: true })],
     },
   },
   {

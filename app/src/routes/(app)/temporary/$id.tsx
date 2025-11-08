@@ -9,11 +9,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
+import { createDocument, updateDocumentContent } from '@/entities/document'
+
 import { appBeforeLoadGuard, useAuthContext } from '@/features/auth'
 import { EditorOverlay, MarkdownEditor } from '@/features/edit-document'
 import { TEMPORARY_DOCUMENT_TTL_MS, useTemporaryDocument } from '@/features/temporary-document'
 
-import { createDocument, updateDocumentContent } from '@/entities/document'
 
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'

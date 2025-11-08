@@ -12,8 +12,9 @@ import { Button } from '@/shared/ui/button'
 import { SidebarTrigger, useSidebar } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
-import { useAuthContext } from '@/features/auth'
 import { createDocument, documentKeys } from '@/entities/document'
+
+import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
 import { ShareDialog } from '@/features/sharing'
 import { createTemporaryDocumentEntry } from '@/features/temporary-document'
