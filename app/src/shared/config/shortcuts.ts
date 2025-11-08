@@ -45,8 +45,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     scope: 'global',
     allowInInputs: true,
     default: {
-      mac: [chord('p', { meta: true, shift: true })],
-      windows: [chord('p', { ctrl: true, shift: true })],
+      mac: [chord('p', { meta: true, alt: true })],
+      windows: [chord('p', { ctrl: true, alt: true })],
     },
   },
   {
@@ -57,8 +57,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     scope: 'global',
     allowInInputs: true,
     default: {
-      mac: [chord('x', { meta: true, shift: true })],
-      windows: [chord('x', { ctrl: true, shift: true })],
+      mac: [chord('x', { meta: true, alt: true })],
+      windows: [chord('x', { ctrl: true, alt: true })],
     },
   },
   {
@@ -69,8 +69,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     scope: 'global',
     allowInInputs: true,
     default: {
-      mac: [chord(';', { meta: true })],
-      windows: [chord(';', { ctrl: true })],
+      mac: [chord('Enter', { meta: true })],
+      windows: [chord('Enter', { ctrl: true })],
     },
   },
   {
@@ -81,8 +81,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     scope: 'global',
     allowInInputs: true,
     default: {
-      mac: [chord(';', { meta: true, shift: true })],
-      windows: [chord(';', { ctrl: true, shift: true })],
+      mac: [chord('Enter', { meta: true, shift: true })],
+      windows: [chord('Enter', { ctrl: true, shift: true })],
     },
   },
   {
@@ -92,8 +92,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     category: 'Workspace',
     scope: 'global',
     default: {
-      mac: [chord('b', { meta: true })],
-      windows: [chord('b', { ctrl: true })],
+      mac: [chord('s', { meta: true, alt: true })],
+      windows: [chord('s', { ctrl: true, alt: true })],
     },
   },
   {
@@ -104,8 +104,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     scope: 'global',
     allowInInputs: true,
     default: {
-      mac: [chord('l', { meta: true, shift: true })],
-      windows: [chord('l', { ctrl: true, shift: true })],
+      mac: [chord('l', { meta: true, alt: true })],
+      windows: [chord('l', { ctrl: true, alt: true })],
     },
   },
   {
@@ -148,8 +148,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     category: 'View',
     scope: 'view',
     default: {
-      mac: [chord('b', { meta: true, shift: true })],
-      windows: [chord('b', { ctrl: true, shift: true })],
+      mac: [chord('b', { meta: true, alt: true })],
+      windows: [chord('b', { ctrl: true, alt: true })],
     },
   },
   {
@@ -159,8 +159,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     category: 'Editor',
     scope: 'editor',
     default: {
-      mac: [chord('s', { meta: true, shift: true })],
-      windows: [chord('s', { ctrl: true, shift: true })],
+      mac: [chord('s', { meta: true, alt: true, shift: true })],
+      windows: [chord('s', { ctrl: true, alt: true, shift: true })],
     },
   },
   {
@@ -170,8 +170,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     category: 'Editor',
     scope: 'editor',
     default: {
-      mac: [chord('v', { meta: true, shift: true })],
-      windows: [chord('v', { ctrl: true, shift: true })],
+      mac: [chord('v', { meta: true, alt: true, shift: true })],
+      windows: [chord('v', { ctrl: true, alt: true, shift: true })],
     },
   },
   {
@@ -181,8 +181,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     category: 'Editor',
     scope: 'editor',
     default: {
-      mac: [chord('u', { meta: true, shift: true })],
-      windows: [chord('u', { ctrl: true, shift: true })],
+      mac: [chord('u', { meta: true, alt: true, shift: true })],
+      windows: [chord('u', { ctrl: true, alt: true, shift: true })],
     },
   },
 ]
