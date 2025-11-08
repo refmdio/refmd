@@ -19,7 +19,11 @@ import {
   type DocumentNode,
 } from '@/features/file-tree'
 import { GitSyncButton } from '@/features/git-sync'
-import { TEMPORARY_DOCUMENT_META_KEY } from '@/features/temporary-document'
+import {
+  createTemporaryDocumentEntry,
+  listTemporaryDocuments,
+  type TemporaryDocumentMeta,
+} from '@/features/temporary-document'
 
 import FileNode from '@/widgets/sidebar/FileNode'
 import FileTreeActions from '@/widgets/sidebar/FileTreeActions'
@@ -128,28 +132,18 @@ function FileTreeInner() {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [docPickerOpen, setDocPickerOpen] = useState(false)
   const [tempDialogOpen, setTempDialogOpen] = useState(false)
-  const [temporaryEntries, setTemporaryEntries] = useState<TempEntry[]>([])
+  const [temporaryEntries, setTemporaryEntries] = useState<TemporaryDocumentMeta[]>([])
   const openTemporaryDocument = useCallback(() => {
-    router.navigate({ to: '/temporary' })
+    if (typeof window === 'undefined') return
+    const entry = createTemporaryDocumentEntry()
+    router.navigate({ to: '/temporary/$id', params: { id: entry.id } })
+  }, [router])
+  const openTemporaryDocumentById = useCallback((id: string) => {
+    router.navigate({ to: '/temporary/$id', params: { id } })
   }, [router])
   const refreshTempEntries = useCallback(() => {
-    if (typeof window === 'undefined') return [] as TempEntry[]
-    try {
-      const raw = window.localStorage.getItem(TEMPORARY_DOCUMENT_META_KEY)
-      if (!raw) return []
-      const parsed = JSON.parse(raw) as Partial<TempEntry> & { updatedAt?: number }
-      if (!parsed?.updatedAt) return []
-      return [
-        {
-          id: 'local-temp',
-          updatedAt: parsed.updatedAt,
-          preview: parsed.preview ?? '',
-          length: typeof parsed.length === 'number' ? parsed.length : undefined,
-        },
-      ]
-    } catch {
-      return []
-    }
+    if (typeof window === 'undefined') return [] as TemporaryDocumentMeta[]
+    return listTemporaryDocuments()
   }, [])
   const openTempList = useCallback(() => {
     setTemporaryEntries(refreshTempEntries())
@@ -434,7 +428,7 @@ function FileTreeInner() {
         open={tempDialogOpen}
         onOpenChange={setTempDialogOpen}
         entries={temporaryEntries}
-        onOpenTemporary={openTemporaryDocument}
+        onOpenTemporary={openTemporaryDocumentById}
       />
     </div>
   )
@@ -495,13 +489,6 @@ function DocumentPickerDialog({
   )
 }
 
-type TempEntry = {
-  id: string
-  updatedAt: number
-  preview?: string
-  length?: number
-}
-
 function TemporaryScratchpadDialog({
   open,
   onOpenChange,
@@ -510,10 +497,15 @@ function TemporaryScratchpadDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  entries: TempEntry[]
-  onOpenTemporary: () => void
+  entries: TemporaryDocumentMeta[]
+  onOpenTemporary: (id: string) => void
 }) {
   const formattedEntries = useMemo(() => entries.slice().sort((a, b) => b.updatedAt - a.updatedAt), [entries])
+
+  const handleOpen = useCallback((id: string) => {
+    onOpenTemporary(id)
+    onOpenChange(false)
+  }, [onOpenChange, onOpenTemporary])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -527,15 +519,15 @@ function TemporaryScratchpadDialog({
         ) : (
           <div className="space-y-2">
             {formattedEntries.map((entry) => (
-              <div key={entry.id} className="rounded-2xl border border-border/60 bg-background/80 p-3">
+              <button
+                type="button"
+                key={entry.id}
+                onClick={() => handleOpen(entry.id)}
+                className="w-full rounded-2xl border border-border/60 bg-background/80 p-3 text-left transition hover:border-primary/50"
+              >
                 <p className="text-sm font-medium text-foreground">{entry.preview?.trim() || 'Untitled temporary note'}</p>
-                <p className="text-xs text-muted-foreground">{formatRelative(entry.updatedAt)} · {entry.length ?? '—'} chars</p>
-                <div className="mt-2">
-                  <Button size="sm" onClick={onOpenTemporary}>
-                    Continue editing
-                  </Button>
-                </div>
-              </div>
+                <p className="text-xs text-muted-foreground">{formatRelative(entry.updatedAt)} · {entry.length ?? 0} chars</p>
+              </button>
             ))}
           </div>
         )}

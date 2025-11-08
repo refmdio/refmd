@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
 import { ShareDialog } from '@/features/sharing'
+import { createTemporaryDocumentEntry } from '@/features/temporary-document'
 
 import { DocumentPresence } from '@/widgets/header/components/DocumentPresence'
 import { MobileHeaderMenu } from '@/widgets/header/components/MobileHeaderMenu'
@@ -134,7 +135,9 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   useShortcut(
     'global.temporary.open',
     useCallback(() => {
-      navigate({ to: '/temporary' })
+      if (typeof window === 'undefined') return
+      const entry = createTemporaryDocumentEntry()
+      navigate({ to: '/temporary/$id', params: { id: entry.id } })
     }, [navigate]),
   )
   useShortcut(

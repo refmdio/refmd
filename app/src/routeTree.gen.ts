@@ -11,15 +11,16 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OgVariantDotpngRouteImport } from './routes/og/$variant[.]png'
+import { Route as appTemporaryRouteImport } from './routes/(app)/temporary'
 import { Route as appSettingsRouteImport } from './routes/(app)/settings'
 import { Route as appProfileRouteImport } from './routes/(app)/profile'
 import { Route as appPluginsRouteImport } from './routes/(app)/plugins'
 import { Route as appDashboardRouteImport } from './routes/(app)/dashboard'
-import { Route as appTemporaryRouteImport } from './routes/(app)/temporary'
 import { Route as appVisibilityIndexRouteImport } from './routes/(app)/visibility/index'
 import { Route as shareShareTokenRouteImport } from './routes/(share)/share/$token'
 import { Route as authAuthSignupRouteImport } from './routes/(auth)/auth/signup'
 import { Route as authAuthSigninRouteImport } from './routes/(auth)/auth/signin'
+import { Route as appTemporaryIdRouteImport } from './routes/(app)/temporary/$id'
 import { Route as appDocumentIdRouteImport } from './routes/(app)/document/$id'
 import { Route as publicUNameIndexRouteImport } from './routes/(public)/u/$name/index'
 import { Route as publicUNameIdRouteImport } from './routes/(public)/u/$name/$id'
@@ -32,6 +33,11 @@ const IndexRoute = IndexRouteImport.update({
 const OgVariantDotpngRoute = OgVariantDotpngRouteImport.update({
   id: '/og/$variant.png',
   path: '/og/$variant.png',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appTemporaryRoute = appTemporaryRouteImport.update({
+  id: '/(app)/temporary',
+  path: '/temporary',
   getParentRoute: () => rootRouteImport,
 } as any)
 const appSettingsRoute = appSettingsRouteImport.update({
@@ -54,11 +60,6 @@ const appDashboardRoute = appDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
-const appTemporaryRoute = appTemporaryRouteImport.update({
-  id: '/(app)/temporary',
-  path: '/temporary',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const appVisibilityIndexRoute = appVisibilityIndexRouteImport.update({
   id: '/(app)/visibility/',
   path: '/visibility/',
@@ -79,6 +80,11 @@ const authAuthSigninRoute = authAuthSigninRouteImport.update({
   path: '/auth/signin',
   getParentRoute: () => rootRouteImport,
 } as any)
+const appTemporaryIdRoute = appTemporaryIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => appTemporaryRoute,
+} as any)
 const appDocumentIdRoute = appDocumentIdRouteImport.update({
   id: '/(app)/document/$id',
   path: '/document/$id',
@@ -98,12 +104,13 @@ const publicUNameIdRoute = publicUNameIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof appDashboardRoute
-  '/temporary': typeof appTemporaryRoute
   '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsRoute
+  '/temporary': typeof appTemporaryRouteWithChildren
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/document/$id': typeof appDocumentIdRoute
+  '/temporary/$id': typeof appTemporaryIdRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
   '/share/$token': typeof shareShareTokenRoute
@@ -114,12 +121,13 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof appDashboardRoute
-  '/temporary': typeof appTemporaryRoute
   '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsRoute
+  '/temporary': typeof appTemporaryRouteWithChildren
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/document/$id': typeof appDocumentIdRoute
+  '/temporary/$id': typeof appTemporaryIdRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
   '/share/$token': typeof shareShareTokenRoute
@@ -131,12 +139,13 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/(app)/dashboard': typeof appDashboardRoute
-  '/(app)/temporary': typeof appTemporaryRoute
   '/(app)/plugins': typeof appPluginsRoute
   '/(app)/profile': typeof appProfileRoute
   '/(app)/settings': typeof appSettingsRoute
+  '/(app)/temporary': typeof appTemporaryRouteWithChildren
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/(app)/document/$id': typeof appDocumentIdRoute
+  '/(app)/temporary/$id': typeof appTemporaryIdRoute
   '/(auth)/auth/signin': typeof authAuthSigninRoute
   '/(auth)/auth/signup': typeof authAuthSignupRoute
   '/(share)/share/$token': typeof shareShareTokenRoute
@@ -149,12 +158,13 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
-    | '/temporary'
     | '/plugins'
     | '/profile'
     | '/settings'
+    | '/temporary'
     | '/og/$variant.png'
     | '/document/$id'
+    | '/temporary/$id'
     | '/auth/signin'
     | '/auth/signup'
     | '/share/$token'
@@ -165,12 +175,13 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/dashboard'
-    | '/temporary'
     | '/plugins'
     | '/profile'
     | '/settings'
+    | '/temporary'
     | '/og/$variant.png'
     | '/document/$id'
+    | '/temporary/$id'
     | '/auth/signin'
     | '/auth/signup'
     | '/share/$token'
@@ -181,12 +192,13 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/(app)/dashboard'
-    | '/(app)/temporary'
     | '/(app)/plugins'
     | '/(app)/profile'
     | '/(app)/settings'
+    | '/(app)/temporary'
     | '/og/$variant.png'
     | '/(app)/document/$id'
+    | '/(app)/temporary/$id'
     | '/(auth)/auth/signin'
     | '/(auth)/auth/signup'
     | '/(share)/share/$token'
@@ -198,10 +210,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   appDashboardRoute: typeof appDashboardRoute
-  appTemporaryRoute: typeof appTemporaryRoute
   appPluginsRoute: typeof appPluginsRoute
   appProfileRoute: typeof appProfileRoute
   appSettingsRoute: typeof appSettingsRoute
+  appTemporaryRoute: typeof appTemporaryRouteWithChildren
   OgVariantDotpngRoute: typeof OgVariantDotpngRoute
   appDocumentIdRoute: typeof appDocumentIdRoute
   authAuthSigninRoute: typeof authAuthSigninRoute
@@ -226,6 +238,13 @@ declare module '@tanstack/react-router' {
       path: '/og/$variant.png'
       fullPath: '/og/$variant.png'
       preLoaderRoute: typeof OgVariantDotpngRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/temporary': {
+      id: '/(app)/temporary'
+      path: '/temporary'
+      fullPath: '/temporary'
+      preLoaderRoute: typeof appTemporaryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(app)/settings': {
@@ -256,13 +275,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof appDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/(app)/temporary': {
-      id: '/(app)/temporary'
-      path: '/temporary'
-      fullPath: '/temporary'
-      preLoaderRoute: typeof appTemporaryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/(app)/visibility/': {
       id: '/(app)/visibility/'
       path: '/visibility'
@@ -291,6 +303,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authAuthSigninRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/(app)/temporary/$id': {
+      id: '/(app)/temporary/$id'
+      path: '/$id'
+      fullPath: '/temporary/$id'
+      preLoaderRoute: typeof appTemporaryIdRouteImport
+      parentRoute: typeof appTemporaryRoute
+    }
     '/(app)/document/$id': {
       id: '/(app)/document/$id'
       path: '/document/$id'
@@ -315,13 +334,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface appTemporaryRouteChildren {
+  appTemporaryIdRoute: typeof appTemporaryIdRoute
+}
+
+const appTemporaryRouteChildren: appTemporaryRouteChildren = {
+  appTemporaryIdRoute: appTemporaryIdRoute,
+}
+
+const appTemporaryRouteWithChildren = appTemporaryRoute._addFileChildren(
+  appTemporaryRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   appDashboardRoute: appDashboardRoute,
-  appTemporaryRoute: appTemporaryRoute,
   appPluginsRoute: appPluginsRoute,
   appProfileRoute: appProfileRoute,
   appSettingsRoute: appSettingsRoute,
+  appTemporaryRoute: appTemporaryRouteWithChildren,
   OgVariantDotpngRoute: OgVariantDotpngRoute,
   appDocumentIdRoute: appDocumentIdRoute,
   authAuthSigninRoute: authAuthSigninRoute,

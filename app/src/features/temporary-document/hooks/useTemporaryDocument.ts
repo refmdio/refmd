@@ -3,19 +3,19 @@ import type { Awareness } from 'y-protocols/awareness'
 import type { IndexeddbPersistence } from 'y-indexeddb'
 import type * as Y from 'yjs'
 
-export const TEMPORARY_DOCUMENT_PERSISTENCE_KEY = 'refmd:temporary-document'
-export const TEMPORARY_DOCUMENT_META_KEY = `${TEMPORARY_DOCUMENT_PERSISTENCE_KEY}:meta`
-const STALE_TTL_MS = 24 * 60 * 60 * 1000
-
-type TempMeta = { updatedAt: number; preview?: string; length?: number }
+import {
+  deleteTemporaryDocumentEntry,
+  getTemporaryDocumentEntry,
+  TEMPORARY_DOCUMENT_PERSISTENCE_PREFIX,
+  touchTemporaryDocumentEntry,
+  updateTemporaryDocumentEntry,
+} from '@/features/temporary-document/lib/storage'
 
 type UserIdentity = { id?: string | null; name?: string | null }
 
 type UseTemporaryDocumentOptions = {
+  id: string
   user?: UserIdentity | null
-  persistenceKey?: string
-  metaKey?: string
-  ttlMs?: number
 }
 
 export type TemporaryDocumentState = {
@@ -27,6 +27,7 @@ export type TemporaryDocumentState = {
   contentLength: number
   lastUpdatedAt: number | null
   clear: () => Promise<void>
+  removeEntry: () => Promise<void>
   getContentSnapshot: () => string
 }
 
@@ -39,47 +40,18 @@ const hasIndexedDb = () => {
   }
 }
 
-const readMeta = (key: string): TempMeta | null => {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(key)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as TempMeta
-    if (typeof parsed?.updatedAt === 'number') return parsed
-    return null
-  } catch {
-    return null
-  }
-}
-
-const writeMeta = (key: string, meta: TempMeta) => {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(key, JSON.stringify(meta))
-  } catch {
-    /* noop */
-  }
-}
-
-const clearMeta = (key: string) => {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.removeItem(key)
-  } catch {
-    /* noop */
-  }
-}
-
-export function useTemporaryDocument(options?: UseTemporaryDocumentOptions): TemporaryDocumentState {
-  const persistenceKey = options?.persistenceKey ?? TEMPORARY_DOCUMENT_PERSISTENCE_KEY
-  const metaKey = options?.metaKey ?? TEMPORARY_DOCUMENT_META_KEY
-  const ttlMs = options?.ttlMs ?? STALE_TTL_MS
+export function useTemporaryDocument(options: UseTemporaryDocumentOptions): TemporaryDocumentState {
+  const { id } = options
+  const persistenceKey = `${TEMPORARY_DOCUMENT_PERSISTENCE_PREFIX}:${id}`
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(() => (typeof window === 'undefined' ? 'idle' : 'loading'))
   const [error, setError] = useState<string | null>(null)
   const [doc, setDoc] = useState<Y.Doc | null>(null)
   const [awareness, setAwareness] = useState<Awareness | null>(null)
   const [contentLength, setContentLength] = useState(0)
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => readMeta(metaKey)?.updatedAt ?? null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null
+    return getTemporaryDocumentEntry(id)?.updatedAt ?? null
+  })
   const persistenceRef = useRef<IndexeddbPersistence | null>(null)
   const docRef = useRef<Y.Doc | null>(null)
   const awarenessRef = useRef<Awareness | null>(null)
@@ -157,26 +129,16 @@ export function useTemporaryDocument(options?: UseTemporaryDocumentOptions): Tem
   }, [persistenceKey])
 
   useEffect(() => {
-    if (!doc) return
-    const meta = readMeta(metaKey)
-    if (meta?.updatedAt) {
-      const age = Date.now() - meta.updatedAt
-      if (age > ttlMs) {
-        try {
-          suppressMetaRef.current = true
-          doc.transact(() => {
-            const text = doc.getText('content')
-            text.delete(0, text.length)
-          })
-          void persistenceRef.current?.clearData?.()
-        } catch (err) {
-          console.warn('[temporary-document] failed to purge stale state', err)
-        }
-        clearMeta(metaKey)
-        setLastUpdatedAt(null)
-      }
+    if (!doc || typeof window === 'undefined') return
+    const meta = getTemporaryDocumentEntry(id)
+    if (meta) {
+      setLastUpdatedAt(meta.updatedAt)
+      return
     }
-  }, [doc, metaKey, ttlMs])
+    const timestamp = Date.now()
+    updateTemporaryDocumentEntry(id, { createdAt: timestamp, updatedAt: timestamp })
+    setLastUpdatedAt(timestamp)
+  }, [doc, id])
 
   useEffect(() => {
     if (!doc) return
@@ -187,6 +149,9 @@ export function useTemporaryDocument(options?: UseTemporaryDocumentOptions): Tem
       setContentLength(text.length)
       if (suppressMetaRef.current) {
         suppressMetaRef.current = false
+        const ts = Date.now()
+        updateTemporaryDocumentEntry(id, { updatedAt: ts, preview: '', length: text.length })
+        setLastUpdatedAt(ts)
         return
       }
       const now = Date.now()
@@ -197,18 +162,14 @@ export function useTemporaryDocument(options?: UseTemporaryDocumentOptions): Tem
         snapshot = ''
       }
       setLastUpdatedAt(now)
-      writeMeta(metaKey, {
-        updatedAt: now,
-        preview: summarizePreview(snapshot),
-        length: snapshot.length,
-      })
+      touchTemporaryDocumentEntry(id, summarizePreview(snapshot), snapshot.length)
     }
 
     text.observe(handleChange)
     return () => {
       text.unobserve(handleChange)
     }
-  }, [doc, metaKey])
+  }, [doc, id])
 
   useEffect(() => {
     if (!awareness) return
@@ -244,9 +205,18 @@ export function useTemporaryDocument(options?: UseTemporaryDocumentOptions): Tem
     } catch {
       /* noop */
     }
-    clearMeta(metaKey)
+    const ts = Date.now()
+    updateTemporaryDocumentEntry(id, { updatedAt: ts, preview: '', length: 0 })
+    setLastUpdatedAt(ts)
+  }, [id])
+
+  const removeEntry = useCallback(async () => {
+    try {
+      await persistenceRef.current?.clearData?.()
+    } catch {}
+    deleteTemporaryDocumentEntry(id)
     setLastUpdatedAt(null)
-  }, [metaKey])
+  }, [id])
 
   const hasContent = useMemo(() => contentLength > 0, [contentLength])
 
@@ -259,6 +229,7 @@ export function useTemporaryDocument(options?: UseTemporaryDocumentOptions): Tem
     contentLength,
     lastUpdatedAt,
     clear,
+    removeEntry,
     getContentSnapshot,
   }
 }
