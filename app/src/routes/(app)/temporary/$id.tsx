@@ -107,7 +107,10 @@ function TemporaryDocumentEditor({ tempId }: { tempId: string }) {
     }
   }, [])
 
-  const suggestedTitle = useMemo(() => deriveTitleSuggestion(getContentSnapshot()), [getContentSnapshot, contentLength])
+  const suggestedTitle = useMemo(
+    () => deriveTitleSuggestion(getContentSnapshot()),
+    [getContentSnapshot, lastUpdatedAt],
+  )
 
   const handleSave = useCallback(async (title: string) => {
     const snapshot = getContentSnapshot()

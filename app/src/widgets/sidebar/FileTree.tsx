@@ -6,7 +6,7 @@ import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classe
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import ConfirmDialog from '@/shared/ui/confirm-dialog'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogOverlay, DialogTitle } from '@/shared/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/shared/ui/dropdown-menu'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuSkeleton } from '@/shared/ui/sidebar'
@@ -531,7 +531,6 @@ function TemporaryScratchpadDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogOverlay className="fixed inset-0 z-50 bg-black/50" />
       <DialogContent className={cn('max-w-md', overlayPanelClass)}>
         <DialogHeader>
           <DialogTitle>Temporary drafts on this device</DialogTitle>
