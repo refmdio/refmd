@@ -1,10 +1,11 @@
 import { Link, useRouter, useRouterState } from '@tanstack/react-router'
 import { Archive, Blocks, Eye, FileText, Github, LogOut, Settings, Users, ChevronDown, ChevronRight } from 'lucide-react'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
+import ConfirmDialog from '@/shared/ui/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/shared/ui/dropdown-menu'
 import { ScrollArea } from '@/shared/ui/scroll-area'
@@ -19,6 +20,13 @@ import {
   type DocumentNode,
 } from '@/features/file-tree'
 import { GitSyncButton } from '@/features/git-sync'
+import {
+  TEMPORARY_DOCUMENT_TTL_MS,
+  createTemporaryDocumentEntry,
+  deleteTemporaryDocumentEntry,
+  listTemporaryDocuments,
+  type TemporaryDocumentMeta,
+} from '@/features/temporary-document'
 
 import FileNode from '@/widgets/sidebar/FileNode'
 import FileTreeActions from '@/widgets/sidebar/FileTreeActions'
@@ -126,6 +134,31 @@ function FileTreeInner() {
   const isShare = shareToken.length > 0
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [docPickerOpen, setDocPickerOpen] = useState(false)
+  const [tempDialogOpen, setTempDialogOpen] = useState(false)
+  const [tempClearAllDialogOpen, setTempClearAllDialogOpen] = useState(false)
+  const [temporaryEntries, setTemporaryEntries] = useState<TemporaryDocumentMeta[]>([])
+  const openTemporaryDocument = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const entry = createTemporaryDocumentEntry()
+    router.navigate({ to: '/temporary/$id', params: { id: entry.id } })
+  }, [router])
+  const openTemporaryDocumentById = useCallback((id: string) => {
+    router.navigate({ to: '/temporary/$id', params: { id } })
+  }, [router])
+  const refreshTempEntries = useCallback(() => {
+    if (typeof window === 'undefined') return [] as TemporaryDocumentMeta[]
+    return listTemporaryDocuments()
+  }, [])
+  const clearAllTemporaries = useCallback(() => {
+    const list = refreshTempEntries()
+    list.forEach((entry) => deleteTemporaryDocumentEntry(entry.id))
+    setTemporaryEntries([])
+    setTempClearAllDialogOpen(false)
+  }, [refreshTempEntries])
+  const openTempList = useCallback(() => {
+    setTemporaryEntries(refreshTempEntries())
+    setTempDialogOpen(true)
+  }, [refreshTempEntries])
   const docPickerPromiseRef = React.useRef<((value: string | null) => void) | null>(null)
   const hasActiveDocuments = documents.length > 0
   const hasArchivedDocuments = archivedDocuments.length > 0
@@ -285,22 +318,23 @@ function FileTreeInner() {
     <div className="flex h-full flex-1 flex-col">
       <div className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-border/50 bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <SidebarHeader className="gap-0 border-b border-border/50 px-4 pb-3 pt-4">
-          <div className="flex items-center justify-between">
+          {isShare ? (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">{isShare ? 'Shared' : 'Workspace'}</p>
-              <h2 className="text-lg font-semibold text-foreground">{isShare ? 'Shared Library' : 'Files'}</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Shared</p>
+              <h2 className="text-lg font-semibold text-foreground">Shared Library</h2>
             </div>
-            {!isShare && (
-              <div className="flex items-center gap-2">
-                <FileTreeActions
-                  onCreateDocument={() => createDocument(null)}
-                  onCreateFolder={() => createFolder(null)}
-                  pluginCommands={pluginMenu}
-                  trailing={<GitSyncButton compact />}
-                />
-              </div>
-            )}
-          </div>
+          ) : (
+            <div className="flex w-full flex-col items-center gap-3">
+              <FileTreeActions
+                className="flex flex-wrap items-center justify-center gap-3"
+                onCreateDocument={() => createDocument(null)}
+                onCreateFolder={() => createFolder(null)}
+                pluginCommands={pluginMenu}
+                trailing={<GitSyncButton compact />}
+                temporaryActions={{ onCreate: openTemporaryDocument, onShowList: openTempList }}
+              />
+            </div>
+          )}
         </SidebarHeader>
 
         <SidebarContent
@@ -399,6 +433,23 @@ function FileTreeInner() {
         onCancel={() => closeDocumentPicker(null)}
         onSelect={(id) => closeDocumentPicker(id)}
       />
+
+      <TemporaryScratchpadDialog
+        open={tempDialogOpen}
+        onOpenChange={setTempDialogOpen}
+        entries={temporaryEntries}
+        onOpenTemporary={openTemporaryDocumentById}
+        onRequestClearAll={() => setTempClearAllDialogOpen(true)}
+      />
+
+      <ConfirmDialog
+        open={tempClearAllDialogOpen}
+        onOpenChange={setTempClearAllDialogOpen}
+        title="Delete all temporary notes?"
+        description="This removes every temporary document stored on this browser. This cannot be undone."
+        confirmText="Delete all"
+        onConfirm={clearAllTemporaries}
+      />
     </div>
   )
 }
@@ -456,4 +507,75 @@ function DocumentPickerDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+function TemporaryScratchpadDialog({
+  open,
+  onOpenChange,
+  entries,
+  onOpenTemporary,
+  onRequestClearAll,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  entries: TemporaryDocumentMeta[]
+  onOpenTemporary: (id: string) => void
+  onRequestClearAll: () => void
+}) {
+  const formattedEntries = useMemo(() => entries.slice().sort((a, b) => b.updatedAt - a.updatedAt), [entries])
+
+  const handleOpen = useCallback((id: string) => {
+    onOpenTemporary(id)
+    onOpenChange(false)
+  }, [onOpenChange, onOpenTemporary])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={cn('max-w-md', overlayPanelClass)}>
+        <DialogHeader>
+          <DialogTitle>Temporary drafts on this device</DialogTitle>
+          <DialogDescription>Each temporary note persists locally for 24 hours after its last edit.</DialogDescription>
+        </DialogHeader>
+        {formattedEntries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No temporary drafts detected on this device.</p>
+        ) : (
+          <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+            {formattedEntries.map((entry) => (
+              <button
+                type="button"
+                key={entry.id}
+                onClick={() => handleOpen(entry.id)}
+                className="w-full rounded-2xl border border-border/60 bg-background/80 p-3 text-left transition hover:border-primary/50"
+              >
+                <p className="text-sm font-medium text-foreground">{entry.preview?.trim() || 'Untitled temporary note'}</p>
+                <p className="text-xs text-muted-foreground">
+                  Created {formatDate(entry.createdAt)} · Expires {formatExpiry(entry.updatedAt)}
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+        <DialogFooter>
+          {formattedEntries.length > 0 && (
+            <Button variant="destructive" onClick={onRequestClearAll}>Delete all</Button>
+          )}
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function formatDate(timestamp: number) {
+  return new Date(timestamp).toLocaleString()
+}
+
+function formatExpiry(updatedAt: number) {
+  const expiresAt = updatedAt + TEMPORARY_DOCUMENT_TTL_MS
+  const remainingMs = expiresAt - Date.now()
+  if (remainingMs <= 0) return 'soon'
+  const hours = Math.floor(remainingMs / (60 * 60 * 1000))
+  const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000))
+  if (hours <= 0) return `in ${minutes} min`
+  return `in ${hours}h ${minutes.toString().padStart(2, '0')}m`
 }

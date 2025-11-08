@@ -1,6 +1,8 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Columns, Eye, FileCode, Link2, Menu, Moon, Search, Share2, Sun } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { toast } from 'sonner'
 
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
@@ -10,9 +12,12 @@ import { Button } from '@/shared/ui/button'
 import { SidebarTrigger, useSidebar } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
+import { createDocument, documentKeys } from '@/entities/document'
+
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
 import { ShareDialog } from '@/features/sharing'
+import { createTemporaryDocumentEntry } from '@/features/temporary-document'
 
 import { DocumentPresence } from '@/widgets/header/components/DocumentPresence'
 import { MobileHeaderMenu } from '@/widgets/header/components/MobileHeaderMenu'
@@ -55,6 +60,7 @@ const defaultRealtimeState: HeaderRealtimeState = {
 export function Header({ className, realtime, variant = 'overlay' }: HeaderProps) {
   const { isDarkMode, toggleTheme } = useTheme()
   const { signOut } = useAuthContext()
+  const queryClient = useQueryClient()
   const rt = realtime ?? defaultRealtimeState
   const vc = useViewController()
   const { editor } = useEditorContext()
@@ -129,6 +135,38 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     'global.plugins.open',
     useCallback(() => {
       navigate({ to: '/plugins' })
+    }, [navigate]),
+  )
+  const creatingDocumentRef = useRef(false)
+
+  useShortcut(
+    'global.document.new',
+    useCallback(() => {
+      if (creatingDocumentRef.current) return
+      creatingDocumentRef.current = true
+      ;(async () => {
+        try {
+          const doc = await createDocument({ parent_id: null })
+          await queryClient.invalidateQueries({ queryKey: documentKeys.all })
+          toast.success('Document created')
+          navigate({ to: '/document/$id', params: { id: doc.id } })
+        } catch (error) {
+          console.error('[header] failed to create document from shortcut', error)
+          const message = error instanceof Error ? error.message : 'Failed to create document'
+          toast.error(message)
+        } finally {
+          creatingDocumentRef.current = false
+        }
+      })()
+    }, [navigate, queryClient]),
+  )
+
+  useShortcut(
+    'global.temporary.open',
+    useCallback(() => {
+      if (typeof window === 'undefined') return
+      const entry = createTemporaryDocumentEntry()
+      navigate({ to: '/temporary/$id', params: { id: entry.id } })
     }, [navigate]),
   )
   useShortcut(

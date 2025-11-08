@@ -16,6 +16,7 @@ import {
   restoreDocumentSnapshot as apiRestoreDocumentSnapshot,
   unarchiveDocument as apiUnarchiveDocument,
   updateDocument as apiUpdateDocument,
+  updateDocumentContent as apiUpdateDocumentContent,
 } from '@/shared/api'
 import type {
   DocumentListResponse,
@@ -226,6 +227,14 @@ export async function updateDocumentTitle(id: string, title: string) {
 
 export async function updateDocumentParent(id: string, parent_id: string | null) {
   return apiUpdateDocument({ id, requestBody: { parent_id } as any })
+}
+
+export async function updateDocumentContent(params: { id: string; content: string; token?: string | null }) {
+  return apiUpdateDocumentContent({
+    id: params.id,
+    token: params.token ?? null,
+    requestBody: { content: params.content },
+  })
 }
 
 export async function deleteDocument(id: string) {
