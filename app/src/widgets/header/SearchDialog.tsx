@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { FileText, Hash, Loader2, X } from 'lucide-react'
 import React from 'react'
 
+import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import {
@@ -50,6 +51,7 @@ type DocumentHit = Pick<Document, 'id' | 'title' | 'path' | 'type'>
 
 export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [query, setQuery] = React.useState('')
   const [docs, setDocs] = React.useState<DocumentHit[]>([])
   const [tags, setTags] = React.useState<TagHit[]>([])
@@ -485,19 +487,21 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
               </CommandList>
             </Command>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col bg-transparent p-4 md:w-[45%]">
-            <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Preview</span>
-              {selectedDoc && (
-                <span className="truncate text-[11px] text-muted-foreground/80">
-                  {formatDisplayPath(selectedDoc.path) || selectedDoc.title || 'Untitled Document'}
-                </span>
-              )}
+          {!isMobile && (
+            <div className="flex min-h-0 flex-1 flex-col bg-transparent p-4 md:w-[45%]">
+              <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Preview</span>
+                {selectedDoc && (
+                  <span className="truncate text-[11px] text-muted-foreground/80">
+                    {formatDisplayPath(selectedDoc.path) || selectedDoc.title || 'Untitled Document'}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 overflow-auto rounded-2xl border border-border/30 bg-background/30 backdrop-blur-sm p-4">
+                {previewBody}
+              </div>
             </div>
-            <div className="flex-1 overflow-auto rounded-2xl border border-border/30 bg-background/30 backdrop-blur-sm p-4">
-              {previewBody}
-            </div>
-          </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

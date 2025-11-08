@@ -32,26 +32,27 @@ export default function SettingsView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-10 sm:px-6 md:px-8">
-        <div className="flex w-full gap-8">
-          <nav className="w-56 shrink-0 self-start">
-            <ul className="flex flex-col gap-1">
+        <div className="flex w-full flex-col gap-6 lg:flex-row lg:gap-8">
+          <nav className="w-full shrink-0 self-start lg:w-56" aria-label="Settings sections">
+            <ul className="flex flex-col gap-2 text-sm lg:gap-1">
               {SETTINGS_TABS.map((tab) => {
                 const Icon = tab.icon
                 const isActive = activeTab === tab.id
                 return (
-                  <li key={tab.id}>
+                  <li key={tab.id} className="w-full">
                     <button
                       type="button"
                       disabled={tab.disabled}
                       onClick={() => setActiveTab(tab.id)}
+                      aria-current={isActive ? 'page' : undefined}
                       className={cn(
-                        'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors',
-                        isActive ? 'bg-muted text-foreground' : 'hover:bg-muted/50',
+                        'flex w-full items-center gap-2 rounded-2xl border border-border/40 bg-background/80 px-4 py-3 text-left text-sm transition-colors lg:rounded-xl lg:border-transparent lg:bg-transparent',
+                        isActive ? 'bg-muted text-foreground lg:bg-muted' : 'hover:bg-muted/50',
                         tab.disabled && 'opacity-50'
                       )}
                     >
                       <Icon className="h-4 w-4 text-primary" />
-                      <span>{tab.label}</span>
+                      <span className="truncate">{tab.label}</span>
                       {tab.disabled && (
                         <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-[11px] uppercase tracking-wide">
                           Soon
