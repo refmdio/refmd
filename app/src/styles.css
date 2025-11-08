@@ -252,6 +252,9 @@
   margin-left: 0;
   padding-left: var(--prose-list-indent);
 }
+.monaco-editor .refmd-code-block-fence {
+  color: var(--primary) !important;
+}
 .markdown-preview pre:not(:has(.syntax-highlighter)),
 .prose pre:not(:has(.syntax-highlighter)) {
   @apply mb-4 overflow-x-auto text-gray-100 text-sm p-4 rounded-lg;
