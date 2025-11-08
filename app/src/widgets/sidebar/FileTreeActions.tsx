@@ -115,7 +115,7 @@ export default function FileTreeActions({ onCreateDocument, onCreateFolder, plug
             {temporaryActions?.onShowList && (
               <DropdownMenuItem onClick={() => temporaryActions.onShowList?.()}>
                 <List className={iconCls} />
-                Saved temporary notes
+                Open temporary notes
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
