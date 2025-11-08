@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
-import { Sparkles, Trash2 } from 'lucide-react'
+import { Save, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 
@@ -11,7 +11,7 @@ import { Label } from '@/shared/ui/label'
 
 import { appBeforeLoadGuard, useAuthContext } from '@/features/auth'
 import { EditorOverlay, MarkdownEditor } from '@/features/edit-document'
-import { useTemporaryDocument } from '@/features/temporary-document'
+import { TEMPORARY_DOCUMENT_TTL_MS, useTemporaryDocument } from '@/features/temporary-document'
 
 import { createDocument, updateDocumentContent } from '@/entities/document'
 
@@ -41,12 +41,12 @@ function TemporaryDocumentEditor({ tempId }: { tempId: string }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const tempDoc = useTemporaryDocument({ id: tempId, user: user ? { id: user.id, name: user.name } : undefined })
-  const { doc, awareness, status, error, hasContent, removeEntry, getContentSnapshot, contentLength } = tempDoc
+  const { doc, awareness, status, error, hasContent, lastUpdatedAt, removeEntry, getContentSnapshot, contentLength } = tempDoc
+  const [expiryLabel, setExpiryLabel] = useState(() => formatExpiryLabel(lastUpdatedAt))
 
   useEffect(() => {
     setDocumentTitle('Temporary document')
     setDocumentBadge('Local only')
-    setDocumentStatus('Auto-saved to this browser. Cleared after 24 hours of inactivity.')
     setDocumentId(undefined)
     setShowEditorFeatures(true)
     return () => {
@@ -56,7 +56,23 @@ function TemporaryDocumentEditor({ tempId }: { tempId: string }) {
       setDocumentId(undefined)
       setShowEditorFeatures(false)
     }
-  }, [setDocumentTitle, setDocumentBadge, setDocumentStatus, setShowEditorFeatures, setDocumentId])
+  }, [setDocumentTitle, setDocumentBadge, setShowEditorFeatures, setDocumentId])
+
+  useEffect(() => {
+    const updateLabel = () => {
+      setExpiryLabel(formatExpiryLabel(lastUpdatedAt))
+    }
+    updateLabel()
+    if (typeof window === 'undefined') return
+    const interval = window.setInterval(updateLabel, 60 * 1000)
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [lastUpdatedAt])
+
+  useEffect(() => {
+    setDocumentStatus(expiryLabel)
+  }, [expiryLabel, setDocumentStatus])
 
   const headerActions = useMemo(() => [
     {
@@ -65,7 +81,7 @@ function TemporaryDocumentEditor({ tempId }: { tempId: string }) {
       onSelect: () => setSaveDialogOpen(true),
       disabled: saving || !hasContent,
       variant: 'primary' as const,
-      icon: <Sparkles className="h-4 w-4" />,
+      icon: <Save className="h-4 w-4" />,
     },
     {
       id: 'temp-delete',
@@ -85,16 +101,11 @@ function TemporaryDocumentEditor({ tempId }: { tempId: string }) {
   }, [headerActions, setDocumentActions])
 
   useEffect(() => {
-    if (!hasContent || typeof window === 'undefined') return
-    const handler = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
     return () => {
-      window.removeEventListener('beforeunload', handler)
+      setSaveDialogOpen(false)
+      setDeleteDialogOpen(false)
     }
-  }, [hasContent])
+  }, [])
 
   const suggestedTitle = useMemo(() => deriveTitleSuggestion(getContentSnapshot()), [getContentSnapshot, contentLength])
 
@@ -222,4 +233,17 @@ function deriveTitleSuggestion(content: string) {
   const first = lines.find((line) => line.trim().length > 0)?.trim()
   if (!first) return 'Temporary note'
   return first.replace(/^#+\s*/, '').slice(0, 80) || 'Temporary note'
+}
+
+function formatExpiryLabel(lastUpdatedAt: number | null) {
+  if (!lastUpdatedAt) return 'Expires in 24 hours'
+  const expiresAt = lastUpdatedAt + TEMPORARY_DOCUMENT_TTL_MS
+  const remainingMs = expiresAt - Date.now()
+  if (remainingMs <= 0) return 'Expired — content will clear soon'
+  const hours = Math.floor(remainingMs / (60 * 60 * 1000))
+  const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000))
+  if (hours <= 0) {
+    return `Expires in ${minutes} min`
+  }
+  return `Expires in ${hours}h ${minutes.toString().padStart(2, '0')}m`
 }

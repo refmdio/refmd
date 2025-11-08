@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
+import ConfirmDialog from '@/shared/ui/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/shared/ui/dropdown-menu'
 import { ScrollArea } from '@/shared/ui/scroll-area'
@@ -20,7 +21,9 @@ import {
 } from '@/features/file-tree'
 import { GitSyncButton } from '@/features/git-sync'
 import {
+  TEMPORARY_DOCUMENT_TTL_MS,
   createTemporaryDocumentEntry,
+  deleteTemporaryDocumentEntry,
   listTemporaryDocuments,
   type TemporaryDocumentMeta,
 } from '@/features/temporary-document'
@@ -132,6 +135,7 @@ function FileTreeInner() {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [docPickerOpen, setDocPickerOpen] = useState(false)
   const [tempDialogOpen, setTempDialogOpen] = useState(false)
+  const [tempClearAllDialogOpen, setTempClearAllDialogOpen] = useState(false)
   const [temporaryEntries, setTemporaryEntries] = useState<TemporaryDocumentMeta[]>([])
   const openTemporaryDocument = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -145,6 +149,12 @@ function FileTreeInner() {
     if (typeof window === 'undefined') return [] as TemporaryDocumentMeta[]
     return listTemporaryDocuments()
   }, [])
+  const clearAllTemporaries = useCallback(() => {
+    const list = refreshTempEntries()
+    list.forEach((entry) => deleteTemporaryDocumentEntry(entry.id))
+    setTemporaryEntries([])
+    setTempClearAllDialogOpen(false)
+  }, [refreshTempEntries])
   const openTempList = useCallback(() => {
     setTemporaryEntries(refreshTempEntries())
     setTempDialogOpen(true)
@@ -429,6 +439,16 @@ function FileTreeInner() {
         onOpenChange={setTempDialogOpen}
         entries={temporaryEntries}
         onOpenTemporary={openTemporaryDocumentById}
+        onRequestClearAll={() => setTempClearAllDialogOpen(true)}
+      />
+
+      <ConfirmDialog
+        open={tempClearAllDialogOpen}
+        onOpenChange={setTempClearAllDialogOpen}
+        title="Delete all temporary notes?"
+        description="This removes every temporary document stored on this browser. This cannot be undone."
+        confirmText="Delete all"
+        onConfirm={clearAllTemporaries}
       />
     </div>
   )
@@ -494,11 +514,13 @@ function TemporaryScratchpadDialog({
   onOpenChange,
   entries,
   onOpenTemporary,
+  onRequestClearAll,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   entries: TemporaryDocumentMeta[]
   onOpenTemporary: (id: string) => void
+  onRequestClearAll: () => void
 }) {
   const formattedEntries = useMemo(() => entries.slice().sort((a, b) => b.updatedAt - a.updatedAt), [entries])
 
@@ -511,13 +533,13 @@ function TemporaryScratchpadDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={cn('max-w-md', overlayPanelClass)}>
         <DialogHeader>
-          <DialogTitle>Saved temporary drafts</DialogTitle>
-          <DialogDescription>Temporaries are stored locally in this browser for 24 hours of inactivity.</DialogDescription>
+          <DialogTitle>Temporary drafts on this device</DialogTitle>
+          <DialogDescription>Each temporary note persists locally for 24 hours after its last edit.</DialogDescription>
         </DialogHeader>
         {formattedEntries.length === 0 ? (
           <p className="text-sm text-muted-foreground">No temporary drafts detected on this device.</p>
         ) : (
-          <div className="space-y-2">
+          <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
             {formattedEntries.map((entry) => (
               <button
                 type="button"
@@ -526,12 +548,17 @@ function TemporaryScratchpadDialog({
                 className="w-full rounded-2xl border border-border/60 bg-background/80 p-3 text-left transition hover:border-primary/50"
               >
                 <p className="text-sm font-medium text-foreground">{entry.preview?.trim() || 'Untitled temporary note'}</p>
-                <p className="text-xs text-muted-foreground">{formatRelative(entry.updatedAt)} · {entry.length ?? 0} chars</p>
+                <p className="text-xs text-muted-foreground">
+                  Created {formatDate(entry.createdAt)} · Expires {formatExpiry(entry.updatedAt)}
+                </p>
               </button>
             ))}
           </div>
         )}
         <DialogFooter>
+          {formattedEntries.length > 0 && (
+            <Button variant="destructive" onClick={onRequestClearAll}>Delete all</Button>
+          )}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
       </DialogContent>
@@ -539,17 +566,16 @@ function TemporaryScratchpadDialog({
   )
 }
 
-function formatRelative(timestamp: number) {
-  const delta = Date.now() - timestamp
-  if (delta < 60 * 1000) return 'Just now'
-  if (delta < 60 * 60 * 1000) {
-    const mins = Math.floor(delta / (60 * 1000))
-    return `${mins} min${mins === 1 ? '' : 's'} ago`
-  }
-  if (delta < 24 * 60 * 60 * 1000) {
-    const hrs = Math.floor(delta / (60 * 60 * 1000))
-    return `${hrs} hour${hrs === 1 ? '' : 's'} ago`
-  }
-  const d = new Date(timestamp)
-  return d.toLocaleString()
+function formatDate(timestamp: number) {
+  return new Date(timestamp).toLocaleString()
+}
+
+function formatExpiry(updatedAt: number) {
+  const expiresAt = updatedAt + TEMPORARY_DOCUMENT_TTL_MS
+  const remainingMs = expiresAt - Date.now()
+  if (remainingMs <= 0) return 'soon'
+  const hours = Math.floor(remainingMs / (60 * 60 * 1000))
+  const minutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000))
+  if (hours <= 0) return `in ${minutes} min`
+  return `in ${hours}h ${minutes.toString().padStart(2, '0')}m`
 }
