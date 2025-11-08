@@ -42,7 +42,7 @@ function TemporaryDocumentEditor({ tempId }: { tempId: string }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const tempDoc = useTemporaryDocument({ id: tempId, user: user ? { id: user.id, name: user.name } : undefined })
-  const { doc, awareness, status, error, hasContent, lastUpdatedAt, removeEntry, getContentSnapshot, contentLength } = tempDoc
+  const { doc, awareness, status, error, hasContent, lastUpdatedAt, removeEntry, getContentSnapshot } = tempDoc
   const [expiryLabel, setExpiryLabel] = useState(() => formatExpiryLabel(lastUpdatedAt))
 
   useEffect(() => {
