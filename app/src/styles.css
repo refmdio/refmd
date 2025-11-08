@@ -170,12 +170,12 @@
 
 /* Prose styling (ported) */
 .prose { @apply text-foreground leading-relaxed; min-width: 0; }
-.prose h1 { @apply text-4xl font-bold mb-6 mt-8 pb-3 border-b-2 border-border; }
-.prose h2 { @apply text-3xl font-semibold mb-4 mt-6 pb-2 border-b border-border; }
-.prose h3 { @apply text-2xl font-semibold mb-3 mt-4; }
-.prose h4 { @apply text-xl font-medium mb-2 mt-3; }
-.prose h5 { @apply text-lg font-medium mb-2 mt-3; }
-.prose h6 { @apply text-base font-medium mb-2 mt-3; }
+.prose h1 { @apply text-3xl font-bold mb-6 mt-8; }
+.prose h2 { @apply text-2xl font-semibold mb-4 mt-6; }
+.prose h3 { @apply text-xl font-semibold mb-3 mt-4; }
+.prose h4 { @apply text-lg font-medium mb-2 mt-3; }
+.prose h5 { @apply text-base font-medium mb-2 mt-3; }
+.prose h6 { @apply text-sm font-medium mb-2 mt-3; }
 .prose p { @apply mb-4 leading-7; }
 .prose li > p {
   margin: 0 0 0.25rem;
@@ -203,7 +203,11 @@
   margin-left: var(--prose-list-indent);
   padding-left: var(--prose-list-indent);
 }
-.prose input[type='checkbox'] { @apply cursor-pointer; margin: 0; }
+.prose input[type='checkbox'] {
+  @apply cursor-pointer;
+  margin: 0;
+  accent-color: var(--primary);
+}
 .prose li:has(> input[type='checkbox']) {
   @apply list-none;
   margin-left: calc(-1 * var(--prose-task-offset));
@@ -231,11 +235,29 @@
   margin: 0.25rem 0 0 var(--prose-list-indent);
   padding-left: var(--prose-list-indent);
 }
+.prose li:has(> input[type='checkbox']:checked) {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+.prose li:has(> input[type='checkbox']:checked) > input[type='checkbox'] {
+  text-decoration: none;
+  color: inherit;
+}
+.prose li:has(> input[type='checkbox']:checked) > ul,
+.prose li:has(> input[type='checkbox']:checked) > ol {
+  text-decoration: none;
+  color: inherit;
+}
 .prose ul:has(li input[type='checkbox']) {
   margin-left: 0;
   padding-left: var(--prose-list-indent);
 }
-.prose pre:not(:has(.syntax-highlighter)) { @apply mb-4 overflow-x-auto bg-gray-900 text-gray-100 p-4 rounded-lg; max-width: 100%; }
+.markdown-preview pre:not(:has(.syntax-highlighter)),
+.prose pre:not(:has(.syntax-highlighter)) {
+  @apply mb-4 overflow-x-auto text-gray-100 text-sm p-4 rounded-lg;
+  max-width: 100%;
+  background-color: #242424 !important;
+}
 .prose pre:has(.syntax-highlighter) { @apply p-0 bg-transparent m-0; max-width: 100%; }
 .prose .syntax-highlighter { margin: 0 !important; }
 .prose pre:not(:has(.syntax-highlighter)) code { @apply whitespace-pre bg-transparent; }
