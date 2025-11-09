@@ -7,6 +7,8 @@ import { toast } from 'sonner'
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
 import { cn } from '@/shared/lib/utils'
+import type { DocumentHeaderAction } from '@/shared/types/document'
+import type { HeaderRealtimeState } from '@/shared/types/header'
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 import { SidebarTrigger, useSidebar } from '@/shared/ui/sidebar'
@@ -16,28 +18,13 @@ import { createDocument, documentKeys } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
+import { DocumentPresence } from '@/features/header/ui/DocumentPresence'
+import { MobileHeaderMenu } from '@/features/header/ui/MobileHeaderMenu'
+import SearchDialog from '@/features/search/ui/SearchDialog'
 import { ShareDialog } from '@/features/sharing'
 import { createTemporaryDocumentEntry } from '@/features/temporary-document'
 
-import { DocumentPresence } from '@/widgets/header/components/DocumentPresence'
-import { MobileHeaderMenu } from '@/widgets/header/components/MobileHeaderMenu'
-import SearchDialog from '@/widgets/header/SearchDialog'
-
-import type { DocumentHeaderAction } from '@/processes/collaboration/contexts/realtime-context'
-
 // Using ViewContext instead of window events
-
-export type HeaderRealtimeState = {
-  connected: boolean
-  showEditorFeatures: boolean
-  documentTitle?: string
-  documentId?: string
-  documentPath?: string
-  documentStatus?: string
-  documentBadge?: string
-  documentActions?: DocumentHeaderAction[]
-  onlineUsers: Array<{ id: string; name: string; color?: string; clientId?: number }>
-}
 
 interface HeaderProps {
   className?: string
@@ -502,5 +489,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     </>
   )
 }
+
+export type { HeaderRealtimeState } from '@/shared/types/header'
 
 export default Header

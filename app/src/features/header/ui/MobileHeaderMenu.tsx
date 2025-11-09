@@ -1,9 +1,8 @@
 import { Link } from '@tanstack/react-router'
 import { Blocks, Columns, Eye, FileCode, FileText, Github, LogOut, Share2, Sun, X } from 'lucide-react'
 
+import type { DocumentHeaderAction } from '@/shared/types/document'
 import { Button } from '@/shared/ui/button'
-
-import type { DocumentHeaderAction } from '@/processes/collaboration/contexts/realtime-context'
 
 type MobileHeaderMenuProps = {
   open: boolean

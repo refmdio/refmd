@@ -6,7 +6,6 @@ import { toast } from 'sonner'
 import type { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
-
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
@@ -19,10 +18,16 @@ import { useEditorUploads } from '@/features/edit-document/hooks/useEditorUpload
 import { useMarkdownCommands, type MarkdownCommand } from '@/features/edit-document/hooks/useMarkdownCommands'
 import { useMonacoBinding } from '@/features/edit-document/hooks/useMonacoBinding'
 import { useScrollSync } from '@/features/edit-document/hooks/useScrollSync'
-import { registerWikiLinkCompletion } from '@/features/edit-document/lib/monaco/wiki-link-provider'
 import { ensureRefmdThemes, REFMD_DARK_THEME, REFMD_LIGHT_THEME } from '@/features/edit-document/lib/monaco/theme'
+import { registerWikiLinkCompletion } from '@/features/edit-document/lib/monaco/wiki-link-provider'
 import { useEditorContext } from '@/features/edit-document/model/editor-context'
 import { useViewContext } from '@/features/edit-document/model/view-context'
+
+import { loadMonacoVim } from '../lib/monaco/vim-loader'
+
+import CursorDisplay from './CursorDisplay'
+import EditorLayout from './EditorLayout'
+import EditorToolbar from './Toolbar'
 
 const logEditorError = (scope: string, error: unknown) => {
   if (error instanceof Error) {
@@ -39,12 +44,6 @@ const safeExecute = (scope: string, fn: () => void) => {
     logEditorError(scope, error)
   }
 }
-
-import { loadMonacoVim } from '../lib/monaco/vim-loader'
-
-import CursorDisplay from './CursorDisplay'
-import EditorLayout from './EditorLayout'
-import EditorToolbar from './Toolbar'
 
 const CODE_BLOCK_FENCE_CLASS = 'refmd-code-block-fence'
 

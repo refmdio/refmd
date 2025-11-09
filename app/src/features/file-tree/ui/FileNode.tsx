@@ -40,7 +40,6 @@ import { ignoreDocument } from '@/entities/git'
 import { getPluginKv } from '@/entities/plugin'
 
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
-import { useSecondaryViewer } from '@/features/secondary-viewer'
 
 
 
@@ -62,6 +61,7 @@ type FileNodeProps = {
   onDrop: (e: React.DragEvent, id: string, type: 'file' | 'folder', parentId?: string) => void
   onDragOver: (e: React.DragEvent, nodeId?: string, nodeType?: 'file' | 'folder') => void
   pluginRules?: FileTreeRule[]
+  onOpenSecondaryViewer?: (id: string, type?: 'document' | 'scrap') => void
 }
 
 export const FileNode = memo(function FileNode({
@@ -80,6 +80,7 @@ export const FileNode = memo(function FileNode({
   onDrop,
   onDragOver,
   pluginRules,
+  onOpenSecondaryViewer,
 }: FileNodeProps) {
   const {
     sharedDocIds,
@@ -90,7 +91,6 @@ export const FileNode = memo(function FileNode({
     refreshDocuments,
     setArchivesExpanded,
   } = useFileTree()
-  const { openSecondaryViewer } = useSecondaryViewer()
   const rowRef = useRef<HTMLDivElement | null>(null)
   const isRowInView = useInView(rowRef, { rootMargin: '160px' })
   const [hasBeenVisible, setHasBeenVisible] = useState(false)
@@ -436,7 +436,7 @@ export const FileNode = memo(function FileNode({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
-                  onSelect={(event) => guardMenuAction(event, () => openSecondaryViewer(node.id, 'document'))}
+                  onSelect={(event) => guardMenuAction(event, () => onOpenSecondaryViewer?.(node.id, 'document'))}
                 >
                   <FileText className="h-4 w-4 mr-2" />Open in Secondary Viewer
                 </DropdownMenuItem>

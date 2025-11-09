@@ -3,6 +3,7 @@ import { memo } from 'react'
 
 import { overlayMenuClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
+import type { HeaderRealtimeState } from '@/shared/types/header'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from '@/shared/ui/dropdown-menu'
 
-import type { HeaderRealtimeState } from '@/widgets/header/Header'
 
 type OnlineUser = HeaderRealtimeState['onlineUsers'][number]
 

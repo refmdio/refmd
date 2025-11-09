@@ -18,7 +18,6 @@ import { useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
 import { ignoreFolder } from '@/entities/git'
 
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
-import { ShareDialog } from '@/features/sharing'
 
 
 
@@ -40,6 +39,7 @@ type FolderNodeProps = {
   onDrop: (e: React.DragEvent, id: string, type: 'file' | 'folder', parentId?: string) => void
   onDragOver: (e: React.DragEvent, nodeId?: string, nodeType?: 'file' | 'folder') => void
   renderChildren?: () => React.ReactNode
+  onShareFolder?: (node: DocumentNode) => void
 }
 
 export const FolderNode = memo(function FolderNode({
@@ -60,6 +60,7 @@ export const FolderNode = memo(function FolderNode({
   onDrop,
   onDragOver,
   renderChildren,
+  onShareFolder,
 }: FolderNodeProps) {
   const {
     sharedFolderIds,
@@ -73,7 +74,6 @@ export const FolderNode = memo(function FolderNode({
   const [editingTitle, setEditingTitle] = useState(node.title)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const isMobile = useIsMobile()
-  const [shareOpen, setShareOpen] = useState(false)
   const menuGuardRef = useRef<{ block: boolean; timer?: number }>({ block: false })
   const isArchived = Boolean(node.archived)
   const archiveMutation = useArchiveDocument()
@@ -297,7 +297,7 @@ export const FolderNode = memo(function FolderNode({
                       <DropdownMenuItem onSelect={(event) => guardMenuAction(event, () => handleCreateFolder())}>
                         <Folder className="h-4 w-4 mr-2" />New Folder
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={(event) => guardMenuAction(event, () => setShareOpen(true))}>
+                      <DropdownMenuItem onSelect={(event) => guardMenuAction(event, () => onShareFolder?.(node))}>
                         <Users className="h-4 w-4 mr-2" />Share Folder
                       </DropdownMenuItem>
                       <DropdownMenuItem onSelect={(event) => guardMenuAction(event, handleStartRename)}>
@@ -369,7 +369,6 @@ export const FolderNode = memo(function FolderNode({
         confirmText="Delete"
         onConfirm={handleDelete}
       />
-      <ShareDialog open={shareOpen} onOpenChange={setShareOpen} targetId={node.id} targetType="folder" />
     </SidebarMenuItem>
   )
 })

@@ -1,13 +1,13 @@
 import * as React from 'react'
 import { toast } from 'sonner'
 
+import { useRealtime } from '@/shared/contexts/realtime-context'
 import { createYjsConnection, destroyYjsConnection } from '@/shared/lib/yjsConnection'
 import type { YjsConnection } from '@/shared/lib/yjsConnection'
 
 import { fetchDocumentMeta } from '@/entities/document'
 import { validateShareToken } from '@/entities/share'
 
-import { useRealtime } from '@/processes/collaboration/contexts/realtime-context'
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
 

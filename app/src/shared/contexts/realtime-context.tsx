@@ -1,14 +1,6 @@
-import React, { createContext, useContext, useMemo, useState, useCallback, type ReactNode } from 'react'
+import React, { createContext, useContext, useMemo, useState, useCallback } from 'react'
 
-export type DocumentHeaderAction = {
-  id?: string
-  label: string
-  onSelect?: () => void
-  disabled?: boolean
-  variant?: 'default' | 'primary' | 'outline'
-  icon?: ReactNode
-  tooltip?: string
-}
+import type { DocumentHeaderAction } from '@/shared/types/document'
 
 type RealtimeState = {
   connected: boolean

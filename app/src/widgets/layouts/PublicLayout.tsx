@@ -1,6 +1,6 @@
 import React from 'react'
 
-import DevtoolsPortal from '@/widgets/layouts/DevtoolsPortal'
+import DevtoolsPortal from '@/shared/ui/devtools/DevtoolsPortal'
 
 type Props = { children: React.ReactNode }
 
