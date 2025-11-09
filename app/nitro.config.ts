@@ -8,7 +8,7 @@ export default defineNitroConfig({
   serverAssets: [
     {
       baseName: 'og-fonts',
-      dir: resolve(__dirname, './src/server/og/assets'),
+      dir: resolve(__dirname, './src/processes/og/assets'),
     },
   ],
 })
