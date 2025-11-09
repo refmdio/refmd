@@ -1,6 +1,6 @@
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
-use yrs::Doc;
+use crate::application::services::realtime::snapshot::doc_from_snapshot_bytes;
 
 pub struct LocalRealtimeEngine {
     pub hub: crate::infrastructure::realtime::Hub,
@@ -26,8 +26,9 @@ impl RealtimeEngine for LocalRealtimeEngine {
         self.hub.force_save_to_fs(doc_id).await
     }
 
-    async fn apply_snapshot(&self, doc_id: &str, doc: &Doc) -> anyhow::Result<()> {
-        self.hub.apply_snapshot(doc_id, doc).await
+    async fn apply_snapshot(&self, doc_id: &str, snapshot: &[u8]) -> anyhow::Result<()> {
+        let doc = doc_from_snapshot_bytes(snapshot)?;
+        self.hub.apply_snapshot(doc_id, &doc).await
     }
 
     async fn set_document_editable(&self, doc_id: &str, editable: bool) -> anyhow::Result<()> {

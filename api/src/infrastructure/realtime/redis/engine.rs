@@ -27,18 +27,18 @@ use crate::application::ports::realtime_port::RealtimeEngine as RealtimeEngineTr
 use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 use crate::application::ports::storage_port::StoragePort;
 use crate::application::ports::tagging_repository::TaggingRepository;
-use crate::application::services::realtime::awareness::{AwarenessService, encode_awareness_state};
 use crate::application::services::realtime::doc_hydration::{
     DocHydrationService, HydrationOptions,
 };
 use crate::application::services::realtime::snapshot::{
     SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
+    doc_from_snapshot_bytes,
 };
-use crate::bootstrap::config::Config;
 use crate::infrastructure::db::PgPool;
 use crate::infrastructure::db::repositories::document_snapshot_archive_repository_sqlx::SqlxDocumentSnapshotArchiveRepository;
 use crate::infrastructure::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository;
 use crate::infrastructure::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository;
+use crate::infrastructure::realtime::awareness::{AwarenessService, encode_awareness_state};
 use crate::infrastructure::realtime::utils::{analyse_frame, wrap_stream_with_edit_guard};
 use crate::infrastructure::realtime::{SqlxDocPersistenceAdapter, SqlxDocStateReader};
 
@@ -54,22 +54,30 @@ pub struct RedisRealtimeEngine {
     edit_flags: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct RedisRealtimeConfig {
+    pub redis_url: String,
+    pub stream_prefix: String,
+    pub stream_max_len: usize,
+    pub task_debounce_ms: u64,
+    pub min_message_lifetime_ms: u64,
+    pub awareness_ttl_ms: u64,
+    pub snapshot_archive_interval_secs: u64,
+    pub spawn_persistence_worker: bool,
+}
+
 impl RedisRealtimeEngine {
     pub fn from_config(
-        cfg: &Config,
+        cfg: RedisRealtimeConfig,
         pool: PgPool,
         storage: Arc<dyn StoragePort>,
     ) -> anyhow::Result<Self> {
-        let redis_url = cfg
-            .redis_url
-            .as_deref()
-            .context("redis_url_missing_for_cluster_engine")?;
-        let client = redis::Client::open(redis_url)?;
+        let client = redis::Client::open(cfg.redis_url.as_str())?;
         let bus = Arc::new(RedisClusterBus::new(
             client,
-            cfg.redis_stream_prefix.clone(),
-            Some(cfg.redis_stream_max_len),
-            Duration::from_millis(cfg.redis_task_debounce_ms),
+            cfg.stream_prefix.clone(),
+            Some(cfg.stream_max_len),
+            Duration::from_millis(cfg.task_debounce_ms),
         ));
         let doc_state_reader: Arc<dyn DocStateReader> =
             Arc::new(SqlxDocStateReader::new(pool.clone()));
@@ -100,14 +108,14 @@ impl RedisRealtimeEngine {
         let last_auto_archive: Arc<Mutex<HashMap<String, Instant>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        let trim_lifetime = if cfg.redis_min_message_lifetime_ms > 0 {
-            Some(Duration::from_millis(cfg.redis_min_message_lifetime_ms))
+        let trim_lifetime = if cfg.min_message_lifetime_ms > 0 {
+            Some(Duration::from_millis(cfg.min_message_lifetime_ms))
         } else {
             None
         };
 
         let worker = spawn_persistence_worker(
-            cfg,
+            cfg.spawn_persistence_worker,
             bus.clone(),
             hydration_service.clone(),
             snapshot_service.clone(),
@@ -120,8 +128,8 @@ impl RedisRealtimeEngine {
             bus,
             hydration_service,
             snapshot_service,
-            task_debounce: Duration::from_millis(cfg.redis_task_debounce_ms),
-            awareness_ttl: Duration::from_millis(cfg.redis_awareness_ttl_ms),
+            task_debounce: Duration::from_millis(cfg.task_debounce_ms),
+            awareness_ttl: Duration::from_millis(cfg.awareness_ttl_ms),
             _worker: worker,
             edit_flags: Arc::new(RwLock::new(HashMap::new())),
         })
@@ -402,7 +410,8 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         Ok(())
     }
 
-    async fn apply_snapshot(&self, doc_id: &str, doc: &Doc) -> anyhow::Result<()> {
+    async fn apply_snapshot(&self, doc_id: &str, snapshot: &[u8]) -> anyhow::Result<()> {
+        let doc = doc_from_snapshot_bytes(snapshot)?;
         let uuid = Uuid::parse_str(doc_id)?;
         let hydrated = self
             .hydration_service
@@ -445,7 +454,7 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
 }
 
 fn spawn_persistence_worker(
-    cfg: &Config,
+    enabled: bool,
     bus: Arc<RedisClusterBus>,
     hydration_service: Arc<DocHydrationService>,
     snapshot_service: Arc<SnapshotService>,
@@ -453,7 +462,7 @@ fn spawn_persistence_worker(
     auto_archive_interval: Duration,
     last_auto_archive: Arc<Mutex<HashMap<String, Instant>>>,
 ) -> Option<JoinHandle<()>> {
-    if !cfg.cluster_mode {
+    if !enabled {
         return None;
     }
 

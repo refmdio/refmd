@@ -1,15 +1,11 @@
 use uuid::Uuid;
 
-use crate::application::ports::api_token_repository::{ApiToken, ApiTokenRepository};
-use crate::application::services::auth::api_tokens::generate_api_token;
+use crate::application::dto::api_tokens::{ApiTokenDto, CreatedApiTokenDto};
+use crate::application::ports::api_token_repository::ApiTokenRepository;
+use crate::application::services::api_tokens::generate_api_token;
 
 pub struct CreateApiToken<'a, R: ApiTokenRepository + ?Sized> {
     pub repo: &'a R,
-}
-
-pub struct CreatedApiToken {
-    pub token: ApiToken,
-    pub plaintext: String,
 }
 
 impl<'a, R> CreateApiToken<'a, R>
@@ -20,7 +16,7 @@ where
         &self,
         user_id: Uuid,
         name: Option<&str>,
-    ) -> anyhow::Result<CreatedApiToken> {
+    ) -> anyhow::Result<CreatedApiTokenDto> {
         let material = generate_api_token()?;
         let friendly_name = name
             .and_then(|n| {
@@ -43,8 +39,8 @@ where
             )
             .await?;
 
-        Ok(CreatedApiToken {
-            token,
+        Ok(CreatedApiTokenDto {
+            token: ApiTokenDto::from(token),
             plaintext: material.plaintext,
         })
     }

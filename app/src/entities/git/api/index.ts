@@ -12,7 +12,7 @@ import {
   initRepository as apiInitRepository,
   syncNow as apiSyncNow,
 } from '@/shared/api'
-import type { DocumentDiffResult, GitChangesResponse, GitHistoryResponse, GitStatus } from '@/shared/api'
+import type { GitChangesResponse, GitHistoryResponse, GitStatus, TextDiffResult } from '@/shared/api'
 
 export const gitKeys = {
   all: ['git'] as const,
@@ -37,7 +37,7 @@ export async function fetchHistory(): Promise<GitHistoryResponse> {
   return apiGetHistory()
 }
 
-export async function fetchCommitDiff(from: string, to: string): Promise<DocumentDiffResult[]> {
+export async function fetchCommitDiff(from: string, to: string): Promise<TextDiffResult[]> {
   return apiGetCommitDiff({ _from: from, to })
 }
 
@@ -55,4 +55,3 @@ export {
   apiIgnoreDocument as ignoreDocument,
   apiIgnoreFolder as ignoreFolder,
 }
-

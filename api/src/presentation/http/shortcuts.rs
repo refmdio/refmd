@@ -5,11 +5,9 @@ use serde_json::{Map, Value};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::application::use_cases::user_shortcuts::get_shortcuts::GetUserShortcuts;
-use crate::application::use_cases::user_shortcuts::update_shortcuts::{
-    UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,
-};
-use crate::bootstrap::app_context::AppContext;
+use crate::application::dto::user_shortcuts::UserShortcutProfileDto;
+use crate::application::services::errors::ServiceError;
+use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
 use tracing::error;
 
@@ -32,16 +30,26 @@ impl UserShortcutResponse {
     }
 }
 
-impl From<crate::application::ports::user_shortcut_repository::UserShortcutProfile>
-    for UserShortcutResponse
-{
-    fn from(
-        value: crate::application::ports::user_shortcut_repository::UserShortcutProfile,
-    ) -> Self {
+impl From<UserShortcutProfileDto> for UserShortcutResponse {
+    fn from(value: UserShortcutProfileDto) -> Self {
         Self {
             bindings: value.bindings,
             leader_key: value.leader_key,
             updated_at: Some(value.updated_at),
+        }
+    }
+}
+
+fn map_shortcut_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            error!(error = ?inner, "user_shortcut_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
         }
     }
 }
@@ -67,14 +75,11 @@ pub async fn get_user_shortcuts(
 ) -> Result<Json<UserShortcutResponse>, StatusCode> {
     let sub = auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.user_shortcuts();
-    let uc = GetUserShortcuts {
-        repo: repo.as_ref(),
-    };
-    let profile = uc
-        .execute(user_id)
+    let service = ctx.user_shortcut_service();
+    let profile = service
+        .get_profile(user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_shortcut_error)?;
     let response = profile
         .map(UserShortcutResponse::from)
         .unwrap_or_else(UserShortcutResponse::empty);
@@ -95,27 +100,11 @@ pub async fn update_user_shortcuts(
 ) -> Result<Json<UserShortcutResponse>, StatusCode> {
     let sub = auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.user_shortcuts();
-    let uc = UpdateUserShortcuts {
-        repo: repo.as_ref(),
-        max_payload_bytes: 32 * 1024,
-    };
-    let result = uc
-        .execute(
-            user_id,
-            UpdateUserShortcutsPayload {
-                bindings: payload.bindings,
-                leader_key: payload.leader_key,
-            },
-        )
+    let service = ctx.user_shortcut_service();
+    let result = service
+        .update_profile(user_id, payload.bindings, payload.leader_key)
         .await
-        .map_err(|err| match err {
-            UpdateUserShortcutsError::Validation(_) => StatusCode::BAD_REQUEST,
-            UpdateUserShortcutsError::Storage(inner) => {
-                error!(error = ?inner, "update_user_shortcuts_failed");
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })?;
+        .map_err(map_shortcut_error)?;
     Ok(Json(UserShortcutResponse::from(result)))
 }
 

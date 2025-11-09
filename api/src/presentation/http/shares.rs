@@ -10,19 +10,15 @@ use uuid::Uuid;
 
 use crate::application::access;
 use crate::application::dto::shares::{
-    ActiveShareItemDto, ShareBrowseResponseDto, ShareBrowseTreeItemDto, ShareDocumentDto,
+    ActiveShareItemDto, ApplicableShareDto, ShareBrowseResponseDto, ShareBrowseTreeItemDto,
+    ShareDocumentDto, ShareItemDto,
 };
-use crate::application::use_cases::shares::create_share::CreateShare;
-use crate::application::use_cases::shares::delete_share::DeleteShare;
-use crate::application::use_cases::shares::list_applicable::ApplicableShareDto;
-use crate::application::use_cases::shares::list_document_shares::{
-    ListDocumentShares, ShareItemDto,
-};
-use crate::bootstrap::app_context::AppContext;
+use crate::application::services::errors::ServiceError;
+use crate::presentation::context::{AppContext, PresentationConfig};
 use crate::presentation::http::auth;
 use crate::presentation::http::auth::Bearer;
 
-fn frontend_base(cfg: &crate::bootstrap::config::Config) -> String {
+fn frontend_base(cfg: &PresentationConfig) -> String {
     cfg.frontend_url
         .clone()
         .unwrap_or_else(|| "http://localhost:3000".into())
@@ -42,6 +38,20 @@ fn share_scope(document_type: &str) -> String {
         "folder".to_string()
     } else {
         "document".to_string()
+    }
+}
+
+fn map_share_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            tracing::error!(error = ?inner, "share_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
     }
 }
 
@@ -74,18 +84,12 @@ pub async fn create_share(
 ) -> Result<Json<CreateShareResponse>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.shares_repo();
-    let uc = CreateShare {
-        repo: repo.as_ref(),
-    };
     let permission = req.permission.as_deref().unwrap_or("view");
-    let res = uc
-        .execute(user_id, req.document_id, permission, req.expires_at)
+    let service = ctx.share_service();
+    let res = service
+        .create_share(user_id, req.document_id, permission, req.expires_at)
         .await
-        .map_err(|e| {
-            tracing::debug!(error=?e, "create_share_failed");
-            StatusCode::FORBIDDEN
-        })?;
+        .map_err(map_share_error)?;
     let base = frontend_base(&ctx.cfg);
     let url = build_share_url(&base, &res.document_type, res.document_id, &res.token);
     Ok(Json(CreateShareResponse {
@@ -122,20 +126,16 @@ pub async fn list_document_shares(
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     // authorization: require edit on the document
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
     let actor = access::Actor::User(user_id);
-    access::require_edit(access_repo.as_ref(), share_access.as_ref(), &actor, id)
+    ctx.authorization()
+        .require_edit(&actor, id)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
-    let repo = ctx.shares_repo();
-    let uc = ListDocumentShares {
-        repo: repo.as_ref(),
-    };
-    let rows: Vec<ShareItemDto> = uc
-        .execute(user_id, id)
+    let service = ctx.share_service();
+    let rows: Vec<ShareItemDto> = service
+        .list_document_shares(user_id, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_share_error)?;
     let base = frontend_base(&ctx.cfg);
     let items: Vec<ShareItem> = rows
         .into_iter()
@@ -179,14 +179,11 @@ pub async fn delete_share(
 ) -> Result<StatusCode, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.shares_repo();
-    let uc = DeleteShare {
-        repo: repo.as_ref(),
-    };
-    let ok = uc
-        .execute(user_id, &token)
+    let service = ctx.share_service();
+    let ok = service
+        .delete_share(user_id, &token)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_share_error)?;
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -230,26 +227,17 @@ pub async fn list_applicable_shares(
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     // authorize: require view on the document
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
     let actor = access::Actor::User(user_id);
-    access::require_view(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &actor,
-        q.doc_id,
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    let repo = ctx.shares_repo();
-    let uc = crate::application::use_cases::shares::list_applicable::ListApplicableShares {
-        repo: repo.as_ref(),
-    };
-    let rows = uc
-        .execute(user_id, q.doc_id)
+    ctx.authorization()
+        .require_view(&actor, q.doc_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    let service = ctx.share_service();
+    let rows = service
+        .list_applicable(user_id, q.doc_id)
+        .await
+        .map_err(map_share_error)?;
     let items: Vec<ApplicableShareItem> = rows.into_iter().map(Into::into).collect();
     Ok(Json(items))
 }
@@ -290,14 +278,11 @@ pub async fn validate_share_token(
     State(ctx): State<AppContext>,
     Query(query): Query<ShareTokenQuery>,
 ) -> Result<Json<ShareDocumentResponse>, StatusCode> {
-    let repo = ctx.shares_repo();
-    let uc = crate::application::use_cases::shares::validate_share::ValidateShare {
-        repo: repo.as_ref(),
-    };
-    let res: Option<ShareDocumentDto> = uc
-        .execute(&query.token)
+    let service = ctx.share_service();
+    let res = service
+        .validate_token(&query.token)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_share_error)?;
     let out: ShareDocumentResponse = res.map(Into::into).ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(out))
 }
@@ -330,14 +315,11 @@ pub async fn list_active_shares(
 ) -> Result<Json<Vec<ActiveShareItem>>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.shares_repo();
-    let uc = crate::application::use_cases::shares::list_active::ListActiveShares {
-        repo: repo.as_ref(),
-    };
-    let items: Vec<ActiveShareItemDto> = uc
-        .execute(user_id)
+    let service = ctx.share_service();
+    let items: Vec<ActiveShareItemDto> = service
+        .list_active(user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_share_error)?;
     let base = frontend_base(&ctx.cfg);
     let out: Vec<ActiveShareItem> = items
         .into_iter()
@@ -404,14 +386,11 @@ pub async fn browse_share(
     State(ctx): State<AppContext>,
     Query(query): Query<ShareTokenQuery>,
 ) -> Result<Json<ShareBrowseResponse>, StatusCode> {
-    let repo = ctx.shares_repo();
-    let uc = crate::application::use_cases::shares::browse_share::BrowseShare {
-        repo: repo.as_ref(),
-    };
-    let res: Option<ShareBrowseResponseDto> = uc
-        .execute(&query.token)
+    let service = ctx.share_service();
+    let res = service
+        .browse_share(&query.token)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_share_error)?;
     let out: ShareBrowseResponse = res.map(Into::into).ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(out))
 }
@@ -451,21 +430,10 @@ pub async fn materialize_folder_share(
 ) -> Result<Json<MaterializeResponse>, StatusCode> {
     let sub = auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.shares_repo();
-    let created = repo
+    let service = ctx.share_service();
+    let created = service
         .materialize_folder_share(user_id, &token)
         .await
-        .map_err(|e| {
-            tracing::debug!(error=?e, "materialize_failed");
-            if e.to_string() == "not_found" {
-                StatusCode::NOT_FOUND
-            } else if e.to_string() == "forbidden" {
-                StatusCode::FORBIDDEN
-            } else if e.to_string() == "bad_request" {
-                StatusCode::BAD_REQUEST
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })?;
+        .map_err(map_share_error)?;
     Ok(Json(MaterializeResponse { created }))
 }

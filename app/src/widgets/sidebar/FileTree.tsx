@@ -8,6 +8,7 @@ import { Button } from '@/shared/ui/button'
 import ConfirmDialog from '@/shared/ui/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/shared/ui/dropdown-menu'
+import FileTreeActions from '@/shared/ui/file-tree/FileTreeActions'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuSkeleton } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
@@ -19,7 +20,12 @@ import {
   useFileTreeInteractions,
   type DocumentNode,
 } from '@/features/file-tree'
+import { useFileTreeDrag } from '@/features/file-tree/lib/useFileTreeDrag'
+import FileNode from '@/features/file-tree/ui/FileNode'
+import FolderNode from '@/features/file-tree/ui/FolderNode'
 import { GitSyncButton } from '@/features/git-sync'
+import { useSecondaryViewer } from '@/features/secondary-viewer'
+import { ShareDialog } from '@/features/sharing'
 import {
   TEMPORARY_DOCUMENT_TTL_MS,
   createTemporaryDocumentEntry,
@@ -27,11 +33,6 @@ import {
   listTemporaryDocuments,
   type TemporaryDocumentMeta,
 } from '@/features/temporary-document'
-
-import FileNode from '@/widgets/sidebar/FileNode'
-import FileTreeActions from '@/widgets/sidebar/FileTreeActions'
-import FolderNode from '@/widgets/sidebar/FolderNode'
-import { useFileTreeDrag } from '@/widgets/sidebar/useFileTreeDrag'
 
 const userMenuIconClass = 'h-4 w-4'
 
@@ -117,6 +118,7 @@ function FileTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const { user } = useAuthContext()
   const router = useRouter()
+  const { openSecondaryViewer } = useSecondaryViewer()
   const {
     documents,
     archivedDocuments,
@@ -137,6 +139,7 @@ function FileTreeInner() {
   const [tempDialogOpen, setTempDialogOpen] = useState(false)
   const [tempClearAllDialogOpen, setTempClearAllDialogOpen] = useState(false)
   const [temporaryEntries, setTemporaryEntries] = useState<TemporaryDocumentMeta[]>([])
+  const [shareFolderId, setShareFolderId] = useState<string | null>(null)
   const openTemporaryDocument = useCallback(() => {
     if (typeof window === 'undefined') return
     const entry = createTemporaryDocumentEntry()
@@ -270,9 +273,9 @@ function FileTreeInner() {
     const childHasDropTarget = false
     if (node.type === 'folder') {
     return (
-      <FolderNode
-        key={node.id}
-        node={node}
+        <FolderNode
+          key={node.id}
+          node={node}
           isExpanded={isExpanded}
           isSelected={isSelected}
           isDragging={isDragging}
@@ -289,6 +292,7 @@ function FileTreeInner() {
           onDragOver={drag.handleDragOver}
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
           renderChildren={() => node.children?.map((c) => renderNode(c, node.id))}
+          onShareFolder={(folder) => setShareFolderId(folder.id)}
         />
       )
     }
@@ -310,6 +314,7 @@ function FileTreeInner() {
         onDragOver={drag.handleDragOver}
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parentId) }}
         pluginRules={fileTreeRules}
+        onOpenSecondaryViewer={openSecondaryViewer}
       />
     )
   }, [expandedFolders, toggleFolder, renameDocument, deleteDocument, onSelect, createDocument, drag, handleDrop, createFolder, fileTreeRules])
@@ -450,6 +455,17 @@ function FileTreeInner() {
         confirmText="Delete all"
         onConfirm={clearAllTemporaries}
       />
+
+      {shareFolderId && (
+        <ShareDialog
+          open={shareFolderId !== null}
+          onOpenChange={(open) => {
+            if (!open) setShareFolderId(null)
+          }}
+          targetId={shareFolderId}
+          targetType="folder"
+        />
+      )}
     </div>
   )
 }

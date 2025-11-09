@@ -14,8 +14,7 @@ import {
   OpenAPI,
   type ManifestItem,
 } from '@/shared/api'
-
-import type { DocumentHeaderAction } from '@/processes/collaboration/contexts/realtime-context'
+import type { DocumentHeaderAction } from '@/shared/types/document'
 
 export type HostMode = 'primary' | 'secondary'
 

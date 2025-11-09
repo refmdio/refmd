@@ -1,7 +1,9 @@
 use axum::{Json, Router, extract::State, routing::get};
 use serde::Serialize;
-use sqlx::PgPool;
 use utoipa::ToSchema;
+
+use crate::application::services::health::OverallHealth;
+use crate::presentation::context::AppContext;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct HealthResp {
@@ -14,15 +16,15 @@ pub struct HealthResp {
     tag = "Health",
     responses((status = 200, body = HealthResp))
 )]
-pub async fn health(State(pool): State<PgPool>) -> Json<HealthResp> {
-    let db_ok = sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(&pool)
-        .await
-        .is_ok();
-    let status = if db_ok { "ok" } else { "degraded" };
+pub async fn health(State(ctx): State<AppContext>) -> Json<HealthResp> {
+    let service = ctx.health_service();
+    let status = match service.status().await.unwrap_or(OverallHealth::Degraded) {
+        OverallHealth::Ok => "ok",
+        OverallHealth::Degraded => "degraded",
+    };
     Json(HealthResp { status })
 }
 
-pub fn routes(pool: PgPool) -> Router {
-    Router::new().route("/health", get(health)).with_state(pool)
+pub fn routes(ctx: AppContext) -> Router {
+    Router::new().route("/health", get(health)).with_state(ctx)
 }

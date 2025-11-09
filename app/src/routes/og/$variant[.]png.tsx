@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 
 import { normalizeOgImageVariant, type OgImageVariant } from '@/shared/lib/og'
 
-import { generateOgImage } from '@/server/og'
+import { generateOgImage } from '@/processes/og'
 
 const FALLBACKS: Record<OgImageVariant, { title: string; subtitle?: string; description?: string; badge?: string; meta?: string }> = {
   default: {

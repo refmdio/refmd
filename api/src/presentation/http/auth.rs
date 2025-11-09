@@ -1,22 +1,18 @@
 use crate::application::access;
-use crate::application::services::auth::api_tokens::{compute_digest, verify_token};
-use crate::application::use_cases::auth::delete_account::DeleteAccount;
-use crate::application::use_cases::auth::login::{Login as LoginUc, LoginRequest as LoginDto};
-use crate::application::use_cases::auth::me::GetMe;
-use crate::application::use_cases::auth::register::{
-    Register as RegisterUc, RegisterRequest as RegisterDto,
-};
-use crate::bootstrap::app_context::AppContext;
+use crate::application::services::errors::ServiceError;
+use crate::presentation::context::AppContext;
 use axum::{
     Json, Router,
     extract::State,
     http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+const SESSION_COOKIE_NAME: &str = "access_token";
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterRequest {
@@ -44,12 +40,6 @@ pub struct LoginResponse {
     pub user: UserResponse,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Claims {
-    pub sub: String,
-    pub exp: usize,
-}
-
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
         .route("/register", post(register))
@@ -59,6 +49,20 @@ pub fn routes(ctx: AppContext) -> Router {
         .with_state(ctx)
 }
 
+fn map_account_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            error!(error = ?inner, "account_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
 #[utoipa::path(post, path = "/api/auth/register", tag = "Auth", request_body = RegisterRequest, security(()), responses(
     (status = 200, body = UserResponse)
 ))]
@@ -66,16 +70,11 @@ pub async fn register(
     State(ctx): State<AppContext>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<UserResponse>, StatusCode> {
-    let repo = ctx.user_repo();
-    let uc = RegisterUc {
-        repo: repo.as_ref(),
-    };
-    let dto = RegisterDto {
-        email: req.email.clone(),
-        name: req.name.clone(),
-        password: req.password.clone(),
-    };
-    let user = uc.execute(&dto).await.map_err(|_| StatusCode::CONFLICT)?;
+    let service = ctx.account_service();
+    let user = service
+        .register(&req.email, &req.name, &req.password)
+        .await
+        .map_err(map_account_error)?;
     Ok(Json(UserResponse {
         id: user.id,
         email: user.email,
@@ -90,55 +89,38 @@ pub async fn login(
     State(ctx): State<AppContext>,
     Json(req): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<LoginResponse>), StatusCode> {
-    let repo = ctx.user_repo();
-    let uc = LoginUc {
-        repo: repo.as_ref(),
-    };
-    let dto = LoginDto {
-        email: req.email.clone(),
-        password: req.password.clone(),
-    };
-    let user = uc
-        .execute(&dto)
+    let service = ctx.account_service();
+    let user = service
+        .login(&req.email, &req.password)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(map_account_error)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
     let user = UserResponse {
         id: user.id,
         email: user.email,
         name: user.name,
     };
-    let now = chrono::Utc::now().timestamp() as usize;
-    let claims = Claims {
-        sub: user.id.to_string(),
-        exp: now + (ctx.cfg.jwt_expires_secs as usize),
-    };
-    let token = jsonwebtoken::encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(ctx.cfg.jwt_secret_pem.as_bytes()),
-    )
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let session = ctx
+        .auth_service()
+        .issue_session(user.id)
+        .map_err(map_auth_error)?;
+    let cookie_value = build_session_cookie(
+        &session.token,
+        ctx.auth_service().session_ttl_secs(),
+        ctx.cfg.session_cookie_secure,
+    );
 
-    // Set HttpOnly cookie with the access token
     let mut headers = HeaderMap::new();
-    let secure = ctx
-        .cfg
-        .frontend_url
-        .as_deref()
-        .map(|u| u.starts_with("https://"))
-        .unwrap_or(false);
-    let cookie = build_access_cookie(&token, ctx.cfg.jwt_expires_secs, secure);
     headers.insert(
         axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(&cookie)
+        axum::http::HeaderValue::from_str(&cookie_value)
             .unwrap_or(axum::http::HeaderValue::from_static("")),
     );
 
     Ok((
         headers,
         Json(LoginResponse {
-            access_token: token,
+            access_token: session.token,
             user,
         }),
     ))
@@ -151,14 +133,11 @@ pub async fn me(
 ) -> Result<Json<UserResponse>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer?).await?;
     let id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.user_repo();
-    let uc = GetMe {
-        repo: repo.as_ref(),
-    };
-    let row = uc
-        .execute(id)
+    let service = ctx.account_service();
+    let row = service
+        .get_me(id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(map_account_error)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
     Ok(Json(UserResponse {
         id: row.id,
@@ -174,47 +153,16 @@ pub async fn delete_account(
 ) -> Result<(HeaderMap, StatusCode), StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let user_repo = ctx.user_repo();
-    let document_repo = ctx.document_repo();
-    let storage = ctx.storage_port();
-    let plugin_installations = ctx.plugin_installations();
-    let plugin_repo = ctx.plugin_repo();
-    let plugin_assets = ctx.plugin_assets();
-    let git_repo = ctx.git_repo();
-    let git_workspace = ctx.git_workspace();
-
-    let uc = DeleteAccount {
-        user_repo: user_repo.as_ref(),
-        document_repo: document_repo.as_ref(),
-        storage: storage.as_ref(),
-        plugin_installations: plugin_installations.as_ref(),
-        plugin_repo: plugin_repo.as_ref(),
-        plugin_assets,
-        git_repo: git_repo.as_ref(),
-        git_workspace: git_workspace.as_ref(),
-    };
-
-    uc.execute(user_id).await.map_err(|err| {
-        tracing::error!(user_id = %user_id, error = ?err, "account deletion failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let service = ctx.account_service();
+    service
+        .delete_account(user_id)
+        .await
+        .map_err(map_account_error)?;
 
     let mut headers = HeaderMap::new();
-    let secure = ctx
-        .cfg
-        .frontend_url
-        .as_deref()
-        .map(|u| u.starts_with("https://"))
-        .unwrap_or(false);
-    let cookie = if secure {
-        "access_token=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Lax"
-    } else {
-        "access_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax"
-    };
     headers.insert(
         axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(cookie)
+        axum::http::HeaderValue::from_str(&clear_session_cookie(ctx.cfg.session_cookie_secure))
             .unwrap_or(axum::http::HeaderValue::from_static("")),
     );
 
@@ -225,6 +173,7 @@ pub async fn delete_account(
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 
+#[derive(Debug, Clone)]
 pub struct Bearer(pub String);
 
 #[axum::async_trait]
@@ -252,7 +201,7 @@ where
             .get(axum::http::header::COOKIE)
             .and_then(|v| v.to_str().ok())
         {
-            if let Some(token) = get_cookie(cookie_hdr, "access_token") {
+            if let Some(token) = get_cookie(cookie_hdr, SESSION_COOKIE_NAME) {
                 return Ok(Bearer(token));
             }
         }
@@ -276,14 +225,12 @@ pub async fn validate_bearer_public(
 }
 
 pub async fn validate_bearer_str(ctx: &AppContext, token: &str) -> Result<String, StatusCode> {
-    if let Ok(data) = jsonwebtoken::decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(ctx.cfg.jwt_secret_pem.as_bytes()),
-        &Validation::default(),
-    ) {
-        return Ok(data.claims.sub);
-    }
-    validate_api_token(ctx, token).await
+    let service = ctx.auth_service();
+    service
+        .subject_from_token(token)
+        .await
+        .map_err(map_auth_error)?
+        .ok_or(StatusCode::UNAUTHORIZED)
 }
 
 pub async fn resolve_actor_from_parts(
@@ -292,9 +239,16 @@ pub async fn resolve_actor_from_parts(
     share_token: Option<&str>,
 ) -> Option<access::Actor> {
     if let Some(b) = bearer {
-        if let Ok(sub) = validate_bearer(ctx, b).await {
-            if let Ok(uid) = Uuid::parse_str(&sub) {
-                return Some(access::Actor::User(uid));
+        match validate_bearer(ctx, b.clone()).await {
+            Ok(sub) => {
+                if let Ok(uid) = Uuid::parse_str(&sub) {
+                    return Some(access::Actor::User(uid));
+                }
+            }
+            Err(_) => {
+                if let Some(actor) = resolve_actor_from_token_str(ctx, &b.0).await {
+                    return Some(actor);
+                }
             }
         }
     }
@@ -309,7 +263,8 @@ pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Opti
     if trimmed.is_empty() {
         return None;
     }
-    if let Ok(sub) = validate_bearer_str(ctx, trimmed).await {
+    let service = ctx.auth_service();
+    if let Ok(Some(sub)) = service.subject_from_token(trimmed).await {
         if let Ok(uid) = Uuid::parse_str(&sub) {
             return Some(access::Actor::User(uid));
         } else {
@@ -319,28 +274,12 @@ pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Opti
     Some(access::Actor::ShareToken(trimmed.to_string()))
 }
 
-async fn validate_api_token(ctx: &AppContext, token: &str) -> Result<String, StatusCode> {
-    let digest = compute_digest(token);
-    let repo = ctx.api_token_repo();
-    let record = repo
-        .find_by_digest(&digest)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let Some(secret) = record else {
-        return Err(StatusCode::UNAUTHORIZED);
-    };
-    if secret.token.revoked_at.is_some() {
-        return Err(StatusCode::UNAUTHORIZED);
+fn map_auth_error(err: ServiceError) -> StatusCode {
+    if err.is_internal() {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::UNAUTHORIZED
     }
-    let ok =
-        verify_token(token, &secret.token_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if !ok {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    repo.touch_last_used(secret.token.id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(secret.token.user_id.to_string())
 }
 
 // --- Cookie helpers & logout ---
@@ -357,15 +296,19 @@ fn get_cookie(cookie_header: &str, name: &str) -> Option<String> {
     None
 }
 
-fn build_access_cookie(token: &str, max_age_secs: i64, secure: bool) -> String {
-    // Note: SameSite=Lax for typical same-site SPA/API setups.
-    // In cross-site deployments, consider SameSite=None; Secure and CSRF protection.
+fn build_session_cookie(token: &str, max_age_secs: usize, secure: bool) -> String {
     let secure_attr = if secure { "; Secure" } else { "" };
     format!(
-        "access_token={}; HttpOnly{}; Path=/; Max-Age={}; SameSite=Lax",
-        token,
-        secure_attr,
-        max_age_secs.max(0)
+        "{}={}; HttpOnly{}; Path=/; Max-Age={}; SameSite=Lax",
+        SESSION_COOKIE_NAME, token, secure_attr, max_age_secs
+    )
+}
+
+fn clear_session_cookie(secure: bool) -> String {
+    let secure_attr = if secure { "; Secure" } else { "" };
+    format!(
+        "{}=; HttpOnly{}; Path=/; Max-Age=0; SameSite=Lax",
+        SESSION_COOKIE_NAME, secure_attr
     )
 }
 
@@ -373,20 +316,9 @@ fn build_access_cookie(token: &str, max_age_secs: i64, secure: bool) -> String {
 pub async fn logout(State(ctx): State<AppContext>) -> Result<(HeaderMap, StatusCode), StatusCode> {
     // Clear cookie by setting it expired
     let mut headers = HeaderMap::new();
-    let secure = ctx
-        .cfg
-        .frontend_url
-        .as_deref()
-        .map(|u| u.starts_with("https://"))
-        .unwrap_or(false);
-    let cookie = if secure {
-        "access_token=; HttpOnly; Secure; Path=/; Max-Age=0; SameSite=Lax"
-    } else {
-        "access_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax"
-    };
     headers.insert(
         axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(cookie)
+        axum::http::HeaderValue::from_str(&clear_session_cookie(ctx.cfg.session_cookie_secure))
             .unwrap_or(axum::http::HeaderValue::from_static("")),
     );
     Ok((headers, StatusCode::NO_CONTENT))

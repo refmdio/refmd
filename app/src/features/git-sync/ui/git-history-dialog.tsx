@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { GitCommit as GitCommitIcon, RefreshCw, User, Clock, AlignLeft, Columns2 } from 'lucide-react'
 import React from 'react'
 
-import type { GitCommitItem, DocumentDiffResult, DocumentDiffLineType } from '@/shared/api'
+import type { GitCommitItem, TextDiffLineType, TextDiffResult } from '@/shared/api'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -19,14 +19,14 @@ import { FileExpander } from './file-expander'
 type Props = { open: boolean; onOpenChange: (open: boolean) => void }
 
 const DIFF_LINE_TYPE = {
-  ADDED: 'added' as DocumentDiffLineType,
-  DELETED: 'deleted' as DocumentDiffLineType,
+  ADDED: 'added' as TextDiffLineType,
+  DELETED: 'deleted' as TextDiffLineType,
 } as const
 
 export default function GitHistoryDialog({ open, onOpenChange }: Props) {
   const qc = useQueryClient()
   const [selectedCommit, setSelectedCommit] = React.useState<GitCommitItem | null>(null)
-  const [commitDiffs, setCommitDiffs] = React.useState<DocumentDiffResult[]>([])
+  const [commitDiffs, setCommitDiffs] = React.useState<TextDiffResult[]>([])
   const [diffLoading, setDiffLoading] = React.useState(false)
   const [diffError, setDiffError] = React.useState<string | null>(null)
   const [viewMode, setViewMode] = React.useState<'unified' | 'split'>('unified')

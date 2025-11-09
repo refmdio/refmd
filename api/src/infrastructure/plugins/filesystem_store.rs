@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -16,7 +16,9 @@ use tokio::{sync::RwLock, task};
 use uuid::Uuid;
 
 use crate::application::dto::plugins::ExecResult;
-use crate::application::ports::plugin_asset_store::PluginAssetStore;
+use crate::application::ports::plugin_asset_store::{
+    PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
+};
 use crate::application::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
 };
@@ -573,35 +575,57 @@ impl PluginInstaller for FilesystemPluginStore {
 
 #[async_trait]
 impl PluginAssetStore for FilesystemPluginStore {
-    fn global_root(&self) -> std::path::PathBuf {
-        FilesystemPluginStore::global_root(self)
-    }
-
-    fn user_root(&self, user_id: &Uuid) -> std::path::PathBuf {
-        FilesystemPluginStore::user_root(self, user_id)
-    }
-
-    fn latest_version_dir(
+    async fn fetch_asset(
         &self,
-        base: &std::path::Path,
-    ) -> anyhow::Result<Option<std::path::PathBuf>> {
-        FilesystemPluginStore::latest_version_dir(self, base)
-    }
-
-    fn user_plugin_manifest_path(
-        &self,
-        user_id: &Uuid,
+        scope: PluginAssetStoreScope<'_>,
         plugin_id: &str,
         version: &str,
-    ) -> std::path::PathBuf {
-        FilesystemPluginStore::user_plugin_manifest_path(self, user_id, plugin_id, version)
+        relative_path: &str,
+    ) -> anyhow::Result<PluginAssetPayload> {
+        Self::ensure_valid_plugin_id(plugin_id)?;
+        if version.is_empty()
+            || version.len() > 128
+            || version.contains("..")
+            || version.contains(['/', '\\'])
+        {
+            bail!("invalid plugin version");
+        }
+
+        let base_root = match scope {
+            PluginAssetStoreScope::Global => self.global_root(),
+            PluginAssetStoreScope::User { owner_id } => self.user_root(owner_id),
+        };
+
+        let mut sanitized = PathBuf::new();
+        for component in Path::new(relative_path).components() {
+            match component {
+                Component::Normal(part) => sanitized.push(part),
+                Component::CurDir => continue,
+                _ => bail!("invalid asset path"),
+            }
+        }
+        if sanitized.as_os_str().is_empty() {
+            bail!("invalid asset path");
+        }
+
+        let plugin_dir = base_root.join(plugin_id).join(version);
+        let full_path = plugin_dir.join(&sanitized);
+        if !full_path.starts_with(&plugin_dir) {
+            bail!("invalid asset scope");
+        }
+
+        let bytes = tokio::fs::read(&full_path).await?;
+        let content_type = mime_guess::from_path(&full_path)
+            .first_raw()
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        Ok(PluginAssetPayload {
+            bytes,
+            content_type,
+        })
     }
 
-    fn global_plugin_manifest_path(&self, plugin_id: &str, version: &str) -> std::path::PathBuf {
-        FilesystemPluginStore::global_plugin_manifest_path(self, plugin_id, version)
-    }
-
-    fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> anyhow::Result<()> {
+    async fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> anyhow::Result<()> {
         FilesystemPluginStore::remove_user_plugin_dir(self, user_id, plugin_id)
     }
 

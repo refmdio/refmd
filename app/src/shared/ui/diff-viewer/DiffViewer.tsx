@@ -1,16 +1,16 @@
-import type { DocumentDiffLine, DocumentDiffResult, DocumentDiffLineType } from '@/shared/api'
+import type { TextDiffLine, TextDiffLineType, TextDiffResult } from '@/shared/api'
 import { cn } from '@/shared/lib/utils'
 
 type ViewMode = 'unified' | 'split'
 
 const DIFF_LINE_TYPE = {
-  ADDED: 'added' as DocumentDiffLineType,
-  DELETED: 'deleted' as DocumentDiffLineType,
-  CONTEXT: 'context' as DocumentDiffLineType,
+  ADDED: 'added' as TextDiffLineType,
+  DELETED: 'deleted' as TextDiffLineType,
+  CONTEXT: 'context' as TextDiffLineType,
 } as const
 
 type Props = {
-  diffResult: DocumentDiffResult
+  diffResult: TextDiffResult
   viewMode?: ViewMode
   showLineNumbers?: boolean
   className?: string
@@ -26,7 +26,7 @@ export function DiffViewer({ diffResult, viewMode = 'unified', showLineNumbers =
   return <UnifiedDiffView diffResult={diffResult} showLineNumbers={showLineNumbers} className={className} />
 }
 
-function UnifiedDiffView({ diffResult, showLineNumbers, className }: { diffResult: DocumentDiffResult; showLineNumbers: boolean; className?: string }) {
+function UnifiedDiffView({ diffResult, showLineNumbers, className }: { diffResult: TextDiffResult; showLineNumbers: boolean; className?: string }) {
   return (
     <div className={cn('font-mono text-sm overflow-x-auto max-w-full', className)}>
       {(diffResult.diff_lines || []).map((line, idx) => {
@@ -70,8 +70,8 @@ function UnifiedDiffView({ diffResult, showLineNumbers, className }: { diffResul
   )
 }
 
-function SplitDiffView({ diffResult, showLineNumbers, className }: { diffResult: DocumentDiffResult; showLineNumbers: boolean; className?: string }) {
-  const processed: Array<{ old?: DocumentDiffLine; new?: DocumentDiffLine }> = []
+function SplitDiffView({ diffResult, showLineNumbers, className }: { diffResult: TextDiffResult; showLineNumbers: boolean; className?: string }) {
+  const processed: Array<{ old?: TextDiffLine; new?: TextDiffLine }> = []
   const lines = diffResult.diff_lines || []
   let i = 0
   while (i < lines.length) {

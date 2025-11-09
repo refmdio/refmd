@@ -1,9 +1,9 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::application::access::{self, Capability};
+use crate::application::access::Capability;
 use crate::application::ports::realtime_port::RealtimeError;
-use crate::bootstrap::app_context::{AppContext, DynRealtimeSink, DynRealtimeStream};
+use crate::presentation::context::{AppContext, DynRealtimeSink, DynRealtimeStream};
 use crate::presentation::http::auth;
 use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -82,15 +82,10 @@ pub async fn axum_ws_entry(
     }
     .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let share_access = state.share_access_port();
-    let access_repo = state.access_repo();
-    let cap = access::resolve_document(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &actor,
-        doc_uuid,
-    )
-    .await;
+    let cap = state
+        .authorization()
+        .resolve_document(&actor, doc_uuid)
+        .await;
     if cap == Capability::None {
         return Err(StatusCode::UNAUTHORIZED);
     }

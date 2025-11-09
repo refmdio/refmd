@@ -160,6 +160,7 @@ dependencies = [
  "ammonia",
  "anyhow",
  "argon2",
+ "async-lock",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",

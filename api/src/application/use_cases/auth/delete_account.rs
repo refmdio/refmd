@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use tokio::task;
 use uuid::Uuid;
 
 use crate::application::ports::document_repository::DocumentRepository;
@@ -47,19 +46,12 @@ where
 
         let installations = self.plugin_installations.list_for_user(user_id).await?;
         for inst in &installations {
-            let plugin_id = inst.plugin_id.clone();
-            let plugin_for_log = plugin_id.clone();
-            let assets = Arc::clone(&self.plugin_assets);
-            match task::spawn_blocking(move || assets.remove_user_plugin_dir(&user_id, &plugin_id))
+            if let Err(err) = self
+                .plugin_assets
+                .remove_user_plugin_dir(&user_id, &inst.plugin_id)
                 .await
             {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => {
-                    tracing::warn!(user_id = %user_id, plugin_id = %plugin_for_log, error = ?err, "failed to remove plugin assets for user");
-                }
-                Err(err) => {
-                    tracing::warn!(user_id = %user_id, plugin_id = %plugin_for_log, error = ?err, "failed to join plugin asset removal task");
-                }
+                tracing::warn!(user_id = %user_id, plugin_id = %inst.plugin_id, error = ?err, "failed to remove plugin assets for user");
             }
         }
         self.plugin_installations

@@ -76,3 +76,9 @@ pub struct GitSyncOutcome {
     pub pushed: bool,
     pub message: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct GitignoreUpdateDto {
+    pub added: usize,
+    pub patterns: Vec<String>,
+}

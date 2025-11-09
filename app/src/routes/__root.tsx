@@ -1,26 +1,33 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { HeadContent, Scripts, Outlet, createRootRouteWithContext, useRouter, useRouterState } from '@tanstack/react-router'
-import { type ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import type { ImperativePanelHandle } from 'react-resizable-panels'
 
 import '@/styles.css'
 
+import { RealtimeProvider, useRealtime } from '@/shared/contexts/realtime-context'
 import { ShareTokenProvider } from '@/shared/contexts/share-token-context'
-import { ShortcutRegistryProvider } from '@/shared/contexts/shortcut-context'
 import { ThemeProvider } from '@/shared/contexts/theme-context'
+import { useIsMobile } from '@/shared/hooks/use-mobile'
+import { useServiceWorker } from '@/shared/hooks/use-service-worker'
 import { getEnv } from '@/shared/lib/config'
+import type { HeaderRealtimeState } from '@/shared/types/header'
+import DevtoolsPortal from '@/shared/ui/devtools/DevtoolsPortal'
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/shared/ui/resizable'
+import { SidebarProvider, Sidebar, SidebarInset } from '@/shared/ui/sidebar'
 import { Toaster } from '@/shared/ui/sonner'
 
-import { AuthProvider } from '@/features/auth'
+import { AuthProvider, useAuthContext } from '@/features/auth'
 import { EditorProvider, ViewProvider } from '@/features/edit-document'
 import { SecondaryViewerProvider } from '@/features/secondary-viewer'
+import { ShortcutRegistryProvider } from '@/features/shortcuts'
 
-import AppLayout from '@/widgets/layouts/AppLayout'
+import { Header } from '@/widgets/header/Header'
 import AuthLayout from '@/widgets/layouts/AuthLayout'
 import PublicLayout from '@/widgets/layouts/PublicLayout'
 import PluginFallback from '@/widgets/routes/PluginFallback'
+import AppSidebar from '@/widgets/sidebar/AppSidebar'
 
-import { RealtimeProvider, useRealtime } from '@/processes/collaboration/contexts/realtime-context'
-import { useServiceWorker } from '@/processes/pwa/use-service-worker'
 
 import type { RouterContext } from '@/router'
 
@@ -113,7 +120,7 @@ function RootComponent() {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <ShortcutRegistryProvider>
+          <ShortcutRegistryBoundary>
             <RealtimeProvider>
               <SecondaryViewerProvider>
                 <ShareTokenProvider token={shareToken}>
@@ -122,7 +129,7 @@ function RootComponent() {
                 <Toaster richColors position="bottom-right" />
               </SecondaryViewerProvider>
             </RealtimeProvider>
-          </ShortcutRegistryProvider>
+          </ShortcutRegistryBoundary>
         </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>
@@ -141,6 +148,11 @@ function RootDocument({ children }: { children: ReactNode }) {
       </body>
     </html>
   )
+}
+
+function ShortcutRegistryBoundary({ children }: { children: ReactNode }) {
+  const { user } = useAuthContext()
+  return <ShortcutRegistryProvider currentUserId={user?.id}>{children}</ShortcutRegistryProvider>
 }
 
 function LayoutContent({ layout }: { layout: LayoutKey }) {
@@ -166,9 +178,9 @@ function LayoutContent({ layout }: { layout: LayoutKey }) {
     return (
       <EditorProvider>
         <ViewProvider>
-          <AppLayout realtime={realtime}>
+          <AppShellLayout realtime={realtime}>
             <Outlet />
-          </AppLayout>
+          </AppShellLayout>
         </ViewProvider>
       </EditorProvider>
     )
@@ -177,10 +189,91 @@ function LayoutContent({ layout }: { layout: LayoutKey }) {
   return (
     <EditorProvider>
       <ViewProvider>
-        <AppLayout realtime={realtime}>
+        <AppShellLayout realtime={realtime}>
           <Outlet />
-        </AppLayout>
+        </AppShellLayout>
       </ViewProvider>
     </EditorProvider>
+  )
+}
+
+function AppShellLayout({ realtime, children }: { realtime?: HeaderRealtimeState; children: ReactNode }) {
+  const isMobile = useIsMobile()
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const sidebarPanelRef = useRef<ImperativePanelHandle | null>(null)
+  const DESKTOP_SIDEBAR_DEFAULT = 20
+
+  useEffect(() => {
+    if (isMobile) return
+    const panel = sidebarPanelRef.current
+    if (!panel) return
+    try {
+      if (sidebarOpen) {
+        panel.expand?.()
+        panel.resize?.(DESKTOP_SIDEBAR_DEFAULT)
+      } else {
+        panel.collapse?.()
+      }
+    } catch {}
+  }, [isMobile, sidebarOpen, DESKTOP_SIDEBAR_DEFAULT])
+
+  return (
+    <SidebarProvider
+      open={sidebarOpen}
+      onOpenChange={setSidebarOpen}
+      className={isMobile ? 'flex-col' : undefined}
+    >
+      {isMobile ? (
+        <>
+          <Header variant="mobile" realtime={realtime} />
+          <Sidebar className="top-12">
+            <AppSidebar />
+          </Sidebar>
+          <SidebarInset className="pt-12">
+            {children}
+            <DevtoolsPortal />
+          </SidebarInset>
+        </>
+      ) : (
+        <div className="relative flex h-svh w-full overflow-hidden bg-background">
+          <ResizablePanelGroup
+            direction="horizontal"
+            className="flex-1"
+            onLayout={(sizes) => {
+              const first = Array.isArray(sizes) ? sizes[0] : undefined
+              if (typeof first === 'number') {
+                if (first < 5 && sidebarOpen) setSidebarOpen(false)
+                if (first >= 5 && !sidebarOpen) setSidebarOpen(true)
+              }
+            }}
+          >
+            <ResizablePanel
+              ref={sidebarPanelRef as any}
+              defaultSize={DESKTOP_SIDEBAR_DEFAULT}
+              minSize={sidebarOpen ? 8 : 0}
+              maxSize={sidebarOpen ? 40 : 0}
+              collapsible
+              onCollapse={() => setSidebarOpen(false)}
+              onExpand={() => setSidebarOpen(true)}
+              className="overflow-visible bg-transparent"
+            >
+              <div className="h-full w-full overflow-hidden pl-5 sm:pl-6 lg:pl-8">
+                <AppSidebar />
+              </div>
+            </ResizablePanel>
+            <ResizableHandle className="!w-[0.375rem] !bg-transparent after:hidden cursor-col-resize" />
+            <ResizablePanel defaultSize={100 - DESKTOP_SIDEBAR_DEFAULT} className="overflow-hidden">
+              <div className="relative h-full w-full overflow-hidden px-5 sm:px-6 lg:px-8 pb-6 pt-[5.25rem] md:pt-[5.75rem] lg:pt-[6rem]">
+                <Header variant="overlay" realtime={realtime} />
+                <div className="relative z-10 flex h-full flex-col overflow-hidden">
+                  {children}
+                  <DevtoolsPortal />
+                </div>
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
+      )}
+    </SidebarProvider>
   )
 }

@@ -1,6 +1,8 @@
 pub mod crypto;
 pub mod db;
+pub mod documents;
 pub mod git;
+pub mod health;
 pub mod plugins;
 pub mod realtime;
 pub mod storage;

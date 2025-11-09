@@ -22,6 +22,7 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde", "clock"] }
 yrs-warp = "0.9"
 async-trait = "0.1"
+async-lock = "3"
 extism = { version = "1" }
 
 # Markdown rendering

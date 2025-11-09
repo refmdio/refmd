@@ -8,15 +8,11 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::bootstrap::app_context::AppContext;
+use crate::application::dto::public::PublicDocumentSummaryDto;
+use crate::application::services::errors::ServiceError;
+use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
 use crate::presentation::http::documents::Document;
-// use crate::presentation::http::auth; // not needed explicitly
-use crate::application::use_cases::public::get_public::GetPublicByOwnerAndId;
-use crate::application::use_cases::public::get_status::GetPublishStatus;
-use crate::application::use_cases::public::list_user::{ListUserPublic, PublicDocumentSummaryDto};
-use crate::application::use_cases::public::publish::PublishDocument;
-use crate::application::use_cases::public::unpublish::UnpublishDocument;
 
 // Uses AppContext as router state
 
@@ -24,6 +20,20 @@ use crate::application::use_cases::public::unpublish::UnpublishDocument;
 pub struct PublishResponse {
     pub slug: String,
     pub public_url: String,
+}
+
+fn map_public_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            tracing::error!(error = ?inner, "public_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }
 
 #[utoipa::path(
@@ -40,15 +50,11 @@ pub async fn publish_document(
 ) -> Result<Json<PublishResponse>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.public_repo();
-    let uc = PublishDocument {
-        repo: repo.as_ref(),
-    };
-    let res = uc
-        .execute(user_id, id)
+    let service = ctx.public_service();
+    let out = service
+        .publish_document(user_id, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let out = res.ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_public_error)?;
     Ok(Json(PublishResponse {
         slug: out.slug,
         public_url: out.public_url,
@@ -69,14 +75,11 @@ pub async fn unpublish_document(
 ) -> Result<StatusCode, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.public_repo();
-    let uc = UnpublishDocument {
-        repo: repo.as_ref(),
-    };
-    let ok = uc
-        .execute(user_id, id)
+    let ok = ctx
+        .public_service()
+        .unpublish_document(user_id, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_public_error)?;
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -99,15 +102,11 @@ pub async fn get_publish_status(
     // Validate ownership
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.public_repo();
-    let uc = GetPublishStatus {
-        repo: repo.as_ref(),
-    };
-    let res = uc
-        .execute(user_id, id)
+    let out = ctx
+        .public_service()
+        .get_publish_status(user_id, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let out = res.ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_public_error)?;
     Ok(Json(PublishResponse {
         slug: out.slug,
         public_url: out.public_url,
@@ -135,14 +134,11 @@ pub async fn list_user_public_documents(
     State(ctx): State<AppContext>,
     Path(name): Path<String>,
 ) -> Result<Json<Vec<PublicDocumentSummary>>, StatusCode> {
-    let repo = ctx.public_repo();
-    let uc = ListUserPublic {
-        repo: repo.as_ref(),
-    };
-    let items = uc
-        .execute(&name)
+    let items = ctx
+        .public_service()
+        .list_user_public_documents(&name)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_public_error)?;
     Ok(Json(
         items
             .into_iter()
@@ -167,15 +163,11 @@ pub async fn get_public_by_owner_and_id(
     State(ctx): State<AppContext>,
     Path((name, id)): Path<(String, Uuid)>,
 ) -> Result<Json<Document>, StatusCode> {
-    let repo = ctx.public_repo();
-    let uc = GetPublicByOwnerAndId {
-        repo: repo.as_ref(),
-    };
-    let res = uc
-        .execute(&name, id)
+    let d = ctx
+        .public_service()
+        .get_public_by_owner_and_id(&name, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let d = res.ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_public_error)?;
     Ok(Json(Document {
         id: d.id,
         title: d.title,
@@ -201,23 +193,11 @@ pub async fn get_public_content_by_owner_and_id(
     State(ctx): State<AppContext>,
     Path((name, id)): Path<(String, Uuid)>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let repo = ctx.public_repo();
-    let exists = repo
-        .public_exists_by_owner_and_id(&name, id)
+    let content = ctx
+        .public_service()
+        .get_public_content_by_owner_and_id(&name, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if !exists {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    let realtime = ctx.realtime_engine();
-    let content = realtime
-        .get_content(&id.to_string())
-        .await
-        .map_err(|e| {
-            tracing::error!(owner = %name, document_id = %id, error = ?e, "realtime_get_content_failed");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .unwrap_or_default();
+        .map_err(map_public_error)?;
     Ok(Json(serde_json::json!({"content": content, "id": id})))
 }
 pub fn routes(ctx: AppContext) -> Router {

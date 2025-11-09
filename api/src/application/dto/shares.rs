@@ -15,6 +15,25 @@ pub struct ActiveShareItemDto {
 }
 
 #[derive(Debug, Clone)]
+pub struct ShareItemDto {
+    pub id: Uuid,
+    pub token: String,
+    pub permission: String,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub document_id: Uuid,
+    pub document_type: String,
+    pub parent_share_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ApplicableShareDto {
+    pub token: String,
+    pub permission: String,
+    pub scope: String,
+    pub excluded: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct ShareDocumentDto {
     pub id: Uuid,
     pub title: String,
@@ -35,4 +54,11 @@ pub struct ShareBrowseTreeItemDto {
 #[derive(Debug, Clone)]
 pub struct ShareBrowseResponseDto {
     pub tree: Vec<ShareBrowseTreeItemDto>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreatedShareDto {
+    pub token: String,
+    pub document_id: Uuid,
+    pub document_type: String,
 }

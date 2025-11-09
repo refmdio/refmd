@@ -1,6 +1,7 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import React from 'react'
 
+import { useRealtime } from '@/shared/contexts/realtime-context'
 import { useShareToken } from '@/shared/contexts/share-token-context'
 
 import { useAuthContext } from '@/features/auth'
@@ -10,7 +11,6 @@ import {
   type RoutePluginMatch,
 } from '@/features/plugins'
 
-import { useRealtime } from '@/processes/collaboration/contexts/realtime-context'
 
 export default function PluginFallback() {
   const navigate = useNavigate()

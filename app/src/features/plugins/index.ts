@@ -7,6 +7,6 @@ export {
   resolvePluginForDocument,
   mountResolvedPlugin,
   mountRoutePlugin,
-} from './lib/resolution'
+} from '@/features/plugins/lib/resolution'
 
-export type { RoutePluginMatch, DocumentPluginMatch } from './lib/resolution'
+export type { RoutePluginMatch, DocumentPluginMatch } from '@/features/plugins/lib/resolution'

@@ -5,14 +5,13 @@ use axum::{
     routing::{delete, get},
 };
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::application::ports::api_token_repository::ApiToken;
-use crate::application::use_cases::api_tokens::create_token::{CreateApiToken, CreatedApiToken};
-use crate::application::use_cases::api_tokens::list_tokens::ListApiTokens;
-use crate::application::use_cases::api_tokens::revoke_token::RevokeApiToken;
-use crate::bootstrap::app_context::AppContext;
+use crate::application::dto::api_tokens::{ApiTokenDto, CreatedApiTokenDto};
+use crate::application::services::errors::ServiceError;
+use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -24,8 +23,8 @@ pub struct ApiTokenItem {
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-impl From<ApiToken> for ApiTokenItem {
-    fn from(value: ApiToken) -> Self {
+impl From<ApiTokenDto> for ApiTokenItem {
+    fn from(value: ApiTokenDto) -> Self {
         Self {
             id: value.id,
             name: value.name,
@@ -44,13 +43,27 @@ pub struct ApiTokenCreateResponse {
     pub token: String,
 }
 
-impl From<CreatedApiToken> for ApiTokenCreateResponse {
-    fn from(value: CreatedApiToken) -> Self {
+impl From<CreatedApiTokenDto> for ApiTokenCreateResponse {
+    fn from(value: CreatedApiTokenDto) -> Self {
         Self {
             id: value.token.id,
             name: value.token.name,
             created_at: value.token.created_at,
             token: value.plaintext,
+        }
+    }
+}
+
+fn map_token_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            error!(error = ?inner, "api_token_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
         }
     }
 }
@@ -74,14 +87,8 @@ pub async fn list_api_tokens(
     let sub = auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let repo = ctx.api_token_repo();
-    let uc = ListApiTokens {
-        repo: repo.as_ref(),
-    };
-    let items = uc
-        .execute(user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let service = ctx.api_token_service();
+    let items = service.list(user_id).await.map_err(map_token_error)?;
     Ok(Json(items.into_iter().map(ApiTokenItem::from).collect()))
 }
 
@@ -100,14 +107,11 @@ pub async fn create_api_token(
     let sub = auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let repo = ctx.api_token_repo();
-    let uc = CreateApiToken {
-        repo: repo.as_ref(),
-    };
-    let created = uc
-        .execute(user_id, payload.name.as_deref())
+    let service = ctx.api_token_service();
+    let created = service
+        .create(user_id, payload.name.as_deref())
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_token_error)?;
     Ok(Json(ApiTokenCreateResponse::from(created)))
 }
 
@@ -126,14 +130,8 @@ pub async fn revoke_api_token(
     let sub = auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let repo = ctx.api_token_repo();
-    let uc = RevokeApiToken {
-        repo: repo.as_ref(),
-    };
-    let revoked = uc
-        .execute(user_id, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let service = ctx.api_token_service();
+    let revoked = service.revoke(user_id, id).await.map_err(map_token_error)?;
     if revoked {
         Ok(StatusCode::NO_CONTENT)
     } else {

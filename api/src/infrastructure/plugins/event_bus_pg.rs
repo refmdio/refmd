@@ -9,6 +9,7 @@ use tokio::time::sleep;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::application::ports::plugin_event_publisher::{PluginEventPublisher, PluginScopedEvent};
+use crate::application::ports::plugin_event_subscriber::PluginEventSubscriber;
 use crate::infrastructure::db::PgPool;
 
 #[derive(Clone)]
@@ -25,7 +26,7 @@ impl PgPluginEventBus {
         }
     }
 
-    pub async fn subscribe(&self) -> anyhow::Result<BoxStream<'static, PluginScopedEvent>> {
+    pub async fn subscribe_stream(&self) -> anyhow::Result<BoxStream<'static, PluginScopedEvent>> {
         let (tx, rx) = mpsc::unbounded_channel::<PluginScopedEvent>();
         let pool = self.pool.clone();
         let channel = self.channel.clone();
@@ -111,5 +112,12 @@ impl PluginEventPublisher for PgPluginEventBus {
             .context("plugin_event_pg_notify")?;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PluginEventSubscriber for PgPluginEventBus {
+    async fn subscribe(&self) -> anyhow::Result<BoxStream<'static, PluginScopedEvent>> {
+        self.subscribe_stream().await
     }
 }

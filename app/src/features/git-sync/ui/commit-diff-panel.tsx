@@ -1,7 +1,7 @@
 import { RefreshCw } from 'lucide-react'
 import React from 'react'
 
-import type { DocumentDiffResult, DocumentDiffLineType } from '@/shared/api'
+import type { TextDiffLineType, TextDiffResult } from '@/shared/api'
 import { cn } from '@/shared/lib/utils'
 import { Alert, AlertDescription } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
@@ -17,11 +17,11 @@ type ViewMode = 'unified' | 'split'
 type Props = { commitId: string; className?: string }
 
 const DIFF_LINE_TYPE = {
-  ADDED: 'added' as DocumentDiffLineType,
-  DELETED: 'deleted' as DocumentDiffLineType,
+  ADDED: 'added' as TextDiffLineType,
+  DELETED: 'deleted' as TextDiffLineType,
 } as const
 
-function getStats(diff: DocumentDiffResult): { additions: number; deletions: number } {
+function getStats(diff: TextDiffResult): { additions: number; deletions: number } {
   let additions = 0
   let deletions = 0
   for (const l of diff.diff_lines || []) {
@@ -34,7 +34,7 @@ function getStats(diff: DocumentDiffResult): { additions: number; deletions: num
 export function CommitDiffPanel({ commitId, className }: Props) {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [diffs, setDiffs] = React.useState<DocumentDiffResult[]>([])
+  const [diffs, setDiffs] = React.useState<TextDiffResult[]>([])
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = React.useState<ViewMode>('unified')
 

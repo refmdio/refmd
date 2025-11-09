@@ -1,14 +1,7 @@
 use uuid::Uuid;
 
+use crate::application::dto::shares::ApplicableShareDto;
 use crate::application::ports::shares_repository::SharesRepository;
-
-#[derive(Debug, Clone)]
-pub struct ApplicableShareDto {
-    pub token: String,
-    pub permission: String,
-    pub scope: String,
-    pub excluded: bool,
-}
 
 pub struct ListApplicableShares<'a, R: SharesRepository + ?Sized> {
     pub repo: &'a R,

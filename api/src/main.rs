@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use anyhow::Context;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::MatchedPath;
 use axum::{Router, routing::get};
@@ -14,14 +15,35 @@ use tracing::{error, info};
 
 use api::application::ports::plugin_asset_store::PluginAssetStore;
 use api::application::ports::plugin_event_publisher::PluginEventPublisher;
+use api::application::ports::plugin_event_subscriber::PluginEventSubscriber;
 use api::application::ports::plugin_installation_repository::PluginInstallationRepository;
 use api::application::ports::plugin_installer::PluginInstaller;
+use api::application::ports::plugin_package_fetcher::PluginPackageFetcher;
 use api::application::ports::plugin_runtime::PluginRuntime;
+use api::application::services::api_tokens::ApiTokenService;
+use api::application::services::auth::account::AccountService;
+use api::application::services::auth::service::AuthService;
+use api::application::services::auth::token_validation::TokenValidationService;
+use api::application::services::authorization::AuthorizationService;
+use api::application::services::documents::DocumentService;
+use api::application::services::files::FileService;
+use api::application::services::git::GitService;
+use api::application::services::health::HealthService;
+use api::application::services::markdown_render::MarkdownRenderService;
 use api::application::services::plugins::asset_signer::AssetSigner;
-use api::bootstrap::app_context::{AppContext, AppServices};
+use api::application::services::plugins::data::PluginDataService;
+use api::application::services::plugins::execution::PluginExecutionService;
+use api::application::services::plugins::management::PluginManagementService;
+use api::application::services::plugins::permissions::PluginPermissionService;
+use api::application::services::public::PublicService;
+use api::application::services::shares::ShareService;
+use api::application::services::tags::TagService;
+use api::application::services::user_shortcuts::UserShortcutService;
 use api::bootstrap::config::{Config, StorageBackend};
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
+use api::infrastructure::documents::exporter::DefaultDocumentExporter;
 use api::infrastructure::plugins::filesystem_store::PluginExecutionLimits;
+use api::presentation::context::{AppContext, AppServices, PresentationConfig};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -144,9 +166,9 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::git::GitHistoryResponse,
             api::presentation::http::git::AddPatternsRequest,
             api::presentation::http::git::CheckIgnoredRequest,
-            api::presentation::http::git::DocumentDiffLineType,
-            api::presentation::http::git::DocumentDiffLine,
-            api::presentation::http::git::DocumentDiffResult,
+            api::application::dto::diff::TextDiffLineType,
+            api::application::dto::diff::TextDiffLine,
+            api::application::dto::diff::TextDiffResult,
             api::presentation::http::markdown::RenderOptionsPayload,
             api::presentation::http::markdown::PlaceholderItemPayload,
             api::presentation::http::markdown::RenderResponseBody,
@@ -202,18 +224,35 @@ async fn main() -> anyhow::Result<()> {
 
     let asset_signer = Arc::new(AssetSigner::new(&cfg.plugin_asset_sign_key));
 
-    let storage_port: Arc<dyn api::application::ports::storage_port::StoragePort> =
-        match cfg.storage_backend {
-            StorageBackend::Filesystem => {
-                Arc::new(api::infrastructure::storage::port_impl::FsStoragePort {
-                    pool: pool.clone(),
-                    uploads_root: std::path::PathBuf::from(&cfg.storage_root),
-                })
-            }
-            StorageBackend::S3 => Arc::new(
-                api::infrastructure::storage::s3::S3StoragePort::new(pool.clone(), &cfg).await?,
-            ),
-        };
+    let uploads_root = std::path::PathBuf::from(&cfg.storage_root);
+    let storage_port: Arc<dyn api::application::ports::storage_port::StoragePort> = match cfg
+        .storage_backend
+    {
+        StorageBackend::Filesystem => {
+            Arc::new(api::infrastructure::storage::port_impl::FsStoragePort {
+                pool: pool.clone(),
+                uploads_root: uploads_root.clone(),
+            })
+        }
+        StorageBackend::S3 => {
+            let s3_settings = api::infrastructure::storage::s3::S3StorageConfig {
+                uploads_root: uploads_root.clone(),
+                bucket: cfg
+                    .s3_bucket
+                    .clone()
+                    .context("S3_BUCKET must be configured when using S3 storage backend")?,
+                region: cfg.s3_region.clone(),
+                endpoint: cfg.s3_endpoint.clone(),
+                access_key: cfg.s3_access_key.clone(),
+                secret_key: cfg.s3_secret_key.clone(),
+                use_path_style: cfg.s3_use_path_style,
+            };
+            Arc::new(
+                api::infrastructure::storage::s3::S3StoragePort::new(pool.clone(), &s3_settings)
+                    .await?,
+            )
+        }
+    };
 
     let snapshot_archive_repo: Arc<
         dyn api::application::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository,
@@ -221,15 +260,6 @@ async fn main() -> anyhow::Result<()> {
         api::infrastructure::db::repositories::document_snapshot_archive_repository_sqlx::SqlxDocumentSnapshotArchiveRepository::new(
             pool.clone(),
         ),
-    );
-
-    // Build Realtime Hub
-    let auto_archive_interval = Duration::from_secs(cfg.snapshot_archive_interval_secs);
-    let hub = api::infrastructure::realtime::Hub::new(
-        pool.clone(),
-        storage_port.clone(),
-        snapshot_archive_repo.clone(),
-        auto_archive_interval,
     );
     let document_repo = Arc::new(
         api::infrastructure::db::repositories::document_repository_sqlx::SqlxDocumentRepository::new(
@@ -241,11 +271,16 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    let share_service = Arc::new(ShareService::new(shares_repo_impl.clone()));
     let access_repo = Arc::new(
         api::infrastructure::db::repositories::access_repository_sqlx::SqlxAccessRepository::new(
             pool.clone(),
         ),
     );
+    let authorization_service = Arc::new(AuthorizationService::new(
+        access_repo.clone(),
+        shares_repo_impl.clone(),
+    ));
     let files_repo = Arc::new(
         api::infrastructure::db::repositories::files_repository_sqlx::SqlxFilesRepository::new(
             pool.clone(),
@@ -266,23 +301,61 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    let tag_service = Arc::new(TagService::new(tag_repo.clone()));
     let api_token_repo = Arc::new(
         api::infrastructure::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository::new(
             pool.clone(),
         ),
     );
+    let api_token_service = Arc::new(ApiTokenService::new(api_token_repo.clone()));
+    let token_validation_service = Arc::new(TokenValidationService::new(api_token_repo.clone()));
+    let cookie_secure = cfg
+        .frontend_url
+        .as_deref()
+        .map(|u| u.starts_with("https://"))
+        .unwrap_or(false);
+    let auth_service = Arc::new(AuthService::new(
+        cfg.jwt_secret_pem.clone(),
+        token_validation_service.clone(),
+        cfg.jwt_expires_secs as usize,
+    ));
     let user_shortcuts = Arc::new(
         api::infrastructure::db::repositories::user_shortcut_repository_sqlx::SqlxUserShortcutRepository::new(
             pool.clone(),
         ),
     );
+    let user_shortcut_service =
+        Arc::new(UserShortcutService::new(user_shortcuts.clone(), 32 * 1024));
     let git_repo = Arc::new(
         api::infrastructure::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
             pool.clone(),
             cfg.encryption_key.clone(),
         ),
     );
-    let git_storage = api::infrastructure::git::storage::build_git_storage(&cfg).await?;
+    let git_storage_config = match cfg.storage_backend {
+        StorageBackend::Filesystem => {
+            api::infrastructure::git::storage::GitStorageDriverConfig::Filesystem {
+                root: uploads_root.clone(),
+            }
+        }
+        StorageBackend::S3 => {
+            let s3_settings = api::infrastructure::git::storage::S3GitStorageConfig {
+                storage_root_prefix: cfg.storage_root.clone(),
+                bucket: cfg
+                    .s3_bucket
+                    .clone()
+                    .context("S3_BUCKET must be configured when using S3 storage backend")?,
+                region: cfg.s3_region.clone(),
+                endpoint: cfg.s3_endpoint.clone(),
+                access_key: cfg.s3_access_key.clone(),
+                secret_key: cfg.s3_secret_key.clone(),
+                use_path_style: cfg.s3_use_path_style,
+            };
+            api::infrastructure::git::storage::GitStorageDriverConfig::S3(s3_settings)
+        }
+    };
+    let git_storage =
+        api::infrastructure::git::storage::build_git_storage(git_storage_config).await?;
     let gitignore_port = Arc::new(api::infrastructure::storage::gitignore::FsGitignorePort);
     let git_workspace = Arc::new(
         api::infrastructure::git::workspace::GitWorkspaceService::new(
@@ -291,14 +364,37 @@ async fn main() -> anyhow::Result<()> {
             storage_port.clone(),
         )?,
     );
+    let git_service = Arc::new(GitService::new(
+        git_repo.clone(),
+        storage_port.clone(),
+        files_repo.clone(),
+        document_repo.clone(),
+        gitignore_port.clone(),
+        git_workspace.clone(),
+    ));
+    let auto_archive_interval = Duration::from_secs(cfg.snapshot_archive_interval_secs);
+    let mut local_hub: Option<api::infrastructure::realtime::Hub> = None;
     let (realtime_engine, snapshot_service_arc): (
         Arc<dyn api::application::ports::realtime_port::RealtimeEngine>,
         Arc<api::application::services::realtime::snapshot::SnapshotService>,
     ) = if cfg.cluster_mode {
         tracing::info!("cluster_mode_enabled");
+        let redis_settings = api::infrastructure::realtime::RedisRealtimeConfig {
+            redis_url: cfg
+                .redis_url
+                .clone()
+                .context("REDIS_URL must be set when CLUSTER_MODE=1")?,
+            stream_prefix: cfg.redis_stream_prefix.clone(),
+            stream_max_len: cfg.redis_stream_max_len,
+            task_debounce_ms: cfg.redis_task_debounce_ms,
+            min_message_lifetime_ms: cfg.redis_min_message_lifetime_ms,
+            awareness_ttl_ms: cfg.redis_awareness_ttl_ms,
+            snapshot_archive_interval_secs: cfg.snapshot_archive_interval_secs,
+            spawn_persistence_worker: true,
+        };
         let engine = Arc::new(
             api::infrastructure::realtime::RedisRealtimeEngine::from_config(
-                &cfg,
+                redis_settings,
                 pool.clone(),
                 storage_port.clone(),
             )?,
@@ -309,11 +405,57 @@ async fn main() -> anyhow::Result<()> {
         (engine_trait, snapshot_service)
     } else {
         tracing::info!("cluster_mode_disabled_using_local_hub");
+        let doc_state_reader: Arc<
+            dyn api::application::ports::realtime_hydration_port::DocStateReader,
+        > = Arc::new(api::infrastructure::realtime::SqlxDocStateReader::new(
+            pool.clone(),
+        ));
+        let backlog_reader: Arc<
+            dyn api::application::ports::realtime_hydration_port::RealtimeBacklogReader,
+        > = Arc::new(api::infrastructure::realtime::NoopBacklogReader::default());
+        let doc_persistence: Arc<
+            dyn api::application::ports::realtime_persistence_port::DocPersistencePort,
+        > = Arc::new(api::infrastructure::realtime::SqlxDocPersistenceAdapter::new(pool.clone()));
+        let linkgraph_repo: Arc<dyn api::application::ports::linkgraph_repository::LinkGraphRepository> =
+            Arc::new(
+                api::infrastructure::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository::new(
+                    pool.clone(),
+                ),
+            );
+        let tagging_repo: Arc<dyn api::application::ports::tagging_repository::TaggingRepository> =
+            Arc::new(
+                api::infrastructure::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository::new(
+                    pool.clone(),
+                ),
+            );
+        let hydration_service = Arc::new(
+            api::application::services::realtime::doc_hydration::DocHydrationService::new(
+                doc_state_reader.clone(),
+                backlog_reader,
+                storage_port.clone(),
+            ),
+        );
+        let snapshot_service = Arc::new(
+            api::application::services::realtime::snapshot::SnapshotService::new(
+                doc_state_reader.clone(),
+                doc_persistence.clone(),
+                storage_port.clone(),
+                linkgraph_repo,
+                tagging_repo,
+                snapshot_archive_repo.clone(),
+            ),
+        );
+        let hub = api::infrastructure::realtime::Hub::new(
+            hydration_service,
+            snapshot_service.clone(),
+            doc_persistence,
+            auto_archive_interval,
+        );
         let engine =
             Arc::new(api::infrastructure::realtime::LocalRealtimeEngine { hub: hub.clone() });
-        let snapshot_service = hub.snapshot_service();
         let engine_trait: Arc<dyn api::application::ports::realtime_port::RealtimeEngine> =
             engine.clone();
+        local_hub = Some(hub);
         (engine_trait, snapshot_service)
     };
     let plugin_repo = Arc::new(
@@ -321,6 +463,7 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    let plugin_data_service = Arc::new(PluginDataService::new(plugin_repo.clone()));
     let plugin_installations = Arc::new(
         api::infrastructure::db::repositories::plugin_installation_repository_sqlx::SqlxPluginInstallationRepository::new(
             pool.clone(),
@@ -364,10 +507,21 @@ async fn main() -> anyhow::Result<()> {
             (runtime, installer, assets)
         }
         StorageBackend::S3 => {
+            let s3_store_cfg = api::infrastructure::plugins::s3_store::S3PluginStoreConfig {
+                plugin_dir: cfg.plugin_dir.clone(),
+                bucket: cfg
+                    .s3_bucket
+                    .clone()
+                    .context("S3_BUCKET must be configured when using S3 storage backend")?,
+                region: cfg.s3_region.clone(),
+                endpoint: cfg.s3_endpoint.clone(),
+                access_key: cfg.s3_access_key.clone(),
+                secret_key: cfg.s3_secret_key.clone(),
+                use_path_style: cfg.s3_use_path_style,
+            };
             let store = Arc::new(
                 api::infrastructure::plugins::s3_store::S3BackedPluginStore::new(
-                    &cfg.plugin_dir,
-                    &cfg,
+                    &s3_store_cfg,
                     plugin_limits,
                 )
                 .await?,
@@ -379,9 +533,25 @@ async fn main() -> anyhow::Result<()> {
             (runtime, installer, assets)
         }
     };
-    let plugin_fetcher = Arc::new(
+    let plugin_permission_service = Arc::new(PluginPermissionService::new(plugin_runtime.clone()));
+    let plugin_fetcher: Arc<dyn PluginPackageFetcher> = Arc::new(
         api::infrastructure::plugins::package_fetcher_reqwest::ReqwestPluginPackageFetcher::new(),
     );
+    let plugin_execution_service = Arc::new(PluginExecutionService::new(
+        plugin_repo.clone(),
+        document_repo.clone(),
+        plugin_runtime.clone(),
+    ));
+    let account_service = Arc::new(AccountService::new(
+        user_repo.clone(),
+        document_repo.clone(),
+        storage_port.clone(),
+        plugin_installations.clone(),
+        plugin_repo.clone(),
+        plugin_assets.clone(),
+        git_repo.clone(),
+        git_workspace.clone(),
+    ));
     let plugin_event_bus = Arc::new(
         api::infrastructure::plugins::event_bus_pg::PgPluginEventBus::new(
             pool.clone(),
@@ -418,38 +588,81 @@ async fn main() -> anyhow::Result<()> {
         });
     }
     let plugin_event_publisher: Arc<dyn PluginEventPublisher> = plugin_event_bus.clone();
+    let plugin_event_subscriber: Arc<dyn PluginEventSubscriber> = plugin_event_bus.clone();
 
-    let services = AppServices::new(
-        document_repo,
+    let document_exporter = Arc::new(DefaultDocumentExporter::new());
+
+    let document_service = Arc::new(DocumentService::new(
+        document_repo.clone(),
+        files_repo.clone(),
+        access_repo.clone(),
         shares_repo_impl.clone(),
-        shares_repo_impl,
-        access_repo,
-        files_repo,
-        public_repo,
-        user_repo,
-        tag_repo,
-        api_token_repo,
-        user_shortcuts,
-        git_repo,
-        git_storage,
-        gitignore_port,
-        git_workspace,
-        storage_port,
+        storage_port.clone(),
         realtime_engine.clone(),
         snapshot_service_arc.clone(),
-        snapshot_archive_repo.clone(),
-        plugin_repo,
-        plugin_installations,
-        plugin_runtime.clone(),
-        plugin_installer.clone(),
-        plugin_fetcher,
-        plugin_event_bus.clone(),
-        plugin_event_publisher,
+        document_exporter.clone(),
+    ));
+    let file_service = Arc::new(FileService::new(
+        files_repo.clone(),
+        storage_port.clone(),
+        access_repo.clone(),
+        shares_repo_impl.clone(),
+    ));
+    let public_service = Arc::new(PublicService::new(
+        public_repo.clone(),
+        realtime_engine.clone(),
+    ));
+    let plugin_management_service = Arc::new(PluginManagementService::new(
+        shares_repo_impl.clone(),
+        plugin_installations.clone(),
         plugin_assets.clone(),
+        plugin_event_publisher.clone(),
         asset_signer.clone(),
+        cfg.plugin_asset_url_ttl_secs,
+        plugin_fetcher.clone(),
+        plugin_installer.clone(),
+    ));
+    let markdown_render_service = Arc::new(MarkdownRenderService::new(
+        plugin_assets.clone(),
+        plugin_installations.clone(),
+        plugin_runtime.clone(),
+        asset_signer.clone(),
+        cfg.plugin_asset_url_ttl_secs,
+    ));
+
+    let health_probe =
+        api::infrastructure::health::db_probe::DatabaseHealthProbe::new(pool.clone());
+    let health_service = Arc::new(HealthService::new(health_probe));
+
+    let services = AppServices::new(
+        authorization_service,
+        document_service.clone(),
+        share_service.clone(),
+        file_service.clone(),
+        public_service.clone(),
+        tag_service.clone(),
+        api_token_service.clone(),
+        user_shortcut_service.clone(),
+        git_service.clone(),
+        markdown_render_service.clone(),
+        plugin_execution_service.clone(),
+        plugin_management_service.clone(),
+        plugin_permission_service.clone(),
+        plugin_data_service.clone(),
+        plugin_event_subscriber,
+        health_service.clone(),
+        account_service.clone(),
+        auth_service.clone(),
+        realtime_engine.clone(),
     );
 
-    let ctx = AppContext::new(cfg.clone(), services);
+    let presentation_cfg = PresentationConfig {
+        frontend_url: cfg.frontend_url.clone(),
+        upload_max_bytes: cfg.upload_max_bytes,
+        public_base_url: cfg.public_base_url.clone(),
+        session_cookie_secure: cookie_secure,
+    };
+    let ctx = AppContext::new(presentation_cfg, services);
 
     // Build CORS
     let cors = if let Some(origin) = cfg.frontend_url.clone() {
@@ -526,10 +739,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Build API router
     let api_router = Router::new()
-        .nest(
-            "/api",
-            api::presentation::http::health::routes(pool.clone()),
-        )
+        .nest("/api", api::presentation::http::health::routes(ctx.clone()))
         .nest(
             "/api",
             api::presentation::http::documents::routes(ctx.clone()),
@@ -601,43 +811,43 @@ async fn main() -> anyhow::Result<()> {
     // Background snapshots
     const SNAPSHOT_LOCK_KEY: i64 = i64::from_be_bytes(*b"REFSNAP1");
 
-    let snap_handle: Option<JoinHandle<anyhow::Result<()>>> = if cfg.cluster_mode {
-        None
-    } else {
-        let hub_for_snap = hub.clone();
-        let cfg_for_snap = cfg.clone();
-        let pool_for_snap = pool.clone();
-        Some(tokio::spawn(async move {
-            let interval = Duration::from_secs(cfg_for_snap.snapshot_interval_secs);
-            loop {
-                match AdvisoryLock::try_acquire(&pool_for_snap, SNAPSHOT_LOCK_KEY).await {
-                    Ok(Some(lock)) => {
-                        let snapshot_result = hub_for_snap
-                            .snapshot_all(
-                                cfg_for_snap.snapshot_keep_versions,
-                                cfg_for_snap.updates_keep_window,
-                            )
-                            .await;
+    let snap_handle: Option<JoinHandle<anyhow::Result<()>>> =
+        if let Some(hub_for_snap) = local_hub.clone() {
+            let cfg_for_snap = cfg.clone();
+            let pool_for_snap = pool.clone();
+            Some(tokio::spawn(async move {
+                let interval = Duration::from_secs(cfg_for_snap.snapshot_interval_secs);
+                loop {
+                    match AdvisoryLock::try_acquire(&pool_for_snap, SNAPSHOT_LOCK_KEY).await {
+                        Ok(Some(lock)) => {
+                            let snapshot_result = hub_for_snap
+                                .snapshot_all(
+                                    cfg_for_snap.snapshot_keep_versions,
+                                    cfg_for_snap.updates_keep_window,
+                                )
+                                .await;
 
-                        if let Err(e) = lock.release().await {
-                            tracing::error!(error = ?e, "snapshot_lock_release_failed");
-                        }
+                            if let Err(e) = lock.release().await {
+                                tracing::error!(error = ?e, "snapshot_lock_release_failed");
+                            }
 
-                        if let Err(e) = snapshot_result {
-                            tracing::error!(error = ?e, "snapshot_loop_failed");
+                            if let Err(e) = snapshot_result {
+                                tracing::error!(error = ?e, "snapshot_loop_failed");
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::debug!("snapshot_loop_skipped_lock_held");
+                        }
+                        Err(e) => {
+                            tracing::error!(error = ?e, "snapshot_lock_error");
                         }
                     }
-                    Ok(None) => {
-                        tracing::debug!("snapshot_loop_skipped_lock_held");
-                    }
-                    Err(e) => {
-                        tracing::error!(error = ?e, "snapshot_lock_error");
-                    }
+                    sleep(interval).await;
                 }
-                sleep(interval).await;
-            }
-        }))
-    };
+            }))
+        } else {
+            None
+        };
 
     match api_handle.await {
         Ok(Ok(())) => {}

@@ -22,26 +22,15 @@ use yrs::{Doc, ReadTxn, StateVector, Text, Transact, Update};
 use yrs_warp::AwarenessRef;
 use yrs_warp::broadcast::BroadcastGroup;
 
-use crate::application::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository;
-use crate::application::ports::linkgraph_repository::LinkGraphRepository;
-use crate::application::ports::realtime_hydration_port::{DocStateReader, RealtimeBacklogReader};
 use crate::application::ports::realtime_persistence_port::DocPersistencePort;
-use crate::application::ports::storage_port::StoragePort;
-use crate::application::ports::tagging_repository::TaggingRepository;
 use crate::application::services::realtime::doc_hydration::{
     DocHydrationService, HydrationOptions,
 };
 use crate::application::services::realtime::snapshot::{
     SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
 };
-use crate::infrastructure::db::PgPool;
-use crate::infrastructure::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository;
-use crate::infrastructure::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository;
 use crate::infrastructure::realtime::utils::wrap_stream_with_edit_guard;
-use crate::infrastructure::realtime::{
-    DynRealtimeSink, DynRealtimeStream, NoopBacklogReader, SqlxDocPersistenceAdapter,
-    SqlxDocStateReader,
-};
+use crate::infrastructure::realtime::{DynRealtimeSink, DynRealtimeStream};
 
 #[derive(Clone)]
 pub struct DocumentRoom {
@@ -67,33 +56,11 @@ pub struct Hub {
 
 impl Hub {
     pub fn new(
-        pool: PgPool,
-        storage: Arc<dyn StoragePort>,
-        archives: Arc<dyn DocumentSnapshotArchiveRepository>,
+        hydration_service: Arc<DocHydrationService>,
+        snapshot_service: Arc<SnapshotService>,
+        persistence: Arc<dyn DocPersistencePort>,
         auto_archive_interval: Duration,
     ) -> Self {
-        let doc_state_reader: Arc<dyn DocStateReader> =
-            Arc::new(SqlxDocStateReader::new(pool.clone()));
-        let backlog_reader: Arc<dyn RealtimeBacklogReader> = Arc::new(NoopBacklogReader::default());
-        let hydration_service = Arc::new(DocHydrationService::new(
-            doc_state_reader.clone(),
-            backlog_reader,
-            storage.clone(),
-        ));
-        let persistence: Arc<dyn DocPersistencePort> =
-            Arc::new(SqlxDocPersistenceAdapter::new(pool.clone()));
-        let linkgraph_repo: Arc<dyn LinkGraphRepository> =
-            Arc::new(SqlxLinkGraphRepository::new(pool.clone()));
-        let tagging_repo: Arc<dyn TaggingRepository> = Arc::new(SqlxTaggingRepository::new(pool));
-        let snapshot_service = Arc::new(SnapshotService::new(
-            doc_state_reader,
-            persistence.clone(),
-            storage,
-            linkgraph_repo,
-            tagging_repo,
-            archives,
-        ));
-
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
             hydration_service,

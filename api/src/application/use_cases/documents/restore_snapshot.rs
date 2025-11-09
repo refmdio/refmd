@@ -5,6 +5,7 @@ use crate::application::ports::document_snapshot_archive_repository::SnapshotArc
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::services::realtime::snapshot::{
     SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
+    encode_doc_snapshot,
 };
 
 pub struct RestoreSnapshot<'a, RT>
@@ -34,8 +35,9 @@ where
             anyhow::bail!("snapshot_document_mismatch");
         }
 
+        let snapshot_bytes = encode_doc_snapshot(&snapshot_doc);
         self.realtime
-            .apply_snapshot(&document_id.to_string(), &snapshot_doc)
+            .apply_snapshot(&document_id.to_string(), snapshot_bytes.as_slice())
             .await?;
 
         let persist_result = self

@@ -1,3 +1,5 @@
+import type { DocumentHeaderAction } from '@/shared/types/document'
+
 import type { PluginManifestItem } from '@/entities/plugin'
 import { getPluginManifest, getPluginKv } from '@/entities/plugin'
 
@@ -5,9 +7,7 @@ import {
   createPluginHost,
   getApiOrigin,
   loadPluginModule,
-} from '@/features/plugins/lib/runtime'
-
-import type { DocumentHeaderAction } from '@/processes/collaboration/contexts/realtime-context'
+} from './runtime'
 
 export type RoutePluginMatch = {
   manifest: PluginManifestItem

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TextDiffLineType {
     Added,
@@ -8,7 +9,7 @@ pub enum TextDiffLineType {
     Context,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct TextDiffLine {
     pub line_type: TextDiffLineType,
     pub old_line_number: Option<u32>,
@@ -16,7 +17,7 @@ pub struct TextDiffLine {
     pub content: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct TextDiffResult {
     pub file_path: String,
     pub diff_lines: Vec<TextDiffLine>,

@@ -3,9 +3,8 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::application::ports::user_shortcut_repository::{
-    UserShortcutProfile, UserShortcutRepository,
-};
+use crate::application::dto::user_shortcuts::UserShortcutProfileDto;
+use crate::application::ports::user_shortcut_repository::UserShortcutRepository;
 
 #[derive(Debug, Error)]
 pub enum UpdateUserShortcutsError {
@@ -34,7 +33,7 @@ where
         &self,
         user_id: Uuid,
         payload: UpdateUserShortcutsPayload,
-    ) -> Result<UserShortcutProfile, UpdateUserShortcutsError> {
+    ) -> Result<UserShortcutProfileDto, UpdateUserShortcutsError> {
         let bindings = match payload.bindings {
             Value::Object(map) => Value::Object(map),
             Value::Null => Value::Object(Map::new()),
@@ -62,9 +61,11 @@ where
             ));
         }
 
-        self.repo
+        let profile = self
+            .repo
             .upsert(user_id, bindings, payload.leader_key)
             .await
-            .map_err(UpdateUserShortcutsError::Storage)
+            .map_err(UpdateUserShortcutsError::Storage)?;
+        Ok(UserShortcutProfileDto::from(profile))
     }
 }

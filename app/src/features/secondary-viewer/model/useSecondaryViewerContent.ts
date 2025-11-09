@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import {
+  resolvePluginForDocument,
+  type DocumentPluginMatch,
+} from '@/features/plugins/lib/resolution'
 import { createYjsConnection, destroyYjsConnection } from '@/shared/lib/yjsConnection'
 import type { YjsConnection } from '@/shared/lib/yjsConnection'
 
 import { fetchDocumentMeta } from '@/entities/document'
 
-import {
-  resolvePluginForDocument,
-  type DocumentPluginMatch,
-} from '@/features/plugins'
 
 export type SecondaryViewerItemType = 'document' | 'scrap' | 'plugin'
 

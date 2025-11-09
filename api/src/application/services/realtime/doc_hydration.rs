@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::Context;
-use tokio::task;
 use uuid::Uuid;
 use yrs::encoding::read::Cursor;
 use yrs::sync::{Message, MessageReader, SyncMessage};
@@ -59,16 +57,10 @@ impl DocHydrationService {
         let mut applied_any = false;
 
         if let Some(snapshot) = self.state_reader.latest_snapshot(doc_id).await? {
-            let doc_for_snapshot = doc.clone();
-            let snapshot_bytes = snapshot.snapshot.clone();
-            task::spawn_blocking(move || {
-                if let Ok(update) = Update::decode_v1(&snapshot_bytes) {
-                    let mut txn = doc_for_snapshot.transact_mut();
-                    let _ = txn.apply_update(update);
-                }
-            })
-            .await
-            .context("hydrate_apply_snapshot_join")?;
+            if let Ok(update) = Update::decode_v1(&snapshot.snapshot) {
+                let mut txn = doc.transact_mut();
+                let _ = txn.apply_update(update);
+            }
             last_seq = snapshot.version;
             applied_any = true;
         }
