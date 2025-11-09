@@ -529,7 +529,7 @@ export const deinitRepository = (): CancelablePromise<DeinitRepositoryResponse> 
  * @param data The data for the request.
  * @param data._from From
  * @param data.to To
- * @returns DocumentDiffResult
+ * @returns TextDiffResult
  * @throws ApiError
  */
 export const getCommitDiff = (data: GetCommitDiffData): CancelablePromise<GetCommitDiffResponse> => {
@@ -544,7 +544,7 @@ export const getCommitDiff = (data: GetCommitDiffData): CancelablePromise<GetCom
 };
 
 /**
- * @returns DocumentDiffResult
+ * @returns TextDiffResult
  * @throws ApiError
  */
 export const getWorkingDiff = (): CancelablePromise<GetWorkingDiffResponse> => {

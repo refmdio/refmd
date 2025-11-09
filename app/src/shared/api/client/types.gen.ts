@@ -112,22 +112,6 @@ export type Document = {
 
 export type DocumentArchiveBinary = Blob | File;
 
-export type DocumentDiffLine = {
-    content: string;
-    line_type: DocumentDiffLineType;
-    new_line_number?: (number) | null;
-    old_line_number?: (number) | null;
-};
-
-export type DocumentDiffLineType = 'added' | 'deleted' | 'context';
-
-export type DocumentDiffResult = {
-    diff_lines: Array<DocumentDiffLine>;
-    file_path: string;
-    new_content?: (string) | null;
-    old_content?: (string) | null;
-};
-
 export type DocumentDownloadBinary = Blob | File;
 
 export type DocumentListResponse = {
@@ -382,7 +366,7 @@ export type SnapshotDiffKind = 'current' | 'snapshot';
 
 export type SnapshotDiffResponse = {
     base: SnapshotDiffSideResponse;
-    diff: DocumentDiffResult;
+    diff: TextDiffResult;
     target: SnapshotDiffSideResponse;
 };
 
@@ -415,6 +399,22 @@ export type SnapshotSummary = {
 export type TagItem = {
     count: number;
     name: string;
+};
+
+export type TextDiffLine = {
+    content: string;
+    line_type: TextDiffLineType;
+    new_line_number?: (number) | null;
+    old_line_number?: (number) | null;
+};
+
+export type TextDiffLineType = 'added' | 'deleted' | 'context';
+
+export type TextDiffResult = {
+    diff_lines: Array<TextDiffLine>;
+    file_path: string;
+    new_content?: (string) | null;
+    old_content?: (string) | null;
 };
 
 export type UninstallBody = {
@@ -773,9 +773,9 @@ export type GetCommitDiffData = {
     to: string;
 };
 
-export type GetCommitDiffResponse = (Array<DocumentDiffResult>);
+export type GetCommitDiffResponse = (Array<TextDiffResult>);
 
-export type GetWorkingDiffResponse = (Array<DocumentDiffResult>);
+export type GetWorkingDiffResponse = (Array<TextDiffResult>);
 
 export type CheckPathIgnoredData = {
     requestBody: CheckIgnoredRequest;
