@@ -9,20 +9,14 @@ use utoipa::ToSchema;
 
 use crate::presentation::http::auth::{Bearer, validate_bearer};
 // Config is no longer needed directly here
-use crate::application::dto::diff::{
-    TextDiffLine as DiffLineDto, TextDiffLineType as DiffLineTypeDto,
-    TextDiffResult as DiffResultDto,
-};
+use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
     GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitStatusDto, GitSyncRequestDto,
-    UpsertGitConfigInput,
+    GitignoreUpdateDto, UpsertGitConfigInput,
 };
-use crate::application::use_cases::git::delete_config::DeleteGitConfig;
-use crate::application::use_cases::git::get_config::GetGitConfig;
-use crate::application::use_cases::git::get_status::GetGitStatus;
-use crate::application::use_cases::git::init_repo::{DeinitRepo, InitRepo};
-use crate::application::use_cases::git::upsert_config::UpsertGitConfig;
-use crate::bootstrap::app_context::AppContext;
+use crate::application::services::errors::ServiceError;
+use crate::presentation::context::AppContext;
+use tracing::error;
 use uuid::Uuid;
 
 // Uses AppContext as router state
@@ -51,6 +45,35 @@ pub fn routes(ctx: AppContext) -> Router {
         )
         .route("/git/gitignore/check", post(check_path_ignored))
         .with_state(ctx)
+}
+
+fn map_git_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            error!(error = ?inner, "git_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GitignoreUpdateResponse {
+    pub added: usize,
+    pub patterns: Vec<String>,
+}
+
+impl From<GitignoreUpdateDto> for GitignoreUpdateResponse {
+    fn from(value: GitignoreUpdateDto) -> Self {
+        Self {
+            added: value.added,
+            patterns: value.patterns,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -113,14 +136,8 @@ pub async fn get_config(
 ) -> Result<Json<Option<GitConfigResponse>>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.git_repo();
-    let uc = GetGitConfig {
-        repo: repo.as_ref(),
-    };
-    let resp: Option<GitConfigDto> = uc
-        .execute(user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let service = ctx.git_service();
+    let resp: Option<GitConfigDto> = service.get_config(user_id).await.map_err(map_git_error)?;
     let out = resp.map(Into::into);
     Ok(Json(out))
 }
@@ -133,21 +150,16 @@ pub async fn create_or_update_config(
 ) -> Result<Json<GitConfigResponse>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.git_repo();
-    let gitignore = ctx.gitignore_port();
-    let storage = ctx.storage_port();
-    let workspace = ctx.git_workspace();
-    let uc = UpsertGitConfig {
-        repo: repo.as_ref(),
-        storage: storage.as_ref(),
-        gitignore: gitignore.as_ref(),
-        workspace: workspace.as_ref(),
-    };
     let input: UpsertGitConfigInput = req.into();
-    let resp: GitConfigDto = uc
-        .execute(user_id, &input)
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let service = ctx.git_service();
+    let resp: GitConfigDto =
+        service
+            .upsert_config(user_id, &input)
+            .await
+            .map_err(|err| match err {
+                ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+                other => map_git_error(other),
+            })?;
     let out: GitConfigResponse = resp.into();
     Ok(Json(out))
 }
@@ -159,14 +171,11 @@ pub async fn delete_config(
 ) -> Result<StatusCode, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.git_repo();
-    let uc = DeleteGitConfig {
-        repo: repo.as_ref(),
-    };
-    let _ = uc
-        .execute(user_id)
+    let service = ctx.git_service();
+    service
+        .delete_config(user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_git_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -212,29 +221,19 @@ pub async fn ignore_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<GitignoreUpdateResponse>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let doc_id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let gitignore = ctx.gitignore_port();
-    let storage = ctx.storage_port();
-    let files = ctx.files_repo();
-    let docs = ctx.document_repo();
-    let workspace = ctx.git_workspace();
-    let uc = crate::application::use_cases::git::ignore_document::IgnoreDocument {
-        storage: storage.as_ref(),
-        files: files.as_ref(),
-        docs: docs.as_ref(),
-        gitignore: gitignore.as_ref(),
-        workspace: workspace.as_ref(),
-    };
-    let res = uc
-        .execute(user_id, doc_id)
+    let service = ctx.git_service();
+    let res = service
+        .ignore_document(user_id, doc_id)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    Ok(Json(
-        serde_json::json!({"added": res.added, "patterns": res.patterns}),
-    ))
+        .map_err(|err| match err {
+            ServiceError::NotFound => StatusCode::NOT_FOUND,
+            other => map_git_error(other),
+        })?;
+    Ok(Json(res.into()))
 }
 
 #[utoipa::path(post, path = "/api/git/ignore/folder/{id}", params(("id" = String, Path, description = "Folder ID")), tag = "Git", responses((status = 200, description = "OK")))]
@@ -242,29 +241,19 @@ pub async fn ignore_folder(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<GitignoreUpdateResponse>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let folder_id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let gitignore = ctx.gitignore_port();
-    let storage = ctx.storage_port();
-    let files = ctx.files_repo();
-    let docs = ctx.document_repo();
-    let workspace = ctx.git_workspace();
-    let uc = crate::application::use_cases::git::ignore_folder::IgnoreFolder {
-        storage: storage.as_ref(),
-        files: files.as_ref(),
-        docs: docs.as_ref(),
-        gitignore: gitignore.as_ref(),
-        workspace: workspace.as_ref(),
-    };
-    let res = uc
-        .execute(user_id, folder_id)
+    let service = ctx.git_service();
+    let res = service
+        .ignore_folder(user_id, folder_id)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    Ok(Json(
-        serde_json::json!({"added": res.added, "patterns": res.patterns}),
-    ))
+        .map_err(|err| match err {
+            ServiceError::NotFound => StatusCode::NOT_FOUND,
+            other => map_git_error(other),
+        })?;
+    Ok(Json(res.into()))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -280,18 +269,11 @@ pub async fn add_gitignore_patterns(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let gitignore = ctx.gitignore_port();
-    let storage = ctx.storage_port();
-    let workspace = ctx.git_workspace();
-    let uc = crate::application::use_cases::git::gitignore_patterns::AddGitignorePatterns {
-        storage: storage.as_ref(),
-        gitignore: gitignore.as_ref(),
-        workspace: workspace.as_ref(),
-    };
-    let added = uc
-        .execute(user_id, req.patterns)
+    let service = ctx.git_service();
+    let added = service
+        .add_gitignore_patterns(user_id, req.patterns)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"added": added})))
 }
 
@@ -302,16 +284,11 @@ pub async fn get_gitignore_patterns(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let gitignore = ctx.gitignore_port();
-    let storage = ctx.storage_port();
-    let uc = crate::application::use_cases::git::gitignore_patterns::GetGitignorePatterns {
-        storage: storage.as_ref(),
-        gitignore: gitignore.as_ref(),
-    };
-    let patterns = uc
-        .execute(user_id)
+    let service = ctx.git_service();
+    let patterns = service
+        .get_gitignore_patterns(user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"patterns": patterns})))
 }
 
@@ -328,16 +305,11 @@ pub async fn check_path_ignored(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let storage = ctx.storage_port();
-    let gitignore = ctx.gitignore_port();
-    let uc = crate::application::use_cases::git::gitignore_patterns::CheckPathIgnored {
-        gitignore: gitignore.as_ref(),
-        storage: storage.as_ref(),
-    };
-    let is_ignored = uc
-        .execute(user_id, &req.path)
+    let service = ctx.git_service();
+    let is_ignored = service
+        .check_path_ignored(user_id, &req.path)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_git_error)?;
     Ok(Json(
         serde_json::json!({"path": req.path, "is_ignored": is_ignored}),
     ))
@@ -350,16 +322,8 @@ pub async fn get_status(
 ) -> Result<Json<GitStatus>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.git_repo();
-    let workspace = ctx.git_workspace();
-    let uc = GetGitStatus {
-        repo: repo.as_ref(),
-        workspace: workspace.as_ref(),
-    };
-    let dto: GitStatusDto = uc
-        .execute(user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let service = ctx.git_service();
+    let dto: GitStatusDto = service.get_status(user_id).await.map_err(map_git_error)?;
     let out: GitStatus = dto.into();
     Ok(Json(out))
 }
@@ -386,14 +350,9 @@ pub async fn sync_now(
 ) -> Result<Json<GitSyncResponse>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.git_repo();
-    let workspace = ctx.git_workspace();
-    let uc = crate::application::use_cases::git::sync_now::SyncNow {
-        workspace: workspace.as_ref(),
-        repo: repo.as_ref(),
-    };
-    let out = uc
-        .execute(
+    let service = ctx.git_service();
+    let out = service
+        .sync_now(
             user_id,
             GitSyncRequestDto {
                 message: req.message.clone(),
@@ -401,10 +360,7 @@ pub async fn sync_now(
             },
         )
         .await
-        .map_err(|e| {
-            tracing::error!(error=?e, "git_sync_failed");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .map_err(map_git_error)?;
     Ok(Json(GitSyncResponse {
         success: out.success,
         message: out.message,
@@ -431,14 +387,8 @@ pub async fn get_changes(
 ) -> Result<Json<GitChangesResponse>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let workspace = ctx.git_workspace();
-    let uc = crate::application::use_cases::git::get_changes::GetChanges {
-        workspace: workspace.as_ref(),
-    };
-    let files: Vec<GitChangeDto> = uc
-        .execute(user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let service = ctx.git_service();
+    let files: Vec<GitChangeDto> = service.get_changes(user_id).await.map_err(map_git_error)?;
     let items = files
         .into_iter()
         .map(|c| GitChangeItem {
@@ -463,66 +413,6 @@ pub struct GitHistoryResponse {
     pub commits: Vec<GitCommitItem>,
 }
 
-#[derive(Debug, Serialize, ToSchema, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum DocumentDiffLineType {
-    Added,
-    Deleted,
-    Context,
-}
-
-impl From<DiffLineTypeDto> for DocumentDiffLineType {
-    fn from(value: DiffLineTypeDto) -> Self {
-        match value {
-            DiffLineTypeDto::Added => DocumentDiffLineType::Added,
-            DiffLineTypeDto::Deleted => DocumentDiffLineType::Deleted,
-            DiffLineTypeDto::Context => DocumentDiffLineType::Context,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, ToSchema, Clone)]
-pub struct DocumentDiffLine {
-    pub line_type: DocumentDiffLineType,
-    pub old_line_number: Option<u32>,
-    pub new_line_number: Option<u32>,
-    pub content: String,
-}
-
-impl From<DiffLineDto> for DocumentDiffLine {
-    fn from(value: DiffLineDto) -> Self {
-        Self {
-            line_type: value.line_type.into(),
-            old_line_number: value.old_line_number,
-            new_line_number: value.new_line_number,
-            content: value.content,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, ToSchema, Clone)]
-pub struct DocumentDiffResult {
-    pub file_path: String,
-    pub diff_lines: Vec<DocumentDiffLine>,
-    pub old_content: Option<String>,
-    pub new_content: Option<String>,
-}
-
-impl From<DiffResultDto> for DocumentDiffResult {
-    fn from(value: DiffResultDto) -> Self {
-        Self {
-            file_path: value.file_path,
-            diff_lines: value
-                .diff_lines
-                .into_iter()
-                .map(DocumentDiffLine::from)
-                .collect(),
-            old_content: value.old_content,
-            new_content: value.new_content,
-        }
-    }
-}
-
 #[utoipa::path(get, path = "/api/git/history", tag = "Git", responses((status = 200, body = GitHistoryResponse)))]
 pub async fn get_history(
     State(ctx): State<AppContext>,
@@ -530,14 +420,8 @@ pub async fn get_history(
 ) -> Result<Json<GitHistoryResponse>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let workspace = ctx.git_workspace();
-    let uc = crate::application::use_cases::git::get_history::GetHistory {
-        workspace: workspace.as_ref(),
-    };
-    let commits: Vec<GitCommitInfo> = uc
-        .execute(user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let service = ctx.git_service();
+    let commits: Vec<GitCommitInfo> = service.get_history(user_id).await.map_err(map_git_error)?;
     let out = commits
         .into_iter()
         .map(|c| GitCommitItem {
@@ -555,24 +439,20 @@ pub async fn get_history(
     get,
     path = "/api/git/diff/working",
     tag = "Git",
-    responses((status = 200, body = [DocumentDiffResult]))
+    responses((status = 200, body = [TextDiffResult]))
 )]
 pub async fn get_working_diff(
     State(ctx): State<AppContext>,
     bearer: Bearer,
-) -> Result<Json<Vec<DocumentDiffResult>>, StatusCode> {
+) -> Result<Json<Vec<TextDiffResult>>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let workspace = ctx.git_workspace();
-    let uc = crate::application::use_cases::git::get_working_diff::GetWorkingDiff {
-        workspace: workspace.as_ref(),
-    };
-    let diffs = uc
-        .execute(user_id)
+    let service = ctx.git_service();
+    let diffs = service
+        .get_working_diff(user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let body = diffs.into_iter().map(DocumentDiffResult::from).collect();
-    Ok(Json(body))
+        .map_err(map_git_error)?;
+    Ok(Json(diffs))
 }
 
 #[utoipa::path(
@@ -580,25 +460,21 @@ pub async fn get_working_diff(
     path = "/api/git/diff/commits/{from}/{to}",
     params(("from" = String, Path, description = "From"), ("to" = String, Path, description = "To")),
     tag = "Git",
-    responses((status = 200, body = [DocumentDiffResult]))
+    responses((status = 200, body = [TextDiffResult]))
 )]
 pub async fn get_commit_diff(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     axum::extract::Path((from, to)): axum::extract::Path<(String, String)>,
-) -> Result<Json<Vec<DocumentDiffResult>>, StatusCode> {
+) -> Result<Json<Vec<TextDiffResult>>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let workspace = ctx.git_workspace();
-    let uc = crate::application::use_cases::git::get_commit_diff::GetCommitDiff {
-        workspace: workspace.as_ref(),
-    };
-    let diffs = uc
-        .execute(user_id, from, to)
+    let service = ctx.git_service();
+    let diffs = service
+        .get_commit_diff(user_id, &from, &to)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let body = diffs.into_iter().map(DocumentDiffResult::from).collect();
-    Ok(Json(body))
+        .map_err(map_git_error)?;
+    Ok(Json(diffs))
 }
 
 // pull endpoint intentionally removed in push-only backup mode
@@ -610,19 +486,11 @@ pub async fn init_repository(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.git_repo();
-    let gitignore = ctx.gitignore_port();
-    let storage = ctx.storage_port();
-    let workspace = ctx.git_workspace();
-    let uc = InitRepo {
-        repo: repo.as_ref(),
-        storage: storage.as_ref(),
-        gitignore: gitignore.as_ref(),
-        workspace: workspace.as_ref(),
-    };
-    uc.execute(user_id)
+    let service = ctx.git_service();
+    service
+        .init_repository(user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"success":true})))
 }
 
@@ -633,12 +501,10 @@ pub async fn deinit_repository(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let workspace = ctx.git_workspace();
-    let uc = DeinitRepo {
-        workspace: workspace.as_ref(),
-    };
-    uc.execute(user_id)
+    let service = ctx.git_service();
+    service
+        .deinit_repository(user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"success":true})))
 }

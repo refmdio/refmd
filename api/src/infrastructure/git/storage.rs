@@ -12,15 +12,31 @@ use uuid::Uuid;
 use crate::application::ports::git_storage::{
     BlobKey, CommitMeta, GitStorage, PackBlob, PackStream, encode_commit_id,
 };
-use crate::bootstrap::config::{Config, StorageBackend};
 
-pub async fn build_git_storage(cfg: &Config) -> anyhow::Result<Arc<dyn GitStorage>> {
-    match cfg.storage_backend {
-        StorageBackend::Filesystem => Ok(Arc::new(FilesystemGitStorage::new(
-            cfg.storage_root.clone(),
-        )) as Arc<dyn GitStorage>),
-        StorageBackend::S3 => {
-            let storage = S3GitStorage::new(cfg).await?;
+#[derive(Clone, Debug)]
+pub enum GitStorageDriverConfig {
+    Filesystem { root: PathBuf },
+    S3(S3GitStorageConfig),
+}
+
+#[derive(Clone, Debug)]
+pub struct S3GitStorageConfig {
+    pub storage_root_prefix: String,
+    pub bucket: String,
+    pub region: Option<String>,
+    pub endpoint: Option<String>,
+    pub access_key: Option<String>,
+    pub secret_key: Option<String>,
+    pub use_path_style: bool,
+}
+
+pub async fn build_git_storage(cfg: GitStorageDriverConfig) -> anyhow::Result<Arc<dyn GitStorage>> {
+    match cfg {
+        GitStorageDriverConfig::Filesystem { root } => {
+            Ok(Arc::new(FilesystemGitStorage::new(root)) as Arc<dyn GitStorage>)
+        }
+        GitStorageDriverConfig::S3(settings) => {
+            let storage = S3GitStorage::new(&settings).await?;
             Ok(Arc::new(storage) as Arc<dyn GitStorage>)
         }
     }
@@ -333,18 +349,15 @@ pub struct S3GitStorage {
 }
 
 impl S3GitStorage {
-    pub async fn new(cfg: &Config) -> anyhow::Result<Self> {
-        let bucket = cfg
-            .s3_bucket
-            .clone()
-            .context("S3 bucket must be configured for S3 storage backend")?;
+    pub async fn new(cfg: &S3GitStorageConfig) -> anyhow::Result<Self> {
+        let bucket = cfg.bucket.clone();
         let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
-        if let Some(region) = &cfg.s3_region {
+        if let Some(region) = &cfg.region {
             loader = loader.region(aws_sdk_s3::config::Region::new(region.clone()));
         }
         let shared = loader.load().await;
         let mut builder = aws_sdk_s3::config::Builder::from(&shared);
-        if let (Some(access), Some(secret)) = (&cfg.s3_access_key, &cfg.s3_secret_key) {
+        if let (Some(access), Some(secret)) = (&cfg.access_key, &cfg.secret_key) {
             let creds = aws_sdk_s3::config::Credentials::new(
                 access,
                 secret,
@@ -354,17 +367,17 @@ impl S3GitStorage {
             );
             builder = builder.credentials_provider(creds);
         }
-        if let Some(endpoint) = &cfg.s3_endpoint {
+        if let Some(endpoint) = &cfg.endpoint {
             builder = builder.endpoint_url(endpoint.clone());
         }
-        if cfg.s3_use_path_style {
+        if cfg.use_path_style {
             builder = builder.force_path_style(true);
         }
         let client = aws_sdk_s3::Client::from_conf(builder.build());
         Ok(Self {
             client,
             bucket,
-            root_prefix: cfg.storage_root.clone(),
+            root_prefix: cfg.storage_root_prefix.clone(),
             latest_lock: Arc::new(Mutex::new(())),
         })
     }

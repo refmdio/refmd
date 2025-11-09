@@ -11,32 +11,16 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::application::access;
-use crate::application::ports::document_repository::DocumentListState;
-use crate::application::ports::document_snapshot_archive_repository::SnapshotArchiveRecord;
-use crate::application::use_cases::documents::archive_document::ArchiveDocument;
-use crate::application::use_cases::documents::create_document::CreateDocument;
-use crate::application::use_cases::documents::delete_document::DeleteDocument;
-use crate::application::use_cases::documents::download_document::{
-    DocumentDownloadFormat, DownloadDocument as DownloadDocumentUseCase,
+use crate::application::dto::diff::TextDiffResult;
+use crate::application::dto::document_export::DocumentDownloadFormat;
+use crate::application::dto::documents::{
+    DocumentListFilter, SnapshotDiffBaseMode, SnapshotDiffSideDto, SnapshotSummaryDto,
 };
-use crate::application::use_cases::documents::get_backlinks::GetBacklinks;
-use crate::application::use_cases::documents::get_document::GetDocument;
-use crate::application::use_cases::documents::get_outgoing_links::GetOutgoingLinks;
-use crate::application::use_cases::documents::list_documents::ListDocuments;
-use crate::application::use_cases::documents::list_snapshots::ListSnapshots;
-use crate::application::use_cases::documents::restore_snapshot::RestoreSnapshot;
-use crate::application::use_cases::documents::search_documents::SearchDocuments;
-use crate::application::use_cases::documents::snapshot_diff::{
-    SnapshotDiff, SnapshotDiffBase, SnapshotDiffBaseMode,
-};
-use crate::application::use_cases::documents::snapshot_download::DownloadSnapshot;
-use crate::application::use_cases::documents::unarchive_document::UnarchiveDocument;
-use crate::application::use_cases::documents::update_document::UpdateDocument;
-use crate::bootstrap::app_context::AppContext;
+use crate::application::services::errors::ServiceError;
 use crate::domain::documents::document as domain;
+use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
-use crate::presentation::http::git::DocumentDiffResult;
-use yrs::{Doc, Text, Transact};
+use tracing::error;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Document {
@@ -64,6 +48,20 @@ fn to_http_document(doc: domain::Document) -> Document {
         archived_at: doc.archived_at,
         archived_by: doc.archived_by,
         archived_parent_id: doc.archived_parent_id,
+    }
+}
+
+fn map_service_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            error!(error = ?inner, "document_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
     }
 }
 
@@ -108,7 +106,7 @@ pub struct SnapshotDiffSideResponse {
 pub struct SnapshotDiffResponse {
     pub base: SnapshotDiffSideResponse,
     pub target: SnapshotDiffSideResponse,
-    pub diff: DocumentDiffResult,
+    pub diff: TextDiffResult,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
@@ -140,7 +138,7 @@ pub struct SnapshotRestoreResponse {
     pub snapshot: SnapshotSummary,
 }
 
-fn snapshot_summary_from(record: SnapshotArchiveRecord) -> SnapshotSummary {
+fn snapshot_summary_from(record: SnapshotSummaryDto) -> SnapshotSummary {
     SnapshotSummary {
         id: record.id,
         document_id: record.document_id,
@@ -154,17 +152,17 @@ fn snapshot_summary_from(record: SnapshotArchiveRecord) -> SnapshotSummary {
     }
 }
 
-fn snapshot_diff_side_response_from(side: SnapshotDiffBase) -> SnapshotDiffSideResponse {
+fn snapshot_diff_side_response_from(side: SnapshotDiffSideDto) -> SnapshotDiffSideResponse {
     match side {
-        SnapshotDiffBase::Current { markdown } => SnapshotDiffSideResponse {
+        SnapshotDiffSideDto::Current { markdown } => SnapshotDiffSideResponse {
             kind: SnapshotDiffKind::Current,
             markdown,
             snapshot: None,
         },
-        SnapshotDiffBase::Snapshot { record, markdown } => SnapshotDiffSideResponse {
+        SnapshotDiffSideDto::Snapshot { snapshot, markdown } => SnapshotDiffSideResponse {
             kind: SnapshotDiffKind::Snapshot,
             markdown,
-            snapshot: Some(snapshot_summary_from(record)),
+            snapshot: Some(snapshot_summary_from(snapshot)),
         },
     }
 }
@@ -235,12 +233,12 @@ pub enum DocumentStateFilter {
     All,
 }
 
-impl From<DocumentStateFilter> for DocumentListState {
+impl From<DocumentStateFilter> for DocumentListFilter {
     fn from(value: DocumentStateFilter) -> Self {
         match value {
-            DocumentStateFilter::Active => DocumentListState::Active,
-            DocumentStateFilter::Archived => DocumentListState::Archived,
-            DocumentStateFilter::All => DocumentListState::All,
+            DocumentStateFilter::Active => DocumentListFilter::Active,
+            DocumentStateFilter::Archived => DocumentListFilter::Archived,
+            DocumentStateFilter::All => DocumentListFilter::All,
         }
     }
 }
@@ -266,14 +264,11 @@ pub async fn list_documents(
         .map(DocumentStateFilter::into)
         .unwrap_or_default();
 
-    let repo = ctx.document_repo();
-    let uc = ListDocuments {
-        repo: repo.as_ref(),
-    };
-    let docs: Vec<domain::Document> = uc
-        .execute(user_id, qstr, tag, state)
+    let service = ctx.document_service();
+    let docs = service
+        .list_for_user(user_id, qstr, tag, state)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_service_error)?;
 
     let items: Vec<Document> = docs.into_iter().map(to_http_document).collect();
     Ok(Json(DocumentListResponse { items }))
@@ -289,30 +284,11 @@ pub async fn create_document(
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let title = req.title.unwrap_or_else(|| "Untitled".into());
     let dtype = req.r#type.unwrap_or_else(|| "document".into());
-    let repo = ctx.document_repo();
-
-    if let Some(parent_id) = req.parent_id {
-        let parent_meta = repo
-            .get_meta_for_owner(parent_id, user_id)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        match parent_meta {
-            Some(meta) => {
-                if meta.archived_at.is_some() {
-                    return Err(StatusCode::CONFLICT);
-                }
-            }
-            None => return Err(StatusCode::NOT_FOUND),
-        }
-    }
-
-    let uc = CreateDocument {
-        repo: repo.as_ref(),
-    };
-    let doc = uc
-        .execute(user_id, &title, req.parent_id, &dtype)
+    let service = ctx.document_service();
+    let doc = service
+        .create_for_user(user_id, &title, req.parent_id, &dtype)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_service_error)?;
 
     Ok(Json(to_http_document(doc)))
 }
@@ -330,20 +306,11 @@ pub async fn get_document(
     let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let repo = ctx.document_repo();
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
-    let uc = GetDocument {
-        repo: repo.as_ref(),
-        shares: share_access.as_ref(),
-        access: access_repo.as_ref(),
-    };
-    let doc = uc
-        .execute(&actor, id)
+    let service = ctx.document_service();
+    let doc = service
+        .get_for_actor(&actor, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_service_error)?;
 
     Ok(Json(to_http_document(doc)))
 }
@@ -356,16 +323,11 @@ pub async fn delete_document(
 ) -> Result<StatusCode, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.document_repo();
-    let storage = ctx.storage_port();
-    let uc = DeleteDocument {
-        repo: repo.as_ref(),
-        storage: storage.as_ref(),
-    };
-    let ok = uc
-        .execute(id, user_id)
+    let service = ctx.document_service();
+    let ok = service
+        .delete_for_user(id, user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_service_error)?;
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -381,23 +343,12 @@ pub async fn get_document_content(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    // authorization via access policy
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
     let actor = access::Actor::User(user_id);
-    access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, id)
+    let service = ctx.document_service();
+    let content = service
+        .get_content(&actor, id)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    // Load content via realtime engine abstraction
-    let realtime = ctx.realtime_engine();
-    let content = realtime
-        .get_content(&id.to_string())
-        .await
-        .map_err(|e| {
-            tracing::error!(document_id = %id, error = ?e, "realtime_get_content_failed");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .unwrap_or_default();
+        .map_err(map_service_error)?;
     Ok(Json(serde_json::json!({"content": content})))
 }
 
@@ -429,46 +380,11 @@ pub async fn update_document_content(
     let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let access_repo = ctx.access_repo();
-    let share_access = ctx.share_access_port();
-    access::require_edit(access_repo.as_ref(), share_access.as_ref(), &actor, id)
+    let service = ctx.document_service();
+    let updated = service
+        .update_content(&actor, id, &body.content)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let doc = Doc::new();
-    {
-        let txt = doc.get_or_insert_text("content");
-        let mut txn = doc.transact_mut();
-        let len = txt.len(&txn);
-        if len > 0 {
-            txt.remove_range(&mut txn, 0, len);
-        }
-        if !body.content.is_empty() {
-            txt.insert(&mut txn, 0, &body.content);
-        }
-    }
-
-    let realtime = ctx.realtime_engine();
-    realtime
-        .apply_snapshot(&id.to_string(), &doc)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if let Err(err) = realtime.force_persist(&id.to_string()).await {
-        tracing::warn!(
-            document_id = %id,
-            error = ?err,
-            "document_force_persist_after_update_failed"
-        );
-    }
-
-    let repo = ctx.document_repo();
-    let updated = repo
-        .get_by_id(id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_service_error)?;
     Ok(Json(to_http_document(updated)))
 }
 
@@ -626,42 +542,42 @@ pub async fn download_document(
         }
     };
 
-    let documents = ctx.document_repo();
-    let files = ctx.files_repo();
-    let storage = ctx.storage_port();
-    let realtime = ctx.realtime_engine();
-    let access = ctx.access_repo();
-    let shares = ctx.share_access_port();
-
-    let uc = DownloadDocumentUseCase {
-        documents: documents.as_ref(),
-        files: files.as_ref(),
-        storage: storage.as_ref(),
-        realtime: realtime.as_ref(),
-        access: access.as_ref(),
-        shares: shares.as_ref(),
-    };
-
-    let download = match uc.execute(&actor, id, format.into()).await {
-        Ok(Some(download)) => download,
-        Ok(None) => {
+    let service = ctx.document_service();
+    let download = match service.download_document(&actor, id, format.into()).await {
+        Ok(payload) => payload,
+        Err(ServiceError::Unauthorized)
+        | Err(ServiceError::Forbidden)
+        | Err(ServiceError::NotFound) => {
             return Err(error_response(
                 StatusCode::NOT_FOUND,
                 "not_found",
                 "Document not found".to_string(),
             ));
         }
-        Err(error) => {
-            tracing::error!(
+        Err(ServiceError::Conflict) => {
+            return Err(error_response(
+                StatusCode::CONFLICT,
+                "conflict",
+                "Document cannot be downloaded".to_string(),
+            ));
+        }
+        Err(ServiceError::BadRequest(_)) => {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                "Invalid download request".to_string(),
+            ));
+        }
+        Err(ServiceError::Unexpected(error)) => {
+            error!(
                 document_id = %id,
                 ?format,
                 error = ?error,
                 "document_download_failed"
             );
-
             return Err(error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "conversion_failed",
+                "internal",
                 "Failed to prepare download".to_string(),
             ));
         }
@@ -709,47 +625,16 @@ pub async fn update_document(
 ) -> Result<Json<Document>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.document_repo();
-    let meta = repo
-        .get_meta_for_owner(id, user_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if meta.archived_at.is_some() {
-        return Err(StatusCode::CONFLICT);
-    }
-
-    if let DoubleOption::Some(new_parent_id) = &req.parent_id {
-        let parent_meta = repo
-            .get_meta_for_owner(*new_parent_id, user_id)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        match parent_meta {
-            Some(parent) => {
-                if parent.archived_at.is_some() {
-                    return Err(StatusCode::CONFLICT);
-                }
-            }
-            None => return Err(StatusCode::NOT_FOUND),
-        }
-    }
-    let storage = ctx.storage_port();
-    let realtime = ctx.realtime_engine();
-    let uc = UpdateDocument {
-        repo: repo.as_ref(),
-        storage: storage.as_ref(),
-        realtime: realtime.as_ref(),
-    };
     let parent_opt = match req.parent_id.clone() {
         DoubleOption::NotProvided => None,
         DoubleOption::Null => Some(None),
         DoubleOption::Some(v) => Some(Some(v)),
     };
-    let doc = uc
-        .execute(id, user_id, req.title.clone(), parent_opt)
+    let service = ctx.document_service();
+    let doc = service
+        .update_metadata(id, user_id, req.title.clone(), parent_opt)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_service_error)?;
     Ok(Json(to_http_document(doc)))
 }
 
@@ -771,28 +656,11 @@ pub async fn archive_document(
 ) -> Result<Json<Document>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.document_repo();
-    let meta = repo
-        .get_meta_for_owner(id, user_id)
+    let doc = ctx
+        .document_service()
+        .archive_document(id, user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if meta.archived_at.is_some() {
-        return Err(StatusCode::CONFLICT);
-    }
-
-    let realtime = ctx.realtime_engine();
-    let storage = ctx.storage_port();
-    let uc = ArchiveDocument {
-        repo: repo.as_ref(),
-        realtime: realtime.as_ref(),
-        storage: storage.as_ref(),
-    };
-    let doc = uc
-        .execute(user_id, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_service_error)?;
     Ok(Json(to_http_document(doc)))
 }
 
@@ -814,26 +682,11 @@ pub async fn unarchive_document(
 ) -> Result<Json<Document>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.document_repo();
-    let meta = repo
-        .get_meta_for_owner(id, user_id)
+    let doc = ctx
+        .document_service()
+        .unarchive_document(id, user_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if meta.archived_at.is_none() {
-        return Err(StatusCode::CONFLICT);
-    }
-
-    let realtime = ctx.realtime_engine();
-    let uc = UnarchiveDocument {
-        repo: repo.as_ref(),
-        realtime: realtime.as_ref(),
-    };
-    let doc = uc
-        .execute(user_id, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_service_error)?;
     Ok(Json(to_http_document(doc)))
 }
 
@@ -861,23 +714,14 @@ pub async fn list_document_snapshots(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let access_repo = ctx.access_repo();
-    let share_access = ctx.share_access_port();
-    access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, id)
-        .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
     let limit = params.limit.unwrap_or(50).clamp(1, 200);
     let offset = params.offset.unwrap_or(0).max(0);
 
-    let snapshot_service = ctx.snapshot_service();
-    let uc = ListSnapshots {
-        snapshots: snapshot_service.as_ref(),
-    };
-    let records = uc
-        .execute(id, limit, offset)
+    let service = ctx.document_service();
+    let records = service
+        .list_snapshots(&actor, id, limit, offset)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_service_error)?;
     let items = records.into_iter().map(snapshot_summary_from).collect();
 
     Ok(Json(SnapshotListResponse { items }))
@@ -908,30 +752,18 @@ pub async fn get_document_snapshot_diff(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let access_repo = ctx.access_repo();
-    let share_access = ctx.share_access_port();
-    access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, id)
-        .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let snapshot_service = ctx.snapshot_service();
-    let realtime = ctx.realtime_engine();
-    let uc = SnapshotDiff {
-        snapshots: snapshot_service.as_ref(),
-        realtime: realtime.as_ref(),
-    };
     let base_mode = params
         .base
         .map(SnapshotDiffBaseMode::from)
         .unwrap_or(SnapshotDiffBaseMode::Auto);
 
-    let result = uc
-        .execute(id, snapshot_id, params.compare, base_mode)
+    let service = ctx.document_service();
+    let result = service
+        .snapshot_diff(&actor, id, snapshot_id, params.compare, base_mode)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_service_error)?;
 
-    let diff = DocumentDiffResult::from(result.diff);
+    let diff = result.diff;
     let base = snapshot_diff_side_response_from(result.base);
     let target = snapshot_diff_side_response_from(result.target);
 
@@ -961,28 +793,11 @@ pub async fn restore_document_snapshot(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let access_repo = ctx.access_repo();
-    let share_access = ctx.share_access_port();
-    access::require_edit(access_repo.as_ref(), share_access.as_ref(), &actor, id)
+    let service = ctx.document_service();
+    let restored = service
+        .restore_snapshot(&actor, id, snapshot_id)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let created_by = match &actor {
-        access::Actor::User(uid) => Some(*uid),
-        _ => None,
-    };
-
-    let snapshot_service = ctx.snapshot_service();
-    let realtime = ctx.realtime_engine();
-    let uc = RestoreSnapshot {
-        snapshots: snapshot_service.as_ref(),
-        realtime: realtime.as_ref(),
-    };
-    let restored = uc
-        .execute(id, snapshot_id, created_by)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_service_error)?;
 
     Ok(Json(SnapshotRestoreResponse {
         snapshot: snapshot_summary_from(restored),
@@ -1016,25 +831,11 @@ pub async fn download_document_snapshot(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let access_repo = ctx.access_repo();
-    let share_access = ctx.share_access_port();
-    access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, id)
+    let service = ctx.document_service();
+    let download = service
+        .download_snapshot(&actor, id, snapshot_id)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    let files = ctx.files_repo();
-    let storage = ctx.storage_port();
-    let snapshot_service = ctx.snapshot_service();
-    let uc = DownloadSnapshot {
-        files: files.as_ref(),
-        storage: storage.as_ref(),
-        snapshots: snapshot_service.as_ref(),
-    };
-    let download = uc
-        .execute(id, snapshot_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_service_error)?;
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -1130,14 +931,11 @@ pub async fn search_documents(
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let query_text = q.and_then(|Query(v)| v.q);
 
-    let repo = ctx.document_repo();
-    let uc = SearchDocuments {
-        repo: repo.as_ref(),
-    };
-    let hits = uc
-        .execute(user_id, query_text, 20)
+    let service = ctx.document_service();
+    let hits = service
+        .search_for_user(user_id, query_text, 20)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_service_error)?;
     let items = hits
         .into_iter()
         .map(|h| SearchResult {
@@ -1196,21 +994,12 @@ pub async fn get_backlinks(
 ) -> Result<Json<BacklinksResponse>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
     let actor = access::Actor::User(user_id);
-    access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, id)
+    let service = ctx.document_service();
+    let items = service
+        .backlinks(&actor, user_id, id)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-
-    let repo = ctx.document_repo();
-    let uc = GetBacklinks {
-        repo: repo.as_ref(),
-    };
-    let items = uc
-        .execute(user_id, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_service_error)?;
     let backlinks: Vec<BacklinkInfo> = items
         .into_iter()
         .map(|r| BacklinkInfo {
@@ -1239,21 +1028,12 @@ pub async fn get_outgoing_links(
 ) -> Result<Json<OutgoingLinksResponse>, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
     let actor = access::Actor::User(user_id);
-    access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, id)
+    let service = ctx.document_service();
+    let items = service
+        .outgoing_links(&actor, user_id, id)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-
-    let repo = ctx.document_repo();
-    let uc = GetOutgoingLinks {
-        repo: repo.as_ref(),
-    };
-    let items = uc
-        .execute(user_id, id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_service_error)?;
     let links = items
         .into_iter()
         .map(|r| OutgoingLink {

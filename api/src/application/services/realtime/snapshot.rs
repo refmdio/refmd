@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use sha2::{Digest, Sha256};
-use tokio::task;
 use uuid::Uuid;
 use yrs::updates::decoder::Decode;
-use yrs::{Doc, GetString, ReadTxn, StateVector, Transact, Update};
+use yrs::{Doc, GetString, ReadTxn, StateVector, Text, Transact, Update};
 
 use crate::application::linkgraph;
 use crate::application::ports::document_snapshot_archive_repository::{
@@ -106,10 +104,7 @@ impl SnapshotService {
         doc: &Doc,
         options: SnapshotPersistOptions,
     ) -> anyhow::Result<SnapshotPersistResult> {
-        let snapshot_bin = {
-            let txn = doc.transact();
-            txn.encode_state_as_update_v1(&StateVector::default())
-        };
+        let snapshot_bin = encode_doc_snapshot(doc);
         let (current_version, previous_snapshot) = if options.skip_if_unchanged {
             match self.persistence.latest_snapshot_entry(doc_id).await? {
                 Some((version, bytes)) => (version, Some(bytes)),
@@ -265,10 +260,7 @@ impl SnapshotService {
             return Ok(None);
         };
         let doc = Doc::new();
-        let doc_for_update = doc.clone();
-        task::spawn_blocking(move || apply_update_bytes(&doc_for_update, &bytes))
-            .await
-            .map_err(|e| anyhow!("snapshot_archive_apply_join: {e}"))??;
+        apply_update_bytes(&doc, &bytes)?;
         Ok(Some((record, doc)))
     }
 
@@ -290,10 +282,7 @@ impl SnapshotService {
     ) -> anyhow::Result<Option<(SnapshotArchiveRecord, String)>> {
         if let Some((record, bytes)) = self.archive_repo.latest_before(doc_id, version).await? {
             let doc = Doc::new();
-            let doc_for_update = doc.clone();
-            task::spawn_blocking(move || apply_update_bytes(&doc_for_update, &bytes))
-                .await
-                .map_err(|e| anyhow!("snapshot_archive_apply_join: {e}"))??;
+            apply_update_bytes(&doc, &bytes)?;
             let markdown = extract_markdown(&doc);
             return Ok(Some((record, markdown)));
         }
@@ -320,4 +309,30 @@ fn apply_update_bytes(doc: &Doc, bytes: &[u8]) -> anyhow::Result<()> {
     let mut txn = doc.transact_mut();
     txn.apply_update(update)?;
     Ok(())
+}
+
+pub fn encode_doc_snapshot(doc: &Doc) -> Vec<u8> {
+    let txn = doc.transact();
+    txn.encode_state_as_update_v1(&StateVector::default())
+}
+
+pub fn snapshot_from_markdown(content: &str) -> Vec<u8> {
+    let doc = Doc::new();
+    let text = doc.get_or_insert_text("content");
+    let mut txn = doc.transact_mut();
+    let len = text.len(&txn);
+    if len > 0 {
+        text.remove_range(&mut txn, 0, len);
+    }
+    if !content.is_empty() {
+        text.insert(&mut txn, 0, content);
+    }
+    drop(txn);
+    encode_doc_snapshot(&doc)
+}
+
+pub fn doc_from_snapshot_bytes(bytes: &[u8]) -> anyhow::Result<Doc> {
+    let doc = Doc::new();
+    apply_update_bytes(&doc, bytes)?;
+    Ok(doc)
 }

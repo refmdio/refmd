@@ -13,8 +13,18 @@ use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 use crate::application::ports::storage_port::{StoragePort, StoredAttachment};
-use crate::bootstrap::config::Config;
 use crate::infrastructure::db::PgPool;
+
+#[derive(Clone, Debug)]
+pub struct S3StorageConfig {
+    pub uploads_root: PathBuf,
+    pub bucket: String,
+    pub region: Option<String>,
+    pub endpoint: Option<String>,
+    pub access_key: Option<String>,
+    pub secret_key: Option<String>,
+    pub use_path_style: bool,
+}
 
 pub struct S3StoragePort {
     pool: PgPool,
@@ -25,15 +35,12 @@ pub struct S3StoragePort {
 }
 
 impl S3StoragePort {
-    pub async fn new(pool: PgPool, cfg: &Config) -> anyhow::Result<Self> {
-        let bucket = cfg
-            .s3_bucket
-            .clone()
-            .context("S3 bucket must be configured when using S3 storage backend")?;
+    pub async fn new(pool: PgPool, cfg: &S3StorageConfig) -> anyhow::Result<Self> {
+        let bucket = cfg.bucket.clone();
 
         let mut loader = aws_config::defaults(BehaviorVersion::latest());
 
-        if let Some(region) = &cfg.s3_region {
+        if let Some(region) = &cfg.region {
             loader = loader.region(Region::new(region.clone()));
         }
 
@@ -41,7 +48,7 @@ impl S3StoragePort {
 
         let mut builder = aws_sdk_s3::config::Builder::from(&shared_config);
 
-        if let (Some(access), Some(secret)) = (&cfg.s3_access_key, &cfg.s3_secret_key) {
+        if let (Some(access), Some(secret)) = (&cfg.access_key, &cfg.secret_key) {
             let creds = Credentials::new(
                 access.clone(),
                 secret.clone(),
@@ -52,17 +59,17 @@ impl S3StoragePort {
             builder = builder.credentials_provider(creds);
         }
 
-        if let Some(endpoint) = &cfg.s3_endpoint {
+        if let Some(endpoint) = &cfg.endpoint {
             builder = builder.endpoint_url(endpoint.clone());
         }
 
-        if cfg.s3_use_path_style {
+        if cfg.use_path_style {
             builder = builder.force_path_style(true);
         }
 
         let client = Client::from_conf(builder.build());
 
-        let root = PathBuf::from(&cfg.storage_root);
+        let root = cfg.uploads_root.clone();
         let root_prefix = normalize_prefix(&root);
 
         ensure_bucket(&client, &bucket).await?;

@@ -1,0 +1,62 @@
+use std::sync::Arc;
+
+use serde_json::Value;
+use uuid::Uuid;
+
+use crate::application::dto::user_shortcuts::UserShortcutProfileDto;
+use crate::application::ports::user_shortcut_repository::UserShortcutRepository;
+use crate::application::services::errors::ServiceError;
+use crate::application::use_cases::user_shortcuts::get_shortcuts::GetUserShortcuts;
+use crate::application::use_cases::user_shortcuts::update_shortcuts::{
+    UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,
+};
+
+pub struct UserShortcutService {
+    repo: Arc<dyn UserShortcutRepository>,
+    max_payload_bytes: usize,
+}
+
+impl UserShortcutService {
+    pub fn new(repo: Arc<dyn UserShortcutRepository>, max_payload_bytes: usize) -> Self {
+        Self {
+            repo,
+            max_payload_bytes,
+        }
+    }
+
+    pub async fn get_profile(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<UserShortcutProfileDto>, ServiceError> {
+        let uc = GetUserShortcuts {
+            repo: self.repo.as_ref(),
+        };
+        uc.execute(user_id).await.map_err(ServiceError::from)
+    }
+
+    pub async fn update_profile(
+        &self,
+        user_id: Uuid,
+        bindings: Value,
+        leader_key: Option<String>,
+    ) -> Result<UserShortcutProfileDto, ServiceError> {
+        let uc = UpdateUserShortcuts {
+            repo: self.repo.as_ref(),
+            max_payload_bytes: self.max_payload_bytes,
+        };
+        uc.execute(
+            user_id,
+            UpdateUserShortcutsPayload {
+                bindings,
+                leader_key,
+            },
+        )
+        .await
+        .map_err(|err| match err {
+            UpdateUserShortcutsError::Validation(_) => {
+                ServiceError::BadRequest("invalid_shortcuts_payload")
+            }
+            UpdateUserShortcutsError::Storage(inner) => ServiceError::Unexpected(inner),
+        })
+    }
+}

@@ -10,8 +10,9 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::application::access;
-use crate::application::use_cases::files::upload_file::UploadFile;
-use crate::bootstrap::app_context::AppContext;
+use crate::application::services::errors::ServiceError;
+use crate::application::services::files::FilePayload;
+use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
 
 // Uses AppContext as router state
@@ -23,6 +24,36 @@ pub struct UploadFileResponse {
     pub filename: String,
     pub content_type: Option<String>,
     pub size: i64,
+}
+
+fn map_file_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            tracing::error!(error = ?inner, "file_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
+fn file_payload_response(payload: FilePayload) -> Response {
+    let mut headers = HeaderMap::new();
+    if let Some(ct) = payload.content_type {
+        headers.insert(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_str(&ct)
+                .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+        );
+    }
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    (headers, payload.bytes).into_response()
 }
 
 #[derive(ToSchema)]
@@ -97,20 +128,19 @@ pub async fn upload_file(
     let doc_id = document_id.ok_or(StatusCode::BAD_REQUEST)?;
     let bytes = file_bytes.ok_or(StatusCode::BAD_REQUEST)?;
 
-    // Use use-case to enforce ownership and persist
-    let repo = ctx.files_repo();
-    let storage = ctx.storage_port();
     let public_base_url = ctx.cfg.public_base_url.clone();
-    let uc = UploadFile {
-        repo: repo.as_ref(),
-        storage: storage.as_ref(),
-        public_base_url,
-    };
-    let out = uc
-        .execute(user_id, doc_id, bytes, orig_filename, content_type.clone())
+    let file_service = ctx.file_service();
+    let f = file_service
+        .upload_file(
+            user_id,
+            doc_id,
+            bytes,
+            orig_filename,
+            content_type.clone(),
+            public_base_url,
+        )
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let f = out.ok_or(StatusCode::FORBIDDEN)?;
+        .map_err(map_file_error)?;
     Ok(Json(UploadFileResponse {
         id: f.id,
         url: f.url,
@@ -135,34 +165,12 @@ pub async fn get_file(
 ) -> Result<Response, StatusCode> {
     let sub = crate::presentation::http::auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.files_repo();
-    let storage = ctx.storage_port();
-    let meta = repo
-        .get_file_meta(id)
+    let payload = ctx
+        .file_service()
+        .download_owned_file(user_id, id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let (path, ct, owner_id) = meta.ok_or(StatusCode::NOT_FOUND)?;
-    if owner_id != user_id {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    let abs_path = storage.absolute_from_relative(&path);
-    let data = storage
-        .read_bytes(&abs_path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    let mut headers = HeaderMap::new();
-    if let Some(ct) = ct {
-        headers.insert(
-            axum::http::header::CONTENT_TYPE,
-            HeaderValue::from_str(&ct)
-                .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-        );
-    }
-    headers.insert(
-        axum::http::header::HeaderName::from_static("x-content-type-options"),
-        HeaderValue::from_static("nosniff"),
-    );
-    Ok((headers, data).into_response())
+        .map_err(map_file_error)?;
+    Ok(file_payload_response(payload))
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,45 +196,13 @@ pub async fn get_file_by_name(
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    // authorize: owner must have at least view permission
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
     let actor = access::Actor::User(user_id);
-    access::require_view(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &actor,
-        q.document_id,
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    // find file by document_id + filename
-    let repo = ctx.files_repo();
-    let (path, ct) = repo
-        .get_file_path_by_doc_and_name(q.document_id, &filename)
+    let payload = ctx
+        .file_service()
+        .get_file_by_name(&actor, q.document_id, &filename)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let storage = ctx.storage_port();
-    let abs_path = storage.absolute_from_relative(&path);
-    let data = storage
-        .read_bytes(&abs_path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    let mut headers = HeaderMap::new();
-    if let Some(ct) = ct {
-        headers.insert(
-            axum::http::header::CONTENT_TYPE,
-            HeaderValue::from_str(&ct)
-                .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-        );
-    }
-    headers.insert(
-        axum::http::header::HeaderName::from_static("x-content-type-options"),
-        HeaderValue::from_static("nosniff"),
-    );
-    Ok((headers, data).into_response())
+        .map_err(map_file_error)?;
+    Ok(file_payload_response(payload))
 }
 
 /// Serve static files from uploads directory with authentication support
@@ -237,16 +213,12 @@ pub async fn serve_upload(
     Query(params): Query<std::collections::HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    // Try to extract token from query params, Authorization header, or HttpOnly cookie `access_token`
-    let token = params
-        .get("token")
-        .cloned()
-        .or_else(|| {
-            headers
-                .get(axum::http::header::AUTHORIZATION)
-                .and_then(|h| h.to_str().ok())
-                .and_then(|s| s.strip_prefix("Bearer ").map(|s| s.to_string()))
-        })
+    // Accept share token from query, or JWT/share token from Authorization header / cookie.
+    let share_token = params.get("token").cloned();
+    let bearer_token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer ").map(|s| s.to_string()))
         .or_else(|| {
             headers
                 .get(axum::http::header::COOKIE)
@@ -263,6 +235,7 @@ pub async fn serve_upload(
                     None
                 })
         });
+    let bearer = bearer_token.clone().map(Bearer);
 
     // Path must start with document UUID. If not, reject.
     let parts: Vec<&str> = path.split('/').collect();
@@ -272,48 +245,21 @@ pub async fn serve_upload(
     let doc_id = Uuid::parse_str(parts[0]).map_err(|_| StatusCode::FORBIDDEN)?;
 
     // Build actor and require at least view capability (or public)
-    let actor = if let Some(token_str) = token.as_deref() {
-        auth::resolve_actor_from_token_str(&ctx, token_str)
-            .await
-            .unwrap_or(access::Actor::Public)
-    } else {
-        access::Actor::Public
-    };
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
-    let _cap = access::require_view(access_repo.as_ref(), share_access.as_ref(), &actor, doc_id)
-        .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-    // Resolve the file path via storage port (includes security checks)
-    let storage_port = ctx.storage_port();
+    let mut actor = auth::resolve_actor_from_parts(&ctx, bearer, share_token.as_deref()).await;
+    if actor.is_none() {
+        if let Some(token_str) = bearer_token {
+            actor = auth::resolve_actor_from_token_str(&ctx, &token_str).await;
+        }
+    }
+    let actor = actor.unwrap_or(access::Actor::Public);
     let attachment_path = parts[1..].join("/");
-    let file_path = storage_port
-        .resolve_upload_path(doc_id, &attachment_path)
+    let payload = ctx
+        .file_service()
+        .serve_upload(&actor, doc_id, &attachment_path)
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(map_file_error)?;
 
-    let data = storage_port
-        .read_bytes(&file_path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-
-    // Determine content type from extension using mime_guess (fallback to octet-stream)
-    let guessed = mime_guess::from_path(&file_path).first_or_octet_stream();
-    let content_type = guessed.essence_str().to_string();
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_str(&content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-    headers.insert(
-        axum::http::header::HeaderName::from_static("x-content-type-options"),
-        HeaderValue::from_static("nosniff"),
-    );
-
-    Ok((headers, data).into_response())
+    Ok(file_payload_response(payload))
 }
 
 pub fn routes(ctx: AppContext) -> Router {

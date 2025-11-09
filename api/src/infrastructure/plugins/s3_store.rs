@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::{Credentials, Region};
@@ -21,13 +21,14 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::application::dto::plugins::ExecResult;
-use crate::application::ports::plugin_asset_store::PluginAssetStore;
+use crate::application::ports::plugin_asset_store::{
+    PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
+};
 use crate::application::ports::plugin_event_publisher::PluginScopedEvent;
 use crate::application::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
 };
 use crate::application::ports::plugin_runtime::PluginRuntime;
-use crate::bootstrap::config::Config;
 use crate::infrastructure::plugins::event_bus_pg::PgPluginEventBus;
 use crate::infrastructure::plugins::filesystem_store::{
     FilesystemPluginStore, PluginExecutionLimits,
@@ -101,15 +102,26 @@ fn epoch_secs_now() -> u64 {
         .unwrap_or(0)
 }
 
-async fn build_client(cfg: &Config) -> anyhow::Result<Client> {
+#[derive(Clone, Debug)]
+pub struct S3PluginStoreConfig {
+    pub plugin_dir: String,
+    pub bucket: String,
+    pub region: Option<String>,
+    pub endpoint: Option<String>,
+    pub access_key: Option<String>,
+    pub secret_key: Option<String>,
+    pub use_path_style: bool,
+}
+
+async fn build_client(cfg: &S3PluginStoreConfig) -> anyhow::Result<Client> {
     let mut loader = aws_config::defaults(BehaviorVersion::latest());
-    if let Some(region) = &cfg.s3_region {
+    if let Some(region) = &cfg.region {
         loader = loader.region(Region::new(region.clone()));
     }
     let shared = loader.load().await;
     let mut builder = aws_sdk_s3::config::Builder::from(&shared);
 
-    if let (Some(access), Some(secret)) = (&cfg.s3_access_key, &cfg.s3_secret_key) {
+    if let (Some(access), Some(secret)) = (&cfg.access_key, &cfg.secret_key) {
         builder = builder.credentials_provider(Credentials::new(
             access.clone(),
             secret.clone(),
@@ -118,10 +130,10 @@ async fn build_client(cfg: &Config) -> anyhow::Result<Client> {
             "refmd-s3-static",
         ));
     }
-    if let Some(endpoint) = &cfg.s3_endpoint {
+    if let Some(endpoint) = &cfg.endpoint {
         builder = builder.endpoint_url(endpoint.clone());
     }
-    if cfg.s3_use_path_style {
+    if cfg.use_path_style {
         builder = builder.force_path_style(true);
     }
 
@@ -302,15 +314,11 @@ pub struct S3BackedPluginStore {
 
 impl S3BackedPluginStore {
     pub async fn new(
-        configured_dir: &str,
-        cfg: &Config,
+        cfg: &S3PluginStoreConfig,
         limits: PluginExecutionLimits,
     ) -> anyhow::Result<Self> {
-        let local = Arc::new(FilesystemPluginStore::new(configured_dir, limits)?);
-        let bucket = cfg
-            .s3_bucket
-            .clone()
-            .context("S3 bucket must be configured when storage backend is S3")?;
+        let local = Arc::new(FilesystemPluginStore::new(&cfg.plugin_dir, limits)?);
+        let bucket = cfg.bucket.clone();
         let client = build_client(cfg).await?;
         ensure_bucket(&client, &bucket).await?;
 
@@ -474,7 +482,7 @@ impl S3BackedPluginStore {
         let store = Arc::clone(self);
         tokio::spawn(async move {
             loop {
-                match bus.subscribe().await {
+                match bus.subscribe_stream().await {
                     Ok(mut stream) => {
                         while let Some(event) = stream.next().await {
                             store.handle_plugin_event(&event);
@@ -492,28 +500,24 @@ impl S3BackedPluginStore {
 
 #[async_trait]
 impl PluginAssetStore for S3BackedPluginStore {
-    fn global_root(&self) -> PathBuf {
-        self.local.global_root()
-    }
-
-    fn user_root(&self, user_id: &Uuid) -> PathBuf {
-        self.local.user_root(user_id)
-    }
-
-    fn latest_version_dir(&self, base: &std::path::Path) -> anyhow::Result<Option<PathBuf>> {
-        self.local.latest_version_dir(base)
-    }
-
-    fn user_plugin_manifest_path(&self, user_id: &Uuid, plugin_id: &str, version: &str) -> PathBuf {
+    async fn fetch_asset(
+        &self,
+        scope: PluginAssetStoreScope<'_>,
+        plugin_id: &str,
+        version: &str,
+        relative_path: &str,
+    ) -> anyhow::Result<PluginAssetPayload> {
+        let owner = match scope {
+            PluginAssetStoreScope::Global => None,
+            PluginAssetStoreScope::User { owner_id } => Some(*owner_id),
+        };
+        self.ensure_local(owner, plugin_id).await?;
         self.local
-            .user_plugin_manifest_path(user_id, plugin_id, version)
+            .fetch_asset(scope, plugin_id, version, relative_path)
+            .await
     }
 
-    fn global_plugin_manifest_path(&self, plugin_id: &str, version: &str) -> PathBuf {
-        self.local.global_plugin_manifest_path(plugin_id, version)
-    }
-
-    fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> anyhow::Result<()> {
+    async fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> anyhow::Result<()> {
         self.local.remove_user_plugin_dir(user_id, plugin_id)?;
         let prefix = format!("{}/{}", user_id, plugin_id);
         let client = self.client.clone();

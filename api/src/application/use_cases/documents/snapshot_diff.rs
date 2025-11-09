@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
+use crate::application::dto::documents::SnapshotDiffBaseMode;
 use crate::application::ports::document_snapshot_archive_repository::SnapshotArchiveRecord;
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::services::diff::text_diff::compute_text_diff;
@@ -18,12 +19,6 @@ pub enum SnapshotDiffSide {
 
 pub type SnapshotDiffBase = SnapshotDiffSide;
 pub type SnapshotDiffTarget = SnapshotDiffSide;
-
-pub enum SnapshotDiffBaseMode {
-    Auto,
-    ForceCurrent,
-    ForcePrevious,
-}
 
 pub struct SnapshotDiffResult {
     pub base: SnapshotDiffBase,

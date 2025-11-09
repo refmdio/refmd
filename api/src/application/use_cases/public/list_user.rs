@@ -1,11 +1,5 @@
+use crate::application::dto::public::PublicDocumentSummaryDto;
 use crate::application::ports::public_repository::PublicRepository;
-#[derive(Debug, Clone)]
-pub struct PublicDocumentSummaryDto {
-    pub id: uuid::Uuid,
-    pub title: String,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub published_at: chrono::DateTime<chrono::Utc>,
-}
 
 pub struct ListUserPublic<'a, R: PublicRepository + ?Sized> {
     pub repo: &'a R,

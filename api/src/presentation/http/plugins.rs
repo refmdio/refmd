@@ -1,4 +1,3 @@
-use anyhow::Result as AnyResult;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::{
     Json, Router,
@@ -11,25 +10,18 @@ use futures_util::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::fs;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::application::access;
 use crate::application::dto::plugins::ExecResult;
-use crate::application::services::plugins::asset_signer::AssetScope;
-use crate::application::use_cases::plugins::exec_action::ExecutePluginAction;
-use crate::application::use_cases::plugins::install_from_url::{
-    InstallPluginError, InstallPluginFromUrl,
+use crate::application::services::errors::ServiceError;
+use crate::application::services::plugins::management::{
+    self, AssetRequestScope, PluginAssetRequest, PluginManifestItem,
 };
-use crate::application::use_cases::plugins::kv::{GetPluginKv, PutPluginKv};
-use crate::application::use_cases::plugins::records::{
-    CreatePluginRecord, DeletePluginRecord, GetPluginRecord, ListPluginRecords, UpdatePluginRecord,
-};
-use crate::bootstrap::app_context::AppContext;
+use crate::application::use_cases::plugins::install_from_url::InstallPluginError;
+use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
 
 const PERMISSION_DOC_READ: &str = "doc.read";
@@ -95,6 +87,39 @@ impl From<ExecResult> for ExecResultResponse {
     }
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ManifestItem {
+    id: String,
+    name: Option<String>,
+    version: String,
+    scope: String,
+    mounts: Vec<String>,
+    frontend: serde_json::Value,
+    permissions: Vec<String>,
+    config: serde_json::Value,
+    ui: serde_json::Value,
+    author: Option<String>,
+    repository: Option<String>,
+}
+
+impl From<PluginManifestItem> for ManifestItem {
+    fn from(value: PluginManifestItem) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            version: value.version,
+            scope: value.scope,
+            mounts: value.mounts,
+            frontend: value.frontend,
+            permissions: value.permissions,
+            config: value.config,
+            ui: value.ui,
+            author: value.author,
+            repository: value.repository,
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/plugins/{plugin}/docs/{doc_id}/records/{kind}",
@@ -121,20 +146,16 @@ pub async fn list_records(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     // View permission required on doc
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
-    access::require_view(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &actor,
-        p.doc_id,
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    let owner_user_id = resolve_plugin_owner_id(&ctx, &actor, token)
+    ctx.authorization()
+        .require_view(&actor, p.doc_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    let owner_user_id = ctx
+        .plugin_management()
+        .owner_for_actor(&actor, token)
+        .await
+        .map_err(map_plugin_service_error)?;
 
     let limit = params
         .get("limit")
@@ -147,17 +168,16 @@ pub async fn list_records(
         .unwrap_or(0)
         .max(0);
 
-    let runtime = ctx.plugin_runtime();
-    ensure_plugin_permission(&runtime, owner_user_id, &p.plugin, PERMISSION_DOC_READ).await?;
-
-    let repo = ctx.plugin_repo();
-    let list_uc = ListPluginRecords {
-        repo: repo.as_ref(),
-    };
-    let rows = list_uc
-        .execute(&p.plugin, "doc", p.doc_id, &p.kind, limit, offset)
+    ctx.plugin_permissions()
+        .ensure(owner_user_id, &p.plugin, PERMISSION_DOC_READ)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_plugin_service_error)?;
+
+    let plugin_data = ctx.plugin_data_service();
+    let rows = plugin_data
+        .list_records(&p.plugin, "doc", p.doc_id, &p.kind, limit, offset)
+        .await
+        .map_err(map_plugin_service_error)?;
     let mut items = Vec::with_capacity(rows.len());
     for r in rows {
         // Normalize output shape for client (id + data + timestamps)
@@ -205,23 +225,21 @@ pub async fn create_record(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     // Edit permission required on doc
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
-    access::require_edit(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &actor,
-        p.doc_id,
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    let owner_user_id = resolve_plugin_owner_id(&ctx, &actor, token)
+    ctx.authorization()
+        .require_edit(&actor, p.doc_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let runtime = ctx.plugin_runtime();
-    ensure_plugin_permission(&runtime, owner_user_id, &p.plugin, PERMISSION_DOC_WRITE).await?;
+    let owner_user_id = ctx
+        .plugin_management()
+        .owner_for_actor(&actor, token)
+        .await
+        .map_err(map_plugin_service_error)?;
+
+    ctx.plugin_permissions()
+        .ensure(owner_user_id, &p.plugin, PERMISSION_DOC_WRITE)
+        .await
+        .map_err(map_plugin_service_error)?;
 
     // Attach authorId and timestamps if not provided
     let mut data = body.data;
@@ -229,14 +247,11 @@ pub async fn create_record(
         data["authorId"] = json!(uid);
     }
 
-    let repo = ctx.plugin_repo();
-    let create_uc = CreatePluginRecord {
-        repo: repo.as_ref(),
-    };
-    let rec = create_uc
-        .execute(&p.plugin, "doc", p.doc_id, &p.kind, &data)
+    let plugin_data = ctx.plugin_data_service();
+    let rec = plugin_data
+        .create_record(&p.plugin, "doc", p.doc_id, &p.kind, &data)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_plugin_service_error)?;
     Ok(Json(json!({
         "id": rec.id,
         "data": rec.data,
@@ -275,15 +290,12 @@ pub async fn update_record(
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let repo = ctx.plugin_repo();
+    let plugin_data = ctx.plugin_data_service();
     // Get record for scope info and docId to enforce edit permission
-    let get_uc = GetPluginRecord {
-        repo: repo.as_ref(),
-    };
-    let rec = get_uc
-        .execute(p.id)
+    let rec = plugin_data
+        .get_record(p.id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(map_plugin_service_error)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     if rec.plugin != p.plugin {
@@ -291,27 +303,20 @@ pub async fn update_record(
     }
 
     // Edit permission on the doc scope
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
-    access::require_edit(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &access::Actor::User(user_id),
-        rec.scope_id,
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    let runtime = ctx.plugin_runtime();
-    ensure_plugin_permission(&runtime, Some(user_id), &p.plugin, PERMISSION_DOC_WRITE).await?;
-
-    let update_uc = UpdatePluginRecord {
-        repo: repo.as_ref(),
-    };
-    let updated = update_uc
-        .execute(p.id, &body.patch)
+    ctx.authorization()
+        .require_edit(&access::Actor::User(user_id), rec.scope_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    ctx.plugin_permissions()
+        .ensure(Some(user_id), &p.plugin, PERMISSION_DOC_WRITE)
+        .await
+        .map_err(map_plugin_service_error)?;
+
+    let updated = plugin_data
+        .update_record(p.id, &body.patch)
+        .await
+        .map_err(map_plugin_service_error)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(json!({
@@ -337,42 +342,32 @@ pub async fn delete_record(
     ensure_valid_plugin_id(&p.plugin)?;
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let repo = ctx.plugin_repo();
+    let plugin_data = ctx.plugin_data_service();
     // Get record to authorize
-    let get_uc = GetPluginRecord {
-        repo: repo.as_ref(),
-    };
-    let rec = get_uc
-        .execute(p.id)
+    let rec = plugin_data
+        .get_record(p.id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(map_plugin_service_error)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     if rec.plugin != p.plugin {
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
-    access::require_edit(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &access::Actor::User(user_id),
-        rec.scope_id,
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    let runtime = ctx.plugin_runtime();
-    ensure_plugin_permission(&runtime, Some(user_id), &p.plugin, PERMISSION_DOC_WRITE).await?;
-
-    let delete_uc = DeletePluginRecord {
-        repo: repo.as_ref(),
-    };
-    let ok = delete_uc
-        .execute(p.id)
+    ctx.authorization()
+        .require_edit(&access::Actor::User(user_id), rec.scope_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+
+    ctx.plugin_permissions()
+        .ensure(Some(user_id), &p.plugin, PERMISSION_DOC_WRITE)
+        .await
+        .map_err(map_plugin_service_error)?;
+
+    let ok = plugin_data
+        .delete_record(p.id)
+        .await
+        .map_err(map_plugin_service_error)?;
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -416,32 +411,27 @@ pub async fn get_kv_value(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     // View permission required on doc
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
-    access::require_view(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &actor,
-        p.doc_id,
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    let owner_user_id = resolve_plugin_owner_id(&ctx, &actor, token)
+    ctx.authorization()
+        .require_view(&actor, p.doc_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let runtime = ctx.plugin_runtime();
-    ensure_plugin_permission(&runtime, owner_user_id, &p.plugin, PERMISSION_DOC_READ).await?;
-
-    let repo = ctx.plugin_repo();
-    let get_uc = GetPluginKv {
-        repo: repo.as_ref(),
-    };
-    let val = get_uc
-        .execute(&p.plugin, "doc", Some(p.doc_id), &p.key)
+    let owner_user_id = ctx
+        .plugin_management()
+        .owner_for_actor(&actor, token)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(map_plugin_service_error)?;
+
+    ctx.plugin_permissions()
+        .ensure(owner_user_id, &p.plugin, PERMISSION_DOC_READ)
+        .await
+        .map_err(map_plugin_service_error)?;
+
+    let plugin_data = ctx.plugin_data_service();
+    let val = plugin_data
+        .get_kv(&p.plugin, "doc", Some(p.doc_id), &p.key)
+        .await
+        .map_err(map_plugin_service_error)?
         .unwrap_or(serde_json::Value::Null);
     Ok(Json(KvValueResponse { value: val }))
 }
@@ -468,202 +458,42 @@ pub async fn put_kv_value(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     // Edit permission required on doc
-    let share_access = ctx.share_access_port();
-    let access_repo = ctx.access_repo();
-    access::require_edit(
-        access_repo.as_ref(),
-        share_access.as_ref(),
-        &actor,
-        p.doc_id,
-    )
-    .await
-    .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    let owner_user_id = resolve_plugin_owner_id(&ctx, &actor, token)
+    ctx.authorization()
+        .require_edit(&actor, p.doc_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let runtime = ctx.plugin_runtime();
-    ensure_plugin_permission(&runtime, owner_user_id, &p.plugin, PERMISSION_DOC_WRITE).await?;
-
-    let repo = ctx.plugin_repo();
-    let put_uc = PutPluginKv {
-        repo: repo.as_ref(),
-    };
-    put_uc
-        .execute(&p.plugin, "doc", Some(p.doc_id), &p.key, &body.value)
+    let owner_user_id = ctx
+        .plugin_management()
+        .owner_for_actor(&actor, token)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(map_plugin_service_error)?;
+
+    ctx.plugin_permissions()
+        .ensure(owner_user_id, &p.plugin, PERMISSION_DOC_WRITE)
+        .await
+        .map_err(map_plugin_service_error)?;
+
+    let plugin_data = ctx.plugin_data_service();
+    plugin_data
+        .put_kv(&p.plugin, "doc", Some(p.doc_id), &p.key, &body.value)
+        .await
+        .map_err(map_plugin_service_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ManifestItem {
-    id: String,
-    name: Option<String>,
-    version: String,
-    scope: String,
-    mounts: Vec<String>,
-    frontend: serde_json::Value,
-    permissions: Vec<String>,
-    config: serde_json::Value,
-    ui: serde_json::Value,
-    author: Option<String>,
-    repository: Option<String>,
-}
-
-fn manifest_item_from_json<F>(
-    id: &str,
-    version: &str,
-    manifest: &serde_json::Value,
-    scope: &str,
-    sign_entry: F,
-) -> Option<ManifestItem>
-where
-    F: Fn(&str) -> Option<String>,
-{
-    let name = manifest
-        .get("name")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string());
-    let mounts = manifest
-        .get("mounts")
-        .and_then(|x| x.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect::<Vec<String>>()
-        })
-        .unwrap_or_else(|| vec![format!("/{id}/*")]);
-
-    let frontend_value = manifest.get("frontend");
-    let (frontend_entry, frontend_mode) = match frontend_value {
-        Some(v) => {
-            let entry = v.get("entry").and_then(|x| x.as_str());
-            let mode = v
-                .get("mode")
-                .and_then(|x| x.as_str())
-                .unwrap_or("esm")
-                .to_string();
-            (entry.map(|e| e.to_string()), Some(mode))
-        }
-        None => (None, None),
-    };
-
-    let perms = manifest
-        .get("permissions")
-        .and_then(|x| x.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect::<Vec<String>>()
-        })
-        .unwrap_or_else(|| vec![]);
-
-    let config = manifest.get("config").cloned().unwrap_or_else(|| json!({}));
-    let ui = manifest.get("ui").cloned().unwrap_or_else(|| json!({}));
-    let author = manifest
-        .get("author")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string());
-    let repository = manifest
-        .get("repository")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string());
-
-    Some(ManifestItem {
-        id: id.to_string(),
-        name,
-        version: version.to_string(),
-        scope: scope.to_string(),
-        mounts,
-        frontend: match frontend_entry {
-            Some(entry) => {
-                let normalized = normalize_manifest_path(&entry)?;
-                let signed = sign_entry(&normalized)?;
-                json!({
-                    "entry": signed,
-                    "mode": frontend_mode.unwrap_or_else(|| "esm".to_string()),
-                })
-            }
-            None => serde_json::Value::Null,
-        },
-        permissions: perms,
-        config,
-        ui,
-        author,
-        repository,
-    })
-}
-
 fn ensure_valid_plugin_id(id: &str) -> Result<(), StatusCode> {
-    const MAX_LEN: usize = 128;
-    if id.is_empty() || id.len() > MAX_LEN {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    if id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-    {
-        Ok(())
-    } else {
-        Err(StatusCode::BAD_REQUEST)
-    }
+    management::validate_plugin_id(id).map_err(map_plugin_service_error)
 }
 
-fn ensure_valid_plugin_version(version: &str) -> Result<(), StatusCode> {
-    const MAX_LEN: usize = 128;
-    if version.is_empty() || version.len() > MAX_LEN {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    if version
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-    {
-        Ok(())
-    } else {
-        Err(StatusCode::BAD_REQUEST)
-    }
-}
-
-fn is_safe_asset_segment(segment: &str) -> bool {
-    !(segment.is_empty()
-        || segment == "."
-        || segment == ".."
-        || segment.contains(['/', '\\', '\0']))
-}
-
-fn normalize_manifest_path(raw: &str) -> Option<String> {
-    let mut trimmed = raw.trim();
-    while let Some(stripped) = trimmed.strip_prefix("./") {
-        trimmed = stripped;
-    }
-    trimmed = trimmed.trim_start_matches('/');
-    if trimmed.is_empty() || trimmed.contains("..") || trimmed.contains('\\') {
-        return None;
-    }
-    Some(trimmed.to_string())
-}
-
-async fn resolve_plugin_owner_id(
-    ctx: &AppContext,
-    actor: &access::Actor,
-    token_hint: Option<&str>,
-) -> AnyResult<Option<Uuid>> {
-    match actor {
-        access::Actor::User(uid) => Ok(Some(*uid)),
-        access::Actor::ShareToken(token_str) => {
-            let lookup_token = token_hint
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| token_str.as_str());
-            if lookup_token.is_empty() {
-                return Ok(None);
-            }
-            let repo = ctx.shares_repo();
-            let owner = repo.get_document_owner_by_token(lookup_token).await?;
-            Ok(owner)
-        }
-        access::Actor::Public => Ok(None),
+fn map_plugin_service_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
@@ -702,91 +532,15 @@ pub async fn get_manifest(
     let actor = auth::resolve_actor_from_parts(&ctx, bearer, token_hint)
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let asset_token = match actor {
-        access::Actor::ShareToken(_) => token_hint,
-        _ => None,
-    };
-
-    let store = ctx.plugin_assets();
-    let asset_signer = ctx.asset_signer();
-    let ttl = ctx.cfg.plugin_asset_url_ttl_secs;
-    let mut items: Vec<ManifestItem> = Vec::new();
-
-    let user_scope_owner = resolve_plugin_owner_id(&ctx, &actor, token_hint)
+    let service = ctx.plugin_management();
+    let manifests = service
+        .manifests_for_actor(&actor, token_hint)
         .await
-        .map_err(|err| {
-            tracing::warn!(error = ?err, "share_owner_lookup_failed");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    let global_plugins = store
-        .list_latest_global_manifests()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    for (id_name, ver, json) in global_plugins {
-        let signer = asset_signer.clone();
-        let plugin_id = id_name.clone();
-        let version = ver.clone();
-        let sign_entry = move |relative: &str| -> Option<String> {
-            Some(signer.sign_url(AssetScope::Global, &plugin_id, &version, relative, ttl))
-        };
-
-        if let Some(item) = manifest_item_from_json(&id_name, &ver, &json, "global", sign_entry) {
-            items.push(item);
-        }
-    }
-
-    if let Some(user_id) = user_scope_owner {
-        let installation_repo = ctx.plugin_installations();
-        let installs = installation_repo
-            .list_for_user(user_id)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        for inst in installs.into_iter().filter(|i| i.status == "enabled") {
-            if let Some(json) = store
-                .load_user_manifest(&user_id, &inst.plugin_id, &inst.version)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            {
-                let signer = asset_signer.clone();
-                let plugin_id = inst.plugin_id.clone();
-                let version = inst.version.clone();
-                let share = asset_token.map(|s| s.to_string());
-                let sign_entry = move |relative: &str| -> Option<String> {
-                    Some(signer.sign_url(
-                        AssetScope::User {
-                            owner_id: user_id,
-                            share_token: share.as_deref(),
-                        },
-                        &plugin_id,
-                        &version,
-                        relative,
-                        ttl,
-                    ))
-                };
-
-                if let Some(item) = manifest_item_from_json(
-                    &inst.plugin_id,
-                    &inst.version,
-                    &json,
-                    "user",
-                    sign_entry,
-                ) {
-                    items.push(item);
-                }
-            }
-        }
-    }
-
-    items.sort_by(|a, b| {
-        let scope_order_a = if a.scope == "user" { 0 } else { 1 };
-        let scope_order_b = if b.scope == "user" { 0 } else { 1 };
-        scope_order_a
-            .cmp(&scope_order_b)
-            .then_with(|| a.id.cmp(&b.id))
-            .then_with(|| a.version.cmp(&b.version))
-    });
-    Ok(Json(items))
+        .map_err(map_plugin_service_error)?
+        .into_iter()
+        .map(ManifestItem::from)
+        .collect();
+    Ok(Json(manifests))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -820,17 +574,18 @@ pub async fn exec_action(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let owner_user_id = resolve_plugin_owner_id(&ctx, &actor, token)
+    let owner_user_id = ctx
+        .plugin_management()
+        .owner_for_actor(&actor, token)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(map_plugin_service_error)?
         .ok_or(StatusCode::FORBIDDEN)?;
 
     if let access::Actor::ShareToken(_) = actor {
         if let Some(payload) = body.payload.as_ref() {
             if let Some(doc_id) = extract_doc_id(payload) {
-                let share_access = ctx.share_access_port();
-                let access_repo = ctx.access_repo();
-                access::require_edit(access_repo.as_ref(), share_access.as_ref(), &actor, doc_id)
+                ctx.authorization()
+                    .require_edit(&actor, doc_id)
                     .await
                     .map_err(|_| StatusCode::FORBIDDEN)?;
             } else {
@@ -841,19 +596,11 @@ pub async fn exec_action(
         }
     }
 
-    let plugin_repo = ctx.plugin_repo();
-    let document_repo = ctx.document_repo();
-    let runtime_store = ctx.plugin_runtime();
-    let exec_uc = ExecutePluginAction {
-        runtime: runtime_store.as_ref(),
-        plugin_repo: plugin_repo.as_ref(),
-        document_repo: document_repo.as_ref(),
-    };
-
-    match exec_uc
-        .execute(owner_user_id, &plugin, &action, body.payload.clone())
+    let exec_service = ctx.plugin_execution_service();
+    match exec_service
+        .execute_action(owner_user_id, &plugin, &action, body.payload.clone())
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(map_plugin_service_error)?
     {
         Some(result) => Ok(Json(ExecResultResponse::from(result))),
         None => Ok(Json(ExecResultResponse {
@@ -929,19 +676,10 @@ pub async fn install_from_url(
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let fetcher = ctx.plugin_fetcher();
-    let installer = ctx.plugin_installer();
-    let publisher = ctx.plugin_event_publisher();
-    let installations = ctx.plugin_installations();
-    let install_uc = InstallPluginFromUrl {
-        fetcher: fetcher.as_ref(),
-        installer: installer.as_ref(),
-        events: publisher.as_ref(),
-        installations: installations.as_ref(),
-    };
+    let management = ctx.plugin_management();
 
-    match install_uc
-        .execute(user_id, &body.url, body.token.as_deref())
+    match management
+        .install_from_url(user_id, &body.url, body.token.as_deref())
         .await
     {
         Ok(installed) => Ok(Json(InstallResponse {
@@ -990,54 +728,11 @@ pub async fn uninstall(
     let UninstallBody { id } = body;
     let trimmed_id = id.trim();
     ensure_valid_plugin_id(trimmed_id)?;
-    let plugin_id = trimmed_id.to_string();
-    // For global plugins, uninstall endpoint no longer updates per-user list.
-    // Optionally we could implement deletion from disk by id+version (not done here).
-    let installations = ctx.plugin_installations();
-    let _ = installations.remove(user_id, &plugin_id).await;
-
-    let store = ctx.plugin_assets();
-    let plugin_id_for_remove = plugin_id.clone();
-    let store_for_remove = store.clone();
-    let user_id_for_remove = user_id;
-    match tokio::task::spawn_blocking(move || {
-        store_for_remove.remove_user_plugin_dir(&user_id_for_remove, &plugin_id_for_remove)
-    })
-    .await
-    {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => tracing::warn!(error = ?err, "plugin_uninstall_cleanup_failed"),
-        Err(err) => tracing::warn!(error = ?err, "plugin_uninstall_cleanup_join_failed"),
-    }
-
-    let publisher = ctx.plugin_event_publisher();
-    let event = crate::application::ports::plugin_event_publisher::PluginScopedEvent {
-        user_id: Some(user_id),
-        payload: json!({ "event": "uninstalled", "id": plugin_id }),
-    };
-    let _ = publisher.publish(&event).await;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn ensure_plugin_permission(
-    runtime: &Arc<dyn crate::application::ports::plugin_runtime::PluginRuntime>,
-    user_id: Option<Uuid>,
-    plugin_id: &str,
-    permission: &str,
-) -> Result<(), StatusCode> {
-    ensure_valid_plugin_id(plugin_id)?;
-    let perms = runtime
-        .permissions(user_id, plugin_id)
+    ctx.plugin_management()
+        .uninstall(user_id, trimmed_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let Some(perms) = perms else {
-        return Err(StatusCode::NOT_FOUND);
-    };
-    if perms.iter().any(|p| p == permission) {
-        Ok(())
-    } else {
-        Err(StatusCode::FORBIDDEN)
-    }
+        .map_err(map_plugin_service_error)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(
@@ -1060,42 +755,38 @@ pub async fn get_plugin_asset(
         .get("plugin")
         .map(|s| s.as_str())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    ensure_valid_plugin_id(plugin_id)?;
     let version = params
         .get("version")
         .map(|s| s.as_str())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    ensure_valid_plugin_version(version)?;
     let path = params
         .get("path")
         .map(|s| s.as_str())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let normalized_path = normalize_manifest_path(path).ok_or(StatusCode::BAD_REQUEST)?;
     let exp = params
         .get("exp")
         .map(|s| s.as_str())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let exp_i64 = exp.parse::<i64>().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let expires_at = exp.parse::<i64>().map_err(|_| StatusCode::BAD_REQUEST)?;
     let sig = params
         .get("sig")
         .map(|s| s.as_str())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let share_owned = params.get("share").map(|s| s.to_string());
+    let share_owned = params
+        .get("share")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
-    let signer = ctx.asset_signer();
-    let store = ctx.plugin_assets();
-
-    let mut owner_opt: Option<Uuid> = None;
     let scope = match scope_raw {
-        "global" => AssetScope::Global,
+        "global" => AssetRequestScope::Global,
         "user" => {
             let owner_str = params
                 .get("owner")
                 .map(|s| s.as_str())
                 .ok_or(StatusCode::BAD_REQUEST)?;
             let owner_id = Uuid::parse_str(owner_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-            owner_opt = Some(owner_id);
-            AssetScope::User {
+            AssetRequestScope::User {
                 owner_id,
                 share_token: share_owned.as_deref(),
             }
@@ -1103,52 +794,23 @@ pub async fn get_plugin_asset(
         _ => return Err(StatusCode::BAD_REQUEST),
     };
 
-    if !signer.verify_url(scope, plugin_id, version, &normalized_path, exp_i64, sig) {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-
-    let mut relative = PathBuf::new();
-    for segment in normalized_path.split('/') {
-        if !is_safe_asset_segment(segment) {
-            return Err(StatusCode::BAD_REQUEST);
-        }
-        relative.push(segment);
-    }
-    if relative.as_os_str().is_empty() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    let base_dir = match owner_opt {
-        None => {
-            let mut base = store.global_root();
-            base.push(plugin_id);
-            base.push(version);
-            base
-        }
-        Some(owner_id) => {
-            let mut base = store.user_root(&owner_id);
-            base.push(plugin_id);
-            base.push(version);
-            base
-        }
-    };
-
-    let full_path = base_dir.join(&relative);
-    if !full_path.starts_with(&base_dir) {
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    let data = fs::read(&full_path)
+    let payload = ctx
+        .plugin_management()
+        .fetch_asset(PluginAssetRequest {
+            scope,
+            plugin_id,
+            version,
+            path,
+            expires_at,
+            signature: sig,
+        })
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(map_plugin_service_error)?;
 
-    let content_type = mime_guess::from_path(&full_path)
-        .first_raw()
-        .unwrap_or("application/octet-stream");
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
+        HeaderValue::from_str(&payload.content_type)
             .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
     headers.insert(
@@ -1160,5 +822,5 @@ pub async fn get_plugin_asset(
         HeaderValue::from_static("nosniff"),
     );
 
-    Ok((headers, data).into_response())
+    Ok((headers, payload.bytes).into_response())
 }

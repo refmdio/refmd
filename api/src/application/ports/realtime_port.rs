@@ -22,7 +22,6 @@ impl fmt::Display for RealtimeError {
 impl std::error::Error for RealtimeError {}
 
 use super::realtime_types::{DynRealtimeSink, DynRealtimeStream};
-use yrs::Doc;
 
 #[async_trait]
 pub trait RealtimeEngine: Send + Sync {
@@ -42,7 +41,7 @@ pub trait RealtimeEngine: Send + Sync {
         self.force_persist(doc_id).await
     }
 
-    async fn apply_snapshot(&self, doc_id: &str, doc: &Doc) -> anyhow::Result<()>;
+    async fn apply_snapshot(&self, doc_id: &str, snapshot: &[u8]) -> anyhow::Result<()>;
 
     async fn set_document_editable(&self, _doc_id: &str, _editable: bool) -> anyhow::Result<()> {
         Ok(())
