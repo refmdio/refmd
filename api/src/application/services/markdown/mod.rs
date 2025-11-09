@@ -564,12 +564,12 @@ pub fn render(
         }
     }
     let enable_highlight = wants_feature(&opts, "highlight");
-    // Theme defaults to GitHub unless overridden
+    // Theme defaults to OneHalfDark unless overridden
     let theme_name = opts
         .theme
         .as_deref()
         .filter(|s| !s.is_empty())
-        .unwrap_or("GitHub");
+        .unwrap_or("OneHalfDark");
     walk(
         &arena,
         root,
