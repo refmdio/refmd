@@ -257,13 +257,23 @@
 }
 .markdown-preview pre:not(:has(.syntax-highlighter)),
 .prose pre:not(:has(.syntax-highlighter)) {
-  @apply mb-4 overflow-x-auto text-gray-100 text-sm p-4 rounded-lg;
+  @apply mb-4 overflow-x-auto text-sm p-4 rounded-lg;
   max-width: 100%;
+  color: #24292e !important;
+  background-color: #fafafa !important;
+}
+.dark .markdown-preview pre:not(:has(.syntax-highlighter)),
+.dark .prose pre:not(:has(.syntax-highlighter)) {
+  color: #f3f4f6 !important;
   background-color: #242424 !important;
 }
 .prose pre:has(.syntax-highlighter) { @apply p-0 bg-transparent m-0; max-width: 100%; }
 .prose .syntax-highlighter { margin: 0 !important; }
-.prose pre:not(:has(.syntax-highlighter)) code { @apply whitespace-pre bg-transparent; }
+.markdown-preview pre:not(:has(.syntax-highlighter)) code,
+.prose pre:not(:has(.syntax-highlighter)) code {
+  @apply whitespace-pre bg-transparent;
+  color: inherit !important;
+}
 .prose :not(pre) > code { @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono; }
 .prose blockquote { @apply border-l-4 border-primary/30 pl-4 italic mb-4 text-muted-foreground; }
 .prose .table-wrapper { @apply overflow-x-auto mb-4 -mx-4 px-4; }

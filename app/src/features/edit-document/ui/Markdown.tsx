@@ -1,8 +1,9 @@
 import morphdom from 'morphdom'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { API_BASE_URL } from '@/shared/lib/config'
 import { cn } from '@/shared/lib/utils'
+import { useTheme } from '@/shared/contexts/theme-context'
 
 import { upgradeAll } from '@/entities/document/wc/markdown/hydrate-all'
 import { renderMarkdown } from '@/entities/markdown'
@@ -29,10 +30,15 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
   const [html, setHtml] = useState<string>('')
   const [modalImage, setModalImage] = useState<{ src: string; alt?: string } | null>(null)
   const previousHtmlRef = useRef<string>('')
+  const { theme } = useTheme()
+  const highlightTheme = useMemo(
+    () => (theme === 'dark' ? 'OneHalfDark' : 'OneHalfLight'),
+    [theme],
+  )
 
-const requestRef = useRef<any | null>(null)
-const queuedRef = useRef<{ text: string; override?: string } | null>(null)
-const latestKeyRef = useRef<string>('')
+  const requestRef = useRef<any | null>(null)
+  const queuedRef = useRef<{ text: string; override?: string } | null>(null)
+  const latestKeyRef = useRef<string>('')
 
   useEffect(() => () => {
     if (requestRef.current && typeof requestRef.current?.cancel === 'function') {
@@ -45,7 +51,7 @@ const latestKeyRef = useRef<string>('')
 
   const runRender = useCallback(
     async (text: string, override?: string) => {
-      const requestKey = `${override ?? ''}::${text}`
+      const requestKey = `${override ?? ''}::${text}::${highlightTheme}`
       latestKeyRef.current = requestKey
 
       const apiOrigin = (() => { try { return new URL((API_BASE_URL || '')).origin } catch { return '' } })()
@@ -62,6 +68,7 @@ const latestKeyRef = useRef<string>('')
           base_origin: apiOrigin as any,
           doc_id: override as any,
           token: token as any,
+          theme: highlightTheme as any,
         } as any,
       })
 
@@ -90,7 +97,7 @@ const latestKeyRef = useRef<string>('')
         }
       }
     },
-    [],
+    [highlightTheme],
   )
 
   useEffect(() => {
