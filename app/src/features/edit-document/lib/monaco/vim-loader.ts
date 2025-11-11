@@ -7,10 +7,16 @@ let cachedModulePromise: Promise<MonacoVimModule> | null = null
 let vimPatched = false
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
+type ScrollPosition = 'top' | 'center' | 'bottom'
+
+type ScrollToCursorArgs = {
+  position?: ScrollPosition
+}
 
 type CmAdapter = {
   editor?: monacoNs.editor.IStandaloneCodeEditor
   clipPos: (pos: { line: number; ch: number }) => { line: number; ch: number }
+  moveCurrentLineTo?: (viewPosition: ScrollPosition) => void
 }
 
 type VimState = {
@@ -83,6 +89,67 @@ const setupClipboardSync = (vimApi: CodeMirrorShim['Vim']) => {
   patchResetForClipboard(vimApi)
 }
 
+const resolveScrollPosition = (position?: ScrollPosition): ScrollPosition => position ?? 'center'
+
+const getViewHeight = (editor: monacoNs.editor.IStandaloneCodeEditor) => {
+  const layoutHeight = editor.getLayoutInfo?.()?.height
+  if (typeof layoutHeight === 'number' && layoutHeight > 0) {
+    return layoutHeight
+  }
+  const domHeight = editor.getDomNode?.()?.clientHeight
+  return typeof domHeight === 'number' ? domHeight : 0
+}
+
+const scrollLineToPosition = (
+  editor: monacoNs.editor.IStandaloneCodeEditor,
+  lineNumber: number,
+  position: ScrollPosition,
+) => {
+  const viewHeight = getViewHeight(editor)
+  const lineTop = editor.getTopForLineNumber?.(lineNumber) ?? 0
+  const lineBottom = editor.getBottomForLineNumber?.(lineNumber) ?? lineTop
+  const lineHeight = Math.max(1, lineBottom - lineTop)
+
+  let targetTop = lineTop
+  switch (position) {
+    case 'center':
+      targetTop = lineTop - Math.max(0, viewHeight - lineHeight) / 2
+      break
+    case 'bottom':
+      targetTop = lineBottom - viewHeight
+      break
+    case 'top':
+    default:
+      targetTop = lineTop
+  }
+
+  const maxScrollTop = typeof editor.getScrollHeight === 'function' && viewHeight
+    ? editor.getScrollHeight() - viewHeight
+    : undefined
+  const clampedTop = typeof maxScrollTop === 'number' ? clamp(targetTop, 0, Math.max(0, maxScrollTop)) : Math.max(0, targetTop)
+  editor.setScrollTop(Math.max(0, clampedTop))
+}
+
+const patchScrollToCursorAction = (vimApi: CodeMirrorShim['Vim']) => {
+  if (!vimApi?.defineAction) return
+
+  const defineAction = vimApi.defineAction.bind(vimApi)
+  defineAction('scrollToCursor', (cm: CmAdapter, actionArgs?: ScrollToCursorArgs) => {
+    const editor = cm?.editor
+    if (!editor) {
+      return
+    }
+
+    const position = resolveScrollPosition(actionArgs?.position)
+    const lineNumber = editor.getPosition?.()?.lineNumber
+    if (!lineNumber) {
+      return
+    }
+
+    scrollLineToPosition(editor, lineNumber, position)
+  })
+}
+
 const patchDisplayLineMotion = (module: MonacoVimModule) => {
   if (vimPatched) return
 
@@ -144,6 +211,7 @@ const patchDisplayLineMotion = (module: MonacoVimModule) => {
     return candidate
   })
 
+  patchScrollToCursorAction(vimApi)
   setupClipboardSync(vimApi)
   vimPatched = true
 }

@@ -31,6 +31,7 @@ declare module 'monaco-vim' {
   export interface CodeMirrorShim {
     Vim?: {
       defineMotion: (name: string, fn: (...args: any[]) => any) => void
+      defineAction?: (name: string, fn: (...args: any[]) => any) => void
       getRegisterController?: () => RegisterController | undefined
       resetVimGlobalState_?: () => void
     }
