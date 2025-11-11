@@ -28,6 +28,7 @@ import { loadMonacoVim } from '../lib/monaco/vim-loader'
 import CursorDisplay from './CursorDisplay'
 import EditorLayout from './EditorLayout'
 import EditorToolbar from './Toolbar'
+import type { PreviewPaneProps } from './PreviewPane'
 
 const logEditorError = (scope: string, error: unknown) => {
   if (error instanceof Error) {
@@ -87,11 +88,12 @@ export type MarkdownEditorProps = {
   documentId: string
   readOnly?: boolean
   extraRight?: React.ReactNode
+  renderPreview?: (props: PreviewPaneProps) => React.ReactNode
 }
 
 
 export function MarkdownEditor(props: MarkdownEditorProps) {
-  const { doc, awareness, initialView: initialViewProp = 'split', userId, userName, documentId, readOnly = false, extraRight } = props
+  const { doc, awareness, initialView: initialViewProp = 'split', userId, userName, documentId, readOnly = false, extraRight, renderPreview } = props
   const { isDarkMode } = useTheme()
   const isMobile = useIsMobile()
   const { setEditor } = useEditorContext()
@@ -626,6 +628,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         vimStatusBarRef={vimStatusBarRef}
         showVimStatusBar={isVimMode}
         uploadStatus={uploadStatus}
+        renderPreview={renderPreview}
       />
 
       <CursorDisplay awareness={awareness} />

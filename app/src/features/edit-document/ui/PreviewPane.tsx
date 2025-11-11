@@ -14,7 +14,7 @@ import Markdown from '@/features/edit-document/ui/Markdown'
 
 import { useViewController } from '../public/useViewController'
 
-type Props = {
+export type PreviewPaneProps = {
   content: string
   viewMode?: ViewMode
   isSecondaryViewer?: boolean
@@ -31,7 +31,7 @@ type Props = {
   taskToggleDisabled?: boolean
 }
 
-function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer = false, onScroll, onScrollAnchorLine, scrollPercentage, documentIdOverride, onNavigate, forceFloatingToc = false, stickToBottom = false, scrollToLine, onToggleTask, taskToggleDisabled }: Props) {
+function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer = false, onScroll, onScrollAnchorLine, scrollPercentage, documentIdOverride, onNavigate, forceFloatingToc = false, stickToBottom = false, scrollToLine, onToggleTask, taskToggleDisabled }: PreviewPaneProps) {
   const vc = useViewController()
   const onTagClickStable = React.useCallback((tag: string) => {
     vc.openSearch(tag)

@@ -10,7 +10,7 @@ import { Button } from '@/shared/ui/button'
 import type { UploadStatus } from '@/features/edit-document/hooks/useEditorUploads'
 
 import EditorPane from './EditorPane'
-import PreviewPane from './PreviewPane'
+import PreviewPane, { type PreviewPaneProps } from './PreviewPane'
 
 export type EditorLayoutProps = {
   isMobile: boolean
@@ -36,6 +36,7 @@ export type EditorLayoutProps = {
   vimStatusBarRef: MutableRefObject<HTMLDivElement | null>
   showVimStatusBar: boolean
   uploadStatus: UploadStatus
+  renderPreview?: (props: PreviewPaneProps) => ReactNode
 }
 
 export function EditorLayout({
@@ -62,6 +63,7 @@ export function EditorLayout({
   vimStatusBarRef,
   showVimStatusBar,
   uploadStatus,
+  renderPreview,
 }: EditorLayoutProps) {
   const uploadStatusNode = (() => {
     if (uploadStatus.state === 'idle') return null
@@ -261,23 +263,27 @@ export function EditorLayout({
               !isMobile && 'px-4 pb-6 pt-6 sm:px-6 sm:pb-8 sm:pt-8',
             )}
           >
-            <PreviewPane
-              content={content}
-              forceFloatingToc={layoutState.shouldForceFloatingToc}
-              viewMode={view === 'split' ? 'split' : 'preview'}
-              onNavigate={onPreviewNavigate}
-              onScroll={(_top, pct) => handlePreviewScroll(pct)}
-              onScrollAnchorLine={(line) => {
-                if (!syncScroll || view !== 'split') return
-                revealEditorLine(line)
-              }}
-              scrollPercentage={syncScroll && view === 'split' ? previewScrollPct : undefined}
-              scrollToLine={syncScroll && view === 'split' ? previewAnchorLine : undefined}
-              stickToBottom={syncScroll ? lockActive : false}
-              documentIdOverride={documentId}
-              onToggleTask={readOnly ? undefined : onToggleTask}
-              taskToggleDisabled={readOnly}
-            />
+            {(() => {
+              const previewProps: PreviewPaneProps = {
+                content,
+                forceFloatingToc: layoutState.shouldForceFloatingToc,
+                viewMode: view === 'split' ? 'split' : 'preview',
+                onNavigate: onPreviewNavigate,
+                onScroll: (_top, pct) => handlePreviewScroll(pct),
+                onScrollAnchorLine: (line) => {
+                  if (!syncScroll || view !== 'split') return
+                  revealEditorLine(line)
+                },
+                scrollPercentage: syncScroll && view === 'split' ? previewScrollPct : undefined,
+                scrollToLine: syncScroll && view === 'split' ? previewAnchorLine : undefined,
+                stickToBottom: syncScroll ? lockActive : false,
+                documentIdOverride: documentId,
+                onToggleTask: readOnly ? undefined : onToggleTask,
+                taskToggleDisabled: readOnly,
+              }
+
+              return renderPreview ? renderPreview(previewProps) : <PreviewPane {...previewProps} />
+            })()}
           </div>
         </div>
       )}

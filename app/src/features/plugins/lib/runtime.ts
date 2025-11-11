@@ -15,6 +15,11 @@ import {
   type ManifestItem,
 } from '@/shared/api'
 import type { DocumentHeaderAction } from '@/shared/types/document'
+import {
+  mountSplitEditorStage,
+  type SplitEditorPreviewDelegate,
+  type SplitEditorDocumentApi,
+} from '@/widgets/plugins/SplitEditorHost'
 
 export type HostMode = 'primary' | 'secondary'
 
@@ -197,6 +202,30 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
             : []
           ctx.setDocumentActions(normalized)
         } catch {}
+      },
+      mountSplitEditor: (container: Element, options?: {
+        docId?: string | null
+        token?: string | null
+        preview?: { delegate?: SplitEditorPreviewDelegate }
+        document?: { onReady?: (api: SplitEditorDocumentApi) => void | (() => void) }
+      }) => {
+        if (typeof window === 'undefined') return undefined
+        if (!container) return undefined
+        const target = container as HTMLElement
+        const docId = options?.docId ?? resolvedDocId ?? null
+        const token = options?.token ?? resolvedToken ?? null
+        const delegate = options?.preview?.delegate
+        if (!docId) {
+          target.innerHTML = '<div class="p-4 text-sm text-muted-foreground">No document selected.</div>'
+          return undefined
+        }
+        return mountSplitEditorStage(target, {
+          docId,
+          token,
+          host,
+          previewDelegate: delegate,
+          onDocumentReady: options?.document?.onReady,
+        })
       },
     },
     dependencies: {

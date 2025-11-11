@@ -10,6 +10,7 @@ import {
   resolvePluginForRoute,
   type RoutePluginMatch,
 } from '@/features/plugins'
+import { SplitEditorPortalRenderer } from '@/widgets/plugins/SplitEditorHost'
 
 
 export default function PluginFallback() {
@@ -225,6 +226,7 @@ export default function PluginFallback() {
 
   return (
     <div className="relative h-full w-full">
+      <SplitEditorPortalRenderer />
       <div ref={containerRef} className="h-full w-full overflow-auto" />
       {(pluginMounting || manifestLoading) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80">
