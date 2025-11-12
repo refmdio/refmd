@@ -177,7 +177,7 @@ impl SnapshotService {
             return Ok(MarkdownPersistResult { written: false });
         }
         let contents = extract_markdown(doc);
-        let _ = self.storage.sync_doc_paths(*doc_id).await;
+        self.storage.sync_doc_paths(*doc_id).await?;
         let path = self.storage.build_doc_file_path(*doc_id).await?;
         let mut formatted = format!(
             "---\nid: {}\ntitle: {}\n---\n\n{}",

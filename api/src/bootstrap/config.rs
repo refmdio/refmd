@@ -42,6 +42,9 @@ pub struct Config {
     pub updates_keep_window: i64,
     pub storage_backend: StorageBackend,
     pub storage_root: String,
+    pub storage_monitor_enabled: bool,
+    pub storage_monitor_interval_secs: u64,
+    pub storage_monitor_batch_size: i64,
     pub s3_endpoint: Option<String>,
     pub s3_bucket: Option<String>,
     pub s3_region: Option<String>,
@@ -97,6 +100,15 @@ impl Config {
             .parse::<StorageBackend>()?;
         let storage_root =
             env_var(&["STORAGE_ROOT", "UPLOADS_DIR"]).unwrap_or_else(|| "./uploads".into());
+        let storage_monitor_enabled = env_var(&["STORAGE_MONITOR_ENABLED"])
+            .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(true);
+        let storage_monitor_interval_secs = env_var(&["STORAGE_MONITOR_INTERVAL_SECS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(600);
+        let storage_monitor_batch_size = env_var(&["STORAGE_MONITOR_BATCH_SIZE"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(200);
         let s3_endpoint = env_var(&["S3_ENDPOINT"]);
         let s3_bucket = env_var(&["S3_BUCKET"]);
         let s3_region = env_var(&["S3_REGION"]);
@@ -220,6 +232,9 @@ impl Config {
             updates_keep_window,
             storage_backend,
             storage_root,
+            storage_monitor_enabled,
+            storage_monitor_interval_secs,
+            storage_monitor_batch_size,
             s3_endpoint,
             s3_bucket,
             s3_region,

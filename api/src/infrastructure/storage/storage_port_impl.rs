@@ -127,6 +127,10 @@ impl StoragePort for FsStoragePort {
         Ok(data)
     }
 
+    async fn exists(&self, abs_path: &Path) -> anyhow::Result<bool> {
+        Ok(tokio::fs::try_exists(abs_path).await.unwrap_or(false))
+    }
+
     async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> anyhow::Result<()> {
         if let Some(parent) = abs_path.parent() {
             tokio::fs::create_dir_all(parent).await?;

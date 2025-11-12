@@ -1,4 +1,7 @@
-use std::path::{Component, Path, PathBuf};
+use std::{
+    io,
+    path::{Component, Path, PathBuf},
+};
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
@@ -262,7 +265,7 @@ impl StoragePort for S3StoragePort {
         let ids =
             crate::infrastructure::storage::list_descendant_docs(&self.pool, folder_id).await?;
         for id in &ids {
-            let _ = self.move_doc_paths(*id).await;
+            self.move_doc_paths(*id).await?;
         }
         Ok(ids.len())
     }
@@ -304,7 +307,7 @@ impl StoragePort for S3StoragePort {
         let ids =
             crate::infrastructure::storage::list_descendant_docs(&self.pool, folder_id).await?;
         for id in &ids {
-            let _ = self.delete_doc_physical(*id).await;
+            self.delete_doc_physical(*id).await?;
         }
         Ok(ids.len())
     }
@@ -374,18 +377,38 @@ impl StoragePort for S3StoragePort {
 
     async fn read_bytes(&self, abs_path: &Path) -> anyhow::Result<Vec<u8>> {
         let key = self.key_from_path(abs_path);
-        let object = self
+        let resp = self
             .client
             .get_object()
             .bucket(&self.bucket)
-            .key(key)
+            .key(&key)
             .send()
-            .await
-            .context("failed to get object")?;
+            .await;
+
+        let object = match resp {
+            Ok(obj) => obj,
+            Err(SdkError::ServiceError(service_err)) => {
+                if service_err.err().is_no_such_key() {
+                    let err =
+                        io::Error::new(io::ErrorKind::NotFound, format!("object {key} not found"));
+                    return Err(err.into());
+                }
+                return Err(anyhow!("failed to get object {key}: {}", service_err.err()));
+            }
+            Err(err) => {
+                return Err(anyhow!("failed to get object {key}: {err}"));
+            }
+        };
+
         let mut reader = object.body.into_async_read();
         let mut data = Vec::new();
         reader.read_to_end(&mut data).await?;
         Ok(data)
+    }
+
+    async fn exists(&self, abs_path: &Path) -> anyhow::Result<bool> {
+        let key = self.key_from_path(abs_path);
+        self.object_exists(&key).await
     }
 
     async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> anyhow::Result<()> {

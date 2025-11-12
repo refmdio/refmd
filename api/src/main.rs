@@ -43,6 +43,7 @@ use api::bootstrap::config::{Config, StorageBackend};
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::exporter::DefaultDocumentExporter;
 use api::infrastructure::plugins::filesystem_store::PluginExecutionLimits;
+use api::infrastructure::storage::StorageConsistencyMonitor;
 use api::presentation::context::{AppContext, AppServices, PresentationConfig};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -253,6 +254,23 @@ async fn main() -> anyhow::Result<()> {
             )
         }
     };
+
+    if cfg.storage_monitor_enabled {
+        let monitor = Arc::new(StorageConsistencyMonitor::new(
+            pool.clone(),
+            storage_port.clone(),
+            Duration::from_secs(cfg.storage_monitor_interval_secs),
+            cfg.storage_monitor_batch_size,
+        ));
+        tracing::info!(
+            interval_secs = cfg.storage_monitor_interval_secs,
+            batch_size = cfg.storage_monitor_batch_size,
+            "storage_consistency_monitor_enabled"
+        );
+        tokio::spawn(monitor.run());
+    } else {
+        tracing::info!("storage_consistency_monitor_disabled");
+    }
 
     let snapshot_archive_repo: Arc<
         dyn api::application::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository,

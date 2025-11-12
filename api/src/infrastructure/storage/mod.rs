@@ -1,8 +1,10 @@
 mod core;
 mod gitignore_port_impl;
+mod monitor;
 mod s3_port_impl;
 mod storage_port_impl;
 pub use core::*;
+pub use monitor::StorageConsistencyMonitor;
 // Keep backward-compatible module path `port_impl`
 pub mod port_impl {
     pub use super::storage_port_impl::*;
