@@ -1,3 +1,4 @@
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::application::dto::git::{GitSyncOutcome, GitSyncRequestDto, GitSyncResponseDto};
@@ -24,7 +25,25 @@ where
         req: GitSyncRequestDto,
     ) -> anyhow::Result<GitSyncResponseDto> {
         let cfg = self.repo.load_user_git_cfg(user_id).await?;
-        let outcome: GitSyncOutcome = self.workspace.sync(user_id, &req, cfg.as_ref()).await?;
+        let mut attempt_req = req.clone();
+        let mut outcome = match self
+            .workspace
+            .sync(user_id, &attempt_req, cfg.as_ref())
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                if !attempt_req.force.unwrap_or(false) && needs_force_retry(&err) {
+                    warn!(user_id = %user_id, "git_sync_retrying_with_force");
+                    attempt_req.force = Some(true);
+                    self.workspace
+                        .sync(user_id, &attempt_req, cfg.as_ref())
+                        .await?
+                } else {
+                    return Err(err);
+                }
+            }
+        };
 
         if let Some(cfg) = cfg.as_ref() {
             if !cfg.repository_url.is_empty() {
@@ -51,4 +70,11 @@ where
             files_changed: outcome.files_changed,
         })
     }
+}
+
+fn needs_force_retry(err: &anyhow::Error) -> bool {
+    let msg = err.to_string();
+    msg.contains("remote repository state diverged")
+        || msg.contains("repository latest commit mismatch")
+        || msg.contains("remote repository already contains commit")
 }

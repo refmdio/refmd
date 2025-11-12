@@ -14,7 +14,7 @@ use git2::{
 };
 use sqlx::{Row, types::Json};
 use tempfile::{Builder as TempDirBuilder, TempDir};
-use tracing::warn;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
@@ -136,6 +136,7 @@ impl GitWorkspaceService {
         let Some(storage_latest) = self.git_storage.latest_commit(user_id).await? else {
             return Ok(None);
         };
+        info!(user_id = %user_id, commit = %encode_commit_id(&storage_latest.commit_id), "git_backfill_latest_from_storage");
         self.backfill_commits_from_storage(user_id, &storage_latest)
             .await?;
         Ok(Some(storage_latest))
@@ -1031,16 +1032,46 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         latest_meta = self.ensure_latest_meta(user_id).await?;
 
-        let storage_latest = self.git_storage.latest_commit(user_id).await?;
-        let storage_commit_hex = storage_latest
+        let mut storage_latest = self.git_storage.latest_commit(user_id).await?;
+        let mut storage_commit_hex = storage_latest
             .as_ref()
             .map(|m| encode_commit_id(&m.commit_id));
-        let db_commit_hex = latest_meta.as_ref().map(|m| encode_commit_id(&m.commit_id));
+        let mut db_commit_hex = latest_meta.as_ref().map(|m| encode_commit_id(&m.commit_id));
         if storage_commit_hex != db_commit_hex {
-            tx.rollback().await.ok();
-            anyhow::bail!(
-                "repository latest commit mismatch between database ({db_commit_hex:?}) and storage ({storage_commit_hex:?})"
+            warn!(
+                user_id = %user_id,
+                db_commit = ?db_commit_hex,
+                storage_commit = ?storage_commit_hex,
+                "git_commit_pointer_mismatch_detected"
             );
+            if let Some(storage_meta) = storage_latest.as_ref() {
+                self.backfill_commits_from_storage(user_id, storage_meta)
+                    .await?;
+                latest_meta = self.latest_commit_meta(user_id).await?;
+            }
+            storage_latest = self.git_storage.latest_commit(user_id).await?;
+            storage_commit_hex = storage_latest
+                .as_ref()
+                .map(|m| encode_commit_id(&m.commit_id));
+            db_commit_hex = latest_meta.as_ref().map(|m| encode_commit_id(&m.commit_id));
+            if storage_commit_hex == db_commit_hex {
+                info!(
+                    user_id = %user_id,
+                    commit = ?storage_commit_hex,
+                    "git_commit_pointer_repaired_from_storage"
+                );
+            } else {
+                tx.rollback().await.ok();
+                error!(
+                    user_id = %user_id,
+                    db_commit = ?db_commit_hex,
+                    storage_commit = ?storage_commit_hex,
+                    "git_commit_pointer_irreparable"
+                );
+                anyhow::bail!(
+                    "repository latest commit mismatch between database ({db_commit_hex:?}) and storage ({storage_commit_hex:?})"
+                );
+            }
         }
 
         let previous_index = latest_meta
@@ -1450,6 +1481,13 @@ fn fetch_remote_and_verify(
                         "remote repository diverged; proceeding due to force flag"
                     );
                 } else {
+                    warn!(
+                        remote_head = %oid,
+                        local_head = %encode_commit_id(&meta.commit_id),
+                        user_repo = %cfg.repository_url,
+                        branch,
+                        "git_remote_diverged_blocking"
+                    );
                     anyhow::bail!(
                         "remote repository state diverged: remote head {} does not match latest recorded commit {}",
                         oid.to_string(),
@@ -1465,6 +1503,12 @@ fn fetch_remote_and_verify(
                     "remote repository has existing history; proceeding due to force flag"
                 );
             } else {
+                warn!(
+                    remote_head = %oid,
+                    branch,
+                    user_repo = %cfg.repository_url,
+                    "git_remote_has_history_no_local_state"
+                );
                 anyhow::bail!(
                     "remote repository already contains commit {} but local repository has no history",
                     oid.to_string()
