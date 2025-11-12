@@ -36,7 +36,7 @@ function useGitSyncController() {
   const { data: config } = useQuery<GitConfig>({ queryKey: ['git-config'], queryFn: () => getConfig(), retry: false })
 
   const syncMutation = useMutation({
-    mutationFn: () => syncNow({ requestBody: { message: undefined } }),
+    mutationFn: (force?: boolean) => syncNow({ requestBody: { message: undefined, force } }),
     onSuccess: (data: any) => {
       toast.success(`Sync complete: ${(data?.files_changed ?? 0)} files changed`)
       qc.invalidateQueries({ queryKey: ['git-status'] })
@@ -61,8 +61,21 @@ function useGitSyncController() {
   const isConfigured = Boolean(config) && Boolean(status?.repository_initialized)
 
   const handleSync = useCallback(() => {
-    if (statusError || !config || !status?.repository_initialized) setShowConfig(true)
-    else syncMutation.mutate()
+    if (statusError || !config || !status?.repository_initialized) {
+      setShowConfig(true)
+      return
+    }
+
+    const lastPushFailed = Boolean(status?.has_remote && status?.last_sync_status === 'error')
+    const shouldForce = lastPushFailed
+      ? window.confirm(status?.last_sync_message || 'The previous push failed. Force sync anyway?')
+      : false
+
+    if (lastPushFailed && !shouldForce) {
+      return
+    }
+
+    syncMutation.mutate(shouldForce ? true : undefined)
   }, [statusError, config, status, syncMutation])
 
   const openConfig = useCallback(() => setShowConfig(true), [])
