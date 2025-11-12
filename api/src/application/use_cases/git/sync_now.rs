@@ -1,7 +1,7 @@
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::application::dto::git::{GitSyncOutcome, GitSyncRequestDto, GitSyncResponseDto};
+use crate::application::dto::git::{GitSyncRequestDto, GitSyncResponseDto};
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 
@@ -26,7 +26,7 @@ where
     ) -> anyhow::Result<GitSyncResponseDto> {
         let cfg = self.repo.load_user_git_cfg(user_id).await?;
         let mut attempt_req = req.clone();
-        let mut outcome = match self
+        let outcome = match self
             .workspace
             .sync(user_id, &attempt_req, cfg.as_ref())
             .await
