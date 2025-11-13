@@ -61,7 +61,15 @@ where
             }
         }
 
-        let success = outcome.files_changed == 0 || outcome.pushed || outcome.commit_hash.is_some();
+        let has_remote = cfg.as_ref().map(|c| !c.repository_url.is_empty()).unwrap_or(false);
+        // Success rule:
+        // - If a remote is configured: success when push succeeded or there were no changes.
+        // - If no remote: success when commit was created or there were no changes.
+        let success = if has_remote {
+            outcome.files_changed == 0 || outcome.pushed
+        } else {
+            outcome.files_changed == 0 || outcome.commit_hash.is_some()
+        };
 
         Ok(GitSyncResponseDto {
             success,

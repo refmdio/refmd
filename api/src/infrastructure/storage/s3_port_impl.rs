@@ -181,11 +181,16 @@ impl S3StoragePort {
         }
         let old_rel: Option<String> = row.try_get("path").ok();
 
-        let new_full =
+        let desired_full =
             crate::infrastructure::storage::build_doc_file_path(&self.pool, &self.root, doc_id)
                 .await?;
-        let new_rel = crate::infrastructure::storage::relative_from_uploads(&self.root, &new_full)
-            .replace('\\', "/");
+        let (new_full, new_rel) = crate::infrastructure::storage::ensure_unique_doc_path(
+            &self.pool,
+            &self.root,
+            doc_id,
+            &desired_full,
+        )
+        .await?;
 
         if let Some(old_rel) = old_rel.clone() {
             if old_rel != new_rel {
@@ -423,6 +428,27 @@ impl StoragePort for S3StoragePort {
             .send()
             .await
             .with_context(|| format!("failed to upload object {key}"))?;
+        // Mark dirty (best-effort)
+        let is_text = abs_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("md"))
+            .unwrap_or(false);
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let digest = hasher.finalize();
+        let content_hash = digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let _ = crate::infrastructure::storage::mark_dirty_upsert_abs_path(
+            &self.pool,
+            &self.root,
+            abs_path,
+            is_text,
+            Some(&content_hash),
+        )
+        .await;
         Ok(())
     }
 
@@ -506,6 +532,15 @@ impl StoragePort for S3StoragePort {
             .send()
             .await
             .with_context(|| format!("failed to upload object {key}"))?;
+
+        // Mark dirty upsert for attachment (binary)
+        let _ = crate::infrastructure::storage::mark_dirty_upsert_relative(
+            &self.pool,
+            &relative,
+            false,
+            Some(&content_hash),
+        )
+        .await;
 
         Ok(StoredAttachment {
             filename: safe,

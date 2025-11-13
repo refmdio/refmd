@@ -38,7 +38,11 @@ function useGitSyncController() {
   const syncMutation = useMutation({
     mutationFn: () => syncNow({ requestBody: { message: undefined } }),
     onSuccess: (data: any) => {
-      toast.success(`Sync complete: ${(data?.files_changed ?? 0)} files changed`)
+      const ok = !!data?.success
+      const changed = data?.files_changed ?? 0
+      const msg = data?.message || 'Sync completed'
+      if (ok) toast.success(`${msg}: ${changed} files changed`)
+      // Do not surface push failures in toast; rely on status panel instead
       qc.invalidateQueries({ queryKey: ['git-status'] })
     },
     onError: (e: any) => {

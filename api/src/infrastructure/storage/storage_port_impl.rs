@@ -136,6 +136,24 @@ impl StoragePort for FsStoragePort {
             tokio::fs::create_dir_all(parent).await?;
         }
         tokio::fs::write(abs_path, data).await?;
+        // Mark dirty (best-effort)
+        let is_text = abs_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("md"))
+            .unwrap_or(false);
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let digest = hasher.finalize();
+        let content_hash = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let _ = crate::infrastructure::storage::mark_dirty_upsert_abs_path(
+            &self.pool,
+            self.uploads_root.as_path(),
+            abs_path,
+            is_text,
+            Some(&content_hash),
+        )
+        .await;
         Ok(())
     }
 
@@ -213,6 +231,15 @@ impl StoragePort for FsStoragePort {
         for byte in digest {
             let _ = write!(&mut content_hash, "{:02x}", byte);
         }
+
+        // Mark dirty upsert for attachment (binary)
+        let _ = crate::infrastructure::storage::mark_dirty_upsert_relative(
+            &self.pool,
+            &relative,
+            false,
+            Some(&content_hash),
+        )
+        .await;
 
         Ok(StoredAttachment {
             filename: safe,

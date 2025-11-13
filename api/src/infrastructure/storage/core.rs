@@ -122,6 +122,163 @@ pub fn relative_from_uploads(uploads_root: &Path, full: &Path) -> String {
     }
 }
 
+pub async fn ensure_unique_doc_path(
+    pool: &PgPool,
+    uploads_root: &Path,
+    doc_id: Uuid,
+    desired_full: &Path,
+) -> anyhow::Result<(PathBuf, String)> {
+    let mut full = desired_full.to_path_buf();
+    let parent = full
+        .parent()
+        .map(|p| p.to_path_buf())
+        .ok_or_else(|| anyhow::anyhow!("invalid desired path"))?;
+    let mut file_name = full
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow::anyhow!("invalid file name"))?
+        .to_string();
+
+    let (stem, ext) = {
+        let p = Path::new(&file_name);
+        let stem = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("document")
+            .to_string();
+        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
+        (stem, ext.to_string())
+    };
+
+    let mut counter: u32 = 1;
+    loop {
+        let rel = relative_from_uploads(uploads_root, &full);
+        let row = sqlx::query("SELECT id FROM documents WHERE path = $1 LIMIT 1")
+            .bind(&rel)
+            .fetch_optional(pool)
+            .await?;
+        let ok = match row {
+            None => true,
+            Some(r) => {
+                let other: Uuid = r.get("id");
+                other == doc_id
+            }
+        };
+        if ok {
+            let rel = relative_from_uploads(uploads_root, &full);
+            return Ok((full, rel));
+        }
+
+        counter += 1;
+        let new_name = if ext.is_empty() {
+            format!("{}-{}", stem, counter)
+        } else {
+            format!("{}-{}.{}", stem, counter, ext)
+        };
+        file_name = new_name;
+        full = parent.join(&file_name);
+    }
+}
+
+// Convert uploads-relative path to repo-relative path and extract user_id.
+// Example: "{user_uuid}/docs/foo.md" -> (user_uuid, "docs/foo.md")
+fn split_owner_and_repo_path(rel: &str) -> Option<(Uuid, String)> {
+    let trimmed = rel.trim_start_matches('/');
+    let mut it = trimmed.splitn(2, '/');
+    let owner = it.next()?;
+    let rest = it.next().unwrap_or("").to_string();
+    let owner_id = Uuid::parse_str(owner).ok()?;
+    Some((owner_id, rest))
+}
+
+async fn mark_dirty_upsert_internal(
+    pool: &PgPool,
+    user_id: Uuid,
+    repo_path: &str,
+    is_text: bool,
+    content_hash: Option<&str>,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO git_dirty_files (user_id, path, is_text, op, content_hash)
+            VALUES ($1, $2, $3, 'upsert', $4)
+            ON CONFLICT (user_id, path)
+            DO UPDATE SET op = EXCLUDED.op,
+                          is_text = EXCLUDED.is_text,
+                          content_hash = EXCLUDED.content_hash,
+                          created_at = now()"#,
+    )
+    .bind(user_id)
+    .bind(repo_path)
+    .bind(is_text)
+    .bind(content_hash)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn mark_dirty_delete_internal(
+    pool: &PgPool,
+    user_id: Uuid,
+    repo_path: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO git_dirty_files (user_id, path, is_text, op, content_hash)
+            VALUES ($1, $2, false, 'delete', NULL)
+            ON CONFLICT (user_id, path)
+            DO UPDATE SET op = EXCLUDED.op,
+                          created_at = now()"#,
+    )
+    .bind(user_id)
+    .bind(repo_path)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn mark_dirty_upsert_abs_path(
+    pool: &PgPool,
+    uploads_root: &Path,
+    abs_path: &Path,
+    is_text: bool,
+    content_hash: Option<&str>,
+) -> anyhow::Result<()> {
+    let rel = relative_from_uploads(uploads_root, abs_path).replace('\\', "/");
+    if let Some((user_id, repo_path)) = split_owner_and_repo_path(&rel) {
+        if !repo_path.is_empty() {
+            let _ = mark_dirty_upsert_internal(pool, user_id, &repo_path, is_text, content_hash).await;
+        }
+    }
+    Ok(())
+}
+
+pub async fn mark_dirty_upsert_relative(
+    pool: &PgPool,
+    relative: &str,
+    is_text: bool,
+    content_hash: Option<&str>,
+) -> anyhow::Result<()> {
+    let rel = relative.trim_start_matches('/');
+    if let Some((user_id, repo_path)) = split_owner_and_repo_path(rel) {
+        if !repo_path.is_empty() {
+            let _ = mark_dirty_upsert_internal(pool, user_id, &repo_path, is_text, content_hash).await;
+        }
+    }
+    Ok(())
+}
+
+pub async fn mark_dirty_delete_relative(
+    pool: &PgPool,
+    relative: &str,
+) -> anyhow::Result<()> {
+    let rel = relative.trim_start_matches('/');
+    if let Some((user_id, repo_path)) = split_owner_and_repo_path(rel) {
+        if !repo_path.is_empty() {
+            let _ = mark_dirty_delete_internal(pool, user_id, &repo_path).await;
+        }
+    }
+    Ok(())
+}
+
 pub async fn move_doc_paths(
     pool: &PgPool,
     uploads_root: &Path,
@@ -141,7 +298,8 @@ pub async fn move_doc_paths(
     }
     let old_rel: Option<String> = row.try_get("path").ok();
 
-    let new_full = build_doc_file_path(pool, uploads_root, doc_id).await?;
+    let desired_full = build_doc_file_path(pool, uploads_root, doc_id).await?;
+    let (new_full, new_rel) = ensure_unique_doc_path(pool, uploads_root, doc_id, &desired_full).await?;
     if let Some(parent) = new_full.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
@@ -152,6 +310,8 @@ pub async fn move_doc_paths(
         if tokio::fs::try_exists(&old_full).await.unwrap_or(false) {
             let _ = tokio::fs::rename(&old_full, &new_full).await;
         }
+        // Mark old path as deleted (repo-relative)
+        let _ = mark_dirty_delete_relative(pool, &old_rel).await;
     }
 
     // Move only attachments belonging to this document
@@ -190,6 +350,10 @@ pub async fn move_doc_paths(
                             .bind(new_rel)
                             .bind(&filename)
                             .execute(pool).await;
+
+                        // Mark move: old delete, new upsert (binary)
+                        let _ = mark_dirty_delete_relative(pool, &old_path).await;
+                        let _ = mark_dirty_upsert_relative(pool, &relative_from_uploads(uploads_root, &new_path), false, None).await;
                     }
                 }
             }
@@ -197,12 +361,14 @@ pub async fn move_doc_paths(
     }
 
     // Update documents.path
-    let new_rel = relative_from_uploads(uploads_root, &new_full);
     let _ = sqlx::query("UPDATE documents SET path = $2, updated_at = now() WHERE id = $1")
         .bind(doc_id)
         .bind(&new_rel)
         .execute(pool)
         .await;
+
+    // Mark new path as upsert (text)
+    let _ = mark_dirty_upsert_relative(pool, &new_rel, true, None).await;
     Ok(())
 }
 
@@ -262,6 +428,8 @@ pub async fn delete_doc_physical(
     if let Some(rel) = row.try_get::<String, _>("path").ok() {
         let full = uploads_root.join(&rel);
         let _ = tokio::fs::remove_file(&full).await;
+        // Mark delete for document markdown
+        let _ = mark_dirty_delete_relative(pool, &rel).await;
     }
 
     // Delete only attachments belonging to this document
@@ -276,6 +444,8 @@ pub async fn delete_doc_physical(
             if tokio::fs::try_exists(&file_path).await.unwrap_or(false) {
                 let _ = tokio::fs::remove_file(&file_path).await;
             }
+            // Mark delete for attachment
+            let _ = mark_dirty_delete_relative(pool, &storage_path).await;
         }
     }
 

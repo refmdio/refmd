@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -493,6 +493,41 @@ impl GitWorkspaceService {
         Ok(state)
     }
 
+    async fn fetch_dirty(&self, user_id: Uuid) -> anyhow::Result<Vec<DirtyRow>> {
+        let rows = sqlx::query(
+            r#"SELECT path, is_text, op, content_hash
+               FROM git_dirty_files
+               WHERE user_id = $1
+               ORDER BY created_at ASC"#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut out = Vec::new();
+        for r in rows {
+            let path: String = r.get("path");
+            let is_text: bool = r.get("is_text");
+            let op: String = r.get("op");
+            let content_hash: Option<String> = r.try_get("content_hash").ok();
+            out.push(DirtyRow {
+                path,
+                is_text,
+                op,
+                content_hash,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn clear_dirty(&self, user_id: Uuid) -> anyhow::Result<u64> {
+        let res = sqlx::query("DELETE FROM git_dirty_files WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected())
+    }
+
     fn compute_deltas(
         &self,
         current: &HashMap<String, FileSnapshot>,
@@ -812,48 +847,95 @@ impl GitWorkspacePort for GitWorkspaceService {
                 untracked_files: 0,
             });
         }
+        // Dirty-driven status: avoid full workspace scan
         let latest = self.latest_commit_meta(user_id).await?;
-        let previous_index = latest
+        let previous_index: HashMap<String, String> = latest
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
-        let current = self.collect_current_state(user_id).await?;
-        let delta = self.compute_deltas(&current, &previous_index);
+
+        let dirty = self.fetch_dirty(user_id).await?;
+        let mut added: u32 = 0;
+        let mut modified: u32 = 0;
+        let mut deleted: u32 = 0;
+
+        for d in dirty.iter() {
+            match d.op.as_str() {
+                "upsert" => {
+                    if let Some(prev_hash) = previous_index.get(&d.path) {
+                        // Existing file: if hash unchanged and hash known, ignore; else modified
+                        match d.content_hash.as_ref() {
+                            Some(h) if h == prev_hash => {}
+                            _ => modified += 1,
+                        }
+                    } else {
+                        // New file
+                        added += 1;
+                    }
+                }
+                "delete" => {
+                    // Treat as deleted (even if not present in previous index)
+                    deleted += 1;
+                }
+                _ => {}
+            }
+        }
+
         Ok(GitWorkspaceStatus {
             repository_initialized: true,
             current_branch: Some(branch),
-            uncommitted_changes: (delta.modified.len() + delta.deleted.len()) as u32,
-            untracked_files: delta.added.len() as u32,
+            uncommitted_changes: modified + deleted,
+            untracked_files: added,
         })
     }
 
     async fn list_changes(&self, user_id: Uuid) -> anyhow::Result<Vec<GitChangeItem>> {
+        // If repository isn't initialized, nothing to report
+        if let Some((initialized, _branch)) = self.load_repository_state(user_id).await? {
+            if !initialized {
+                return Ok(Vec::new());
+            }
+        } else {
+            return Ok(Vec::new());
+        }
+
+        // Use dirty set to derive changes without scanning storage
         let latest = self.latest_commit_meta(user_id).await?;
-        let previous_index = latest
+        let previous_index: HashMap<String, String> = latest
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
-        let current = self.collect_current_state(user_id).await?;
-        let delta = self.compute_deltas(&current, &previous_index);
-        let mut changes = Vec::new();
-        for path in delta.added {
-            changes.push(GitChangeItem {
-                path,
-                status: "untracked".to_string(),
-            });
+        let dirty = self.fetch_dirty(user_id).await?;
+
+        let mut change_map: BTreeMap<String, String> = BTreeMap::new();
+        for d in dirty.iter() {
+            match d.op.as_str() {
+                "upsert" => {
+                    if let Some(prev_hash) = previous_index.get(&d.path) {
+                        // If hash unchanged and we know the new hash, skip reporting
+                        match d.content_hash.as_ref() {
+                            Some(h) if h == prev_hash => {
+                                change_map.remove(&d.path);
+                            }
+                            _ => {
+                                change_map.insert(d.path.clone(), "modified".to_string());
+                            }
+                        }
+                    } else {
+                        change_map.insert(d.path.clone(), "untracked".to_string());
+                    }
+                }
+                "delete" => {
+                    change_map.insert(d.path.clone(), "deleted".to_string());
+                }
+                _ => {}
+            }
         }
-        for path in delta.modified {
-            changes.push(GitChangeItem {
-                path,
-                status: "modified".to_string(),
-            });
-        }
-        for path in delta.deleted {
-            changes.push(GitChangeItem {
-                path,
-                status: "deleted".to_string(),
-            });
-        }
+
+        let changes = change_map
+            .into_iter()
+            .map(|(path, status)| GitChangeItem { path, status })
+            .collect();
         Ok(changes)
     }
 
@@ -1001,34 +1083,19 @@ impl GitWorkspacePort for GitWorkspaceService {
         if latest_meta.is_none() {
             if let Some(cfg) = cfg {
                 if !cfg.repository_url.is_empty() {
+                    // Best-effort attempt to bootstrap remote history; ignore errors (e.g., redirects or auth loops)
                     let _ = self
                         .bootstrap_remote_history(user_id, cfg, branch_hint.as_str())
-                        .await?;
+                        .await;
                 }
             }
         }
 
-        let mut tx = self.pool.begin().await?;
-        let repo_row = sqlx::query(
-            "SELECT initialized, default_branch FROM git_repository_state WHERE user_id = $1 FOR UPDATE",
-        )
-        .bind(user_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some(repo_row) = repo_row else {
-            tx.rollback().await.ok();
-            anyhow::bail!("repository not initialized")
-        };
-        let initialized: bool = repo_row.get("initialized");
-        let default_branch: String = repo_row.get("default_branch");
+        // Resolve branch without holding a DB lock for long.
         let branch_name = cfg
             .map(|c| c.branch_name.clone())
-            .unwrap_or(default_branch.clone());
+            .unwrap_or(state_default_branch.clone());
         let force_push = req.force.unwrap_or(false);
-        if !initialized {
-            tx.rollback().await.ok();
-            anyhow::bail!("repository not initialized")
-        }
 
         latest_meta = self.ensure_latest_meta(user_id).await?;
 
@@ -1061,7 +1128,6 @@ impl GitWorkspacePort for GitWorkspaceService {
                     "git_commit_pointer_repaired_from_storage"
                 );
             } else {
-                tx.rollback().await.ok();
                 error!(
                     user_id = %user_id,
                     db_commit = ?db_commit_hex,
@@ -1078,10 +1144,49 @@ impl GitWorkspacePort for GitWorkspaceService {
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
-        let current = self.collect_current_state(user_id).await?;
-        let delta = self.compute_deltas(&current, &previous_index);
-        if delta.added.is_empty() && delta.modified.is_empty() && delta.deleted.is_empty() {
-            tx.commit().await?;
+        let dirty_rows = self.fetch_dirty(user_id).await?;
+
+        // Determine strategy: if no history yet, fall back to full scan (initial commit)
+        // else if no dirty, nothing to do.
+        let use_full_scan = latest_meta.is_none();
+
+        // Build change sets from dirty rows
+        let mut upserts: BTreeMap<String, DirtyUpsert> = BTreeMap::new();
+        let mut deletes: BTreeSet<String> = BTreeSet::new();
+        if !use_full_scan {
+            for row in &dirty_rows {
+                match row.op.as_str() {
+                    "upsert" => {
+                        upserts.insert(
+                            row.path.clone(),
+                            DirtyUpsert {
+                                is_text: row.is_text,
+                                content_hash: row.content_hash.clone(),
+                            },
+                        );
+                        // Upsert cancels previous delete on same path if any
+                        deletes.remove(&row.path);
+                    }
+                    "delete" => {
+                        upserts.remove(&row.path);
+                        deletes.insert(row.path.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Filter out no-op upserts by comparing content_hash with previous index if available
+        if !use_full_scan {
+            upserts.retain(|path, u| match (&u.content_hash, previous_index.get(path)) {
+                (Some(hnew), Some(hprev)) if hnew == hprev => false,
+                _ => true,
+            });
+        }
+
+        // If still nothing to do
+        if !use_full_scan && upserts.is_empty() && deletes.is_empty() {
+            // Nothing to commit: no DB writes required.
             return Ok(GitSyncOutcome {
                 files_changed: 0,
                 commit_hash: latest_meta.map(|c| encode_commit_id(&c.commit_id)),
@@ -1098,7 +1203,40 @@ impl GitWorkspacePort for GitWorkspaceService {
             .clone()
             .unwrap_or_else(|| "RefMD sync".to_string());
 
-        let files_changed = (delta.added.len() + delta.modified.len() + delta.deleted.len()) as u32;
+        // Precompute data needed for tree build and meta before creating libgit2 objects
+        // This avoids holding non-Send libgit2 types across await points.
+        let mut precomputed_full_entries: Option<BTreeMap<String, Vec<u8>>> = None;
+        let mut precomputed_upsert_bytes: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut next_file_hash_index: HashMap<String, String> = previous_index.clone();
+        let files_changed_for_response: u32;
+
+        if use_full_scan {
+            let current = self.collect_current_state(user_id).await?;
+            let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+            for (path, snapshot) in current.iter() {
+                let bytes = self.snapshot_bytes(snapshot).await?;
+                entries.insert(path.clone(), bytes);
+                next_file_hash_index.insert(path.clone(), snapshot.hash.clone());
+            }
+            files_changed_for_response = next_file_hash_index.len() as u32;
+            precomputed_full_entries = Some(entries);
+        } else {
+            for (path, _u) in upserts.iter() {
+                let storage_rel = format!("{}/{}", user_id, path);
+                let abs = self.storage.absolute_from_relative(&storage_rel);
+                let bytes = self.storage.read_bytes(abs.as_path()).await?;
+                precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
+                let hash = match upserts.get(path).and_then(|u| u.content_hash.as_ref()) {
+                    Some(h) => h.clone(),
+                    None => sha256_hex(&bytes),
+                };
+                next_file_hash_index.insert(path.clone(), hash);
+            }
+            for d in deletes.iter() {
+                next_file_hash_index.remove(d);
+            }
+            files_changed_for_response = (upserts.len() + deletes.len()) as u32;
+        }
 
         let previous_pack = if let Some(prev_meta) = latest_meta.as_ref() {
             Some(
@@ -1119,7 +1257,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             None
         };
 
-        let (meta, pack_bytes, commit_hex, pushed) = {
+        let (meta, pack_bytes, commit_hex, pushed, files_changed_for_response) = {
             let temp_dir = TempDirBuilder::new()
                 .prefix("git-sync-")
                 .tempdir()
@@ -1127,44 +1265,33 @@ impl GitWorkspacePort for GitWorkspaceService {
             let repo = Repository::init_bare(temp_dir.path())?;
 
             if let Some((_, ref pack_paths)) = previous_pack {
+                // Apply full chain to ensure delta bases are present
                 apply_pack_files(&repo, pack_paths)?;
             }
 
-            if let Some(cfg) = cfg {
-                if !cfg.repository_url.is_empty() {
-                    fetch_remote_and_verify(
-                        &repo,
-                        cfg,
-                        branch_name.as_str(),
-                        latest_meta.as_ref(),
-                        force_push,
-                    )?;
-                }
-            }
-
-            let mut changed_paths: HashSet<String> = delta.added.iter().cloned().collect();
-            changed_paths.extend(delta.modified.iter().cloned());
-
-            let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-            for (path, snapshot) in current.iter() {
-                let needs_fresh_bytes = latest_meta.is_none() || changed_paths.contains(path);
-                let bytes = if needs_fresh_bytes {
-                    self.snapshot_bytes(snapshot).await?
-                } else if let Some(prev_meta) = latest_meta.as_ref() {
-                    match self
-                        .load_file_snapshot(user_id, prev_meta.commit_id.as_slice(), path)
-                        .await?
-                    {
-                        Some(data) => data,
-                        None => self.snapshot_bytes(snapshot).await?,
+            // Skip pre-fetch/verify to avoid remote redirect/auth loops; rely on push outcome.
+            // Build sources from either full scan or dirty set (no awaits here)
+            let tree_oid = if use_full_scan {
+                let entries = precomputed_full_entries.as_ref().unwrap();
+                build_tree_from_entries(&repo, entries)?
+            } else {
+                // Incremental: reuse previous blobs for unchanged paths
+                let mut sources: BTreeMap<String, FileSource> = BTreeMap::new();
+                if let Some(prev_meta) = latest_meta.as_ref() {
+                    let prev_oids = read_commit_blob_oids(&repo, prev_meta.commit_id.as_slice())?;
+                    for (p, oid) in prev_oids {
+                        // start from previous
+                        sources.insert(p, FileSource::Oid(oid));
                     }
-                } else {
-                    self.snapshot_bytes(snapshot).await?
-                };
-                entries.insert(path.clone(), bytes);
-            }
-
-            let tree_oid = build_tree_from_entries(&repo, &entries)?;
+                }
+                for d in deletes.iter() {
+                    sources.remove(d);
+                }
+                for (path, bytes) in precomputed_upsert_bytes.iter() {
+                    sources.insert(path.clone(), FileSource::Bytes(bytes.clone()));
+                }
+                build_tree_from_sources(&repo, &sources)?
+            };
             let tree = repo.find_tree(tree_oid)?;
 
             let mut parent_commits = Vec::new();
@@ -1196,10 +1323,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             drop(parent_commits);
             drop(author_sig);
 
-            let mut file_hash_index: HashMap<String, String> = HashMap::new();
-            for (path, snapshot) in current.iter() {
-                file_hash_index.insert(path.clone(), snapshot.hash.clone());
-            }
+            // Use precomputed next_file_hash_index for meta
+            let file_hash_index = next_file_hash_index;
 
             let message_opt = if message.trim().is_empty() {
                 None
@@ -1221,18 +1346,44 @@ impl GitWorkspacePort for GitWorkspaceService {
             let mut pushed = false;
             if let Some(cfg) = cfg {
                 if !cfg.repository_url.is_empty() {
-                    pushed = perform_push(&repo, cfg, &branch_name, commit_oid, force_push)?;
+                    if let Ok(ok) = perform_push(&repo, cfg, &branch_name, commit_oid, force_push) {
+                        pushed = ok;
+                    } else {
+                        // Non-fatal: commit is created and stored; push result reflected in 'pushed'
+                        pushed = false;
+                    }
                 }
             }
 
             drop(repo);
             let _ = temp_dir.close();
 
-            (meta, pack_bytes, commit_hex, pushed)
+            // files_changed_for_response computed earlier
+
+            (meta, pack_bytes, commit_hex, pushed, files_changed_for_response)
         };
 
         if let Some((dir, _)) = previous_pack {
             drop(dir);
+        }
+
+        // Short, focused transaction for DB writes only.
+        let mut tx = self.pool.begin().await?;
+        // Recheck repository state exists before writing.
+        let repo_row2 = sqlx::query(
+            "SELECT initialized FROM git_repository_state WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(repo_row2) = repo_row2 else {
+            tx.rollback().await.ok();
+            anyhow::bail!("repository not initialized")
+        };
+        let initialized2: bool = repo_row2.get("initialized");
+        if !initialized2 {
+            tx.rollback().await.ok();
+            anyhow::bail!("repository not initialized")
         }
 
         sqlx::query(
@@ -1265,14 +1416,48 @@ impl GitWorkspacePort for GitWorkspaceService {
             .execute(&mut *tx)
             .await?;
 
-        let snapshot_keys = match self
-            .store_commit_snapshots(user_id, &meta.commit_id, &current)
-            .await
-        {
-            Ok(keys) => keys,
-            Err(err) => {
-                tx.rollback().await.ok();
-                return Err(err);
+        // Only store snapshots for changed text files (incremental), or all in initial full scan
+        let snapshot_keys = if latest_meta.is_none() {
+            // full state snapshot
+            let current = self.collect_current_state(user_id).await?;
+            match self
+                .store_commit_snapshots(user_id, &meta.commit_id, &current)
+                .await
+            {
+                Ok(keys) => keys,
+                Err(err) => {
+                    tx.rollback().await.ok();
+                    return Err(err);
+                }
+            }
+        } else {
+            // changed text files only
+            let mut changed_text: HashMap<String, FileSnapshot> = HashMap::new();
+            for (path, up) in upserts.iter() {
+                if up.is_text {
+                    let storage_rel = format!("{}/{}", user_id, path);
+                    let abs = self.storage.absolute_from_relative(&storage_rel);
+                    let bytes = self.storage.read_bytes(abs.as_path()).await?;
+                    let hash = sha256_hex(&bytes);
+                    changed_text.insert(
+                        path.clone(),
+                        FileSnapshot {
+                            hash,
+                            data: FileSnapshotData::Inline(bytes),
+                            is_text: true,
+                        },
+                    );
+                }
+            }
+            match self
+                .store_commit_snapshots(user_id, &meta.commit_id, &changed_text)
+                .await
+            {
+                Ok(keys) => keys,
+                Err(err) => {
+                    tx.rollback().await.ok();
+                    return Err(err);
+                }
             }
         };
 
@@ -1312,14 +1497,17 @@ impl GitWorkspacePort for GitWorkspaceService {
                 .await;
             return Err(err.into());
         }
+
+        // Best-effort clear of processed dirty entries
+        let _ = self.clear_dirty(user_id).await;
         Ok(GitSyncOutcome {
-            files_changed,
+            files_changed: files_changed_for_response,
             commit_hash: Some(commit_hex),
             pushed,
             message: if pushed {
                 "sync completed".to_string()
             } else {
-                "commit created".to_string()
+                "commit created (push failed)".to_string()
             },
         })
     }
@@ -1388,9 +1576,28 @@ fn apply_pack_files(repo: &Repository, pack_paths: &[PathBuf]) -> anyhow::Result
     Ok(())
 }
 
+fn extract_host(url: &str) -> Option<String> {
+    let s = url.trim();
+    let s = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://")).unwrap_or(s);
+    let mut parts = s.split('/');
+    let host_port = parts.next().unwrap_or("");
+    let host = host_port.split(':').next().unwrap_or("");
+    if host.is_empty() { None } else { Some(host.to_string()) }
+}
+
+fn default_token_username_for(host: Option<&str>) -> &'static str {
+    match host {
+        Some(h) if h.contains("github") => "x-access-token",
+        Some(h) if h.contains("gitlab") => "oauth2",
+        Some(h) if h.contains("dev.azure.com") || h.contains("visualstudio.com") => "pat",
+        _ => "git",
+    }
+}
+
 fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallbacks<'static> {
     let auth_type = cfg.auth_type.clone().unwrap_or_default();
     let auth_data = cfg.auth_data.clone();
+    let host_hint = extract_host(&cfg.repository_url);
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(
         move |_url, username_from_url, _allowed| match auth_type.as_str() {
@@ -1400,7 +1607,7 @@ fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallbacks<'static> {
                     .and_then(|v| v.get("token"))
                     .and_then(|v| v.as_str())
                 {
-                    let user = username_from_url.unwrap_or("x-access-token");
+                    let user = username_from_url.unwrap_or(default_token_username_for(host_hint.as_deref()));
                     Cred::userpass_plaintext(user, token)
                 } else {
                     Cred::default()
@@ -1459,66 +1666,7 @@ fn fetch_remote_head(
     }
 }
 
-fn fetch_remote_and_verify(
-    repo: &Repository,
-    cfg: &UserGitCfg,
-    branch: &str,
-    latest_meta: Option<&CommitMeta>,
-    allow_divergence: bool,
-) -> anyhow::Result<()> {
-    if cfg.repository_url.is_empty() {
-        return Ok(());
-    }
-    let remote_head = fetch_remote_head(repo, cfg, branch)?;
-    match (latest_meta, remote_head) {
-        (Some(meta), Some(oid)) => {
-            if oid.as_bytes() != meta.commit_id.as_slice() {
-                if allow_divergence {
-                    let local_hex = encode_commit_id(meta.commit_id.as_slice());
-                    warn!(
-                        remote_head = %oid,
-                        local_head = %local_hex,
-                        "remote repository diverged; proceeding due to force flag"
-                    );
-                } else {
-                    warn!(
-                        remote_head = %oid,
-                        local_head = %encode_commit_id(&meta.commit_id),
-                        user_repo = %cfg.repository_url,
-                        branch,
-                        "git_remote_diverged_blocking"
-                    );
-                    anyhow::bail!(
-                        "remote repository state diverged: remote head {} does not match latest recorded commit {}",
-                        oid.to_string(),
-                        encode_commit_id(&meta.commit_id)
-                    );
-                }
-            }
-        }
-        (None, Some(oid)) => {
-            if allow_divergence {
-                warn!(
-                    remote_head = %oid,
-                    "remote repository has existing history; proceeding due to force flag"
-                );
-            } else {
-                warn!(
-                    remote_head = %oid,
-                    branch,
-                    user_repo = %cfg.repository_url,
-                    "git_remote_has_history_no_local_state"
-                );
-                anyhow::bail!(
-                    "remote repository already contains commit {} but local repository has no history",
-                    oid.to_string()
-                );
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
+#[allow(dead_code)]
 
 fn read_commit_files(
     repo: &Repository,
@@ -1601,6 +1749,7 @@ struct DirNode {
 
 enum DirEntry {
     File(Vec<u8>),
+    Oid(git2::Oid),
     Dir(Box<DirNode>),
 }
 
@@ -1627,6 +1776,11 @@ fn insert_into_dir(dir: &mut DirNode, parts: &[&str], data: Vec<u8>) {
                     insert_into_dir(&mut new_dir, &parts[1..], data);
                     *next = DirEntry::Dir(Box::new(new_dir));
                 }
+                DirEntry::Oid(_) => {
+                    let mut new_dir = DirNode::default();
+                    insert_into_dir(&mut new_dir, &parts[1..], data);
+                    *next = DirEntry::Dir(Box::new(new_dir));
+                }
             }
         }
         Entry::Vacant(vac) => {
@@ -1648,6 +1802,9 @@ fn write_dir(repo: &Repository, dir: &DirNode) -> anyhow::Result<git2::Oid> {
             DirEntry::File(content) => {
                 let oid = repo.blob(content)?;
                 builder.insert(name, oid, FileMode::Blob.into())?;
+            }
+            DirEntry::Oid(oid) => {
+                builder.insert(name, *oid, FileMode::Blob.into())?;
             }
             DirEntry::Dir(child) => {
                 let oid = write_dir(repo, child)?;
@@ -1673,6 +1830,18 @@ struct FileDeltaSummary {
     added: Vec<String>,
     modified: Vec<String>,
     deleted: Vec<String>,
+}
+
+struct DirtyRow {
+    path: String,
+    is_text: bool,
+    op: String,
+    content_hash: Option<String>,
+}
+
+struct DirtyUpsert {
+    is_text: bool,
+    content_hash: Option<String>,
 }
 
 fn repo_relative_path(path: &str) -> anyhow::Result<String> {
@@ -1702,3 +1871,80 @@ fn blob_key(user_id: Uuid, commit_id: &[u8], path: &str) -> BlobKey {
         path: format!("{}/{}/{}", user_id, commit_hex, encoded_path),
     }
 }
+
+enum FileSource {
+    Bytes(Vec<u8>),
+    Oid(git2::Oid),
+}
+
+fn insert_source_into_dir(dir: &mut DirNode, parts: &[&str], source: &FileSource) -> anyhow::Result<()> {
+    use std::collections::btree_map::Entry;
+    if parts.is_empty() {
+        return Ok(());
+    }
+    if parts.len() == 1 {
+        match source {
+            FileSource::Bytes(data) => {
+                dir.entries
+                    .insert(parts[0].to_string(), DirEntry::File(data.clone()));
+            }
+            FileSource::Oid(oid) => {
+                dir.entries
+                    .insert(parts[0].to_string(), DirEntry::Oid(*oid));
+            }
+        }
+        Ok(())
+    } else {
+        match dir.entries.entry(parts[0].to_string()) {
+            Entry::Occupied(mut occ) => {
+                match occ.get_mut() {
+                    DirEntry::Dir(child) => insert_source_into_dir(child, &parts[1..], source),
+                    DirEntry::File(_) | DirEntry::Oid(_) => {
+                        let mut new_dir = DirNode::default();
+                        insert_source_into_dir(&mut new_dir, &parts[1..], source)?;
+                        *occ.get_mut() = DirEntry::Dir(Box::new(new_dir));
+                        Ok(())
+                    }
+                }
+            }
+            Entry::Vacant(vac) => {
+                let mut new_dir = DirNode::default();
+                insert_source_into_dir(&mut new_dir, &parts[1..], source)?;
+                vac.insert(DirEntry::Dir(Box::new(new_dir)));
+                Ok(())
+            }
+        }
+    }
+}
+
+fn read_commit_blob_oids(repo: &Repository, commit_id: &[u8]) -> anyhow::Result<HashMap<String, git2::Oid>> {
+    let oid = git2::Oid::from_bytes(commit_id)?;
+    let commit = repo.find_commit(oid)?;
+    let tree = commit.tree()?;
+    let mut blobs = HashMap::new();
+    tree.walk(TreeWalkMode::PreOrder, |root, entry| {
+        if entry.kind() == Some(ObjectType::Blob) {
+            if let Some(name) = entry.name() {
+                let key = format!("{}{}", root, name);
+                blobs.insert(key, entry.id());
+            }
+        }
+        TreeWalkResult::Ok
+    })?;
+    Ok(blobs)
+}
+
+fn build_tree_from_sources(repo: &Repository, entries: &BTreeMap<String, FileSource>) -> anyhow::Result<git2::Oid> {
+    // We'll reconstruct a DirNode and then write it, but we need to preserve existing blob OIDs for FileSource::Oid.
+    let mut root = DirNode::default();
+    for (path, src) in entries.iter() {
+        let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        if parts.is_empty() {
+            continue;
+        }
+        insert_source_into_dir(&mut root, &parts, src)?;
+    }
+    write_dir(repo, &root)
+}
+
+// write_dir(repo, &DirNode) now supports DirEntry::Oid, so no extra variant needed
