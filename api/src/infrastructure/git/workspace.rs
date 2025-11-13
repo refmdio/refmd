@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write, ErrorKind};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -1186,7 +1186,8 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         // If still nothing to do
         if !use_full_scan && upserts.is_empty() && deletes.is_empty() {
-            // Nothing to commit: no DB writes required.
+            // Nothing to commit: clear any leftover dirty and exit.
+            let _ = self.clear_dirty(user_id).await;
             return Ok(GitSyncOutcome {
                 files_changed: 0,
                 commit_hash: latest_meta.map(|c| encode_commit_id(&c.commit_id)),
@@ -1221,16 +1222,41 @@ impl GitWorkspacePort for GitWorkspaceService {
             files_changed_for_response = next_file_hash_index.len() as u32;
             precomputed_full_entries = Some(entries);
         } else {
+            let mut stale_paths: Vec<String> = Vec::new();
             for (path, _u) in upserts.iter() {
                 let storage_rel = format!("{}/{}", user_id, path);
                 let abs = self.storage.absolute_from_relative(&storage_rel);
-                let bytes = self.storage.read_bytes(abs.as_path()).await?;
-                precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
-                let hash = match upserts.get(path).and_then(|u| u.content_hash.as_ref()) {
-                    Some(h) => h.clone(),
-                    None => sha256_hex(&bytes),
-                };
-                next_file_hash_index.insert(path.clone(), hash);
+                match self.storage.read_bytes(abs.as_path()).await {
+                    Ok(bytes) => {
+                        precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
+                        let hash = match upserts.get(path).and_then(|u| u.content_hash.as_ref()) {
+                            Some(h) => h.clone(),
+                            None => sha256_hex(&bytes),
+                        };
+                        next_file_hash_index.insert(path.clone(), hash);
+                    }
+                    Err(e) => {
+                        let skip = e
+                            .downcast_ref::<io::Error>()
+                            .map(|ioe| ioe.kind() == ErrorKind::NotFound)
+                            .unwrap_or_else(|| e.to_string().to_lowercase().contains("not found"));
+                        if skip {
+                            stale_paths.push(path.clone());
+                            continue;
+                        } else {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            if !stale_paths.is_empty() {
+                for p in stale_paths {
+                    let _ = sqlx::query("DELETE FROM git_dirty_files WHERE user_id = $1 AND path = $2")
+                        .bind(user_id)
+                        .bind(&p)
+                        .execute(&self.pool)
+                        .await;
+                }
             }
             for d in deletes.iter() {
                 next_file_hash_index.remove(d);
@@ -1346,12 +1372,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             let mut pushed = false;
             if let Some(cfg) = cfg {
                 if !cfg.repository_url.is_empty() {
-                    if let Ok(ok) = perform_push(&repo, cfg, &branch_name, commit_oid, force_push) {
-                        pushed = ok;
-                    } else {
-                        // Non-fatal: commit is created and stored; push result reflected in 'pushed'
-                        pushed = false;
-                    }
+                    // Propagate push errors so the caller can retry with force
+                    pushed = perform_push(&repo, cfg, &branch_name, commit_oid, force_push)?;
                 }
             }
 
@@ -1705,9 +1727,9 @@ fn perform_push(
     let mut push_options = PushOptions::new();
     push_options.remote_callbacks(callbacks);
     let refspec = if force {
-        format!("+refs/heads/{}:refs/heads/{}", branch, cfg.branch_name)
+        format!("+refs/heads/{0}:refs/heads/{0}", branch)
     } else {
-        format!("refs/heads/{}:refs/heads/{}", branch, cfg.branch_name)
+        format!("refs/heads/{0}:refs/heads/{0}", branch)
     };
     remote.push(&[&refspec], Some(&mut push_options))?;
     Ok(true)

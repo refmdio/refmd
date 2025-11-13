@@ -81,8 +81,12 @@ where
 }
 
 fn needs_force_retry(err: &anyhow::Error) -> bool {
-    let msg = err.to_string();
+    let msg = err.to_string().to_lowercase();
     msg.contains("remote repository state diverged")
         || msg.contains("repository latest commit mismatch")
         || msg.contains("remote repository already contains commit")
+        || msg.contains("non-fast-forward")
+        || msg.contains("non fast forward")
+        || msg.contains("failed to push some refs")
+        || msg.contains("rejected")
 }
