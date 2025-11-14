@@ -13,6 +13,7 @@ pub struct DocEventPoller {
     subscriber: Arc<dyn DocEventSubscriber>,
     poll_interval: Duration,
     batch_size: i64,
+    consumer: String,
 }
 
 impl DocEventPoller {
@@ -21,21 +22,44 @@ impl DocEventPoller {
         subscriber: Arc<dyn DocEventSubscriber>,
         poll_interval: Duration,
         batch_size: i64,
+        consumer: &str,
     ) -> Self {
         Self {
             pool,
             subscriber,
             poll_interval,
             batch_size,
+            consumer: consumer.to_string(),
         }
     }
 
-    async fn current_max_id(&self) -> anyhow::Result<i64> {
-        let id = sqlx::query_scalar::<_, Option<i64>>("SELECT MAX(id) FROM doc_events")
-            .fetch_one(&self.pool)
-            .await?
-            .unwrap_or(0);
-        Ok(id)
+    async fn load_cursor(&self) -> anyhow::Result<i64> {
+        let value = sqlx::query_scalar::<_, Option<i64>>(
+            "SELECT last_event_id FROM doc_event_cursors WHERE consumer = $1",
+        )
+        .bind(&self.consumer)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten()
+        .unwrap_or(0);
+        Ok(value)
+    }
+
+    async fn persist_cursor(&self, cursor: i64) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO doc_event_cursors (consumer, last_event_id)
+            VALUES ($1, $2)
+            ON CONFLICT (consumer)
+            DO UPDATE SET last_event_id = EXCLUDED.last_event_id,
+                          updated_at = now()
+            "#,
+        )
+        .bind(&self.consumer)
+        .bind(cursor)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn fetch_after(&self, last_id: i64) -> anyhow::Result<Vec<DocEventRecord>> {
@@ -67,7 +91,7 @@ impl DocEventPoller {
     }
 
     pub async fn run(self: Arc<Self>) {
-        let mut cursor = match self.current_max_id().await {
+        let mut cursor = match self.load_cursor().await {
             Ok(id) => id,
             Err(err) => {
                 error!(error = ?err, "doc_event_poller_init_failed");
@@ -75,7 +99,7 @@ impl DocEventPoller {
             }
         };
 
-        loop {
+        'outer: loop {
             match self.fetch_after(cursor).await {
                 Ok(events) if !events.is_empty() => {
                     for evt in events {
@@ -83,10 +107,22 @@ impl DocEventPoller {
                             warn!(
                                 error = ?err,
                                 event_id = evt.id,
-                                "doc_event_subscriber_failed"
+                                "doc_event_subscriber_failed_retry"
                             );
+                            tokio::time::sleep(self.poll_interval).await;
+                            continue 'outer;
                         }
-                        cursor = evt.id;
+                        let new_cursor = evt.id;
+                        if let Err(err) = self.persist_cursor(new_cursor).await {
+                            error!(
+                                error = ?err,
+                                event_id = evt.id,
+                                "doc_event_cursor_persist_failed"
+                            );
+                            tokio::time::sleep(self.poll_interval).await;
+                            continue 'outer;
+                        }
+                        cursor = new_cursor;
                     }
                 }
                 Ok(_) => {

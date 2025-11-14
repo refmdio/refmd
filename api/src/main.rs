@@ -345,6 +345,7 @@ async fn main() -> anyhow::Result<()> {
             doc_event_subscriber.clone(),
             Duration::from_millis(500),
             200,
+            "doc_event_poller",
         ));
         tokio::spawn(async move {
             poller.run().await;
