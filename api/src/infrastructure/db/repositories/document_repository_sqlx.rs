@@ -593,4 +593,21 @@ impl DocumentRepository for SqlxDocumentRepository {
             archived_parent_id: r.try_get("archived_parent_id").ok(),
         }))
     }
+
+    async fn update_repo_path(
+        &self,
+        doc_id: Uuid,
+        owner_id: Uuid,
+        relative_path: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE documents SET path = $3, updated_at = now() WHERE id = $1 AND owner_id = $2",
+        )
+        .bind(doc_id)
+        .bind(owner_id)
+        .bind(relative_path)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }

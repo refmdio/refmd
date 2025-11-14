@@ -180,7 +180,11 @@ impl StorageIngestService {
         else {
             return Ok(None);
         };
-        Ok(Some(ResolvedDocument::new(doc_id, meta.doc_type)))
+        Ok(Some(ResolvedDocument::new(
+            doc_id,
+            meta.doc_type,
+            meta.path,
+        )))
     }
 
     async fn record_doc_delete_event(
@@ -199,6 +203,23 @@ impl StorageIngestService {
                 })),
             )
             .await
+    }
+
+    async fn reconcile_repo_path(&self, doc: &ResolvedDocument, owner_id: Uuid, rel_path: &str) {
+        if doc.path.as_deref() == Some(rel_path) {
+            return;
+        }
+        if let Err(err) = self
+            .document_repo
+            .update_repo_path(doc.id, owner_id, rel_path)
+            .await
+        {
+            warn!(
+                doc_id = %doc.id,
+                error = ?err,
+                "storage_ingest_repo_path_update_failed"
+            );
+        }
     }
 }
 
@@ -268,6 +289,8 @@ impl StorageIngestHandler for StorageIngestService {
                         "storage_ingest_folder_event_skipped"
                     );
                 } else {
+                    self.reconcile_repo_path(&doc, event.user_id, &rel_path)
+                        .await;
                     self.handle_doc_upsert(&doc, event, payload).await?;
                 }
                 return Ok(());
@@ -298,11 +321,12 @@ impl StorageIngestHandler for StorageIngestService {
 struct ResolvedDocument {
     id: Uuid,
     doc_type: String,
+    path: Option<String>,
 }
 
 impl ResolvedDocument {
-    fn new(id: Uuid, doc_type: String) -> Self {
-        Self { id, doc_type }
+    fn new(id: Uuid, doc_type: String, path: Option<String>) -> Self {
+        Self { id, doc_type, path }
     }
 
     fn is_folder(&self) -> bool {
@@ -312,7 +336,7 @@ impl ResolvedDocument {
 
 impl From<DomainDocument> for ResolvedDocument {
     fn from(value: DomainDocument) -> Self {
-        Self::new(value.id, value.doc_type)
+        Self::new(value.id, value.doc_type, value.path)
     }
 }
 
@@ -331,31 +355,38 @@ struct MarkdownFrontMatter {
 fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownIngestPayload> {
     let content_hash = sha256_hex(&bytes);
     let text = String::from_utf8(bytes)?;
-    let (front_matter, body) = split_front_matter(&text);
-    let doc_id_hint = front_matter
-        .and_then(|raw| serde_yaml::from_str::<MarkdownFrontMatter>(raw).ok())
-        .and_then(|fm| fm.id);
+    let trimmed = text.trim_start_matches('\u{feff}');
+    if let Some((front, body)) = split_front_matter(trimmed) {
+        if let Ok(front_matter) = serde_yaml::from_str::<MarkdownFrontMatter>(front) {
+            if let Some(doc_id) = front_matter.id {
+                return Ok(MarkdownIngestPayload {
+                    doc_id_hint: Some(doc_id),
+                    body: body.to_string(),
+                    content_hash,
+                });
+            }
+        }
+    }
     Ok(MarkdownIngestPayload {
-        doc_id_hint,
-        body: body.trim_start_matches('\u{feff}').to_string(),
+        doc_id_hint: None,
+        body: trimmed.to_string(),
         content_hash,
     })
 }
 
-fn split_front_matter(input: &str) -> (Option<&str>, &str) {
-    let text = input.trim_start_matches('\u{feff}');
-    let Some(after_open) = text
+fn split_front_matter(input: &str) -> Option<(&str, &str)> {
+    let Some(after_open) = input
         .strip_prefix("---\r\n")
-        .or_else(|| text.strip_prefix("---\n"))
+        .or_else(|| input.strip_prefix("---\n"))
     else {
-        return (None, text);
+        return None;
     };
     if let Some((front_len, body_start)) = find_front_matter_end(after_open) {
         let front = &after_open[..front_len];
         let body = &after_open[body_start..];
-        return (Some(front), body);
+        return Some((front, body));
     }
-    (None, text)
+    None
 }
 
 fn find_front_matter_end(s: &str) -> Option<(usize, usize)> {
@@ -385,4 +416,27 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hasher.update(bytes);
     let digest = hasher.finalize();
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn preserves_body_when_front_matter_has_no_id() {
+        let markdown = "---\ntitle: Foo\n---\n\nBody".to_string();
+        let payload = parse_markdown_payload(markdown.clone().into_bytes()).unwrap();
+        assert!(payload.doc_id_hint.is_none());
+        assert_eq!(payload.body, markdown);
+    }
+
+    #[test]
+    fn extracts_id_when_front_matter_is_valid() {
+        let doc_id = Uuid::new_v4();
+        let markdown = format!("---\nid: {}\n---\n\nHello", doc_id);
+        let payload = parse_markdown_payload(markdown.into_bytes()).unwrap();
+        assert_eq!(payload.doc_id_hint, Some(doc_id));
+        assert_eq!(payload.body.trim_start_matches('\n'), "Hello");
+    }
 }

@@ -105,6 +105,13 @@ pub trait DocumentRepository: Send + Sync {
         owner_id: Uuid,
         relative_path: &str,
     ) -> anyhow::Result<Option<DomainDocument>>;
+
+    async fn update_repo_path(
+        &self,
+        doc_id: Uuid,
+        owner_id: Uuid,
+        relative_path: &str,
+    ) -> anyhow::Result<()>;
 }
 
 #[derive(Debug, Clone)]
