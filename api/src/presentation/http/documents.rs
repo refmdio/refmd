@@ -25,11 +25,14 @@ use tracing::error;
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Document {
     pub id: Uuid,
+    pub owner_id: Uuid,
     pub title: String,
     pub parent_id: Option<Uuid>,
     pub r#type: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub slug: String,
+    pub desired_path: String,
     pub path: Option<String>,
     pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived_by: Option<Uuid>,
@@ -39,11 +42,14 @@ pub struct Document {
 fn to_http_document(doc: domain::Document) -> Document {
     Document {
         id: doc.id,
+        owner_id: doc.owner_id,
         title: doc.title,
         parent_id: doc.parent_id,
         r#type: doc.doc_type,
         created_at: doc.created_at,
         updated_at: doc.updated_at,
+        slug: doc.slug,
+        desired_path: doc.desired_path,
         path: doc.path,
         archived_at: doc.archived_at,
         archived_by: doc.archived_by,

@@ -35,11 +35,14 @@ pub trait PublicRepository: Send + Sync {
     ) -> anyhow::Result<
         Option<(
             Uuid,
+            Uuid,
             String,
             Option<Uuid>,
             String,
             chrono::DateTime<chrono::Utc>,
             chrono::DateTime<chrono::Utc>,
+            String,
+            String,
             Option<String>,
             Option<chrono::DateTime<chrono::Utc>>,
             Option<Uuid>,

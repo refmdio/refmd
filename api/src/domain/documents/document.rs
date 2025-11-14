@@ -3,11 +3,14 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct Document {
     pub id: Uuid,
+    pub owner_id: Uuid,
     pub title: String,
     pub parent_id: Option<Uuid>,
     pub doc_type: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub slug: String,
+    pub desired_path: String,
     pub path: Option<String>,
     pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived_by: Option<Uuid>,

@@ -170,11 +170,14 @@ pub async fn get_public_by_owner_and_id(
         .map_err(map_public_error)?;
     Ok(Json(Document {
         id: d.id,
+        owner_id: d.owner_id,
         title: d.title,
         parent_id: d.parent_id,
         r#type: d.doc_type,
         created_at: d.created_at,
         updated_at: d.updated_at,
+        slug: d.slug,
+        desired_path: d.desired_path,
         path: d.path,
         archived_at: d.archived_at,
         archived_by: d.archived_by,

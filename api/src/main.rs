@@ -701,6 +701,7 @@ async fn main() -> anyhow::Result<()> {
     let document_exporter = Arc::new(DefaultDocumentExporter::new());
 
     let document_service = Arc::new(DocumentService::new(
+        pool.clone(),
         document_repo.clone(),
         files_repo.clone(),
         access_repo.clone(),

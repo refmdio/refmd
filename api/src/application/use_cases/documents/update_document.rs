@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::domain::documents::document::Document as DomainDocument;
+use sqlx::{Postgres, Transaction};
 
 pub struct UpdateDocument<'a, R>
 where
@@ -24,6 +25,19 @@ where
     ) -> anyhow::Result<Option<DomainDocument>> {
         self.repo
             .update_title_and_parent_for_user(id, user_id, title, parent_id)
+            .await
+    }
+
+    pub async fn execute_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        user_id: Uuid,
+        title: Option<String>,
+        parent_id: Option<Option<Uuid>>,
+    ) -> anyhow::Result<Option<DomainDocument>> {
+        self.repo
+            .update_title_and_parent_for_user_tx(tx, id, user_id, title, parent_id)
             .await
     }
 }

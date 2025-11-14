@@ -587,23 +587,15 @@ impl S3StoragePort {
                 .contents()
                 .iter()
                 .filter_map(|obj| {
-                    obj.key().and_then(|key| {
-                        ObjectIdentifier::builder()
-                            .key(key)
-                            .build()
-                            .ok()
-                    })
+                    obj.key()
+                        .and_then(|key| ObjectIdentifier::builder().key(key).build().ok())
                 })
                 .collect();
             if !objects.is_empty() {
                 self.client
                     .delete_objects()
                     .bucket(&self.bucket)
-                    .delete(
-                        Delete::builder()
-                            .set_objects(Some(objects))
-                            .build()?,
-                    )
+                    .delete(Delete::builder().set_objects(Some(objects)).build()?)
                     .send()
                     .await?;
             }

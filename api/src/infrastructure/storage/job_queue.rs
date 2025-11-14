@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -72,6 +72,39 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         Ok(())
     }
 
+    async fn enqueue_doc_job_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        kind: StorageProjectionJobKind,
+        reason: Option<&str>,
+    ) -> anyhow::Result<()> {
+        match kind {
+            StorageProjectionJobKind::DocSync | StorageProjectionJobKind::DeleteDoc => {}
+            other => anyhow::bail!("job_kind {other:?} requires a folder_id"),
+        }
+
+        let job_type = Self::kind_to_str(kind);
+        sqlx::query(
+            r#"
+            INSERT INTO storage_projection_jobs (job_type, doc_id, reason, attempts, locked_at, last_error)
+            VALUES ($1, $2, $3, 0, NULL, NULL)
+            ON CONFLICT (job_type, doc_id)
+            DO UPDATE SET reason = EXCLUDED.reason,
+                          locked_at = NULL,
+                          attempts = 0,
+                          last_error = NULL,
+                          updated_at = now()
+            "#,
+        )
+        .bind(job_type)
+        .bind(doc_id)
+        .bind(reason)
+        .execute(tx.as_mut())
+        .await?;
+        Ok(())
+    }
+
     async fn enqueue_folder_job(
         &self,
         folder_id: Uuid,
@@ -100,6 +133,39 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         .bind(folder_id)
         .bind(reason)
         .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn enqueue_folder_job_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        folder_id: Uuid,
+        kind: StorageProjectionJobKind,
+        reason: Option<&str>,
+    ) -> anyhow::Result<()> {
+        match kind {
+            StorageProjectionJobKind::FolderSync | StorageProjectionJobKind::DeleteFolder => {}
+            other => anyhow::bail!("job_kind {other:?} requires a doc_id"),
+        }
+
+        let job_type = Self::kind_to_str(kind);
+        sqlx::query(
+            r#"
+            INSERT INTO storage_projection_jobs (job_type, folder_id, reason, attempts, locked_at, last_error)
+            VALUES ($1, $2, $3, 0, NULL, NULL)
+            ON CONFLICT (job_type, folder_id)
+            DO UPDATE SET reason = EXCLUDED.reason,
+                          locked_at = NULL,
+                          attempts = 0,
+                          last_error = NULL,
+                          updated_at = now()
+            "#,
+        )
+        .bind(job_type)
+        .bind(folder_id)
+        .bind(reason)
+        .execute(tx.as_mut())
         .await?;
         Ok(())
     }

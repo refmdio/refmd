@@ -36,4 +36,25 @@ impl DocEventLog for PgDocEventLog {
         .await?;
         Ok(())
     }
+
+    async fn append_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        doc_id: Uuid,
+        event_type: &str,
+        payload: Option<Value>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO doc_events (doc_id, event_type, payload)
+            VALUES ($1, $2, $3)
+            "#,
+        )
+        .bind(doc_id)
+        .bind(event_type)
+        .bind(payload)
+        .execute(tx.as_mut())
+        .await?;
+        Ok(())
+    }
 }

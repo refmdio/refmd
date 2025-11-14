@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,8 +43,24 @@ pub trait StorageProjectionQueue: Send + Sync {
         reason: Option<&str>,
     ) -> anyhow::Result<()>;
 
+    async fn enqueue_doc_job_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        kind: StorageProjectionJobKind,
+        reason: Option<&str>,
+    ) -> anyhow::Result<()>;
+
     async fn enqueue_folder_job(
         &self,
+        folder_id: Uuid,
+        kind: StorageProjectionJobKind,
+        reason: Option<&str>,
+    ) -> anyhow::Result<()>;
+
+    async fn enqueue_folder_job_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
