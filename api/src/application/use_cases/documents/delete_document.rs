@@ -17,16 +17,16 @@ where
     R: DocumentRepository + ?Sized,
     S: StoragePort + ?Sized,
 {
-    pub async fn execute(&self, id: Uuid, user_id: Uuid) -> anyhow::Result<bool> {
+    pub async fn execute(&self, id: Uuid, user_id: Uuid) -> anyhow::Result<Option<String>> {
         if let Some(dtype) = self.repo.delete_owned(id, user_id).await? {
             if dtype == "folder" {
                 let _ = self.storage.delete_folder_physical(id).await;
             } else {
                 let _ = self.storage.delete_doc_physical(id).await;
             }
-            Ok(true)
+            Ok(Some(dtype))
         } else {
-            Ok(false)
+            Ok(None)
         }
     }
 }

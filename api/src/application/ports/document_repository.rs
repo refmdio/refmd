@@ -97,6 +97,12 @@ pub trait DocumentRepository: Send + Sync {
         owner_id: Uuid,
         root_id: Uuid,
     ) -> anyhow::Result<Vec<SubtreeDocument>>;
+
+    async fn get_by_owner_and_path(
+        &self,
+        owner_id: Uuid,
+        relative_path: &str,
+    ) -> anyhow::Result<Option<DomainDocument>>;
 }
 
 #[derive(Debug, Clone)]

@@ -23,4 +23,18 @@ pub trait FilesRepository: Send + Sync {
         filename: &str,
     ) -> anyhow::Result<Option<(String, Option<String>)>>;
     async fn list_storage_paths_for_document(&self, doc_id: Uuid) -> anyhow::Result<Vec<String>>;
+
+    async fn find_by_storage_path(
+        &self,
+        storage_path: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>>; // (file_id, document_id, owner_id)
+
+    async fn update_hash_and_size(
+        &self,
+        file_id: Uuid,
+        size: i64,
+        content_hash: &str,
+    ) -> anyhow::Result<()>;
+
+    async fn delete_by_id(&self, file_id: Uuid) -> anyhow::Result<()>;
 }

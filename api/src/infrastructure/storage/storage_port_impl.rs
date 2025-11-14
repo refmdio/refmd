@@ -145,7 +145,10 @@ impl StoragePort for FsStoragePort {
         let mut hasher = Sha256::new();
         hasher.update(data);
         let digest = hasher.finalize();
-        let content_hash = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let content_hash = digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
         let _ = crate::infrastructure::storage::mark_dirty_upsert_abs_path(
             &self.pool,
             self.uploads_root.as_path(),

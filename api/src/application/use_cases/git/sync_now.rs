@@ -61,7 +61,10 @@ where
             }
         }
 
-        let has_remote = cfg.as_ref().map(|c| !c.repository_url.is_empty()).unwrap_or(false);
+        let has_remote = cfg
+            .as_ref()
+            .map(|c| !c.repository_url.is_empty())
+            .unwrap_or(false);
         // Success rule:
         // - If a remote is configured: success when push succeeded or there were no changes.
         // - If no remote: success when commit was created or there were no changes.

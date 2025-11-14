@@ -13,6 +13,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
+use api::application::ports::doc_event_log::DocEventLog;
 use api::application::ports::plugin_asset_store::PluginAssetStore;
 use api::application::ports::plugin_event_publisher::PluginEventPublisher;
 use api::application::ports::plugin_event_subscriber::PluginEventSubscriber;
@@ -20,11 +21,16 @@ use api::application::ports::plugin_installation_repository::PluginInstallationR
 use api::application::ports::plugin_installer::PluginInstaller;
 use api::application::ports::plugin_package_fetcher::PluginPackageFetcher;
 use api::application::ports::plugin_runtime::PluginRuntime;
+use api::application::ports::storage_ingest_queue::StorageIngestQueue;
+use api::application::ports::storage_projection_queue::StorageProjectionQueue;
 use api::application::services::api_tokens::ApiTokenService;
 use api::application::services::auth::account::AccountService;
 use api::application::services::auth::service::AuthService;
 use api::application::services::auth::token_validation::TokenValidationService;
 use api::application::services::authorization::AuthorizationService;
+use api::application::services::doc_events::{
+    DocEventSubscriber, FanoutDocEventSubscriber, LoggingDocEventSubscriber,
+};
 use api::application::services::documents::DocumentService;
 use api::application::services::files::FileService;
 use api::application::services::git::GitService;
@@ -37,13 +43,20 @@ use api::application::services::plugins::management::PluginManagementService;
 use api::application::services::plugins::permissions::PluginPermissionService;
 use api::application::services::public::PublicService;
 use api::application::services::shares::ShareService;
+use api::application::services::storage_ingest::StorageIngestService;
 use api::application::services::tags::TagService;
 use api::application::services::user_shortcuts::UserShortcutService;
 use api::bootstrap::config::{Config, StorageBackend};
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
+use api::infrastructure::documents::doc_event_log::PgDocEventLog;
+use api::infrastructure::documents::event_poller::DocEventPoller;
 use api::infrastructure::documents::exporter::DefaultDocumentExporter;
+use api::infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
 use api::infrastructure::plugins::filesystem_store::PluginExecutionLimits;
-use api::infrastructure::storage::StorageConsistencyMonitor;
+use api::infrastructure::storage::{
+    FsIngestWatcher, PgStorageIngestQueue, PgStorageProjectionQueue, StorageConsistencyMonitor,
+    StorageIngestWorker, StorageProjectionWorker,
+};
 use api::presentation::context::{AppContext, AppServices, PresentationConfig};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -255,6 +268,9 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    let storage_job_queue: Arc<dyn StorageProjectionQueue> =
+        Arc::new(PgStorageProjectionQueue::new(pool.clone()));
+
     if cfg.storage_monitor_enabled {
         let monitor = Arc::new(StorageConsistencyMonitor::new(
             pool.clone(),
@@ -284,6 +300,44 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    let doc_event_log: Arc<dyn DocEventLog> = Arc::new(PgDocEventLog::new(pool.clone()));
+    let logging_subscriber: Arc<dyn DocEventSubscriber> = LoggingDocEventSubscriber::new();
+    let git_dirty_subscriber: Arc<dyn DocEventSubscriber> =
+        GitDirtyDocEventSubscriber::new(pool.clone());
+    let doc_event_subscriber: Arc<dyn DocEventSubscriber> =
+        FanoutDocEventSubscriber::new(vec![logging_subscriber.clone(), git_dirty_subscriber]);
+    let storage_ingest_queue: Arc<dyn StorageIngestQueue> =
+        Arc::new(PgStorageIngestQueue::new(pool.clone()));
+    if matches!(cfg.storage_backend, StorageBackend::Filesystem) {
+        let watcher = Arc::new(FsIngestWatcher::new(
+            uploads_root.clone(),
+            storage_ingest_queue.clone(),
+            "fs_watcher",
+        ));
+        tokio::spawn(async move {
+            watcher.run().await;
+        });
+    }
+    {
+        let worker = Arc::new(StorageProjectionWorker::new(
+            storage_job_queue.clone(),
+            storage_port.clone(),
+        ));
+        tokio::spawn(async move {
+            worker.run().await;
+        });
+    }
+    {
+        let poller = Arc::new(DocEventPoller::new(
+            pool.clone(),
+            doc_event_subscriber.clone(),
+            Duration::from_millis(500),
+            200,
+        ));
+        tokio::spawn(async move {
+            poller.run().await;
+        });
+    }
     let shares_repo_impl = Arc::new(
         api::infrastructure::db::repositories::shares_repository_sqlx::SqlxSharesRepository::new(
             pool.clone(),
@@ -616,10 +670,29 @@ async fn main() -> anyhow::Result<()> {
         access_repo.clone(),
         shares_repo_impl.clone(),
         storage_port.clone(),
+        doc_event_log.clone(),
+        storage_job_queue.clone(),
         realtime_engine.clone(),
         snapshot_service_arc.clone(),
         document_exporter.clone(),
     ));
+
+    {
+        let handler = Arc::new(StorageIngestService::new(
+            document_repo.clone(),
+            files_repo.clone(),
+            realtime_engine.clone(),
+            storage_port.clone(),
+            doc_event_log.clone(),
+        ));
+        let worker = Arc::new(StorageIngestWorker::new(
+            storage_ingest_queue.clone(),
+            handler,
+        ));
+        tokio::spawn(async move {
+            worker.run().await;
+        });
+    }
     let file_service = Arc::new(FileService::new(
         files_repo.clone(),
         storage_port.clone(),

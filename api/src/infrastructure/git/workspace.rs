@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::io::{self, Write, ErrorKind};
+use std::io::{self, ErrorKind, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -1178,10 +1178,12 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         // Filter out no-op upserts by comparing content_hash with previous index if available
         if !use_full_scan {
-            upserts.retain(|path, u| match (&u.content_hash, previous_index.get(path)) {
-                (Some(hnew), Some(hprev)) if hnew == hprev => false,
-                _ => true,
-            });
+            upserts.retain(
+                |path, u| match (&u.content_hash, previous_index.get(path)) {
+                    (Some(hnew), Some(hprev)) if hnew == hprev => false,
+                    _ => true,
+                },
+            );
         }
 
         // If still nothing to do
@@ -1251,11 +1253,12 @@ impl GitWorkspacePort for GitWorkspaceService {
             }
             if !stale_paths.is_empty() {
                 for p in stale_paths {
-                    let _ = sqlx::query("DELETE FROM git_dirty_files WHERE user_id = $1 AND path = $2")
-                        .bind(user_id)
-                        .bind(&p)
-                        .execute(&self.pool)
-                        .await;
+                    let _ =
+                        sqlx::query("DELETE FROM git_dirty_files WHERE user_id = $1 AND path = $2")
+                            .bind(user_id)
+                            .bind(&p)
+                            .execute(&self.pool)
+                            .await;
                 }
             }
             for d in deletes.iter() {
@@ -1382,7 +1385,13 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             // files_changed_for_response computed earlier
 
-            (meta, pack_bytes, commit_hex, pushed, files_changed_for_response)
+            (
+                meta,
+                pack_bytes,
+                commit_hex,
+                pushed,
+                files_changed_for_response,
+            )
         };
 
         if let Some((dir, _)) = previous_pack {
@@ -1392,12 +1401,11 @@ impl GitWorkspacePort for GitWorkspaceService {
         // Short, focused transaction for DB writes only.
         let mut tx = self.pool.begin().await?;
         // Recheck repository state exists before writing.
-        let repo_row2 = sqlx::query(
-            "SELECT initialized FROM git_repository_state WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let repo_row2 =
+            sqlx::query("SELECT initialized FROM git_repository_state WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?;
         let Some(repo_row2) = repo_row2 else {
             tx.rollback().await.ok();
             anyhow::bail!("repository not initialized")
@@ -1600,11 +1608,18 @@ fn apply_pack_files(repo: &Repository, pack_paths: &[PathBuf]) -> anyhow::Result
 
 fn extract_host(url: &str) -> Option<String> {
     let s = url.trim();
-    let s = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://")).unwrap_or(s);
+    let s = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
     let mut parts = s.split('/');
     let host_port = parts.next().unwrap_or("");
     let host = host_port.split(':').next().unwrap_or("");
-    if host.is_empty() { None } else { Some(host.to_string()) }
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
 }
 
 fn default_token_username_for(host: Option<&str>) -> &'static str {
@@ -1629,7 +1644,8 @@ fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallbacks<'static> {
                     .and_then(|v| v.get("token"))
                     .and_then(|v| v.as_str())
                 {
-                    let user = username_from_url.unwrap_or(default_token_username_for(host_hint.as_deref()));
+                    let user = username_from_url
+                        .unwrap_or(default_token_username_for(host_hint.as_deref()));
                     Cred::userpass_plaintext(user, token)
                 } else {
                     Cred::default()
@@ -1899,7 +1915,11 @@ enum FileSource {
     Oid(git2::Oid),
 }
 
-fn insert_source_into_dir(dir: &mut DirNode, parts: &[&str], source: &FileSource) -> anyhow::Result<()> {
+fn insert_source_into_dir(
+    dir: &mut DirNode,
+    parts: &[&str],
+    source: &FileSource,
+) -> anyhow::Result<()> {
     use std::collections::btree_map::Entry;
     if parts.is_empty() {
         return Ok(());
@@ -1918,17 +1938,15 @@ fn insert_source_into_dir(dir: &mut DirNode, parts: &[&str], source: &FileSource
         Ok(())
     } else {
         match dir.entries.entry(parts[0].to_string()) {
-            Entry::Occupied(mut occ) => {
-                match occ.get_mut() {
-                    DirEntry::Dir(child) => insert_source_into_dir(child, &parts[1..], source),
-                    DirEntry::File(_) | DirEntry::Oid(_) => {
-                        let mut new_dir = DirNode::default();
-                        insert_source_into_dir(&mut new_dir, &parts[1..], source)?;
-                        *occ.get_mut() = DirEntry::Dir(Box::new(new_dir));
-                        Ok(())
-                    }
+            Entry::Occupied(mut occ) => match occ.get_mut() {
+                DirEntry::Dir(child) => insert_source_into_dir(child, &parts[1..], source),
+                DirEntry::File(_) | DirEntry::Oid(_) => {
+                    let mut new_dir = DirNode::default();
+                    insert_source_into_dir(&mut new_dir, &parts[1..], source)?;
+                    *occ.get_mut() = DirEntry::Dir(Box::new(new_dir));
+                    Ok(())
                 }
-            }
+            },
             Entry::Vacant(vac) => {
                 let mut new_dir = DirNode::default();
                 insert_source_into_dir(&mut new_dir, &parts[1..], source)?;
@@ -1939,7 +1957,10 @@ fn insert_source_into_dir(dir: &mut DirNode, parts: &[&str], source: &FileSource
     }
 }
 
-fn read_commit_blob_oids(repo: &Repository, commit_id: &[u8]) -> anyhow::Result<HashMap<String, git2::Oid>> {
+fn read_commit_blob_oids(
+    repo: &Repository,
+    commit_id: &[u8],
+) -> anyhow::Result<HashMap<String, git2::Oid>> {
     let oid = git2::Oid::from_bytes(commit_id)?;
     let commit = repo.find_commit(oid)?;
     let tree = commit.tree()?;
@@ -1956,7 +1977,10 @@ fn read_commit_blob_oids(repo: &Repository, commit_id: &[u8]) -> anyhow::Result<
     Ok(blobs)
 }
 
-fn build_tree_from_sources(repo: &Repository, entries: &BTreeMap<String, FileSource>) -> anyhow::Result<git2::Oid> {
+fn build_tree_from_sources(
+    repo: &Repository,
+    entries: &BTreeMap<String, FileSource>,
+) -> anyhow::Result<git2::Oid> {
     // We'll reconstruct a DirNode and then write it, but we need to preserve existing blob OIDs for FileSource::Oid.
     let mut root = DirNode::default();
     for (path, src) in entries.iter() {

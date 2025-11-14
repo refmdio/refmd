@@ -10,6 +10,7 @@ use crate::application::dto::documents::{
     SnapshotSummaryDto,
 };
 use crate::application::ports::access_repository::AccessRepository;
+use crate::application::ports::doc_event_log::DocEventLog;
 use crate::application::ports::document_exporter::DocumentExporter;
 use crate::application::ports::document_repository::{
     DocMeta, DocumentListState, DocumentRepository,
@@ -18,6 +19,9 @@ use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::share_access_port::ShareAccessPort;
 use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_projection_queue::{
+    StorageProjectionJobKind, StorageProjectionQueue,
+};
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
 use crate::application::use_cases::documents::archive_document::ArchiveDocument;
@@ -43,6 +47,7 @@ use crate::domain::documents::document::{
     BacklinkInfo as DomainBacklink, Document as DomainDocument, OutgoingLink as DomainOutgoingLink,
     SearchHit,
 };
+use serde_json::json;
 
 pub struct DocumentService {
     document_repo: Arc<dyn DocumentRepository>,
@@ -50,6 +55,8 @@ pub struct DocumentService {
     access_repo: Arc<dyn AccessRepository>,
     share_access: Arc<dyn ShareAccessPort>,
     storage: Arc<dyn StoragePort>,
+    events: Arc<dyn DocEventLog>,
+    storage_jobs: Arc<dyn StorageProjectionQueue>,
     realtime: Arc<dyn RealtimeEngine>,
     snapshot_service: Arc<SnapshotService>,
     exporter: Arc<dyn DocumentExporter>,
@@ -63,6 +70,8 @@ impl DocumentService {
         access_repo: Arc<dyn AccessRepository>,
         share_access: Arc<dyn ShareAccessPort>,
         storage: Arc<dyn StoragePort>,
+        events: Arc<dyn DocEventLog>,
+        storage_jobs: Arc<dyn StorageProjectionQueue>,
         realtime: Arc<dyn RealtimeEngine>,
         snapshot_service: Arc<SnapshotService>,
         exporter: Arc<dyn DocumentExporter>,
@@ -73,6 +82,8 @@ impl DocumentService {
             access_repo,
             share_access,
             storage,
+            events,
+            storage_jobs,
             realtime,
             snapshot_service,
             exporter,
@@ -107,9 +118,25 @@ impl DocumentService {
         let uc = CreateDocument {
             repo: self.document_repo.as_ref(),
         };
-        uc.execute(user_id, title, parent_id, doc_type)
+        let doc = uc
+            .execute(user_id, title, parent_id, doc_type)
             .await
-            .map_err(ServiceError::from)
+            .map_err(ServiceError::from)?;
+        self.enqueue_projection_for_document(&doc, "create_document")
+            .await;
+        let repo_path = self.repo_path_for_doc(doc.id).await;
+        self.record_event(
+            doc.id,
+            "document.created",
+            Some(json!({
+                "title": doc.title,
+                "parent_id": doc.parent_id,
+                "doc_type": doc.doc_type,
+                "repo_path": repo_path,
+            })),
+        )
+        .await;
+        Ok(doc)
     }
 
     pub async fn get_for_actor(
@@ -129,13 +156,34 @@ impl DocumentService {
     }
 
     pub async fn delete_for_user(&self, doc_id: Uuid, user_id: Uuid) -> Result<bool, ServiceError> {
+        let repo_path = self.repo_path_for_doc(doc_id).await;
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
             storage: self.storage.as_ref(),
         };
-        uc.execute(doc_id, user_id)
+        let result = uc
+            .execute(doc_id, user_id)
             .await
-            .map_err(ServiceError::from)
+            .map_err(ServiceError::from)?;
+        if let Some(dtype) = result {
+            match dtype.as_str() {
+                "folder" => {
+                    self.enqueue_folder_delete(doc_id, "delete_folder").await;
+                }
+                _ => {
+                    self.enqueue_doc_delete(doc_id, "delete_document").await;
+                }
+            }
+            self.record_event(
+                doc_id,
+                "document.deleted",
+                Some(json!({ "doc_type": dtype, "repo_path": repo_path })),
+            )
+            .await;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     pub async fn get_content(&self, actor: &Actor, doc_id: Uuid) -> Result<String, ServiceError> {
@@ -182,11 +230,21 @@ impl DocumentService {
             warn!(document_id = %doc_id, error = ?err, "document_force_persist_after_update_failed");
         }
 
-        self.document_repo
+        let doc = self
+            .document_repo
             .get_by_id(doc_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+        self.enqueue_doc_sync(doc.id, "update_content").await;
+        let repo_path = self.repo_path_for_doc(doc.id).await;
+        self.record_event(
+            doc.id,
+            "document.content_updated",
+            Some(json!({ "repo_path": repo_path })),
+        )
+        .await;
+        Ok(doc)
     }
 
     pub async fn download_document(
@@ -229,10 +287,25 @@ impl DocumentService {
             storage: self.storage.as_ref(),
             realtime: self.realtime.as_ref(),
         };
-        uc.execute(doc_id, user_id, title, parent_id)
+        let doc = uc
+            .execute(doc_id, user_id, title, parent_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+        self.enqueue_projection_for_document(&doc, "update_metadata")
+            .await;
+        let repo_path = self.repo_path_for_doc(doc.id).await;
+        self.record_event(
+            doc.id,
+            "document.metadata_updated",
+            Some(json!({
+                "title": doc.title,
+                "parent_id": doc.parent_id,
+                "repo_path": repo_path,
+            })),
+        )
+        .await;
+        Ok(doc)
     }
 
     pub async fn archive_document(
@@ -249,10 +322,21 @@ impl DocumentService {
             realtime: self.realtime.as_ref(),
             storage: self.storage.as_ref(),
         };
-        uc.execute(user_id, doc_id)
+        let doc = uc
+            .execute(user_id, doc_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+        self.enqueue_projection_for_document(&doc, "archive_document")
+            .await;
+        let repo_path = self.repo_path_for_doc(doc.id).await;
+        self.record_event(
+            doc.id,
+            "document.archived",
+            Some(json!({ "repo_path": repo_path })),
+        )
+        .await;
+        Ok(doc)
     }
 
     pub async fn unarchive_document(
@@ -268,10 +352,21 @@ impl DocumentService {
             repo: self.document_repo.as_ref(),
             realtime: self.realtime.as_ref(),
         };
-        uc.execute(user_id, doc_id)
+        let doc = uc
+            .execute(user_id, doc_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+        self.enqueue_projection_for_document(&doc, "unarchive_document")
+            .await;
+        let repo_path = self.repo_path_for_doc(doc.id).await;
+        self.record_event(
+            doc.id,
+            "document.unarchived",
+            Some(json!({ "repo_path": repo_path })),
+        )
+        .await;
+        Ok(doc)
     }
 
     pub async fn list_snapshots(
@@ -477,6 +572,107 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)
+    }
+
+    async fn enqueue_projection_for_document(&self, doc: &DomainDocument, reason: &'static str) {
+        if doc.doc_type == "folder" {
+            self.enqueue_folder_sync(doc.id, reason).await;
+        } else {
+            self.enqueue_doc_sync(doc.id, reason).await;
+        }
+    }
+
+    async fn enqueue_doc_sync(&self, doc_id: Uuid, reason: &'static str) {
+        if let Err(err) = self
+            .storage_jobs
+            .enqueue_doc_job(doc_id, StorageProjectionJobKind::DocSync, Some(reason))
+            .await
+        {
+            warn!(
+                error = ?err,
+                doc_id = %doc_id,
+                "storage_projection_enqueue_failed"
+            );
+        }
+    }
+
+    async fn enqueue_doc_delete(&self, doc_id: Uuid, reason: &'static str) {
+        if let Err(err) = self
+            .storage_jobs
+            .enqueue_doc_job(doc_id, StorageProjectionJobKind::DeleteDoc, Some(reason))
+            .await
+        {
+            warn!(
+                error = ?err,
+                doc_id = %doc_id,
+                "storage_projection_enqueue_failed"
+            );
+        }
+    }
+
+    async fn enqueue_folder_sync(&self, folder_id: Uuid, reason: &'static str) {
+        if let Err(err) = self
+            .storage_jobs
+            .enqueue_folder_job(
+                folder_id,
+                StorageProjectionJobKind::FolderSync,
+                Some(reason),
+            )
+            .await
+        {
+            warn!(
+                error = ?err,
+                folder_id = %folder_id,
+                "storage_projection_enqueue_failed"
+            );
+        }
+    }
+
+    async fn enqueue_folder_delete(&self, folder_id: Uuid, reason: &'static str) {
+        if let Err(err) = self
+            .storage_jobs
+            .enqueue_folder_job(
+                folder_id,
+                StorageProjectionJobKind::DeleteFolder,
+                Some(reason),
+            )
+            .await
+        {
+            warn!(
+                error = ?err,
+                folder_id = %folder_id,
+                "storage_projection_enqueue_failed"
+            );
+        }
+    }
+
+    async fn record_event(
+        &self,
+        doc_id: Uuid,
+        event_type: &'static str,
+        payload: Option<serde_json::Value>,
+    ) {
+        if let Err(err) = self.events.append(doc_id, event_type, payload).await {
+            warn!(
+                error = ?err,
+                doc_id = %doc_id,
+                event_type,
+                "doc_event_log_append_failed"
+            );
+        }
+    }
+
+    async fn repo_path_for_doc(&self, doc_id: Uuid) -> Option<String> {
+        match self.storage.build_doc_file_path(doc_id).await {
+            Ok(path) => {
+                let relative = self.storage.relative_from_uploads(path.as_path());
+                relative
+                    .split_once('/')
+                    .map(|(_, rest)| rest.to_string())
+                    .or_else(|| Some(relative))
+            }
+            Err(_) => None,
+        }
     }
 }
 

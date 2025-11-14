@@ -545,4 +545,34 @@ impl DocumentRepository for SqlxDocumentRepository {
             })
             .collect())
     }
+
+    async fn get_by_owner_and_path(
+        &self,
+        owner_id: Uuid,
+        relative_path: &str,
+    ) -> anyhow::Result<Option<DomainDocument>> {
+        let row = sqlx::query(
+            r#"SELECT id, title, parent_id, type, created_at, updated_at, path,
+                      archived_at, archived_by, archived_parent_id
+               FROM documents
+               WHERE owner_id = $1 AND path = $2
+               LIMIT 1"#,
+        )
+        .bind(owner_id)
+        .bind(relative_path)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| DomainDocument {
+            id: r.get("id"),
+            title: r.get("title"),
+            parent_id: r.get("parent_id"),
+            doc_type: r.get("type"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+            path: r.try_get("path").ok(),
+            archived_at: r.try_get("archived_at").ok(),
+            archived_by: r.try_get("archived_by").ok(),
+            archived_parent_id: r.try_get("archived_parent_id").ok(),
+        }))
+    }
 }

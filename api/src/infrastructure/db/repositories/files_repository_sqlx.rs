@@ -99,4 +99,47 @@ impl FilesRepository for SqlxFilesRepository {
             .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
             .collect())
     }
+
+    async fn find_by_storage_path(
+        &self,
+        storage_path: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>> {
+        let row = sqlx::query(
+            r#"SELECT f.id as file_id, f.document_id, d.owner_id
+               FROM files f
+               JOIN documents d ON d.id = f.document_id
+               WHERE f.storage_path = $1
+               LIMIT 1"#,
+        )
+        .bind(storage_path)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| (r.get("file_id"), r.get("document_id"), r.get("owner_id"))))
+    }
+
+    async fn update_hash_and_size(
+        &self,
+        file_id: Uuid,
+        size: i64,
+        content_hash: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"UPDATE files SET size = $2, content_hash = $3, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(file_id)
+        .bind(size)
+        .bind(content_hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_by_id(&self, file_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM files WHERE id = $1")
+            .bind(file_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

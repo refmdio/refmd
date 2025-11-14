@@ -1,0 +1,13 @@
+use async_trait::async_trait;
+use serde_json::Value;
+use uuid::Uuid;
+
+#[async_trait]
+pub trait DocEventLog: Send + Sync {
+    async fn append(
+        &self,
+        doc_id: Uuid,
+        event_type: &str,
+        payload: Option<Value>,
+    ) -> anyhow::Result<()>;
+}

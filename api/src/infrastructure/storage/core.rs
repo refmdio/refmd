@@ -245,7 +245,8 @@ pub async fn mark_dirty_upsert_abs_path(
     let rel = relative_from_uploads(uploads_root, abs_path).replace('\\', "/");
     if let Some((user_id, repo_path)) = split_owner_and_repo_path(&rel) {
         if !repo_path.is_empty() {
-            let _ = mark_dirty_upsert_internal(pool, user_id, &repo_path, is_text, content_hash).await;
+            let _ =
+                mark_dirty_upsert_internal(pool, user_id, &repo_path, is_text, content_hash).await;
         }
     }
     Ok(())
@@ -260,16 +261,14 @@ pub async fn mark_dirty_upsert_relative(
     let rel = relative.trim_start_matches('/');
     if let Some((user_id, repo_path)) = split_owner_and_repo_path(rel) {
         if !repo_path.is_empty() {
-            let _ = mark_dirty_upsert_internal(pool, user_id, &repo_path, is_text, content_hash).await;
+            let _ =
+                mark_dirty_upsert_internal(pool, user_id, &repo_path, is_text, content_hash).await;
         }
     }
     Ok(())
 }
 
-pub async fn mark_dirty_delete_relative(
-    pool: &PgPool,
-    relative: &str,
-) -> anyhow::Result<()> {
+pub async fn mark_dirty_delete_relative(pool: &PgPool, relative: &str) -> anyhow::Result<()> {
     let rel = relative.trim_start_matches('/');
     if let Some((user_id, repo_path)) = split_owner_and_repo_path(rel) {
         if !repo_path.is_empty() {
@@ -299,7 +298,8 @@ pub async fn move_doc_paths(
     let old_rel: Option<String> = row.try_get("path").ok();
 
     let desired_full = build_doc_file_path(pool, uploads_root, doc_id).await?;
-    let (new_full, new_rel) = ensure_unique_doc_path(pool, uploads_root, doc_id, &desired_full).await?;
+    let (new_full, new_rel) =
+        ensure_unique_doc_path(pool, uploads_root, doc_id, &desired_full).await?;
     if let Some(parent) = new_full.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
@@ -353,7 +353,13 @@ pub async fn move_doc_paths(
 
                         // Mark move: old delete, new upsert (binary)
                         let _ = mark_dirty_delete_relative(pool, &old_path).await;
-                        let _ = mark_dirty_upsert_relative(pool, &relative_from_uploads(uploads_root, &new_path), false, None).await;
+                        let _ = mark_dirty_upsert_relative(
+                            pool,
+                            &relative_from_uploads(uploads_root, &new_path),
+                            false,
+                            None,
+                        )
+                        .await;
                     }
                 }
             }

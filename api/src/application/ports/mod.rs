@@ -1,6 +1,7 @@
 pub mod access_repository;
 pub mod api_token_repository;
 pub mod awareness_port;
+pub mod doc_event_log;
 pub mod document_exporter;
 pub mod document_repository;
 pub mod document_snapshot_archive_repository;
@@ -26,7 +27,9 @@ pub mod realtime_port;
 pub mod realtime_types;
 pub mod share_access_port;
 pub mod shares_repository;
+pub mod storage_ingest_queue;
 pub mod storage_port;
+pub mod storage_projection_queue;
 pub mod tag_repository;
 pub mod tagging_repository;
 pub mod user_repository;
