@@ -12,7 +12,7 @@ use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::storage_ingest_queue::{StorageIngestEvent, StorageIngestKind};
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::{StorageProjectionPort, StorageResolverPort};
 use crate::application::services::documents::DocumentService;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::snapshot_from_markdown;
@@ -27,7 +27,8 @@ pub struct StorageIngestService {
     document_repo: Arc<dyn DocumentRepository>,
     files_repo: Arc<dyn FilesRepository>,
     realtime: Arc<dyn RealtimeEngine>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
+    storage_projection: Arc<dyn StorageProjectionPort>,
     events: Arc<dyn DocEventLog>,
     document_service: Arc<DocumentService>,
 }
@@ -37,7 +38,8 @@ impl StorageIngestService {
         document_repo: Arc<dyn DocumentRepository>,
         files_repo: Arc<dyn FilesRepository>,
         realtime: Arc<dyn RealtimeEngine>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
+        storage_projection: Arc<dyn StorageProjectionPort>,
         events: Arc<dyn DocEventLog>,
         document_service: Arc<DocumentService>,
     ) -> Self {
@@ -46,6 +48,7 @@ impl StorageIngestService {
             files_repo,
             realtime,
             storage,
+            storage_projection,
             events,
             document_service,
         }
@@ -310,7 +313,9 @@ impl StorageIngestHandler for StorageIngestService {
         }
 
         if event.kind == StorageIngestKind::Delete {
-            self.storage.delete_relative_path(&rel_path).await?;
+            self.storage_projection
+                .delete_relative_path(&rel_path)
+                .await?;
             info!(
                 user_id = %event.user_id,
                 repo_path = event.repo_path,

@@ -6,14 +6,14 @@ use tokio::{self, sync::Mutex, time::sleep};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::{application::ports::storage_port::StoragePort, infrastructure::db::PgPool};
+use crate::{application::ports::storage_port::StorageResolverPort, infrastructure::db::PgPool};
 
 /// Periodically verifies that metadata entries in `documents` / `files`
 /// still have a corresponding object in the configured storage backend.
 /// Missing files are logged once to avoid log spam and logged again when recovered.
 pub struct StorageConsistencyMonitor {
     pool: PgPool,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
     interval: Duration,
     batch_size: i64,
     doc_offset: Mutex<i64>,
@@ -25,7 +25,7 @@ pub struct StorageConsistencyMonitor {
 impl StorageConsistencyMonitor {
     pub fn new(
         pool: PgPool,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
         interval: Duration,
         batch_size: i64,
     ) -> Self {

@@ -6,7 +6,7 @@ use anyhow::Error;
 use tracing::{error, info, info_span, warn};
 use uuid::Uuid;
 
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageProjectionPort;
 use crate::application::ports::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJob, StorageProjectionJobKind,
     StorageProjectionQueue,
@@ -14,13 +14,16 @@ use crate::application::ports::storage_projection_queue::{
 
 pub struct StorageProjectionWorker {
     jobs: Arc<dyn StorageProjectionQueue>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageProjectionPort>,
     lock_timeout_secs: i64,
     idle_backoff: Duration,
 }
 
 impl StorageProjectionWorker {
-    pub fn new(jobs: Arc<dyn StorageProjectionQueue>, storage: Arc<dyn StoragePort>) -> Self {
+    pub fn new(
+        jobs: Arc<dyn StorageProjectionQueue>,
+        storage: Arc<dyn StorageProjectionPort>,
+    ) -> Self {
         Self {
             jobs,
             storage,
@@ -226,11 +229,8 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use sqlx::{Postgres, Transaction};
-    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
-
-    use crate::application::ports::storage_port::StoredAttachment;
 
     #[tokio::test]
     async fn doc_sync_invokes_storage_and_completes_job() {
@@ -364,7 +364,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl StoragePort for RecordingStoragePort {
+    impl StorageProjectionPort for RecordingStoragePort {
         async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize> {
             let _ = folder_id;
             self.calls.lock().unwrap().push("move_folder_subtree");
@@ -383,26 +383,6 @@ mod tests {
             Ok(0)
         }
 
-        async fn build_doc_dir(&self, _doc_id: Uuid) -> anyhow::Result<PathBuf> {
-            unimplemented!()
-        }
-
-        async fn build_doc_file_path(&self, _doc_id: Uuid) -> anyhow::Result<PathBuf> {
-            unimplemented!()
-        }
-
-        fn relative_from_uploads(&self, _abs: &Path) -> String {
-            unimplemented!()
-        }
-
-        fn user_repo_dir(&self, _user_id: Uuid) -> String {
-            unimplemented!()
-        }
-
-        fn absolute_from_relative(&self, _rel: &str) -> PathBuf {
-            unimplemented!()
-        }
-
         async fn sync_doc_paths(&self, _doc_id: Uuid) -> anyhow::Result<()> {
             self.calls.lock().unwrap().push("sync_doc_paths");
             if self.fail_sync.swap(false, Ordering::SeqCst) {
@@ -411,38 +391,9 @@ mod tests {
             Ok(())
         }
 
-        async fn resolve_upload_path(
-            &self,
-            _doc_id: Uuid,
-            _rest_path: &str,
-        ) -> anyhow::Result<PathBuf> {
-            unimplemented!()
-        }
-
-        async fn read_bytes(&self, _abs_path: &Path) -> anyhow::Result<Vec<u8>> {
-            unimplemented!()
-        }
-
-        async fn exists(&self, _abs_path: &Path) -> anyhow::Result<bool> {
-            unimplemented!()
-        }
-
-        async fn write_bytes(&self, _abs_path: &Path, _data: &[u8]) -> anyhow::Result<()> {
-            unimplemented!()
-        }
-
         async fn delete_relative_path(&self, _rel: &str) -> anyhow::Result<()> {
             self.calls.lock().unwrap().push("delete_relative_path");
             Ok(())
-        }
-
-        async fn store_doc_attachment(
-            &self,
-            _doc_id: Uuid,
-            _original_filename: Option<&str>,
-            _bytes: &[u8],
-        ) -> anyhow::Result<StoredAttachment> {
-            unimplemented!()
         }
     }
 }

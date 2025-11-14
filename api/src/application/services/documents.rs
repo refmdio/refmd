@@ -19,7 +19,7 @@ use crate::application::ports::document_repository::{
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::share_access_port::ShareAccessPort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::ports::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
 };
@@ -56,7 +56,7 @@ pub struct DocumentService {
     files_repo: Arc<dyn FilesRepository>,
     access_repo: Arc<dyn AccessRepository>,
     share_access: Arc<dyn ShareAccessPort>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
     events: Arc<dyn DocEventLog>,
     storage_jobs: Arc<dyn StorageProjectionQueue>,
     realtime: Arc<dyn RealtimeEngine>,
@@ -72,7 +72,7 @@ impl DocumentService {
         files_repo: Arc<dyn FilesRepository>,
         access_repo: Arc<dyn AccessRepository>,
         share_access: Arc<dyn ShareAccessPort>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
         events: Arc<dyn DocEventLog>,
         storage_jobs: Arc<dyn StorageProjectionQueue>,
         realtime: Arc<dyn RealtimeEngine>,

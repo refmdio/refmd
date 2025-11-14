@@ -4,13 +4,13 @@ use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::gitignore_port::GitignorePort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::use_cases::git::helpers::compute_doc_patterns_with;
 
 pub struct IgnoreDocument<'a, G, S, F, D, W>
 where
     G: GitignorePort + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     F: FilesRepository + ?Sized,
     D: DocumentRepository + ?Sized,
     W: GitWorkspacePort + ?Sized,
@@ -30,7 +30,7 @@ pub struct IgnoreResult {
 impl<'a, G, S, F, D, W> IgnoreDocument<'a, G, S, F, D, W>
 where
     G: GitignorePort + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     F: FilesRepository + ?Sized,
     D: DocumentRepository + ?Sized,
     W: GitWorkspacePort + ?Sized,

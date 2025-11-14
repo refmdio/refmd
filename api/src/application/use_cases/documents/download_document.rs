@@ -11,14 +11,14 @@ use crate::application::ports::document_exporter::{
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::share_access_port::ShareAccessPort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::realtime::snapshot::SnapshotService;
 
 pub struct DownloadDocument<'a, D, F, S, A, SH>
 where
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     A: AccessRepository + ?Sized,
     SH: ShareAccessPort + ?Sized,
 {
@@ -35,7 +35,7 @@ impl<'a, D, F, S, A, SH> DownloadDocument<'a, D, F, S, A, SH>
 where
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     A: AccessRepository + ?Sized,
     SH: ShareAccessPort + ?Sized,
 {

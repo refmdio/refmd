@@ -25,7 +25,7 @@ use crate::application::ports::realtime_hydration_port::{DocStateReader, Realtim
 use crate::application::ports::realtime_persistence_port::DocPersistencePort;
 use crate::application::ports::realtime_port::RealtimeEngine as RealtimeEngineTrait;
 use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::ports::tagging_repository::TaggingRepository;
 use crate::application::services::realtime::doc_hydration::{
     DocHydrationService, HydrationOptions,
@@ -70,7 +70,7 @@ impl RedisRealtimeEngine {
     pub fn from_config(
         cfg: RedisRealtimeConfig,
         pool: PgPool,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
     ) -> anyhow::Result<Self> {
         let client = redis::Client::open(cfg.redis_url.as_str())?;
         let bus = Arc::new(RedisClusterBus::new(

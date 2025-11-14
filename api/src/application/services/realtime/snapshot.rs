@@ -12,14 +12,14 @@ use crate::application::ports::document_snapshot_archive_repository::{
 use crate::application::ports::linkgraph_repository::LinkGraphRepository;
 use crate::application::ports::realtime_hydration_port::DocStateReader;
 use crate::application::ports::realtime_persistence_port::DocPersistencePort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::ports::tagging_repository::TaggingRepository;
 use crate::application::services::tagging;
 
 pub struct SnapshotService {
     state_reader: Arc<dyn DocStateReader>,
     persistence: Arc<dyn DocPersistencePort>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
     linkgraph_repo: Arc<dyn LinkGraphRepository>,
     tagging_repo: Arc<dyn TaggingRepository>,
     archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
@@ -90,7 +90,7 @@ impl SnapshotService {
     pub fn new(
         state_reader: Arc<dyn DocStateReader>,
         persistence: Arc<dyn DocPersistencePort>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
         linkgraph_repo: Arc<dyn LinkGraphRepository>,
         tagging_repo: Arc<dyn TaggingRepository>,
         archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,

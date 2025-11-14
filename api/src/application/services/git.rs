@@ -12,7 +12,7 @@ use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::gitignore_port::GitignorePort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::errors::ServiceError;
 use crate::application::use_cases::git::delete_config::DeleteGitConfig;
 use crate::application::use_cases::git::get_changes::GetChanges;
@@ -32,7 +32,7 @@ use crate::application::use_cases::git::upsert_config::UpsertGitConfig;
 
 pub struct GitService {
     repo: Arc<dyn GitRepository>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
     files: Arc<dyn FilesRepository>,
     docs: Arc<dyn DocumentRepository>,
     gitignore: Arc<dyn GitignorePort>,
@@ -43,7 +43,7 @@ impl GitService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         repo: Arc<dyn GitRepository>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
         files: Arc<dyn FilesRepository>,
         docs: Arc<dyn DocumentRepository>,
         gitignore: Arc<dyn GitignorePort>,

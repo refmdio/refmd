@@ -16,7 +16,9 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-use crate::application::ports::storage_port::{StoragePort, StoredAttachment};
+use crate::application::ports::storage_port::{
+    StorageProjectionPort, StorageResolverPort, StoredAttachment,
+};
 use crate::infrastructure::db::PgPool;
 
 #[derive(Clone, Debug)]
@@ -102,6 +104,19 @@ impl S3StoragePort {
         let rel = crate::infrastructure::storage::relative_from_uploads(&self.root, abs_path)
             .replace('\\', "/");
         self.relative_to_key(&rel)
+    }
+
+    async fn put_object(&self, key: &str, data: &[u8]) -> anyhow::Result<()> {
+        let body = ByteStream::from(data.to_vec());
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .body(body)
+            .send()
+            .await
+            .with_context(|| format!("failed to upload object {key}"))?;
+        Ok(())
     }
 
     async fn object_exists(&self, key: &str) -> anyhow::Result<bool> {
@@ -265,8 +280,23 @@ fn normalize_prefix(root: &Path) -> String {
     parts.join("/")
 }
 
+fn sanitize_filename(name: &str) -> String {
+    let mut s = name.trim().to_string();
+    let invalid = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'];
+    for ch in invalid {
+        s = s.replace(ch, "-");
+    }
+    if s.is_empty() {
+        s = "attachment".into();
+    }
+    if s.len() > 120 {
+        s.truncate(120);
+    }
+    s
+}
+
 #[async_trait]
-impl StoragePort for S3StoragePort {
+impl StorageProjectionPort for S3StoragePort {
     async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize> {
         let ids =
             crate::infrastructure::storage::list_descendant_docs(&self.pool, folder_id).await?;
@@ -318,6 +348,20 @@ impl StoragePort for S3StoragePort {
         Ok(ids.len())
     }
 
+    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
+        self.move_doc_paths(doc_id).await
+    }
+
+    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
+        let key = self.relative_to_key(rel);
+        let _ = self.delete_object(&key).await;
+        crate::infrastructure::storage::mark_dirty_delete_relative(&self.pool, rel).await?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl StorageResolverPort for S3StoragePort {
     async fn build_doc_dir(&self, doc_id: Uuid) -> anyhow::Result<PathBuf> {
         crate::infrastructure::storage::build_doc_dir(&self.pool, &self.root, doc_id).await
     }
@@ -341,10 +385,6 @@ impl StoragePort for S3StoragePort {
 
     fn absolute_from_relative(&self, rel: &str) -> PathBuf {
         self.root.join(rel)
-    }
-
-    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
-        self.move_doc_paths(doc_id).await
     }
 
     async fn resolve_upload_path(&self, doc_id: Uuid, rest_path: &str) -> anyhow::Result<PathBuf> {
@@ -418,50 +458,17 @@ impl StoragePort for S3StoragePort {
     }
 
     async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> anyhow::Result<()> {
-        let relative = crate::infrastructure::storage::relative_from_uploads(&self.root, abs_path)
+        if let Some(parent) = abs_path.parent() {
+            tokio::fs::create_dir_all(parent).await.ok();
+        }
+        let key = self.key_from_path(abs_path);
+        self.put_object(&key, data).await?;
+        let rel = crate::infrastructure::storage::relative_from_uploads(&self.root, abs_path)
             .replace('\\', "/");
-        let key = self.relative_to_key(&relative);
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(&key)
-            .body(ByteStream::from(data.to_vec()))
-            .send()
-            .await
-            .with_context(|| format!("failed to upload object {key}"))?;
-        // Mark dirty (best-effort)
-        let is_text = abs_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("md"))
-            .unwrap_or(false);
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        let digest = hasher.finalize();
-        let content_hash = digest
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
-        let _ = crate::infrastructure::storage::mark_dirty_upsert_abs_path(
-            &self.pool,
-            &self.root,
-            abs_path,
-            is_text,
-            Some(&content_hash),
+        let _ = crate::infrastructure::storage::mark_dirty_upsert_relative(
+            &self.pool, &rel, true, None,
         )
         .await;
-        Ok(())
-    }
-
-    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
-        let trimmed = rel.trim_matches('/');
-        if trimmed.is_empty() {
-            return Ok(());
-        }
-        let key = self.relative_to_key(trimmed);
-        self.delete_object(&key).await?;
-        self.delete_children_with_prefix(trimmed).await?;
-        crate::infrastructure::storage::mark_dirty_delete_relative(&self.pool, rel).await?;
         Ok(())
     }
 
@@ -471,100 +478,63 @@ impl StoragePort for S3StoragePort {
         original_filename: Option<&str>,
         bytes: &[u8],
     ) -> anyhow::Result<StoredAttachment> {
+        use tokio::fs;
+
         let base_dir =
-            crate::infrastructure::storage::build_doc_dir(&self.pool, &self.root, doc_id).await?;
+            crate::infrastructure::storage::build_doc_dir(&self.pool, &self.root, doc_id)
+                .await?
+                .to_path_buf();
         let attachments_dir = base_dir.join("attachments");
+        let _ = fs::create_dir_all(&attachments_dir).await;
 
-        let original = original_filename.unwrap_or("file.bin");
-        let mut safe = crate::infrastructure::storage::sanitize_title(original);
-
-        let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-        let (stem, ext) = {
-            let p = Path::new(&safe);
-            let stem = p
+        let sanitized = sanitize_filename(original_filename.unwrap_or("attachment"));
+        let mut target = attachments_dir.join(&sanitized);
+        let mut counter = 1;
+        while fs::try_exists(&target).await.unwrap_or(false) {
+            let stem = target
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .filter(|s| !s.is_empty())
-                .unwrap_or("file")
-                .to_string();
-            let ext = p
+                .unwrap_or("attachment");
+            let ext = target
                 .extension()
                 .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            (stem, ext)
-        };
-
-        safe = if ext.is_empty() {
-            format!("{}_{}", stem, ts)
-        } else {
-            format!("{}_{}.{}", stem, ts, ext)
-        };
-
-        let mut candidate = attachments_dir.join(&safe);
-        let mut counter = 1;
-        loop {
-            let relative =
-                crate::infrastructure::storage::relative_from_uploads(&self.root, &candidate)
-                    .replace('\\', "/");
-            let key = self.relative_to_key(&relative);
-            if !self.object_exists(&key).await? {
-                break;
-            }
-            let p = Path::new(&safe);
-            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-            let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
-            let new_name = if ext.is_empty() {
-                format!("{}-{}", stem, counter)
-            } else {
-                format!("{}-{}.{}", stem, counter, ext)
-            };
-            candidate = attachments_dir.join(&new_name);
-            safe = new_name;
+                .filter(|s| !s.is_empty())
+                .map(|s| format!(".{s}"))
+                .unwrap_or_default();
+            let new_name = format!("{stem}-{counter}{ext}");
+            target = attachments_dir.join(&new_name);
             counter += 1;
         }
 
-        let relative =
-            crate::infrastructure::storage::relative_from_uploads(&self.root, &candidate)
-                .replace('\\', "/");
+        if let Some(parent) = target.parent() {
+            let _ = fs::create_dir_all(parent).await;
+        }
+        let relative = crate::infrastructure::storage::relative_from_uploads(&self.root, &target);
         let key = self.relative_to_key(&relative);
-
+        self.put_object(&key, bytes).await?;
+        let size = bytes.len() as i64;
         let mut hasher = Sha256::new();
         hasher.update(bytes);
         let digest = hasher.finalize();
-        let content_hash = digest
+        let hash = digest
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect::<String>();
-
-        self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(&key)
-            .body(ByteStream::from(bytes.to_vec()))
-            .send()
-            .await
-            .with_context(|| format!("failed to upload object {key}"))?;
-
-        // Mark dirty upsert for attachment (binary)
-        let _ = crate::infrastructure::storage::mark_dirty_upsert_relative(
-            &self.pool,
-            &relative,
-            false,
-            Some(&content_hash),
-        )
-        .await;
-
         Ok(StoredAttachment {
-            filename: safe,
+            filename: target
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("attachment")
+                .to_string(),
             relative_path: relative,
-            size: bytes.len() as i64,
-            content_hash,
+            size,
+            content_hash: hash,
         })
     }
 }
 
 impl S3StoragePort {
+    #[allow(dead_code)]
     async fn delete_children_with_prefix(&self, rel: &str) -> anyhow::Result<()> {
         let mut key_prefix = self.relative_to_key(rel);
         if key_prefix.is_empty() {

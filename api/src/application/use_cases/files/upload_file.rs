@@ -1,12 +1,12 @@
 use uuid::Uuid;
 
 use crate::application::ports::files_repository::FilesRepository;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 
 pub struct UploadFile<'a, R, S>
 where
     R: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
 {
     pub repo: &'a R,
     pub storage: &'a S,
@@ -24,7 +24,7 @@ pub struct UploadedFile {
 impl<'a, R, S> UploadFile<'a, R, S>
 where
     R: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
 {
     pub async fn execute(
         &self,

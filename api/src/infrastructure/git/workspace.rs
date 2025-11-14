@@ -24,7 +24,7 @@ use crate::application::dto::git::{
 use crate::application::ports::git_repository::UserGitCfg;
 use crate::application::ports::git_storage::{BlobKey, CommitMeta, GitStorage, encode_commit_id};
 use crate::application::ports::git_workspace::GitWorkspacePort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::diff::text_diff::compute_text_diff;
 use crate::application::services::realtime::snapshot::SnapshotService;
 use crate::infrastructure::db::PgPool;
@@ -32,7 +32,7 @@ use crate::infrastructure::db::PgPool;
 pub struct GitWorkspaceService {
     pool: PgPool,
     git_storage: Arc<dyn GitStorage>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
     snapshot: Arc<SnapshotService>,
 }
 
@@ -40,7 +40,7 @@ impl GitWorkspaceService {
     pub fn new(
         pool: PgPool,
         git_storage: Arc<dyn GitStorage>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
         snapshot: Arc<SnapshotService>,
     ) -> anyhow::Result<Self> {
         Ok(Self {

@@ -22,6 +22,7 @@ use api::application::ports::plugin_installer::PluginInstaller;
 use api::application::ports::plugin_package_fetcher::PluginPackageFetcher;
 use api::application::ports::plugin_runtime::PluginRuntime;
 use api::application::ports::storage_ingest_queue::StorageIngestQueue;
+use api::application::ports::storage_port::{StorageProjectionPort, StorageResolverPort};
 use api::application::ports::storage_projection_queue::StorageProjectionQueue;
 use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
 use api::application::services::api_tokens::ApiTokenService;
@@ -244,8 +245,9 @@ async fn main() -> anyhow::Result<()> {
     let asset_signer = Arc::new(AssetSigner::new(&cfg.plugin_asset_sign_key));
 
     let uploads_root = std::path::PathBuf::from(&cfg.storage_root);
-    let (storage_port, reconcile_backend): (
-        Arc<dyn api::application::ports::storage_port::StoragePort>,
+    let (storage_resolver, storage_projection, reconcile_backend): (
+        Arc<dyn StorageResolverPort>,
+        Arc<dyn StorageProjectionPort>,
         Arc<dyn StorageReconcileBackend>,
     ) = match cfg.storage_backend {
         StorageBackend::Filesystem => {
@@ -254,7 +256,7 @@ async fn main() -> anyhow::Result<()> {
                 uploads_root: uploads_root.clone(),
             });
             let backend = FsReconcileBackend::new(uploads_root.clone());
-            (port, backend)
+            (port.clone(), port, backend)
         }
         StorageBackend::S3 => {
             let s3_settings = api::infrastructure::storage::s3::S3StorageConfig {
@@ -274,7 +276,7 @@ async fn main() -> anyhow::Result<()> {
                     .await?,
             );
             let backend = S3ReconcileBackend::new(&s3_settings).await?;
-            (port, backend)
+            (port.clone(), port, backend)
         }
     };
 
@@ -284,7 +286,7 @@ async fn main() -> anyhow::Result<()> {
     if cfg.storage_monitor_enabled {
         let monitor = Arc::new(StorageConsistencyMonitor::new(
             pool.clone(),
-            storage_port.clone(),
+            storage_resolver.clone(),
             Duration::from_secs(cfg.storage_monitor_interval_secs),
             cfg.storage_monitor_batch_size,
         ));
@@ -333,7 +335,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let worker = Arc::new(StorageProjectionWorker::new(
             storage_job_queue.clone(),
-            storage_port.clone(),
+            storage_projection.clone(),
         ));
         tokio::spawn(async move {
             worker.run().await;
@@ -464,7 +466,7 @@ async fn main() -> anyhow::Result<()> {
             api::infrastructure::realtime::RedisRealtimeEngine::from_config(
                 redis_settings,
                 pool.clone(),
-                storage_port.clone(),
+                storage_resolver.clone(),
             )?,
         );
         let snapshot_service = engine.snapshot_service();
@@ -500,14 +502,14 @@ async fn main() -> anyhow::Result<()> {
             api::application::services::realtime::doc_hydration::DocHydrationService::new(
                 doc_state_reader.clone(),
                 backlog_reader,
-                storage_port.clone(),
+                storage_resolver.clone(),
             ),
         );
         let snapshot_service = Arc::new(
             api::application::services::realtime::snapshot::SnapshotService::new(
                 doc_state_reader.clone(),
                 doc_persistence.clone(),
-                storage_port.clone(),
+                storage_resolver.clone(),
                 linkgraph_repo,
                 tagging_repo,
                 snapshot_archive_repo.clone(),
@@ -556,13 +558,13 @@ async fn main() -> anyhow::Result<()> {
         api::infrastructure::git::workspace::GitWorkspaceService::new(
             pool.clone(),
             git_storage.clone(),
-            storage_port.clone(),
+            storage_resolver.clone(),
             snapshot_service_arc.clone(),
         )?,
     );
     let git_service = Arc::new(GitService::new(
         git_repo.clone(),
-        storage_port.clone(),
+        storage_resolver.clone(),
         files_repo.clone(),
         document_repo.clone(),
         gitignore_port.clone(),
@@ -708,7 +710,7 @@ async fn main() -> anyhow::Result<()> {
         files_repo.clone(),
         access_repo.clone(),
         shares_repo_impl.clone(),
-        storage_port.clone(),
+        storage_resolver.clone(),
         doc_event_log.clone(),
         storage_job_queue.clone(),
         realtime_engine.clone(),
@@ -721,7 +723,8 @@ async fn main() -> anyhow::Result<()> {
             document_repo.clone(),
             files_repo.clone(),
             realtime_engine.clone(),
-            storage_port.clone(),
+            storage_resolver.clone(),
+            storage_projection.clone(),
             doc_event_log.clone(),
             document_service.clone(),
         ));
@@ -735,7 +738,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let file_service = Arc::new(FileService::new(
         files_repo.clone(),
-        storage_port.clone(),
+        storage_resolver.clone(),
         access_repo.clone(),
         shares_repo_impl.clone(),
     ));

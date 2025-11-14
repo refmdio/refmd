@@ -1,6 +1,6 @@
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use uuid::Uuid;
 
 fn strip_user_prefix(owner_id: Uuid, rel_from_uploads: &str) -> String {
@@ -19,7 +19,7 @@ fn strip_user_prefix(owner_id: Uuid, rel_from_uploads: &str) -> String {
 pub async fn compute_doc_patterns_with<
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
 >(
     docs: &D,
     files: &F,

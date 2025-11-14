@@ -7,7 +7,7 @@ use crate::application::access::{self, Actor};
 use crate::application::ports::access_repository::AccessRepository;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::share_access_port::ShareAccessPort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::errors::ServiceError;
 use crate::application::use_cases::files::upload_file::{UploadFile, UploadedFile};
 
@@ -18,7 +18,7 @@ pub struct FilePayload {
 
 pub struct FileService {
     files_repo: Arc<dyn FilesRepository>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
     access_repo: Arc<dyn AccessRepository>,
     share_access: Arc<dyn ShareAccessPort>,
 }
@@ -26,7 +26,7 @@ pub struct FileService {
 impl FileService {
     pub fn new(
         files_repo: Arc<dyn FilesRepository>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
         access_repo: Arc<dyn AccessRepository>,
         share_access: Arc<dyn ShareAccessPort>,
     ) -> Self {

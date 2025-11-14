@@ -2,7 +2,9 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-use crate::application::ports::storage_port::{StoragePort, StoredAttachment};
+use crate::application::ports::storage_port::{
+    StorageProjectionPort, StorageResolverPort, StoredAttachment,
+};
 use sha2::{Digest, Sha256};
 
 pub struct FsStoragePort {
@@ -11,7 +13,7 @@ pub struct FsStoragePort {
 }
 
 #[async_trait::async_trait]
-impl StoragePort for FsStoragePort {
+impl StorageProjectionPort for FsStoragePort {
     async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize> {
         crate::infrastructure::storage::move_folder_subtree(
             &self.pool,
@@ -39,6 +41,39 @@ impl StoragePort for FsStoragePort {
         .await
     }
 
+    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
+        crate::infrastructure::storage::move_doc_paths(
+            &self.pool,
+            self.uploads_root.as_path(),
+            doc_id,
+        )
+        .await
+    }
+
+    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
+        use std::io::ErrorKind;
+
+        let abs = self.absolute_from_relative(rel);
+        if tokio::fs::try_exists(&abs).await.unwrap_or(false) {
+            match tokio::fs::metadata(&abs).await {
+                Ok(meta) => {
+                    if meta.is_dir() {
+                        tokio::fs::remove_dir_all(&abs).await?;
+                    } else {
+                        tokio::fs::remove_file(&abs).await?;
+                    }
+                }
+                Err(err) if err.kind() == ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
+            crate::infrastructure::storage::mark_dirty_delete_relative(&self.pool, rel).await?;
+        }
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl StorageResolverPort for FsStoragePort {
     async fn build_doc_dir(&self, doc_id: Uuid) -> anyhow::Result<PathBuf> {
         crate::infrastructure::storage::build_doc_dir(
             &self.pool,
@@ -68,15 +103,6 @@ impl StoragePort for FsStoragePort {
 
     fn absolute_from_relative(&self, rel: &str) -> PathBuf {
         self.uploads_root.join(rel)
-    }
-
-    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
-        crate::infrastructure::storage::move_doc_paths(
-            &self.pool,
-            self.uploads_root.as_path(),
-            doc_id,
-        )
-        .await
     }
 
     async fn resolve_upload_path(&self, doc_id: Uuid, rest_path: &str) -> anyhow::Result<PathBuf> {
@@ -157,27 +183,6 @@ impl StoragePort for FsStoragePort {
             Some(&content_hash),
         )
         .await;
-        Ok(())
-    }
-
-    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
-        use std::io::ErrorKind;
-
-        let abs = self.absolute_from_relative(rel);
-        if tokio::fs::try_exists(&abs).await.unwrap_or(false) {
-            match tokio::fs::metadata(&abs).await {
-                Ok(meta) => {
-                    if meta.is_dir() {
-                        tokio::fs::remove_dir_all(&abs).await?;
-                    } else {
-                        tokio::fs::remove_file(&abs).await?;
-                    }
-                }
-                Err(err) if err.kind() == ErrorKind::NotFound => {}
-                Err(err) => return Err(err.into()),
-            }
-            crate::infrastructure::storage::mark_dirty_delete_relative(&self.pool, rel).await?;
-        }
         Ok(())
     }
 
