@@ -53,9 +53,18 @@ impl StorageIngestQueue for PgStorageIngestQueue {
             DO UPDATE SET event_kind = EXCLUDED.event_kind,
                           content_hash = EXCLUDED.content_hash,
                           payload = EXCLUDED.payload,
-                          attempts = 0,
-                          locked_at = NULL,
-                          created_at = now()
+                          attempts = CASE
+                              WHEN storage_ingest_queue.locked_at IS NULL THEN 0
+                              ELSE storage_ingest_queue.attempts
+                          END,
+                          locked_at = CASE
+                              WHEN storage_ingest_queue.locked_at IS NULL THEN NULL
+                              ELSE storage_ingest_queue.locked_at
+                          END,
+                          created_at = CASE
+                              WHEN storage_ingest_queue.locked_at IS NULL THEN now()
+                              ELSE storage_ingest_queue.created_at
+                          END
             "#,
         )
         .bind(user_id)

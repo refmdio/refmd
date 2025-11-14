@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tracing::info;
+use tracing::{error, info};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -54,11 +54,12 @@ impl DocEventSubscriber for FanoutDocEventSubscriber {
     async fn handle_event(&self, event: &DocEventRecord) -> anyhow::Result<()> {
         for sub in &self.subscribers {
             if let Err(err) = sub.handle_event(event).await {
-                info!(
+                error!(
                     error = ?err,
                     event_id = event.id,
                     "doc_event_subscriber_failed"
                 );
+                return Err(err);
             }
         }
         Ok(())

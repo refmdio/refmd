@@ -21,9 +21,10 @@ impl GitDirtyDocEventSubscriber {
     async fn owner_id(&self, doc_id: Uuid) -> anyhow::Result<Option<Uuid>> {
         sqlx::query_scalar::<_, Option<Uuid>>("SELECT owner_id FROM documents WHERE id = $1")
             .bind(doc_id)
-            .fetch_one(&self.pool)
+            .fetch_optional(&self.pool)
             .await
             .map_err(anyhow::Error::from)
+            .map(|row| row.flatten())
     }
 
     async fn mark_upsert(
