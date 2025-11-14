@@ -2,13 +2,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Error;
 use tracing::{error, info, info_span, warn};
 use uuid::Uuid;
 
 use crate::application::ports::storage_port::StoragePort;
 use crate::application::ports::storage_projection_queue::{
-    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJob,
-    StorageProjectionJobKind, StorageProjectionQueue,
+    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJob, StorageProjectionJobKind,
+    StorageProjectionQueue,
 };
 
 pub struct StorageProjectionWorker {
@@ -107,6 +108,13 @@ impl StorageProjectionWorker {
                 self.jobs.complete_job(job.id).await?;
                 info!("storage_projection_job_succeeded");
             }
+            Err(err) if missing_target(&err) => {
+                warn!(
+                    error = ?err,
+                    "storage_projection_job_missing_target_skip"
+                );
+                self.jobs.complete_job(job.id).await?;
+            }
             Err(err) => {
                 let msg = format!("{err:#}");
                 self.jobs.fail_job(job.id, &msg).await?;
@@ -185,9 +193,7 @@ impl StorageProjectionWorker {
     }
 }
 
-fn parse_delete_job_metadata(
-    reason: Option<&String>,
-) -> Option<StorageDeleteJobMetadata> {
+fn parse_delete_job_metadata(reason: Option<&String>) -> Option<StorageDeleteJobMetadata> {
     reason.and_then(|raw| {
         serde_json::from_str::<StorageJobReason<StorageDeleteJobMetadata>>(raw)
             .ok()
@@ -217,4 +223,10 @@ fn attachments_relative_path(owner_id: Uuid, repo_path: &str) -> Option<String> 
 
 fn normalize_relative_path(path: PathBuf) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+fn missing_target(err: &Error) -> bool {
+    let needle = "document not found";
+    err.chain()
+        .any(|cause| cause.to_string().to_lowercase().contains(needle))
 }

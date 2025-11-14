@@ -13,6 +13,8 @@ use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::storage_ingest_queue::{StorageIngestEvent, StorageIngestKind};
 use crate::application::ports::storage_port::StoragePort;
+use crate::application::services::documents::DocumentService;
+use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::snapshot_from_markdown;
 use crate::domain::documents::document::Document as DomainDocument;
 
@@ -27,6 +29,7 @@ pub struct StorageIngestService {
     realtime: Arc<dyn RealtimeEngine>,
     storage: Arc<dyn StoragePort>,
     events: Arc<dyn DocEventLog>,
+    document_service: Arc<DocumentService>,
 }
 
 impl StorageIngestService {
@@ -36,6 +39,7 @@ impl StorageIngestService {
         realtime: Arc<dyn RealtimeEngine>,
         storage: Arc<dyn StoragePort>,
         events: Arc<dyn DocEventLog>,
+        document_service: Arc<DocumentService>,
     ) -> Self {
         Self {
             document_repo,
@@ -43,6 +47,7 @@ impl StorageIngestService {
             realtime,
             storage,
             events,
+            document_service,
         }
     }
 
@@ -187,22 +192,29 @@ impl StorageIngestService {
         )))
     }
 
-    async fn record_doc_delete_event(
+    async fn handle_doc_delete(
         &self,
         doc: &ResolvedDocument,
         event: &StorageIngestEvent,
     ) -> anyhow::Result<()> {
-        self.events
-            .append(
-                doc.id,
-                "document.ingest_delete_detected",
-                Some(json!({
-                    "repo_path": event.repo_path,
-                    "backend": event.backend,
-                    "doc_type": doc.doc_type,
-                })),
-            )
+        match self
+            .document_service
+            .delete_for_user(doc.id, event.user_id)
             .await
+        {
+            Ok(true) => {
+                info!(
+                    doc_id = %doc.id,
+                    repo_path = event.repo_path,
+                    backend = event.backend,
+                    "storage_ingest_doc_delete_applied"
+                );
+                Ok(())
+            }
+            Ok(false) => Ok(()),
+            Err(ServiceError::NotFound) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
     }
 
     async fn reconcile_repo_path(&self, doc: &ResolvedDocument, owner_id: Uuid, rel_path: &str) {
@@ -248,7 +260,7 @@ impl StorageIngestHandler for StorageIngestService {
                     self.handle_doc_upsert(&doc, event, payload).await?;
                 }
                 StorageIngestKind::Delete => {
-                    self.record_doc_delete_event(&doc, event).await?;
+                    self.handle_doc_delete(&doc, event).await?;
                 }
             }
             return Ok(());

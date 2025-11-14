@@ -10,6 +10,7 @@ use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::operation::create_bucket::CreateBucketError;
 use aws_sdk_s3::operation::head_bucket::HeadBucketError;
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use aws_sdk_s3::{Client, error::SdkError};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
@@ -453,11 +454,13 @@ impl StoragePort for S3StoragePort {
     }
 
     async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
-        if rel.trim().is_empty() {
+        let trimmed = rel.trim_matches('/');
+        if trimmed.is_empty() {
             return Ok(());
         }
-        let key = self.relative_to_key(rel);
+        let key = self.relative_to_key(trimmed);
         self.delete_object(&key).await?;
+        self.delete_children_with_prefix(trimmed).await?;
         crate::infrastructure::storage::mark_dirty_delete_relative(&self.pool, rel).await?;
         Ok(())
     }
@@ -558,6 +561,59 @@ impl StoragePort for S3StoragePort {
             size: bytes.len() as i64,
             content_hash,
         })
+    }
+}
+
+impl S3StoragePort {
+    async fn delete_children_with_prefix(&self, rel: &str) -> anyhow::Result<()> {
+        let mut key_prefix = self.relative_to_key(rel);
+        if key_prefix.is_empty() {
+            return Ok(());
+        }
+        if !key_prefix.ends_with('/') {
+            key_prefix.push('/');
+        }
+        let mut token: Option<String> = None;
+        loop {
+            let resp = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(&key_prefix)
+                .set_continuation_token(token.clone())
+                .send()
+                .await?;
+            let objects: Vec<_> = resp
+                .contents()
+                .iter()
+                .filter_map(|obj| {
+                    obj.key().and_then(|key| {
+                        ObjectIdentifier::builder()
+                            .key(key)
+                            .build()
+                            .ok()
+                    })
+                })
+                .collect();
+            if !objects.is_empty() {
+                self.client
+                    .delete_objects()
+                    .bucket(&self.bucket)
+                    .delete(
+                        Delete::builder()
+                            .set_objects(Some(objects))
+                            .build()?,
+                    )
+                    .send()
+                    .await?;
+            }
+            if let Some(next) = resp.next_continuation_token() {
+                token = Some(next.to_string());
+            } else {
+                break;
+            }
+        }
+        Ok(())
     }
 }
 

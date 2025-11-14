@@ -177,12 +177,8 @@ impl DocumentService {
                         repo_path: repo_path.clone(),
                         doc_type: dtype.clone(),
                     };
-                    self.enqueue_folder_delete(
-                        doc_id,
-                        "delete_folder",
-                        Some(metadata),
-                    )
-                    .await;
+                    self.enqueue_folder_delete(doc_id, "delete_folder", Some(metadata))
+                        .await;
                 }
                 _ => {
                     let metadata = StorageDeleteJobMetadata {
@@ -190,12 +186,8 @@ impl DocumentService {
                         repo_path: repo_path.clone(),
                         doc_type: dtype.clone(),
                     };
-                    self.enqueue_doc_delete(
-                        doc_id,
-                        "delete_document",
-                        Some(metadata),
-                    )
-                    .await;
+                    self.enqueue_doc_delete(doc_id, "delete_document", Some(metadata))
+                        .await;
                 }
             }
             self.record_event(
@@ -640,20 +632,21 @@ impl DocumentService {
         reason: &'static str,
         metadata: Option<StorageDeleteJobMetadata>,
     ) {
-        let encoded_reason = metadata
-            .and_then(|meta| {
-                serde_json::to_string(&StorageJobReason {
-                    reason: reason.to_string(),
-                    metadata: Some(meta),
-                })
-                .ok()
-            });
-        let reason_str = encoded_reason
-            .as_deref()
-            .unwrap_or(reason);
+        let encoded_reason = metadata.and_then(|meta| {
+            serde_json::to_string(&StorageJobReason {
+                reason: reason.to_string(),
+                metadata: Some(meta),
+            })
+            .ok()
+        });
+        let reason_str = encoded_reason.as_deref().unwrap_or(reason);
         if let Err(err) = self
             .storage_jobs
-            .enqueue_doc_job(doc_id, StorageProjectionJobKind::DeleteDoc, Some(reason_str))
+            .enqueue_doc_job(
+                doc_id,
+                StorageProjectionJobKind::DeleteDoc,
+                Some(reason_str),
+            )
             .await
         {
             warn!(
@@ -688,17 +681,14 @@ impl DocumentService {
         reason: &'static str,
         metadata: Option<StorageDeleteJobMetadata>,
     ) {
-        let encoded_reason = metadata
-            .and_then(|meta| {
-                serde_json::to_string(&StorageJobReason {
-                    reason: reason.to_string(),
-                    metadata: Some(meta),
-                })
-                .ok()
-            });
-        let reason_str = encoded_reason
-            .as_deref()
-            .unwrap_or(reason);
+        let encoded_reason = metadata.and_then(|meta| {
+            serde_json::to_string(&StorageJobReason {
+                reason: reason.to_string(),
+                metadata: Some(meta),
+            })
+            .ok()
+        });
+        let reason_str = encoded_reason.as_deref().unwrap_or(reason);
         if let Err(err) = self
             .storage_jobs
             .enqueue_folder_job(

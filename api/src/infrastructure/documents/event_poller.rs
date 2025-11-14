@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use sqlx::{pool::PoolConnection, postgres::Postgres, Row};
+use sqlx::{Row, pool::PoolConnection, postgres::Postgres};
 use tracing::{error, info, warn};
 
 use crate::application::services::doc_events::{DocEventRecord, DocEventSubscriber};

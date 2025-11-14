@@ -720,6 +720,7 @@ async fn main() -> anyhow::Result<()> {
             realtime_engine.clone(),
             storage_port.clone(),
             doc_event_log.clone(),
+            document_service.clone(),
         ));
         let worker = Arc::new(StorageIngestWorker::new(
             storage_ingest_queue.clone(),
