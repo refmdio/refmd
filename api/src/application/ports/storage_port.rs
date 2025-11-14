@@ -25,6 +25,7 @@ pub trait StoragePort: Send + Sync {
     async fn read_bytes(&self, abs_path: &Path) -> anyhow::Result<Vec<u8>>;
     async fn exists(&self, abs_path: &Path) -> anyhow::Result<bool>;
     async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> anyhow::Result<()>;
+    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()>;
     async fn store_doc_attachment(
         &self,
         doc_id: Uuid,

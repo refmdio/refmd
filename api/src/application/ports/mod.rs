@@ -30,6 +30,7 @@ pub mod shares_repository;
 pub mod storage_ingest_queue;
 pub mod storage_port;
 pub mod storage_projection_queue;
+pub mod storage_reconcile_jobs;
 pub mod tag_repository;
 pub mod tagging_repository;
 pub mod user_repository;

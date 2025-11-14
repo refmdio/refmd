@@ -452,6 +452,16 @@ impl StoragePort for S3StoragePort {
         Ok(())
     }
 
+    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
+        if rel.trim().is_empty() {
+            return Ok(());
+        }
+        let key = self.relative_to_key(rel);
+        self.delete_object(&key).await?;
+        crate::infrastructure::storage::mark_dirty_delete_relative(&self.pool, rel).await?;
+        Ok(())
+    }
+
     async fn store_doc_attachment(
         &self,
         doc_id: Uuid,

@@ -23,6 +23,7 @@ use api::application::ports::plugin_package_fetcher::PluginPackageFetcher;
 use api::application::ports::plugin_runtime::PluginRuntime;
 use api::application::ports::storage_ingest_queue::StorageIngestQueue;
 use api::application::ports::storage_projection_queue::StorageProjectionQueue;
+use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
 use api::application::services::api_tokens::ApiTokenService;
 use api::application::services::auth::account::AccountService;
 use api::application::services::auth::service::AuthService;
@@ -44,6 +45,10 @@ use api::application::services::plugins::permissions::PluginPermissionService;
 use api::application::services::public::PublicService;
 use api::application::services::shares::ShareService;
 use api::application::services::storage_ingest::StorageIngestService;
+use api::application::services::storage_reconcile::{
+    FsReconcileBackend, S3ReconcileBackend, StorageReconcileBackend, StorageReconcileService,
+};
+use api::application::services::storage_reconcile_scheduler::StorageReconcileScheduler;
 use api::application::services::tags::TagService;
 use api::application::services::user_shortcuts::UserShortcutService;
 use api::bootstrap::config::{Config, StorageBackend};
@@ -54,8 +59,8 @@ use api::infrastructure::documents::exporter::DefaultDocumentExporter;
 use api::infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
 use api::infrastructure::plugins::filesystem_store::PluginExecutionLimits;
 use api::infrastructure::storage::{
-    FsIngestWatcher, PgStorageIngestQueue, PgStorageProjectionQueue, StorageConsistencyMonitor,
-    StorageIngestWorker, StorageProjectionWorker,
+    FsIngestWatcher, PgStorageIngestQueue, PgStorageProjectionQueue, PgStorageReconcileJobs,
+    StorageConsistencyMonitor, StorageIngestWorker, StorageProjectionWorker,
 };
 use api::presentation::context::{AppContext, AppServices, PresentationConfig};
 use utoipa::OpenApi;
@@ -239,14 +244,17 @@ async fn main() -> anyhow::Result<()> {
     let asset_signer = Arc::new(AssetSigner::new(&cfg.plugin_asset_sign_key));
 
     let uploads_root = std::path::PathBuf::from(&cfg.storage_root);
-    let storage_port: Arc<dyn api::application::ports::storage_port::StoragePort> = match cfg
-        .storage_backend
-    {
+    let (storage_port, reconcile_backend): (
+        Arc<dyn api::application::ports::storage_port::StoragePort>,
+        Arc<dyn StorageReconcileBackend>,
+    ) = match cfg.storage_backend {
         StorageBackend::Filesystem => {
-            Arc::new(api::infrastructure::storage::port_impl::FsStoragePort {
+            let port = Arc::new(api::infrastructure::storage::port_impl::FsStoragePort {
                 pool: pool.clone(),
                 uploads_root: uploads_root.clone(),
-            })
+            });
+            let backend = FsReconcileBackend::new(uploads_root.clone());
+            (port, backend)
         }
         StorageBackend::S3 => {
             let s3_settings = api::infrastructure::storage::s3::S3StorageConfig {
@@ -261,10 +269,12 @@ async fn main() -> anyhow::Result<()> {
                 secret_key: cfg.s3_secret_key.clone(),
                 use_path_style: cfg.s3_use_path_style,
             };
-            Arc::new(
+            let port = Arc::new(
                 api::infrastructure::storage::s3::S3StoragePort::new(pool.clone(), &s3_settings)
                     .await?,
-            )
+            );
+            let backend = S3ReconcileBackend::new(&s3_settings).await?;
+            (port, backend)
         }
     };
 
@@ -301,6 +311,8 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
     let doc_event_log: Arc<dyn DocEventLog> = Arc::new(PgDocEventLog::new(pool.clone()));
+    let storage_reconcile_jobs: Arc<dyn StorageReconcileJobs> =
+        Arc::new(PgStorageReconcileJobs::new(pool.clone()));
     let logging_subscriber: Arc<dyn DocEventSubscriber> = LoggingDocEventSubscriber::new();
     let git_dirty_subscriber: Arc<dyn DocEventSubscriber> =
         GitDirtyDocEventSubscriber::new(pool.clone());
@@ -368,6 +380,50 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    {
+        let reconcile_service = Arc::new(StorageReconcileService::new(
+            storage_reconcile_jobs.clone(),
+            document_repo.clone(),
+            storage_ingest_queue.clone(),
+            reconcile_backend.clone(),
+        ));
+        tokio::spawn({
+            let svc = reconcile_service.clone();
+            async move {
+                svc.run().await;
+            }
+        });
+        let scheduler = StorageReconcileScheduler::new(
+            storage_reconcile_jobs.clone(),
+            user_repo.clone(),
+            Duration::from_secs(60 * 60),
+        );
+        tokio::spawn(async move {
+            scheduler.run().await;
+        });
+    }
+    {
+        let reconcile_service = Arc::new(StorageReconcileService::new(
+            storage_reconcile_jobs.clone(),
+            document_repo.clone(),
+            storage_ingest_queue.clone(),
+            reconcile_backend.clone(),
+        ));
+        tokio::spawn({
+            let svc = reconcile_service.clone();
+            async move {
+                svc.run().await;
+            }
+        });
+        let scheduler = StorageReconcileScheduler::new(
+            storage_reconcile_jobs.clone(),
+            user_repo.clone(),
+            Duration::from_secs(60 * 60),
+        );
+        tokio::spawn(async move {
+            scheduler.run().await;
+        });
+    }
     let tag_repo = Arc::new(
         api::infrastructure::db::repositories::tag_repository_sqlx::SqlxTagRepository::new(
             pool.clone(),

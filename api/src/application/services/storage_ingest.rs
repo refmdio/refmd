@@ -216,11 +216,22 @@ impl StorageIngestHandler for StorageIngestService {
             return Ok(());
         }
 
-        warn!(
-            user_id = %event.user_id,
-            repo_path = event.repo_path,
-            "storage_ingest_no_target_found"
-        );
+        if event.kind == StorageIngestKind::Delete {
+            self.storage.delete_relative_path(&rel_path).await?;
+            info!(
+                user_id = %event.user_id,
+                repo_path = event.repo_path,
+                backend = event.backend,
+                "storage_ingest_orphan_deleted"
+            );
+        } else {
+            warn!(
+                user_id = %event.user_id,
+                repo_path = event.repo_path,
+                backend = event.backend,
+                "storage_ingest_no_target_found"
+            );
+        }
         Ok(())
     }
 }

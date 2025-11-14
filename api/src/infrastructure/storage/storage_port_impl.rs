@@ -160,6 +160,27 @@ impl StoragePort for FsStoragePort {
         Ok(())
     }
 
+    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
+        use std::io::ErrorKind;
+
+        let abs = self.absolute_from_relative(rel);
+        if tokio::fs::try_exists(&abs).await.unwrap_or(false) {
+            match tokio::fs::metadata(&abs).await {
+                Ok(meta) => {
+                    if meta.is_dir() {
+                        tokio::fs::remove_dir_all(&abs).await?;
+                    } else {
+                        tokio::fs::remove_file(&abs).await?;
+                    }
+                }
+                Err(err) if err.kind() == ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
+            crate::infrastructure::storage::mark_dirty_delete_relative(&self.pool, rel).await?;
+        }
+        Ok(())
+    }
+
     async fn store_doc_attachment(
         &self,
         doc_id: Uuid,

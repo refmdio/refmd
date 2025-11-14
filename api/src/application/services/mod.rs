@@ -15,6 +15,8 @@ pub mod public;
 pub mod realtime;
 pub mod shares;
 pub mod storage_ingest;
+pub mod storage_reconcile;
+pub mod storage_reconcile_scheduler;
 pub mod tagging;
 pub mod tags;
 pub mod user_shortcuts;
