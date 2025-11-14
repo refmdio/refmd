@@ -384,6 +384,7 @@ async fn main() -> anyhow::Result<()> {
         let reconcile_service = Arc::new(StorageReconcileService::new(
             storage_reconcile_jobs.clone(),
             document_repo.clone(),
+            files_repo.clone(),
             storage_ingest_queue.clone(),
             reconcile_backend.clone(),
         ));
@@ -406,6 +407,7 @@ async fn main() -> anyhow::Result<()> {
         let reconcile_service = Arc::new(StorageReconcileService::new(
             storage_reconcile_jobs.clone(),
             document_repo.clone(),
+            files_repo.clone(),
             storage_ingest_queue.clone(),
             reconcile_backend.clone(),
         ));

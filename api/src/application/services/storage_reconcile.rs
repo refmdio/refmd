@@ -11,6 +11,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::application::ports::document_repository::DocumentRepository;
+use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
 use crate::application::ports::storage_reconcile_jobs::{
     StorageReconcileJob, StorageReconcileJobs,
@@ -20,6 +21,7 @@ use crate::infrastructure::storage::s3::S3StorageConfig;
 pub struct StorageReconcileService {
     jobs: Arc<dyn StorageReconcileJobs>,
     documents: Arc<dyn DocumentRepository>,
+    files: Arc<dyn FilesRepository>,
     ingest_queue: Arc<dyn StorageIngestQueue>,
     backend: Arc<dyn StorageReconcileBackend>,
 }
@@ -28,12 +30,14 @@ impl StorageReconcileService {
     pub fn new(
         jobs: Arc<dyn StorageReconcileJobs>,
         documents: Arc<dyn DocumentRepository>,
+        files: Arc<dyn FilesRepository>,
         ingest_queue: Arc<dyn StorageIngestQueue>,
         backend: Arc<dyn StorageReconcileBackend>,
     ) -> Self {
         Self {
             jobs,
             documents,
+            files,
             ingest_queue,
             backend,
         }
@@ -46,6 +50,9 @@ impl StorageReconcileService {
             if let Some(doc) = self.documents.get_by_id(doc_id).await? {
                 if let Some(path) = doc.path {
                     paths.insert(path);
+                }
+                for attachment_path in self.files.list_storage_paths_for_document(doc.id).await? {
+                    paths.insert(attachment_path);
                 }
             }
         }

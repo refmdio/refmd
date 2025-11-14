@@ -49,7 +49,8 @@ impl StorageIngestQueue for PgStorageIngestQueue {
             r#"
             INSERT INTO storage_ingest_queue (user_id, repo_path, backend, event_kind, content_hash, payload, attempts, locked_at)
             VALUES ($1, $2, $3, $4, $5, $6, 0, NULL)
-            ON CONFLICT ON CONSTRAINT storage_ingest_queue_user_repo_backend_unique
+            ON CONFLICT (user_id, repo_path, backend)
+            WHERE locked_at IS NULL
             DO UPDATE SET event_kind = EXCLUDED.event_kind,
                           content_hash = EXCLUDED.content_hash,
                           payload = EXCLUDED.payload,
