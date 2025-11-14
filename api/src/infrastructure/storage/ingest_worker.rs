@@ -66,11 +66,13 @@ impl StorageIngestWorker {
     async fn process_event(&self, event: StorageIngestEvent) -> anyhow::Result<()> {
         match self.handler.handle_event(&event).await {
             Ok(()) => {
-                self.queue.complete_event(event.id).await?;
+                self.queue.complete_event(event.id, event.locked_at).await?;
                 Ok(())
             }
             Err(err) => {
-                self.queue.fail_event(event.id, &format!("{err:#}")).await?;
+                self.queue
+                    .fail_event(event.id, event.locked_at, &format!("{err:#}"))
+                    .await?;
                 warn!(error = ?err, "storage_ingest_handler_failed");
                 Ok(())
             }

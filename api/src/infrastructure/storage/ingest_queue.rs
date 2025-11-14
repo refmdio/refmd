@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
@@ -53,18 +54,9 @@ impl StorageIngestQueue for PgStorageIngestQueue {
             DO UPDATE SET event_kind = EXCLUDED.event_kind,
                           content_hash = EXCLUDED.content_hash,
                           payload = EXCLUDED.payload,
-                          attempts = CASE
-                              WHEN storage_ingest_queue.locked_at IS NULL THEN 0
-                              ELSE storage_ingest_queue.attempts
-                          END,
-                          locked_at = CASE
-                              WHEN storage_ingest_queue.locked_at IS NULL THEN NULL
-                              ELSE storage_ingest_queue.locked_at
-                          END,
-                          created_at = CASE
-                              WHEN storage_ingest_queue.locked_at IS NULL THEN now()
-                              ELSE storage_ingest_queue.created_at
-                          END
+                          attempts = 0,
+                          locked_at = NULL,
+                          created_at = now()
             "#,
         )
         .bind(user_id)
@@ -106,6 +98,8 @@ impl StorageIngestQueue for PgStorageIngestQueue {
         let kind: String = row.get("event_kind");
         let kind = Self::str_to_kind(&kind)?;
 
+        let locked_at: DateTime<Utc> = row.get("locked_at");
+
         Ok(Some(StorageIngestEvent {
             id: row.get("id"),
             user_id: row.get("user_id"),
@@ -115,18 +109,25 @@ impl StorageIngestQueue for PgStorageIngestQueue {
             content_hash: row.try_get("content_hash").ok(),
             payload: row.try_get::<Option<Value>, _>("payload").unwrap_or(None),
             attempts: row.try_get("attempts").unwrap_or_default(),
+            locked_at,
         }))
     }
 
-    async fn complete_event(&self, event_id: i64) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM storage_ingest_queue WHERE id = $1")
+    async fn complete_event(&self, event_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM storage_ingest_queue WHERE id = $1 AND locked_at = $2")
             .bind(event_id)
+            .bind(locked_at)
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 
-    async fn fail_event(&self, event_id: i64, error: &str) -> anyhow::Result<()> {
+    async fn fail_event(
+        &self,
+        event_id: i64,
+        locked_at: DateTime<Utc>,
+        error: &str,
+    ) -> anyhow::Result<()> {
         sqlx::query(
             r#"
             UPDATE storage_ingest_queue
@@ -138,11 +139,12 @@ impl StorageIngestQueue for PgStorageIngestQueue {
                     to_jsonb($2::text),
                     true
                 )
-            WHERE id = $1
+            WHERE id = $1 AND locked_at = $3
             "#,
         )
         .bind(event_id)
         .bind(error)
+        .bind(locked_at)
         .execute(&self.pool)
         .await?;
         Ok(())
