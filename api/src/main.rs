@@ -403,29 +403,6 @@ async fn main() -> anyhow::Result<()> {
             scheduler.run().await;
         });
     }
-    {
-        let reconcile_service = Arc::new(StorageReconcileService::new(
-            storage_reconcile_jobs.clone(),
-            document_repo.clone(),
-            files_repo.clone(),
-            storage_ingest_queue.clone(),
-            reconcile_backend.clone(),
-        ));
-        tokio::spawn({
-            let svc = reconcile_service.clone();
-            async move {
-                svc.run().await;
-            }
-        });
-        let scheduler = StorageReconcileScheduler::new(
-            storage_reconcile_jobs.clone(),
-            user_repo.clone(),
-            Duration::from_secs(60 * 60),
-        );
-        tokio::spawn(async move {
-            scheduler.run().await;
-        });
-    }
     let tag_repo = Arc::new(
         api::infrastructure::db::repositories::tag_repository_sqlx::SqlxTagRepository::new(
             pool.clone(),

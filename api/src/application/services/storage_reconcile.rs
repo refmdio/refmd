@@ -18,6 +18,8 @@ use crate::application::ports::storage_reconcile_jobs::{
 };
 use crate::infrastructure::storage::s3::S3StorageConfig;
 
+const RESERVED_REPO_PATHS: &[&str] = &[".gitignore"]; // Files managed outside Document/Files repos
+
 pub struct StorageReconcileService {
     jobs: Arc<dyn StorageReconcileJobs>,
     documents: Arc<dyn DocumentRepository>,
@@ -55,6 +57,9 @@ impl StorageReconcileService {
                     paths.insert(attachment_path);
                 }
             }
+        }
+        for reserved in reserved_storage_paths(user_id) {
+            paths.insert(reserved);
         }
         Ok(paths)
     }
@@ -239,6 +244,24 @@ fn normalize_prefix(root: &Path) -> String {
         }
     }
     parts.join("/")
+}
+
+fn reserved_storage_paths(user_id: Uuid) -> impl Iterator<Item = String> {
+    RESERVED_REPO_PATHS
+        .iter()
+        .map(move |rel| format!("{}/{}", user_id, rel.trim_start_matches('/')))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reserved_paths_are_under_user_root() {
+        let user = Uuid::new_v4();
+        let collected: Vec<String> = reserved_storage_paths(user).collect();
+        assert_eq!(collected, vec![format!("{}/.gitignore", user)]);
+    }
 }
 
 #[async_trait::async_trait]

@@ -663,16 +663,50 @@ impl DocumentService {
     }
 
     async fn repo_path_for_doc(&self, doc_id: Uuid) -> Option<String> {
+        if let Ok(Some(doc)) = self.document_repo.get_by_id(doc_id).await {
+            if let Some(path) = doc.path {
+                return repo_path_from_relative(&path);
+            }
+        }
         match self.storage.build_doc_file_path(doc_id).await {
             Ok(path) => {
                 let relative = self.storage.relative_from_uploads(path.as_path());
-                relative
-                    .split_once('/')
-                    .map(|(_, rest)| rest.to_string())
-                    .or_else(|| Some(relative))
+                repo_path_from_relative(&relative)
             }
             Err(_) => None,
         }
+    }
+}
+
+fn repo_path_from_relative(relative: &str) -> Option<String> {
+    let trimmed = relative.trim_start_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    trimmed
+        .split_once('/')
+        .map(|(_, rest)| rest.to_string())
+        .or_else(|| Some(trimmed.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repo_path_from_relative;
+
+    #[test]
+    fn repo_path_drops_owner_prefix() {
+        let owner = uuid::Uuid::new_v4();
+        let rel = format!("{}/notes/foo.md", owner);
+        assert_eq!(repo_path_from_relative(&rel), Some("notes/foo.md".to_string()));
+    }
+
+    #[test]
+    fn repo_path_handles_missing_repo_segment() {
+        let rel = "";
+        assert_eq!(repo_path_from_relative(rel), None);
+
+        let rel2 = "leading-no-owner";
+        assert_eq!(repo_path_from_relative(rel2), Some("leading-no-owner".to_string()));
     }
 }
 
