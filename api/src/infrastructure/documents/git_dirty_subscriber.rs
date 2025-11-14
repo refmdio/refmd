@@ -27,6 +27,29 @@ impl GitDirtyDocEventSubscriber {
             .map(|row| row.flatten())
     }
 
+    async fn doc_type(&self, doc_id: Uuid) -> anyhow::Result<Option<String>> {
+        sqlx::query_scalar::<_, Option<String>>("SELECT type FROM documents WHERE id = $1")
+            .bind(doc_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(anyhow::Error::from)
+            .map(|row| row.flatten())
+    }
+
+    async fn is_folder_event(
+        &self,
+        doc_id: Uuid,
+        doc_type_hint: &mut Option<String>,
+    ) -> anyhow::Result<bool> {
+        if matches!(doc_type_hint.as_deref(), Some("folder")) {
+            return Ok(true);
+        }
+        if doc_type_hint.is_none() {
+            *doc_type_hint = self.doc_type(doc_id).await?;
+        }
+        Ok(matches!(doc_type_hint.as_deref(), Some("folder")))
+    }
+
     async fn mark_upsert(
         &self,
         doc_id: Uuid,
@@ -72,6 +95,7 @@ impl GitDirtyDocEventSubscriber {
 impl DocEventSubscriber for GitDirtyDocEventSubscriber {
     async fn handle_event(&self, event: &DocEventRecord) -> anyhow::Result<()> {
         let owner_hint = owner_id_from_payload(event.payload.as_ref());
+        let mut doc_type_hint = doc_type_from_payload(event.payload.as_ref());
         match event.event_type.as_str() {
             "document.ingest_upsert"
             | "document.created"
@@ -79,13 +103,25 @@ impl DocEventSubscriber for GitDirtyDocEventSubscriber {
             | "document.metadata_updated"
             | "document.archived"
             | "document.unarchived" => {
+                if self
+                    .is_folder_event(event.doc_id, &mut doc_type_hint)
+                    .await?
+                {
+                    return Ok(());
+                }
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
                     let hash = content_hash_from_payload(event.payload.as_ref());
                     self.mark_upsert(event.doc_id, owner_hint, &repo_path, true, hash)
                         .await?;
                 }
             }
-            "document.deleted" => {
+            "document.ingest_delete_detected" | "document.deleted" => {
+                if self
+                    .is_folder_event(event.doc_id, &mut doc_type_hint)
+                    .await?
+                {
+                    return Ok(());
+                }
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
                     self.mark_delete(event.doc_id, owner_hint, &repo_path)
                         .await?;
@@ -118,6 +154,13 @@ impl DocEventSubscriber for GitDirtyDocEventSubscriber {
 fn repo_path_from_payload(payload: Option<&Value>) -> Option<String> {
     payload
         .and_then(|p| p.get("repo_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+fn doc_type_from_payload(payload: Option<&Value>) -> Option<String> {
+    payload
+        .and_then(|p| p.get("doc_type"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
 }

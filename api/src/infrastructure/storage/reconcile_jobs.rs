@@ -26,7 +26,12 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
             INSERT INTO storage_reconcile_jobs (user_id, scope, attempts, locked_at, last_error)
             VALUES ($1, $2, 0, NULL, NULL)
             ON CONFLICT ON CONSTRAINT storage_reconcile_jobs_user_scope_unique
-            DO UPDATE SET attempts = 0, locked_at = NULL, last_error = NULL, updated_at = now()
+            DO UPDATE
+            SET attempts = 0,
+                locked_at = NULL,
+                last_error = NULL,
+                updated_at = now()
+            WHERE storage_reconcile_jobs.locked_at IS NULL
             "#,
         )
         .bind(user_id)

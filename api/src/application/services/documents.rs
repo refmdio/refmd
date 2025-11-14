@@ -133,6 +133,7 @@ impl DocumentService {
                 "parent_id": doc.parent_id,
                 "doc_type": doc.doc_type,
                 "repo_path": repo_path,
+                "owner_id": user_id,
             })),
         )
         .await;
@@ -160,7 +161,6 @@ impl DocumentService {
         let repo_path = meta.path.as_deref().and_then(repo_path_from_relative);
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
-            storage: self.storage.as_ref(),
         };
         let result = uc
             .execute(doc_id, user_id)
@@ -246,7 +246,10 @@ impl DocumentService {
         self.record_event(
             doc.id,
             "document.content_updated",
-            Some(json!({ "repo_path": repo_path })),
+            Some(json!({
+                "repo_path": repo_path,
+                "doc_type": doc.doc_type,
+            })),
         )
         .await;
         Ok(doc)
@@ -289,8 +292,6 @@ impl DocumentService {
         }
         let uc = UpdateDocument {
             repo: self.document_repo.as_ref(),
-            storage: self.storage.as_ref(),
-            realtime: self.realtime.as_ref(),
         };
         let doc = uc
             .execute(doc_id, user_id, title, parent_id)
@@ -307,6 +308,8 @@ impl DocumentService {
                 "title": doc.title,
                 "parent_id": doc.parent_id,
                 "repo_path": repo_path,
+                "doc_type": doc.doc_type,
+                "owner_id": user_id,
             })),
         )
         .await;
@@ -325,7 +328,6 @@ impl DocumentService {
         let uc = ArchiveDocument {
             repo: self.document_repo.as_ref(),
             realtime: self.realtime.as_ref(),
-            storage: self.storage.as_ref(),
         };
         let doc = uc
             .execute(user_id, doc_id)
@@ -338,7 +340,11 @@ impl DocumentService {
         self.record_event(
             doc.id,
             "document.archived",
-            Some(json!({ "repo_path": repo_path })),
+            Some(json!({
+                "repo_path": repo_path,
+                "doc_type": doc.doc_type,
+                "owner_id": user_id,
+            })),
         )
         .await;
         Ok(doc)
@@ -368,7 +374,11 @@ impl DocumentService {
         self.record_event(
             doc.id,
             "document.unarchived",
-            Some(json!({ "repo_path": repo_path })),
+            Some(json!({
+                "repo_path": repo_path,
+                "doc_type": doc.doc_type,
+                "owner_id": user_id,
+            })),
         )
         .await;
         Ok(doc)

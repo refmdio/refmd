@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
@@ -52,21 +53,11 @@ impl StorageIngestService {
 
     async fn handle_doc_upsert(
         &self,
-        doc: DomainDocument,
-        rel_path: &str,
+        doc: &ResolvedDocument,
         event: &StorageIngestEvent,
+        payload: MarkdownIngestPayload,
     ) -> anyhow::Result<()> {
-        let abs = self.storage.absolute_from_relative(rel_path);
-        let bytes = self.storage.read_bytes(abs.as_path()).await?;
-        let mut hasher = Sha256::new();
-        hasher.update(&bytes);
-        let digest = hasher.finalize();
-        let hash = digest
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
-        let markdown = String::from_utf8(bytes)?;
-        let snapshot = snapshot_from_markdown(&markdown);
+        let snapshot = snapshot_from_markdown(&payload.body);
         self.realtime
             .apply_snapshot(&doc.id.to_string(), snapshot.as_slice())
             .await?;
@@ -84,7 +75,8 @@ impl StorageIngestService {
                 Some(json!({
                     "repo_path": event.repo_path,
                     "backend": event.backend,
-                    "content_hash": hash,
+                    "content_hash": payload.content_hash,
+                    "doc_type": doc.doc_type,
                 })),
             )
             .await?;
@@ -166,6 +158,48 @@ impl StorageIngestService {
         );
         Ok(())
     }
+
+    async fn load_markdown_payload(&self, rel_path: &str) -> anyhow::Result<MarkdownIngestPayload> {
+        let abs = self.storage.absolute_from_relative(rel_path);
+        let bytes = self.storage.read_bytes(abs.as_path()).await?;
+        parse_markdown_payload(bytes)
+    }
+
+    async fn resolve_doc_from_front_matter(
+        &self,
+        user_id: Uuid,
+        payload: &MarkdownIngestPayload,
+    ) -> anyhow::Result<Option<ResolvedDocument>> {
+        let Some(doc_id) = payload.doc_id_hint else {
+            return Ok(None);
+        };
+        let Some(meta) = self
+            .document_repo
+            .get_meta_for_owner(doc_id, user_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(ResolvedDocument::new(doc_id, meta.doc_type)))
+    }
+
+    async fn record_doc_delete_event(
+        &self,
+        doc: &ResolvedDocument,
+        event: &StorageIngestEvent,
+    ) -> anyhow::Result<()> {
+        self.events
+            .append(
+                doc.id,
+                "document.ingest_delete_detected",
+                Some(json!({
+                    "repo_path": event.repo_path,
+                    "backend": event.backend,
+                    "doc_type": doc.doc_type,
+                })),
+            )
+            .await
+    }
 }
 
 #[async_trait]
@@ -177,20 +211,25 @@ impl StorageIngestHandler for StorageIngestService {
             .document_repo
             .get_by_owner_and_path(event.user_id, &rel_path)
             .await?
+            .map(ResolvedDocument::from)
         {
-            if event.kind == StorageIngestKind::Upsert {
-                return self.handle_doc_upsert(doc, &rel_path, event).await;
+            if doc.is_folder() {
+                warn!(
+                    doc_id = %doc.id,
+                    repo_path = event.repo_path,
+                    "storage_ingest_folder_event_skipped"
+                );
+                return Ok(());
             }
-            self.events
-                .append(
-                    doc.id,
-                    "document.ingest_delete_detected",
-                    Some(json!({
-                        "repo_path": event.repo_path,
-                        "backend": event.backend
-                    })),
-                )
-                .await?;
+            match event.kind {
+                StorageIngestKind::Upsert => {
+                    let payload = self.load_markdown_payload(&rel_path).await?;
+                    self.handle_doc_upsert(&doc, event, payload).await?;
+                }
+                StorageIngestKind::Delete => {
+                    self.record_doc_delete_event(&doc, event).await?;
+                }
+            }
             return Ok(());
         }
 
@@ -216,6 +255,25 @@ impl StorageIngestHandler for StorageIngestService {
             return Ok(());
         }
 
+        if event.kind == StorageIngestKind::Upsert && rel_path.ends_with(".md") {
+            let payload = self.load_markdown_payload(&rel_path).await?;
+            if let Some(doc) = self
+                .resolve_doc_from_front_matter(event.user_id, &payload)
+                .await?
+            {
+                if doc.is_folder() {
+                    warn!(
+                        doc_id = %doc.id,
+                        repo_path = event.repo_path,
+                        "storage_ingest_folder_event_skipped"
+                    );
+                } else {
+                    self.handle_doc_upsert(&doc, event, payload).await?;
+                }
+                return Ok(());
+            }
+        }
+
         if event.kind == StorageIngestKind::Delete {
             self.storage.delete_relative_path(&rel_path).await?;
             info!(
@@ -234,4 +292,97 @@ impl StorageIngestHandler for StorageIngestService {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedDocument {
+    id: Uuid,
+    doc_type: String,
+}
+
+impl ResolvedDocument {
+    fn new(id: Uuid, doc_type: String) -> Self {
+        Self { id, doc_type }
+    }
+
+    fn is_folder(&self) -> bool {
+        self.doc_type == "folder"
+    }
+}
+
+impl From<DomainDocument> for ResolvedDocument {
+    fn from(value: DomainDocument) -> Self {
+        Self::new(value.id, value.doc_type)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MarkdownIngestPayload {
+    doc_id_hint: Option<Uuid>,
+    body: String,
+    content_hash: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MarkdownFrontMatter {
+    id: Option<Uuid>,
+}
+
+fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownIngestPayload> {
+    let content_hash = sha256_hex(&bytes);
+    let text = String::from_utf8(bytes)?;
+    let (front_matter, body) = split_front_matter(&text);
+    let doc_id_hint = front_matter
+        .and_then(|raw| serde_yaml::from_str::<MarkdownFrontMatter>(raw).ok())
+        .and_then(|fm| fm.id);
+    Ok(MarkdownIngestPayload {
+        doc_id_hint,
+        body: body.trim_start_matches('\u{feff}').to_string(),
+        content_hash,
+    })
+}
+
+fn split_front_matter(input: &str) -> (Option<&str>, &str) {
+    let text = input.trim_start_matches('\u{feff}');
+    let Some(after_open) = text
+        .strip_prefix("---\r\n")
+        .or_else(|| text.strip_prefix("---\n"))
+    else {
+        return (None, text);
+    };
+    if let Some((front_len, body_start)) = find_front_matter_end(after_open) {
+        let front = &after_open[..front_len];
+        let body = &after_open[body_start..];
+        return (Some(front), body);
+    }
+    (None, text)
+}
+
+fn find_front_matter_end(s: &str) -> Option<(usize, usize)> {
+    let bytes = s.as_bytes();
+    let mut idx = 0;
+    while idx < bytes.len() {
+        if bytes[idx] == b'\n' {
+            let after_newline = &s[idx + 1..];
+            if after_newline.starts_with("---") {
+                let mut body_start = idx + 1 + 3;
+                let remainder = &s[body_start..];
+                if remainder.starts_with("\r\n") {
+                    body_start += 2;
+                } else if remainder.starts_with('\n') {
+                    body_start += 1;
+                }
+                return Some((idx, body_start));
+            }
+        }
+        idx += 1;
+    }
+    None
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
