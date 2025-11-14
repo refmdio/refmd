@@ -97,17 +97,37 @@ impl DocEventSubscriber for GitDirtyDocEventSubscriber {
         let owner_hint = owner_id_from_payload(event.payload.as_ref());
         let mut doc_type_hint = doc_type_from_payload(event.payload.as_ref());
         match event.event_type.as_str() {
-            "document.ingest_upsert"
-            | "document.created"
-            | "document.content_updated"
-            | "document.metadata_updated"
-            | "document.archived"
-            | "document.unarchived" => {
+            "document.ingest_upsert" | "document.created" | "document.content_updated" => {
                 if self
                     .is_folder_event(event.doc_id, &mut doc_type_hint)
                     .await?
                 {
                     return Ok(());
+                }
+                if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
+                    let hash = content_hash_from_payload(event.payload.as_ref());
+                    self.mark_upsert(event.doc_id, owner_hint, &repo_path, true, hash)
+                        .await?;
+                }
+            }
+            "document.metadata_updated" | "document.archived" | "document.unarchived" => {
+                if self
+                    .is_folder_event(event.doc_id, &mut doc_type_hint)
+                    .await?
+                {
+                    if let Some(prev_repo_path) =
+                        previous_repo_path_from_payload(event.payload.as_ref())
+                    {
+                        self.mark_delete(event.doc_id, owner_hint, &prev_repo_path)
+                            .await?;
+                    }
+                    return Ok(());
+                }
+                if let Some(prev_repo_path) =
+                    previous_repo_path_from_payload(event.payload.as_ref())
+                {
+                    self.mark_delete(event.doc_id, owner_hint, &prev_repo_path)
+                        .await?;
                 }
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
                     let hash = content_hash_from_payload(event.payload.as_ref());
@@ -176,4 +196,11 @@ fn owner_id_from_payload(payload: Option<&Value>) -> Option<Uuid> {
         .and_then(|p| p.get("owner_id"))
         .and_then(|v| v.as_str())
         .and_then(|raw| Uuid::parse_str(raw).ok())
+}
+
+fn previous_repo_path_from_payload(payload: Option<&Value>) -> Option<String> {
+    payload
+        .and_then(|p| p.get("previous_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }

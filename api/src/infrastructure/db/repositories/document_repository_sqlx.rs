@@ -399,12 +399,11 @@ impl DocumentRepository for SqlxDocumentRepository {
                 r#"UPDATE documents SET
                         title = $1,
                         parent_id = $2,
-                            slug = $3,
-                            desired_path = $4,
-                            path = $5,
-                            path_digest = $6,
-                            updated_at = now()
-                        WHERE id = $7 AND owner_id = $8
+                        slug = $3,
+                        desired_path = $4,
+                        path_digest = $5,
+                        updated_at = now()
+                    WHERE id = $6 AND owner_id = $7
                     RETURNING id, owner_id, title, parent_id, type, created_at, updated_at,
                               slug, desired_path, path,
                               archived_at, archived_by, archived_parent_id"#,
@@ -413,7 +412,6 @@ impl DocumentRepository for SqlxDocumentRepository {
             .bind(next_parent)
             .bind(&slug)
             .bind(&desired_path)
-            .bind(&repo_path)
             .bind(&path_digest)
             .bind(id)
             .bind(user_id)

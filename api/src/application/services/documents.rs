@@ -211,6 +211,7 @@ impl DocumentService {
                     "slug": meta.slug,
                     "desired_path": meta.desired_path,
                     "owner_id": user_id,
+                    "previous_path": owner_repo_relative(user_id, meta.path.as_deref()),
                 })),
             )
             .await;
@@ -328,6 +329,7 @@ impl DocumentService {
         if let Some(Some(parent)) = parent_id {
             self.ensure_active_parent(user_id, parent).await?;
         }
+        let previous_repo_path = owner_repo_relative(user_id, meta.path.as_deref());
         let uc = UpdateDocument {
             repo: self.document_repo.as_ref(),
         };
@@ -352,6 +354,8 @@ impl DocumentService {
                 "slug": doc.slug,
                 "desired_path": doc.desired_path,
                 "owner_id": doc.owner_id,
+                "previous_path": previous_repo_path,
+                "previous_desired_path": meta.desired_path,
             })),
         )
         .await;
@@ -368,6 +372,7 @@ impl DocumentService {
         if meta.archived_at.is_some() {
             return Err(ServiceError::Conflict);
         }
+        let previous_repo_path = owner_repo_relative(user_id, meta.path.as_deref());
         let uc = ArchiveDocument {
             repo: self.document_repo.as_ref(),
             realtime: self.realtime.as_ref(),
@@ -391,6 +396,8 @@ impl DocumentService {
                 "slug": doc.slug,
                 "desired_path": doc.desired_path,
                 "owner_id": doc.owner_id,
+                "previous_path": previous_repo_path,
+                "previous_desired_path": meta.desired_path,
             })),
         )
         .await;
@@ -407,6 +414,7 @@ impl DocumentService {
         if meta.archived_at.is_none() {
             return Err(ServiceError::Conflict);
         }
+        let previous_repo_path = owner_repo_relative(user_id, meta.path.as_deref());
         let uc = UnarchiveDocument {
             repo: self.document_repo.as_ref(),
             realtime: self.realtime.as_ref(),
@@ -430,6 +438,8 @@ impl DocumentService {
                 "slug": doc.slug,
                 "desired_path": doc.desired_path,
                 "owner_id": doc.owner_id,
+                "previous_path": previous_repo_path,
+                "previous_desired_path": meta.desired_path,
             })),
         )
         .await;
@@ -797,6 +807,24 @@ fn snapshot_diff_side_from_use_case(side: SnapshotDiffSide) -> SnapshotDiffSideD
             snapshot: SnapshotSummaryDto::from(record),
             markdown,
         },
+    }
+}
+
+fn owner_repo_relative(owner_id: Uuid, stored_path: Option<&str>) -> Option<String> {
+    let stored = stored_path?.trim_start_matches('/');
+    if stored.is_empty() {
+        return None;
+    }
+    let owner_prefix = owner_id.to_string();
+    let repo = if let Some(rest) = stored.strip_prefix(&owner_prefix) {
+        rest.trim_start_matches('/')
+    } else {
+        stored
+    };
+    if repo.is_empty() {
+        None
+    } else {
+        Some(repo.to_string())
     }
 }
 

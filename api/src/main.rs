@@ -287,6 +287,7 @@ async fn main() -> anyhow::Result<()> {
         let monitor = Arc::new(StorageConsistencyMonitor::new(
             pool.clone(),
             storage_resolver.clone(),
+            storage_job_queue.clone(),
             Duration::from_secs(cfg.storage_monitor_interval_secs),
             cfg.storage_monitor_batch_size,
         ));

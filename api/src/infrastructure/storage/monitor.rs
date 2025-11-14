@@ -6,7 +6,13 @@ use tokio::{self, sync::Mutex, time::sleep};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::{application::ports::storage_port::StorageResolverPort, infrastructure::db::PgPool};
+use crate::{
+    application::ports::storage_port::StorageResolverPort,
+    application::ports::storage_projection_queue::{
+        StorageProjectionJobKind, StorageProjectionQueue,
+    },
+    infrastructure::db::PgPool,
+};
 
 /// Periodically verifies that metadata entries in `documents` / `files`
 /// still have a corresponding object in the configured storage backend.
@@ -14,6 +20,7 @@ use crate::{application::ports::storage_port::StorageResolverPort, infrastructur
 pub struct StorageConsistencyMonitor {
     pool: PgPool,
     storage: Arc<dyn StorageResolverPort>,
+    jobs: Arc<dyn StorageProjectionQueue>,
     interval: Duration,
     batch_size: i64,
     doc_offset: Mutex<i64>,
@@ -26,12 +33,14 @@ impl StorageConsistencyMonitor {
     pub fn new(
         pool: PgPool,
         storage: Arc<dyn StorageResolverPort>,
+        jobs: Arc<dyn StorageProjectionQueue>,
         interval: Duration,
         batch_size: i64,
     ) -> Self {
         Self {
             pool,
             storage,
+            jobs,
             interval,
             batch_size: batch_size.max(1),
             doc_offset: Mutex::new(0),
@@ -88,8 +97,11 @@ impl StorageConsistencyMonitor {
                 }
                 Ok(false) => {
                     let mut flagged = self.flagged_docs.lock().await;
-                    if flagged.insert(doc_id) {
+                    let newly_flagged = flagged.insert(doc_id);
+                    drop(flagged);
+                    if newly_flagged {
                         warn!(document_id = %doc_id, path = %path, "storage_consistency_missing_document_file");
+                        self.enqueue_doc_resync(doc_id).await;
                     }
                 }
                 Err(err) => {
@@ -147,5 +159,21 @@ impl StorageConsistencyMonitor {
 
         *offset += rows.len() as i64;
         Ok(())
+    }
+}
+
+impl StorageConsistencyMonitor {
+    async fn enqueue_doc_resync(&self, doc_id: Uuid) {
+        if let Err(err) = self
+            .jobs
+            .enqueue_doc_job(
+                doc_id,
+                StorageProjectionJobKind::DocSync,
+                Some("consistency_missing_document"),
+            )
+            .await
+        {
+            warn!(document_id = %doc_id, error = ?err, "storage_consistency_resync_enqueue_failed");
+        }
     }
 }
