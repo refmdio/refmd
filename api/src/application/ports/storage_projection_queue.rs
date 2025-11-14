@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +18,19 @@ pub struct StorageProjectionJob {
     pub folder_id: Option<Uuid>,
     pub reason: Option<String>,
     pub attempts: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageDeleteJobMetadata {
+    pub owner_id: Uuid,
+    pub repo_path: Option<String>,
+    pub doc_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageJobReason<T> {
+    pub reason: String,
+    pub metadata: Option<T>,
 }
 
 #[async_trait]

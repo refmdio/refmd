@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use sqlx::Row;
-use tracing::{error, warn};
+use sqlx::{pool::PoolConnection, postgres::Postgres, Row};
+use tracing::{error, info, warn};
 
 use crate::application::services::doc_events::{DocEventRecord, DocEventSubscriber};
 use crate::infrastructure::db::PgPool;
@@ -15,6 +15,8 @@ pub struct DocEventPoller {
     batch_size: i64,
     consumer: String,
 }
+
+const DOC_EVENT_POLL_LOCK_KEY: i64 = 0x646f635f65766e74; // "doc_evnt" in hex
 
 impl DocEventPoller {
     pub fn new(
@@ -90,7 +92,33 @@ impl DocEventPoller {
             .collect())
     }
 
+    async fn acquire_cluster_lock(&self) -> anyhow::Result<PoolConnection<Postgres>> {
+        loop {
+            let mut conn = self.pool.acquire().await?;
+            let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+                .bind(DOC_EVENT_POLL_LOCK_KEY)
+                .fetch_one(&mut *conn)
+                .await?;
+            if locked {
+                info!(
+                    consumer = self.consumer.as_str(),
+                    "doc_event_poller_lock_acquired"
+                );
+                return Ok(conn);
+            }
+            drop(conn);
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
     pub async fn run(self: Arc<Self>) {
+        let _lock_guard = match self.acquire_cluster_lock().await {
+            Ok(conn) => conn,
+            Err(err) => {
+                error!(error = ?err, "doc_event_poller_lock_failed");
+                return;
+            }
+        };
         let mut cursor = match self.load_cursor().await {
             Ok(id) => id,
             Err(err) => {

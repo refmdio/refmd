@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,7 +7,8 @@ use uuid::Uuid;
 
 use crate::application::ports::storage_port::StoragePort;
 use crate::application::ports::storage_projection_queue::{
-    StorageProjectionJob, StorageProjectionJobKind, StorageProjectionQueue,
+    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJob,
+    StorageProjectionJobKind, StorageProjectionQueue,
 };
 
 pub struct StorageProjectionWorker {
@@ -66,6 +68,7 @@ impl StorageProjectionWorker {
         );
         let _entered = span.enter();
 
+        let delete_metadata = parse_delete_job_metadata(job.reason.as_ref());
         let result = match job.job_type {
             StorageProjectionJobKind::DocSync => {
                 self.handle_doc_sync(
@@ -85,6 +88,7 @@ impl StorageProjectionWorker {
                 self.handle_delete_doc(
                     job.doc_id
                         .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?,
+                    delete_metadata.as_ref(),
                 )
                 .await
             }
@@ -92,6 +96,7 @@ impl StorageProjectionWorker {
                 self.handle_delete_folder(
                     job.folder_id
                         .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
+                    delete_metadata.as_ref(),
                 )
                 .await
             }
@@ -121,12 +126,95 @@ impl StorageProjectionWorker {
         Ok(())
     }
 
-    async fn handle_delete_doc(&self, doc_id: Uuid) -> anyhow::Result<()> {
-        self.storage.delete_doc_physical(doc_id).await
-    }
-
-    async fn handle_delete_folder(&self, folder_id: Uuid) -> anyhow::Result<()> {
-        self.storage.delete_folder_physical(folder_id).await?;
+    async fn handle_delete_doc(
+        &self,
+        doc_id: Uuid,
+        metadata: Option<&StorageDeleteJobMetadata>,
+    ) -> anyhow::Result<()> {
+        self.storage.delete_doc_physical(doc_id).await?;
+        if let Some(meta) = metadata {
+            self.delete_doc_by_metadata(meta).await?;
+        }
         Ok(())
     }
+
+    async fn handle_delete_folder(
+        &self,
+        folder_id: Uuid,
+        metadata: Option<&StorageDeleteJobMetadata>,
+    ) -> anyhow::Result<()> {
+        self.storage.delete_folder_physical(folder_id).await?;
+        if let Some(meta) = metadata {
+            self.delete_folder_by_metadata(meta).await?;
+        }
+        Ok(())
+    }
+
+    async fn delete_doc_by_metadata(
+        &self,
+        metadata: &StorageDeleteJobMetadata,
+    ) -> anyhow::Result<()> {
+        if metadata.doc_type == "folder" {
+            return Ok(());
+        }
+        let Some(repo_path) = metadata.repo_path.as_deref() else {
+            return Ok(());
+        };
+        let doc_relative = owner_repo_relative(metadata.owner_id, repo_path);
+        self.storage.delete_relative_path(&doc_relative).await?;
+        if let Some(attachments_relative) = attachments_relative_path(metadata.owner_id, repo_path)
+        {
+            let _ = self
+                .storage
+                .delete_relative_path(&attachments_relative)
+                .await;
+        }
+        Ok(())
+    }
+
+    async fn delete_folder_by_metadata(
+        &self,
+        metadata: &StorageDeleteJobMetadata,
+    ) -> anyhow::Result<()> {
+        let Some(repo_path) = metadata.repo_path.as_deref() else {
+            return Ok(());
+        };
+        let folder_relative = owner_repo_relative(metadata.owner_id, repo_path);
+        self.storage.delete_relative_path(&folder_relative).await?;
+        Ok(())
+    }
+}
+
+fn parse_delete_job_metadata(
+    reason: Option<&String>,
+) -> Option<StorageDeleteJobMetadata> {
+    reason.and_then(|raw| {
+        serde_json::from_str::<StorageJobReason<StorageDeleteJobMetadata>>(raw)
+            .ok()
+            .and_then(|wrapper| wrapper.metadata)
+    })
+}
+
+fn owner_repo_relative(owner_id: Uuid, repo_path: &str) -> String {
+    let mut full = PathBuf::from(owner_id.to_string());
+    full.push(repo_path.trim_start_matches('/'));
+    normalize_relative_path(full)
+}
+
+fn attachments_relative_path(owner_id: Uuid, repo_path: &str) -> Option<String> {
+    let trimmed = repo_path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut doc_path = PathBuf::from(trimmed);
+    let stem = doc_path.file_stem()?.to_os_string();
+    doc_path.set_file_name(stem);
+    doc_path.push("attachments");
+    let mut full = PathBuf::from(owner_id.to_string());
+    full.push(doc_path);
+    Some(normalize_relative_path(full))
+}
+
+fn normalize_relative_path(path: PathBuf) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }

@@ -20,7 +20,7 @@ use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::share_access_port::ShareAccessPort;
 use crate::application::ports::storage_port::StoragePort;
 use crate::application::ports::storage_projection_queue::{
-    StorageProjectionJobKind, StorageProjectionQueue,
+    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
 };
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
@@ -158,7 +158,10 @@ impl DocumentService {
 
     pub async fn delete_for_user(&self, doc_id: Uuid, user_id: Uuid) -> Result<bool, ServiceError> {
         let meta = self.load_owner_meta(doc_id, user_id).await?;
-        let repo_path = meta.path.as_deref().and_then(repo_path_from_relative);
+        let repo_path = match meta.path.as_deref().and_then(repo_path_from_relative) {
+            Some(path) => Some(path),
+            None => self.repo_path_for_doc(doc_id).await,
+        };
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
         };
@@ -169,10 +172,30 @@ impl DocumentService {
         if let Some(dtype) = result {
             match dtype.as_str() {
                 "folder" => {
-                    self.enqueue_folder_delete(doc_id, "delete_folder").await;
+                    let metadata = StorageDeleteJobMetadata {
+                        owner_id: user_id,
+                        repo_path: repo_path.clone(),
+                        doc_type: dtype.clone(),
+                    };
+                    self.enqueue_folder_delete(
+                        doc_id,
+                        "delete_folder",
+                        Some(metadata),
+                    )
+                    .await;
                 }
                 _ => {
-                    self.enqueue_doc_delete(doc_id, "delete_document").await;
+                    let metadata = StorageDeleteJobMetadata {
+                        owner_id: user_id,
+                        repo_path: repo_path.clone(),
+                        doc_type: dtype.clone(),
+                    };
+                    self.enqueue_doc_delete(
+                        doc_id,
+                        "delete_document",
+                        Some(metadata),
+                    )
+                    .await;
                 }
             }
             self.record_event(
@@ -611,10 +634,26 @@ impl DocumentService {
         }
     }
 
-    async fn enqueue_doc_delete(&self, doc_id: Uuid, reason: &'static str) {
+    async fn enqueue_doc_delete(
+        &self,
+        doc_id: Uuid,
+        reason: &'static str,
+        metadata: Option<StorageDeleteJobMetadata>,
+    ) {
+        let encoded_reason = metadata
+            .and_then(|meta| {
+                serde_json::to_string(&StorageJobReason {
+                    reason: reason.to_string(),
+                    metadata: Some(meta),
+                })
+                .ok()
+            });
+        let reason_str = encoded_reason
+            .as_deref()
+            .unwrap_or(reason);
         if let Err(err) = self
             .storage_jobs
-            .enqueue_doc_job(doc_id, StorageProjectionJobKind::DeleteDoc, Some(reason))
+            .enqueue_doc_job(doc_id, StorageProjectionJobKind::DeleteDoc, Some(reason_str))
             .await
         {
             warn!(
@@ -643,13 +682,29 @@ impl DocumentService {
         }
     }
 
-    async fn enqueue_folder_delete(&self, folder_id: Uuid, reason: &'static str) {
+    async fn enqueue_folder_delete(
+        &self,
+        folder_id: Uuid,
+        reason: &'static str,
+        metadata: Option<StorageDeleteJobMetadata>,
+    ) {
+        let encoded_reason = metadata
+            .and_then(|meta| {
+                serde_json::to_string(&StorageJobReason {
+                    reason: reason.to_string(),
+                    metadata: Some(meta),
+                })
+                .ok()
+            });
+        let reason_str = encoded_reason
+            .as_deref()
+            .unwrap_or(reason);
         if let Err(err) = self
             .storage_jobs
             .enqueue_folder_job(
                 folder_id,
                 StorageProjectionJobKind::DeleteFolder,
-                Some(reason),
+                Some(reason_str),
             )
             .await
         {
