@@ -23,6 +23,7 @@ pub trait FilesRepository: Send + Sync {
         filename: &str,
     ) -> anyhow::Result<Option<(String, Option<String>)>>;
     async fn list_storage_paths_for_document(&self, doc_id: Uuid) -> anyhow::Result<Vec<String>>;
+    async fn list_storage_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>>;
 
     async fn find_by_storage_path(
         &self,

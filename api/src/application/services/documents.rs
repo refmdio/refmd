@@ -679,7 +679,8 @@ impl DocumentService {
 }
 
 fn repo_path_from_relative(relative: &str) -> Option<String> {
-    let trimmed = relative.trim_start_matches('/');
+    let normalized = relative.replace('\\', "/");
+    let trimmed = normalized.trim_start_matches('/');
     if trimmed.is_empty() {
         return None;
     }
@@ -697,7 +698,10 @@ mod tests {
     fn repo_path_drops_owner_prefix() {
         let owner = uuid::Uuid::new_v4();
         let rel = format!("{}/notes/foo.md", owner);
-        assert_eq!(repo_path_from_relative(&rel), Some("notes/foo.md".to_string()));
+        assert_eq!(
+            repo_path_from_relative(&rel),
+            Some("notes/foo.md".to_string())
+        );
     }
 
     #[test]
@@ -706,7 +710,10 @@ mod tests {
         assert_eq!(repo_path_from_relative(rel), None);
 
         let rel2 = "leading-no-owner";
-        assert_eq!(repo_path_from_relative(rel2), Some("leading-no-owner".to_string()));
+        assert_eq!(
+            repo_path_from_relative(rel2),
+            Some("leading-no-owner".to_string())
+        );
     }
 }
 

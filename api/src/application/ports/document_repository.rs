@@ -31,6 +31,8 @@ pub trait DocumentRepository: Send + Sync {
 
     async fn list_ids_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
 
+    async fn list_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>>;
+
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>>;
 
     async fn search_for_user(

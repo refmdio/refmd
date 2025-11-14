@@ -47,15 +47,14 @@ impl StorageReconcileService {
 
     async fn enumerate_known_paths(&self, user_id: Uuid) -> anyhow::Result<HashSet<String>> {
         let mut paths = HashSet::new();
-        let docs = self.documents.list_ids_for_user(user_id).await?;
-        for doc_id in docs {
-            if let Some(doc) = self.documents.get_by_id(doc_id).await? {
-                if let Some(path) = doc.path {
-                    paths.insert(path);
-                }
-                for attachment_path in self.files.list_storage_paths_for_document(doc.id).await? {
-                    paths.insert(attachment_path);
-                }
+        for path in self.documents.list_paths_for_user(user_id).await? {
+            if let Some(normalized) = normalize_repo_path(&path) {
+                paths.insert(normalized);
+            }
+        }
+        for attachment_path in self.files.list_storage_paths_for_user(user_id).await? {
+            if let Some(normalized) = normalize_repo_path(&attachment_path) {
+                paths.insert(normalized);
             }
         }
         for reserved in reserved_storage_paths(user_id) {
@@ -252,15 +251,42 @@ fn reserved_storage_paths(user_id: Uuid) -> impl Iterator<Item = String> {
         .map(move |rel| format!("{}/{}", user_id, rel.trim_start_matches('/')))
 }
 
+fn normalize_repo_path(raw: &str) -> Option<String> {
+    let replaced = raw.replace('\\', "/");
+    let trimmed = replaced.trim_start_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{normalize_repo_path, reserved_storage_paths};
+    use uuid::Uuid;
 
     #[test]
     fn reserved_paths_are_under_user_root() {
         let user = Uuid::new_v4();
         let collected: Vec<String> = reserved_storage_paths(user).collect();
         assert_eq!(collected, vec![format!("{}/.gitignore", user)]);
+    }
+
+    #[test]
+    fn normalize_handles_windows_paths() {
+        let user = Uuid::new_v4();
+        let path = format!(r"{}\notes\foo.md", user);
+        assert_eq!(
+            normalize_repo_path(&path),
+            Some(format!("{}/notes/foo.md", user))
+        );
+    }
+
+    #[test]
+    fn normalize_filters_empty() {
+        assert_eq!(normalize_repo_path(""), None);
+        assert_eq!(normalize_repo_path("/"), None);
     }
 }
 

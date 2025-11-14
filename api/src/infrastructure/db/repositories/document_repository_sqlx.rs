@@ -108,6 +108,24 @@ impl DocumentRepository for SqlxDocumentRepository {
         Ok(rows.into_iter().map(|r| r.get("id")).collect())
     }
 
+    async fn list_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT path
+            FROM documents
+            WHERE owner_id = $1
+              AND path IS NOT NULL
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.try_get::<String, _>("path").ok())
+            .collect())
+    }
+
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>> {
         let row = sqlx::query(
             r#"SELECT id, title, parent_id, type, created_at, updated_at, path,

@@ -100,6 +100,24 @@ impl FilesRepository for SqlxFilesRepository {
             .collect())
     }
 
+    async fn list_storage_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT f.storage_path
+            FROM files f
+            JOIN documents d ON d.id = f.document_id
+            WHERE d.owner_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
+            .collect())
+    }
+
     async fn find_by_storage_path(
         &self,
         storage_path: &str,
