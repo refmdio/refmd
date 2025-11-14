@@ -303,9 +303,9 @@ impl DocumentService {
             documents: self.document_repo.as_ref(),
             files: self.files_repo.as_ref(),
             storage: self.storage.as_ref(),
-            realtime: self.realtime.as_ref(),
             access: self.access_repo.as_ref(),
             shares: self.share_access.as_ref(),
+            snapshot: self.snapshot_service.as_ref(),
             exporter: self.exporter.as_ref(),
         };
         uc.execute(actor, doc_id, format)

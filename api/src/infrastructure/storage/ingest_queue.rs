@@ -5,7 +5,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::application::ports::storage_ingest_queue::{
-    StorageIngestEvent, StorageIngestKind, StorageIngestQueue,
+    StorageIngestEvent, StorageIngestKind, StorageIngestQueue, StorageIngestQueueStats,
 };
 use crate::infrastructure::db::PgPool;
 
@@ -148,5 +148,27 @@ impl StorageIngestQueue for PgStorageIngestQueue {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    async fn stats(&self) -> anyhow::Result<StorageIngestQueueStats> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                COUNT(*) FILTER (WHERE locked_at IS NULL) AS pending,
+                COUNT(*) FILTER (WHERE locked_at IS NOT NULL) AS locked,
+                COUNT(DISTINCT user_id) AS distinct_users,
+                MIN(created_at) FILTER (WHERE locked_at IS NULL) AS oldest_created_at
+            FROM storage_ingest_queue
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(StorageIngestQueueStats {
+            pending: row.try_get("pending").unwrap_or(0),
+            locked: row.try_get("locked").unwrap_or(0),
+            distinct_users: row.try_get("distinct_users").unwrap_or(0),
+            oldest_created_at: row.try_get("oldest_created_at").ok(),
+        })
     }
 }

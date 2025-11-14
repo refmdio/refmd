@@ -26,12 +26,14 @@ use crate::application::ports::git_storage::{BlobKey, CommitMeta, GitStorage, en
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::storage_port::StoragePort;
 use crate::application::services::diff::text_diff::compute_text_diff;
+use crate::application::services::realtime::snapshot::SnapshotService;
 use crate::infrastructure::db::PgPool;
 
 pub struct GitWorkspaceService {
     pool: PgPool,
     git_storage: Arc<dyn GitStorage>,
     storage: Arc<dyn StoragePort>,
+    snapshot: Arc<SnapshotService>,
 }
 
 impl GitWorkspaceService {
@@ -39,11 +41,13 @@ impl GitWorkspaceService {
         pool: PgPool,
         git_storage: Arc<dyn GitStorage>,
         storage: Arc<dyn StoragePort>,
+        snapshot: Arc<SnapshotService>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             pool,
             git_storage,
             storage,
+            snapshot,
         })
     }
 
@@ -430,37 +434,29 @@ impl GitWorkspaceService {
     ) -> anyhow::Result<HashMap<String, FileSnapshot>> {
         let mut state: HashMap<String, FileSnapshot> = HashMap::new();
 
-        let doc_rows =
-            sqlx::query("SELECT id FROM documents WHERE owner_id = $1 AND type <> 'folder'")
-                .bind(user_id)
-                .fetch_all(&self.pool)
-                .await?;
+        let doc_rows = sqlx::query(
+            "SELECT id, desired_path FROM documents WHERE owner_id = $1 AND type <> 'folder'",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
 
         for row in doc_rows {
             let doc_id: Uuid = row.get("id");
-            let path = self.storage.build_doc_file_path(doc_id).await?;
-            let bytes = match self.storage.read_bytes(path.as_path()).await {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
-                        if io_err.kind() == std::io::ErrorKind::NotFound {
-                            continue;
-                        }
-                    }
-                    if err.to_string().contains("not found") {
-                        continue;
-                    }
-                    return Err(err);
-                }
+            let export = match self.snapshot.export_current_markdown(&doc_id).await? {
+                Some(export) => export,
+                None => continue,
             };
-            let hash = sha256_hex(&bytes);
-            let relative = self.storage.relative_from_uploads(path.as_path());
-            let repo_path = repo_relative_path(&relative)?;
+            let repo_path = export
+                .repo_path
+                .or_else(|| row.try_get::<String, _>("desired_path").ok())
+                .map(normalize_repo_path)
+                .ok_or_else(|| anyhow!("missing_repo_path_for_doc {}", doc_id))?;
             state.insert(
                 repo_path,
                 FileSnapshot {
-                    hash,
-                    data: FileSnapshotData::Inline(bytes),
+                    hash: export.content_hash,
+                    data: FileSnapshotData::Inline(export.bytes),
                     is_text: true,
                 },
             );
@@ -1887,11 +1883,20 @@ fn repo_relative_path(path: &str) -> anyhow::Result<String> {
     let mut parts = trimmed.splitn(2, '/');
     let leading = parts.next().unwrap_or("");
     if let Some(rest) = parts.next() {
-        Ok(rest.to_string())
+        Ok(rest.replace('\\', "/"))
     } else if !leading.is_empty() {
-        Ok(leading.to_string())
+        Ok(leading.replace('\\', "/"))
     } else {
         Err(anyhow!("invalid storage path for repository: {path}"))
+    }
+}
+
+fn normalize_repo_path(path: String) -> String {
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        trimmed.replace('\\', "/")
     }
 }
 

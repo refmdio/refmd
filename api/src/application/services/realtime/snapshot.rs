@@ -53,6 +53,13 @@ pub struct MarkdownPersistResult {
     pub written: bool,
 }
 
+pub struct MarkdownExport {
+    pub bytes: Vec<u8>,
+    pub repo_path: Option<String>,
+    pub owner_id: Option<Uuid>,
+    pub content_hash: String,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum SnapshotArchiveKind {
     Manual,
@@ -177,16 +184,8 @@ impl SnapshotService {
             return Ok(MarkdownPersistResult { written: false });
         }
         let contents = extract_markdown(doc);
-        self.storage.sync_doc_paths(*doc_id).await?;
         let path = self.storage.build_doc_file_path(*doc_id).await?;
-        let mut formatted = format!(
-            "---\nid: {}\ntitle: {}\n---\n\n{}",
-            doc_id, record.title, contents
-        );
-        if !formatted.ends_with('\n') {
-            formatted.push('\n');
-        }
-        let bytes = formatted.into_bytes();
+        let bytes = render_markdown_bytes(doc_id, &record.title, &contents);
         let should_write = match self.storage.read_bytes(path.as_path()).await {
             Ok(existing) => existing != bytes,
             Err(_) => true,
@@ -213,6 +212,29 @@ impl SnapshotService {
         Ok(MarkdownPersistResult {
             written: should_write,
         })
+    }
+
+    pub async fn export_current_markdown(
+        &self,
+        doc_id: &Uuid,
+    ) -> anyhow::Result<Option<MarkdownExport>> {
+        let Some(record) = self.state_reader.document_record(doc_id).await? else {
+            return Ok(None);
+        };
+        if record.doc_type == "folder" {
+            return Ok(None);
+        }
+        let doc = self.hydrate_doc_from_state(doc_id).await?;
+        let contents = extract_markdown(&doc);
+        let bytes = render_markdown_bytes(doc_id, &record.title, &contents);
+        let content_hash = sha256_hex(&bytes);
+        let repo_path = repo_path_from_record(&record);
+        Ok(Some(MarkdownExport {
+            bytes,
+            repo_path,
+            owner_id: record.owner_id,
+            content_hash,
+        }))
     }
 
     pub async fn archive_snapshot(
@@ -297,6 +319,14 @@ fn extract_markdown(doc: &Doc) -> String {
     contents
 }
 
+fn render_markdown_bytes(doc_id: &Uuid, title: &str, contents: &str) -> Vec<u8> {
+    let mut formatted = format!("---\nid: {}\ntitle: {}\n---\n\n{}", doc_id, title, contents);
+    if !formatted.ends_with('\n') {
+        formatted.push('\n');
+    }
+    formatted.into_bytes()
+}
+
 fn sha256_hex(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -335,4 +365,54 @@ pub fn doc_from_snapshot_bytes(bytes: &[u8]) -> anyhow::Result<Doc> {
     let doc = Doc::new();
     apply_update_bytes(&doc, bytes)?;
     Ok(doc)
+}
+
+impl SnapshotService {
+    async fn hydrate_doc_from_state(&self, doc_id: &Uuid) -> anyhow::Result<Doc> {
+        let doc = Doc::new();
+        let mut last_seq = 0i64;
+        if let Some(snapshot) = self.state_reader.latest_snapshot(doc_id).await? {
+            apply_update_bytes(&doc, &snapshot.snapshot)?;
+            last_seq = snapshot.version;
+        }
+        let updates = self.state_reader.updates_since(doc_id, last_seq).await?;
+        for update in updates {
+            apply_update_bytes(&doc, &update.update)?;
+        }
+        Ok(doc)
+    }
+}
+
+fn repo_path_from_record(
+    record: &crate::application::ports::realtime_hydration_port::DocumentRecord,
+) -> Option<String> {
+    if let Some(path) = record.desired_path.as_deref() {
+        return Some(normalize_repo_path(path));
+    }
+    if let (Some(owner), Some(path)) = (record.owner_id, record.path.as_deref()) {
+        return strip_owner_prefix(owner, path);
+    }
+    None
+}
+
+fn strip_owner_prefix(owner_id: Uuid, relative: &str) -> Option<String> {
+    let trimmed = relative.trim_start_matches('/');
+    let mut parts = trimmed.splitn(2, '/');
+    let owner = parts.next()?;
+    if owner != owner_id.to_string() {
+        return None;
+    }
+    parts
+        .next()
+        .map(|rest| rest.trim_start_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn normalize_repo_path(path: &str) -> String {
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        "".into()
+    } else {
+        trimmed.replace('\\', "/")
+    }
 }

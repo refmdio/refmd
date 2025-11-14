@@ -31,6 +31,14 @@ pub struct StorageIngestEvent {
     pub locked_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub struct StorageIngestQueueStats {
+    pub pending: i64,
+    pub locked: i64,
+    pub distinct_users: i64,
+    pub oldest_created_at: Option<DateTime<Utc>>,
+}
+
 #[async_trait]
 pub trait StorageIngestQueue: Send + Sync {
     async fn enqueue_event(
@@ -53,4 +61,6 @@ pub trait StorageIngestQueue: Send + Sync {
         locked_at: DateTime<Utc>,
         error: &str,
     ) -> anyhow::Result<()>;
+
+    async fn stats(&self) -> anyhow::Result<StorageIngestQueueStats>;
 }

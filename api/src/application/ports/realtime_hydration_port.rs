@@ -23,6 +23,7 @@ pub struct StreamFrame {
 pub struct DocumentRecord {
     pub doc_type: String,
     pub path: Option<String>,
+    pub desired_path: Option<String>,
     pub title: String,
     pub owner_id: Option<Uuid>,
 }

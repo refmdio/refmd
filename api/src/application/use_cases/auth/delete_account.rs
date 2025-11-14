@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use serde_json;
 use uuid::Uuid;
 
 use crate::application::ports::document_repository::DocumentRepository;
@@ -8,38 +9,40 @@ use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::plugin_asset_store::PluginAssetStore;
 use crate::application::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::application::ports::plugin_repository::PluginRepository;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_projection_queue::{
+    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
+};
 use crate::application::ports::user_repository::UserRepository;
 
-pub struct DeleteAccount<'a, UR, DR, SP, PIR, PR, GR, GW>
+pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ>
 where
     UR: UserRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
-    SP: StoragePort + ?Sized,
     PIR: PluginInstallationRepository + ?Sized,
     PR: PluginRepository + ?Sized,
     GR: GitRepository + ?Sized,
     GW: GitWorkspacePort + ?Sized,
+    SJ: StorageProjectionQueue + ?Sized,
 {
     pub user_repo: &'a UR,
     pub document_repo: &'a DR,
-    pub storage: &'a SP,
     pub plugin_installations: &'a PIR,
     pub plugin_repo: &'a PR,
     pub plugin_assets: Arc<dyn PluginAssetStore>,
     pub git_repo: &'a GR,
     pub git_workspace: &'a GW,
+    pub storage_jobs: &'a SJ,
 }
 
-impl<'a, UR, DR, SP, PIR, PR, GR, GW> DeleteAccount<'a, UR, DR, SP, PIR, PR, GR, GW>
+impl<'a, UR, DR, PIR, PR, GR, GW, SJ> DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ>
 where
     UR: UserRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
-    SP: StoragePort + ?Sized,
     PIR: PluginInstallationRepository + ?Sized,
     PR: PluginRepository + ?Sized,
     GR: GitRepository + ?Sized,
     GW: GitWorkspacePort + ?Sized,
+    SJ: StorageProjectionQueue + ?Sized,
 {
     pub async fn execute(&self, user_id: Uuid) -> anyhow::Result<()> {
         let doc_ids = self.document_repo.list_ids_for_user(user_id).await?;
@@ -73,8 +76,45 @@ where
         }
 
         for doc_id in &doc_ids {
-            if let Err(err) = self.storage.delete_doc_physical(*doc_id).await {
-                tracing::warn!(user_id = %user_id, document_id = %doc_id, error = ?err, "failed to remove document artifacts during account deletion");
+            if let Some(meta) = self
+                .document_repo
+                .get_meta_for_owner(*doc_id, user_id)
+                .await?
+            {
+                let delete_metadata = StorageDeleteJobMetadata {
+                    owner_id: user_id,
+                    repo_path: Some(meta.desired_path.clone()),
+                    doc_type: meta.doc_type.clone(),
+                };
+                let reason = serde_json::to_string(&StorageJobReason {
+                    reason: "delete_account".to_string(),
+                    metadata: Some(delete_metadata),
+                })
+                .ok();
+                let reason_ref = reason.as_deref();
+                let kind = match meta.doc_type.as_str() {
+                    "folder" => StorageProjectionJobKind::DeleteFolder,
+                    _ => StorageProjectionJobKind::DeleteDoc,
+                };
+                if let Err(err) = match kind {
+                    StorageProjectionJobKind::DeleteFolder => {
+                        self.storage_jobs
+                            .enqueue_folder_job(*doc_id, kind, reason_ref)
+                            .await
+                    }
+                    _ => {
+                        self.storage_jobs
+                            .enqueue_doc_job(*doc_id, kind, reason_ref)
+                            .await
+                    }
+                } {
+                    tracing::warn!(
+                        user_id = %user_id,
+                        document_id = %doc_id,
+                        error = ?err,
+                        "storage_projection_enqueue_failed_during_account_delete"
+                    );
+                }
             }
         }
 

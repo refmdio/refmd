@@ -440,46 +440,6 @@ async fn main() -> anyhow::Result<()> {
             cfg.encryption_key.clone(),
         ),
     );
-    let git_storage_config = match cfg.storage_backend {
-        StorageBackend::Filesystem => {
-            api::infrastructure::git::storage::GitStorageDriverConfig::Filesystem {
-                root: uploads_root.clone(),
-            }
-        }
-        StorageBackend::S3 => {
-            let s3_settings = api::infrastructure::git::storage::S3GitStorageConfig {
-                storage_root_prefix: cfg.storage_root.clone(),
-                bucket: cfg
-                    .s3_bucket
-                    .clone()
-                    .context("S3_BUCKET must be configured when using S3 storage backend")?,
-                region: cfg.s3_region.clone(),
-                endpoint: cfg.s3_endpoint.clone(),
-                access_key: cfg.s3_access_key.clone(),
-                secret_key: cfg.s3_secret_key.clone(),
-                use_path_style: cfg.s3_use_path_style,
-            };
-            api::infrastructure::git::storage::GitStorageDriverConfig::S3(s3_settings)
-        }
-    };
-    let git_storage =
-        api::infrastructure::git::storage::build_git_storage(git_storage_config).await?;
-    let gitignore_port = Arc::new(api::infrastructure::storage::gitignore::FsGitignorePort);
-    let git_workspace = Arc::new(
-        api::infrastructure::git::workspace::GitWorkspaceService::new(
-            pool.clone(),
-            git_storage.clone(),
-            storage_port.clone(),
-        )?,
-    );
-    let git_service = Arc::new(GitService::new(
-        git_repo.clone(),
-        storage_port.clone(),
-        files_repo.clone(),
-        document_repo.clone(),
-        gitignore_port.clone(),
-        git_workspace.clone(),
-    ));
     let auto_archive_interval = Duration::from_secs(cfg.snapshot_archive_interval_secs);
     let mut local_hub: Option<api::infrastructure::realtime::Hub> = None;
     let (realtime_engine, snapshot_service_arc): (
@@ -566,6 +526,48 @@ async fn main() -> anyhow::Result<()> {
         local_hub = Some(hub);
         (engine_trait, snapshot_service)
     };
+
+    let git_storage_config = match cfg.storage_backend {
+        StorageBackend::Filesystem => {
+            api::infrastructure::git::storage::GitStorageDriverConfig::Filesystem {
+                root: uploads_root.clone(),
+            }
+        }
+        StorageBackend::S3 => {
+            let s3_settings = api::infrastructure::git::storage::S3GitStorageConfig {
+                storage_root_prefix: cfg.storage_root.clone(),
+                bucket: cfg
+                    .s3_bucket
+                    .clone()
+                    .context("S3_BUCKET must be configured when using S3 storage backend")?,
+                region: cfg.s3_region.clone(),
+                endpoint: cfg.s3_endpoint.clone(),
+                access_key: cfg.s3_access_key.clone(),
+                secret_key: cfg.s3_secret_key.clone(),
+                use_path_style: cfg.s3_use_path_style,
+            };
+            api::infrastructure::git::storage::GitStorageDriverConfig::S3(s3_settings)
+        }
+    };
+    let git_storage =
+        api::infrastructure::git::storage::build_git_storage(git_storage_config).await?;
+    let gitignore_port = Arc::new(api::infrastructure::storage::gitignore::FsGitignorePort);
+    let git_workspace = Arc::new(
+        api::infrastructure::git::workspace::GitWorkspaceService::new(
+            pool.clone(),
+            git_storage.clone(),
+            storage_port.clone(),
+            snapshot_service_arc.clone(),
+        )?,
+    );
+    let git_service = Arc::new(GitService::new(
+        git_repo.clone(),
+        storage_port.clone(),
+        files_repo.clone(),
+        document_repo.clone(),
+        gitignore_port.clone(),
+        git_workspace.clone(),
+    ));
     let plugin_repo = Arc::new(
         api::infrastructure::db::repositories::plugin_repository_sqlx::SqlxPluginRepository::new(
             pool.clone(),
@@ -653,12 +655,12 @@ async fn main() -> anyhow::Result<()> {
     let account_service = Arc::new(AccountService::new(
         user_repo.clone(),
         document_repo.clone(),
-        storage_port.clone(),
         plugin_installations.clone(),
         plugin_repo.clone(),
         plugin_assets.clone(),
         git_repo.clone(),
         git_workspace.clone(),
+        storage_job_queue.clone(),
     ));
     let plugin_event_bus = Arc::new(
         api::infrastructure::plugins::event_bus_pg::PgPluginEventBus::new(

@@ -221,6 +221,232 @@ fn attachments_relative_path(owner_id: Uuid, repo_path: &str) -> Option<String> 
     Some(normalize_relative_path(full))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use sqlx::{Postgres, Transaction};
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use crate::application::ports::storage_port::StoredAttachment;
+
+    #[tokio::test]
+    async fn doc_sync_invokes_storage_and_completes_job() {
+        let queue = Arc::new(MockQueue::default());
+        let storage = Arc::new(RecordingStoragePort::default());
+        let worker = Arc::new(StorageProjectionWorker::new(queue.clone(), storage.clone()));
+        let job = StorageProjectionJob {
+            id: 1,
+            job_type: StorageProjectionJobKind::DocSync,
+            doc_id: Some(Uuid::new_v4()),
+            folder_id: None,
+            reason: None,
+            attempts: 0,
+        };
+        worker.process_job(job).await.unwrap();
+        assert_eq!(queue.completed(), vec![1]);
+        assert_eq!(storage.calls(), vec!["sync_doc_paths"]);
+    }
+
+    #[tokio::test]
+    async fn failing_doc_sync_marks_job_failed() {
+        let queue = Arc::new(MockQueue::default());
+        let storage = Arc::new(RecordingStoragePort::default());
+        storage.fail_next_sync();
+        let worker = Arc::new(StorageProjectionWorker::new(queue.clone(), storage));
+        let job = StorageProjectionJob {
+            id: 2,
+            job_type: StorageProjectionJobKind::DocSync,
+            doc_id: Some(Uuid::new_v4()),
+            folder_id: None,
+            reason: None,
+            attempts: 0,
+        };
+        worker.process_job(job).await.unwrap();
+        assert!(queue.completed().is_empty());
+        assert_eq!(queue.failed().len(), 1);
+        assert_eq!(queue.failed()[0].0, 2);
+    }
+
+    #[derive(Default)]
+    struct MockQueue {
+        completed: Mutex<Vec<i64>>,
+        failed: Mutex<Vec<(i64, String)>>,
+    }
+
+    impl MockQueue {
+        fn completed(&self) -> Vec<i64> {
+            self.completed.lock().unwrap().clone()
+        }
+
+        fn failed(&self) -> Vec<(i64, String)> {
+            self.failed.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl StorageProjectionQueue for MockQueue {
+        async fn enqueue_doc_job(
+            &self,
+            _doc_id: Uuid,
+            _kind: StorageProjectionJobKind,
+            _reason: Option<&str>,
+        ) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        async fn enqueue_doc_job_tx(
+            &self,
+            _tx: &mut Transaction<'_, Postgres>,
+            _doc_id: Uuid,
+            _kind: StorageProjectionJobKind,
+            _reason: Option<&str>,
+        ) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        async fn enqueue_folder_job(
+            &self,
+            _folder_id: Uuid,
+            _kind: StorageProjectionJobKind,
+            _reason: Option<&str>,
+        ) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        async fn enqueue_folder_job_tx(
+            &self,
+            _tx: &mut Transaction<'_, Postgres>,
+            _folder_id: Uuid,
+            _kind: StorageProjectionJobKind,
+            _reason: Option<&str>,
+        ) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        async fn fetch_next_job(
+            &self,
+            _lock_timeout_secs: i64,
+        ) -> anyhow::Result<Option<StorageProjectionJob>> {
+            Ok(None)
+        }
+
+        async fn complete_job(&self, job_id: i64) -> anyhow::Result<()> {
+            self.completed.lock().unwrap().push(job_id);
+            Ok(())
+        }
+
+        async fn fail_job(&self, job_id: i64, error: &str) -> anyhow::Result<()> {
+            self.failed
+                .lock()
+                .unwrap()
+                .push((job_id, error.to_string()));
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingStoragePort {
+        calls: Mutex<Vec<&'static str>>,
+        fail_sync: AtomicBool,
+    }
+
+    impl RecordingStoragePort {
+        fn calls(&self) -> Vec<&'static str> {
+            self.calls.lock().unwrap().clone()
+        }
+
+        fn fail_next_sync(&self) {
+            self.fail_sync.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait]
+    impl StoragePort for RecordingStoragePort {
+        async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize> {
+            let _ = folder_id;
+            self.calls.lock().unwrap().push("move_folder_subtree");
+            Ok(0)
+        }
+
+        async fn delete_doc_physical(&self, doc_id: Uuid) -> anyhow::Result<()> {
+            let _ = doc_id;
+            self.calls.lock().unwrap().push("delete_doc_physical");
+            Ok(())
+        }
+
+        async fn delete_folder_physical(&self, folder_id: Uuid) -> anyhow::Result<usize> {
+            let _ = folder_id;
+            self.calls.lock().unwrap().push("delete_folder_physical");
+            Ok(0)
+        }
+
+        async fn build_doc_dir(&self, _doc_id: Uuid) -> anyhow::Result<PathBuf> {
+            unimplemented!()
+        }
+
+        async fn build_doc_file_path(&self, _doc_id: Uuid) -> anyhow::Result<PathBuf> {
+            unimplemented!()
+        }
+
+        fn relative_from_uploads(&self, _abs: &Path) -> String {
+            unimplemented!()
+        }
+
+        fn user_repo_dir(&self, _user_id: Uuid) -> String {
+            unimplemented!()
+        }
+
+        fn absolute_from_relative(&self, _rel: &str) -> PathBuf {
+            unimplemented!()
+        }
+
+        async fn sync_doc_paths(&self, _doc_id: Uuid) -> anyhow::Result<()> {
+            self.calls.lock().unwrap().push("sync_doc_paths");
+            if self.fail_sync.swap(false, Ordering::SeqCst) {
+                anyhow::bail!("sync_failed");
+            }
+            Ok(())
+        }
+
+        async fn resolve_upload_path(
+            &self,
+            _doc_id: Uuid,
+            _rest_path: &str,
+        ) -> anyhow::Result<PathBuf> {
+            unimplemented!()
+        }
+
+        async fn read_bytes(&self, _abs_path: &Path) -> anyhow::Result<Vec<u8>> {
+            unimplemented!()
+        }
+
+        async fn exists(&self, _abs_path: &Path) -> anyhow::Result<bool> {
+            unimplemented!()
+        }
+
+        async fn write_bytes(&self, _abs_path: &Path, _data: &[u8]) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+
+        async fn delete_relative_path(&self, _rel: &str) -> anyhow::Result<()> {
+            self.calls.lock().unwrap().push("delete_relative_path");
+            Ok(())
+        }
+
+        async fn store_doc_attachment(
+            &self,
+            _doc_id: Uuid,
+            _original_filename: Option<&str>,
+            _bytes: &[u8],
+        ) -> anyhow::Result<StoredAttachment> {
+            unimplemented!()
+        }
+    }
+}
+
 fn normalize_relative_path(path: PathBuf) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
