@@ -156,7 +156,8 @@ impl DocumentService {
     }
 
     pub async fn delete_for_user(&self, doc_id: Uuid, user_id: Uuid) -> Result<bool, ServiceError> {
-        let repo_path = self.repo_path_for_doc(doc_id).await;
+        let meta = self.load_owner_meta(doc_id, user_id).await?;
+        let repo_path = meta.path.as_deref().and_then(repo_path_from_relative);
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
             storage: self.storage.as_ref(),
@@ -177,7 +178,11 @@ impl DocumentService {
             self.record_event(
                 doc_id,
                 "document.deleted",
-                Some(json!({ "doc_type": dtype, "repo_path": repo_path })),
+                Some(json!({
+                    "doc_type": dtype,
+                    "repo_path": repo_path,
+                    "owner_id": user_id,
+                })),
             )
             .await;
             Ok(true)

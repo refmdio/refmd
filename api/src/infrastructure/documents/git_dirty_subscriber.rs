@@ -29,11 +29,16 @@ impl GitDirtyDocEventSubscriber {
     async fn mark_upsert(
         &self,
         doc_id: Uuid,
+        owner_hint: Option<Uuid>,
         repo_path: &str,
         is_text: bool,
         content_hash: Option<&str>,
     ) -> anyhow::Result<()> {
-        let Some(owner_id) = self.owner_id(doc_id).await? else {
+        let owner_id = match owner_hint {
+            Some(id) => Some(id),
+            None => self.owner_id(doc_id).await?,
+        };
+        let Some(owner_id) = owner_id else {
             return Ok(());
         };
         let trimmed = repo_path.trim_start_matches('/');
@@ -42,8 +47,17 @@ impl GitDirtyDocEventSubscriber {
         Ok(())
     }
 
-    async fn mark_delete(&self, doc_id: Uuid, repo_path: &str) -> anyhow::Result<()> {
-        let Some(owner_id) = self.owner_id(doc_id).await? else {
+    async fn mark_delete(
+        &self,
+        doc_id: Uuid,
+        owner_hint: Option<Uuid>,
+        repo_path: &str,
+    ) -> anyhow::Result<()> {
+        let owner_id = match owner_hint {
+            Some(id) => Some(id),
+            None => self.owner_id(doc_id).await?,
+        };
+        let Some(owner_id) = owner_id else {
             return Ok(());
         };
         let trimmed = repo_path.trim_start_matches('/');
@@ -56,6 +70,7 @@ impl GitDirtyDocEventSubscriber {
 #[async_trait]
 impl DocEventSubscriber for GitDirtyDocEventSubscriber {
     async fn handle_event(&self, event: &DocEventRecord) -> anyhow::Result<()> {
+        let owner_hint = owner_id_from_payload(event.payload.as_ref());
         match event.event_type.as_str() {
             "document.ingest_upsert"
             | "document.created"
@@ -65,25 +80,27 @@ impl DocEventSubscriber for GitDirtyDocEventSubscriber {
             | "document.unarchived" => {
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
                     let hash = content_hash_from_payload(event.payload.as_ref());
-                    self.mark_upsert(event.doc_id, &repo_path, true, hash)
+                    self.mark_upsert(event.doc_id, owner_hint, &repo_path, true, hash)
                         .await?;
                 }
             }
             "document.deleted" => {
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
-                    self.mark_delete(event.doc_id, &repo_path).await?;
+                    self.mark_delete(event.doc_id, owner_hint, &repo_path)
+                        .await?;
                 }
             }
             "attachment.ingest_upsert" => {
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
                     let hash = content_hash_from_payload(event.payload.as_ref());
-                    self.mark_upsert(event.doc_id, &repo_path, false, hash)
+                    self.mark_upsert(event.doc_id, owner_hint, &repo_path, false, hash)
                         .await?;
                 }
             }
             "attachment.ingest_delete" => {
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
-                    self.mark_delete(event.doc_id, &repo_path).await?;
+                    self.mark_delete(event.doc_id, owner_hint, &repo_path)
+                        .await?;
                 }
             }
             _ => {
@@ -108,4 +125,11 @@ fn content_hash_from_payload(payload: Option<&Value>) -> Option<&str> {
     payload
         .and_then(|p| p.get("content_hash"))
         .and_then(|v| v.as_str())
+}
+
+fn owner_id_from_payload(payload: Option<&Value>) -> Option<Uuid> {
+    payload
+        .and_then(|p| p.get("owner_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|raw| Uuid::parse_str(raw).ok())
 }
