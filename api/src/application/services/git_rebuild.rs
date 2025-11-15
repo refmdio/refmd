@@ -420,7 +420,8 @@ mod tests {
         workspace.fail_with(anyhow::anyhow!("still broken"));
         let git_repo = Arc::new(RecordingGitRepo::new());
         let metrics = Arc::new(MetricsRegistry::default());
-        let svc = GitRebuildService::new(queue.clone(), workspace.clone(), git_repo, metrics.clone());
+        let svc =
+            GitRebuildService::new(queue.clone(), workspace.clone(), git_repo, metrics.clone());
         let job = GitRebuildJob {
             id: 3,
             user_id: Uuid::new_v4(),

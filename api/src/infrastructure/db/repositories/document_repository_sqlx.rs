@@ -24,6 +24,17 @@ impl SqlxDocumentRepository {
         Self { pool }
     }
 
+    fn map_row_to_meta(row: &PgRow) -> DocMeta {
+        DocMeta {
+            doc_type: row.get("type"),
+            path: row.try_get("path").ok(),
+            slug: row.get("slug"),
+            desired_path: row.get("desired_path"),
+            title: row.get("title"),
+            archived_at: row.try_get("archived_at").ok(),
+        }
+    }
+
     fn map_row_to_document(row: &PgRow) -> DomainDocument {
         DomainDocument {
             id: row.get("id"),
@@ -583,14 +594,23 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(owner_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| DocMeta {
-            doc_type: r.get("type"),
-            path: r.try_get("path").ok(),
-            slug: r.get("slug"),
-            desired_path: r.get("desired_path"),
-            title: r.get("title"),
-            archived_at: r.try_get("archived_at").ok(),
-        }))
+        Ok(row.as_ref().map(SqlxDocumentRepository::map_row_to_meta))
+    }
+
+    async fn get_meta_for_owner_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        owner_id: Uuid,
+    ) -> anyhow::Result<Option<DocMeta>> {
+        let row = sqlx::query(
+            "SELECT type, path, slug, desired_path, title, archived_at FROM documents WHERE id = $1 AND owner_id = $2 FOR UPDATE",
+        )
+        .bind(doc_id)
+        .bind(owner_id)
+        .fetch_optional(tx.as_mut())
+        .await?;
+        Ok(row.as_ref().map(SqlxDocumentRepository::map_row_to_meta))
     }
 
     async fn archive_subtree(
@@ -754,6 +774,38 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(root_id)
         .bind(owner_id)
         .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SubtreeDocument {
+                id: r.get("id"),
+                doc_type: r.get("type"),
+            })
+            .collect())
+    }
+
+    async fn list_owned_subtree_documents_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        owner_id: Uuid,
+        root_id: Uuid,
+    ) -> anyhow::Result<Vec<SubtreeDocument>> {
+        let rows = sqlx::query(
+            r#"
+            WITH RECURSIVE subtree AS (
+                SELECT id, type FROM documents WHERE id = $1 AND owner_id = $2
+                UNION ALL
+                SELECT d.id, d.type
+                FROM documents d
+                JOIN subtree sb ON COALESCE(d.parent_id, d.archived_parent_id) = sb.id
+                WHERE d.owner_id = $2
+            )
+            SELECT id, type FROM subtree FOR UPDATE
+            "#,
+        )
+        .bind(root_id)
+        .bind(owner_id)
+        .fetch_all(tx.as_mut())
         .await?;
         Ok(rows
             .into_iter()

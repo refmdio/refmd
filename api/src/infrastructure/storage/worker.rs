@@ -362,10 +362,7 @@ mod tests {
         };
         worker.process_job(job).await.unwrap();
         assert_eq!(queue.completed(), vec![1]);
-        assert_eq!(
-            storage.calls(),
-            vec!["sync_doc_paths".to_string()]
-        );
+        assert_eq!(storage.calls(), vec!["sync_doc_paths".to_string()]);
         assert_eq!(events.events().len(), 1);
         assert_eq!(events.events()[0].1, "storage.projection.doc_sync");
         assert_eq!(resolver_impl.writes().len(), 1);
@@ -438,14 +435,8 @@ mod tests {
             storage.calls(),
             vec![
                 format!("delete_relative_path:{}/docs/foo.md", owner),
-                format!(
-                    "delete_relative_path:{}/docs/attachments/image.png",
-                    owner
-                ),
-                format!(
-                    "delete_relative_path:{}/docs/attachments/asset.bin",
-                    owner
-                )
+                format!("delete_relative_path:{}/docs/attachments/image.png", owner),
+                format!("delete_relative_path:{}/docs/attachments/asset.bin", owner)
             ]
         );
     }

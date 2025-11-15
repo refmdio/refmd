@@ -107,6 +107,13 @@ pub trait DocumentRepository: Send + Sync {
         owner_id: Uuid,
     ) -> anyhow::Result<Option<DocMeta>>;
 
+    async fn get_meta_for_owner_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        owner_id: Uuid,
+    ) -> anyhow::Result<Option<DocMeta>>;
+
     async fn archive_subtree(
         &self,
         doc_id: Uuid,
@@ -137,6 +144,13 @@ pub trait DocumentRepository: Send + Sync {
 
     async fn list_owned_subtree_documents(
         &self,
+        owner_id: Uuid,
+        root_id: Uuid,
+    ) -> anyhow::Result<Vec<SubtreeDocument>>;
+
+    async fn list_owned_subtree_documents_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
         owner_id: Uuid,
         root_id: Uuid,
     ) -> anyhow::Result<Vec<SubtreeDocument>>;

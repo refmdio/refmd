@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::application::ports::files_repository::FilesRepository;
@@ -100,6 +100,21 @@ impl FilesRepository for SqlxFilesRepository {
             .collect())
     }
 
+    async fn list_storage_paths_for_document_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+    ) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query("SELECT storage_path FROM files WHERE document_id = $1 FOR UPDATE")
+            .bind(doc_id)
+            .fetch_all(tx.as_mut())
+            .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
+            .collect())
+    }
+
     async fn list_storage_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
@@ -135,11 +150,7 @@ impl FilesRepository for SqlxFilesRepository {
         Ok(row.map(|r| (r.get("file_id"), r.get("document_id"), r.get("owner_id"))))
     }
 
-    async fn update_storage_path(
-        &self,
-        file_id: Uuid,
-        storage_path: &str,
-    ) -> anyhow::Result<()> {
+    async fn update_storage_path(&self, file_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
         sqlx::query(
             r#"UPDATE files SET storage_path = $2, updated_at = now()
                WHERE id = $1"#,

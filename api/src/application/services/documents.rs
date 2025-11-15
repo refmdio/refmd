@@ -170,64 +170,38 @@ impl DocumentService {
     }
 
     pub async fn delete_for_user(&self, doc_id: Uuid, user_id: Uuid) -> Result<bool, ServiceError> {
-        let meta = self.load_owner_meta(doc_id, user_id).await?;
-        let previous_repo_path = owner_repo_relative(user_id, meta.path.as_deref());
-        let repo_path = previous_repo_path
-            .clone()
-            .unwrap_or_else(|| meta.desired_path.clone());
-        let attachment_paths = if meta.doc_type != "folder" {
-            self.files_repo
-                .list_storage_paths_for_document(doc_id)
-                .await
-                .map_err(ServiceError::from)?
-        } else {
-            Vec::new()
-        };
+        let mut tx = self.begin_transaction().await?;
+        let root_meta = self
+            .document_repo
+            .get_meta_for_owner_tx(&mut tx, doc_id, user_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
+        let delete_plan = self
+            .build_delete_plan(&mut tx, doc_id, user_id, root_meta.clone())
+            .await?;
+        if delete_plan.is_empty() {
+            tx.rollback().await.map_err(map_sqlx_error)?;
+            return Ok(false);
+        }
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
         };
-        let mut tx = self.begin_transaction().await?;
-        let result = uc
-            .execute_tx(&mut tx, doc_id, user_id)
-            .await
-            .map_err(ServiceError::from)?;
-        if let Some(dtype) = result {
-            match dtype.as_str() {
-                "folder" => {
-                    let metadata = StorageDeleteJobMetadata {
-                        owner_id: user_id,
-                        repo_path: Some(repo_path.clone()),
-                        doc_type: dtype.clone(),
-                        attachment_paths: None,
-                    };
-                    self.enqueue_folder_delete_tx(&mut tx, doc_id, "delete_folder", Some(metadata))
-                        .await?;
-                }
-                _ => {
-                    let metadata = StorageDeleteJobMetadata {
-                        owner_id: user_id,
-                        repo_path: Some(repo_path.clone()),
-                        doc_type: dtype.clone(),
-                        attachment_paths: Some(attachment_paths.clone()),
-                    };
-                    self.enqueue_doc_delete_tx(&mut tx, doc_id, "delete_document", Some(metadata))
-                        .await?;
-                }
+        let mut deleted = false;
+        for entry in delete_plan {
+            if uc
+                .execute_tx(&mut tx, entry.doc_id, user_id)
+                .await
+                .map_err(ServiceError::from)?
+                .is_some()
+            {
+                deleted = true;
+                self.enqueue_delete_job_for_entry(&mut tx, user_id, &entry)
+                    .await?;
+                self.record_delete_event_tx(&mut tx, user_id, &entry).await;
             }
-            self.record_event_tx(
-                &mut tx,
-                doc_id,
-                "document.deleted",
-                Some(json!({
-                    "doc_type": dtype,
-                    "repo_path": repo_path,
-                    "slug": meta.slug,
-                    "desired_path": meta.desired_path,
-                    "owner_id": user_id,
-                    "previous_path": previous_repo_path,
-                })),
-            )
-            .await;
+        }
+        if deleted {
             tx.commit().await.map_err(map_sqlx_error)?;
             Ok(true)
         } else {
@@ -802,6 +776,152 @@ impl DocumentService {
                 "doc_event_log_append_failed"
             );
         }
+    }
+
+    async fn build_delete_plan(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        owner_id: Uuid,
+        root_meta: DocMeta,
+    ) -> Result<Vec<PendingDelete>, ServiceError> {
+        if root_meta.doc_type != "folder" {
+            let attachments = self
+                .files_repo
+                .list_storage_paths_for_document_tx(tx, doc_id)
+                .await
+                .map_err(ServiceError::from)?;
+            return Ok(vec![PendingDelete {
+                doc_id,
+                doc_type: root_meta.doc_type.clone(),
+                meta: root_meta,
+                attachments,
+                reason: "delete_document",
+            }]);
+        }
+
+        let subtree = self
+            .document_repo
+            .list_owned_subtree_documents_tx(tx, owner_id, doc_id)
+            .await
+            .map_err(ServiceError::from)?;
+        let mut entries = Vec::new();
+        for node in subtree {
+            let meta = if node.id == doc_id {
+                root_meta.clone()
+            } else {
+                self.document_repo
+                    .get_meta_for_owner_tx(tx, node.id, owner_id)
+                    .await
+                    .map_err(ServiceError::from)?
+                    .ok_or(ServiceError::NotFound)?
+            };
+            let attachments = if node.doc_type != "folder" {
+                self.files_repo
+                    .list_storage_paths_for_document_tx(tx, node.id)
+                    .await
+                    .map_err(ServiceError::from)?
+            } else {
+                Vec::new()
+            };
+            let reason = if node.id == doc_id {
+                "delete_folder"
+            } else if node.doc_type == "folder" {
+                "delete_folder_descendant"
+            } else {
+                "delete_document_descendant"
+            };
+            entries.push(PendingDelete {
+                doc_id: node.id,
+                doc_type: node.doc_type,
+                meta,
+                attachments,
+                reason,
+            });
+        }
+        entries.sort_by(|a, b| {
+            let depth_a = path_depth(&a.meta.desired_path);
+            let depth_b = path_depth(&b.meta.desired_path);
+            depth_b
+                .cmp(&depth_a)
+                .then_with(|| is_folder(&a.doc_type).cmp(&is_folder(&b.doc_type)))
+        });
+        Ok(entries)
+    }
+
+    async fn enqueue_delete_job_for_entry(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        owner_id: Uuid,
+        entry: &PendingDelete,
+    ) -> Result<(), ServiceError> {
+        let repo_path = entry.repo_path(owner_id);
+        let metadata = StorageDeleteJobMetadata {
+            owner_id,
+            repo_path: Some(repo_path),
+            doc_type: entry.doc_type.clone(),
+            attachment_paths: if entry.attachments.is_empty() {
+                None
+            } else {
+                Some(entry.attachments.clone())
+            },
+        };
+        if entry.doc_type == "folder" {
+            self.enqueue_folder_delete_tx(tx, entry.doc_id, entry.reason, Some(metadata))
+                .await
+        } else {
+            self.enqueue_doc_delete_tx(tx, entry.doc_id, entry.reason, Some(metadata))
+                .await
+        }
+    }
+
+    async fn record_delete_event_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        owner_id: Uuid,
+        entry: &PendingDelete,
+    ) {
+        let repo_path = entry.repo_path(owner_id);
+        let previous_repo_path = owner_repo_relative(owner_id, entry.meta.path.as_deref());
+        self.record_event_tx(
+            tx,
+            entry.doc_id,
+            "document.deleted",
+            Some(json!({
+                "doc_type": entry.doc_type,
+                "repo_path": repo_path,
+                "slug": entry.meta.slug,
+                "desired_path": entry.meta.desired_path,
+                "owner_id": owner_id,
+                "previous_path": previous_repo_path,
+            })),
+        )
+        .await;
+    }
+}
+
+fn path_depth(path: &str) -> usize {
+    path.split('/')
+        .filter(|segment| !segment.is_empty())
+        .count()
+}
+
+fn is_folder(doc_type: &str) -> usize {
+    if doc_type == "folder" { 1 } else { 0 }
+}
+
+struct PendingDelete {
+    doc_id: Uuid,
+    doc_type: String,
+    meta: DocMeta,
+    attachments: Vec<String>,
+    reason: &'static str,
+}
+
+impl PendingDelete {
+    fn repo_path(&self, owner_id: Uuid) -> String {
+        owner_repo_relative(owner_id, self.meta.path.as_deref())
+            .unwrap_or_else(|| self.meta.desired_path.clone())
     }
 }
 

@@ -356,7 +356,7 @@ impl StorageIngestHandler for StorageIngestService {
                         payload,
                         doc_previous_repo_path.as_deref(),
                     )
-                        .await?;
+                    .await?;
                 }
                 StorageIngestKind::Delete => {
                     self.handle_doc_delete(&doc, &repo_path, event).await?;
@@ -366,19 +366,12 @@ impl StorageIngestHandler for StorageIngestService {
         }
 
         let mut attachment_previous_repo_path: Option<String> = None;
-        let mut attachment = self
-            .files_repo
-            .find_by_storage_path(&rel_path)
-            .await?;
+        let mut attachment = self.files_repo.find_by_storage_path(&rel_path).await?;
 
         if attachment.is_none() {
             if let Some(prev_repo) = payload_previous_repo_path.as_deref() {
                 let prev_rel = Self::relative_path(event.user_id, prev_repo);
-                if let Some(file) = self
-                    .files_repo
-                    .find_by_storage_path(&prev_rel)
-                    .await?
-                {
+                if let Some(file) = self.files_repo.find_by_storage_path(&prev_rel).await? {
                     self.files_repo
                         .update_storage_path(file.0, &rel_path)
                         .await?;
@@ -443,7 +436,7 @@ impl StorageIngestHandler for StorageIngestService {
                         payload,
                         payload_previous_repo_path.as_deref(),
                     )
-                        .await?;
+                    .await?;
                 }
                 return Ok(());
             }

@@ -37,8 +37,7 @@ where
     pub files_repo: &'a FR,
 }
 
-impl<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
-    DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
+impl<'a, UR, DR, PIR, PR, GR, GW, SJ, FR> DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
 where
     UR: UserRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
