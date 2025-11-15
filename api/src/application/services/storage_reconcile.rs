@@ -14,6 +14,9 @@ use walkdir::WalkDir;
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use crate::application::ports::storage_projection_queue::{
+    StorageProjectionJobKind, StorageProjectionQueue,
+};
 use crate::application::ports::storage_reconcile_jobs::{
     StorageReconcileJob, StorageReconcileJobs,
 };
@@ -26,6 +29,7 @@ pub struct StorageReconcileService {
     documents: Arc<dyn DocumentRepository>,
     files: Arc<dyn FilesRepository>,
     ingest_queue: Arc<dyn StorageIngestQueue>,
+    storage_jobs: Arc<dyn StorageProjectionQueue>,
     backend: Arc<dyn StorageReconcileBackend>,
     ingest_known_paths: bool,
 }
@@ -36,6 +40,7 @@ impl StorageReconcileService {
         documents: Arc<dyn DocumentRepository>,
         files: Arc<dyn FilesRepository>,
         ingest_queue: Arc<dyn StorageIngestQueue>,
+        storage_jobs: Arc<dyn StorageProjectionQueue>,
         backend: Arc<dyn StorageReconcileBackend>,
         ingest_known_paths: bool,
     ) -> Self {
@@ -44,6 +49,7 @@ impl StorageReconcileService {
             documents,
             files,
             ingest_queue,
+            storage_jobs,
             backend,
             ingest_known_paths,
         }
@@ -139,7 +145,11 @@ impl StorageReconcileService {
     async fn process_job(&self, job: &StorageReconcileJob) -> anyhow::Result<()> {
         let known = self.enumerate_known_paths(job.user_id).await?;
         let storage_paths = self.enumerate_storage_paths(job.user_id).await?;
-        for path in storage_paths {
+        let mut seen: HashSet<String> = HashSet::new();
+        for raw_path in storage_paths {
+            let Some(path) = normalize_repo_path(&raw_path) else {
+                continue;
+            };
             if !known.contains(&path) {
                 info!(
                     user_id = %job.user_id,
@@ -149,9 +159,67 @@ impl StorageReconcileService {
                 self.enqueue_delete(job.user_id, &path).await?;
                 continue;
             }
+            seen.insert(path.clone());
 
             if self.ingest_known_paths {
                 self.enqueue_upsert(job.user_id, &path).await?;
+            }
+        }
+
+        for missing in known.difference(&seen) {
+            self.handle_missing_path(job.user_id, missing).await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_missing_path(&self, user_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
+        let Some(repo_path) = Self::repo_relative_path(user_id, storage_path) else {
+            warn!(
+                user_id = %user_id,
+                storage_path,
+                "storage_reconcile_missing_path_invalid"
+            );
+            return Ok(());
+        };
+        if is_reserved_repo_path(&repo_path) {
+            return Ok(());
+        }
+        if is_attachment_repo_path(&repo_path) {
+            info!(
+                user_id = %user_id,
+                repo_path = repo_path,
+                "storage_reconcile_missing_attachment_cleanup"
+            );
+            self.enqueue_delete(user_id, storage_path).await?;
+            return Ok(());
+        }
+
+        match self
+            .documents
+            .get_by_owner_and_path(user_id, storage_path)
+            .await?
+        {
+            Some(doc) => {
+                info!(
+                    user_id = %user_id,
+                    doc_id = %doc.id,
+                    repo_path = repo_path,
+                    "storage_reconcile_missing_doc_enqueued"
+                );
+                self.storage_jobs
+                    .enqueue_doc_job(
+                        doc.id,
+                        StorageProjectionJobKind::DocSync,
+                        Some("storage_reconcile_missing_doc"),
+                    )
+                    .await?;
+            }
+            None => {
+                warn!(
+                    user_id = %user_id,
+                    repo_path = repo_path,
+                    "storage_reconcile_missing_doc_unknown"
+                );
             }
         }
         Ok(())
@@ -297,6 +365,10 @@ fn is_reserved_repo_path(repo_path: &str) -> bool {
     RESERVED_REPO_PATHS
         .iter()
         .any(|reserved| trimmed == reserved.trim_start_matches('/'))
+}
+
+fn is_attachment_repo_path(repo_path: &str) -> bool {
+    repo_path.contains("/attachments/")
 }
 
 fn normalize_repo_path(raw: &str) -> Option<String> {

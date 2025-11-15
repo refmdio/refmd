@@ -393,6 +393,7 @@ async fn main() -> anyhow::Result<()> {
             document_repo.clone(),
             files_repo.clone(),
             storage_ingest_queue.clone(),
+            storage_job_queue.clone(),
             reconcile_backend.clone(),
             reconcile_ingest_known_paths,
         ));

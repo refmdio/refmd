@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
@@ -123,6 +123,55 @@ impl SqlxDocumentRepository {
 
     fn owner_relative_path(owner_id: Uuid, desired_path: &str) -> String {
         format!("{owner_id}/{}", desired_path.trim_start_matches('/'))
+    }
+
+    fn parent_desired_path(desired_path: &str) -> Option<String> {
+        let mut parts = desired_path.rsplitn(2, '/');
+        parts.next()?; // skip current file/folder
+        parts.next().map(|parent| parent.to_string())
+    }
+
+    fn slug_from_desired_path(desired_path: &str) -> anyhow::Result<String> {
+        let segment = desired_path
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| anyhow!("invalid_desired_path"))?;
+        let trimmed = segment.trim();
+        if trimmed.is_empty() {
+            bail!("invalid_desired_path_segment");
+        }
+        let slug = trimmed
+            .strip_suffix(".md")
+            .unwrap_or(trimmed)
+            .trim_matches('/');
+        if slug.is_empty() {
+            bail!("invalid_slug_from_path");
+        }
+        Ok(slug.to_string())
+    }
+
+    async fn resolve_parent_folder_id(
+        &self,
+        owner_id: Uuid,
+        desired_parent_path: Option<&str>,
+    ) -> anyhow::Result<Option<Uuid>> {
+        let Some(path) = desired_parent_path.filter(|p| !p.is_empty()) else {
+            return Ok(None);
+        };
+        let folder_id = sqlx::query_scalar::<_, Option<Uuid>>(
+            r#"SELECT id FROM documents
+               WHERE owner_id = $1 AND desired_path = $2 AND type = 'folder'
+               LIMIT 1"#,
+        )
+        .bind(owner_id)
+        .bind(path)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+        match folder_id {
+            Some(id) => Ok(Some(id)),
+            None => Err(anyhow!("parent_folder_not_found")),
+        }
     }
 
     async fn update_descendant_paths_tx(
@@ -852,16 +901,30 @@ impl DocumentRepository for SqlxDocumentRepository {
         if desired_path.is_empty() {
             return Err(anyhow!("invalid_relative_path"));
         }
+        let slug = Self::slug_from_desired_path(&desired_path)?;
+        let parent_path = Self::parent_desired_path(&desired_path);
+        let parent_id = self
+            .resolve_parent_folder_id(owner_id, parent_path.as_deref())
+            .await?;
         let normalized_path = Self::owner_relative_path(owner_id, &desired_path);
         let path_digest = Self::hash_path(&desired_path);
         sqlx::query(
-            "UPDATE documents SET path = $3, desired_path = $4, path_digest = $5, updated_at = now() WHERE id = $1 AND owner_id = $2",
+            r#"UPDATE documents SET
+                    path = $3,
+                    desired_path = $4,
+                    path_digest = $5,
+                    slug = $6,
+                    parent_id = $7,
+                    updated_at = now()
+                WHERE id = $1 AND owner_id = $2"#,
         )
         .bind(doc_id)
         .bind(owner_id)
         .bind(&normalized_path)
         .bind(&desired_path)
         .bind(&path_digest)
+        .bind(&slug)
+        .bind(parent_id)
         .execute(&self.pool)
         .await?;
         Ok(())
