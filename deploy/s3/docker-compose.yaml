@@ -55,12 +55,10 @@ services:
       mc anonymous set download local/refmd
 
   api:
-    build:
-      context: ../../api
-      dockerfile: Dockerfile
+    image: ghcr.io/refmdio/refmd/api:latest
     container_name: refmd-api
     environment:
-      RUST_ENV: development
+      RUST_ENV: production
       API_PORT: 8888
       DATABASE_URL: postgresql://refmd:refmd@postgres:5432/refmd
       FRONTEND_URL: http://localhost:3000
@@ -77,7 +75,16 @@ services:
       S3_SECRET_KEY: refmd-minio-secret
       S3_USE_PATH_STYLE: "true"
       PLUGINS_DIR: /app/plugins
+      PLUGIN_ASSET_SIGN_KEY: change-me-please
+      PLUGIN_TIMEOUT_SECS: 10
+      PLUGIN_MEMORY_MAX_MB: 256
+      PLUGIN_ASSET_URL_TTL_SECS: 120
       RUST_LOG: api=debug,axum=debug,tower_http=debug
+      STORAGE_MONITOR_ENABLED: "true"
+      STORAGE_MONITOR_INTERVAL_SECS: 600
+      STORAGE_MONITOR_BATCH_SIZE: 200
+      GIT_REBUILD_ENABLED: "true"
+      GIT_REBUILD_INTERVAL_SECS: 21600
     ports:
       - "8888:8888"
     depends_on:
@@ -87,9 +94,7 @@ services:
         condition: service_completed_successfully
 
   app:
-    build:
-      context: ../../app
-      dockerfile: Dockerfile
+    image: ghcr.io/refmdio/refmd/app:latest
     container_name: refmd-app
     environment:
       SSR_API_BASE_URL: http://api:8888
