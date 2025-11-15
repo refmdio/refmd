@@ -261,20 +261,29 @@ impl StorageIngestService {
         }
     }
 
-    async fn reconcile_repo_path(&self, doc: &ResolvedDocument, owner_id: Uuid, rel_path: &str) {
+    async fn reconcile_repo_path(
+        &self,
+        doc: &ResolvedDocument,
+        owner_id: Uuid,
+        rel_path: &str,
+    ) -> anyhow::Result<bool> {
         if doc.path.as_deref() == Some(rel_path) {
-            return;
+            return Ok(true);
         }
-        if let Err(err) = self
+        match self
             .document_repo
             .update_repo_path(doc.id, owner_id, rel_path)
             .await
         {
-            warn!(
-                doc_id = %doc.id,
-                error = ?err,
-                "storage_ingest_repo_path_update_failed"
-            );
+            Ok(()) => Ok(true),
+            Err(err) => {
+                warn!(
+                    doc_id = %doc.id,
+                    error = ?err,
+                    "storage_ingest_repo_path_update_failed"
+                );
+                Ok(false)
+            }
         }
     }
 }
@@ -427,8 +436,17 @@ impl StorageIngestHandler for StorageIngestService {
                         "storage_ingest_archived_doc_skipped"
                     );
                 } else {
-                    self.reconcile_repo_path(&doc, event.user_id, &rel_path)
-                        .await;
+                    if !self
+                        .reconcile_repo_path(&doc, event.user_id, &rel_path)
+                        .await?
+                    {
+                        warn!(
+                            doc_id = %doc.id,
+                            repo_path = repo_path,
+                            "storage_ingest_repo_path_rejected"
+                        );
+                        return Ok(());
+                    }
                     self.handle_doc_upsert(
                         &doc,
                         &repo_path,

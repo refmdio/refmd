@@ -158,18 +158,26 @@ impl SqlxDocumentRepository {
         let Some(path) = desired_parent_path.filter(|p| !p.is_empty()) else {
             return Ok(None);
         };
-        let folder_id = sqlx::query_scalar::<_, Option<Uuid>>(
-            r#"SELECT id FROM documents
+        let row = sqlx::query(
+            r#"SELECT id, archived_at FROM documents
                WHERE owner_id = $1 AND desired_path = $2 AND type = 'folder'
                LIMIT 1"#,
         )
         .bind(owner_id)
         .bind(path)
         .fetch_optional(&self.pool)
-        .await?
-        .flatten();
-        match folder_id {
-            Some(id) => Ok(Some(id)),
+        .await?;
+
+        match row {
+            Some(row) => {
+                let archived_at: Option<chrono::DateTime<chrono::Utc>> =
+                    row.try_get("archived_at").ok();
+                if archived_at.is_some() {
+                    Err(anyhow!("parent_folder_archived"))
+                } else {
+                    Ok(Some(row.get("id")))
+                }
+            }
             None => Err(anyhow!("parent_folder_not_found")),
         }
     }
@@ -305,6 +313,7 @@ impl DocumentRepository for SqlxDocumentRepository {
             FROM documents
             WHERE owner_id = $1
               AND path IS NOT NULL
+              AND type <> 'folder'
             "#,
         )
         .bind(user_id)

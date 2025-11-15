@@ -77,5 +77,10 @@ pub trait StorageProjectionQueue: Send + Sync {
 
     async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()>;
 
-    async fn fail_job(&self, job_id: i64, error: &str) -> anyhow::Result<()>;
+    async fn fail_job(
+        &self,
+        job_id: i64,
+        locked_at: DateTime<Utc>,
+        error: &str,
+    ) -> anyhow::Result<()>;
 }

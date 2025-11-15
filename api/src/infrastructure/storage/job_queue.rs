@@ -224,18 +224,24 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         Ok(())
     }
 
-    async fn fail_job(&self, job_id: i64, error: &str) -> anyhow::Result<()> {
+    async fn fail_job(
+        &self,
+        job_id: i64,
+        locked_at: DateTime<Utc>,
+        error: &str,
+    ) -> anyhow::Result<()> {
         sqlx::query(
             r#"
             UPDATE storage_projection_jobs
             SET last_error = $2,
                 locked_at = NULL,
                 updated_at = now()
-            WHERE id = $1
+            WHERE id = $1 AND locked_at = $3
             "#,
         )
         .bind(job_id)
         .bind(error)
+        .bind(locked_at)
         .execute(&self.pool)
         .await?;
         Ok(())

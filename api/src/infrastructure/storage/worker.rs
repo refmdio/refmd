@@ -176,7 +176,7 @@ impl StorageProjectionWorker {
                         .await;
                     }
                 } else {
-                    self.jobs.fail_job(job.id, &msg).await?;
+                    self.jobs.fail_job(job.id, job.locked_at, &msg).await?;
                     self.metrics.inc_storage_projection_retry();
                     warn!(error = ?err, "storage_projection_job_failed_once");
                     if let Some(doc_id) = job.doc_id {
@@ -513,7 +513,12 @@ mod tests {
             Ok(())
         }
 
-        async fn fail_job(&self, job_id: i64, error: &str) -> anyhow::Result<()> {
+        async fn fail_job(
+            &self,
+            job_id: i64,
+            _locked_at: chrono::DateTime<chrono::Utc>,
+            error: &str,
+        ) -> anyhow::Result<()> {
             self.failed
                 .lock()
                 .unwrap()
