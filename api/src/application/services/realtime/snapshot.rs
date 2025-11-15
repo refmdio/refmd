@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use sha2::{Digest, Sha256};
+use tracing::warn;
 use uuid::Uuid;
 use yrs::updates::decoder::Decode;
 use yrs::{Doc, GetString, ReadTxn, StateVector, Text, Transact, Update};
@@ -12,17 +14,19 @@ use crate::application::ports::document_snapshot_archive_repository::{
 use crate::application::ports::linkgraph_repository::LinkGraphRepository;
 use crate::application::ports::realtime_hydration_port::DocStateReader;
 use crate::application::ports::realtime_persistence_port::DocPersistencePort;
-use crate::application::ports::storage_port::StorageResolverPort;
+use crate::application::ports::storage_projection_queue::{
+    StorageProjectionJobKind, StorageProjectionQueue,
+};
 use crate::application::ports::tagging_repository::TaggingRepository;
 use crate::application::services::tagging;
 
 pub struct SnapshotService {
     state_reader: Arc<dyn DocStateReader>,
     persistence: Arc<dyn DocPersistencePort>,
-    storage: Arc<dyn StorageResolverPort>,
     linkgraph_repo: Arc<dyn LinkGraphRepository>,
     tagging_repo: Arc<dyn TaggingRepository>,
     archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
+    storage_jobs: Arc<dyn StorageProjectionQueue>,
 }
 
 pub struct SnapshotPersistOptions {
@@ -60,6 +64,24 @@ pub struct MarkdownExport {
     pub content_hash: String,
 }
 
+#[async_trait]
+pub trait MarkdownExportProvider: Send + Sync {
+    async fn export_markdown_for_doc(
+        &self,
+        doc_id: &Uuid,
+    ) -> anyhow::Result<Option<MarkdownExport>>;
+}
+
+#[async_trait]
+impl MarkdownExportProvider for SnapshotService {
+    async fn export_markdown_for_doc(
+        &self,
+        doc_id: &Uuid,
+    ) -> anyhow::Result<Option<MarkdownExport>> {
+        self.export_current_markdown(doc_id).await
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum SnapshotArchiveKind {
     Manual,
@@ -90,18 +112,18 @@ impl SnapshotService {
     pub fn new(
         state_reader: Arc<dyn DocStateReader>,
         persistence: Arc<dyn DocPersistencePort>,
-        storage: Arc<dyn StorageResolverPort>,
         linkgraph_repo: Arc<dyn LinkGraphRepository>,
         tagging_repo: Arc<dyn TaggingRepository>,
         archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
+        storage_jobs: Arc<dyn StorageProjectionQueue>,
     ) -> Self {
         Self {
             state_reader,
             persistence,
-            storage,
             linkgraph_repo,
             tagging_repo,
             archive_repo,
+            storage_jobs,
         }
     }
 
@@ -184,14 +206,16 @@ impl SnapshotService {
             return Ok(MarkdownPersistResult { written: false });
         }
         let contents = extract_markdown(doc);
-        let path = self.storage.build_doc_file_path(*doc_id).await?;
-        let bytes = render_markdown_bytes(doc_id, &record.title, &contents);
-        let should_write = match self.storage.read_bytes(path.as_path()).await {
-            Ok(existing) => existing != bytes,
-            Err(_) => true,
-        };
-        if should_write {
-            self.storage.write_bytes(path.as_path(), &bytes).await?;
+        if let Err(err) = self
+            .storage_jobs
+            .enqueue_doc_job(
+                *doc_id,
+                StorageProjectionJobKind::DocSync,
+                Some("snapshot_write_markdown"),
+            )
+            .await
+        {
+            warn!(document_id = %doc_id, error = ?err, "enqueue_snapshot_projection_failed");
         }
         if let Some(owner_id) = record.owner_id {
             let _ = linkgraph::update_document_links(
@@ -209,9 +233,7 @@ impl SnapshotService {
             )
             .await;
         }
-        Ok(MarkdownPersistResult {
-            written: should_write,
-        })
+        Ok(MarkdownPersistResult { written: true })
     }
 
     pub async fn export_current_markdown(

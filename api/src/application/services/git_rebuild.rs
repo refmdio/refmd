@@ -161,7 +161,6 @@ mod tests {
         fn fail_with(&self, err: anyhow::Error) {
             *self.fail.lock().unwrap() = Some(err);
         }
-
     }
 
     #[async_trait]

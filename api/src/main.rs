@@ -48,6 +48,7 @@ use api::application::services::plugins::execution::PluginExecutionService;
 use api::application::services::plugins::management::PluginManagementService;
 use api::application::services::plugins::permissions::PluginPermissionService;
 use api::application::services::public::PublicService;
+use api::application::services::realtime::snapshot::{MarkdownExportProvider, SnapshotService};
 use api::application::services::shares::ShareService;
 use api::application::services::storage_ingest::StorageIngestService;
 use api::application::services::storage_reconcile::{
@@ -343,17 +344,6 @@ async fn main() -> anyhow::Result<()> {
         });
     }
     {
-        let worker = Arc::new(StorageProjectionWorker::new(
-            storage_job_queue.clone(),
-            storage_projection.clone(),
-            doc_event_log.clone(),
-            metrics.clone(),
-        ));
-        tokio::spawn(async move {
-            worker.run().await;
-        });
-    }
-    {
         let poller = Arc::new(DocEventPoller::new(
             pool.clone(),
             doc_event_subscriber.clone(),
@@ -458,7 +448,7 @@ async fn main() -> anyhow::Result<()> {
     let mut local_hub: Option<api::infrastructure::realtime::Hub> = None;
     let (realtime_engine, snapshot_service_arc): (
         Arc<dyn api::application::ports::realtime_port::RealtimeEngine>,
-        Arc<api::application::services::realtime::snapshot::SnapshotService>,
+        Arc<SnapshotService>,
     ) = if cfg.cluster_mode {
         tracing::info!("cluster_mode_enabled");
         let redis_settings = api::infrastructure::realtime::RedisRealtimeConfig {
@@ -479,6 +469,7 @@ async fn main() -> anyhow::Result<()> {
                 redis_settings,
                 pool.clone(),
                 storage_resolver.clone(),
+                storage_job_queue.clone(),
             )?,
         );
         let snapshot_service = engine.snapshot_service();
@@ -521,10 +512,10 @@ async fn main() -> anyhow::Result<()> {
             api::application::services::realtime::snapshot::SnapshotService::new(
                 doc_state_reader.clone(),
                 doc_persistence.clone(),
-                storage_resolver.clone(),
                 linkgraph_repo,
                 tagging_repo,
                 snapshot_archive_repo.clone(),
+                storage_job_queue.clone(),
             ),
         );
         let hub = api::infrastructure::realtime::Hub::new(
@@ -540,6 +531,21 @@ async fn main() -> anyhow::Result<()> {
         local_hub = Some(hub);
         (engine_trait, snapshot_service)
     };
+
+    {
+        let markdown_exporter: Arc<dyn MarkdownExportProvider> = snapshot_service_arc.clone();
+        let worker = Arc::new(StorageProjectionWorker::new(
+            storage_job_queue.clone(),
+            storage_projection.clone(),
+            storage_resolver.clone(),
+            markdown_exporter,
+            doc_event_log.clone(),
+            metrics.clone(),
+        ));
+        tokio::spawn(async move {
+            worker.run().await;
+        });
+    }
 
     let git_storage_config = match cfg.storage_backend {
         StorageBackend::Filesystem => {

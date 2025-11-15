@@ -93,10 +93,10 @@ impl StorageIngestWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::ports::storage_ingest_queue::StorageIngestKind;
     use chrono::Utc;
     use std::sync::Mutex;
     use uuid::Uuid;
-    use crate::application::ports::storage_ingest_queue::StorageIngestKind;
 
     #[derive(Default)]
     struct MockQueue {

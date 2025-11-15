@@ -8,16 +8,19 @@ use tracing::{error, info, info_span, warn};
 use uuid::Uuid;
 
 use crate::application::ports::doc_event_log::DocEventLog;
-use crate::application::ports::storage_port::StorageProjectionPort;
+use crate::application::ports::storage_port::{StorageProjectionPort, StorageResolverPort};
 use crate::application::ports::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJob, StorageProjectionJobKind,
     StorageProjectionQueue,
 };
 use crate::application::services::metrics::MetricsRegistry;
+use crate::application::services::realtime::snapshot::MarkdownExportProvider;
 
 pub struct StorageProjectionWorker {
     jobs: Arc<dyn StorageProjectionQueue>,
     storage: Arc<dyn StorageProjectionPort>,
+    resolver: Arc<dyn StorageResolverPort>,
+    markdown: Arc<dyn MarkdownExportProvider>,
     events: Arc<dyn DocEventLog>,
     lock_timeout_secs: i64,
     idle_backoff: Duration,
@@ -29,12 +32,16 @@ impl StorageProjectionWorker {
     pub fn new(
         jobs: Arc<dyn StorageProjectionQueue>,
         storage: Arc<dyn StorageProjectionPort>,
+        resolver: Arc<dyn StorageResolverPort>,
+        markdown: Arc<dyn MarkdownExportProvider>,
         events: Arc<dyn DocEventLog>,
         metrics: Arc<MetricsRegistry>,
     ) -> Self {
         Self {
             jobs,
             storage,
+            resolver,
+            markdown,
             events,
             lock_timeout_secs: 30,
             idle_backoff: Duration::from_millis(500),
@@ -184,6 +191,7 @@ impl StorageProjectionWorker {
     }
 
     async fn handle_doc_sync(&self, doc_id: Uuid) -> anyhow::Result<()> {
+        self.persist_markdown(doc_id).await?;
         self.storage.sync_doc_paths(doc_id).await
     }
 
@@ -252,6 +260,18 @@ impl StorageProjectionWorker {
 }
 
 impl StorageProjectionWorker {
+    async fn persist_markdown(&self, doc_id: Uuid) -> anyhow::Result<()> {
+        if let Some(export) = self.markdown.export_markdown_for_doc(&doc_id).await? {
+            let path = self.resolver.build_doc_file_path(doc_id).await?;
+            self.resolver
+                .write_bytes(path.as_path(), &export.bytes)
+                .await?;
+        }
+        Ok(())
+    }
+}
+
+impl StorageProjectionWorker {
     async fn emit_projection_event(
         &self,
         doc_id: Uuid,
@@ -314,18 +334,29 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use sqlx::{Postgres, Transaction};
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    use crate::application::ports::storage_port::StoredAttachment;
+    use crate::application::services::realtime::snapshot::{
+        MarkdownExport, MarkdownExportProvider,
+    };
 
     #[tokio::test]
     async fn doc_sync_invokes_storage_and_completes_job() {
         let queue = Arc::new(MockQueue::default());
         let storage = Arc::new(RecordingStoragePort::default());
+        let resolver_impl = Arc::new(MockResolver::default());
+        let resolver: Arc<dyn StorageResolverPort> = resolver_impl.clone();
+        let markdown: Arc<dyn MarkdownExportProvider> = Arc::new(MockMarkdownExporter::new());
         let events = Arc::new(RecordingDocEventLog::default());
         let metrics = Arc::new(MetricsRegistry::default());
         let worker = Arc::new(StorageProjectionWorker::new(
             queue.clone(),
             storage.clone(),
+            resolver.clone(),
+            markdown.clone(),
             events.clone(),
             metrics.clone(),
         ));
@@ -342,6 +373,7 @@ mod tests {
         assert_eq!(storage.calls(), vec!["sync_doc_paths"]);
         assert_eq!(events.events().len(), 1);
         assert_eq!(events.events()[0].1, "storage.projection.doc_sync");
+        assert_eq!(resolver_impl.writes().len(), 1);
         assert_eq!(metrics.snapshot().storage_projection_success, 1);
     }
 
@@ -350,11 +382,16 @@ mod tests {
         let queue = Arc::new(MockQueue::default());
         let storage = Arc::new(RecordingStoragePort::default());
         storage.fail_next_sync();
+        let resolver_impl = Arc::new(MockResolver::default());
+        let resolver: Arc<dyn StorageResolverPort> = resolver_impl.clone();
+        let markdown: Arc<dyn MarkdownExportProvider> = Arc::new(MockMarkdownExporter::new());
         let events = Arc::new(RecordingDocEventLog::default());
         let metrics = Arc::new(MetricsRegistry::default());
         let worker = Arc::new(StorageProjectionWorker::new(
             queue.clone(),
             storage,
+            resolver,
+            markdown,
             events,
             metrics.clone(),
         ));
@@ -497,6 +534,102 @@ mod tests {
         async fn delete_relative_path(&self, _rel: &str) -> anyhow::Result<()> {
             self.calls.lock().unwrap().push("delete_relative_path");
             Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct MockResolver {
+        writes: Mutex<Vec<(Uuid, Vec<u8>)>>,
+    }
+
+    impl MockResolver {
+        fn writes(&self) -> Vec<(Uuid, Vec<u8>)> {
+            self.writes.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl StorageResolverPort for MockResolver {
+        async fn build_doc_dir(&self, _doc_id: Uuid) -> anyhow::Result<PathBuf> {
+            Ok(PathBuf::from("mock"))
+        }
+
+        async fn build_doc_file_path(&self, doc_id: Uuid) -> anyhow::Result<PathBuf> {
+            Ok(PathBuf::from(format!("mock/{doc_id}.md")))
+        }
+
+        fn relative_from_uploads(&self, _abs: &Path) -> String {
+            "mock".into()
+        }
+
+        fn user_repo_dir(&self, _user_id: Uuid) -> String {
+            "mock".into()
+        }
+
+        fn absolute_from_relative(&self, rel: &str) -> PathBuf {
+            PathBuf::from(rel)
+        }
+
+        async fn resolve_upload_path(
+            &self,
+            _doc_id: Uuid,
+            _rest_path: &str,
+        ) -> anyhow::Result<PathBuf> {
+            unimplemented!()
+        }
+
+        async fn read_bytes(&self, _abs_path: &Path) -> anyhow::Result<Vec<u8>> {
+            unimplemented!()
+        }
+
+        async fn exists(&self, _abs_path: &Path) -> anyhow::Result<bool> {
+            Ok(true)
+        }
+
+        async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> anyhow::Result<()> {
+            let doc_id = abs_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|raw| Uuid::parse_str(raw).ok())
+                .unwrap_or_else(Uuid::nil);
+            self.writes.lock().unwrap().push((doc_id, data.to_vec()));
+            Ok(())
+        }
+
+        async fn store_doc_attachment(
+            &self,
+            _doc_id: Uuid,
+            _original_filename: Option<&str>,
+            _bytes: &[u8],
+        ) -> anyhow::Result<StoredAttachment> {
+            unimplemented!()
+        }
+    }
+
+    struct MockMarkdownExporter {
+        bytes: Vec<u8>,
+    }
+
+    impl MockMarkdownExporter {
+        fn new() -> Self {
+            Self {
+                bytes: b"mock markdown".to_vec(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl MarkdownExportProvider for MockMarkdownExporter {
+        async fn export_markdown_for_doc(
+            &self,
+            _doc_id: &Uuid,
+        ) -> anyhow::Result<Option<MarkdownExport>> {
+            Ok(Some(MarkdownExport {
+                bytes: self.bytes.clone(),
+                repo_path: Some("docs/mock.md".into()),
+                owner_id: Some(Uuid::new_v4()),
+                content_hash: "hash".into(),
+            }))
         }
     }
 
