@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use crate::application::services::storage_ingest::normalize_repo_path;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
 
@@ -84,10 +85,14 @@ async fn enqueue_batch(
         if repo_path.is_empty() {
             continue;
         }
+        let Some(clean_repo) = normalize_repo_path(repo_path) else {
+            tracing::warn!(repo_path, "storage_ingest_invalid_repo_path_request");
+            continue;
+        };
         queue
             .enqueue_event(
                 user_id,
-                repo_path,
+                &clean_repo,
                 event.backend.as_deref().unwrap_or("api"),
                 event.kind.clone().into(),
                 event.content_hash.as_deref(),

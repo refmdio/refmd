@@ -320,12 +320,15 @@ fn attachments_relative_path(owner_id: Uuid, repo_path: &str) -> Option<String> 
     if trimmed.is_empty() {
         return None;
     }
-    let mut doc_path = PathBuf::from(trimmed);
-    let stem = doc_path.file_stem()?.to_os_string();
-    doc_path.set_file_name(stem);
-    doc_path.push("attachments");
+    let mut doc_parent = PathBuf::from(trimmed);
+    if !doc_parent.pop() {
+        return None;
+    }
     let mut full = PathBuf::from(owner_id.to_string());
-    full.push(doc_path);
+    if !doc_parent.as_os_str().is_empty() {
+        full.push(&doc_parent);
+    }
+    full.push("attachments");
     Some(normalize_relative_path(full))
 }
 
@@ -408,6 +411,19 @@ mod tests {
         assert_eq!(queue.failed().len(), 1);
         assert_eq!(queue.failed()[0].0, 2);
         assert_eq!(metrics.snapshot().storage_projection_retry, 1);
+    }
+
+    #[test]
+    fn attachments_path_uses_parent_directory() {
+        let owner = Uuid::new_v4();
+        assert_eq!(
+            attachments_relative_path(owner, "docs/foo.md"),
+            Some(format!("{}/docs/attachments", owner))
+        );
+        assert_eq!(
+            attachments_relative_path(owner, "foo.md"),
+            Some(format!("{}/attachments", owner))
+        );
     }
 
     #[derive(Default)]

@@ -11,6 +11,7 @@ use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use crate::application::services::storage_ingest::normalize_repo_path;
 
 pub struct FsIngestWatcher {
     uploads_root: PathBuf,
@@ -69,9 +70,7 @@ impl FsIngestWatcher {
             EventDisposition::Ignore => return Ok(()),
             EventDisposition::Split => {
                 if event.paths.len() == 2 {
-                    self.enqueue_path(&event.paths[0], StorageIngestKind::Delete)
-                        .await?;
-                    self.enqueue_path(&event.paths[1], StorageIngestKind::Upsert)
+                    self.enqueue_rename(&event.paths[0], &event.paths[1])
                         .await?;
                 } else {
                     for path in event.paths {
@@ -95,15 +94,23 @@ impl FsIngestWatcher {
         if repo_path.is_empty() {
             return Ok(());
         }
+        let Some(clean_repo) = normalize_repo_path(&repo_path) else {
+            warn!(
+                user_id = %user_id,
+                repo_path = repo_path,
+                "fs_ingest_invalid_repo_path"
+            );
+            return Ok(());
+        };
         let (content_hash, payload) = if matches!(kind, StorageIngestKind::Upsert) {
-            self.capture_file_metadata(path, &repo_path).await
+            self.capture_file_metadata(path, &clean_repo).await
         } else {
             (None, None)
         };
         self.queue
             .enqueue_event(
                 user_id,
-                &repo_path,
+                &clean_repo,
                 &self.backend_name,
                 kind,
                 content_hash.as_deref(),
@@ -112,11 +119,16 @@ impl FsIngestWatcher {
             .await?;
         debug!(
             user_id = %user_id,
-            repo_path = repo_path,
+            repo_path = clean_repo,
             kind = ?kind,
             "fs_ingest_event_enqueued"
         );
         Ok(())
+    }
+
+    async fn enqueue_rename(&self, _from: &Path, to: &Path) -> anyhow::Result<()> {
+        // Treat rename as an upsert of the destination to avoid accidental deletions.
+        self.enqueue_path(to, StorageIngestKind::Upsert).await
     }
 
     async fn capture_file_metadata(

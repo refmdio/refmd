@@ -1,3 +1,4 @@
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -17,6 +18,25 @@ use crate::application::services::documents::DocumentService;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::snapshot_from_markdown;
 use crate::domain::documents::document::Document as DomainDocument;
+
+pub fn normalize_repo_path(repo_path: &str) -> Option<String> {
+    let trimmed = repo_path.trim().trim_start_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut normalized = PathBuf::new();
+    for component in Path::new(trimmed).components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => continue,
+            _ => return None,
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        return None;
+    }
+    Some(normalized.to_string_lossy().replace('\\', "/"))
+}
 
 #[async_trait]
 pub trait StorageIngestHandler: Send + Sync {
@@ -55,13 +75,15 @@ impl StorageIngestService {
     }
 
     fn relative_path(user_id: Uuid, repo_path: &str) -> String {
-        let trimmed = repo_path.trim_start_matches('/');
-        format!("{}/{}", user_id, trimmed)
+        let mut path = PathBuf::from(user_id.to_string());
+        path.push(repo_path);
+        path.to_string_lossy().replace('\\', "/")
     }
 
     async fn handle_doc_upsert(
         &self,
         doc: &ResolvedDocument,
+        repo_path: &str,
         event: &StorageIngestEvent,
         payload: MarkdownIngestPayload,
     ) -> anyhow::Result<()> {
@@ -81,7 +103,7 @@ impl StorageIngestService {
                 doc.id,
                 "document.ingest_upsert",
                 Some(json!({
-                    "repo_path": event.repo_path,
+                    "repo_path": repo_path,
                     "backend": event.backend,
                     "content_hash": payload.content_hash,
                     "doc_type": doc.doc_type,
@@ -90,7 +112,7 @@ impl StorageIngestService {
             .await?;
         info!(
             doc_id = %doc.id,
-            repo_path = event.repo_path,
+            repo_path = repo_path,
             backend = event.backend,
             "storage_ingest_doc_upsert_applied"
         );
@@ -102,6 +124,7 @@ impl StorageIngestService {
         file_id: Uuid,
         doc_id: Uuid,
         rel_path: &str,
+        repo_path: &str,
         event: &StorageIngestEvent,
     ) -> anyhow::Result<()> {
         let abs = self.storage.absolute_from_relative(rel_path);
@@ -122,7 +145,7 @@ impl StorageIngestService {
                 doc_id,
                 "attachment.ingest_upsert",
                 Some(json!({
-                    "repo_path": event.repo_path,
+                    "repo_path": repo_path,
                     "storage_path": rel_path,
                     "backend": event.backend,
                     "size": size,
@@ -133,7 +156,7 @@ impl StorageIngestService {
         info!(
             doc_id = %doc_id,
             file_id = %file_id,
-            repo_path = event.repo_path,
+            repo_path = repo_path,
             backend = event.backend,
             "storage_ingest_attachment_upsert_applied"
         );
@@ -144,6 +167,7 @@ impl StorageIngestService {
         &self,
         file_id: Uuid,
         doc_id: Uuid,
+        repo_path: &str,
         event: &StorageIngestEvent,
     ) -> anyhow::Result<()> {
         self.files_repo.delete_by_id(file_id).await?;
@@ -152,7 +176,7 @@ impl StorageIngestService {
                 doc_id,
                 "attachment.ingest_delete",
                 Some(json!({
-                    "repo_path": event.repo_path,
+                    "repo_path": repo_path,
                     "backend": event.backend,
                 })),
             )
@@ -160,7 +184,7 @@ impl StorageIngestService {
         info!(
             doc_id = %doc_id,
             file_id = %file_id,
-            repo_path = event.repo_path,
+            repo_path = repo_path,
             backend = event.backend,
             "storage_ingest_attachment_deleted"
         );
@@ -198,6 +222,7 @@ impl StorageIngestService {
     async fn handle_doc_delete(
         &self,
         doc: &ResolvedDocument,
+        repo_path: &str,
         event: &StorageIngestEvent,
     ) -> anyhow::Result<()> {
         match self
@@ -208,7 +233,7 @@ impl StorageIngestService {
             Ok(true) => {
                 info!(
                     doc_id = %doc.id,
-                    repo_path = event.repo_path,
+                    repo_path = repo_path,
                     backend = event.backend,
                     "storage_ingest_doc_delete_applied"
                 );
@@ -241,7 +266,15 @@ impl StorageIngestService {
 #[async_trait]
 impl StorageIngestHandler for StorageIngestService {
     async fn handle_event(&self, event: &StorageIngestEvent) -> anyhow::Result<()> {
-        let rel_path = Self::relative_path(event.user_id, &event.repo_path);
+        let Some(repo_path) = normalize_repo_path(&event.repo_path) else {
+            warn!(
+                user_id = %event.user_id,
+                repo_path = event.repo_path.as_str(),
+                "storage_ingest_invalid_repo_path"
+            );
+            return Ok(());
+        };
+        let rel_path = Self::relative_path(event.user_id, &repo_path);
 
         if let Some(doc) = self
             .document_repo
@@ -252,7 +285,7 @@ impl StorageIngestHandler for StorageIngestService {
             if doc.is_folder() {
                 warn!(
                     doc_id = %doc.id,
-                    repo_path = event.repo_path,
+                    repo_path = repo_path,
                     "storage_ingest_folder_event_skipped"
                 );
                 return Ok(());
@@ -260,10 +293,11 @@ impl StorageIngestHandler for StorageIngestService {
             match event.kind {
                 StorageIngestKind::Upsert => {
                     let payload = self.load_markdown_payload(&rel_path).await?;
-                    self.handle_doc_upsert(&doc, event, payload).await?;
+                    self.handle_doc_upsert(&doc, &repo_path, event, payload)
+                        .await?;
                 }
                 StorageIngestKind::Delete => {
-                    self.handle_doc_delete(&doc, event).await?;
+                    self.handle_doc_delete(&doc, &repo_path, event).await?;
                 }
             }
             return Ok(());
@@ -275,16 +309,16 @@ impl StorageIngestHandler for StorageIngestService {
             info!(
                 doc_id = %doc_id,
                 owner_id = %owner_id,
-                repo_path = event.repo_path,
+                repo_path = repo_path,
                 "storage_ingest_attachment_detected"
             );
             match event.kind {
                 StorageIngestKind::Upsert => {
-                    self.handle_attachment_upsert(file_id, doc_id, &rel_path, event)
+                    self.handle_attachment_upsert(file_id, doc_id, &rel_path, &repo_path, event)
                         .await?;
                 }
                 StorageIngestKind::Delete => {
-                    self.handle_attachment_delete(file_id, doc_id, event)
+                    self.handle_attachment_delete(file_id, doc_id, &repo_path, event)
                         .await?;
                 }
             }
@@ -300,13 +334,14 @@ impl StorageIngestHandler for StorageIngestService {
                 if doc.is_folder() {
                     warn!(
                         doc_id = %doc.id,
-                        repo_path = event.repo_path,
+                        repo_path = repo_path,
                         "storage_ingest_folder_event_skipped"
                     );
                 } else {
                     self.reconcile_repo_path(&doc, event.user_id, &rel_path)
                         .await;
-                    self.handle_doc_upsert(&doc, event, payload).await?;
+                    self.handle_doc_upsert(&doc, &repo_path, event, payload)
+                        .await?;
                 }
                 return Ok(());
             }
@@ -318,14 +353,14 @@ impl StorageIngestHandler for StorageIngestService {
                 .await?;
             info!(
                 user_id = %event.user_id,
-                repo_path = event.repo_path,
+                repo_path = repo_path,
                 backend = event.backend,
                 "storage_ingest_orphan_deleted"
             );
         } else {
             warn!(
                 user_id = %event.user_id,
-                repo_path = event.repo_path,
+                repo_path = repo_path,
                 backend = event.backend,
                 "storage_ingest_no_target_found"
             );
@@ -455,5 +490,24 @@ mod tests {
         let payload = parse_markdown_payload(markdown.into_bytes()).unwrap();
         assert_eq!(payload.doc_id_hint, Some(doc_id));
         assert_eq!(payload.body.trim_start_matches('\n'), "Hello");
+    }
+
+    #[test]
+    fn normalize_repo_path_rejects_traversal() {
+        assert!(normalize_repo_path("../secret").is_none());
+        assert!(normalize_repo_path("foo/../bar").is_none());
+        assert!(normalize_repo_path("").is_none());
+    }
+
+    #[test]
+    fn normalize_repo_path_trims_and_standardizes() {
+        assert_eq!(
+            normalize_repo_path("//docs//foo.md"),
+            Some("docs/foo.md".to_string())
+        );
+        assert_eq!(
+            normalize_repo_path("notes/./bar.md"),
+            Some("notes/bar.md".to_string())
+        );
     }
 }
