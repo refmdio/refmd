@@ -59,9 +59,22 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             VALUES ($1, $2, $3, 0, NULL, NULL)
             ON CONFLICT (job_type, doc_id)
             DO UPDATE SET reason = EXCLUDED.reason,
-                          locked_at = NULL,
-                          attempts = 0,
-                          last_error = NULL,
+                          locked_at = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
+                              ELSE storage_projection_jobs.locked_at
+                          END,
+                          attempts = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN 0
+                              ELSE storage_projection_jobs.attempts
+                          END,
+                          last_error = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
+                              ELSE storage_projection_jobs.last_error
+                          END,
+                          pending_retry = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN false
+                              ELSE true
+                          END,
                           updated_at = now()
             "#,
         )
@@ -92,9 +105,22 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             VALUES ($1, $2, $3, 0, NULL, NULL)
             ON CONFLICT (job_type, doc_id)
             DO UPDATE SET reason = EXCLUDED.reason,
-                          locked_at = NULL,
-                          attempts = 0,
-                          last_error = NULL,
+                          locked_at = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
+                              ELSE storage_projection_jobs.locked_at
+                          END,
+                          attempts = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN 0
+                              ELSE storage_projection_jobs.attempts
+                          END,
+                          last_error = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
+                              ELSE storage_projection_jobs.last_error
+                          END,
+                          pending_retry = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN false
+                              ELSE true
+                          END,
                           updated_at = now()
             "#,
         )
@@ -124,9 +150,22 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             VALUES ($1, $2, $3, 0, NULL, NULL)
             ON CONFLICT (job_type, folder_id)
             DO UPDATE SET reason = EXCLUDED.reason,
-                          locked_at = NULL,
-                          attempts = 0,
-                          last_error = NULL,
+                          locked_at = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
+                              ELSE storage_projection_jobs.locked_at
+                          END,
+                          attempts = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN 0
+                              ELSE storage_projection_jobs.attempts
+                          END,
+                          last_error = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
+                              ELSE storage_projection_jobs.last_error
+                          END,
+                          pending_retry = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN false
+                              ELSE true
+                          END,
                           updated_at = now()
             "#,
         )
@@ -157,9 +196,22 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             VALUES ($1, $2, $3, 0, NULL, NULL)
             ON CONFLICT (job_type, folder_id)
             DO UPDATE SET reason = EXCLUDED.reason,
-                          locked_at = NULL,
-                          attempts = 0,
-                          last_error = NULL,
+                          locked_at = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
+                              ELSE storage_projection_jobs.locked_at
+                          END,
+                          attempts = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN 0
+                              ELSE storage_projection_jobs.attempts
+                          END,
+                          last_error = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
+                              ELSE storage_projection_jobs.last_error
+                          END,
+                          pending_retry = CASE
+                              WHEN storage_projection_jobs.locked_at IS NULL THEN false
+                              ELSE true
+                          END,
                           updated_at = now()
             "#,
         )
@@ -216,11 +268,28 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
     }
 
     async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM storage_projection_jobs WHERE id = $1 AND locked_at = $2")
-            .bind(job_id)
-            .bind(locked_at)
-            .execute(&self.pool)
-            .await?;
+        let updated = sqlx::query(
+            r#"
+            UPDATE storage_projection_jobs
+            SET locked_at = NULL,
+                attempts = 0,
+                last_error = NULL,
+                pending_retry = false,
+                updated_at = now()
+            WHERE id = $1 AND locked_at = $2 AND pending_retry = true
+            "#,
+        )
+        .bind(job_id)
+        .bind(locked_at)
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            sqlx::query("DELETE FROM storage_projection_jobs WHERE id = $1 AND locked_at = $2")
+                .bind(job_id)
+                .bind(locked_at)
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 
@@ -235,6 +304,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             UPDATE storage_projection_jobs
             SET last_error = $2,
                 locked_at = NULL,
+                pending_retry = false,
                 updated_at = now()
             WHERE id = $1 AND locked_at = $3
             "#,

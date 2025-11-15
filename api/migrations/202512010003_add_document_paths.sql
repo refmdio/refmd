@@ -54,6 +54,7 @@ WITH RECURSIVE doc_tree AS (
         END AS desired_path
     FROM documents
     WHERE parent_id IS NULL
+      AND archived_parent_id IS NULL
     UNION ALL
     SELECT
         d.id,
@@ -65,7 +66,7 @@ WITH RECURSIVE doc_tree AS (
             ELSE doc_tree.desired_path || '/' || d.slug || '.md'
         END AS desired_path
     FROM documents d
-    JOIN doc_tree ON d.parent_id = doc_tree.id
+    JOIN doc_tree ON COALESCE(d.parent_id, d.archived_parent_id) = doc_tree.id
 )
 UPDATE documents
 SET desired_path = doc_tree.desired_path

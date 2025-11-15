@@ -69,9 +69,22 @@ impl StorageIngestQueue for PgStorageIngestQueue {
                                   END
                               ELSE EXCLUDED.payload
                           END,
-                          attempts = 0,
-                          locked_at = NULL,
-                          created_at = now()
+                          attempts = CASE
+                              WHEN storage_ingest_queue.locked_at IS NULL THEN 0
+                              ELSE storage_ingest_queue.attempts
+                          END,
+                          locked_at = CASE
+                              WHEN storage_ingest_queue.locked_at IS NULL THEN NULL
+                              ELSE storage_ingest_queue.locked_at
+                          END,
+                          pending_retry = CASE
+                              WHEN storage_ingest_queue.locked_at IS NULL THEN false
+                              ELSE true
+                          END,
+                          created_at = CASE
+                              WHEN storage_ingest_queue.locked_at IS NULL THEN now()
+                              ELSE storage_ingest_queue.created_at
+                          END
             "#,
         )
         .bind(user_id)
@@ -129,11 +142,26 @@ impl StorageIngestQueue for PgStorageIngestQueue {
     }
 
     async fn complete_event(&self, event_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM storage_ingest_queue WHERE id = $1 AND locked_at = $2")
-            .bind(event_id)
-            .bind(locked_at)
-            .execute(&self.pool)
-            .await?;
+        let updated = sqlx::query(
+            r#"
+            UPDATE storage_ingest_queue
+            SET locked_at = NULL,
+                attempts = 0,
+                pending_retry = false
+            WHERE id = $1 AND locked_at = $2 AND pending_retry = true
+            "#,
+        )
+        .bind(event_id)
+        .bind(locked_at)
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            sqlx::query("DELETE FROM storage_ingest_queue WHERE id = $1 AND locked_at = $2")
+                .bind(event_id)
+                .bind(locked_at)
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 
@@ -153,7 +181,8 @@ impl StorageIngestQueue for PgStorageIngestQueue {
                     '{last_error}',
                     to_jsonb($2::text),
                     true
-                )
+                ),
+                pending_retry = false
             WHERE id = $1 AND locked_at = $3
             "#,
         )
