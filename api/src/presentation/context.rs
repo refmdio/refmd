@@ -6,6 +6,7 @@ use crate::application::ports::plugin_event_publisher::PluginScopedEvent;
 use crate::application::ports::plugin_event_subscriber::PluginEventSubscriber;
 use crate::application::ports::realtime_port::RealtimeEngine;
 pub use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
+use crate::application::ports::storage_ingest_queue::StorageIngestQueue;
 use crate::application::services::api_tokens::ApiTokenService;
 use crate::application::services::auth::account::AccountService;
 use crate::application::services::auth::service::AuthService;
@@ -59,6 +60,7 @@ pub struct AppServices {
     account_service: Arc<AccountService>,
     auth_service: Arc<AuthService>,
     realtime_engine: Arc<dyn RealtimeEngine>,
+    storage_ingest_queue: Arc<dyn StorageIngestQueue>,
 }
 
 impl AppServices {
@@ -83,6 +85,7 @@ impl AppServices {
         account_service: Arc<AccountService>,
         auth_service: Arc<AuthService>,
         realtime_engine: Arc<dyn RealtimeEngine>,
+        storage_ingest_queue: Arc<dyn StorageIngestQueue>,
     ) -> Self {
         Self {
             authorization,
@@ -104,6 +107,7 @@ impl AppServices {
             account_service,
             auth_service,
             realtime_engine,
+            storage_ingest_queue,
         }
     }
 }
@@ -150,6 +154,10 @@ impl AppContext {
 
     pub fn markdown_renderer(&self) -> Arc<MarkdownRenderService> {
         self.services.markdown_render_service.clone()
+    }
+
+    pub fn storage_ingest_queue(&self) -> Arc<dyn StorageIngestQueue> {
+        self.services.storage_ingest_queue.clone()
     }
 
     pub fn plugin_execution_service(&self) -> Arc<PluginExecutionService> {

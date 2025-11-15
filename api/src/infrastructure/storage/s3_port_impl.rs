@@ -183,35 +183,34 @@ impl S3StoragePort {
     async fn move_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
         use sqlx::Row;
 
-        let row = sqlx::query("SELECT type, path FROM documents WHERE id = $1")
-            .bind(doc_id)
-            .fetch_optional(&self.pool)
-            .await?;
+        let row =
+            sqlx::query("SELECT owner_id, type, path, desired_path FROM documents WHERE id = $1")
+                .bind(doc_id)
+                .fetch_optional(&self.pool)
+                .await?;
         let row = match row {
             Some(row) => row,
             None => return Ok(()),
         };
+        let owner_id: Uuid = row.get("owner_id");
         let dtype: String = row.get("type");
         if dtype == "folder" {
             return Ok(());
         }
         let old_rel: Option<String> = row.try_get("path").ok();
 
-        let desired_full =
-            crate::infrastructure::storage::build_doc_file_path(&self.pool, &self.root, doc_id)
-                .await?;
-        let (new_full, new_rel) = crate::infrastructure::storage::ensure_unique_doc_path(
-            &self.pool,
-            &self.root,
-            doc_id,
-            &desired_full,
-        )
-        .await?;
+        let desired_path: String = row.get("desired_path");
+        let target_rel =
+            crate::infrastructure::storage::owner_relative_from_desired(owner_id, &desired_path);
+        let target_parent_rel = crate::infrastructure::storage::owner_relative_parent_from_desired(
+            owner_id,
+            &desired_path,
+        );
 
         if let Some(old_rel) = old_rel.clone() {
-            if old_rel != new_rel {
+            if old_rel != target_rel {
                 let src_key = self.relative_to_key(&old_rel);
-                let dst_key = self.relative_to_key(&new_rel);
+                let dst_key = self.relative_to_key(&target_rel);
                 if self.object_exists(&src_key).await? {
                     self.copy_object(&src_key, &dst_key).await?;
                     self.delete_object(&src_key).await?;
@@ -219,10 +218,7 @@ impl S3StoragePort {
             }
         }
 
-        let new_dir = new_full
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| self.root.clone());
+        let new_dir = self.root.join(&target_parent_rel);
 
         let files = sqlx::query("SELECT filename, storage_path FROM files WHERE document_id = $1")
             .bind(doc_id)
@@ -259,7 +255,7 @@ impl S3StoragePort {
 
         sqlx::query("UPDATE documents SET path = $2, updated_at = now() WHERE id = $1")
             .bind(doc_id)
-            .bind(&new_rel)
+            .bind(&target_rel)
             .execute(&self.pool)
             .await?;
 

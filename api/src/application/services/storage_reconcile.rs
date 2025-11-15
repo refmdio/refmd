@@ -6,6 +6,7 @@ use std::time::Duration;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
+use serde_json::json;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 use walkdir::WalkDir;
@@ -95,7 +96,10 @@ impl StorageReconcileService {
                 "reconcile",
                 StorageIngestKind::Delete,
                 None,
-                None,
+                Some(json!({
+                    "source": "reconcile",
+                    "storage_path": storage_path,
+                })),
             )
             .await
     }

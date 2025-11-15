@@ -3,9 +3,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Error;
+use serde_json::json;
 use tracing::{error, info, info_span, warn};
 use uuid::Uuid;
 
+use crate::application::ports::doc_event_log::DocEventLog;
 use crate::application::ports::storage_port::StorageProjectionPort;
 use crate::application::ports::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJob, StorageProjectionJobKind,
@@ -15,20 +17,25 @@ use crate::application::ports::storage_projection_queue::{
 pub struct StorageProjectionWorker {
     jobs: Arc<dyn StorageProjectionQueue>,
     storage: Arc<dyn StorageProjectionPort>,
+    events: Arc<dyn DocEventLog>,
     lock_timeout_secs: i64,
     idle_backoff: Duration,
+    max_attempts: i32,
 }
 
 impl StorageProjectionWorker {
     pub fn new(
         jobs: Arc<dyn StorageProjectionQueue>,
         storage: Arc<dyn StorageProjectionPort>,
+        events: Arc<dyn DocEventLog>,
     ) -> Self {
         Self {
             jobs,
             storage,
+            events,
             lock_timeout_secs: 30,
             idle_backoff: Duration::from_millis(500),
+            max_attempts: 5,
         }
     }
 
@@ -39,6 +46,11 @@ impl StorageProjectionWorker {
 
     pub fn with_idle_backoff(mut self, backoff: Duration) -> Self {
         self.idle_backoff = backoff;
+        self
+    }
+
+    pub fn with_max_attempts(mut self, attempts: i32) -> Self {
+        self.max_attempts = attempts.max(1);
         self
     }
 
@@ -75,11 +87,15 @@ impl StorageProjectionWorker {
         let delete_metadata = parse_delete_job_metadata(job.reason.as_ref());
         let result = match job.job_type {
             StorageProjectionJobKind::DocSync => {
-                self.handle_doc_sync(
-                    job.doc_id
-                        .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?,
-                )
-                .await
+                let doc_id = job
+                    .doc_id
+                    .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
+                let res = self.handle_doc_sync(doc_id).await;
+                if res.is_ok() {
+                    self.emit_projection_event(doc_id, &job, "succeeded", None)
+                        .await;
+                }
+                res
             }
             StorageProjectionJobKind::FolderSync => {
                 self.handle_folder_sync(
@@ -89,12 +105,17 @@ impl StorageProjectionWorker {
                 .await
             }
             StorageProjectionJobKind::DeleteDoc => {
-                self.handle_delete_doc(
-                    job.doc_id
-                        .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?,
-                    delete_metadata.as_ref(),
-                )
-                .await
+                let doc_id = job
+                    .doc_id
+                    .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
+                let res = self
+                    .handle_delete_doc(doc_id, delete_metadata.as_ref())
+                    .await;
+                if res.is_ok() {
+                    self.emit_projection_event(doc_id, &job, "succeeded", None)
+                        .await;
+                }
+                res
             }
             StorageProjectionJobKind::DeleteFolder => {
                 self.handle_delete_folder(
@@ -117,11 +138,37 @@ impl StorageProjectionWorker {
                     "storage_projection_job_missing_target_skip"
                 );
                 self.jobs.complete_job(job.id).await?;
+                if let Some(doc_id) = job.doc_id {
+                    self.emit_projection_event(doc_id, &job, "skipped", Some(&format!("{err:#}")))
+                        .await;
+                }
             }
             Err(err) => {
                 let msg = format!("{err:#}");
-                self.jobs.fail_job(job.id, &msg).await?;
-                warn!(error = ?err, "storage_projection_job_failed_once");
+                if job.attempts >= self.max_attempts {
+                    self.jobs.complete_job(job.id).await?;
+                    warn!(
+                        error = ?err,
+                        attempts = job.attempts,
+                        "storage_projection_job_gave_up"
+                    );
+                    if let Some(doc_id) = job.doc_id {
+                        self.emit_projection_event(
+                            doc_id,
+                            &job,
+                            "failed",
+                            Some("max_attempts_exceeded"),
+                        )
+                        .await;
+                    }
+                } else {
+                    self.jobs.fail_job(job.id, &msg).await?;
+                    warn!(error = ?err, "storage_projection_job_failed_once");
+                    if let Some(doc_id) = job.doc_id {
+                        self.emit_projection_event(doc_id, &job, "failed", Some(&msg))
+                            .await;
+                    }
+                }
             }
         }
 
@@ -196,6 +243,36 @@ impl StorageProjectionWorker {
     }
 }
 
+impl StorageProjectionWorker {
+    async fn emit_projection_event(
+        &self,
+        doc_id: Uuid,
+        job: &StorageProjectionJob,
+        status: &str,
+        error: Option<&str>,
+    ) {
+        let Some(event_type) = projection_event_type(job.job_type) else {
+            return;
+        };
+        let payload = json!({
+            "job_id": job.id,
+            "job_type": job_type_label(job.job_type),
+            "status": status,
+            "reason": job.reason,
+            "attempts": job.attempts,
+            "error": error,
+        });
+        if let Err(err) = self.events.append(doc_id, event_type, Some(payload)).await {
+            warn!(
+                error = ?err,
+                doc_id = %doc_id,
+                event_type,
+                "storage_projection_event_emit_failed"
+            );
+        }
+    }
+}
+
 fn parse_delete_job_metadata(reason: Option<&String>) -> Option<StorageDeleteJobMetadata> {
     reason.and_then(|raw| {
         serde_json::from_str::<StorageJobReason<StorageDeleteJobMetadata>>(raw)
@@ -236,7 +313,12 @@ mod tests {
     async fn doc_sync_invokes_storage_and_completes_job() {
         let queue = Arc::new(MockQueue::default());
         let storage = Arc::new(RecordingStoragePort::default());
-        let worker = Arc::new(StorageProjectionWorker::new(queue.clone(), storage.clone()));
+        let events = Arc::new(RecordingDocEventLog::default());
+        let worker = Arc::new(StorageProjectionWorker::new(
+            queue.clone(),
+            storage.clone(),
+            events.clone(),
+        ));
         let job = StorageProjectionJob {
             id: 1,
             job_type: StorageProjectionJobKind::DocSync,
@@ -248,6 +330,8 @@ mod tests {
         worker.process_job(job).await.unwrap();
         assert_eq!(queue.completed(), vec![1]);
         assert_eq!(storage.calls(), vec!["sync_doc_paths"]);
+        assert_eq!(events.events().len(), 1);
+        assert_eq!(events.events()[0].1, "storage.doc_sync");
     }
 
     #[tokio::test]
@@ -255,7 +339,8 @@ mod tests {
         let queue = Arc::new(MockQueue::default());
         let storage = Arc::new(RecordingStoragePort::default());
         storage.fail_next_sync();
-        let worker = Arc::new(StorageProjectionWorker::new(queue.clone(), storage));
+        let events = Arc::new(RecordingDocEventLog::default());
+        let worker = Arc::new(StorageProjectionWorker::new(queue.clone(), storage, events));
         let job = StorageProjectionJob {
             id: 2,
             job_type: StorageProjectionJobKind::DocSync,
@@ -396,6 +481,43 @@ mod tests {
             Ok(())
         }
     }
+
+    #[derive(Default)]
+    struct RecordingDocEventLog {
+        events: Mutex<Vec<(Uuid, String, Option<serde_json::Value>)>>,
+    }
+
+    impl RecordingDocEventLog {
+        fn events(&self) -> Vec<(Uuid, String, Option<serde_json::Value>)> {
+            self.events.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl DocEventLog for RecordingDocEventLog {
+        async fn append(
+            &self,
+            doc_id: Uuid,
+            event_type: &str,
+            payload: Option<serde_json::Value>,
+        ) -> anyhow::Result<()> {
+            self.events
+                .lock()
+                .unwrap()
+                .push((doc_id, event_type.to_string(), payload));
+            Ok(())
+        }
+
+        async fn append_tx(
+            &self,
+            _tx: &mut Transaction<'_, Postgres>,
+            _doc_id: Uuid,
+            _event_type: &str,
+            _payload: Option<serde_json::Value>,
+        ) -> anyhow::Result<()> {
+            unimplemented!()
+        }
+    }
 }
 
 fn normalize_relative_path(path: PathBuf) -> String {
@@ -406,4 +528,21 @@ fn missing_target(err: &Error) -> bool {
     let needle = "document not found";
     err.chain()
         .any(|cause| cause.to_string().to_lowercase().contains(needle))
+}
+
+fn job_type_label(kind: StorageProjectionJobKind) -> &'static str {
+    match kind {
+        StorageProjectionJobKind::DocSync => "doc_sync",
+        StorageProjectionJobKind::FolderSync => "folder_sync",
+        StorageProjectionJobKind::DeleteDoc => "delete_doc",
+        StorageProjectionJobKind::DeleteFolder => "delete_folder",
+    }
+}
+
+fn projection_event_type(kind: StorageProjectionJobKind) -> Option<&'static str> {
+    match kind {
+        StorageProjectionJobKind::DocSync => Some("storage.projection.doc_sync"),
+        StorageProjectionJobKind::DeleteDoc => Some("storage.projection.doc_delete"),
+        _ => None,
+    }
 }

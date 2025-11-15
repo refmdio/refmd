@@ -114,6 +114,42 @@ impl SqlxDocumentRepository {
         format!("{owner_id}/{}", desired_path.trim_start_matches('/'))
     }
 
+    async fn update_descendant_paths_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        root_id: Uuid,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, desired_path, type
+                FROM documents
+                WHERE id = $1
+                UNION ALL
+                SELECT d.id,
+                       CASE
+                           WHEN d.type = 'folder' THEN tree.desired_path || '/' || d.slug
+                           ELSE tree.desired_path || '/' || d.slug || '.md'
+                       END AS desired_path,
+                       d.type
+                FROM documents d
+                JOIN tree ON d.parent_id = tree.id
+            )
+            UPDATE documents AS doc
+            SET desired_path = tree.desired_path,
+                path_digest = digest(tree.desired_path, 'sha256'),
+                updated_at = now()
+            FROM tree
+            WHERE doc.id = tree.id
+              AND doc.id <> $1
+            "#,
+        )
+        .bind(root_id)
+        .execute(tx.as_mut())
+        .await?;
+        Ok(())
+    }
+
     fn is_unique_violation(err: &sqlx::Error) -> bool {
         match err {
             sqlx::Error::Database(db_err) => {
@@ -393,7 +429,6 @@ impl DocumentRepository for SqlxDocumentRepository {
             let desired_path = self
                 .build_desired_path(next_parent, &slug, &doc_type)
                 .await?;
-            let repo_path = Self::owner_relative_path(user_id, &desired_path);
             let path_digest = Self::hash_path(&desired_path);
             let row = sqlx::query(
                 r#"UPDATE documents SET
@@ -418,7 +453,13 @@ impl DocumentRepository for SqlxDocumentRepository {
             .fetch_optional(tx.as_mut())
             .await;
             match row {
-                Ok(Some(row)) => return Ok(Some(Self::map_row_to_document(&row))),
+                Ok(Some(row)) => {
+                    let doc = Self::map_row_to_document(&row);
+                    if doc.doc_type == "folder" {
+                        self.update_descendant_paths_tx(tx, doc.id).await?;
+                    }
+                    return Ok(Some(doc));
+                }
                 Ok(None) => return Ok(None),
                 Err(err) if Self::is_unique_violation(&err) => {
                     attempt += 1;

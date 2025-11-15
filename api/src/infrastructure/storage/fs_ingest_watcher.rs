@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use notify::event::{EventKind, ModifyKind, RenameMode};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tracing::{debug, error, warn};
 use uuid::Uuid;
@@ -93,8 +95,20 @@ impl FsIngestWatcher {
         if repo_path.is_empty() {
             return Ok(());
         }
+        let (content_hash, payload) = if matches!(kind, StorageIngestKind::Upsert) {
+            self.capture_file_metadata(path, &repo_path).await
+        } else {
+            (None, None)
+        };
         self.queue
-            .enqueue_event(user_id, &repo_path, &self.backend_name, kind, None, None)
+            .enqueue_event(
+                user_id,
+                &repo_path,
+                &self.backend_name,
+                kind,
+                content_hash.as_deref(),
+                payload,
+            )
             .await?;
         debug!(
             user_id = %user_id,
@@ -103,6 +117,34 @@ impl FsIngestWatcher {
             "fs_ingest_event_enqueued"
         );
         Ok(())
+    }
+
+    async fn capture_file_metadata(
+        &self,
+        path: &Path,
+        repo_path: &str,
+    ) -> (Option<String>, Option<Value>) {
+        match tokio::fs::read(path).await {
+            Ok(bytes) => {
+                let mut hasher = Sha256::new();
+                hasher.update(&bytes);
+                let hash = hasher
+                    .finalize()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>();
+                let payload = serde_json::json!({
+                    "file_kind": file_kind(repo_path),
+                    "is_text": repo_path.ends_with(".md"),
+                    "size": bytes.len(),
+                });
+                (Some(hash), Some(payload))
+            }
+            Err(err) => {
+                warn!(error = ?err, repo_path = repo_path, "fs_ingest_metadata_failed");
+                (None, None)
+            }
+        }
     }
 
     fn parse_repo_path(&self, path: &Path) -> Option<(Uuid, String)> {
@@ -138,5 +180,13 @@ fn classify_event(kind: &EventKind) -> EventDisposition {
         }
         EventKind::Remove(_) => EventDisposition::Kind(StorageIngestKind::Delete),
         _ => EventDisposition::Ignore,
+    }
+}
+
+fn file_kind(repo_path: &str) -> &'static str {
+    if repo_path.contains("/attachments/") {
+        "attachment"
+    } else {
+        "document"
     }
 }

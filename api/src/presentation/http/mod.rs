@@ -9,4 +9,5 @@ pub mod plugins;
 pub mod public;
 pub mod shares;
 pub mod shortcuts;
+pub mod storage_ingest;
 pub mod tags;

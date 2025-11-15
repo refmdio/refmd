@@ -4,6 +4,43 @@ use uuid::Uuid;
 
 use crate::infrastructure::db::PgPool;
 
+fn pathbuf_to_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn owner_relative_buf(owner_id: Uuid, desired_path: &str) -> PathBuf {
+    let mut rel = PathBuf::from(owner_id.to_string());
+    let trimmed = desired_path.trim_start_matches('/');
+    if !trimmed.is_empty() {
+        rel.push(trimmed);
+    }
+    rel
+}
+
+fn owner_relative_parent_buf(owner_id: Uuid, desired_path: &str) -> PathBuf {
+    let mut rel = PathBuf::from(owner_id.to_string());
+    let trimmed = desired_path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        return rel;
+    }
+    let mut desired = PathBuf::from(trimmed);
+    if desired.file_name().is_some() {
+        desired.pop();
+    }
+    if !desired.as_os_str().is_empty() {
+        rel.push(desired);
+    }
+    rel
+}
+
+pub fn owner_relative_from_desired(owner_id: Uuid, desired_path: &str) -> String {
+    pathbuf_to_string(&owner_relative_buf(owner_id, desired_path))
+}
+
+pub fn owner_relative_parent_from_desired(owner_id: Uuid, desired_path: &str) -> String {
+    pathbuf_to_string(&owner_relative_parent_buf(owner_id, desired_path))
+}
+
 pub fn sanitize_title(name: &str) -> String {
     let mut s = name.trim().to_string();
     let invalid = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'];
@@ -25,73 +62,22 @@ pub async fn build_doc_dir(
     uploads_root: &Path,
     doc_id: Uuid,
 ) -> anyhow::Result<PathBuf> {
-    // Fetch basic document info first
-    let row = sqlx::query(
-        "SELECT owner_id, parent_id, archived_at, archived_parent_id FROM documents WHERE id = $1",
-    )
-    .bind(doc_id)
-    .fetch_optional(pool)
-    .await?;
-    let row = row.ok_or_else(|| anyhow::anyhow!("Document not found"))?;
-
-    let owner_id: Uuid = row.get("owner_id");
-    let archived_at: Option<chrono::DateTime<chrono::Utc>> = row
-        .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("archived_at")
-        .ok()
-        .flatten();
-    let mut dir = uploads_root.to_path_buf();
-    dir.push(owner_id.to_string());
-
-    let mut current_parent: Option<Uuid> = if archived_at.is_some() {
-        dir.push("Archives");
-        row.try_get::<Option<Uuid>, _>("archived_parent_id")
-            .ok()
-            .flatten()
-    } else {
-        row.try_get::<Option<Uuid>, _>("parent_id").ok().flatten()
-    };
-
-    let mut components: Vec<String> = Vec::new();
-    while let Some(pid) = current_parent {
-        let parent = sqlx::query(
-            "SELECT title, type, parent_id, archived_at, archived_parent_id FROM documents WHERE id = $1",
-        )
-        .bind(pid)
+    let row = sqlx::query("SELECT owner_id, desired_path, type FROM documents WHERE id = $1")
+        .bind(doc_id)
         .fetch_optional(pool)
         .await?;
-        let parent = match parent {
-            Some(row) => row,
-            None => break,
-        };
+    let row = row.ok_or_else(|| anyhow::anyhow!("Document not found"))?;
+    let owner_id: Uuid = row.get("owner_id");
+    let desired_path: String = row.get("desired_path");
+    let dtype: String = row.get("type");
 
-        let dtype: String = parent.get("type");
-        if dtype == "folder" {
-            let title: String = parent.get("title");
-            components.push(sanitize_title(&title));
-        }
-        let parent_archived: Option<chrono::DateTime<chrono::Utc>> = parent
-            .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("archived_at")
-            .ok()
-            .flatten();
-        current_parent = if parent_archived.is_some() {
-            parent
-                .try_get::<Option<Uuid>, _>("archived_parent_id")
-                .ok()
-                .flatten()
-        } else {
-            parent
-                .try_get::<Option<Uuid>, _>("parent_id")
-                .ok()
-                .flatten()
-        };
-    }
+    let rel = if dtype == "folder" {
+        owner_relative_buf(owner_id, &desired_path)
+    } else {
+        owner_relative_parent_buf(owner_id, &desired_path)
+    };
 
-    components.reverse();
-    for component in components {
-        dir.push(component);
-    }
-
-    Ok(dir)
+    Ok(uploads_root.join(rel))
 }
 
 pub async fn build_doc_file_path(
@@ -99,19 +85,18 @@ pub async fn build_doc_file_path(
     uploads_root: &Path,
     doc_id: Uuid,
 ) -> anyhow::Result<PathBuf> {
-    // fetch title, type first
-    let row = sqlx::query("SELECT title, type FROM documents WHERE id = $1")
+    let row = sqlx::query("SELECT owner_id, desired_path, type FROM documents WHERE id = $1")
         .bind(doc_id)
         .fetch_one(pool)
         .await?;
-    let title: String = row.get("title");
     let dtype: String = row.get("type");
-    let mut dir = build_doc_dir(pool, uploads_root, doc_id).await?;
-    if dtype != "folder" {
-        let filename = format!("{}.md", sanitize_title(&title));
-        dir.push(filename);
+    if dtype == "folder" {
+        anyhow::bail!("folder_has_no_markdown_path");
     }
-    Ok(dir)
+    let owner_id: Uuid = row.get("owner_id");
+    let desired_path: String = row.get("desired_path");
+    let rel = owner_relative_buf(owner_id, &desired_path);
+    Ok(uploads_root.join(rel))
 }
 
 pub fn relative_from_uploads(uploads_root: &Path, full: &Path) -> String {
@@ -119,64 +104,6 @@ pub fn relative_from_uploads(uploads_root: &Path, full: &Path) -> String {
     match full.strip_prefix(base) {
         Ok(rel) => rel.to_string_lossy().to_string(),
         Err(_) => full.to_string_lossy().to_string(),
-    }
-}
-
-pub async fn ensure_unique_doc_path(
-    pool: &PgPool,
-    uploads_root: &Path,
-    doc_id: Uuid,
-    desired_full: &Path,
-) -> anyhow::Result<(PathBuf, String)> {
-    let mut full = desired_full.to_path_buf();
-    let parent = full
-        .parent()
-        .map(|p| p.to_path_buf())
-        .ok_or_else(|| anyhow::anyhow!("invalid desired path"))?;
-    let mut file_name = full
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| anyhow::anyhow!("invalid file name"))?
-        .to_string();
-
-    let (stem, ext) = {
-        let p = Path::new(&file_name);
-        let stem = p
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("document")
-            .to_string();
-        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
-        (stem, ext.to_string())
-    };
-
-    let mut counter: u32 = 1;
-    loop {
-        let rel = relative_from_uploads(uploads_root, &full);
-        let row = sqlx::query("SELECT id FROM documents WHERE path = $1 LIMIT 1")
-            .bind(&rel)
-            .fetch_optional(pool)
-            .await?;
-        let ok = match row {
-            None => true,
-            Some(r) => {
-                let other: Uuid = r.get("id");
-                other == doc_id
-            }
-        };
-        if ok {
-            let rel = relative_from_uploads(uploads_root, &full);
-            return Ok((full, rel));
-        }
-
-        counter += 1;
-        let new_name = if ext.is_empty() {
-            format!("{}-{}", stem, counter)
-        } else {
-            format!("{}-{}.{}", stem, counter, ext)
-        };
-        file_name = new_name;
-        full = parent.join(&file_name);
     }
 }
 
@@ -283,7 +210,7 @@ pub async fn move_doc_paths(
     uploads_root: &Path,
     doc_id: Uuid,
 ) -> anyhow::Result<()> {
-    let row = sqlx::query("SELECT type, path FROM documents WHERE id = $1")
+    let row = sqlx::query("SELECT owner_id, type, path, desired_path FROM documents WHERE id = $1")
         .bind(doc_id)
         .fetch_optional(pool)
         .await?;
@@ -291,76 +218,69 @@ pub async fn move_doc_paths(
         Some(r) => r,
         None => return Ok(()),
     };
+    let owner_id: Uuid = row.get("owner_id");
     let dtype: String = row.get("type");
     if dtype == "folder" {
         return Ok(());
     }
     let old_rel: Option<String> = row.try_get("path").ok();
+    let desired_path: String = row.get("desired_path");
+    let target_rel = owner_relative_from_desired(owner_id, &desired_path);
+    let target_abs = uploads_root.join(&target_rel);
 
-    let desired_full = build_doc_file_path(pool, uploads_root, doc_id).await?;
-    let (new_full, new_rel) =
-        ensure_unique_doc_path(pool, uploads_root, doc_id, &desired_full).await?;
-    if let Some(parent) = new_full.parent() {
+    if let Some(parent) = target_abs.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
 
     // Move .md if exists
     if let Some(old_rel) = old_rel.clone() {
-        let old_full = uploads_root.join(&old_rel);
-        if tokio::fs::try_exists(&old_full).await.unwrap_or(false) {
-            let _ = tokio::fs::rename(&old_full, &new_full).await;
+        if old_rel != target_rel {
+            let old_full = uploads_root.join(&old_rel);
+            if tokio::fs::try_exists(&old_full).await.unwrap_or(false) {
+                let _ = tokio::fs::rename(&old_full, &target_abs).await;
+            }
+            // Mark old path as deleted (repo-relative)
+            let _ = mark_dirty_delete_relative(pool, &old_rel).await;
         }
-        // Mark old path as deleted (repo-relative)
-        let _ = mark_dirty_delete_relative(pool, &old_rel).await;
     }
 
     // Move only attachments belonging to this document
-    if let Some(old_rel) = old_rel {
-        let old_dir = uploads_root
-            .join(&old_rel)
-            .parent()
-            .map(|p| p.to_path_buf());
-        let new_dir = new_full.parent().map(|p| p.to_path_buf());
-        if let (Some(_od), Some(nd)) = (old_dir, new_dir) {
-            // Get list of files belonging to this document from DB
-            let files =
-                sqlx::query("SELECT filename, storage_path FROM files WHERE document_id = $1")
-                    .bind(doc_id)
-                    .fetch_all(pool)
-                    .await?;
+    let new_dir = target_abs.parent().map(|p| p.to_path_buf());
+    if let Some(nd) = new_dir {
+        // Get list of files belonging to this document from DB
+        let files = sqlx::query("SELECT filename, storage_path FROM files WHERE document_id = $1")
+            .bind(doc_id)
+            .fetch_all(pool)
+            .await?;
 
-            if !files.is_empty() {
-                let dst_attachments = nd.join("attachments");
-                let _ = tokio::fs::create_dir_all(&dst_attachments).await;
+        if !files.is_empty() {
+            let dst_attachments = nd.join("attachments");
+            let _ = tokio::fs::create_dir_all(&dst_attachments).await;
 
-                for row in files {
-                    let filename: String = row.get("filename");
-                    let old_path: String = row.get("storage_path");
-                    let old_full = uploads_root.join(&old_path);
+            for row in files {
+                let filename: String = row.get("filename");
+                let old_path: String = row.get("storage_path");
+                let old_full = uploads_root.join(&old_path);
 
-                    // Only move if file exists and is in the old attachments directory
-                    if tokio::fs::try_exists(&old_full).await.unwrap_or(false) {
-                        let new_path = dst_attachments.join(&filename);
-                        let _ = tokio::fs::rename(&old_full, &new_path).await;
-
-                        // Update DB with new path
-                        let new_rel = relative_from_uploads(uploads_root, &new_path);
-                        let _ = sqlx::query("UPDATE files SET storage_path = $2 WHERE document_id = $1 AND filename = $3")
-                            .bind(doc_id)
-                            .bind(new_rel)
-                            .bind(&filename)
-                            .execute(pool).await;
-
-                        // Mark move: old delete, new upsert (binary)
-                        let _ = mark_dirty_delete_relative(pool, &old_path).await;
-                        let _ = mark_dirty_upsert_relative(
-                            pool,
-                            &relative_from_uploads(uploads_root, &new_path),
-                            false,
-                            None,
-                        )
-                        .await;
+                // Only move if file exists
+                if tokio::fs::try_exists(&old_full).await.unwrap_or(false) {
+                    let new_path = dst_attachments.join(&filename);
+                    if let Some(parent) = new_path.parent() {
+                        let _ = tokio::fs::create_dir_all(parent).await;
                     }
+                    let _ = tokio::fs::rename(&old_full, &new_path).await;
+
+                    // Update DB with new path
+                    let new_rel = relative_from_uploads(uploads_root, &new_path);
+                    let _ = sqlx::query("UPDATE files SET storage_path = $2 WHERE document_id = $1 AND filename = $3")
+                        .bind(doc_id)
+                        .bind(&new_rel)
+                        .bind(&filename)
+                        .execute(pool).await;
+
+                    // Mark move: old delete, new upsert (binary)
+                    let _ = mark_dirty_delete_relative(pool, &old_path).await;
+                    let _ = mark_dirty_upsert_relative(pool, &new_rel, false, None).await;
                 }
             }
         }
@@ -369,12 +289,12 @@ pub async fn move_doc_paths(
     // Update documents.path
     let _ = sqlx::query("UPDATE documents SET path = $2, updated_at = now() WHERE id = $1")
         .bind(doc_id)
-        .bind(&new_rel)
+        .bind(&target_rel)
         .execute(pool)
         .await;
 
     // Mark new path as upsert (text)
-    let _ = mark_dirty_upsert_relative(pool, &new_rel, true, None).await;
+    let _ = mark_dirty_upsert_relative(pool, &target_rel, true, None).await;
     Ok(())
 }
 

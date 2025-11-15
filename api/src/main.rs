@@ -128,6 +128,7 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::git::get_gitignore_patterns,
             api::presentation::http::git::add_gitignore_patterns,
             api::presentation::http::git::check_path_ignored,
+            api::presentation::http::storage_ingest::enqueue_ingest_events,
             api::presentation::http::markdown::render_markdown,
             api::presentation::http::markdown::render_markdown_many,
             api::presentation::http::plugins::get_manifest,
@@ -337,6 +338,7 @@ async fn main() -> anyhow::Result<()> {
         let worker = Arc::new(StorageProjectionWorker::new(
             storage_job_queue.clone(),
             storage_projection.clone(),
+            doc_event_log.clone(),
         ));
         tokio::spawn(async move {
             worker.run().await;
@@ -789,6 +791,7 @@ async fn main() -> anyhow::Result<()> {
         account_service.clone(),
         auth_service.clone(),
         realtime_engine.clone(),
+        storage_ingest_queue.clone(),
     );
 
     let presentation_cfg = PresentationConfig {
@@ -898,6 +901,10 @@ async fn main() -> anyhow::Result<()> {
         .nest(
             "/api",
             api::presentation::http::api_tokens::routes(ctx.clone()),
+        )
+        .nest(
+            "/api",
+            api::presentation::http::storage_ingest::routes(ctx.clone()),
         )
         .nest(
             "/api",
