@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
@@ -19,6 +20,7 @@ pub struct StorageProjectionJob {
     pub folder_id: Option<Uuid>,
     pub reason: Option<String>,
     pub attempts: i32,
+    pub locked_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,7 +75,11 @@ pub trait StorageProjectionQueue: Send + Sync {
         lock_timeout_secs: i64,
     ) -> anyhow::Result<Option<StorageProjectionJob>>;
 
-    async fn complete_job(&self, job_id: i64) -> anyhow::Result<()>;
+    async fn complete_job(
+        &self,
+        job_id: i64,
+        locked_at: DateTime<Utc>,
+    ) -> anyhow::Result<()>;
 
     async fn fail_job(&self, job_id: i64, error: &str) -> anyhow::Result<()>;
 }

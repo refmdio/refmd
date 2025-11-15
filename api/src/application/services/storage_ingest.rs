@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -36,6 +36,13 @@ pub fn normalize_repo_path(repo_path: &str) -> Option<String> {
         return None;
     }
     Some(normalized.to_string_lossy().replace('\\', "/"))
+}
+
+fn previous_path_from_payload(payload: Option<&Value>) -> Option<String> {
+    payload
+        .and_then(|p| p.get("previous_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 #[async_trait]
@@ -86,6 +93,7 @@ impl StorageIngestService {
         repo_path: &str,
         event: &StorageIngestEvent,
         payload: MarkdownIngestPayload,
+        previous_repo_path: Option<&str>,
     ) -> anyhow::Result<()> {
         let snapshot = snapshot_from_markdown(&payload.body);
         self.realtime
@@ -98,16 +106,19 @@ impl StorageIngestService {
                 "storage_ingest_force_persist_failed"
             );
         }
+        let mut payload_obj = serde_json::Map::new();
+        payload_obj.insert("repo_path".into(), json!(repo_path));
+        payload_obj.insert("backend".into(), json!(event.backend));
+        payload_obj.insert("content_hash".into(), json!(payload.content_hash));
+        payload_obj.insert("doc_type".into(), json!(doc.doc_type));
+        if let Some(prev) = previous_repo_path {
+            payload_obj.insert("previous_path".into(), json!(prev));
+        }
         self.events
             .append(
                 doc.id,
                 "document.ingest_upsert",
-                Some(json!({
-                    "repo_path": repo_path,
-                    "backend": event.backend,
-                    "content_hash": payload.content_hash,
-                    "doc_type": doc.doc_type,
-                })),
+                Some(Value::Object(payload_obj)),
             )
             .await?;
         info!(
@@ -126,6 +137,7 @@ impl StorageIngestService {
         rel_path: &str,
         repo_path: &str,
         event: &StorageIngestEvent,
+        previous_repo_path: Option<&str>,
     ) -> anyhow::Result<()> {
         let abs = self.storage.absolute_from_relative(rel_path);
         let bytes = self.storage.read_bytes(abs.as_path()).await?;
@@ -140,17 +152,20 @@ impl StorageIngestService {
         self.files_repo
             .update_hash_and_size(file_id, size, &hash)
             .await?;
+        let mut payload_obj = serde_json::Map::new();
+        payload_obj.insert("repo_path".into(), json!(repo_path));
+        payload_obj.insert("storage_path".into(), json!(rel_path));
+        payload_obj.insert("backend".into(), json!(event.backend));
+        payload_obj.insert("size".into(), json!(size));
+        payload_obj.insert("content_hash".into(), json!(hash));
+        if let Some(prev) = previous_repo_path {
+            payload_obj.insert("previous_path".into(), json!(prev));
+        }
         self.events
             .append(
                 doc_id,
                 "attachment.ingest_upsert",
-                Some(json!({
-                    "repo_path": repo_path,
-                    "storage_path": rel_path,
-                    "backend": event.backend,
-                    "size": size,
-                    "content_hash": hash,
-                })),
+                Some(Value::Object(payload_obj)),
             )
             .await?;
         info!(
@@ -276,13 +291,45 @@ impl StorageIngestHandler for StorageIngestService {
             return Ok(());
         };
         let rel_path = Self::relative_path(event.user_id, &repo_path);
+        let payload_previous_repo_path = previous_path_from_payload(event.payload.as_ref());
 
-        if let Some(doc) = self
+        let mut doc_previous_repo_path: Option<String> = None;
+        let mut doc = self
             .document_repo
             .get_by_owner_and_path(event.user_id, &rel_path)
             .await?
-            .map(ResolvedDocument::from)
-        {
+            .map(ResolvedDocument::from);
+
+        if doc.is_none() {
+            if let Some(prev_repo) = payload_previous_repo_path.as_deref() {
+                let prev_rel = Self::relative_path(event.user_id, prev_repo);
+                if let Some(prev_doc) = self
+                    .document_repo
+                    .get_by_owner_and_path(event.user_id, &prev_rel)
+                    .await?
+                    .map(ResolvedDocument::from)
+                {
+                    if let Err(err) = self
+                        .document_repo
+                        .update_repo_path(prev_doc.id, event.user_id, &rel_path)
+                        .await
+                    {
+                        warn!(
+                            doc_id = %prev_doc.id,
+                            error = ?err,
+                            "storage_ingest_repo_path_update_failed"
+                        );
+                    } else {
+                        doc_previous_repo_path = Some(prev_repo.to_string());
+                        let mut updated = prev_doc.clone();
+                        updated.path = Some(rel_path.clone());
+                        doc = Some(updated);
+                    }
+                }
+            }
+        }
+
+        if let Some(doc) = doc {
             if doc.is_folder() {
                 warn!(
                     doc_id = %doc.id,
@@ -302,7 +349,13 @@ impl StorageIngestHandler for StorageIngestService {
             match event.kind {
                 StorageIngestKind::Upsert => {
                     let payload = self.load_markdown_payload(&rel_path).await?;
-                    self.handle_doc_upsert(&doc, &repo_path, event, payload)
+                    self.handle_doc_upsert(
+                        &doc,
+                        &repo_path,
+                        event,
+                        payload,
+                        doc_previous_repo_path.as_deref(),
+                    )
                         .await?;
                 }
                 StorageIngestKind::Delete => {
@@ -312,9 +365,30 @@ impl StorageIngestHandler for StorageIngestService {
             return Ok(());
         }
 
-        if let Some((file_id, doc_id, owner_id)) =
-            self.files_repo.find_by_storage_path(&rel_path).await?
-        {
+        let mut attachment_previous_repo_path: Option<String> = None;
+        let mut attachment = self
+            .files_repo
+            .find_by_storage_path(&rel_path)
+            .await?;
+
+        if attachment.is_none() {
+            if let Some(prev_repo) = payload_previous_repo_path.as_deref() {
+                let prev_rel = Self::relative_path(event.user_id, prev_repo);
+                if let Some(file) = self
+                    .files_repo
+                    .find_by_storage_path(&prev_rel)
+                    .await?
+                {
+                    self.files_repo
+                        .update_storage_path(file.0, &rel_path)
+                        .await?;
+                    attachment_previous_repo_path = Some(prev_repo.to_string());
+                    attachment = Some(file);
+                }
+            }
+        }
+
+        if let Some((file_id, doc_id, owner_id)) = attachment {
             info!(
                 doc_id = %doc_id,
                 owner_id = %owner_id,
@@ -323,8 +397,15 @@ impl StorageIngestHandler for StorageIngestService {
             );
             match event.kind {
                 StorageIngestKind::Upsert => {
-                    self.handle_attachment_upsert(file_id, doc_id, &rel_path, &repo_path, event)
-                        .await?;
+                    self.handle_attachment_upsert(
+                        file_id,
+                        doc_id,
+                        &rel_path,
+                        &repo_path,
+                        event,
+                        attachment_previous_repo_path.as_deref(),
+                    )
+                    .await?;
                 }
                 StorageIngestKind::Delete => {
                     self.handle_attachment_delete(file_id, doc_id, &repo_path, event)
@@ -355,7 +436,13 @@ impl StorageIngestHandler for StorageIngestService {
                 } else {
                     self.reconcile_repo_path(&doc, event.user_id, &rel_path)
                         .await;
-                    self.handle_doc_upsert(&doc, &repo_path, event, payload)
+                    self.handle_doc_upsert(
+                        &doc,
+                        &repo_path,
+                        event,
+                        payload,
+                        payload_previous_repo_path.as_deref(),
+                    )
                         .await?;
                 }
                 return Ok(());

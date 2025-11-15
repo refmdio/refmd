@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
@@ -189,7 +190,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                 attempts = attempts + 1,
                 updated_at = now()
             WHERE j.id IN (SELECT id FROM next_job)
-            RETURNING j.id, j.job_type, j.doc_id, j.folder_id, j.reason, j.attempts
+            RETURNING j.id, j.job_type, j.doc_id, j.folder_id, j.reason, j.attempts, j.locked_at
             "#,
         )
         .bind(lock_timeout_secs.max(1))
@@ -210,12 +211,14 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             folder_id: row.try_get::<Option<Uuid>, _>("folder_id").unwrap_or(None),
             reason: row.try_get::<Option<String>, _>("reason").unwrap_or(None),
             attempts: row.try_get("attempts").unwrap_or_default(),
+            locked_at: row.get::<DateTime<Utc>, _>("locked_at"),
         }))
     }
 
-    async fn complete_job(&self, job_id: i64) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM storage_projection_jobs WHERE id = $1")
+    async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM storage_projection_jobs WHERE id = $1 AND locked_at = $2")
             .bind(job_id)
+            .bind(locked_at)
             .execute(&self.pool)
             .await?;
         Ok(())

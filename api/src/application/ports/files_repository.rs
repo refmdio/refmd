@@ -30,6 +30,12 @@ pub trait FilesRepository: Send + Sync {
         storage_path: &str,
     ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>>; // (file_id, document_id, owner_id)
 
+    async fn update_storage_path(
+        &self,
+        file_id: Uuid,
+        storage_path: &str,
+    ) -> anyhow::Result<()>;
+
     async fn update_hash_and_size(
         &self,
         file_id: Uuid,

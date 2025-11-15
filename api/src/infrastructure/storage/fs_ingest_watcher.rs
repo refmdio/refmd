@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use notify::event::{EventKind, ModifyKind, RenameMode};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tracing::{debug, error, warn};
@@ -126,9 +126,43 @@ impl FsIngestWatcher {
         Ok(())
     }
 
-    async fn enqueue_rename(&self, _from: &Path, to: &Path) -> anyhow::Result<()> {
-        // Treat rename as an upsert of the destination to avoid accidental deletions.
-        self.enqueue_path(to, StorageIngestKind::Upsert).await
+    async fn enqueue_rename(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
+        let Some((from_user, from_repo)) = self.parse_repo_path(from) else {
+            return Ok(());
+        };
+        let Some((to_user, to_repo)) = self.parse_repo_path(to) else {
+            return Ok(());
+        };
+        if from_user != to_user {
+            return Ok(());
+        }
+        let Some(clean_from) = normalize_repo_path(&from_repo) else {
+            warn!(repo_path = from_repo, "fs_ingest_invalid_repo_path");
+            return Ok(());
+        };
+        let Some(clean_to) = normalize_repo_path(&to_repo) else {
+            warn!(repo_path = to_repo, "fs_ingest_invalid_repo_path");
+            return Ok(());
+        };
+        let (content_hash, payload) = self.capture_file_metadata(to, &clean_to).await;
+        let payload = attach_previous_path(payload, &clean_from);
+        self.queue
+            .enqueue_event(
+                to_user,
+                &clean_to,
+                &self.backend_name,
+                StorageIngestKind::Upsert,
+                content_hash.as_deref(),
+                payload,
+            )
+            .await?;
+        debug!(
+            user_id = %to_user,
+            repo_path = clean_to,
+            previous_path = clean_from,
+            "fs_ingest_rename_event_enqueued"
+        );
+        Ok(())
     }
 
     async fn capture_file_metadata(
@@ -201,4 +235,20 @@ fn file_kind(repo_path: &str) -> &'static str {
     } else {
         "document"
     }
+}
+
+fn attach_previous_path(payload: Option<Value>, previous_repo_path: &str) -> Option<Value> {
+    let mut map = match payload {
+        Some(Value::Object(obj)) => obj,
+        Some(other) => match other.as_object() {
+            Some(obj) => obj.clone(),
+            None => Map::new(),
+        },
+        None => Map::new(),
+    };
+    map.insert(
+        "previous_path".to_string(),
+        Value::String(previous_repo_path.to_string()),
+    );
+    Some(Value::Object(map))
 }

@@ -140,7 +140,7 @@ impl StorageProjectionWorker {
 
         match result {
             Ok(()) => {
-                self.jobs.complete_job(job.id).await?;
+                self.jobs.complete_job(job.id, job.locked_at).await?;
                 self.metrics.inc_storage_projection_success();
                 info!("storage_projection_job_succeeded");
             }
@@ -149,7 +149,7 @@ impl StorageProjectionWorker {
                     error = ?err,
                     "storage_projection_job_missing_target_skip"
                 );
-                self.jobs.complete_job(job.id).await?;
+                self.jobs.complete_job(job.id, job.locked_at).await?;
                 self.metrics.inc_storage_projection_success();
                 if let Some(doc_id) = job.doc_id {
                     self.emit_projection_event(doc_id, &job, "skipped", Some(&format!("{err:#}")))
@@ -159,7 +159,7 @@ impl StorageProjectionWorker {
             Err(err) => {
                 let msg = format!("{err:#}");
                 if job.attempts >= self.max_attempts {
-                    self.jobs.complete_job(job.id).await?;
+                    self.jobs.complete_job(job.id, job.locked_at).await?;
                     self.metrics.inc_storage_projection_failure();
                     warn!(
                         error = ?err,
@@ -358,6 +358,7 @@ mod tests {
             folder_id: None,
             reason: None,
             attempts: 0,
+            locked_at: chrono::Utc::now(),
         };
         worker.process_job(job).await.unwrap();
         assert_eq!(queue.completed(), vec![1]);
@@ -396,6 +397,7 @@ mod tests {
             folder_id: None,
             reason: None,
             attempts: 0,
+            locked_at: chrono::Utc::now(),
         };
         worker.process_job(job).await.unwrap();
         assert!(queue.completed().is_empty());
@@ -511,7 +513,11 @@ mod tests {
             Ok(None)
         }
 
-        async fn complete_job(&self, job_id: i64) -> anyhow::Result<()> {
+        async fn complete_job(
+            &self,
+            job_id: i64,
+            _locked_at: chrono::DateTime<chrono::Utc>,
+        ) -> anyhow::Result<()> {
             self.completed.lock().unwrap().push(job_id);
             Ok(())
         }

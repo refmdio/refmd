@@ -135,6 +135,22 @@ impl FilesRepository for SqlxFilesRepository {
         Ok(row.map(|r| (r.get("file_id"), r.get("document_id"), r.get("owner_id"))))
     }
 
+    async fn update_storage_path(
+        &self,
+        file_id: Uuid,
+        storage_path: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"UPDATE files SET storage_path = $2, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(file_id)
+        .bind(storage_path)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     async fn update_hash_and_size(
         &self,
         file_id: Uuid,

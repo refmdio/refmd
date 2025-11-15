@@ -104,6 +104,12 @@ impl DocEventSubscriber for GitDirtyDocEventSubscriber {
                 {
                     return Ok(());
                 }
+                if let Some(prev_repo_path) =
+                    previous_repo_path_from_payload(event.payload.as_ref())
+                {
+                    self.mark_delete(event.doc_id, owner_hint, &prev_repo_path)
+                        .await?;
+                }
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
                     let hash = content_hash_from_payload(event.payload.as_ref());
                     self.mark_upsert(event.doc_id, owner_hint, &repo_path, true, hash)
@@ -158,6 +164,12 @@ impl DocEventSubscriber for GitDirtyDocEventSubscriber {
                 }
             }
             "attachment.ingest_upsert" => {
+                if let Some(prev_repo_path) =
+                    previous_repo_path_from_payload(event.payload.as_ref())
+                {
+                    self.mark_delete(event.doc_id, owner_hint, &prev_repo_path)
+                        .await?;
+                }
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
                     let hash = content_hash_from_payload(event.payload.as_ref());
                     self.mark_upsert(event.doc_id, owner_hint, &repo_path, false, hash)
