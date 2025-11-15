@@ -171,7 +171,10 @@ impl DocumentService {
 
     pub async fn delete_for_user(&self, doc_id: Uuid, user_id: Uuid) -> Result<bool, ServiceError> {
         let meta = self.load_owner_meta(doc_id, user_id).await?;
-        let repo_path = meta.desired_path.clone();
+        let previous_repo_path = owner_repo_relative(user_id, meta.path.as_deref());
+        let repo_path = previous_repo_path
+            .clone()
+            .unwrap_or_else(|| meta.desired_path.clone());
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
         };
@@ -211,7 +214,7 @@ impl DocumentService {
                     "slug": meta.slug,
                     "desired_path": meta.desired_path,
                     "owner_id": user_id,
-                    "previous_path": owner_repo_relative(user_id, meta.path.as_deref()),
+                    "previous_path": previous_repo_path,
                 })),
             )
             .await;

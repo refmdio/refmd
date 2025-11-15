@@ -784,6 +784,7 @@ async fn main() -> anyhow::Result<()> {
         storage_resolver.clone(),
         access_repo.clone(),
         shares_repo_impl.clone(),
+        doc_event_log.clone(),
     ));
     let public_service = Arc::new(PublicService::new(
         public_repo.clone(),

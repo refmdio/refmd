@@ -261,15 +261,6 @@ impl StorageResolverPort for FsStoragePort {
             let _ = write!(&mut content_hash, "{:02x}", byte);
         }
 
-        // Mark dirty upsert for attachment (binary)
-        let _ = crate::infrastructure::storage::mark_dirty_upsert_relative(
-            &self.pool,
-            &relative,
-            false,
-            Some(&content_hash),
-        )
-        .await;
-
         Ok(StoredAttachment {
             filename: safe,
             relative_path: relative,

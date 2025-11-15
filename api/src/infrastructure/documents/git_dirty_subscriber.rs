@@ -142,9 +142,19 @@ impl DocEventSubscriber for GitDirtyDocEventSubscriber {
                 {
                     return Ok(());
                 }
+                let mut targets = Vec::new();
+                if let Some(prev_repo_path) =
+                    previous_repo_path_from_payload(event.payload.as_ref())
+                {
+                    targets.push(prev_repo_path);
+                }
                 if let Some(repo_path) = repo_path_from_payload(event.payload.as_ref()) {
-                    self.mark_delete(event.doc_id, owner_hint, &repo_path)
-                        .await?;
+                    if !targets.iter().any(|existing| existing == &repo_path) {
+                        targets.push(repo_path);
+                    }
+                }
+                for path in targets {
+                    self.mark_delete(event.doc_id, owner_hint, &path).await?;
                 }
             }
             "attachment.ingest_upsert" => {
