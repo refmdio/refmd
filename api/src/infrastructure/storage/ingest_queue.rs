@@ -53,7 +53,22 @@ impl StorageIngestQueue for PgStorageIngestQueue {
             ON CONFLICT ON CONSTRAINT storage_ingest_queue_user_repo_backend_unique
             DO UPDATE SET event_kind = EXCLUDED.event_kind,
                           content_hash = EXCLUDED.content_hash,
-                          payload = EXCLUDED.payload,
+                          payload = CASE
+                              WHEN EXCLUDED.event_kind = 'upsert' THEN
+                                  CASE
+                                      WHEN COALESCE(EXCLUDED.payload ? 'previous_path', false) THEN EXCLUDED.payload
+                                      WHEN storage_ingest_queue.payload IS NOT NULL
+                                           AND storage_ingest_queue.payload ? 'previous_path' THEN
+                                          jsonb_set(
+                                              COALESCE(EXCLUDED.payload, '{}'::jsonb),
+                                              '{previous_path}',
+                                              storage_ingest_queue.payload->'previous_path',
+                                              true
+                                          )
+                                      ELSE EXCLUDED.payload
+                                  END
+                              ELSE EXCLUDED.payload
+                          END,
                           attempts = 0,
                           locked_at = NULL,
                           created_at = now()

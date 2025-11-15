@@ -132,7 +132,7 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?;
         self.enqueue_projection_for_document_tx(&mut tx, &doc, "create_document")
-            .await;
+            .await?;
         let repo_path = doc.desired_path.clone();
         self.record_event_tx(
             &mut tx,
@@ -201,7 +201,7 @@ impl DocumentService {
                         attachment_paths: None,
                     };
                     self.enqueue_folder_delete_tx(&mut tx, doc_id, "delete_folder", Some(metadata))
-                        .await;
+                        .await?;
                 }
                 _ => {
                     let metadata = StorageDeleteJobMetadata {
@@ -211,7 +211,7 @@ impl DocumentService {
                         attachment_paths: Some(attachment_paths.clone()),
                     };
                     self.enqueue_doc_delete_tx(&mut tx, doc_id, "delete_document", Some(metadata))
-                        .await;
+                        .await?;
                 }
             }
             self.record_event_tx(
@@ -288,7 +288,7 @@ impl DocumentService {
             .ok_or(ServiceError::NotFound)?;
         let mut tx = self.begin_transaction().await?;
         self.enqueue_doc_sync_tx(&mut tx, doc.id, "update_content")
-            .await;
+            .await?;
         let repo_path = doc.desired_path.clone();
         self.record_event_tx(
             &mut tx,
@@ -353,7 +353,7 @@ impl DocumentService {
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
         self.enqueue_projection_for_document_tx(&mut tx, &doc, "update_metadata")
-            .await;
+            .await?;
         let repo_path = doc.desired_path.clone();
         self.record_event_tx(
             &mut tx,
@@ -397,7 +397,7 @@ impl DocumentService {
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
         self.enqueue_projection_for_document_tx(&mut tx, &doc, "archive_document")
-            .await;
+            .await?;
         let repo_path = doc.desired_path.clone();
         self.record_event_tx(
             &mut tx,
@@ -439,7 +439,7 @@ impl DocumentService {
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
         self.enqueue_projection_for_document_tx(&mut tx, &doc, "unarchive_document")
-            .await;
+            .await?;
         let repo_path = doc.desired_path.clone();
         self.record_event_tx(
             &mut tx,
@@ -670,11 +670,11 @@ impl DocumentService {
         tx: &mut Transaction<'_, Postgres>,
         doc: &DomainDocument,
         reason: &'static str,
-    ) {
+    ) -> Result<(), ServiceError> {
         if doc.doc_type == "folder" {
-            self.enqueue_folder_sync_tx(tx, doc.id, reason).await;
+            self.enqueue_folder_sync_tx(tx, doc.id, reason).await
         } else {
-            self.enqueue_doc_sync_tx(tx, doc.id, reason).await;
+            self.enqueue_doc_sync_tx(tx, doc.id, reason).await
         }
     }
 
@@ -683,18 +683,18 @@ impl DocumentService {
         tx: &mut Transaction<'_, Postgres>,
         doc_id: Uuid,
         reason: &'static str,
-    ) {
-        if let Err(err) = self
-            .storage_jobs
+    ) -> Result<(), ServiceError> {
+        self.storage_jobs
             .enqueue_doc_job_tx(tx, doc_id, StorageProjectionJobKind::DocSync, Some(reason))
             .await
-        {
-            warn!(
-                error = ?err,
-                doc_id = %doc_id,
-                "storage_projection_enqueue_failed"
-            );
-        }
+            .map_err(|err| {
+                warn!(
+                    error = ?err,
+                    doc_id = %doc_id,
+                    "storage_projection_enqueue_failed"
+                );
+                ServiceError::Unexpected(err)
+            })
     }
 
     async fn enqueue_doc_delete_tx(
@@ -703,7 +703,7 @@ impl DocumentService {
         doc_id: Uuid,
         reason: &'static str,
         metadata: Option<StorageDeleteJobMetadata>,
-    ) {
+    ) -> Result<(), ServiceError> {
         let encoded_reason = metadata.and_then(|meta| {
             serde_json::to_string(&StorageJobReason {
                 reason: reason.to_string(),
@@ -712,8 +712,7 @@ impl DocumentService {
             .ok()
         });
         let reason_str = encoded_reason.as_deref().unwrap_or(reason);
-        if let Err(err) = self
-            .storage_jobs
+        self.storage_jobs
             .enqueue_doc_job_tx(
                 tx,
                 doc_id,
@@ -721,13 +720,14 @@ impl DocumentService {
                 Some(reason_str),
             )
             .await
-        {
-            warn!(
-                error = ?err,
-                doc_id = %doc_id,
-                "storage_projection_enqueue_failed"
-            );
-        }
+            .map_err(|err| {
+                warn!(
+                    error = ?err,
+                    doc_id = %doc_id,
+                    "storage_projection_enqueue_failed"
+                );
+                ServiceError::Unexpected(err)
+            })
     }
 
     async fn enqueue_folder_sync_tx(
@@ -735,9 +735,8 @@ impl DocumentService {
         tx: &mut Transaction<'_, Postgres>,
         folder_id: Uuid,
         reason: &'static str,
-    ) {
-        if let Err(err) = self
-            .storage_jobs
+    ) -> Result<(), ServiceError> {
+        self.storage_jobs
             .enqueue_folder_job_tx(
                 tx,
                 folder_id,
@@ -745,13 +744,14 @@ impl DocumentService {
                 Some(reason),
             )
             .await
-        {
-            warn!(
-                error = ?err,
-                folder_id = %folder_id,
-                "storage_projection_enqueue_failed"
-            );
-        }
+            .map_err(|err| {
+                warn!(
+                    error = ?err,
+                    folder_id = %folder_id,
+                    "storage_projection_enqueue_failed"
+                );
+                ServiceError::Unexpected(err)
+            })
     }
 
     async fn enqueue_folder_delete_tx(
@@ -760,7 +760,7 @@ impl DocumentService {
         folder_id: Uuid,
         reason: &'static str,
         metadata: Option<StorageDeleteJobMetadata>,
-    ) {
+    ) -> Result<(), ServiceError> {
         let encoded_reason = metadata.and_then(|meta| {
             serde_json::to_string(&StorageJobReason {
                 reason: reason.to_string(),
@@ -769,8 +769,7 @@ impl DocumentService {
             .ok()
         });
         let reason_str = encoded_reason.as_deref().unwrap_or(reason);
-        if let Err(err) = self
-            .storage_jobs
+        self.storage_jobs
             .enqueue_folder_job_tx(
                 tx,
                 folder_id,
@@ -778,13 +777,14 @@ impl DocumentService {
                 Some(reason_str),
             )
             .await
-        {
-            warn!(
-                error = ?err,
-                folder_id = %folder_id,
-                "storage_projection_enqueue_failed"
-            );
-        }
+            .map_err(|err| {
+                warn!(
+                    error = ?err,
+                    folder_id = %folder_id,
+                    "storage_projection_enqueue_failed"
+                );
+                ServiceError::Unexpected(err)
+            })
     }
 
     async fn record_event_tx(
