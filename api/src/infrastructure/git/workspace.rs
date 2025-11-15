@@ -524,6 +524,30 @@ impl GitWorkspaceService {
         Ok(res.rows_affected())
     }
 
+    async fn export_markdown_for_repo_path(
+        &self,
+        user_id: Uuid,
+        repo_path: &str,
+    ) -> anyhow::Result<Option<(Vec<u8>, String)>> {
+        let trimmed = repo_path.trim_start_matches('/');
+        let row = sqlx::query(
+            "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND type <> 'folder' LIMIT 1",
+        )
+        .bind(user_id)
+        .bind(trimmed)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let doc_id: Uuid = row.get("id");
+        let export = match self.snapshot.export_current_markdown(&doc_id).await? {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+        Ok(Some((export.bytes, export.content_hash)))
+    }
+
     fn compute_deltas(
         &self,
         current: &HashMap<String, FileSnapshot>,
@@ -1092,6 +1116,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             .map(|c| c.branch_name.clone())
             .unwrap_or(state_default_branch.clone());
         let force_push = req.force.unwrap_or(false);
+        let force_full_scan = req.full_scan.unwrap_or(false);
+        let skip_push = req.skip_push.unwrap_or(false);
 
         latest_meta = self.ensure_latest_meta(user_id).await?;
 
@@ -1142,9 +1168,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             .unwrap_or_default();
         let dirty_rows = self.fetch_dirty(user_id).await?;
 
-        // Determine strategy: if no history yet, fall back to full scan (initial commit)
-        // else if no dirty, nothing to do.
-        let use_full_scan = latest_meta.is_none();
+        // Determine strategy: forced full scan or initial commit uses full state rebuild.
+        let use_full_scan = force_full_scan || latest_meta.is_none();
 
         // Build change sets from dirty rows
         let mut upserts: BTreeMap<String, DirtyUpsert> = BTreeMap::new();
@@ -1206,6 +1231,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         // This avoids holding non-Send libgit2 types across await points.
         let mut precomputed_full_entries: Option<BTreeMap<String, Vec<u8>>> = None;
         let mut precomputed_upsert_bytes: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut changed_text_snapshots: HashMap<String, FileSnapshot> = HashMap::new();
         let mut next_file_hash_index: HashMap<String, String> = previous_index.clone();
         let files_changed_for_response: u32;
 
@@ -1221,13 +1247,34 @@ impl GitWorkspacePort for GitWorkspaceService {
             precomputed_full_entries = Some(entries);
         } else {
             let mut stale_paths: Vec<String> = Vec::new();
-            for (path, _u) in upserts.iter() {
+            for (path, up) in upserts.iter() {
+                if up.is_text {
+                    match self.export_markdown_for_repo_path(user_id, path).await? {
+                        Some((bytes, hash)) => {
+                            precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
+                            next_file_hash_index.insert(path.clone(), hash.clone());
+                            changed_text_snapshots.insert(
+                                path.clone(),
+                                FileSnapshot {
+                                    hash,
+                                    data: FileSnapshotData::Inline(bytes),
+                                    is_text: true,
+                                },
+                            );
+                        }
+                        None => {
+                            stale_paths.push(path.clone());
+                        }
+                    }
+                    continue;
+                }
+
                 let storage_rel = format!("{}/{}", user_id, path);
                 let abs = self.storage.absolute_from_relative(&storage_rel);
                 match self.storage.read_bytes(abs.as_path()).await {
                     Ok(bytes) => {
                         precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
-                        let hash = match upserts.get(path).and_then(|u| u.content_hash.as_ref()) {
+                        let hash = match up.content_hash.as_ref() {
                             Some(h) => h.clone(),
                             None => sha256_hex(&bytes),
                         };
@@ -1370,7 +1417,7 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             let mut pushed = false;
             if let Some(cfg) = cfg {
-                if !cfg.repository_url.is_empty() {
+                if !cfg.repository_url.is_empty() && !skip_push {
                     // Propagate push errors so the caller can retry with force
                     pushed = perform_push(&repo, cfg, &branch_name, commit_oid, force_push)?;
                 }
@@ -1443,7 +1490,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             .await?;
 
         // Only store snapshots for changed text files (incremental), or all in initial full scan
-        let snapshot_keys = if latest_meta.is_none() {
+        let snapshot_keys = if use_full_scan {
             // full state snapshot
             let current = self.collect_current_state(user_id).await?;
             match self
@@ -1457,26 +1504,8 @@ impl GitWorkspacePort for GitWorkspaceService {
                 }
             }
         } else {
-            // changed text files only
-            let mut changed_text: HashMap<String, FileSnapshot> = HashMap::new();
-            for (path, up) in upserts.iter() {
-                if up.is_text {
-                    let storage_rel = format!("{}/{}", user_id, path);
-                    let abs = self.storage.absolute_from_relative(&storage_rel);
-                    let bytes = self.storage.read_bytes(abs.as_path()).await?;
-                    let hash = sha256_hex(&bytes);
-                    changed_text.insert(
-                        path.clone(),
-                        FileSnapshot {
-                            hash,
-                            data: FileSnapshotData::Inline(bytes),
-                            is_text: true,
-                        },
-                    );
-                }
-            }
             match self
-                .store_commit_snapshots(user_id, &meta.commit_id, &changed_text)
+                .store_commit_snapshots(user_id, &meta.commit_id, &changed_text_snapshots)
                 .await
             {
                 Ok(keys) => keys,
@@ -1526,15 +1555,19 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         // Best-effort clear of processed dirty entries
         let _ = self.clear_dirty(user_id).await;
+        let outcome_message = if pushed {
+            "sync completed".to_string()
+        } else if skip_push {
+            "sync completed (push skipped)".to_string()
+        } else {
+            "commit created (push failed)".to_string()
+        };
+
         Ok(GitSyncOutcome {
             files_changed: files_changed_for_response,
             commit_hash: Some(commit_hex),
             pushed,
-            message: if pushed {
-                "sync completed".to_string()
-            } else {
-                "commit created (push failed)".to_string()
-            },
+            message: outcome_message,
         })
     }
 }

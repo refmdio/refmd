@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS git_rebuild_jobs (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  attempts INT NOT NULL DEFAULT 0,
+  locked_at TIMESTAMPTZ NULL,
+  last_error TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id)
+);

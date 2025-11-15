@@ -6,6 +6,7 @@ pub mod document_exporter;
 pub mod document_repository;
 pub mod document_snapshot_archive_repository;
 pub mod files_repository;
+pub mod git_rebuild_job_queue;
 pub mod git_repository;
 pub mod git_storage;
 pub mod git_workspace;

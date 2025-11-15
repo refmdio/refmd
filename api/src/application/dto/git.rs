@@ -59,6 +59,8 @@ pub struct GitWorkspaceStatus {
 pub struct GitSyncRequestDto {
     pub message: Option<String>,
     pub force: Option<bool>,
+    pub full_scan: Option<bool>,
+    pub skip_push: Option<bool>,
 }
 
 #[derive(Debug, Clone)]

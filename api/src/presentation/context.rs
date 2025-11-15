@@ -16,6 +16,7 @@ use crate::application::services::files::FileService;
 use crate::application::services::git::GitService;
 use crate::application::services::health::HealthService;
 use crate::application::services::markdown_render::MarkdownRenderService;
+use crate::application::services::metrics::MetricsRegistry;
 use crate::application::services::plugins::data::PluginDataService;
 use crate::application::services::plugins::execution::PluginExecutionService;
 use crate::application::services::plugins::management::PluginManagementService;
@@ -37,6 +38,7 @@ pub struct PresentationConfig {
 pub struct AppContext {
     pub cfg: PresentationConfig,
     services: Arc<AppServices>,
+    metrics: Arc<MetricsRegistry>,
 }
 
 #[derive(Clone)]
@@ -113,10 +115,15 @@ impl AppServices {
 }
 
 impl AppContext {
-    pub fn new(cfg: PresentationConfig, services: AppServices) -> Self {
+    pub fn new(
+        cfg: PresentationConfig,
+        services: AppServices,
+        metrics: Arc<MetricsRegistry>,
+    ) -> Self {
         Self {
             cfg,
             services: Arc::new(services),
+            metrics,
         }
     }
 
@@ -186,6 +193,10 @@ impl AppContext {
 
     pub fn auth_service(&self) -> Arc<AuthService> {
         self.services.auth_service.clone()
+    }
+
+    pub fn metrics(&self) -> Arc<MetricsRegistry> {
+        self.metrics.clone()
     }
 
     pub async fn subscribe_plugin_events(

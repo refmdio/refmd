@@ -13,6 +13,7 @@ use crate::application::ports::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJob, StorageProjectionJobKind,
     StorageProjectionQueue,
 };
+use crate::application::services::metrics::MetricsRegistry;
 
 pub struct StorageProjectionWorker {
     jobs: Arc<dyn StorageProjectionQueue>,
@@ -21,6 +22,7 @@ pub struct StorageProjectionWorker {
     lock_timeout_secs: i64,
     idle_backoff: Duration,
     max_attempts: i32,
+    metrics: Arc<MetricsRegistry>,
 }
 
 impl StorageProjectionWorker {
@@ -28,6 +30,7 @@ impl StorageProjectionWorker {
         jobs: Arc<dyn StorageProjectionQueue>,
         storage: Arc<dyn StorageProjectionPort>,
         events: Arc<dyn DocEventLog>,
+        metrics: Arc<MetricsRegistry>,
     ) -> Self {
         Self {
             jobs,
@@ -36,6 +39,7 @@ impl StorageProjectionWorker {
             lock_timeout_secs: 30,
             idle_backoff: Duration::from_millis(500),
             max_attempts: 5,
+            metrics,
         }
     }
 
@@ -130,6 +134,7 @@ impl StorageProjectionWorker {
         match result {
             Ok(()) => {
                 self.jobs.complete_job(job.id).await?;
+                self.metrics.inc_storage_projection_success();
                 info!("storage_projection_job_succeeded");
             }
             Err(err) if missing_target(&err) => {
@@ -138,6 +143,7 @@ impl StorageProjectionWorker {
                     "storage_projection_job_missing_target_skip"
                 );
                 self.jobs.complete_job(job.id).await?;
+                self.metrics.inc_storage_projection_success();
                 if let Some(doc_id) = job.doc_id {
                     self.emit_projection_event(doc_id, &job, "skipped", Some(&format!("{err:#}")))
                         .await;
@@ -147,6 +153,7 @@ impl StorageProjectionWorker {
                 let msg = format!("{err:#}");
                 if job.attempts >= self.max_attempts {
                     self.jobs.complete_job(job.id).await?;
+                    self.metrics.inc_storage_projection_failure();
                     warn!(
                         error = ?err,
                         attempts = job.attempts,
@@ -163,6 +170,7 @@ impl StorageProjectionWorker {
                     }
                 } else {
                     self.jobs.fail_job(job.id, &msg).await?;
+                    self.metrics.inc_storage_projection_retry();
                     warn!(error = ?err, "storage_projection_job_failed_once");
                     if let Some(doc_id) = job.doc_id {
                         self.emit_projection_event(doc_id, &job, "failed", Some(&msg))
@@ -314,10 +322,12 @@ mod tests {
         let queue = Arc::new(MockQueue::default());
         let storage = Arc::new(RecordingStoragePort::default());
         let events = Arc::new(RecordingDocEventLog::default());
+        let metrics = Arc::new(MetricsRegistry::default());
         let worker = Arc::new(StorageProjectionWorker::new(
             queue.clone(),
             storage.clone(),
             events.clone(),
+            metrics.clone(),
         ));
         let job = StorageProjectionJob {
             id: 1,
@@ -331,7 +341,8 @@ mod tests {
         assert_eq!(queue.completed(), vec![1]);
         assert_eq!(storage.calls(), vec!["sync_doc_paths"]);
         assert_eq!(events.events().len(), 1);
-        assert_eq!(events.events()[0].1, "storage.doc_sync");
+        assert_eq!(events.events()[0].1, "storage.projection.doc_sync");
+        assert_eq!(metrics.snapshot().storage_projection_success, 1);
     }
 
     #[tokio::test]
@@ -340,7 +351,13 @@ mod tests {
         let storage = Arc::new(RecordingStoragePort::default());
         storage.fail_next_sync();
         let events = Arc::new(RecordingDocEventLog::default());
-        let worker = Arc::new(StorageProjectionWorker::new(queue.clone(), storage, events));
+        let metrics = Arc::new(MetricsRegistry::default());
+        let worker = Arc::new(StorageProjectionWorker::new(
+            queue.clone(),
+            storage,
+            events,
+            metrics.clone(),
+        ));
         let job = StorageProjectionJob {
             id: 2,
             job_type: StorageProjectionJobKind::DocSync,
@@ -353,6 +370,7 @@ mod tests {
         assert!(queue.completed().is_empty());
         assert_eq!(queue.failed().len(), 1);
         assert_eq!(queue.failed()[0].0, 2);
+        assert_eq!(metrics.snapshot().storage_projection_retry, 1);
     }
 
     #[derive(Default)]

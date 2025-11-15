@@ -14,6 +14,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
 use api::application::ports::doc_event_log::DocEventLog;
+use api::application::ports::git_rebuild_job_queue::GitRebuildJobQueue;
 use api::application::ports::plugin_asset_store::PluginAssetStore;
 use api::application::ports::plugin_event_publisher::PluginEventPublisher;
 use api::application::ports::plugin_event_subscriber::PluginEventSubscriber;
@@ -36,8 +37,11 @@ use api::application::services::doc_events::{
 use api::application::services::documents::DocumentService;
 use api::application::services::files::FileService;
 use api::application::services::git::GitService;
+use api::application::services::git_rebuild::GitRebuildService;
+use api::application::services::git_rebuild_scheduler::GitRebuildScheduler;
 use api::application::services::health::HealthService;
 use api::application::services::markdown_render::MarkdownRenderService;
+use api::application::services::metrics::MetricsRegistry;
 use api::application::services::plugins::asset_signer::AssetSigner;
 use api::application::services::plugins::data::PluginDataService;
 use api::application::services::plugins::execution::PluginExecutionService;
@@ -58,6 +62,7 @@ use api::infrastructure::documents::doc_event_log::PgDocEventLog;
 use api::infrastructure::documents::event_poller::DocEventPoller;
 use api::infrastructure::documents::exporter::DefaultDocumentExporter;
 use api::infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
+use api::infrastructure::git::PgGitRebuildJobQueue;
 use api::infrastructure::plugins::filesystem_store::PluginExecutionLimits;
 use api::infrastructure::storage::{
     FsIngestWatcher, PgStorageIngestQueue, PgStorageProjectionQueue, PgStorageReconcileJobs,
@@ -315,8 +320,11 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
     let doc_event_log: Arc<dyn DocEventLog> = Arc::new(PgDocEventLog::new(pool.clone()));
+    let metrics = Arc::new(MetricsRegistry::default());
     let storage_reconcile_jobs: Arc<dyn StorageReconcileJobs> =
         Arc::new(PgStorageReconcileJobs::new(pool.clone()));
+    let git_rebuild_jobs: Arc<dyn GitRebuildJobQueue> =
+        Arc::new(PgGitRebuildJobQueue::new(pool.clone()));
     let logging_subscriber: Arc<dyn DocEventSubscriber> = LoggingDocEventSubscriber::new();
     let git_dirty_subscriber: Arc<dyn DocEventSubscriber> =
         GitDirtyDocEventSubscriber::new(pool.clone());
@@ -339,6 +347,7 @@ async fn main() -> anyhow::Result<()> {
             storage_job_queue.clone(),
             storage_projection.clone(),
             doc_event_log.clone(),
+            metrics.clone(),
         ));
         tokio::spawn(async move {
             worker.run().await;
@@ -573,6 +582,30 @@ async fn main() -> anyhow::Result<()> {
         gitignore_port.clone(),
         git_workspace.clone(),
     ));
+    if cfg.git_rebuild_enabled {
+        let rebuild_service = Arc::new(GitRebuildService::new(
+            git_rebuild_jobs.clone(),
+            git_workspace.clone(),
+            git_repo.clone(),
+            metrics.clone(),
+        ));
+        tokio::spawn({
+            let svc = rebuild_service.clone();
+            async move {
+                svc.run().await;
+            }
+        });
+        let rebuild_scheduler = GitRebuildScheduler::new(
+            git_rebuild_jobs.clone(),
+            user_repo.clone(),
+            Duration::from_secs(cfg.git_rebuild_interval_secs),
+        );
+        tokio::spawn(async move {
+            rebuild_scheduler.run().await;
+        });
+    } else {
+        tracing::info!("git_rebuild_scheduler_disabled");
+    }
     let plugin_repo = Arc::new(
         api::infrastructure::db::repositories::plugin_repository_sqlx::SqlxPluginRepository::new(
             pool.clone(),
@@ -734,6 +767,7 @@ async fn main() -> anyhow::Result<()> {
         let worker = Arc::new(StorageIngestWorker::new(
             storage_ingest_queue.clone(),
             handler,
+            metrics.clone(),
         ));
         tokio::spawn(async move {
             worker.run().await;
@@ -800,7 +834,7 @@ async fn main() -> anyhow::Result<()> {
         public_base_url: cfg.public_base_url.clone(),
         session_cookie_secure: cookie_secure,
     };
-    let ctx = AppContext::new(presentation_cfg, services);
+    let ctx = AppContext::new(presentation_cfg, services, metrics.clone());
 
     // Build CORS
     let cors = if let Some(origin) = cfg.frontend_url.clone() {
@@ -930,6 +964,14 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info_span!("http", %method, %uri, matched_path = %matched)
             }),
         );
+
+    let metrics_router = Router::new()
+        .route(
+            "/metrics",
+            get(api::presentation::http::metrics::metrics_handler),
+        )
+        .with_state(ctx.clone());
+    let api_router = api_router.merge(metrics_router);
 
     let api_router = api_router.nest("/api/uploads", upload_router);
 

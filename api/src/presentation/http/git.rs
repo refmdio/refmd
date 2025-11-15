@@ -332,6 +332,8 @@ pub async fn get_status(
 pub struct GitSyncRequest {
     pub message: Option<String>,
     pub force: Option<bool>,
+    pub full_scan: Option<bool>,
+    pub skip_push: Option<bool>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -357,6 +359,8 @@ pub async fn sync_now(
             GitSyncRequestDto {
                 message: req.message.clone(),
                 force: req.force,
+                full_scan: req.full_scan,
+                skip_push: req.skip_push,
             },
         )
         .await

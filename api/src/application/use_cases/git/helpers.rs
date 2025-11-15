@@ -1,6 +1,7 @@
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::storage_port::StorageResolverPort;
+use anyhow::Error;
 use uuid::Uuid;
 
 fn strip_user_prefix(owner_id: Uuid, rel_from_uploads: &str) -> String {
@@ -72,4 +73,15 @@ pub async fn compute_doc_patterns_with<
     patterns.sort();
     patterns.dedup();
     Ok(patterns)
+}
+
+pub fn needs_force_retry(err: &Error) -> bool {
+    let msg = err.to_string().to_lowercase();
+    msg.contains("remote repository state diverged")
+        || msg.contains("repository latest commit mismatch")
+        || msg.contains("remote repository already contains commit")
+        || msg.contains("non-fast-forward")
+        || msg.contains("non fast forward")
+        || msg.contains("failed to push some refs")
+        || msg.contains("rejected")
 }

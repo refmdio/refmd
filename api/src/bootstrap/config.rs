@@ -69,6 +69,8 @@ pub struct Config {
     pub redis_awareness_ttl_ms: u64,
     pub redis_stream_max_len: usize,
     pub snapshot_archive_interval_secs: u64,
+    pub git_rebuild_enabled: bool,
+    pub git_rebuild_interval_secs: u64,
 }
 
 impl Config {
@@ -177,6 +179,12 @@ impl Config {
         let snapshot_archive_interval_secs = env_var(&["SNAPSHOT_ARCHIVE_INTERVAL_SECS"])
             .and_then(|s| s.parse().ok())
             .unwrap_or(900);
+        let git_rebuild_enabled = env_var(&["GIT_REBUILD_ENABLED"])
+            .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(true);
+        let git_rebuild_interval_secs = env_var(&["GIT_REBUILD_INTERVAL_SECS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(6 * 60 * 60);
 
         // Production hardening: require proper FRONTEND_URL and robust secrets
         if is_production {
@@ -259,6 +267,8 @@ impl Config {
             redis_awareness_ttl_ms,
             redis_stream_max_len,
             snapshot_archive_interval_secs,
+            git_rebuild_enabled,
+            git_rebuild_interval_secs,
         })
     }
 }

@@ -102,9 +102,12 @@ export type Document = {
     archived_by?: (string) | null;
     archived_parent_id?: (string) | null;
     created_at: string;
+    desired_path: string;
     id: string;
+    owner_id: string;
     parent_id?: (string) | null;
     path?: (string) | null;
+    slug: string;
     title: string;
     type: string;
     updated_at: string;
@@ -182,7 +185,9 @@ export type GitStatus = {
 
 export type GitSyncRequest = {
     force?: (boolean) | null;
+    full_scan?: (boolean) | null;
     message?: (string) | null;
+    skip_push?: (boolean) | null;
 };
 
 export type GitSyncResponse = {

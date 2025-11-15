@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::application::dto::git::{GitSyncRequestDto, GitSyncResponseDto};
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
+use crate::application::use_cases::git::helpers::needs_force_retry;
 
 pub struct SyncNow<'a, R, W>
 where
@@ -47,17 +48,30 @@ where
 
         if let Some(cfg) = cfg.as_ref() {
             if !cfg.repository_url.is_empty() {
-                let status = if outcome.pushed { "success" } else { "error" };
-                let _ = self
-                    .repo
-                    .log_sync_operation(
-                        user_id,
-                        "push",
-                        status,
-                        Some(&outcome.message),
-                        outcome.commit_hash.as_deref(),
-                    )
-                    .await;
+                if attempt_req.skip_push.unwrap_or(false) {
+                    let _ = self
+                        .repo
+                        .log_sync_operation(
+                            user_id,
+                            "commit",
+                            "success",
+                            Some(&outcome.message),
+                            outcome.commit_hash.as_deref(),
+                        )
+                        .await;
+                } else {
+                    let status = if outcome.pushed { "success" } else { "error" };
+                    let _ = self
+                        .repo
+                        .log_sync_operation(
+                            user_id,
+                            "push",
+                            status,
+                            Some(&outcome.message),
+                            outcome.commit_hash.as_deref(),
+                        )
+                        .await;
+                }
             }
         }
 
@@ -68,7 +82,8 @@ where
         // Success rule:
         // - If a remote is configured: success when push succeeded or there were no changes.
         // - If no remote: success when commit was created or there were no changes.
-        let success = if has_remote {
+        let skip_push = attempt_req.skip_push.unwrap_or(false);
+        let success = if has_remote && !skip_push {
             outcome.files_changed == 0 || outcome.pushed
         } else {
             outcome.files_changed == 0 || outcome.commit_hash.is_some()
@@ -81,15 +96,4 @@ where
             files_changed: outcome.files_changed,
         })
     }
-}
-
-fn needs_force_retry(err: &anyhow::Error) -> bool {
-    let msg = err.to_string().to_lowercase();
-    msg.contains("remote repository state diverged")
-        || msg.contains("repository latest commit mismatch")
-        || msg.contains("remote repository already contains commit")
-        || msg.contains("non-fast-forward")
-        || msg.contains("non fast forward")
-        || msg.contains("failed to push some refs")
-        || msg.contains("rejected")
 }
