@@ -24,11 +24,20 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
             INSERT INTO git_rebuild_jobs (user_id, attempts, locked_at, last_error)
             VALUES ($1, 0, NULL, NULL)
             ON CONFLICT (user_id)
-            DO UPDATE SET attempts = 0,
-                           locked_at = NULL,
-                           last_error = NULL,
-                           updated_at = now()
-            WHERE git_rebuild_jobs.locked_at IS NULL
+            DO UPDATE SET attempts = CASE
+                           WHEN git_rebuild_jobs.locked_at IS NULL THEN 0
+                           ELSE git_rebuild_jobs.attempts
+                       END,
+                       locked_at = CASE
+                           WHEN git_rebuild_jobs.locked_at IS NULL THEN NULL
+                           ELSE git_rebuild_jobs.locked_at
+                       END,
+                       last_error = NULL,
+                       pending_retry = CASE
+                           WHEN git_rebuild_jobs.locked_at IS NULL THEN false
+                           ELSE true
+                       END,
+                       updated_at = now()
             "#,
         )
         .bind(user_id)
@@ -70,10 +79,27 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
     }
 
     async fn complete(&self, job_id: i64) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM git_rebuild_jobs WHERE id = $1")
-            .bind(job_id)
-            .execute(&self.pool)
-            .await?;
+        let res = sqlx::query(
+            r#"
+            UPDATE git_rebuild_jobs
+            SET locked_at = NULL,
+                attempts = 0,
+                pending_retry = false,
+                last_error = NULL,
+                updated_at = now()
+            WHERE id = $1 AND pending_retry = true
+            "#,
+        )
+        .bind(job_id)
+        .execute(&self.pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            sqlx::query("DELETE FROM git_rebuild_jobs WHERE id = $1")
+                .bind(job_id)
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 
@@ -83,6 +109,7 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
             UPDATE git_rebuild_jobs
             SET last_error = $2,
                 locked_at = NULL,
+                pending_retry = false,
                 updated_at = now()
             WHERE id = $1
             "#,

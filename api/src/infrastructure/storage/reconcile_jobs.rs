@@ -27,11 +27,20 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
             VALUES ($1, $2, 0, NULL, NULL)
             ON CONFLICT ON CONSTRAINT storage_reconcile_jobs_user_scope_unique
             DO UPDATE
-            SET attempts = 0,
-                locked_at = NULL,
+            SET attempts = CASE
+                    WHEN storage_reconcile_jobs.locked_at IS NULL THEN 0
+                    ELSE storage_reconcile_jobs.attempts
+                END,
+                locked_at = CASE
+                    WHEN storage_reconcile_jobs.locked_at IS NULL THEN NULL
+                    ELSE storage_reconcile_jobs.locked_at
+                END,
                 last_error = NULL,
+                pending_retry = CASE
+                    WHEN storage_reconcile_jobs.locked_at IS NULL THEN false
+                    ELSE true
+                END,
                 updated_at = now()
-            WHERE storage_reconcile_jobs.locked_at IS NULL
             "#,
         )
         .bind(user_id)
@@ -77,10 +86,27 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
     }
 
     async fn complete(&self, job_id: i64) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM storage_reconcile_jobs WHERE id = $1")
-            .bind(job_id)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query(
+            r#"
+            UPDATE storage_reconcile_jobs
+            SET locked_at = NULL,
+                attempts = 0,
+                pending_retry = false,
+                last_error = NULL,
+                updated_at = now()
+            WHERE id = $1 AND pending_retry = true
+            "#,
+        )
+        .bind(job_id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            sqlx::query("DELETE FROM storage_reconcile_jobs WHERE id = $1")
+                .bind(job_id)
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 
@@ -90,6 +116,7 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
             UPDATE storage_reconcile_jobs
             SET last_error = $2,
                 locked_at = NULL,
+                pending_retry = false,
                 updated_at = now()
             WHERE id = $1
             "#,

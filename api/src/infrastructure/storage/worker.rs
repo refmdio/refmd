@@ -191,8 +191,8 @@ impl StorageProjectionWorker {
     }
 
     async fn handle_doc_sync(&self, doc_id: Uuid) -> anyhow::Result<()> {
-        self.persist_markdown(doc_id).await?;
-        self.storage.sync_doc_paths(doc_id).await
+        self.storage.sync_doc_paths(doc_id).await?;
+        self.persist_markdown(doc_id).await
     }
 
     async fn handle_folder_sync(&self, folder_id: Uuid) -> anyhow::Result<()> {
