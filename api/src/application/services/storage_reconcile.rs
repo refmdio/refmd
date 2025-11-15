@@ -27,6 +27,7 @@ pub struct StorageReconcileService {
     files: Arc<dyn FilesRepository>,
     ingest_queue: Arc<dyn StorageIngestQueue>,
     backend: Arc<dyn StorageReconcileBackend>,
+    ingest_known_paths: bool,
 }
 
 impl StorageReconcileService {
@@ -36,6 +37,7 @@ impl StorageReconcileService {
         files: Arc<dyn FilesRepository>,
         ingest_queue: Arc<dyn StorageIngestQueue>,
         backend: Arc<dyn StorageReconcileBackend>,
+        ingest_known_paths: bool,
     ) -> Self {
         Self {
             jobs,
@@ -43,6 +45,7 @@ impl StorageReconcileService {
             files,
             ingest_queue,
             backend,
+            ingest_known_paths,
         }
     }
 
@@ -104,6 +107,35 @@ impl StorageReconcileService {
             .await
     }
 
+    async fn enqueue_upsert(&self, user_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
+        let Some(repo_path) = Self::repo_relative_path(user_id, storage_path) else {
+            warn!(
+                user_id = %user_id,
+                storage_path,
+                "storage_reconcile_repo_path_unparseable"
+            );
+            return Ok(());
+        };
+
+        if is_reserved_repo_path(&repo_path) {
+            return Ok(());
+        }
+
+        self.ingest_queue
+            .enqueue_event(
+                user_id,
+                &repo_path,
+                "reconcile",
+                StorageIngestKind::Upsert,
+                None,
+                Some(json!({
+                    "source": "reconcile",
+                    "storage_path": storage_path,
+                })),
+            )
+            .await
+    }
+
     async fn process_job(&self, job: &StorageReconcileJob) -> anyhow::Result<()> {
         let known = self.enumerate_known_paths(job.user_id).await?;
         let storage_paths = self.enumerate_storage_paths(job.user_id).await?;
@@ -115,6 +147,11 @@ impl StorageReconcileService {
                     "storage_reconcile_orphan_detected"
                 );
                 self.enqueue_delete(job.user_id, &path).await?;
+                continue;
+            }
+
+            if self.ingest_known_paths {
+                self.enqueue_upsert(job.user_id, &path).await?;
             }
         }
         Ok(())
@@ -255,6 +292,13 @@ fn reserved_storage_paths(user_id: Uuid) -> impl Iterator<Item = String> {
         .map(move |rel| format!("{}/{}", user_id, rel.trim_start_matches('/')))
 }
 
+fn is_reserved_repo_path(repo_path: &str) -> bool {
+    let trimmed = repo_path.trim_start_matches('/');
+    RESERVED_REPO_PATHS
+        .iter()
+        .any(|reserved| trimmed == reserved.trim_start_matches('/'))
+}
+
 fn normalize_repo_path(raw: &str) -> Option<String> {
     let replaced = raw.replace('\\', "/");
     let trimmed = replaced.trim_start_matches('/');
@@ -267,7 +311,7 @@ fn normalize_repo_path(raw: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_repo_path, reserved_storage_paths};
+    use super::{is_reserved_repo_path, normalize_repo_path, reserved_storage_paths};
     use uuid::Uuid;
 
     #[test]
@@ -291,6 +335,13 @@ mod tests {
     fn normalize_filters_empty() {
         assert_eq!(normalize_repo_path(""), None);
         assert_eq!(normalize_repo_path("/"), None);
+    }
+
+    #[test]
+    fn detects_reserved_repo_path() {
+        assert!(is_reserved_repo_path(".gitignore"));
+        assert!(is_reserved_repo_path("/.gitignore"));
+        assert!(!is_reserved_repo_path("docs/foo.md"));
     }
 }
 

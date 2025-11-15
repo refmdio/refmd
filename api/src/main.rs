@@ -252,10 +252,11 @@ async fn main() -> anyhow::Result<()> {
     let asset_signer = Arc::new(AssetSigner::new(&cfg.plugin_asset_sign_key));
 
     let uploads_root = std::path::PathBuf::from(&cfg.storage_root);
-    let (storage_resolver, storage_projection, reconcile_backend): (
+    let (storage_resolver, storage_projection, reconcile_backend, reconcile_ingest_known_paths): (
         Arc<dyn StorageResolverPort>,
         Arc<dyn StorageProjectionPort>,
         Arc<dyn StorageReconcileBackend>,
+        bool,
     ) = match cfg.storage_backend {
         StorageBackend::Filesystem => {
             let port = Arc::new(api::infrastructure::storage::port_impl::FsStoragePort {
@@ -263,7 +264,7 @@ async fn main() -> anyhow::Result<()> {
                 uploads_root: uploads_root.clone(),
             });
             let backend = FsReconcileBackend::new(uploads_root.clone());
-            (port.clone(), port, backend)
+            (port.clone(), port, backend, false)
         }
         StorageBackend::S3 => {
             let s3_settings = api::infrastructure::storage::s3::S3StorageConfig {
@@ -283,18 +284,21 @@ async fn main() -> anyhow::Result<()> {
                     .await?,
             );
             let backend = S3ReconcileBackend::new(&s3_settings).await?;
-            (port.clone(), port, backend)
+            (port.clone(), port, backend, true)
         }
     };
 
     let storage_job_queue: Arc<dyn StorageProjectionQueue> =
         Arc::new(PgStorageProjectionQueue::new(pool.clone()));
+    let storage_ingest_queue: Arc<dyn StorageIngestQueue> =
+        Arc::new(PgStorageIngestQueue::new(pool.clone()));
 
     if cfg.storage_monitor_enabled {
         let monitor = Arc::new(StorageConsistencyMonitor::new(
             pool.clone(),
             storage_resolver.clone(),
             storage_job_queue.clone(),
+            storage_ingest_queue.clone(),
             Duration::from_secs(cfg.storage_monitor_interval_secs),
             cfg.storage_monitor_batch_size,
         ));
@@ -331,8 +335,6 @@ async fn main() -> anyhow::Result<()> {
         GitDirtyDocEventSubscriber::new(pool.clone());
     let doc_event_subscriber: Arc<dyn DocEventSubscriber> =
         FanoutDocEventSubscriber::new(vec![logging_subscriber.clone(), git_dirty_subscriber]);
-    let storage_ingest_queue: Arc<dyn StorageIngestQueue> =
-        Arc::new(PgStorageIngestQueue::new(pool.clone()));
     if matches!(cfg.storage_backend, StorageBackend::Filesystem) {
         let watcher = Arc::new(FsIngestWatcher::new(
             uploads_root.clone(),
@@ -392,6 +394,7 @@ async fn main() -> anyhow::Result<()> {
             files_repo.clone(),
             storage_ingest_queue.clone(),
             reconcile_backend.clone(),
+            reconcile_ingest_known_paths,
         ));
         tokio::spawn({
             let svc = reconcile_service.clone();
