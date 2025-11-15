@@ -236,12 +236,17 @@ impl StorageProjectionWorker {
         };
         let doc_relative = owner_repo_relative(metadata.owner_id, repo_path);
         self.storage.delete_relative_path(&doc_relative).await?;
-        if let Some(attachments_relative) = attachments_relative_path(metadata.owner_id, repo_path)
-        {
-            let _ = self
-                .storage
-                .delete_relative_path(&attachments_relative)
-                .await;
+        if let Some(paths) = metadata.attachment_paths.as_ref() {
+            for rel in paths {
+                if let Err(err) = self.storage.delete_relative_path(rel).await {
+                    warn!(
+                        owner_id = %metadata.owner_id,
+                        attachment_path = rel.as_str(),
+                        error = ?err,
+                        "storage_attachment_delete_failed"
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -315,23 +320,6 @@ fn owner_repo_relative(owner_id: Uuid, repo_path: &str) -> String {
     normalize_relative_path(full)
 }
 
-fn attachments_relative_path(owner_id: Uuid, repo_path: &str) -> Option<String> {
-    let trimmed = repo_path.trim_start_matches('/');
-    if trimmed.is_empty() {
-        return None;
-    }
-    let mut doc_parent = PathBuf::from(trimmed);
-    if !doc_parent.pop() {
-        return None;
-    }
-    let mut full = PathBuf::from(owner_id.to_string());
-    if !doc_parent.as_os_str().is_empty() {
-        full.push(&doc_parent);
-    }
-    full.push("attachments");
-    Some(normalize_relative_path(full))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,7 +361,10 @@ mod tests {
         };
         worker.process_job(job).await.unwrap();
         assert_eq!(queue.completed(), vec![1]);
-        assert_eq!(storage.calls(), vec!["sync_doc_paths"]);
+        assert_eq!(
+            storage.calls(),
+            vec!["sync_doc_paths".to_string()]
+        );
         assert_eq!(events.events().len(), 1);
         assert_eq!(events.events()[0].1, "storage.projection.doc_sync");
         assert_eq!(resolver_impl.writes().len(), 1);
@@ -413,16 +404,47 @@ mod tests {
         assert_eq!(metrics.snapshot().storage_projection_retry, 1);
     }
 
-    #[test]
-    fn attachments_path_uses_parent_directory() {
+    #[tokio::test]
+    async fn delete_doc_metadata_removes_only_listed_attachments() {
+        let queue = Arc::new(MockQueue::default());
+        let storage = Arc::new(RecordingStoragePort::default());
+        let resolver_impl = Arc::new(MockResolver::default());
+        let resolver: Arc<dyn StorageResolverPort> = resolver_impl.clone();
+        let markdown: Arc<dyn MarkdownExportProvider> = Arc::new(MockMarkdownExporter::new());
+        let events = Arc::new(RecordingDocEventLog::default());
+        let metrics = Arc::new(MetricsRegistry::default());
+        let worker = Arc::new(StorageProjectionWorker::new(
+            queue,
+            storage.clone(),
+            resolver,
+            markdown,
+            events,
+            metrics,
+        ));
         let owner = Uuid::new_v4();
+        let metadata = StorageDeleteJobMetadata {
+            owner_id: owner,
+            repo_path: Some("docs/foo.md".into()),
+            doc_type: "doc".into(),
+            attachment_paths: Some(vec![
+                format!("{}/docs/attachments/image.png", owner),
+                format!("{}/docs/attachments/asset.bin", owner),
+            ]),
+        };
+        worker.delete_doc_by_metadata(&metadata).await.unwrap();
         assert_eq!(
-            attachments_relative_path(owner, "docs/foo.md"),
-            Some(format!("{}/docs/attachments", owner))
-        );
-        assert_eq!(
-            attachments_relative_path(owner, "foo.md"),
-            Some(format!("{}/attachments", owner))
+            storage.calls(),
+            vec![
+                format!("delete_relative_path:{}/docs/foo.md", owner),
+                format!(
+                    "delete_relative_path:{}/docs/attachments/image.png",
+                    owner
+                ),
+                format!(
+                    "delete_relative_path:{}/docs/attachments/asset.bin",
+                    owner
+                )
+            ]
         );
     }
 
@@ -505,12 +527,12 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingStoragePort {
-        calls: Mutex<Vec<&'static str>>,
+        calls: Mutex<Vec<String>>,
         fail_sync: AtomicBool,
     }
 
     impl RecordingStoragePort {
-        fn calls(&self) -> Vec<&'static str> {
+        fn calls(&self) -> Vec<String> {
             self.calls.lock().unwrap().clone()
         }
 
@@ -523,32 +545,47 @@ mod tests {
     impl StorageProjectionPort for RecordingStoragePort {
         async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize> {
             let _ = folder_id;
-            self.calls.lock().unwrap().push("move_folder_subtree");
+            self.calls
+                .lock()
+                .unwrap()
+                .push("move_folder_subtree".to_string());
             Ok(0)
         }
 
         async fn delete_doc_physical(&self, doc_id: Uuid) -> anyhow::Result<()> {
             let _ = doc_id;
-            self.calls.lock().unwrap().push("delete_doc_physical");
+            self.calls
+                .lock()
+                .unwrap()
+                .push("delete_doc_physical".to_string());
             Ok(())
         }
 
         async fn delete_folder_physical(&self, folder_id: Uuid) -> anyhow::Result<usize> {
             let _ = folder_id;
-            self.calls.lock().unwrap().push("delete_folder_physical");
+            self.calls
+                .lock()
+                .unwrap()
+                .push("delete_folder_physical".to_string());
             Ok(0)
         }
 
         async fn sync_doc_paths(&self, _doc_id: Uuid) -> anyhow::Result<()> {
-            self.calls.lock().unwrap().push("sync_doc_paths");
+            self.calls
+                .lock()
+                .unwrap()
+                .push("sync_doc_paths".to_string());
             if self.fail_sync.swap(false, Ordering::SeqCst) {
                 anyhow::bail!("sync_failed");
             }
             Ok(())
         }
 
-        async fn delete_relative_path(&self, _rel: &str) -> anyhow::Result<()> {
-            self.calls.lock().unwrap().push("delete_relative_path");
+        async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("delete_relative_path:{rel}"));
             Ok(())
         }
     }

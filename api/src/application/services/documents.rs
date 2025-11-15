@@ -175,6 +175,14 @@ impl DocumentService {
         let repo_path = previous_repo_path
             .clone()
             .unwrap_or_else(|| meta.desired_path.clone());
+        let attachment_paths = if meta.doc_type != "folder" {
+            self.files_repo
+                .list_storage_paths_for_document(doc_id)
+                .await
+                .map_err(ServiceError::from)?
+        } else {
+            Vec::new()
+        };
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
         };
@@ -190,6 +198,7 @@ impl DocumentService {
                         owner_id: user_id,
                         repo_path: Some(repo_path.clone()),
                         doc_type: dtype.clone(),
+                        attachment_paths: None,
                     };
                     self.enqueue_folder_delete_tx(&mut tx, doc_id, "delete_folder", Some(metadata))
                         .await;
@@ -199,6 +208,7 @@ impl DocumentService {
                         owner_id: user_id,
                         repo_path: Some(repo_path.clone()),
                         doc_type: dtype.clone(),
+                        attachment_paths: Some(attachment_paths.clone()),
                     };
                     self.enqueue_doc_delete_tx(&mut tx, doc_id, "delete_document", Some(metadata))
                         .await;

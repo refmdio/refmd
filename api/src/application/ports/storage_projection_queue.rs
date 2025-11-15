@@ -26,6 +26,8 @@ pub struct StorageDeleteJobMetadata {
     pub owner_id: Uuid,
     pub repo_path: Option<String>,
     pub doc_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

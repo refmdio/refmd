@@ -4,6 +4,7 @@ use serde_json;
 use uuid::Uuid;
 
 use crate::application::ports::document_repository::DocumentRepository;
+use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::plugin_asset_store::PluginAssetStore;
@@ -14,7 +15,7 @@ use crate::application::ports::storage_projection_queue::{
 };
 use crate::application::ports::user_repository::UserRepository;
 
-pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ>
+pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
 where
     UR: UserRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
@@ -23,6 +24,7 @@ where
     GR: GitRepository + ?Sized,
     GW: GitWorkspacePort + ?Sized,
     SJ: StorageProjectionQueue + ?Sized,
+    FR: FilesRepository + ?Sized,
 {
     pub user_repo: &'a UR,
     pub document_repo: &'a DR,
@@ -32,9 +34,11 @@ where
     pub git_repo: &'a GR,
     pub git_workspace: &'a GW,
     pub storage_jobs: &'a SJ,
+    pub files_repo: &'a FR,
 }
 
-impl<'a, UR, DR, PIR, PR, GR, GW, SJ> DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ>
+impl<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
+    DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
 where
     UR: UserRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
@@ -43,6 +47,7 @@ where
     GR: GitRepository + ?Sized,
     GW: GitWorkspacePort + ?Sized,
     SJ: StorageProjectionQueue + ?Sized,
+    FR: FilesRepository + ?Sized,
 {
     pub async fn execute(&self, user_id: Uuid) -> anyhow::Result<()> {
         let doc_ids = self.document_repo.list_ids_for_user(user_id).await?;
@@ -81,10 +86,20 @@ where
                 .get_meta_for_owner(*doc_id, user_id)
                 .await?
             {
+                let attachment_paths = if meta.doc_type != "folder" {
+                    Some(
+                        self.files_repo
+                            .list_storage_paths_for_document(*doc_id)
+                            .await?,
+                    )
+                } else {
+                    None
+                };
                 let delete_metadata = StorageDeleteJobMetadata {
                     owner_id: user_id,
                     repo_path: Some(meta.desired_path.clone()),
                     doc_type: meta.doc_type.clone(),
+                    attachment_paths,
                 };
                 let reason = serde_json::to_string(&StorageJobReason {
                     reason: "delete_account".to_string(),

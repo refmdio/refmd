@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::application::dto::auth::UserDto;
 use crate::application::ports::document_repository::DocumentRepository;
+use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::plugin_asset_store::PluginAssetStore;
@@ -20,6 +21,7 @@ use crate::application::use_cases::auth::register::{Register as RegisterUc, Regi
 pub struct AccountService {
     user_repo: Arc<dyn UserRepository>,
     document_repo: Arc<dyn DocumentRepository>,
+    files_repo: Arc<dyn FilesRepository>,
     plugin_installations: Arc<dyn PluginInstallationRepository>,
     plugin_repo: Arc<dyn PluginRepository>,
     plugin_assets: Arc<dyn PluginAssetStore>,
@@ -33,6 +35,7 @@ impl AccountService {
     pub fn new(
         user_repo: Arc<dyn UserRepository>,
         document_repo: Arc<dyn DocumentRepository>,
+        files_repo: Arc<dyn FilesRepository>,
         plugin_installations: Arc<dyn PluginInstallationRepository>,
         plugin_repo: Arc<dyn PluginRepository>,
         plugin_assets: Arc<dyn PluginAssetStore>,
@@ -43,6 +46,7 @@ impl AccountService {
         Self {
             user_repo,
             document_repo,
+            files_repo,
             plugin_installations,
             plugin_repo,
             plugin_assets,
@@ -121,6 +125,7 @@ impl AccountService {
         let uc = DeleteAccount {
             user_repo: self.user_repo.as_ref(),
             document_repo: self.document_repo.as_ref(),
+            files_repo: self.files_repo.as_ref(),
             plugin_installations: self.plugin_installations.as_ref(),
             plugin_repo: self.plugin_repo.as_ref(),
             plugin_assets: self.plugin_assets.clone(),

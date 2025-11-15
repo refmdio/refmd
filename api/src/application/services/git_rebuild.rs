@@ -86,7 +86,10 @@ impl GitRebuildService {
                 if !req.force.unwrap_or(false) && needs_force_retry(&err) {
                     warn!(user_id = %job.user_id, "git_rebuild_retrying_with_force");
                     req.force = Some(true);
-                    self.workspace.sync(job.user_id, &req, cfg.as_ref()).await?
+                    match self.workspace.sync(job.user_id, &req, cfg.as_ref()).await {
+                        Ok(outcome) => outcome,
+                        Err(err) => return self.on_job_error(job, err).await,
+                    }
                 } else {
                     return self.on_job_error(job, err).await;
                 }
@@ -143,23 +146,28 @@ impl GitRebuildService {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use std::collections::VecDeque;
     use std::sync::Mutex;
 
     struct RecordingWorkspace {
         outcomes: Mutex<Vec<GitSyncRequestDto>>,
-        fail: Mutex<Option<anyhow::Error>>,
+        failures: Mutex<VecDeque<anyhow::Error>>,
     }
 
     impl RecordingWorkspace {
         fn new() -> Self {
             Self {
                 outcomes: Mutex::new(Vec::new()),
-                fail: Mutex::new(None),
+                failures: Mutex::new(VecDeque::new()),
             }
         }
 
         fn fail_with(&self, err: anyhow::Error) {
-            *self.fail.lock().unwrap() = Some(err);
+            self.failures.lock().unwrap().push_back(err);
+        }
+
+        fn requests(&self) -> Vec<GitSyncRequestDto> {
+            self.outcomes.lock().unwrap().clone()
         }
     }
 
@@ -221,7 +229,7 @@ mod tests {
             _cfg: Option<&crate::application::ports::git_repository::UserGitCfg>,
         ) -> anyhow::Result<crate::application::dto::git::GitSyncOutcome> {
             self.outcomes.lock().unwrap().push(req.clone());
-            if let Some(err) = self.fail.lock().unwrap().take() {
+            if let Some(err) = self.failures.lock().unwrap().pop_front() {
                 Err(err)
             } else {
                 Ok(crate::application::dto::git::GitSyncOutcome {
@@ -402,5 +410,28 @@ mod tests {
         svc.process_job(&job).await.unwrap();
         assert_eq!(queue.failed.lock().unwrap().as_slice(), &[2]);
         assert_eq!(metrics.snapshot().git_rebuild_retry, 1);
+    }
+
+    #[tokio::test]
+    async fn forced_retry_failure_routes_through_error_handler() {
+        let queue = Arc::new(RecordingJobQueue::new());
+        let workspace = Arc::new(RecordingWorkspace::new());
+        workspace.fail_with(anyhow::anyhow!("non-fast-forward push rejected"));
+        workspace.fail_with(anyhow::anyhow!("still broken"));
+        let git_repo = Arc::new(RecordingGitRepo::new());
+        let metrics = Arc::new(MetricsRegistry::default());
+        let svc = GitRebuildService::new(queue.clone(), workspace.clone(), git_repo, metrics.clone());
+        let job = GitRebuildJob {
+            id: 3,
+            user_id: Uuid::new_v4(),
+            attempts: 0,
+        };
+        svc.process_job(&job).await.unwrap();
+        assert_eq!(queue.failed.lock().unwrap().as_slice(), &[3]);
+        assert_eq!(metrics.snapshot().git_rebuild_retry, 1);
+        let requests = workspace.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].force, Some(false));
+        assert_eq!(requests[1].force, Some(true));
     }
 }

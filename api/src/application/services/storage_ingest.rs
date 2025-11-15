@@ -216,6 +216,7 @@ impl StorageIngestService {
             doc_id,
             meta.doc_type,
             meta.path,
+            meta.archived_at.is_some(),
         )))
     }
 
@@ -290,6 +291,14 @@ impl StorageIngestHandler for StorageIngestService {
                 );
                 return Ok(());
             }
+            if doc.is_archived() {
+                warn!(
+                    doc_id = %doc.id,
+                    repo_path = repo_path,
+                    "storage_ingest_archived_doc_skipped"
+                );
+                return Ok(());
+            }
             match event.kind {
                 StorageIngestKind::Upsert => {
                     let payload = self.load_markdown_payload(&rel_path).await?;
@@ -337,6 +346,12 @@ impl StorageIngestHandler for StorageIngestService {
                         repo_path = repo_path,
                         "storage_ingest_folder_event_skipped"
                     );
+                } else if doc.is_archived() {
+                    warn!(
+                        doc_id = %doc.id,
+                        repo_path = repo_path,
+                        "storage_ingest_archived_doc_skipped"
+                    );
                 } else {
                     self.reconcile_repo_path(&doc, event.user_id, &rel_path)
                         .await;
@@ -374,21 +389,36 @@ struct ResolvedDocument {
     id: Uuid,
     doc_type: String,
     path: Option<String>,
+    archived: bool,
 }
 
 impl ResolvedDocument {
-    fn new(id: Uuid, doc_type: String, path: Option<String>) -> Self {
-        Self { id, doc_type, path }
+    fn new(id: Uuid, doc_type: String, path: Option<String>, archived: bool) -> Self {
+        Self {
+            id,
+            doc_type,
+            path,
+            archived,
+        }
     }
 
     fn is_folder(&self) -> bool {
         self.doc_type == "folder"
     }
+
+    fn is_archived(&self) -> bool {
+        self.archived
+    }
 }
 
 impl From<DomainDocument> for ResolvedDocument {
     fn from(value: DomainDocument) -> Self {
-        Self::new(value.id, value.doc_type, value.path)
+        Self::new(
+            value.id,
+            value.doc_type,
+            value.path,
+            value.archived_at.is_some(),
+        )
     }
 }
 
