@@ -8,8 +8,11 @@ fn pathbuf_to_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn owner_relative_buf(owner_id: Uuid, desired_path: &str) -> PathBuf {
+fn owner_relative_buf(owner_id: Uuid, desired_path: &str, archived: bool) -> PathBuf {
     let mut rel = PathBuf::from(owner_id.to_string());
+    if archived {
+        rel.push("Archives");
+    }
     let trimmed = desired_path.trim_start_matches('/');
     if !trimmed.is_empty() {
         rel.push(trimmed);
@@ -17,8 +20,11 @@ fn owner_relative_buf(owner_id: Uuid, desired_path: &str) -> PathBuf {
     rel
 }
 
-fn owner_relative_parent_buf(owner_id: Uuid, desired_path: &str) -> PathBuf {
+fn owner_relative_parent_buf(owner_id: Uuid, desired_path: &str, archived: bool) -> PathBuf {
     let mut rel = PathBuf::from(owner_id.to_string());
+    if archived {
+        rel.push("Archives");
+    }
     let trimmed = desired_path.trim_start_matches('/');
     if trimmed.is_empty() {
         return rel;
@@ -33,12 +39,16 @@ fn owner_relative_parent_buf(owner_id: Uuid, desired_path: &str) -> PathBuf {
     rel
 }
 
-pub fn owner_relative_from_desired(owner_id: Uuid, desired_path: &str) -> String {
-    pathbuf_to_string(&owner_relative_buf(owner_id, desired_path))
+pub fn owner_relative_from_desired(owner_id: Uuid, desired_path: &str, archived: bool) -> String {
+    pathbuf_to_string(&owner_relative_buf(owner_id, desired_path, archived))
 }
 
-pub fn owner_relative_parent_from_desired(owner_id: Uuid, desired_path: &str) -> String {
-    pathbuf_to_string(&owner_relative_parent_buf(owner_id, desired_path))
+pub fn owner_relative_parent_from_desired(
+    owner_id: Uuid,
+    desired_path: &str,
+    archived: bool,
+) -> String {
+    pathbuf_to_string(&owner_relative_parent_buf(owner_id, desired_path, archived))
 }
 
 pub fn sanitize_title(name: &str) -> String {
@@ -62,19 +72,26 @@ pub async fn build_doc_dir(
     uploads_root: &Path,
     doc_id: Uuid,
 ) -> anyhow::Result<PathBuf> {
-    let row = sqlx::query("SELECT owner_id, desired_path, type FROM documents WHERE id = $1")
-        .bind(doc_id)
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query(
+        "SELECT owner_id, desired_path, type, archived_at FROM documents WHERE id = $1",
+    )
+    .bind(doc_id)
+    .fetch_optional(pool)
+    .await?;
     let row = row.ok_or_else(|| anyhow::anyhow!("Document not found"))?;
     let owner_id: Uuid = row.get("owner_id");
     let desired_path: String = row.get("desired_path");
     let dtype: String = row.get("type");
+    let archived = row
+        .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("archived_at")
+        .ok()
+        .flatten()
+        .is_some();
 
     let rel = if dtype == "folder" {
-        owner_relative_buf(owner_id, &desired_path)
+        owner_relative_buf(owner_id, &desired_path, archived)
     } else {
-        owner_relative_parent_buf(owner_id, &desired_path)
+        owner_relative_parent_buf(owner_id, &desired_path, archived)
     };
 
     Ok(uploads_root.join(rel))
@@ -85,17 +102,24 @@ pub async fn build_doc_file_path(
     uploads_root: &Path,
     doc_id: Uuid,
 ) -> anyhow::Result<PathBuf> {
-    let row = sqlx::query("SELECT owner_id, desired_path, type FROM documents WHERE id = $1")
-        .bind(doc_id)
-        .fetch_one(pool)
-        .await?;
+    let row = sqlx::query(
+        "SELECT owner_id, desired_path, type, archived_at FROM documents WHERE id = $1",
+    )
+    .bind(doc_id)
+    .fetch_one(pool)
+    .await?;
     let dtype: String = row.get("type");
     if dtype == "folder" {
         anyhow::bail!("folder_has_no_markdown_path");
     }
     let owner_id: Uuid = row.get("owner_id");
     let desired_path: String = row.get("desired_path");
-    let rel = owner_relative_buf(owner_id, &desired_path);
+    let archived = row
+        .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("archived_at")
+        .ok()
+        .flatten()
+        .is_some();
+    let rel = owner_relative_buf(owner_id, &desired_path, archived);
     Ok(uploads_root.join(rel))
 }
 
@@ -210,7 +234,9 @@ pub async fn move_doc_paths(
     uploads_root: &Path,
     doc_id: Uuid,
 ) -> anyhow::Result<()> {
-    let row = sqlx::query("SELECT owner_id, type, path, desired_path FROM documents WHERE id = $1")
+    let row = sqlx::query(
+        "SELECT owner_id, type, path, desired_path, archived_at FROM documents WHERE id = $1",
+    )
         .bind(doc_id)
         .fetch_optional(pool)
         .await?;
@@ -225,7 +251,12 @@ pub async fn move_doc_paths(
     }
     let old_rel: Option<String> = row.try_get("path").ok();
     let desired_path: String = row.get("desired_path");
-    let target_rel = owner_relative_from_desired(owner_id, &desired_path);
+    let archived = row
+        .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("archived_at")
+        .ok()
+        .flatten()
+        .is_some();
+    let target_rel = owner_relative_from_desired(owner_id, &desired_path, archived);
     let target_abs = uploads_root.join(&target_rel);
 
     if let Some(parent) = target_abs.parent() {

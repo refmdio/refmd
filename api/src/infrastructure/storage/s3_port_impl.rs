@@ -183,11 +183,12 @@ impl S3StoragePort {
     async fn move_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
         use sqlx::Row;
 
-        let row =
-            sqlx::query("SELECT owner_id, type, path, desired_path FROM documents WHERE id = $1")
-                .bind(doc_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row = sqlx::query(
+            "SELECT owner_id, type, path, desired_path, archived_at FROM documents WHERE id = $1",
+        )
+        .bind(doc_id)
+        .fetch_optional(&self.pool)
+        .await?;
         let row = match row {
             Some(row) => row,
             None => return Ok(()),
@@ -200,12 +201,22 @@ impl S3StoragePort {
         let old_rel: Option<String> = row.try_get("path").ok();
 
         let desired_path: String = row.get("desired_path");
-        let target_rel =
-            crate::infrastructure::storage::owner_relative_from_desired(owner_id, &desired_path);
-        let target_parent_rel = crate::infrastructure::storage::owner_relative_parent_from_desired(
+        let archived = row
+            .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("archived_at")
+            .ok()
+            .flatten()
+            .is_some();
+        let target_rel = crate::infrastructure::storage::owner_relative_from_desired(
             owner_id,
             &desired_path,
+            archived,
         );
+        let target_parent_rel =
+            crate::infrastructure::storage::owner_relative_parent_from_desired(
+                owner_id,
+                &desired_path,
+                archived,
+            );
 
         if let Some(old_rel) = old_rel.clone() {
             if old_rel != target_rel {
