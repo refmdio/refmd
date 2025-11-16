@@ -16,6 +16,7 @@ use crate::application::dto::document_export::DocumentDownloadFormat;
 use crate::application::dto::documents::{
     DocumentListFilter, SnapshotDiffBaseMode, SnapshotDiffSideDto, SnapshotSummaryDto,
 };
+use crate::application::services::documents::DocumentPatchOperation;
 use crate::application::services::errors::ServiceError;
 use crate::domain::documents::document as domain;
 use crate::presentation::context::AppContext;
@@ -363,6 +364,51 @@ pub struct UpdateDocumentContentRequest {
     pub content: String,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum DocumentPatchOperationRequest {
+    Insert {
+        offset: usize,
+        text: String,
+    },
+    Delete {
+        offset: usize,
+        length: usize,
+    },
+    Replace {
+        offset: usize,
+        length: usize,
+        text: String,
+    },
+}
+
+impl From<DocumentPatchOperationRequest> for DocumentPatchOperation {
+    fn from(value: DocumentPatchOperationRequest) -> Self {
+        match value {
+            DocumentPatchOperationRequest::Insert { offset, text } => {
+                DocumentPatchOperation::Insert { offset, text }
+            }
+            DocumentPatchOperationRequest::Delete { offset, length } => {
+                DocumentPatchOperation::Delete { offset, length }
+            }
+            DocumentPatchOperationRequest::Replace {
+                offset,
+                length,
+                text,
+            } => DocumentPatchOperation::Replace {
+                offset,
+                length,
+                text,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct PatchDocumentContentRequest {
+    pub operations: Vec<DocumentPatchOperationRequest>,
+}
+
 #[utoipa::path(
     put,
     path = "/api/documents/{id}/content",
@@ -389,6 +435,45 @@ pub async fn update_document_content(
     let service = ctx.document_service();
     let updated = service
         .update_content(&actor, id, &body.content)
+        .await
+        .map_err(map_service_error)?;
+    Ok(Json(to_http_document(updated)))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/documents/{id}/content",
+    tag = "Documents",
+    params(
+        ("id" = Uuid, Path, description = "Document ID"),
+        ("token" = Option<String>, Query, description = "Share token (optional)")
+    ),
+    request_body = PatchDocumentContentRequest,
+    responses((status = 200, body = Document))
+)]
+pub async fn patch_document_content(
+    State(ctx): State<AppContext>,
+    bearer: Option<Bearer>,
+    Path(id): Path<Uuid>,
+    q: Option<Query<SnapshotTokenQuery>>,
+    Json(body): Json<PatchDocumentContentRequest>,
+) -> Result<Json<Document>, StatusCode> {
+    if body.operations.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let params = q.map(|Query(v)| v).unwrap_or_default();
+    let token = params.token.as_deref();
+    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let service = ctx.document_service();
+    let operations: Vec<DocumentPatchOperation> = body
+        .operations
+        .into_iter()
+        .map(DocumentPatchOperation::from)
+        .collect();
+    let updated = service
+        .patch_content(&actor, id, &operations)
         .await
         .map_err(map_service_error)?;
     Ok(Json(to_http_document(updated)))
@@ -867,7 +952,9 @@ pub fn routes(ctx: AppContext) -> Router {
         )
         .route(
             "/documents/:id/content",
-            get(get_document_content).put(update_document_content),
+            get(get_document_content)
+                .put(update_document_content)
+                .patch(patch_document_content),
         )
         .route("/documents/:id/archive", post(archive_document))
         .route("/documents/:id/unarchive", post(unarchive_document))

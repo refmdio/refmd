@@ -281,6 +281,36 @@ impl DocumentService {
         Ok(doc)
     }
 
+    pub async fn patch_content(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+        operations: &[DocumentPatchOperation],
+    ) -> Result<DomainDocument, ServiceError> {
+        if operations.is_empty() {
+            return Err(ServiceError::BadRequest("patch_operations_required"));
+        }
+
+        access::require_edit(
+            self.access_repo.as_ref(),
+            self.share_access.as_ref(),
+            actor,
+            doc_id,
+        )
+        .await
+        .map_err(|_| ServiceError::Unauthorized)?;
+
+        let current = self
+            .realtime
+            .get_content(&doc_id.to_string())
+            .await
+            .map_err(ServiceError::from)?
+            .unwrap_or_default();
+        let updated = apply_patch_operations(&current, operations)?;
+
+        self.update_content(actor, doc_id, &updated).await
+    }
+
     pub async fn download_document(
         &self,
         actor: &Actor,
@@ -898,6 +928,67 @@ impl DocumentService {
         )
         .await;
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum DocumentPatchOperation {
+    Insert {
+        offset: usize,
+        text: String,
+    },
+    Delete {
+        offset: usize,
+        length: usize,
+    },
+    Replace {
+        offset: usize,
+        length: usize,
+        text: String,
+    },
+}
+
+fn apply_patch_operations(
+    initial: &str,
+    operations: &[DocumentPatchOperation],
+) -> Result<String, ServiceError> {
+    let mut chars: Vec<char> = initial.chars().collect();
+    for operation in operations {
+        match operation {
+            DocumentPatchOperation::Insert { offset, text } => {
+                splice_chars(&mut chars, *offset, 0, text)?;
+            }
+            DocumentPatchOperation::Delete { offset, length } => {
+                splice_chars(&mut chars, *offset, *length, "")?;
+            }
+            DocumentPatchOperation::Replace {
+                offset,
+                length,
+                text,
+            } => {
+                splice_chars(&mut chars, *offset, *length, text)?;
+            }
+        }
+    }
+    Ok(chars.into_iter().collect())
+}
+
+fn splice_chars(
+    chars: &mut Vec<char>,
+    offset: usize,
+    length: usize,
+    replacement: &str,
+) -> Result<(), ServiceError> {
+    if offset > chars.len() {
+        return Err(ServiceError::BadRequest("patch_offset_out_of_bounds"));
+    }
+    let end = offset
+        .checked_add(length)
+        .ok_or(ServiceError::BadRequest("patch_length_overflow"))?;
+    if end > chars.len() {
+        return Err(ServiceError::BadRequest("patch_range_out_of_bounds"));
+    }
+    chars.splice(offset..end, replacement.chars());
+    Ok(())
 }
 
 fn path_depth(path: &str) -> usize {

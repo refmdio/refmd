@@ -150,7 +150,9 @@ impl StorageIngestService {
                     repo_path = repo_path,
                     "storage_ingest_attachment_missing_skipped"
                 );
-                self.storage_projection.delete_relative_path(rel_path).await?;
+                self.storage_projection
+                    .delete_relative_path(rel_path)
+                    .await?;
                 return Ok(());
             }
             Err(err) => return Err(err),

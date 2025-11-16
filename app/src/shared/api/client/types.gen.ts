@@ -121,6 +121,27 @@ export type DocumentListResponse = {
     items: Array<Document>;
 };
 
+export type DocumentPatchOperationRequest = {
+    offset: number;
+    op: 'insert';
+    text: string;
+} | {
+    length: number;
+    offset: number;
+    op: 'delete';
+} | {
+    length: number;
+    offset: number;
+    op: 'replace';
+    text: string;
+};
+
+export namespace DocumentPatchOperationRequest {
+    export enum op {
+        INSERT = 'insert'
+    }
+}
+
 export type DownloadDocumentQuery = {
     format?: DownloadFormat;
     token?: (string) | null;
@@ -261,6 +282,10 @@ export type OutgoingLink = {
 export type OutgoingLinksResponse = {
     links: Array<OutgoingLink>;
     total_count: number;
+};
+
+export type PatchDocumentContentRequest = {
+    operations: Array<DocumentPatchOperationRequest>;
 };
 
 export type PlaceholderItemPayload = {
@@ -609,6 +634,20 @@ export type UpdateDocumentContentData = {
 };
 
 export type UpdateDocumentContentResponse = (Document);
+
+export type PatchDocumentContentData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: PatchDocumentContentRequest;
+    /**
+     * Share token (optional)
+     */
+    token?: (string) | null;
+};
+
+export type PatchDocumentContentResponse = (Document);
 
 export type DownloadDocumentData = {
     /**
