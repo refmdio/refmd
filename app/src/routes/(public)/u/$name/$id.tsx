@@ -7,9 +7,9 @@ import {
   getPublicContentByOwnerAndId,
 } from '@/entities/public'
 
+import PublicUserDocumentPage, { type PublicDocumentMeta } from '@/widgets/public/PublicUserDocumentPage'
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
-import PublicUserDocumentPage, { type PublicDocumentMeta } from '@/widgets/public/PublicUserDocumentPage'
 
 type LoaderData = {
   name: string

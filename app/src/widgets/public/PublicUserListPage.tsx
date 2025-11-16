@@ -1,6 +1,7 @@
+import { PublicDocCard } from '@/features/public'
+
 import PublicShell from '@/widgets/public/PublicShell'
 
-import { PublicDocCard } from '@/features/public'
 
 type Summary = { id: string; title: string; updated_at: string; published_at: string }
 

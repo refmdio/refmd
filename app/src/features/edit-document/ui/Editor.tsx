@@ -27,8 +27,8 @@ import { loadMonacoVim } from '../lib/monaco/vim-loader'
 
 import CursorDisplay from './CursorDisplay'
 import EditorLayout from './EditorLayout'
-import EditorToolbar from './Toolbar'
 import type { PreviewPaneProps } from './PreviewPane'
+import EditorToolbar from './Toolbar'
 
 const logEditorError = (scope: string, error: unknown) => {
   if (error instanceof Error) {

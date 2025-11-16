@@ -213,15 +213,23 @@
   margin-left: calc(-1 * var(--prose-task-offset));
   padding-left: var(--prose-task-offset);
   display: grid;
-  grid-template-columns: min-content 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   column-gap: 0.5rem;
   row-gap: 0.25rem;
   align-items: flex-start;
 }
-.prose li:has(> input[type='checkbox']) > p {
-  @apply m-0;
+.prose li:has(> input[type='checkbox']) > *:not(input[type='checkbox']) {
+  min-width: 0;
   grid-column: 2;
+}
+.prose li:has(> input[type='checkbox']) > .refmd-task-content {
   grid-row: 1;
+  overflow-wrap: anywhere;
+}
+.prose li:has(> input[type='checkbox']) > p,
+.prose li:has(> input[type='checkbox']) > .refmd-task-content > p {
+  @apply m-0;
+  overflow-wrap: anywhere;
 }
 .prose li:has(> input[type='checkbox']) > input[type='checkbox'] {
   grid-column: 1;
@@ -235,6 +243,11 @@
   margin: 0.25rem 0 0 var(--prose-list-indent);
   padding-left: var(--prose-list-indent);
 }
+.prose li:has(> input[type='checkbox']) > .refmd-task-content > ul,
+.prose li:has(> input[type='checkbox']) > .refmd-task-content > ol {
+  margin: 0.25rem 0 0 var(--prose-list-indent);
+  padding-left: var(--prose-list-indent);
+}
 .prose li:has(> input[type='checkbox']:checked) {
   text-decoration: line-through;
   color: var(--muted-foreground);
@@ -244,7 +257,9 @@
   color: inherit;
 }
 .prose li:has(> input[type='checkbox']:checked) > ul,
-.prose li:has(> input[type='checkbox']:checked) > ol {
+.prose li:has(> input[type='checkbox']:checked) > ol,
+.prose li:has(> input[type='checkbox']:checked) > .refmd-task-content > ul,
+.prose li:has(> input[type='checkbox']:checked) > .refmd-task-content > ol {
   text-decoration: none;
   color: inherit;
 }
@@ -274,7 +289,12 @@
   @apply whitespace-pre bg-transparent;
   color: inherit !important;
 }
-.prose :not(pre) > code { @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono; }
+.prose :not(pre) > code {
+  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
 .prose blockquote { @apply border-l-4 border-primary/30 pl-4 italic mb-4 text-muted-foreground; }
 .prose .table-wrapper { @apply overflow-x-auto mb-4 -mx-4 px-4; }
 .prose table { @apply w-full border-collapse overflow-hidden rounded-lg min-w-max table-auto; }
@@ -283,7 +303,11 @@
 .prose tr:hover { @apply bg-muted/20; }
 @media (max-width: 768px) { .prose th, .prose td { @apply px-2 py-1 text-sm; } }
 .prose img { @apply max-w-full h-auto rounded-lg shadow-md my-4; }
-.prose a { @apply text-primary underline underline-offset-2 hover:text-primary/80 transition-colors; }
+.prose a {
+  @apply text-primary underline underline-offset-2 hover:text-primary/80 transition-colors;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .prose .file-attachment { @apply no-underline; }
 .prose hr { @apply border-t border-border my-8; }
 .prose strong { @apply font-semibold text-foreground; }

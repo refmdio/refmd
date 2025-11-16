@@ -1,9 +1,9 @@
 import morphdom from 'morphdom'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { useTheme } from '@/shared/contexts/theme-context'
 import { API_BASE_URL } from '@/shared/lib/config'
 import { cn } from '@/shared/lib/utils'
-import { useTheme } from '@/shared/contexts/theme-context'
 
 import { upgradeAll } from '@/entities/document/wc/markdown/hydrate-all'
 import { renderMarkdown } from '@/entities/markdown'
@@ -23,6 +23,27 @@ type Props = {
   documentIdOverride?: string
   onToggleTask?: (lineNumber: number, checked: boolean) => void
   taskToggleDisabled?: boolean
+}
+
+function ensureTaskContentWrapper(li: HTMLElement, checkbox: HTMLInputElement) {
+  const existing = Array.from(li.children).find(
+    (child) => child !== checkbox && child.classList.contains('refmd-task-content'),
+  ) as HTMLElement | undefined
+  if (existing) return existing
+
+  const wrapper = document.createElement('div')
+  wrapper.classList.add('refmd-task-content')
+  wrapper.dataset.refmdTaskContent = 'true'
+
+  let sibling: ChildNode | null = checkbox.nextSibling
+  while (sibling) {
+    const nextSibling = sibling.nextSibling
+    wrapper.appendChild(sibling)
+    sibling = nextSibling
+  }
+
+  checkbox.insertAdjacentElement('afterend', wrapper)
+  return wrapper
 }
 
 function ServerMarkdown({ content, className, documentIdOverride, onTagClick, onToggleTask, taskToggleDisabled }: Props) {
@@ -142,40 +163,40 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
     } catch {}
 
     const enableTaskToggle = typeof onToggleTask === 'function' && !taskToggleDisabled
-    if (enableTaskToggle) {
-      const checkboxes = Array.from(el.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[]
-      for (const checkbox of checkboxes) {
-        if (checkbox.dataset.refmdTaskInteractive === 'true') continue
-        const li = checkbox.closest('[data-sourcepos]') as HTMLElement | null
-        if (!li) continue
-        const sourcepos = li.getAttribute('data-sourcepos') || ''
-        const match = /^\s*(\d+):/.exec(sourcepos)
-        const lineNumber = match ? parseInt(match[1], 10) : NaN
-        if (!Number.isFinite(lineNumber)) continue
+    const checkboxes = Array.from(el.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[]
+    for (const checkbox of checkboxes) {
+      const li = checkbox.closest('[data-sourcepos]') as HTMLElement | null
+      if (li) ensureTaskContentWrapper(li, checkbox)
+      if (!enableTaskToggle) continue
+      if (checkbox.dataset.refmdTaskInteractive === 'true') continue
+      if (!li) continue
+      const sourcepos = li.getAttribute('data-sourcepos') || ''
+      const match = /^\s*(\d+):/.exec(sourcepos)
+      const lineNumber = match ? parseInt(match[1], 10) : NaN
+      if (!Number.isFinite(lineNumber)) continue
 
-        checkbox.disabled = false
-        checkbox.removeAttribute('disabled')
-        checkbox.tabIndex = 0
-        checkbox.dataset.refmdTaskInteractive = 'true'
+      checkbox.disabled = false
+      checkbox.removeAttribute('disabled')
+      checkbox.tabIndex = 0
+      checkbox.dataset.refmdTaskInteractive = 'true'
 
-        checkbox.setAttribute('aria-checked', checkbox.checked ? 'true' : 'false')
-        const changeHandler = (event: Event) => {
-          event.stopPropagation?.()
-          const target = event.currentTarget as HTMLInputElement
-          const nextState = !!target.checked
-          try { onToggleTask?.(lineNumber, nextState) } catch {}
-          target.setAttribute('aria-checked', nextState ? 'true' : 'false')
-          if (nextState) target.setAttribute('checked', '')
-          else target.removeAttribute('checked')
-        }
-        checkbox.addEventListener('change', changeHandler)
-        detachFns.push(() => {
-          checkbox.removeEventListener('change', changeHandler)
-          checkbox.disabled = true
-          checkbox.setAttribute('disabled', '')
-          delete checkbox.dataset.refmdTaskInteractive
-        })
+      checkbox.setAttribute('aria-checked', checkbox.checked ? 'true' : 'false')
+      const changeHandler = (event: Event) => {
+        event.stopPropagation?.()
+        const target = event.currentTarget as HTMLInputElement
+        const nextState = !!target.checked
+        try { onToggleTask?.(lineNumber, nextState) } catch {}
+        target.setAttribute('aria-checked', nextState ? 'true' : 'false')
+        if (nextState) target.setAttribute('checked', '')
+        else target.removeAttribute('checked')
       }
+      checkbox.addEventListener('change', changeHandler)
+      detachFns.push(() => {
+        checkbox.removeEventListener('change', changeHandler)
+        checkbox.disabled = true
+        checkbox.setAttribute('disabled', '')
+        delete checkbox.dataset.refmdTaskInteractive
+      })
     }
     const imgs = Array.from(el.querySelectorAll('img')) as HTMLImageElement[]
     detachFns.push(...imgs.map((img) => {

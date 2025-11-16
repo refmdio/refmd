@@ -15,6 +15,7 @@ import {
   type ManifestItem,
 } from '@/shared/api'
 import type { DocumentHeaderAction } from '@/shared/types/document'
+
 import {
   mountSplitEditorStage,
   type SplitEditorPreviewDelegate,

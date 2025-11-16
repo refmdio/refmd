@@ -10,6 +10,7 @@ import {
   resolvePluginForRoute,
   type RoutePluginMatch,
 } from '@/features/plugins'
+
 import { SplitEditorPortalRenderer } from '@/widgets/plugins/SplitEditorHost'
 
 

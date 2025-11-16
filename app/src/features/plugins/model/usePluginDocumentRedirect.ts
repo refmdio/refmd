@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 
+
+import type { PluginManifestItem } from '@/entities/plugin'
+import { getPluginManifest } from '@/entities/plugin'
+
 import {
   createPluginHost,
   loadPluginModule,
 } from '@/features/plugins/lib/runtime'
-
-import type { PluginManifestItem } from '@/entities/plugin'
-import { getPluginManifest } from '@/entities/plugin'
 
 
 type Options = {

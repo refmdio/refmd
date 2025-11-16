@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
+import type { ViewMode } from '@/shared/types/view-mode'
+
+import { useAuthContext } from '@/features/auth'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
-import { useAuthContext } from '@/features/auth'
-import type { ViewMode } from '@/shared/types/view-mode'
 
 export type SplitEditorPreviewDelegateResult = {
   update?: (payload: { content: string; viewMode: ViewMode }) => void
