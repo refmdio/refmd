@@ -4,7 +4,7 @@ use std::io::{self, ErrorKind, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
@@ -463,7 +463,7 @@ impl GitWorkspaceService {
         }
 
         let attachment_rows = sqlx::query(
-            r#"SELECT f.storage_path, f.content_hash
+            r#"SELECT f.id AS file_id, f.storage_path, f.content_hash
                FROM files f
                JOIN documents d ON d.id = f.document_id
                WHERE d.owner_id = $1"#,
@@ -473,25 +473,40 @@ impl GitWorkspaceService {
         .await?;
 
         for row in attachment_rows {
+            let file_id: Uuid = row.get("file_id");
             let storage_path: String = row.get("storage_path");
-            let hash: Option<String> = row.try_get("content_hash").ok();
-            let hash = match hash.filter(|h| !h.is_empty()) {
-                Some(existing) => existing,
+            let stored_hash: Option<String> = row
+                .try_get("content_hash")
+                .ok()
+                .and_then(|h: String| if h.is_empty() { None } else { Some(h) });
+            let (hash, needs_persist) = match stored_hash {
+                Some(existing) => (existing, false),
                 None => {
-                    match self.compute_attachment_hash(&storage_path).await {
-                        Ok(Some(computed)) => computed,
-                        Ok(None) => continue,
-                        Err(err) => {
-                            warn!(
-                                path = storage_path.as_str(),
-                                error = ?err,
-                                "git_workspace_attachment_hash_failed"
-                            );
-                            continue;
-                        }
+                    let computed = self
+                        .compute_attachment_hash(&storage_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to compute attachment hash for {}",
+                                storage_path
+                            )
+                        })?;
+                    match computed {
+                        Some(value) => (value, true),
+                        None => continue,
                     }
                 }
             };
+            if needs_persist {
+                if let Err(err) = self.persist_attachment_hash(file_id, &hash).await {
+                    warn!(
+                        file_id = %file_id,
+                        path = storage_path.as_str(),
+                        error = ?err,
+                        "git_workspace_attachment_hash_persist_failed"
+                    );
+                }
+            }
             let repo_path = repo_relative_path(&storage_path)?;
             state.insert(
                 repo_path,
@@ -525,6 +540,18 @@ impl GitWorkspaceService {
                 Err(err)
             }
         }
+    }
+
+    async fn persist_attachment_hash(&self, file_id: Uuid, hash: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"UPDATE files SET content_hash = $2, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(file_id)
+        .bind(hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn fetch_dirty(&self, user_id: Uuid) -> anyhow::Result<Vec<DirtyRow>> {

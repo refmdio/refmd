@@ -408,11 +408,11 @@ impl SnapshotService {
 fn repo_path_from_record(
     record: &crate::application::ports::realtime_hydration_port::DocumentRecord,
 ) -> Option<String> {
-    if let (Some(owner), Some(path)) = (record.owner_id, record.path.as_deref()) {
-        return strip_owner_prefix(owner, path);
-    }
     if let Some(path) = record.desired_path.as_deref() {
         return Some(normalize_repo_path(path));
+    }
+    if let (Some(owner), Some(path)) = (record.owner_id, record.path.as_deref()) {
+        return strip_owner_prefix(owner, path);
     }
     None
 }
