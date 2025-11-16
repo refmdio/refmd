@@ -225,6 +225,11 @@ impl S3StoragePort {
                     self.copy_object(&src_key, &dst_key).await?;
                     self.delete_object(&src_key).await?;
                 }
+                let _ = crate::infrastructure::storage::mark_dirty_delete_relative(
+                    &self.pool,
+                    &old_rel,
+                )
+                .await;
             }
         }
 
@@ -260,6 +265,18 @@ impl S3StoragePort {
                     .execute(&self.pool)
                     .await?;
                 }
+                let _ = crate::infrastructure::storage::mark_dirty_delete_relative(
+                    &self.pool,
+                    &old_path,
+                )
+                .await;
+                let _ = crate::infrastructure::storage::mark_dirty_upsert_relative(
+                    &self.pool,
+                    &new_rel_attachment,
+                    false,
+                    None,
+                )
+                .await;
             }
         }
 
@@ -268,6 +285,14 @@ impl S3StoragePort {
             .bind(&target_rel)
             .execute(&self.pool)
             .await?;
+
+        let _ = crate::infrastructure::storage::mark_dirty_upsert_relative(
+            &self.pool,
+            &target_rel,
+            true,
+            None,
+        )
+        .await;
 
         Ok(())
     }
