@@ -1,11 +1,11 @@
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::gitignore_port::GitignorePort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 
 pub struct GetGitignorePatterns<'a, G, S>
 where
     G: GitignorePort + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
 {
     pub storage: &'a S,
     pub gitignore: &'a G,
@@ -14,7 +14,7 @@ where
 impl<'a, G, S> GetGitignorePatterns<'a, G, S>
 where
     G: GitignorePort + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
 {
     pub async fn execute(&self, owner_id: uuid::Uuid) -> anyhow::Result<Vec<String>> {
         let dir = self.storage.user_repo_dir(owner_id);
@@ -26,7 +26,7 @@ where
 pub struct AddGitignorePatterns<'a, G, S, W>
 where
     G: GitignorePort + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     W: GitWorkspacePort + ?Sized,
 {
     pub storage: &'a S,
@@ -37,7 +37,7 @@ where
 impl<'a, G, S, W> AddGitignorePatterns<'a, G, S, W>
 where
     G: GitignorePort + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     W: GitWorkspacePort + ?Sized,
 {
     pub async fn execute(
@@ -56,12 +56,12 @@ where
     }
 }
 
-pub struct CheckPathIgnored<'a, G: GitignorePort + ?Sized, S: StoragePort + ?Sized> {
+pub struct CheckPathIgnored<'a, G: GitignorePort + ?Sized, S: StorageResolverPort + ?Sized> {
     pub gitignore: &'a G,
     pub storage: &'a S,
 }
 
-impl<'a, G: GitignorePort + ?Sized, S: StoragePort + ?Sized> CheckPathIgnored<'a, G, S> {
+impl<'a, G: GitignorePort + ?Sized, S: StorageResolverPort + ?Sized> CheckPathIgnored<'a, G, S> {
     pub async fn execute(&self, owner_id: uuid::Uuid, rel_path: &str) -> anyhow::Result<bool> {
         let dir = self.storage.user_repo_dir(owner_id);
         let patterns = self.gitignore.read_gitignore_patterns(&dir).await?;

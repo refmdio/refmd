@@ -11,16 +11,12 @@ pub struct StoredAttachment {
 }
 
 #[async_trait]
-pub trait StoragePort: Send + Sync {
-    async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize>;
-    async fn delete_doc_physical(&self, doc_id: Uuid) -> anyhow::Result<()>;
-    async fn delete_folder_physical(&self, folder_id: Uuid) -> anyhow::Result<usize>;
+pub trait StorageResolverPort: Send + Sync {
     async fn build_doc_dir(&self, doc_id: Uuid) -> anyhow::Result<PathBuf>;
     async fn build_doc_file_path(&self, doc_id: Uuid) -> anyhow::Result<PathBuf>;
     fn relative_from_uploads(&self, abs: &Path) -> String;
     fn user_repo_dir(&self, user_id: Uuid) -> String;
     fn absolute_from_relative(&self, rel: &str) -> PathBuf;
-    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()>;
     async fn resolve_upload_path(&self, doc_id: Uuid, rest_path: &str) -> anyhow::Result<PathBuf>;
     async fn read_bytes(&self, abs_path: &Path) -> anyhow::Result<Vec<u8>>;
     async fn exists(&self, abs_path: &Path) -> anyhow::Result<bool>;
@@ -31,4 +27,13 @@ pub trait StoragePort: Send + Sync {
         original_filename: Option<&str>,
         bytes: &[u8],
     ) -> anyhow::Result<StoredAttachment>;
+}
+
+#[async_trait]
+pub trait StorageProjectionPort: Send + Sync {
+    async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize>;
+    async fn delete_doc_physical(&self, doc_id: Uuid) -> anyhow::Result<()>;
+    async fn delete_folder_physical(&self, folder_id: Uuid) -> anyhow::Result<usize>;
+    async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()>;
+    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()>;
 }

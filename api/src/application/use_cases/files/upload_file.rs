@@ -1,12 +1,12 @@
 use uuid::Uuid;
 
 use crate::application::ports::files_repository::FilesRepository;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 
 pub struct UploadFile<'a, R, S>
 where
     R: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
 {
     pub repo: &'a R,
     pub storage: &'a S,
@@ -19,12 +19,14 @@ pub struct UploadedFile {
     pub filename: String,
     pub content_type: Option<String>,
     pub size: i64,
+    pub storage_path: String,
+    pub content_hash: String,
 }
 
 impl<'a, R, S> UploadFile<'a, R, S>
 where
     R: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
 {
     pub async fn execute(
         &self,
@@ -60,6 +62,7 @@ where
                 tracing::error!(error = ?err, doc_id = %doc_id, "insert_file_failed");
                 err
             })?;
+        let storage_path = stored.relative_path.clone();
         let relative = stored.relative_path.trim_start_matches('/');
         let url = if let Some(base) = self.public_base_url.as_deref() {
             let origin = base.trim_end_matches('/');
@@ -73,6 +76,8 @@ where
             filename: stored.filename,
             content_type,
             size: stored.size,
+            storage_path,
+            content_hash: stored.content_hash,
         }))
     }
 }

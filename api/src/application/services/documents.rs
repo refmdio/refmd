@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use sqlx::{Pool, Postgres, Transaction};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -10,6 +11,7 @@ use crate::application::dto::documents::{
     SnapshotSummaryDto,
 };
 use crate::application::ports::access_repository::AccessRepository;
+use crate::application::ports::doc_event_log::DocEventLog;
 use crate::application::ports::document_exporter::DocumentExporter;
 use crate::application::ports::document_repository::{
     DocMeta, DocumentListState, DocumentRepository,
@@ -17,7 +19,10 @@ use crate::application::ports::document_repository::{
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::share_access_port::ShareAccessPort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
+use crate::application::ports::storage_projection_queue::{
+    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
+};
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
 use crate::application::use_cases::documents::archive_document::ArchiveDocument;
@@ -43,13 +48,17 @@ use crate::domain::documents::document::{
     BacklinkInfo as DomainBacklink, Document as DomainDocument, OutgoingLink as DomainOutgoingLink,
     SearchHit,
 };
+use serde_json::json;
 
 pub struct DocumentService {
+    db: Pool<Postgres>,
     document_repo: Arc<dyn DocumentRepository>,
     files_repo: Arc<dyn FilesRepository>,
     access_repo: Arc<dyn AccessRepository>,
     share_access: Arc<dyn ShareAccessPort>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
+    events: Arc<dyn DocEventLog>,
+    storage_jobs: Arc<dyn StorageProjectionQueue>,
     realtime: Arc<dyn RealtimeEngine>,
     snapshot_service: Arc<SnapshotService>,
     exporter: Arc<dyn DocumentExporter>,
@@ -58,25 +67,35 @@ pub struct DocumentService {
 impl DocumentService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        db: Pool<Postgres>,
         document_repo: Arc<dyn DocumentRepository>,
         files_repo: Arc<dyn FilesRepository>,
         access_repo: Arc<dyn AccessRepository>,
         share_access: Arc<dyn ShareAccessPort>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
+        events: Arc<dyn DocEventLog>,
+        storage_jobs: Arc<dyn StorageProjectionQueue>,
         realtime: Arc<dyn RealtimeEngine>,
         snapshot_service: Arc<SnapshotService>,
         exporter: Arc<dyn DocumentExporter>,
     ) -> Self {
         Self {
+            db,
             document_repo,
             files_repo,
             access_repo,
             share_access,
             storage,
+            events,
+            storage_jobs,
             realtime,
             snapshot_service,
             exporter,
         }
+    }
+
+    async fn begin_transaction(&self) -> Result<Transaction<'_, Postgres>, ServiceError> {
+        self.db.begin().await.map_err(map_sqlx_error)
     }
 
     pub async fn list_for_user(
@@ -107,9 +126,31 @@ impl DocumentService {
         let uc = CreateDocument {
             repo: self.document_repo.as_ref(),
         };
-        uc.execute(user_id, title, parent_id, doc_type)
+        let mut tx = self.begin_transaction().await?;
+        let doc = uc
+            .execute_tx(&mut tx, user_id, title, parent_id, doc_type)
             .await
-            .map_err(ServiceError::from)
+            .map_err(ServiceError::from)?;
+        self.enqueue_projection_for_document_tx(&mut tx, &doc, "create_document")
+            .await?;
+        let repo_path = doc.desired_path.clone();
+        self.record_event_tx(
+            &mut tx,
+            doc.id,
+            "document.created",
+            Some(json!({
+                "title": doc.title,
+                "parent_id": doc.parent_id,
+                "doc_type": doc.doc_type,
+                "repo_path": repo_path,
+                "slug": doc.slug,
+                "desired_path": doc.desired_path,
+                "owner_id": doc.owner_id,
+            })),
+        )
+        .await;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(doc)
     }
 
     pub async fn get_for_actor(
@@ -129,13 +170,44 @@ impl DocumentService {
     }
 
     pub async fn delete_for_user(&self, doc_id: Uuid, user_id: Uuid) -> Result<bool, ServiceError> {
+        let mut tx = self.begin_transaction().await?;
+        let root_meta = self
+            .document_repo
+            .get_meta_for_owner_tx(&mut tx, doc_id, user_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
+        let delete_plan = self
+            .build_delete_plan(&mut tx, doc_id, user_id, root_meta.clone())
+            .await?;
+        if delete_plan.is_empty() {
+            tx.rollback().await.map_err(map_sqlx_error)?;
+            return Ok(false);
+        }
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
-            storage: self.storage.as_ref(),
         };
-        uc.execute(doc_id, user_id)
-            .await
-            .map_err(ServiceError::from)
+        let mut deleted = false;
+        for entry in delete_plan {
+            if uc
+                .execute_tx(&mut tx, entry.doc_id, user_id)
+                .await
+                .map_err(ServiceError::from)?
+                .is_some()
+            {
+                deleted = true;
+                self.enqueue_delete_job_for_entry(&mut tx, user_id, &entry)
+                    .await?;
+                self.record_delete_event_tx(&mut tx, user_id, &entry).await;
+            }
+        }
+        if deleted {
+            tx.commit().await.map_err(map_sqlx_error)?;
+            Ok(true)
+        } else {
+            tx.rollback().await.map_err(map_sqlx_error)?;
+            Ok(false)
+        }
     }
 
     pub async fn get_content(&self, actor: &Actor, doc_id: Uuid) -> Result<String, ServiceError> {
@@ -182,11 +254,31 @@ impl DocumentService {
             warn!(document_id = %doc_id, error = ?err, "document_force_persist_after_update_failed");
         }
 
-        self.document_repo
+        let doc = self
+            .document_repo
             .get_by_id(doc_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+        let mut tx = self.begin_transaction().await?;
+        self.enqueue_doc_sync_tx(&mut tx, doc.id, "update_content")
+            .await?;
+        let repo_path = doc.desired_path.clone();
+        self.record_event_tx(
+            &mut tx,
+            doc.id,
+            "document.content_updated",
+            Some(json!({
+                "repo_path": repo_path,
+                "desired_path": doc.desired_path,
+                "slug": doc.slug,
+                "doc_type": doc.doc_type,
+                "owner_id": doc.owner_id,
+            })),
+        )
+        .await;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(doc)
     }
 
     pub async fn download_document(
@@ -199,9 +291,9 @@ impl DocumentService {
             documents: self.document_repo.as_ref(),
             files: self.files_repo.as_ref(),
             storage: self.storage.as_ref(),
-            realtime: self.realtime.as_ref(),
             access: self.access_repo.as_ref(),
             shares: self.share_access.as_ref(),
+            snapshot: self.snapshot_service.as_ref(),
             exporter: self.exporter.as_ref(),
         };
         uc.execute(actor, doc_id, format)
@@ -224,15 +316,38 @@ impl DocumentService {
         if let Some(Some(parent)) = parent_id {
             self.ensure_active_parent(user_id, parent).await?;
         }
+        let previous_repo_path = owner_repo_relative(user_id, meta.path.as_deref());
         let uc = UpdateDocument {
             repo: self.document_repo.as_ref(),
-            storage: self.storage.as_ref(),
-            realtime: self.realtime.as_ref(),
         };
-        uc.execute(doc_id, user_id, title, parent_id)
+        let mut tx = self.begin_transaction().await?;
+        let doc = uc
+            .execute_tx(&mut tx, doc_id, user_id, title, parent_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+        self.enqueue_projection_for_document_tx(&mut tx, &doc, "update_metadata")
+            .await?;
+        let repo_path = doc.desired_path.clone();
+        self.record_event_tx(
+            &mut tx,
+            doc.id,
+            "document.metadata_updated",
+            Some(json!({
+                "title": doc.title,
+                "parent_id": doc.parent_id,
+                "repo_path": repo_path,
+                "doc_type": doc.doc_type,
+                "slug": doc.slug,
+                "desired_path": doc.desired_path,
+                "owner_id": doc.owner_id,
+                "previous_path": previous_repo_path,
+                "previous_desired_path": meta.desired_path,
+            })),
+        )
+        .await;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(doc)
     }
 
     pub async fn archive_document(
@@ -244,15 +359,37 @@ impl DocumentService {
         if meta.archived_at.is_some() {
             return Err(ServiceError::Conflict);
         }
+        let previous_repo_path = owner_repo_relative(user_id, meta.path.as_deref());
         let uc = ArchiveDocument {
             repo: self.document_repo.as_ref(),
             realtime: self.realtime.as_ref(),
-            storage: self.storage.as_ref(),
         };
-        uc.execute(user_id, doc_id)
+        let mut tx = self.begin_transaction().await?;
+        let doc = uc
+            .execute_tx(&mut tx, user_id, doc_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+        self.enqueue_projection_for_document_tx(&mut tx, &doc, "archive_document")
+            .await?;
+        let repo_path = doc.desired_path.clone();
+        self.record_event_tx(
+            &mut tx,
+            doc.id,
+            "document.archived",
+            Some(json!({
+                "repo_path": repo_path,
+                "doc_type": doc.doc_type,
+                "slug": doc.slug,
+                "desired_path": doc.desired_path,
+                "owner_id": doc.owner_id,
+                "previous_path": previous_repo_path,
+                "previous_desired_path": meta.desired_path,
+            })),
+        )
+        .await;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(doc)
     }
 
     pub async fn unarchive_document(
@@ -264,14 +401,37 @@ impl DocumentService {
         if meta.archived_at.is_none() {
             return Err(ServiceError::Conflict);
         }
+        let previous_repo_path = owner_repo_relative(user_id, meta.path.as_deref());
         let uc = UnarchiveDocument {
             repo: self.document_repo.as_ref(),
             realtime: self.realtime.as_ref(),
         };
-        uc.execute(user_id, doc_id)
+        let mut tx = self.begin_transaction().await?;
+        let doc = uc
+            .execute_tx(&mut tx, user_id, doc_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+        self.enqueue_projection_for_document_tx(&mut tx, &doc, "unarchive_document")
+            .await?;
+        let repo_path = doc.desired_path.clone();
+        self.record_event_tx(
+            &mut tx,
+            doc.id,
+            "document.unarchived",
+            Some(json!({
+                "repo_path": repo_path,
+                "doc_type": doc.doc_type,
+                "slug": doc.slug,
+                "desired_path": doc.desired_path,
+                "owner_id": doc.owner_id,
+                "previous_path": previous_repo_path,
+                "previous_desired_path": meta.desired_path,
+            })),
+        )
+        .await;
+        tx.commit().await.map_err(map_sqlx_error)?;
+        Ok(doc)
     }
 
     pub async fn list_snapshots(
@@ -478,6 +638,291 @@ impl DocumentService {
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)
     }
+
+    async fn enqueue_projection_for_document_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc: &DomainDocument,
+        reason: &'static str,
+    ) -> Result<(), ServiceError> {
+        if doc.doc_type == "folder" {
+            self.enqueue_folder_sync_tx(tx, doc.id, reason).await
+        } else {
+            self.enqueue_doc_sync_tx(tx, doc.id, reason).await
+        }
+    }
+
+    async fn enqueue_doc_sync_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        reason: &'static str,
+    ) -> Result<(), ServiceError> {
+        self.storage_jobs
+            .enqueue_doc_job_tx(tx, doc_id, StorageProjectionJobKind::DocSync, Some(reason))
+            .await
+            .map_err(|err| {
+                warn!(
+                    error = ?err,
+                    doc_id = %doc_id,
+                    "storage_projection_enqueue_failed"
+                );
+                ServiceError::Unexpected(err)
+            })
+    }
+
+    async fn enqueue_doc_delete_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        reason: &'static str,
+        metadata: Option<StorageDeleteJobMetadata>,
+    ) -> Result<(), ServiceError> {
+        let encoded_reason = metadata.and_then(|meta| {
+            serde_json::to_string(&StorageJobReason {
+                reason: reason.to_string(),
+                metadata: Some(meta),
+            })
+            .ok()
+        });
+        let reason_str = encoded_reason.as_deref().unwrap_or(reason);
+        self.storage_jobs
+            .enqueue_doc_job_tx(
+                tx,
+                doc_id,
+                StorageProjectionJobKind::DeleteDoc,
+                Some(reason_str),
+            )
+            .await
+            .map_err(|err| {
+                warn!(
+                    error = ?err,
+                    doc_id = %doc_id,
+                    "storage_projection_enqueue_failed"
+                );
+                ServiceError::Unexpected(err)
+            })
+    }
+
+    async fn enqueue_folder_sync_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        folder_id: Uuid,
+        reason: &'static str,
+    ) -> Result<(), ServiceError> {
+        self.storage_jobs
+            .enqueue_folder_job_tx(
+                tx,
+                folder_id,
+                StorageProjectionJobKind::FolderSync,
+                Some(reason),
+            )
+            .await
+            .map_err(|err| {
+                warn!(
+                    error = ?err,
+                    folder_id = %folder_id,
+                    "storage_projection_enqueue_failed"
+                );
+                ServiceError::Unexpected(err)
+            })
+    }
+
+    async fn enqueue_folder_delete_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        folder_id: Uuid,
+        reason: &'static str,
+        metadata: Option<StorageDeleteJobMetadata>,
+    ) -> Result<(), ServiceError> {
+        let encoded_reason = metadata.and_then(|meta| {
+            serde_json::to_string(&StorageJobReason {
+                reason: reason.to_string(),
+                metadata: Some(meta),
+            })
+            .ok()
+        });
+        let reason_str = encoded_reason.as_deref().unwrap_or(reason);
+        self.storage_jobs
+            .enqueue_folder_job_tx(
+                tx,
+                folder_id,
+                StorageProjectionJobKind::DeleteFolder,
+                Some(reason_str),
+            )
+            .await
+            .map_err(|err| {
+                warn!(
+                    error = ?err,
+                    folder_id = %folder_id,
+                    "storage_projection_enqueue_failed"
+                );
+                ServiceError::Unexpected(err)
+            })
+    }
+
+    async fn record_event_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        event_type: &'static str,
+        payload: Option<serde_json::Value>,
+    ) {
+        if let Err(err) = self.events.append_tx(tx, doc_id, event_type, payload).await {
+            warn!(
+                error = ?err,
+                doc_id = %doc_id,
+                event_type,
+                "doc_event_log_append_failed"
+            );
+        }
+    }
+
+    async fn build_delete_plan(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        owner_id: Uuid,
+        root_meta: DocMeta,
+    ) -> Result<Vec<PendingDelete>, ServiceError> {
+        if root_meta.doc_type != "folder" {
+            let attachments = self
+                .files_repo
+                .list_storage_paths_for_document_tx(tx, doc_id)
+                .await
+                .map_err(ServiceError::from)?;
+            return Ok(vec![PendingDelete {
+                doc_id,
+                doc_type: root_meta.doc_type.clone(),
+                meta: root_meta,
+                attachments,
+                reason: "delete_document",
+            }]);
+        }
+
+        let subtree = self
+            .document_repo
+            .list_owned_subtree_documents_tx(tx, owner_id, doc_id)
+            .await
+            .map_err(ServiceError::from)?;
+        let mut entries = Vec::new();
+        for node in subtree {
+            let meta = if node.id == doc_id {
+                root_meta.clone()
+            } else {
+                self.document_repo
+                    .get_meta_for_owner_tx(tx, node.id, owner_id)
+                    .await
+                    .map_err(ServiceError::from)?
+                    .ok_or(ServiceError::NotFound)?
+            };
+            let attachments = if node.doc_type != "folder" {
+                self.files_repo
+                    .list_storage_paths_for_document_tx(tx, node.id)
+                    .await
+                    .map_err(ServiceError::from)?
+            } else {
+                Vec::new()
+            };
+            let reason = if node.id == doc_id {
+                "delete_folder"
+            } else if node.doc_type == "folder" {
+                "delete_folder_descendant"
+            } else {
+                "delete_document_descendant"
+            };
+            entries.push(PendingDelete {
+                doc_id: node.id,
+                doc_type: node.doc_type,
+                meta,
+                attachments,
+                reason,
+            });
+        }
+        entries.sort_by(|a, b| {
+            let depth_a = path_depth(&a.meta.desired_path);
+            let depth_b = path_depth(&b.meta.desired_path);
+            depth_b
+                .cmp(&depth_a)
+                .then_with(|| is_folder(&a.doc_type).cmp(&is_folder(&b.doc_type)))
+        });
+        Ok(entries)
+    }
+
+    async fn enqueue_delete_job_for_entry(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        owner_id: Uuid,
+        entry: &PendingDelete,
+    ) -> Result<(), ServiceError> {
+        let repo_path = entry.repo_path(owner_id);
+        let metadata = StorageDeleteJobMetadata {
+            owner_id,
+            repo_path: Some(repo_path),
+            doc_type: entry.doc_type.clone(),
+            attachment_paths: if entry.attachments.is_empty() {
+                None
+            } else {
+                Some(entry.attachments.clone())
+            },
+        };
+        if entry.doc_type == "folder" {
+            self.enqueue_folder_delete_tx(tx, entry.doc_id, entry.reason, Some(metadata))
+                .await
+        } else {
+            self.enqueue_doc_delete_tx(tx, entry.doc_id, entry.reason, Some(metadata))
+                .await
+        }
+    }
+
+    async fn record_delete_event_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        owner_id: Uuid,
+        entry: &PendingDelete,
+    ) {
+        let repo_path = entry.repo_path(owner_id);
+        let previous_repo_path = owner_repo_relative(owner_id, entry.meta.path.as_deref());
+        self.record_event_tx(
+            tx,
+            entry.doc_id,
+            "document.deleted",
+            Some(json!({
+                "doc_type": entry.doc_type,
+                "repo_path": repo_path,
+                "slug": entry.meta.slug,
+                "desired_path": entry.meta.desired_path,
+                "owner_id": owner_id,
+                "previous_path": previous_repo_path,
+            })),
+        )
+        .await;
+    }
+}
+
+fn path_depth(path: &str) -> usize {
+    path.split('/')
+        .filter(|segment| !segment.is_empty())
+        .count()
+}
+
+fn is_folder(doc_type: &str) -> usize {
+    if doc_type == "folder" { 1 } else { 0 }
+}
+
+struct PendingDelete {
+    doc_id: Uuid,
+    doc_type: String,
+    meta: DocMeta,
+    attachments: Vec<String>,
+    reason: &'static str,
+}
+
+impl PendingDelete {
+    fn repo_path(&self, owner_id: Uuid) -> String {
+        owner_repo_relative(owner_id, self.meta.path.as_deref())
+            .unwrap_or_else(|| self.meta.desired_path.clone())
+    }
 }
 
 fn snapshot_diff_dto_from_result(result: SnapshotDiffResult) -> SnapshotDiffDto {
@@ -498,10 +943,32 @@ fn snapshot_diff_side_from_use_case(side: SnapshotDiffSide) -> SnapshotDiffSideD
     }
 }
 
+fn owner_repo_relative(owner_id: Uuid, stored_path: Option<&str>) -> Option<String> {
+    let stored = stored_path?.trim_start_matches('/');
+    if stored.is_empty() {
+        return None;
+    }
+    let owner_prefix = owner_id.to_string();
+    let repo = if let Some(rest) = stored.strip_prefix(&owner_prefix) {
+        rest.trim_start_matches('/')
+    } else {
+        stored
+    };
+    if repo.is_empty() {
+        None
+    } else {
+        Some(repo.to_string())
+    }
+}
+
 fn to_repo_state(filter: DocumentListFilter) -> DocumentListState {
     match filter {
         DocumentListFilter::Active => DocumentListState::Active,
         DocumentListFilter::Archived => DocumentListState::Archived,
         DocumentListFilter::All => DocumentListState::All,
     }
+}
+
+fn map_sqlx_error(err: sqlx::Error) -> ServiceError {
+    ServiceError::Unexpected(err.into())
 }

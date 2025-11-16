@@ -128,11 +128,14 @@ impl PublicRepository for SqlxPublicRepository {
     ) -> anyhow::Result<
         Option<(
             Uuid,
+            Uuid,
             String,
             Option<Uuid>,
             String,
             chrono::DateTime<chrono::Utc>,
             chrono::DateTime<chrono::Utc>,
+            String,
+            String,
             Option<String>,
             Option<chrono::DateTime<chrono::Utc>>,
             Option<Uuid>,
@@ -140,7 +143,8 @@ impl PublicRepository for SqlxPublicRepository {
         )>,
     > {
         let row = sqlx::query(
-            r#"SELECT d.id, d.title, d.parent_id, d.type, d.created_at, d.updated_at, d.path,
+            r#"SELECT d.id, d.owner_id, d.title, d.parent_id, d.type, d.created_at, d.updated_at,
+                      d.slug, d.desired_path, d.path,
                       d.archived_at, d.archived_by, d.archived_parent_id
                FROM public_documents p
                JOIN documents d ON p.document_id = d.id
@@ -154,11 +158,14 @@ impl PublicRepository for SqlxPublicRepository {
         Ok(row.map(|r| {
             (
                 r.get("id"),
+                r.get("owner_id"),
                 r.get("title"),
                 r.try_get("parent_id").ok(),
                 r.get("type"),
                 r.get("created_at"),
                 r.get("updated_at"),
+                r.get("slug"),
+                r.get("desired_path"),
                 r.try_get("path").ok(),
                 r.try_get("archived_at").ok(),
                 r.try_get("archived_by").ok(),

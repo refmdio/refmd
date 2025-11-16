@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::application::ports::document_snapshot_archive_repository::SnapshotArchiveRecord;
 use crate::application::ports::files_repository::FilesRepository;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::realtime::snapshot::SnapshotService;
 
 pub struct SnapshotDownload {
@@ -19,7 +19,7 @@ pub struct SnapshotDownload {
 pub struct DownloadSnapshot<'a, F, S, SNAP>
 where
     F: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     SNAP: SnapshotServiceProvider + ?Sized,
 {
     pub files: &'a F,
@@ -48,7 +48,7 @@ impl SnapshotServiceProvider for SnapshotService {
 impl<'a, F, S, SNAP> DownloadSnapshot<'a, F, S, SNAP>
 where
     F: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     SNAP: SnapshotServiceProvider + ?Sized,
 {
     pub async fn execute(

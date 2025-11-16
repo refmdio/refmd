@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::io::{self, Write, ErrorKind};
+use std::io::{self, ErrorKind, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
@@ -24,26 +24,30 @@ use crate::application::dto::git::{
 use crate::application::ports::git_repository::UserGitCfg;
 use crate::application::ports::git_storage::{BlobKey, CommitMeta, GitStorage, encode_commit_id};
 use crate::application::ports::git_workspace::GitWorkspacePort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::diff::text_diff::compute_text_diff;
+use crate::application::services::realtime::snapshot::SnapshotService;
 use crate::infrastructure::db::PgPool;
 
 pub struct GitWorkspaceService {
     pool: PgPool,
     git_storage: Arc<dyn GitStorage>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
+    snapshot: Arc<SnapshotService>,
 }
 
 impl GitWorkspaceService {
     pub fn new(
         pool: PgPool,
         git_storage: Arc<dyn GitStorage>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
+        snapshot: Arc<SnapshotService>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             pool,
             git_storage,
             storage,
+            snapshot,
         })
     }
 
@@ -430,44 +434,36 @@ impl GitWorkspaceService {
     ) -> anyhow::Result<HashMap<String, FileSnapshot>> {
         let mut state: HashMap<String, FileSnapshot> = HashMap::new();
 
-        let doc_rows =
-            sqlx::query("SELECT id FROM documents WHERE owner_id = $1 AND type <> 'folder'")
-                .bind(user_id)
-                .fetch_all(&self.pool)
-                .await?;
+        let doc_rows = sqlx::query(
+            "SELECT id, desired_path FROM documents WHERE owner_id = $1 AND type <> 'folder'",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
 
         for row in doc_rows {
             let doc_id: Uuid = row.get("id");
-            let path = self.storage.build_doc_file_path(doc_id).await?;
-            let bytes = match self.storage.read_bytes(path.as_path()).await {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    if let Some(io_err) = err.downcast_ref::<std::io::Error>() {
-                        if io_err.kind() == std::io::ErrorKind::NotFound {
-                            continue;
-                        }
-                    }
-                    if err.to_string().contains("not found") {
-                        continue;
-                    }
-                    return Err(err);
-                }
+            let export = match self.snapshot.export_current_markdown(&doc_id).await? {
+                Some(export) => export,
+                None => continue,
             };
-            let hash = sha256_hex(&bytes);
-            let relative = self.storage.relative_from_uploads(path.as_path());
-            let repo_path = repo_relative_path(&relative)?;
+            let repo_path = export
+                .repo_path
+                .or_else(|| row.try_get::<String, _>("desired_path").ok())
+                .map(normalize_repo_path)
+                .ok_or_else(|| anyhow!("missing_repo_path_for_doc {}", doc_id))?;
             state.insert(
                 repo_path,
                 FileSnapshot {
-                    hash,
-                    data: FileSnapshotData::Inline(bytes),
+                    hash: export.content_hash,
+                    data: FileSnapshotData::Inline(export.bytes),
                     is_text: true,
                 },
             );
         }
 
         let attachment_rows = sqlx::query(
-            r#"SELECT f.storage_path, f.content_hash
+            r#"SELECT f.id AS file_id, f.storage_path, f.content_hash
                FROM files f
                JOIN documents d ON d.id = f.document_id
                WHERE d.owner_id = $1"#,
@@ -477,8 +473,37 @@ impl GitWorkspaceService {
         .await?;
 
         for row in attachment_rows {
+            let file_id: Uuid = row.get("file_id");
             let storage_path: String = row.get("storage_path");
-            let hash: String = row.get("content_hash");
+            let stored_hash: Option<String> = row
+                .try_get("content_hash")
+                .ok()
+                .and_then(|h: String| if h.is_empty() { None } else { Some(h) });
+            let (hash, needs_persist) = match stored_hash {
+                Some(existing) => (existing, false),
+                None => {
+                    let computed = self
+                        .compute_attachment_hash(&storage_path)
+                        .await
+                        .with_context(|| {
+                            format!("failed to compute attachment hash for {}", storage_path)
+                        })?;
+                    match computed {
+                        Some(value) => (value, true),
+                        None => continue,
+                    }
+                }
+            };
+            if needs_persist {
+                if let Err(err) = self.persist_attachment_hash(file_id, &hash).await {
+                    warn!(
+                        file_id = %file_id,
+                        path = storage_path.as_str(),
+                        error = ?err,
+                        "git_workspace_attachment_hash_persist_failed"
+                    );
+                }
+            }
             let repo_path = repo_relative_path(&storage_path)?;
             state.insert(
                 repo_path,
@@ -491,6 +516,36 @@ impl GitWorkspaceService {
         }
 
         Ok(state)
+    }
+
+    async fn compute_attachment_hash(&self, storage_path: &str) -> anyhow::Result<Option<String>> {
+        let abs = self.storage.absolute_from_relative(storage_path);
+        match self.storage.read_bytes(abs.as_path()).await {
+            Ok(bytes) => Ok(Some(sha256_hex(&bytes))),
+            Err(err) => {
+                if let Some(io_err) = err.downcast_ref::<io::Error>() {
+                    if io_err.kind() == io::ErrorKind::NotFound {
+                        return Ok(None);
+                    }
+                }
+                if err.to_string().to_lowercase().contains("not found") {
+                    return Ok(None);
+                }
+                Err(err)
+            }
+        }
+    }
+
+    async fn persist_attachment_hash(&self, file_id: Uuid, hash: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"UPDATE files SET content_hash = $2, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(file_id)
+        .bind(hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn fetch_dirty(&self, user_id: Uuid) -> anyhow::Result<Vec<DirtyRow>> {
@@ -526,6 +581,49 @@ impl GitWorkspaceService {
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected())
+    }
+
+    async fn export_markdown_for_repo_path(
+        &self,
+        user_id: Uuid,
+        repo_path: &str,
+    ) -> anyhow::Result<Option<(Vec<u8>, String)>> {
+        let trimmed = repo_path.trim_start_matches('/');
+        let mut candidates: Vec<(&str, bool)> = vec![(trimmed, false)];
+        if let Some(stripped) = trimmed.strip_prefix("Archives/") {
+            if !stripped.is_empty() {
+                candidates.push((stripped, true));
+            }
+        }
+
+        for (candidate, archived_only) in candidates {
+            let row = if archived_only {
+                sqlx::query(
+                    "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND archived_at IS NOT NULL AND type <> 'folder' LIMIT 1",
+                )
+                .bind(user_id)
+                .bind(candidate)
+                .fetch_optional(&self.pool)
+                .await?
+            } else {
+                sqlx::query(
+                    "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND type <> 'folder' LIMIT 1",
+                )
+                .bind(user_id)
+                .bind(candidate)
+                .fetch_optional(&self.pool)
+                .await?
+            };
+
+            if let Some(row) = row {
+                let doc_id: Uuid = row.get("id");
+                if let Some(export) = self.snapshot.export_current_markdown(&doc_id).await? {
+                    return Ok(Some((export.bytes, export.content_hash)));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     fn compute_deltas(
@@ -1096,6 +1194,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             .map(|c| c.branch_name.clone())
             .unwrap_or(state_default_branch.clone());
         let force_push = req.force.unwrap_or(false);
+        let force_full_scan = req.full_scan.unwrap_or(false);
+        let skip_push = req.skip_push.unwrap_or(false);
 
         latest_meta = self.ensure_latest_meta(user_id).await?;
 
@@ -1146,9 +1246,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             .unwrap_or_default();
         let dirty_rows = self.fetch_dirty(user_id).await?;
 
-        // Determine strategy: if no history yet, fall back to full scan (initial commit)
-        // else if no dirty, nothing to do.
-        let use_full_scan = latest_meta.is_none();
+        // Determine strategy: forced full scan or initial commit uses full state rebuild.
+        let use_full_scan = force_full_scan || latest_meta.is_none();
 
         // Build change sets from dirty rows
         let mut upserts: BTreeMap<String, DirtyUpsert> = BTreeMap::new();
@@ -1178,10 +1277,12 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         // Filter out no-op upserts by comparing content_hash with previous index if available
         if !use_full_scan {
-            upserts.retain(|path, u| match (&u.content_hash, previous_index.get(path)) {
-                (Some(hnew), Some(hprev)) if hnew == hprev => false,
-                _ => true,
-            });
+            upserts.retain(
+                |path, u| match (&u.content_hash, previous_index.get(path)) {
+                    (Some(hnew), Some(hprev)) if hnew == hprev => false,
+                    _ => true,
+                },
+            );
         }
 
         // If still nothing to do
@@ -1208,6 +1309,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         // This avoids holding non-Send libgit2 types across await points.
         let mut precomputed_full_entries: Option<BTreeMap<String, Vec<u8>>> = None;
         let mut precomputed_upsert_bytes: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut changed_text_snapshots: HashMap<String, FileSnapshot> = HashMap::new();
         let mut next_file_hash_index: HashMap<String, String> = previous_index.clone();
         let files_changed_for_response: u32;
 
@@ -1223,13 +1325,34 @@ impl GitWorkspacePort for GitWorkspaceService {
             precomputed_full_entries = Some(entries);
         } else {
             let mut stale_paths: Vec<String> = Vec::new();
-            for (path, _u) in upserts.iter() {
+            for (path, up) in upserts.iter() {
+                if up.is_text {
+                    match self.export_markdown_for_repo_path(user_id, path).await? {
+                        Some((bytes, hash)) => {
+                            precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
+                            next_file_hash_index.insert(path.clone(), hash.clone());
+                            changed_text_snapshots.insert(
+                                path.clone(),
+                                FileSnapshot {
+                                    hash,
+                                    data: FileSnapshotData::Inline(bytes),
+                                    is_text: true,
+                                },
+                            );
+                        }
+                        None => {
+                            stale_paths.push(path.clone());
+                        }
+                    }
+                    continue;
+                }
+
                 let storage_rel = format!("{}/{}", user_id, path);
                 let abs = self.storage.absolute_from_relative(&storage_rel);
                 match self.storage.read_bytes(abs.as_path()).await {
                     Ok(bytes) => {
                         precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
-                        let hash = match upserts.get(path).and_then(|u| u.content_hash.as_ref()) {
+                        let hash = match up.content_hash.as_ref() {
                             Some(h) => h.clone(),
                             None => sha256_hex(&bytes),
                         };
@@ -1251,11 +1374,12 @@ impl GitWorkspacePort for GitWorkspaceService {
             }
             if !stale_paths.is_empty() {
                 for p in stale_paths {
-                    let _ = sqlx::query("DELETE FROM git_dirty_files WHERE user_id = $1 AND path = $2")
-                        .bind(user_id)
-                        .bind(&p)
-                        .execute(&self.pool)
-                        .await;
+                    let _ =
+                        sqlx::query("DELETE FROM git_dirty_files WHERE user_id = $1 AND path = $2")
+                            .bind(user_id)
+                            .bind(&p)
+                            .execute(&self.pool)
+                            .await;
                 }
             }
             for d in deletes.iter() {
@@ -1371,7 +1495,7 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             let mut pushed = false;
             if let Some(cfg) = cfg {
-                if !cfg.repository_url.is_empty() {
+                if !cfg.repository_url.is_empty() && !skip_push {
                     // Propagate push errors so the caller can retry with force
                     pushed = perform_push(&repo, cfg, &branch_name, commit_oid, force_push)?;
                 }
@@ -1382,7 +1506,13 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             // files_changed_for_response computed earlier
 
-            (meta, pack_bytes, commit_hex, pushed, files_changed_for_response)
+            (
+                meta,
+                pack_bytes,
+                commit_hex,
+                pushed,
+                files_changed_for_response,
+            )
         };
 
         if let Some((dir, _)) = previous_pack {
@@ -1392,12 +1522,11 @@ impl GitWorkspacePort for GitWorkspaceService {
         // Short, focused transaction for DB writes only.
         let mut tx = self.pool.begin().await?;
         // Recheck repository state exists before writing.
-        let repo_row2 = sqlx::query(
-            "SELECT initialized FROM git_repository_state WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let repo_row2 =
+            sqlx::query("SELECT initialized FROM git_repository_state WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_optional(&mut *tx)
+                .await?;
         let Some(repo_row2) = repo_row2 else {
             tx.rollback().await.ok();
             anyhow::bail!("repository not initialized")
@@ -1439,7 +1568,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             .await?;
 
         // Only store snapshots for changed text files (incremental), or all in initial full scan
-        let snapshot_keys = if latest_meta.is_none() {
+        let snapshot_keys = if use_full_scan {
             // full state snapshot
             let current = self.collect_current_state(user_id).await?;
             match self
@@ -1453,26 +1582,8 @@ impl GitWorkspacePort for GitWorkspaceService {
                 }
             }
         } else {
-            // changed text files only
-            let mut changed_text: HashMap<String, FileSnapshot> = HashMap::new();
-            for (path, up) in upserts.iter() {
-                if up.is_text {
-                    let storage_rel = format!("{}/{}", user_id, path);
-                    let abs = self.storage.absolute_from_relative(&storage_rel);
-                    let bytes = self.storage.read_bytes(abs.as_path()).await?;
-                    let hash = sha256_hex(&bytes);
-                    changed_text.insert(
-                        path.clone(),
-                        FileSnapshot {
-                            hash,
-                            data: FileSnapshotData::Inline(bytes),
-                            is_text: true,
-                        },
-                    );
-                }
-            }
             match self
-                .store_commit_snapshots(user_id, &meta.commit_id, &changed_text)
+                .store_commit_snapshots(user_id, &meta.commit_id, &changed_text_snapshots)
                 .await
             {
                 Ok(keys) => keys,
@@ -1522,15 +1633,19 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         // Best-effort clear of processed dirty entries
         let _ = self.clear_dirty(user_id).await;
+        let outcome_message = if pushed {
+            "sync completed".to_string()
+        } else if skip_push {
+            "sync completed (push skipped)".to_string()
+        } else {
+            "commit created (push failed)".to_string()
+        };
+
         Ok(GitSyncOutcome {
             files_changed: files_changed_for_response,
             commit_hash: Some(commit_hex),
             pushed,
-            message: if pushed {
-                "sync completed".to_string()
-            } else {
-                "commit created (push failed)".to_string()
-            },
+            message: outcome_message,
         })
     }
 }
@@ -1600,11 +1715,18 @@ fn apply_pack_files(repo: &Repository, pack_paths: &[PathBuf]) -> anyhow::Result
 
 fn extract_host(url: &str) -> Option<String> {
     let s = url.trim();
-    let s = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://")).unwrap_or(s);
+    let s = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
     let mut parts = s.split('/');
     let host_port = parts.next().unwrap_or("");
     let host = host_port.split(':').next().unwrap_or("");
-    if host.is_empty() { None } else { Some(host.to_string()) }
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
 }
 
 fn default_token_username_for(host: Option<&str>) -> &'static str {
@@ -1629,7 +1751,8 @@ fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallbacks<'static> {
                     .and_then(|v| v.get("token"))
                     .and_then(|v| v.as_str())
                 {
-                    let user = username_from_url.unwrap_or(default_token_username_for(host_hint.as_deref()));
+                    let user = username_from_url
+                        .unwrap_or(default_token_username_for(host_hint.as_deref()));
                     Cred::userpass_plaintext(user, token)
                 } else {
                     Cred::default()
@@ -1871,11 +1994,20 @@ fn repo_relative_path(path: &str) -> anyhow::Result<String> {
     let mut parts = trimmed.splitn(2, '/');
     let leading = parts.next().unwrap_or("");
     if let Some(rest) = parts.next() {
-        Ok(rest.to_string())
+        Ok(rest.replace('\\', "/"))
     } else if !leading.is_empty() {
-        Ok(leading.to_string())
+        Ok(leading.replace('\\', "/"))
     } else {
         Err(anyhow!("invalid storage path for repository: {path}"))
+    }
+}
+
+fn normalize_repo_path(path: String) -> String {
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        trimmed.replace('\\', "/")
     }
 }
 
@@ -1899,7 +2031,11 @@ enum FileSource {
     Oid(git2::Oid),
 }
 
-fn insert_source_into_dir(dir: &mut DirNode, parts: &[&str], source: &FileSource) -> anyhow::Result<()> {
+fn insert_source_into_dir(
+    dir: &mut DirNode,
+    parts: &[&str],
+    source: &FileSource,
+) -> anyhow::Result<()> {
     use std::collections::btree_map::Entry;
     if parts.is_empty() {
         return Ok(());
@@ -1918,17 +2054,15 @@ fn insert_source_into_dir(dir: &mut DirNode, parts: &[&str], source: &FileSource
         Ok(())
     } else {
         match dir.entries.entry(parts[0].to_string()) {
-            Entry::Occupied(mut occ) => {
-                match occ.get_mut() {
-                    DirEntry::Dir(child) => insert_source_into_dir(child, &parts[1..], source),
-                    DirEntry::File(_) | DirEntry::Oid(_) => {
-                        let mut new_dir = DirNode::default();
-                        insert_source_into_dir(&mut new_dir, &parts[1..], source)?;
-                        *occ.get_mut() = DirEntry::Dir(Box::new(new_dir));
-                        Ok(())
-                    }
+            Entry::Occupied(mut occ) => match occ.get_mut() {
+                DirEntry::Dir(child) => insert_source_into_dir(child, &parts[1..], source),
+                DirEntry::File(_) | DirEntry::Oid(_) => {
+                    let mut new_dir = DirNode::default();
+                    insert_source_into_dir(&mut new_dir, &parts[1..], source)?;
+                    *occ.get_mut() = DirEntry::Dir(Box::new(new_dir));
+                    Ok(())
                 }
-            }
+            },
             Entry::Vacant(vac) => {
                 let mut new_dir = DirNode::default();
                 insert_source_into_dir(&mut new_dir, &parts[1..], source)?;
@@ -1939,7 +2073,10 @@ fn insert_source_into_dir(dir: &mut DirNode, parts: &[&str], source: &FileSource
     }
 }
 
-fn read_commit_blob_oids(repo: &Repository, commit_id: &[u8]) -> anyhow::Result<HashMap<String, git2::Oid>> {
+fn read_commit_blob_oids(
+    repo: &Repository,
+    commit_id: &[u8],
+) -> anyhow::Result<HashMap<String, git2::Oid>> {
     let oid = git2::Oid::from_bytes(commit_id)?;
     let commit = repo.find_commit(oid)?;
     let tree = commit.tree()?;
@@ -1956,7 +2093,10 @@ fn read_commit_blob_oids(repo: &Repository, commit_id: &[u8]) -> anyhow::Result<
     Ok(blobs)
 }
 
-fn build_tree_from_sources(repo: &Repository, entries: &BTreeMap<String, FileSource>) -> anyhow::Result<git2::Oid> {
+fn build_tree_from_sources(
+    repo: &Repository,
+    entries: &BTreeMap<String, FileSource>,
+) -> anyhow::Result<git2::Oid> {
     // We'll reconstruct a DirNode and then write it, but we need to preserve existing blob OIDs for FileSource::Oid.
     let mut root = DirNode::default();
     for (path, src) in entries.iter() {

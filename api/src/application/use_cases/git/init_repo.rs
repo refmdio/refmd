@@ -1,14 +1,14 @@
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::gitignore_port::GitignorePort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use uuid::Uuid;
 
 pub struct InitRepo<'a, R, G, S, W>
 where
     R: GitRepository + ?Sized,
     G: GitignorePort + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     W: GitWorkspacePort + ?Sized,
 {
     pub repo: &'a R,
@@ -21,7 +21,7 @@ impl<'a, R, G, S, W> InitRepo<'a, R, G, S, W>
 where
     R: GitRepository + ?Sized,
     G: GitignorePort + ?Sized,
-    S: StoragePort + ?Sized,
+    S: StorageResolverPort + ?Sized,
     W: GitWorkspacePort + ?Sized,
 {
     pub async fn execute(&self, user_id: Uuid) -> anyhow::Result<()> {

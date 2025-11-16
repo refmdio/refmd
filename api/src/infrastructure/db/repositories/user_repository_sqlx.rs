@@ -74,4 +74,11 @@ impl UserRepository for SqlxUserRepository {
             .await?;
         Ok(res.rows_affected() > 0)
     }
+
+    async fn list_user_ids(&self) -> anyhow::Result<Vec<Uuid>> {
+        let rows = sqlx::query("SELECT id FROM users")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|r| r.get("id")).collect())
+    }
 }

@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::domain::documents::document::Document as DomainDocument;
@@ -31,6 +32,8 @@ pub trait DocumentRepository: Send + Sync {
 
     async fn list_ids_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
 
+    async fn list_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>>;
+
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>>;
 
     async fn search_for_user(
@@ -48,6 +51,15 @@ pub trait DocumentRepository: Send + Sync {
         doc_type: &str,
     ) -> anyhow::Result<DomainDocument>;
 
+    async fn create_for_user_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        user_id: Uuid,
+        title: &str,
+        parent_id: Option<Uuid>,
+        doc_type: &str,
+    ) -> anyhow::Result<DomainDocument>;
+
     // parent_id: None => not provided; Some(None) => set NULL; Some(Some(uuid)) => set to value
     async fn update_title_and_parent_for_user(
         &self,
@@ -57,8 +69,24 @@ pub trait DocumentRepository: Send + Sync {
         parent_id: Option<Option<Uuid>>,
     ) -> anyhow::Result<Option<DomainDocument>>;
 
+    async fn update_title_and_parent_for_user_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        user_id: Uuid,
+        title: Option<String>,
+        parent_id: Option<Option<Uuid>>,
+    ) -> anyhow::Result<Option<DomainDocument>>;
+
     // Returns Some(type) if deleted, None if not found/unauthorized
     async fn delete_owned(&self, id: Uuid, user_id: Uuid) -> anyhow::Result<Option<String>>;
+
+    async fn delete_owned_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<String>>;
 
     async fn backlinks_for(
         &self,
@@ -79,8 +107,23 @@ pub trait DocumentRepository: Send + Sync {
         owner_id: Uuid,
     ) -> anyhow::Result<Option<DocMeta>>;
 
+    async fn get_meta_for_owner_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        owner_id: Uuid,
+    ) -> anyhow::Result<Option<DocMeta>>;
+
     async fn archive_subtree(
         &self,
+        doc_id: Uuid,
+        owner_id: Uuid,
+        archived_by: Uuid,
+    ) -> anyhow::Result<Option<DomainDocument>>;
+
+    async fn archive_subtree_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
         doc_id: Uuid,
         owner_id: Uuid,
         archived_by: Uuid,
@@ -92,17 +135,46 @@ pub trait DocumentRepository: Send + Sync {
         owner_id: Uuid,
     ) -> anyhow::Result<Option<DomainDocument>>;
 
+    async fn unarchive_subtree_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        owner_id: Uuid,
+    ) -> anyhow::Result<Option<DomainDocument>>;
+
     async fn list_owned_subtree_documents(
         &self,
         owner_id: Uuid,
         root_id: Uuid,
     ) -> anyhow::Result<Vec<SubtreeDocument>>;
+
+    async fn list_owned_subtree_documents_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        owner_id: Uuid,
+        root_id: Uuid,
+    ) -> anyhow::Result<Vec<SubtreeDocument>>;
+
+    async fn get_by_owner_and_path(
+        &self,
+        owner_id: Uuid,
+        relative_path: &str,
+    ) -> anyhow::Result<Option<DomainDocument>>;
+
+    async fn update_repo_path(
+        &self,
+        doc_id: Uuid,
+        owner_id: Uuid,
+        relative_path: &str,
+    ) -> anyhow::Result<()>;
 }
 
 #[derive(Debug, Clone)]
 pub struct DocMeta {
     pub doc_type: String,
     pub path: Option<String>,
+    pub slug: String,
+    pub desired_path: String,
     pub title: String,
     pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
 }

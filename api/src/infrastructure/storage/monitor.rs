@@ -1,19 +1,29 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use anyhow::Context;
+use serde_json::json;
 use sqlx::Row;
 use tokio::{self, sync::Mutex, time::sleep};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::{application::ports::storage_port::StoragePort, infrastructure::db::PgPool};
+use crate::{
+    application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue},
+    application::ports::storage_port::StorageResolverPort,
+    application::ports::storage_projection_queue::{
+        StorageProjectionJobKind, StorageProjectionQueue,
+    },
+    infrastructure::db::PgPool,
+};
 
 /// Periodically verifies that metadata entries in `documents` / `files`
 /// still have a corresponding object in the configured storage backend.
 /// Missing files are logged once to avoid log spam and logged again when recovered.
 pub struct StorageConsistencyMonitor {
     pool: PgPool,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
+    jobs: Arc<dyn StorageProjectionQueue>,
+    ingest_queue: Arc<dyn StorageIngestQueue>,
     interval: Duration,
     batch_size: i64,
     doc_offset: Mutex<i64>,
@@ -25,13 +35,17 @@ pub struct StorageConsistencyMonitor {
 impl StorageConsistencyMonitor {
     pub fn new(
         pool: PgPool,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
+        jobs: Arc<dyn StorageProjectionQueue>,
+        ingest_queue: Arc<dyn StorageIngestQueue>,
         interval: Duration,
         batch_size: i64,
     ) -> Self {
         Self {
             pool,
             storage,
+            jobs,
+            ingest_queue,
             interval,
             batch_size: batch_size.max(1),
             doc_offset: Mutex::new(0),
@@ -88,8 +102,11 @@ impl StorageConsistencyMonitor {
                 }
                 Ok(false) => {
                     let mut flagged = self.flagged_docs.lock().await;
-                    if flagged.insert(doc_id) {
+                    let newly_flagged = flagged.insert(doc_id);
+                    drop(flagged);
+                    if newly_flagged {
                         warn!(document_id = %doc_id, path = %path, "storage_consistency_missing_document_file");
+                        self.enqueue_doc_resync(doc_id).await;
                     }
                 }
                 Err(err) => {
@@ -105,9 +122,10 @@ impl StorageConsistencyMonitor {
     async fn scan_attachments(&self) -> anyhow::Result<()> {
         let mut offset = self.attachment_offset.lock().await;
         let rows = sqlx::query(
-            r#"SELECT document_id, storage_path
-               FROM files
-               ORDER BY created_at DESC
+            r#"SELECT f.document_id, f.storage_path, d.owner_id
+               FROM files f
+               JOIN documents d ON d.id = f.document_id
+               ORDER BY f.created_at DESC
                LIMIT $1 OFFSET $2"#,
         )
         .bind(self.batch_size)
@@ -125,6 +143,7 @@ impl StorageConsistencyMonitor {
             let storage_path: String = row
                 .try_get("storage_path")
                 .context("files.storage_path missing")?;
+            let owner_id: Uuid = row.get("owner_id");
             let abs = self.storage.absolute_from_relative(&storage_path);
             match self.storage.exists(abs.as_path()).await {
                 Ok(true) => {
@@ -137,6 +156,8 @@ impl StorageConsistencyMonitor {
                     let mut flagged = self.flagged_attachments.lock().await;
                     if flagged.insert(storage_path.clone()) {
                         warn!(document_id = %doc_id, attachment_path = %storage_path, "storage_consistency_missing_attachment");
+                        self.enqueue_attachment_delete(owner_id, &storage_path)
+                            .await;
                     }
                 }
                 Err(err) => {
@@ -147,5 +168,82 @@ impl StorageConsistencyMonitor {
 
         *offset += rows.len() as i64;
         Ok(())
+    }
+}
+
+impl StorageConsistencyMonitor {
+    async fn enqueue_doc_resync(&self, doc_id: Uuid) {
+        if let Err(err) = self
+            .jobs
+            .enqueue_doc_job(
+                doc_id,
+                StorageProjectionJobKind::DocSync,
+                Some("consistency_missing_document"),
+            )
+            .await
+        {
+            warn!(document_id = %doc_id, error = ?err, "storage_consistency_resync_enqueue_failed");
+        }
+    }
+
+    async fn enqueue_attachment_delete(&self, owner_id: Uuid, storage_path: &str) {
+        let Some(repo_path) = repo_relative_from_storage(owner_id, storage_path) else {
+            warn!(
+                owner_id = %owner_id,
+                storage_path,
+                "storage_consistency_attachment_repo_path_unparseable"
+            );
+            return;
+        };
+        if let Err(err) = self
+            .ingest_queue
+            .enqueue_event(
+                owner_id,
+                &repo_path,
+                "consistency",
+                StorageIngestKind::Delete,
+                None,
+                Some(json!({
+                    "source": "consistency_monitor",
+                    "storage_path": storage_path,
+                })),
+            )
+            .await
+        {
+            warn!(
+                owner_id = %owner_id,
+                storage_path,
+                error = ?err,
+                "storage_consistency_attachment_delete_enqueue_failed"
+            );
+        }
+    }
+}
+
+fn repo_relative_from_storage(owner_id: Uuid, storage_path: &str) -> Option<String> {
+    let trimmed = storage_path.trim_start_matches('/');
+    let prefix = owner_id.to_string();
+    let rest = trimmed.strip_prefix(&prefix)?.trim_start_matches('/');
+    if rest.is_empty() {
+        None
+    } else {
+        Some(rest.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repo_relative_from_storage;
+    use uuid::Uuid;
+
+    #[test]
+    fn repo_relative_parses_owner_prefix() {
+        let owner = Uuid::new_v4();
+        let rel = format!("{}/attachments/file.png", owner);
+        assert_eq!(
+            repo_relative_from_storage(owner, &rel),
+            Some("attachments/file.png".into())
+        );
+        assert_eq!(repo_relative_from_storage(owner, "/garbage"), None);
     }
 }

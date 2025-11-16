@@ -15,11 +15,14 @@ impl<'a, R: PublicRepository + ?Sized> GetPublicByOwnerAndId<'a, R> {
     ) -> anyhow::Result<Option<Document>> {
         if let Some((
             id,
+            owner_id,
             title,
             parent_id,
             doc_type,
             created_at,
             updated_at,
+            slug,
+            desired_path,
             path,
             archived_at,
             archived_by,
@@ -31,11 +34,14 @@ impl<'a, R: PublicRepository + ?Sized> GetPublicByOwnerAndId<'a, R> {
         {
             Ok(Some(Document {
                 id,
+                owner_id,
                 title,
                 parent_id,
                 doc_type,
                 created_at,
                 updated_at,
+                slug,
+                desired_path,
                 path,
                 archived_at,
                 archived_by,

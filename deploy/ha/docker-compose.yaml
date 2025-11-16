@@ -67,12 +67,10 @@ services:
       mc anonymous set download local/refmd
 
   api-a:
-    build:
-      context: ../../api
-      dockerfile: Dockerfile
+    image: ghcr.io/refmdio/refmd/api:latest
     container_name: refmd-ha-api-a
     environment:
-      RUST_ENV: development
+      RUST_ENV: production
       API_PORT: 8888
       DATABASE_URL: postgresql://refmd:refmd@postgres:5432/refmd
       FRONTEND_URL: http://localhost:3000
@@ -89,6 +87,10 @@ services:
       S3_SECRET_KEY: refmd-minio-secret
       S3_USE_PATH_STYLE: "true"
       PLUGINS_DIR: /app/plugins
+      PLUGIN_ASSET_SIGN_KEY: change-me-please
+      PLUGIN_TIMEOUT_SECS: 10
+      PLUGIN_MEMORY_MAX_MB: 256
+      PLUGIN_ASSET_URL_TTL_SECS: 120
       RUST_LOG: api=debug,axum=info
       CLUSTER_MODE: true
       REDIS_URL: redis://redis:6379/0
@@ -97,6 +99,11 @@ services:
       REDIS_TASK_DEBOUNCE_MS: 5000
       REDIS_AWARENESS_TTL_MS: 45000
       REDIS_STREAM_MAX_LEN: 4096
+      STORAGE_MONITOR_ENABLED: "true"
+      STORAGE_MONITOR_INTERVAL_SECS: 600
+      STORAGE_MONITOR_BATCH_SIZE: 200
+      GIT_REBUILD_ENABLED: "true"
+      GIT_REBUILD_INTERVAL_SECS: 21600
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,12 +113,10 @@ services:
         condition: service_healthy
 
   api-b:
-    build:
-      context: ../../api
-      dockerfile: Dockerfile
+    image: ghcr.io/refmdio/refmd/api:latest
     container_name: refmd-ha-api-b
     environment:
-      RUST_ENV: development
+      RUST_ENV: production
       API_PORT: 8888
       DATABASE_URL: postgresql://refmd:refmd@postgres:5432/refmd
       FRONTEND_URL: http://localhost:3000
@@ -128,6 +133,10 @@ services:
       S3_SECRET_KEY: refmd-minio-secret
       S3_USE_PATH_STYLE: "true"
       PLUGINS_DIR: /app/plugins
+      PLUGIN_ASSET_SIGN_KEY: change-me-please
+      PLUGIN_TIMEOUT_SECS: 10
+      PLUGIN_MEMORY_MAX_MB: 256
+      PLUGIN_ASSET_URL_TTL_SECS: 120
       RUST_LOG: api=debug,axum=info
       CLUSTER_MODE: true
       REDIS_URL: redis://redis:6379/0
@@ -136,6 +145,11 @@ services:
       REDIS_TASK_DEBOUNCE_MS: 5000
       REDIS_AWARENESS_TTL_MS: 45000
       REDIS_STREAM_MAX_LEN: 4096
+      STORAGE_MONITOR_ENABLED: "true"
+      STORAGE_MONITOR_INTERVAL_SECS: 600
+      STORAGE_MONITOR_BATCH_SIZE: 200
+      GIT_REBUILD_ENABLED: "true"
+      GIT_REBUILD_INTERVAL_SECS: 21600
     depends_on:
       postgres:
         condition: service_healthy
@@ -145,8 +159,7 @@ services:
         condition: service_healthy
 
   app-a:
-    build:
-      context: ../../app
+    image: ghcr.io/refmdio/refmd/app:latest
     container_name: refmd-ha-app-a
     environment:
       SSR_API_BASE_URL: http://nginx
@@ -159,8 +172,7 @@ services:
         condition: service_started
 
   app-b:
-    build:
-      context: ../../app
+    image: ghcr.io/refmdio/refmd/app:latest
     container_name: refmd-ha-app-b
     environment:
       SSR_API_BASE_URL: http://nginx

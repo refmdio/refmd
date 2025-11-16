@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
 use mime_guess::MimeGuess;
+use serde_json::json;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::application::access::{self, Actor};
 use crate::application::ports::access_repository::AccessRepository;
+use crate::application::ports::doc_event_log::DocEventLog;
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::share_access_port::ShareAccessPort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::errors::ServiceError;
 use crate::application::use_cases::files::upload_file::{UploadFile, UploadedFile};
 
@@ -18,23 +21,26 @@ pub struct FilePayload {
 
 pub struct FileService {
     files_repo: Arc<dyn FilesRepository>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
     access_repo: Arc<dyn AccessRepository>,
     share_access: Arc<dyn ShareAccessPort>,
+    events: Arc<dyn DocEventLog>,
 }
 
 impl FileService {
     pub fn new(
         files_repo: Arc<dyn FilesRepository>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
         access_repo: Arc<dyn AccessRepository>,
         share_access: Arc<dyn ShareAccessPort>,
+        events: Arc<dyn DocEventLog>,
     ) -> Self {
         Self {
             files_repo,
             storage,
             access_repo,
             share_access,
+            events,
         }
     }
 
@@ -52,10 +58,14 @@ impl FileService {
             storage: self.storage.as_ref(),
             public_base_url,
         };
-        uc.execute(user_id, doc_id, bytes, orig_filename, content_type)
+        let uploaded = uc
+            .execute(user_id, doc_id, bytes, orig_filename, content_type)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::Forbidden)
+            .ok_or(ServiceError::Forbidden)?;
+        self.emit_attachment_upsert(user_id, doc_id, &uploaded)
+            .await;
+        Ok(uploaded)
     }
 
     pub async fn download_owned_file(
@@ -149,5 +159,47 @@ impl FileService {
             bytes,
             content_type,
         })
+    }
+
+    async fn emit_attachment_upsert(&self, owner_id: Uuid, doc_id: Uuid, file: &UploadedFile) {
+        let Some(repo_path) = repo_relative_from_storage(owner_id, &file.storage_path) else {
+            return;
+        };
+        if let Err(err) = self
+            .events
+            .append(
+                doc_id,
+                "attachment.ingest_upsert",
+                Some(json!({
+                    "repo_path": repo_path,
+                    "storage_path": file.storage_path,
+                    "backend": "api",
+                    "size": file.size,
+                    "content_hash": file.content_hash,
+                    "owner_id": owner_id.to_string(),
+                })),
+            )
+            .await
+        {
+            warn!(
+                document_id = %doc_id,
+                error = ?err,
+                "attachment_event_emit_failed"
+            );
+        }
+    }
+}
+
+fn repo_relative_from_storage(owner_id: Uuid, storage_path: &str) -> Option<String> {
+    let trimmed = storage_path.trim_start_matches('/');
+    let owner_prefix = owner_id.to_string();
+    let remainder = trimmed
+        .strip_prefix(&owner_prefix)
+        .map(|rest| rest.trim_start_matches('/'))
+        .unwrap_or(trimmed);
+    if remainder.is_empty() {
+        None
+    } else {
+        Some(remainder.to_string())
     }
 }

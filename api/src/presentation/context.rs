@@ -6,6 +6,7 @@ use crate::application::ports::plugin_event_publisher::PluginScopedEvent;
 use crate::application::ports::plugin_event_subscriber::PluginEventSubscriber;
 use crate::application::ports::realtime_port::RealtimeEngine;
 pub use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
+use crate::application::ports::storage_ingest_queue::StorageIngestQueue;
 use crate::application::services::api_tokens::ApiTokenService;
 use crate::application::services::auth::account::AccountService;
 use crate::application::services::auth::service::AuthService;
@@ -15,6 +16,7 @@ use crate::application::services::files::FileService;
 use crate::application::services::git::GitService;
 use crate::application::services::health::HealthService;
 use crate::application::services::markdown_render::MarkdownRenderService;
+use crate::application::services::metrics::MetricsRegistry;
 use crate::application::services::plugins::data::PluginDataService;
 use crate::application::services::plugins::execution::PluginExecutionService;
 use crate::application::services::plugins::management::PluginManagementService;
@@ -36,6 +38,7 @@ pub struct PresentationConfig {
 pub struct AppContext {
     pub cfg: PresentationConfig,
     services: Arc<AppServices>,
+    metrics: Arc<MetricsRegistry>,
 }
 
 #[derive(Clone)]
@@ -59,6 +62,7 @@ pub struct AppServices {
     account_service: Arc<AccountService>,
     auth_service: Arc<AuthService>,
     realtime_engine: Arc<dyn RealtimeEngine>,
+    storage_ingest_queue: Arc<dyn StorageIngestQueue>,
 }
 
 impl AppServices {
@@ -83,6 +87,7 @@ impl AppServices {
         account_service: Arc<AccountService>,
         auth_service: Arc<AuthService>,
         realtime_engine: Arc<dyn RealtimeEngine>,
+        storage_ingest_queue: Arc<dyn StorageIngestQueue>,
     ) -> Self {
         Self {
             authorization,
@@ -104,15 +109,21 @@ impl AppServices {
             account_service,
             auth_service,
             realtime_engine,
+            storage_ingest_queue,
         }
     }
 }
 
 impl AppContext {
-    pub fn new(cfg: PresentationConfig, services: AppServices) -> Self {
+    pub fn new(
+        cfg: PresentationConfig,
+        services: AppServices,
+        metrics: Arc<MetricsRegistry>,
+    ) -> Self {
         Self {
             cfg,
             services: Arc::new(services),
+            metrics,
         }
     }
 
@@ -152,6 +163,10 @@ impl AppContext {
         self.services.markdown_render_service.clone()
     }
 
+    pub fn storage_ingest_queue(&self) -> Arc<dyn StorageIngestQueue> {
+        self.services.storage_ingest_queue.clone()
+    }
+
     pub fn plugin_execution_service(&self) -> Arc<PluginExecutionService> {
         self.services.plugin_execution_service.clone()
     }
@@ -178,6 +193,10 @@ impl AppContext {
 
     pub fn auth_service(&self) -> Arc<AuthService> {
         self.services.auth_service.clone()
+    }
+
+    pub fn metrics(&self) -> Arc<MetricsRegistry> {
+        self.metrics.clone()
     }
 
     pub async fn subscribe_plugin_events(

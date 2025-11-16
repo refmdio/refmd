@@ -1,4 +1,4 @@
-use std::path::{Component, PathBuf};
+use std::path::Component;
 
 use uuid::Uuid;
 
@@ -10,34 +10,32 @@ use crate::application::ports::document_exporter::{
 };
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
-use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::share_access_port::ShareAccessPort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
+use crate::application::services::realtime::snapshot::SnapshotService;
 
-pub struct DownloadDocument<'a, D, F, S, RT, A, SH>
+pub struct DownloadDocument<'a, D, F, S, A, SH>
 where
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
-    RT: RealtimeEngine + ?Sized,
+    S: StorageResolverPort + ?Sized,
     A: AccessRepository + ?Sized,
     SH: ShareAccessPort + ?Sized,
 {
     pub documents: &'a D,
     pub files: &'a F,
     pub storage: &'a S,
-    pub realtime: &'a RT,
     pub access: &'a A,
     pub shares: &'a SH,
+    pub snapshot: &'a SnapshotService,
     pub exporter: &'a dyn DocumentExporter,
 }
 
-impl<'a, D, F, S, RT, A, SH> DownloadDocument<'a, D, F, S, RT, A, SH>
+impl<'a, D, F, S, A, SH> DownloadDocument<'a, D, F, S, A, SH>
 where
     D: DocumentRepository + ?Sized,
     F: FilesRepository + ?Sized,
-    S: StoragePort + ?Sized,
-    RT: RealtimeEngine + ?Sized,
+    S: StorageResolverPort + ?Sized,
     A: AccessRepository + ?Sized,
     SH: ShareAccessPort + ?Sized,
 {
@@ -62,14 +60,12 @@ where
             return Ok(None);
         }
 
-        self.realtime.force_save_to_fs(&doc_id.to_string()).await?;
-
-        let markdown_path = self.storage.build_doc_file_path(doc_id).await?;
-        let doc_dir = markdown_path
-            .parent()
-            .map(PathBuf::from)
-            .ok_or_else(|| anyhow::anyhow!("document directory missing"))?;
-        let markdown_bytes = self.storage.read_bytes(markdown_path.as_path()).await?;
+        let export = match self.snapshot.export_current_markdown(&doc_id).await? {
+            Some(export) => export,
+            None => return Ok(None),
+        };
+        let markdown_bytes = export.bytes;
+        let doc_dir = self.storage.build_doc_dir(doc_id).await?;
 
         let stored_attachments = self.files.list_storage_paths_for_document(doc_id).await?;
         let mut attachments: Vec<DocumentExportAttachment> = Vec::new();

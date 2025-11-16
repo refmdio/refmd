@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use sha2::{Digest, Sha256};
+use tracing::warn;
 use uuid::Uuid;
 use yrs::updates::decoder::Decode;
 use yrs::{Doc, GetString, ReadTxn, StateVector, Text, Transact, Update};
@@ -12,17 +14,19 @@ use crate::application::ports::document_snapshot_archive_repository::{
 use crate::application::ports::linkgraph_repository::LinkGraphRepository;
 use crate::application::ports::realtime_hydration_port::DocStateReader;
 use crate::application::ports::realtime_persistence_port::DocPersistencePort;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_projection_queue::{
+    StorageProjectionJobKind, StorageProjectionQueue,
+};
 use crate::application::ports::tagging_repository::TaggingRepository;
 use crate::application::services::tagging;
 
 pub struct SnapshotService {
     state_reader: Arc<dyn DocStateReader>,
     persistence: Arc<dyn DocPersistencePort>,
-    storage: Arc<dyn StoragePort>,
     linkgraph_repo: Arc<dyn LinkGraphRepository>,
     tagging_repo: Arc<dyn TaggingRepository>,
     archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
+    storage_jobs: Arc<dyn StorageProjectionQueue>,
 }
 
 pub struct SnapshotPersistOptions {
@@ -51,6 +55,31 @@ pub struct SnapshotPersistResult {
 
 pub struct MarkdownPersistResult {
     pub written: bool,
+}
+
+pub struct MarkdownExport {
+    pub bytes: Vec<u8>,
+    pub repo_path: Option<String>,
+    pub owner_id: Option<Uuid>,
+    pub content_hash: String,
+}
+
+#[async_trait]
+pub trait MarkdownExportProvider: Send + Sync {
+    async fn export_markdown_for_doc(
+        &self,
+        doc_id: &Uuid,
+    ) -> anyhow::Result<Option<MarkdownExport>>;
+}
+
+#[async_trait]
+impl MarkdownExportProvider for SnapshotService {
+    async fn export_markdown_for_doc(
+        &self,
+        doc_id: &Uuid,
+    ) -> anyhow::Result<Option<MarkdownExport>> {
+        self.export_current_markdown(doc_id).await
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -83,18 +112,18 @@ impl SnapshotService {
     pub fn new(
         state_reader: Arc<dyn DocStateReader>,
         persistence: Arc<dyn DocPersistencePort>,
-        storage: Arc<dyn StoragePort>,
         linkgraph_repo: Arc<dyn LinkGraphRepository>,
         tagging_repo: Arc<dyn TaggingRepository>,
         archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
+        storage_jobs: Arc<dyn StorageProjectionQueue>,
     ) -> Self {
         Self {
             state_reader,
             persistence,
-            storage,
             linkgraph_repo,
             tagging_repo,
             archive_repo,
+            storage_jobs,
         }
     }
 
@@ -177,22 +206,16 @@ impl SnapshotService {
             return Ok(MarkdownPersistResult { written: false });
         }
         let contents = extract_markdown(doc);
-        self.storage.sync_doc_paths(*doc_id).await?;
-        let path = self.storage.build_doc_file_path(*doc_id).await?;
-        let mut formatted = format!(
-            "---\nid: {}\ntitle: {}\n---\n\n{}",
-            doc_id, record.title, contents
-        );
-        if !formatted.ends_with('\n') {
-            formatted.push('\n');
-        }
-        let bytes = formatted.into_bytes();
-        let should_write = match self.storage.read_bytes(path.as_path()).await {
-            Ok(existing) => existing != bytes,
-            Err(_) => true,
-        };
-        if should_write {
-            self.storage.write_bytes(path.as_path(), &bytes).await?;
+        if let Err(err) = self
+            .storage_jobs
+            .enqueue_doc_job(
+                *doc_id,
+                StorageProjectionJobKind::DocSync,
+                Some("snapshot_write_markdown"),
+            )
+            .await
+        {
+            warn!(document_id = %doc_id, error = ?err, "enqueue_snapshot_projection_failed");
         }
         if let Some(owner_id) = record.owner_id {
             let _ = linkgraph::update_document_links(
@@ -210,9 +233,30 @@ impl SnapshotService {
             )
             .await;
         }
-        Ok(MarkdownPersistResult {
-            written: should_write,
-        })
+        Ok(MarkdownPersistResult { written: true })
+    }
+
+    pub async fn export_current_markdown(
+        &self,
+        doc_id: &Uuid,
+    ) -> anyhow::Result<Option<MarkdownExport>> {
+        let Some(record) = self.state_reader.document_record(doc_id).await? else {
+            return Ok(None);
+        };
+        if record.doc_type == "folder" {
+            return Ok(None);
+        }
+        let doc = self.hydrate_doc_from_state(doc_id).await?;
+        let contents = extract_markdown(&doc);
+        let bytes = render_markdown_bytes(doc_id, &record.title, &contents);
+        let content_hash = sha256_hex(&bytes);
+        let repo_path = repo_path_from_record(&record);
+        Ok(Some(MarkdownExport {
+            bytes,
+            repo_path,
+            owner_id: record.owner_id,
+            content_hash,
+        }))
     }
 
     pub async fn archive_snapshot(
@@ -297,6 +341,14 @@ fn extract_markdown(doc: &Doc) -> String {
     contents
 }
 
+fn render_markdown_bytes(doc_id: &Uuid, title: &str, contents: &str) -> Vec<u8> {
+    let mut formatted = format!("---\nid: {}\ntitle: {}\n---\n\n{}", doc_id, title, contents);
+    if !formatted.ends_with('\n') {
+        formatted.push('\n');
+    }
+    formatted.into_bytes()
+}
+
 fn sha256_hex(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -335,4 +387,54 @@ pub fn doc_from_snapshot_bytes(bytes: &[u8]) -> anyhow::Result<Doc> {
     let doc = Doc::new();
     apply_update_bytes(&doc, bytes)?;
     Ok(doc)
+}
+
+impl SnapshotService {
+    async fn hydrate_doc_from_state(&self, doc_id: &Uuid) -> anyhow::Result<Doc> {
+        let doc = Doc::new();
+        let mut last_seq = 0i64;
+        if let Some(snapshot) = self.state_reader.latest_snapshot(doc_id).await? {
+            apply_update_bytes(&doc, &snapshot.snapshot)?;
+            last_seq = snapshot.version;
+        }
+        let updates = self.state_reader.updates_since(doc_id, last_seq).await?;
+        for update in updates {
+            apply_update_bytes(&doc, &update.update)?;
+        }
+        Ok(doc)
+    }
+}
+
+fn repo_path_from_record(
+    record: &crate::application::ports::realtime_hydration_port::DocumentRecord,
+) -> Option<String> {
+    if let Some(path) = record.desired_path.as_deref() {
+        return Some(normalize_repo_path(path));
+    }
+    if let (Some(owner), Some(path)) = (record.owner_id, record.path.as_deref()) {
+        return strip_owner_prefix(owner, path);
+    }
+    None
+}
+
+fn strip_owner_prefix(owner_id: Uuid, relative: &str) -> Option<String> {
+    let trimmed = relative.trim_start_matches('/');
+    let mut parts = trimmed.splitn(2, '/');
+    let owner = parts.next()?;
+    if owner != owner_id.to_string() {
+        return None;
+    }
+    parts
+        .next()
+        .map(|rest| rest.trim_start_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn normalize_repo_path(path: &str) -> String {
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        "".into()
+    } else {
+        trimmed.replace('\\', "/")
+    }
 }

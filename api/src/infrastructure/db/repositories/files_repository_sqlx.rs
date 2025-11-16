@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::application::ports::files_repository::FilesRepository;
@@ -98,5 +98,93 @@ impl FilesRepository for SqlxFilesRepository {
             .into_iter()
             .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
             .collect())
+    }
+
+    async fn list_storage_paths_for_document_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+    ) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query("SELECT storage_path FROM files WHERE document_id = $1 FOR UPDATE")
+            .bind(doc_id)
+            .fetch_all(tx.as_mut())
+            .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
+            .collect())
+    }
+
+    async fn list_storage_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT f.storage_path
+            FROM files f
+            JOIN documents d ON d.id = f.document_id
+            WHERE d.owner_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
+            .collect())
+    }
+
+    async fn find_by_storage_path(
+        &self,
+        storage_path: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>> {
+        let row = sqlx::query(
+            r#"SELECT f.id as file_id, f.document_id, d.owner_id
+               FROM files f
+               JOIN documents d ON d.id = f.document_id
+               WHERE f.storage_path = $1
+               LIMIT 1"#,
+        )
+        .bind(storage_path)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| (r.get("file_id"), r.get("document_id"), r.get("owner_id"))))
+    }
+
+    async fn update_storage_path(&self, file_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"UPDATE files SET storage_path = $2, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(file_id)
+        .bind(storage_path)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_hash_and_size(
+        &self,
+        file_id: Uuid,
+        size: i64,
+        content_hash: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"UPDATE files SET size = $2, content_hash = $3, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(file_id)
+        .bind(size)
+        .bind(content_hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_by_id(&self, file_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM files WHERE id = $1")
+            .bind(file_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }

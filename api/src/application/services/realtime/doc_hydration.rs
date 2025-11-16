@@ -7,12 +7,12 @@ use yrs::updates::decoder::{Decode, DecoderV1};
 use yrs::{Doc, Transact, Update};
 
 use crate::application::ports::realtime_hydration_port::{DocStateReader, RealtimeBacklogReader};
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_port::StorageResolverPort;
 
 pub struct DocHydrationService {
     state_reader: Arc<dyn DocStateReader>,
     backlog_reader: Arc<dyn RealtimeBacklogReader>,
-    storage: Arc<dyn StoragePort>,
+    storage: Arc<dyn StorageResolverPort>,
 }
 
 pub struct HydrationOptions<'a> {
@@ -35,7 +35,7 @@ impl DocHydrationService {
     pub fn new(
         state_reader: Arc<dyn DocStateReader>,
         backlog_reader: Arc<dyn RealtimeBacklogReader>,
-        storage: Arc<dyn StoragePort>,
+        storage: Arc<dyn StorageResolverPort>,
     ) -> Self {
         Self {
             state_reader,

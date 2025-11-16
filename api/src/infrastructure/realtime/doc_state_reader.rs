@@ -64,14 +64,17 @@ impl DocStateReader for SqlxDocStateReader {
     }
 
     async fn document_record(&self, doc_id: &Uuid) -> anyhow::Result<Option<DocumentRecord>> {
-        let row = sqlx::query("SELECT type, path, title, owner_id FROM documents WHERE id = $1")
-            .bind(doc_id)
-            .fetch_optional(&self.pool)
-            .await?;
+        let row = sqlx::query(
+            "SELECT type, path, desired_path, title, owner_id FROM documents WHERE id = $1",
+        )
+        .bind(doc_id)
+        .fetch_optional(&self.pool)
+        .await?;
 
         Ok(row.map(|row| DocumentRecord {
             doc_type: row.get("type"),
             path: row.try_get("path").ok(),
+            desired_path: row.try_get("desired_path").ok(),
             title: row.get("title"),
             owner_id: row.try_get("owner_id").ok(),
         }))

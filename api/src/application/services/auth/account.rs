@@ -4,12 +4,13 @@ use uuid::Uuid;
 
 use crate::application::dto::auth::UserDto;
 use crate::application::ports::document_repository::DocumentRepository;
+use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::plugin_asset_store::PluginAssetStore;
 use crate::application::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::application::ports::plugin_repository::PluginRepository;
-use crate::application::ports::storage_port::StoragePort;
+use crate::application::ports::storage_projection_queue::StorageProjectionQueue;
 use crate::application::ports::user_repository::UserRepository;
 use crate::application::services::errors::ServiceError;
 use crate::application::use_cases::auth::delete_account::DeleteAccount;
@@ -20,12 +21,13 @@ use crate::application::use_cases::auth::register::{Register as RegisterUc, Regi
 pub struct AccountService {
     user_repo: Arc<dyn UserRepository>,
     document_repo: Arc<dyn DocumentRepository>,
-    storage: Arc<dyn StoragePort>,
+    files_repo: Arc<dyn FilesRepository>,
     plugin_installations: Arc<dyn PluginInstallationRepository>,
     plugin_repo: Arc<dyn PluginRepository>,
     plugin_assets: Arc<dyn PluginAssetStore>,
     git_repo: Arc<dyn GitRepository>,
     git_workspace: Arc<dyn GitWorkspacePort>,
+    storage_jobs: Arc<dyn StorageProjectionQueue>,
 }
 
 impl AccountService {
@@ -33,22 +35,24 @@ impl AccountService {
     pub fn new(
         user_repo: Arc<dyn UserRepository>,
         document_repo: Arc<dyn DocumentRepository>,
-        storage: Arc<dyn StoragePort>,
+        files_repo: Arc<dyn FilesRepository>,
         plugin_installations: Arc<dyn PluginInstallationRepository>,
         plugin_repo: Arc<dyn PluginRepository>,
         plugin_assets: Arc<dyn PluginAssetStore>,
         git_repo: Arc<dyn GitRepository>,
         git_workspace: Arc<dyn GitWorkspacePort>,
+        storage_jobs: Arc<dyn StorageProjectionQueue>,
     ) -> Self {
         Self {
             user_repo,
             document_repo,
-            storage,
+            files_repo,
             plugin_installations,
             plugin_repo,
             plugin_assets,
             git_repo,
             git_workspace,
+            storage_jobs,
         }
     }
 
@@ -121,12 +125,13 @@ impl AccountService {
         let uc = DeleteAccount {
             user_repo: self.user_repo.as_ref(),
             document_repo: self.document_repo.as_ref(),
-            storage: self.storage.as_ref(),
+            files_repo: self.files_repo.as_ref(),
             plugin_installations: self.plugin_installations.as_ref(),
             plugin_repo: self.plugin_repo.as_ref(),
             plugin_assets: self.plugin_assets.clone(),
             git_repo: self.git_repo.as_ref(),
             git_workspace: self.git_workspace.as_ref(),
+            storage_jobs: self.storage_jobs.as_ref(),
         };
         uc.execute(user_id).await.map_err(ServiceError::from)
     }
