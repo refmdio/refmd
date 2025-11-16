@@ -623,11 +623,19 @@ fn find_front_matter_end(s: &str) -> Option<(usize, usize)> {
             let after_newline = &s[idx + 1..];
             if after_newline.starts_with("---") {
                 let mut body_start = idx + 1 + 3;
-                let remainder = &s[body_start..];
-                if remainder.starts_with("\r\n") {
-                    body_start += 2;
-                } else if remainder.starts_with('\n') {
-                    body_start += 1;
+                let mut remainder = &s[body_start..];
+                // Skip any trailing newlines so we don't feed extra blank lines
+                // back into the realtime layer when the projection re-imports.
+                while remainder.starts_with("\r\n") || remainder.starts_with('\n') {
+                    if remainder.starts_with("\r\n") {
+                        body_start += 2;
+                        let (_, rest) = remainder.split_at(2);
+                        remainder = rest;
+                    } else {
+                        body_start += 1;
+                        let (_, rest) = remainder.split_at(1);
+                        remainder = rest;
+                    }
                 }
                 return Some((idx, body_start));
             }
