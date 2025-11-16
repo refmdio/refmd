@@ -73,6 +73,15 @@ impl GitRebuildService {
     }
 
     async fn process_job(&self, job: &GitRebuildJob) -> anyhow::Result<()> {
+        let status = self.workspace.status(job.user_id).await?;
+        if !status.repository_initialized {
+            self.jobs.complete(job.id).await?;
+            info!(
+                user_id = %job.user_id,
+                "git_rebuild_job_skipped_for_uninitialized_repo"
+            );
+            return Ok(());
+        }
         let cfg = self.git_repo.load_user_git_cfg(job.user_id).await?;
         let mut req = GitSyncRequestDto {
             message: Some("Automated Git rebuild".to_string()),
@@ -189,7 +198,12 @@ mod tests {
             &self,
             _user_id: Uuid,
         ) -> anyhow::Result<crate::application::dto::git::GitWorkspaceStatus> {
-            unimplemented!()
+            Ok(crate::application::dto::git::GitWorkspaceStatus {
+                repository_initialized: true,
+                current_branch: Some("main".into()),
+                uncommitted_changes: 0,
+                untracked_files: 0,
+            })
         }
 
         async fn list_changes(

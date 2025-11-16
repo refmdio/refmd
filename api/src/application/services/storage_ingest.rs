@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -261,6 +261,49 @@ impl StorageIngestService {
         }
     }
 
+    async fn handle_folder_upsert(
+        &self,
+        doc: &ResolvedDocument,
+        rel_path: &str,
+        repo_path: &str,
+        event: &StorageIngestEvent,
+        previous_repo_path: Option<&str>,
+    ) -> anyhow::Result<()> {
+        if !self
+            .reconcile_repo_path(doc, event.user_id, rel_path)
+            .await?
+        {
+            warn!(
+                doc_id = %doc.id,
+                repo_path = repo_path,
+                "storage_ingest_folder_repo_path_rejected"
+            );
+            return Ok(());
+        }
+        let mut payload_obj = serde_json::Map::new();
+        payload_obj.insert("repo_path".into(), json!(repo_path));
+        payload_obj.insert("doc_type".into(), json!(doc.doc_type));
+        payload_obj.insert("owner_id".into(), json!(event.user_id));
+        payload_obj.insert("backend".into(), json!(event.backend));
+        if let Some(prev) = previous_repo_path {
+            payload_obj.insert("previous_path".into(), json!(prev));
+        }
+        self.events
+            .append(
+                doc.id,
+                "document.metadata_updated",
+                Some(Value::Object(payload_obj)),
+            )
+            .await?;
+        info!(
+            doc_id = %doc.id,
+            repo_path = repo_path,
+            backend = event.backend,
+            "storage_ingest_folder_upsert_applied"
+        );
+        Ok(())
+    }
+
     async fn reconcile_repo_path(
         &self,
         doc: &ResolvedDocument,
@@ -339,14 +382,6 @@ impl StorageIngestHandler for StorageIngestService {
         }
 
         if let Some(doc) = doc {
-            if doc.is_folder() {
-                warn!(
-                    doc_id = %doc.id,
-                    repo_path = repo_path,
-                    "storage_ingest_folder_event_skipped"
-                );
-                return Ok(());
-            }
             if doc.is_archived() {
                 warn!(
                     doc_id = %doc.id,
@@ -357,15 +392,26 @@ impl StorageIngestHandler for StorageIngestService {
             }
             match event.kind {
                 StorageIngestKind::Upsert => {
-                    let payload = self.load_markdown_payload(&rel_path).await?;
-                    self.handle_doc_upsert(
-                        &doc,
-                        &repo_path,
-                        event,
-                        payload,
-                        doc_previous_repo_path.as_deref(),
-                    )
-                    .await?;
+                    if doc.is_folder() {
+                        self.handle_folder_upsert(
+                            &doc,
+                            &rel_path,
+                            &repo_path,
+                            event,
+                            doc_previous_repo_path.as_deref(),
+                        )
+                        .await?;
+                    } else {
+                        let payload = self.load_markdown_payload(&rel_path).await?;
+                        self.handle_doc_upsert(
+                            &doc,
+                            &repo_path,
+                            event,
+                            payload,
+                            doc_previous_repo_path.as_deref(),
+                        )
+                        .await?;
+                    }
                 }
                 StorageIngestKind::Delete => {
                     self.handle_doc_delete(&doc, &repo_path, event).await?;

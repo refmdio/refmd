@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::Error;
 use serde_json::json;
+use sqlx::Error as SqlxError;
 use tracing::{error, info, info_span, warn};
 use uuid::Uuid;
 
@@ -732,8 +733,15 @@ fn normalize_relative_path(path: PathBuf) -> String {
 
 fn missing_target(err: &Error) -> bool {
     let needle = "document not found";
-    err.chain()
-        .any(|cause| cause.to_string().to_lowercase().contains(needle))
+    err.chain().any(|cause| {
+        if let Some(sqlx_err) = cause.downcast_ref::<SqlxError>() {
+            matches!(sqlx_err, SqlxError::RowNotFound)
+        } else if let Some(io_err) = cause.downcast_ref::<std::io::Error>() {
+            io_err.kind() == std::io::ErrorKind::NotFound
+        } else {
+            cause.to_string().to_lowercase().contains(needle)
+        }
+    })
 }
 
 fn job_type_label(kind: StorageProjectionJobKind) -> &'static str {

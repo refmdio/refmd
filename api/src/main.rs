@@ -608,6 +608,7 @@ async fn main() -> anyhow::Result<()> {
         let rebuild_scheduler = GitRebuildScheduler::new(
             git_rebuild_jobs.clone(),
             user_repo.clone(),
+            git_workspace.clone(),
             Duration::from_secs(cfg.git_rebuild_interval_secs),
         );
         tokio::spawn(async move {

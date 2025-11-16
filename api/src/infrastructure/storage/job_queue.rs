@@ -57,7 +57,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             r#"
             INSERT INTO storage_projection_jobs (job_type, doc_id, reason, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, 0, NULL, NULL)
-            ON CONFLICT (job_type, doc_id)
+            ON CONFLICT (job_type, doc_id) WHERE doc_id IS NOT NULL
             DO UPDATE SET reason = EXCLUDED.reason,
                           locked_at = CASE
                               WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
@@ -103,7 +103,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             r#"
             INSERT INTO storage_projection_jobs (job_type, doc_id, reason, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, 0, NULL, NULL)
-            ON CONFLICT (job_type, doc_id)
+            ON CONFLICT (job_type, doc_id) WHERE doc_id IS NOT NULL
             DO UPDATE SET reason = EXCLUDED.reason,
                           locked_at = CASE
                               WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
@@ -148,7 +148,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             r#"
             INSERT INTO storage_projection_jobs (job_type, folder_id, reason, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, 0, NULL, NULL)
-            ON CONFLICT (job_type, folder_id)
+            ON CONFLICT (job_type, folder_id) WHERE folder_id IS NOT NULL
             DO UPDATE SET reason = EXCLUDED.reason,
                           locked_at = CASE
                               WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
@@ -194,7 +194,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             r#"
             INSERT INTO storage_projection_jobs (job_type, folder_id, reason, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, 0, NULL, NULL)
-            ON CONFLICT (job_type, folder_id)
+            ON CONFLICT (job_type, folder_id) WHERE folder_id IS NOT NULL
             DO UPDATE SET reason = EXCLUDED.reason,
                           locked_at = CASE
                               WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
