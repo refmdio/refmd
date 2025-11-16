@@ -54,27 +54,42 @@ impl SqlxDocumentRepository {
     }
 
     fn slugify(title: &str) -> String {
-        let mut slug = String::new();
-        let mut prev_dash = false;
-        for ch in title.trim().chars() {
-            let lower = ch.to_ascii_lowercase();
-            if lower.is_ascii_alphanumeric() {
-                slug.push(lower);
-                prev_dash = false;
-            } else if !prev_dash && !slug.is_empty() {
-                slug.push('-');
-                prev_dash = true;
-            } else if slug.is_empty() {
-                prev_dash = true;
-            }
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            return "untitled".to_string();
         }
+
+        let mut slug = String::with_capacity(trimmed.len());
+        let mut last_was_space = false;
+        for ch in trimmed.chars() {
+            if ch.is_control() {
+                continue;
+            }
+            if ch.is_whitespace() {
+                if !last_was_space {
+                    slug.push(' ');
+                    last_was_space = true;
+                }
+                continue;
+            }
+            last_was_space = false;
+            let safe = match ch {
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+                _ => ch,
+            };
+            slug.push(safe);
+        }
+
+        let mut slug = slug
+            .trim_matches(|c: char| matches!(c, ' ' | '-'))
+            .to_string();
         if slug.is_empty() {
             slug.push_str("untitled");
         }
         if slug.len() > 100 {
             slug.truncate(100);
         }
-        slug.trim_matches('-').to_string()
+        slug
     }
 
     fn apply_slug_suffix(base: &str, attempt: usize) -> String {
@@ -225,6 +240,23 @@ impl SqlxDocumentRepository {
             }
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SqlxDocumentRepository;
+
+    #[test]
+    fn slug_preserves_unicode_and_case() {
+        assert_eq!(SqlxDocumentRepository::slugify("Main"), "Main");
+        assert_eq!(SqlxDocumentRepository::slugify("日本語2025"), "日本語2025");
+    }
+
+    #[test]
+    fn slug_sanitizes_forbidden_chars() {
+        assert_eq!(SqlxDocumentRepository::slugify(" Foo / Bar "), "Foo - Bar");
+        assert_eq!(SqlxDocumentRepository::slugify("////"), "untitled");
     }
 }
 
