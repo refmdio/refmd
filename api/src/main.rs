@@ -25,6 +25,7 @@ use api::application::ports::plugin_runtime::PluginRuntime;
 use api::application::ports::storage_ingest_queue::StorageIngestQueue;
 use api::application::ports::storage_port::{StorageProjectionPort, StorageResolverPort};
 use api::application::ports::storage_projection_queue::StorageProjectionQueue;
+use api::application::ports::storage_reconcile_backend::StorageReconcileBackend;
 use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
 use api::application::services::api_tokens::ApiTokenService;
 use api::application::services::auth::account::AccountService;
@@ -51,9 +52,7 @@ use api::application::services::public::PublicService;
 use api::application::services::realtime::snapshot::{MarkdownExportProvider, SnapshotService};
 use api::application::services::shares::ShareService;
 use api::application::services::storage_ingest::StorageIngestService;
-use api::application::services::storage_reconcile::{
-    FsReconcileBackend, S3ReconcileBackend, StorageReconcileBackend, StorageReconcileService,
-};
+use api::application::services::storage_reconcile::StorageReconcileService;
 use api::application::services::storage_reconcile_scheduler::StorageReconcileScheduler;
 use api::application::services::tags::TagService;
 use api::application::services::user_shortcuts::UserShortcutService;
@@ -66,8 +65,9 @@ use api::infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscr
 use api::infrastructure::git::PgGitRebuildJobQueue;
 use api::infrastructure::plugins::filesystem_store::PluginExecutionLimits;
 use api::infrastructure::storage::{
-    FsIngestWatcher, PgStorageIngestQueue, PgStorageProjectionQueue, PgStorageReconcileJobs,
-    StorageConsistencyMonitor, StorageIngestWorker, StorageProjectionWorker,
+    FsIngestWatcher, FsReconcileBackend, PgStorageIngestQueue, PgStorageProjectionQueue,
+    PgStorageReconcileJobs, S3ReconcileBackend, StorageConsistencyMonitor, StorageIngestWorker,
+    StorageProjectionWorker,
 };
 use api::presentation::context::{AppContext, AppServices, PresentationConfig};
 use utoipa::OpenApi;

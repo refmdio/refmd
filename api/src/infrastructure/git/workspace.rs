@@ -4,7 +4,7 @@ use std::io::{self, ErrorKind, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
@@ -486,10 +486,7 @@ impl GitWorkspaceService {
                         .compute_attachment_hash(&storage_path)
                         .await
                         .with_context(|| {
-                            format!(
-                                "failed to compute attachment hash for {}",
-                                storage_path
-                            )
+                            format!("failed to compute attachment hash for {}", storage_path)
                         })?;
                     match computed {
                         Some(value) => (value, true),
@@ -521,10 +518,7 @@ impl GitWorkspaceService {
         Ok(state)
     }
 
-    async fn compute_attachment_hash(
-        &self,
-        storage_path: &str,
-    ) -> anyhow::Result<Option<String>> {
+    async fn compute_attachment_hash(&self, storage_path: &str) -> anyhow::Result<Option<String>> {
         let abs = self.storage.absolute_from_relative(storage_path);
         match self.storage.read_bytes(abs.as_path()).await {
             Ok(bytes) => Ok(Some(sha256_hex(&bytes))),

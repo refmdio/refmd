@@ -237,9 +237,9 @@ pub async fn move_doc_paths(
     let row = sqlx::query(
         "SELECT owner_id, type, path, desired_path, archived_at FROM documents WHERE id = $1",
     )
-        .bind(doc_id)
-        .fetch_optional(pool)
-        .await?;
+    .bind(doc_id)
+    .fetch_optional(pool)
+    .await?;
     let row = match row {
         Some(r) => r,
         None => return Ok(()),

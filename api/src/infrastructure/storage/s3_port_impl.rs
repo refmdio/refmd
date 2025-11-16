@@ -211,12 +211,11 @@ impl S3StoragePort {
             &desired_path,
             archived,
         );
-        let target_parent_rel =
-            crate::infrastructure::storage::owner_relative_parent_from_desired(
-                owner_id,
-                &desired_path,
-                archived,
-            );
+        let target_parent_rel = crate::infrastructure::storage::owner_relative_parent_from_desired(
+            owner_id,
+            &desired_path,
+            archived,
+        );
 
         if let Some(old_rel) = old_rel.clone() {
             if old_rel != target_rel {
