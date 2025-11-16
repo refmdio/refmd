@@ -268,6 +268,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
     }
 
     async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()> {
+        let mut tx = self.pool.begin().await?;
         let updated = sqlx::query(
             r#"
             UPDATE storage_projection_jobs
@@ -281,15 +282,18 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         )
         .bind(job_id)
         .bind(locked_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
         if updated.rows_affected() == 0 {
-            sqlx::query("DELETE FROM storage_projection_jobs WHERE id = $1 AND locked_at = $2")
-                .bind(job_id)
-                .bind(locked_at)
-                .execute(&self.pool)
-                .await?;
+            sqlx::query(
+                "DELETE FROM storage_projection_jobs WHERE id = $1 AND locked_at = $2 AND pending_retry = false",
+            )
+            .bind(job_id)
+            .bind(locked_at)
+            .execute(&mut *tx)
+            .await?;
         }
+        tx.commit().await?;
         Ok(())
     }
 

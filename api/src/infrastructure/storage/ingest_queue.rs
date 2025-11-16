@@ -142,6 +142,7 @@ impl StorageIngestQueue for PgStorageIngestQueue {
     }
 
     async fn complete_event(&self, event_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()> {
+        let mut tx = self.pool.begin().await?;
         let updated = sqlx::query(
             r#"
             UPDATE storage_ingest_queue
@@ -153,15 +154,18 @@ impl StorageIngestQueue for PgStorageIngestQueue {
         )
         .bind(event_id)
         .bind(locked_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
         if updated.rows_affected() == 0 {
-            sqlx::query("DELETE FROM storage_ingest_queue WHERE id = $1 AND locked_at = $2")
-                .bind(event_id)
-                .bind(locked_at)
-                .execute(&self.pool)
-                .await?;
+            sqlx::query(
+                "DELETE FROM storage_ingest_queue WHERE id = $1 AND locked_at = $2 AND pending_retry = false",
+            )
+            .bind(event_id)
+            .bind(locked_at)
+            .execute(&mut *tx)
+            .await?;
         }
+        tx.commit().await?;
         Ok(())
     }
 
