@@ -589,22 +589,41 @@ impl GitWorkspaceService {
         repo_path: &str,
     ) -> anyhow::Result<Option<(Vec<u8>, String)>> {
         let trimmed = repo_path.trim_start_matches('/');
-        let row = sqlx::query(
-            "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND type <> 'folder' LIMIT 1",
-        )
-        .bind(user_id)
-        .bind(trimmed)
-        .fetch_optional(&self.pool)
-        .await?;
-        let Some(row) = row else {
-            return Ok(None);
-        };
-        let doc_id: Uuid = row.get("id");
-        let export = match self.snapshot.export_current_markdown(&doc_id).await? {
-            Some(e) => e,
-            None => return Ok(None),
-        };
-        Ok(Some((export.bytes, export.content_hash)))
+        let mut candidates: Vec<(&str, bool)> = vec![(trimmed, false)];
+        if let Some(stripped) = trimmed.strip_prefix("Archives/") {
+            if !stripped.is_empty() {
+                candidates.push((stripped, true));
+            }
+        }
+
+        for (candidate, archived_only) in candidates {
+            let row = if archived_only {
+                sqlx::query(
+                    "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND archived_at IS NOT NULL AND type <> 'folder' LIMIT 1",
+                )
+                .bind(user_id)
+                .bind(candidate)
+                .fetch_optional(&self.pool)
+                .await?
+            } else {
+                sqlx::query(
+                    "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND type <> 'folder' LIMIT 1",
+                )
+                .bind(user_id)
+                .bind(candidate)
+                .fetch_optional(&self.pool)
+                .await?
+            };
+
+            if let Some(row) = row {
+                let doc_id: Uuid = row.get("id");
+                if let Some(export) = self.snapshot.export_current_markdown(&doc_id).await? {
+                    return Ok(Some((export.bytes, export.content_hash)));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     fn compute_deltas(
