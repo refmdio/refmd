@@ -474,7 +474,24 @@ impl GitWorkspaceService {
 
         for row in attachment_rows {
             let storage_path: String = row.get("storage_path");
-            let hash: String = row.get("content_hash");
+            let hash: Option<String> = row.try_get("content_hash").ok();
+            let hash = match hash.filter(|h| !h.is_empty()) {
+                Some(existing) => existing,
+                None => {
+                    match self.compute_attachment_hash(&storage_path).await {
+                        Ok(Some(computed)) => computed,
+                        Ok(None) => continue,
+                        Err(err) => {
+                            warn!(
+                                path = storage_path.as_str(),
+                                error = ?err,
+                                "git_workspace_attachment_hash_failed"
+                            );
+                            continue;
+                        }
+                    }
+                }
+            };
             let repo_path = repo_relative_path(&storage_path)?;
             state.insert(
                 repo_path,
@@ -487,6 +504,27 @@ impl GitWorkspaceService {
         }
 
         Ok(state)
+    }
+
+    async fn compute_attachment_hash(
+        &self,
+        storage_path: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let abs = self.storage.absolute_from_relative(storage_path);
+        match self.storage.read_bytes(abs.as_path()).await {
+            Ok(bytes) => Ok(Some(sha256_hex(&bytes))),
+            Err(err) => {
+                if let Some(io_err) = err.downcast_ref::<io::Error>() {
+                    if io_err.kind() == io::ErrorKind::NotFound {
+                        return Ok(None);
+                    }
+                }
+                if err.to_string().to_lowercase().contains("not found") {
+                    return Ok(None);
+                }
+                Err(err)
+            }
+        }
     }
 
     async fn fetch_dirty(&self, user_id: Uuid) -> anyhow::Result<Vec<DirtyRow>> {

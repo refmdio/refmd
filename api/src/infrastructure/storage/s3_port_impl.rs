@@ -496,8 +496,15 @@ impl StorageResolverPort for S3StoragePort {
 
         let sanitized = sanitize_filename(original_filename.unwrap_or("attachment"));
         let mut target = attachments_dir.join(&sanitized);
+        let mut relative =
+            crate::infrastructure::storage::relative_from_uploads(&self.root, &target)
+                .replace('\\', "/");
         let mut counter = 1;
-        while fs::try_exists(&target).await.unwrap_or(false) {
+        loop {
+            let key = self.relative_to_key(&relative);
+            if !self.object_exists(&key).await? {
+                break;
+            }
             let stem = target
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -510,13 +517,14 @@ impl StorageResolverPort for S3StoragePort {
                 .unwrap_or_default();
             let new_name = format!("{stem}-{counter}{ext}");
             target = attachments_dir.join(&new_name);
+            relative = crate::infrastructure::storage::relative_from_uploads(&self.root, &target)
+                .replace('\\', "/");
             counter += 1;
         }
 
         if let Some(parent) = target.parent() {
             let _ = fs::create_dir_all(parent).await;
         }
-        let relative = crate::infrastructure::storage::relative_from_uploads(&self.root, &target);
         let key = self.relative_to_key(&relative);
         self.put_object(&key, bytes).await?;
         let size = bytes.len() as i64;
