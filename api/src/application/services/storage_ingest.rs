@@ -1,3 +1,4 @@
+use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -140,7 +141,20 @@ impl StorageIngestService {
         previous_repo_path: Option<&str>,
     ) -> anyhow::Result<()> {
         let abs = self.storage.absolute_from_relative(rel_path);
-        let bytes = self.storage.read_bytes(abs.as_path()).await?;
+        let bytes = match self.storage.read_bytes(abs.as_path()).await {
+            Ok(bytes) => bytes,
+            Err(err) if is_not_found_error(&err) => {
+                warn!(
+                    file_id = %file_id,
+                    doc_id = %doc_id,
+                    repo_path = repo_path,
+                    "storage_ingest_attachment_missing_skipped"
+                );
+                self.storage_projection.delete_relative_path(rel_path).await?;
+                return Ok(());
+            }
+            Err(err) => return Err(err),
+        };
         let size = bytes.len() as i64;
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
@@ -402,7 +416,21 @@ impl StorageIngestHandler for StorageIngestService {
                         )
                         .await?;
                     } else {
-                        let payload = self.load_markdown_payload(&rel_path).await?;
+                        let payload = match self.load_markdown_payload(&rel_path).await {
+                            Ok(payload) => payload,
+                            Err(err) if is_not_found_error(&err) => {
+                                warn!(
+                                    doc_id = %doc.id,
+                                    repo_path = repo_path,
+                                    "storage_ingest_doc_payload_missing"
+                                );
+                                self.storage_projection
+                                    .delete_relative_path(&rel_path)
+                                    .await?;
+                                return Ok(());
+                            }
+                            Err(err) => return Err(err),
+                        };
                         self.handle_doc_upsert(
                             &doc,
                             &repo_path,
@@ -464,7 +492,21 @@ impl StorageIngestHandler for StorageIngestService {
         }
 
         if event.kind == StorageIngestKind::Upsert && rel_path.ends_with(".md") {
-            let payload = self.load_markdown_payload(&rel_path).await?;
+            let payload = match self.load_markdown_payload(&rel_path).await {
+                Ok(payload) => payload,
+                Err(err) if is_not_found_error(&err) => {
+                    info!(
+                        user_id = %event.user_id,
+                        repo_path = repo_path,
+                        "storage_ingest_missing_source_skipped"
+                    );
+                    self.storage_projection
+                        .delete_relative_path(&rel_path)
+                        .await?;
+                    return Ok(());
+                }
+                Err(err) => return Err(err),
+            };
             if let Some(doc) = self
                 .resolve_doc_from_front_matter(event.user_id, &payload)
                 .await?
@@ -650,6 +692,14 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hasher.update(bytes);
     let digest = hasher.finalize();
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn is_not_found_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|io_err| io_err.kind() == io::ErrorKind::NotFound)
+    })
 }
 
 #[cfg(test)]
