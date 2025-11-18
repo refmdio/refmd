@@ -1,4 +1,4 @@
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use axum::{
     extract::Path,
@@ -48,6 +48,10 @@ pub fn routes(ctx: AppContext) -> Router {
         .route(
             "/workspaces/:id/invitations",
             get(list_invitations).post(create_invitation),
+        )
+        .route(
+            "/workspaces/:id/invitations/:invitation_id",
+            delete(revoke_invitation),
         )
         .route(
             "/workspace-invitations/:token/accept",
@@ -435,6 +439,32 @@ pub async fn create_invitation(
             body.custom_role_id,
             body.expires_at,
         )
+        .await
+        .map_err(map_service_error)?;
+    Ok(Json(invitation_response_from(record)))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/workspaces/{id}/invitations/{invitation_id}",
+    tag = "Workspaces",
+    params(
+        ("id" = Uuid, Path, description = "Workspace ID"),
+        ("invitation_id" = Uuid, Path, description = "Invitation ID"),
+    ),
+    responses((status = 200, body = WorkspaceInvitationResponse))
+)]
+pub async fn revoke_invitation(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    Path((workspace_id, invitation_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<WorkspaceInvitationResponse>, StatusCode> {
+    let sub = auth::validate_bearer(&ctx, bearer).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_INVITE).await?;
+    let record = ctx
+        .workspace_service()
+        .revoke_invitation(workspace_id, invitation_id)
         .await
         .map_err(map_service_error)?;
     Ok(Json(invitation_response_from(record)))

@@ -8,10 +8,13 @@ import type { YjsConnection } from '@/shared/lib/yjsConnection'
 import { fetchDocumentMeta } from '@/entities/document'
 import { validateShareToken } from '@/entities/share'
 
+import { useAuthContext } from '@/features/auth'
+
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
 
 export function useCollaborativeDocument(id: string, shareToken?: string) {
+  const { permissions } = useAuthContext()
   const {
     setDocumentId: setRealtimeDocumentId,
     setDocumentTitle,
@@ -53,8 +56,9 @@ export function useCollaborativeDocument(id: string, shareToken?: string) {
   }, [id, shareToken])
 
   React.useEffect(() => {
-    setIsReadOnly(shareReadOnly || archived)
-  }, [shareReadOnly, archived])
+    const hasEditPermission = permissions.includes('doc:edit')
+    setIsReadOnly(shareReadOnly || archived || !hasEditPermission)
+  }, [shareReadOnly, archived, permissions])
 
   const loadMeta = React.useCallback(async () => {
     try {

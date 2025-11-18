@@ -176,6 +176,22 @@ impl WorkspaceService {
             })
     }
 
+    pub async fn revoke_invitation(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError> {
+        let Some(record) = self
+            .repo
+            .revoke_invitation(workspace_id, invitation_id)
+            .await
+            .map_err(ServiceError::from)?
+        else {
+            return Err(ServiceError::NotFound);
+        };
+        Ok(record)
+    }
+
     pub async fn set_default_workspace(
         &self,
         user_id: Uuid,

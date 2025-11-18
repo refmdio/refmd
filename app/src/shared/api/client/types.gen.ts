@@ -1361,6 +1361,19 @@ export type CreateInvitationData = {
 
 export type CreateInvitationResponse = (WorkspaceInvitationResponse);
 
+export type RevokeInvitationData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    /**
+     * Invitation ID
+     */
+    invitationId: string;
+};
+
+export type RevokeInvitationResponse = (WorkspaceInvitationResponse);
+
 export type ListMembersData = {
     /**
      * Workspace ID

@@ -205,4 +205,10 @@ pub trait WorkspaceRepository: Send + Sync {
         user_id: Uuid,
         user_email: &str,
     ) -> anyhow::Result<WorkspaceInvitationRecord>;
+
+    async fn revoke_invitation(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+    ) -> anyhow::Result<Option<WorkspaceInvitationRecord>>;
 }

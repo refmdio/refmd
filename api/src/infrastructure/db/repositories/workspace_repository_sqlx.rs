@@ -797,4 +797,24 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         record.accepted_at = Some(now);
         Ok(record)
     }
+
+    async fn revoke_invitation(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+    ) -> anyhow::Result<Option<WorkspaceInvitationRecord>> {
+        let row = sqlx::query(
+            r#"UPDATE workspace_invitations
+                   SET revoked_at = now()
+                   WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL AND accepted_at IS NULL
+                   RETURNING id, workspace_id, email, role_kind, system_role, custom_role_id,
+                             invited_by, token, expires_at, accepted_by, accepted_at, revoked_at,
+                             created_at"#,
+        )
+        .bind(invitation_id)
+        .bind(workspace_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| self.map_invitation_row(&row)))
+    }
 }

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { Building2, Shield, ShieldCheck, Sparkles, Trash2, UserPlus, Users2 } from 'lucide-react'
+import { Building2, Shield, Sparkles, Trash2, UserPlus, Users2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -11,6 +11,7 @@ import {
   listMembers as listWorkspaceMembersApi,
   listRoles as listWorkspaceRolesApi,
   listInvitations as listWorkspaceInvitationsApi,
+  revokeInvitation as revokeWorkspaceInvitationApi,
   updateMemberRole as updateWorkspaceMemberRoleApi,
   createRole as createWorkspaceRoleApi,
   updateRole as updateWorkspaceRoleApi,
@@ -248,6 +249,7 @@ export default function WorkspacesPage() {
   const [settingsDescription, setSettingsDescription] = useState(activeWorkspace?.description ?? '')
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [deletingWorkspace, setDeletingWorkspace] = useState(false)
+  const [revokingInvitationId, setRevokingInvitationId] = useState<string | null>(null)
 
   const workspaceId = activeWorkspaceId
   const workspaceName = activeWorkspace?.name ?? 'Workspace'
@@ -291,6 +293,20 @@ export default function WorkspacesPage() {
   const members = (membersQuery.data ?? []) as WorkspaceMemberResponse[]
   const roles = (rolesQuery.data ?? []) as WorkspaceRoleResponse[]
   const invitations = (invitationsQuery.data ?? []) as WorkspaceInvitationResponse[]
+  const inviteBaseUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}/workspaces?token=` : '/workspaces?token='
+  const pendingInvitations = useMemo(() => {
+    return invitations.filter((invitation) => {
+      if (invitation.accepted_at || invitation.revoked_at) {
+        return false
+      }
+      if (!invitation.expires_at) {
+        return true
+      }
+      const expiresAt = new Date(invitation.expires_at).getTime()
+      return Number.isFinite(expiresAt) && expiresAt > Date.now()
+    })
+  }, [invitations])
   const customRoles = useMemo(() => roles.slice().sort((a, b) => a.priority - b.priority), [roles])
   const roleOptions = useMemo(() => {
     const system = ['owner', 'admin', 'editor', 'viewer'].map((role) => ({
@@ -496,6 +512,39 @@ export default function WorkspacesPage() {
       toast.error(message)
     } finally {
       setInviting(false)
+    }
+  }
+
+  const copyInvitationLink = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(`${inviteBaseUrl}${token}`)
+      toast.success('Invitation link copied')
+    } catch (error) {
+      console.error('[workspaces] copy invitation link failed', error)
+      toast.error('Failed to copy link')
+    }
+  }
+
+  const handleRevokeInvitation = async (invitationId: string) => {
+    if (!workspaceId) return
+    if (!canInviteMembers) {
+      toast.error('You do not have permission to revoke invitations')
+      return
+    }
+    if (!window.confirm('Cancel this invitation? Invited users will no longer be able to join.')) {
+      return
+    }
+    setRevokingInvitationId(invitationId)
+    try {
+      await revokeWorkspaceInvitationApi({ id: workspaceId, invitationId })
+      toast.success('Invitation revoked')
+      await invitationsQuery.refetch()
+    } catch (error) {
+      console.error('[workspaces] revoke invitation failed', error)
+      const message = error instanceof Error ? error.message : 'Failed to revoke invitation'
+      toast.error(message)
+    } finally {
+      setRevokingInvitationId(null)
     }
   }
 
@@ -965,6 +1014,80 @@ export default function WorkspacesPage() {
               </div>
             )}
 
+            {canViewInvitations && (
+              <div className="rounded-3xl border border-border/70 p-6 shadow-sm">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+                      <Shield className="h-5 w-5 text-primary" /> Invitations
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Share invite links or review pending requests for {workspaceName}.
+                    </p>
+                  </div>
+                  {canInviteMembers && (
+                    <Button variant="outline" className="rounded-full" onClick={() => setInviteOpen(true)}>
+                      Invite someone new
+                    </Button>
+                  )}
+                </div>
+                {invitationsQuery.isLoading ? (
+                  <div className="mt-4 space-y-2">
+                    {[0, 1, 2].map((idx) => (
+                      <div key={idx} className="h-14 animate-pulse rounded-2xl bg-muted/30" />
+                    ))}
+                  </div>
+                ) : invitationsQuery.isError ? (
+                  <p className="mt-4 text-sm text-destructive">
+                    {invitationsQuery.error instanceof Error
+                      ? invitationsQuery.error.message
+                      : 'Failed to load invitations'}
+                  </p>
+                ) : pendingInvitations.length === 0 ? (
+                  <p className="mt-4 text-sm text-muted-foreground">No active invitations.</p>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {pendingInvitations.map((invitation) => {
+                      const customRoleName = customRoles.find((role) => role.id === invitation.custom_role_id)?.name
+                      const roleLabel =
+                        invitation.role_kind === 'system'
+                          ? `Role: ${(invitation.system_role ?? 'viewer').replace(/^[a-z]/, (ltr) => ltr.toUpperCase())}`
+                          : `Role: ${customRoleName ?? 'Custom role'}`
+                      return (
+                        <div
+                          key={invitation.id}
+                          className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-background/80 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-foreground">{invitation.email}</p>
+                            <p className="text-xs text-muted-foreground">{roleLabel}</p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <code className="rounded-xl bg-muted/60 px-3 py-1 text-xs text-muted-foreground">{invitation.token.slice(0, 8)}…</code>
+                            <Button size="sm" variant="secondary" onClick={() => copyInvitationLink(invitation.token)}>
+                              Copy link
+                            </Button>
+                            {canInviteMembers && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => handleRevokeInvitation(invitation.id)}
+                                disabled={revokingInvitationId === invitation.id}
+                              >
+                                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                {revokingInvitationId === invitation.id ? 'Revoking…' : 'Revoke'}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {canManageRoles ? (
               <div className="rounded-3xl border border-border/70 p-6 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1019,64 +1142,6 @@ export default function WorkspacesPage() {
               </div>
             ) : null}
 
-            {canViewInvitations ? (
-              <div className="rounded-3xl border border-border/70 p-6 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-                      <ShieldCheck className="h-5 w-5 text-primary" /> Invitations
-                    </h3>
-                    <p className="text-sm text-muted-foreground">Track pending workspace invitations.</p>
-                  </div>
-                  {canInviteMembers && (
-                    <Button variant="outline" className="rounded-full" onClick={() => setInviteOpen(true)}>
-                      Invite
-                    </Button>
-                  )}
-                </div>
-                {invitationsQuery.isLoading ? (
-                  <div className="mt-4 space-y-2">
-                    {[0, 1].map((idx) => (
-                      <div key={idx} className="h-16 animate-pulse rounded-2xl bg-muted/40" />
-                    ))}
-                  </div>
-                ) : invitations.length === 0 ? (
-                  <p className="mt-4 text-sm text-muted-foreground">No pending invitations.</p>
-                ) : (
-                  <div className="mt-4 space-y-3">
-                    {invitations.map((invitation) => {
-                      const status = invitation.accepted_at
-                        ? 'Accepted'
-                        : invitation.revoked_at
-                        ? 'Revoked'
-                        : invitation.expires_at && new Date(invitation.expires_at) < new Date()
-                        ? 'Expired'
-                        : 'Pending'
-                      const roleLabelText =
-                        invitation.role_kind === 'custom'
-                          ? customRoles.find((role) => role.id === invitation.custom_role_id)?.name || 'Custom'
-                          : invitation.system_role?.replace(/^[a-z]/, (ltr) => ltr.toUpperCase()) || 'Member'
-                      return (
-                        <div
-                          key={invitation.id}
-                          className="rounded-2xl border border-border/60 bg-card/70 p-4"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-medium text-foreground">{invitation.email}</p>
-                              <p className="text-xs text-muted-foreground">Role: {roleLabelText}</p>
-                            </div>
-                            <Badge variant={status === 'Pending' ? 'secondary' : status === 'Accepted' ? 'outline' : 'destructive'}>
-                              {status}
-                            </Badge>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            ) : null}
           </section>
         )}
       </div>

@@ -102,6 +102,7 @@ use utoipa::OpenApi;
         workspaces::delete_role,
         workspaces::list_invitations,
         workspaces::create_invitation,
+        workspaces::revoke_invitation,
         workspaces::accept_invitation,
         health::health,
     ),
