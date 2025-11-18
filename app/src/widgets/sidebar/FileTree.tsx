@@ -1,7 +1,9 @@
 import { Link, useRouter, useRouterState } from '@tanstack/react-router'
-import { Archive, Blocks, Eye, FileText, Github, LogOut, Settings, Users, ChevronDown, ChevronRight } from 'lucide-react'
+import { Archive, Blocks, Eye, FileText, Github, LogOut, Settings, Users, ChevronDown, ChevronRight, Check, Loader2, Building2 } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 
+import type { WorkspaceMembershipResponse } from '@/shared/api'
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -37,8 +39,11 @@ import {
 const userMenuIconClass = 'h-4 w-4'
 
 function SidebarUserMenu() {
-  const { user, signOut } = useAuthContext()
+  const { user, signOut, activeWorkspace } = useAuthContext()
   const [open, setOpen] = useState(false)
+  const publicLink = activeWorkspace?.slug
+    ? `/w/${encodeURIComponent(activeWorkspace.slug)}`
+    : `/u/${encodeURIComponent(user?.name || '')}/`
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -87,7 +92,13 @@ function SidebarUserMenu() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <a href={`/u/${encodeURIComponent(user?.name || '')}/`} target="_blank" rel="noopener noreferrer">
+          <Link to="/workspaces">
+            <Building2 className={cn('mr-2', userMenuIconClass)} />
+            <span>Workspaces</span>
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <a href={publicLink} target="_blank" rel="noopener noreferrer">
             <Users className={cn('mr-2', userMenuIconClass)} />
             <span>Public pages</span>
           </a>
@@ -114,9 +125,120 @@ function SidebarUserMenu() {
   )
 }
 
+function formatWorkspaceSecondaryText(workspace: WorkspaceMembershipResponse) {
+  if (workspace.is_personal) {
+    return 'Personal workspace'
+  }
+  const role =
+    workspace.role_kind === 'system'
+      ? `${(workspace.system_role || 'member').replace(/^\w/, (ltr) => ltr.toUpperCase())} role`
+      : 'Custom role'
+  return role
+}
+
+function WorkspaceSwitcher() {
+  const { workspaces, activeWorkspaceId, switchWorkspace } = useAuthContext()
+  const [open, setOpen] = useState(false)
+  const [pendingId, setPendingId] = useState<string | null>(null)
+
+  const activeWorkspace = useMemo(() => {
+    if (!workspaces.length) {
+      return null
+    }
+    return workspaces.find((ws) => ws.id === activeWorkspaceId) ?? workspaces[0]
+  }, [workspaces, activeWorkspaceId])
+
+  const canSwitch = workspaces.length > 1
+
+  const handleSelect = useCallback(
+    async (workspaceId: string) => {
+      if (workspaceId === activeWorkspace?.id || pendingId) {
+        return
+      }
+      setPendingId(workspaceId)
+      try {
+        await switchWorkspace(workspaceId)
+        const selected = workspaces.find((ws) => ws.id === workspaceId)
+        toast.success(`Switched to ${selected?.name ?? 'workspace'}`)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to switch workspace. Please try again.'
+        toast.error(message)
+      } finally {
+        setPendingId(null)
+        setOpen(false)
+      }
+    },
+    [activeWorkspace?.id, pendingId, switchWorkspace, workspaces],
+  )
+
+  if (!activeWorkspace) {
+    return null
+  }
+
+  const triggerInner = (
+    <div className="flex w-full items-center justify-between gap-3 text-left">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-foreground">{activeWorkspace.name}</p>
+        <p className="truncate text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">
+          {formatWorkspaceSecondaryText(activeWorkspace)}
+        </p>
+      </div>
+      {pendingId ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+      ) : (
+        canSwitch && <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+      )}
+    </div>
+  )
+
+  if (!canSwitch) {
+    return (
+      <div className="rounded-2xl bg-muted/20 px-3 py-2 shadow-inner">
+        {triggerInner}
+      </div>
+    )
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          className="w-full min-w-[0] rounded-2xl bg-muted/20 px-3 py-2 text-left shadow-inner hover:bg-muted/40"
+          disabled={Boolean(pendingId)}
+        >
+          <div className="flex w-full items-center gap-3 overflow-hidden">{triggerInner}</div>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className={cn('w-64', overlayMenuClass)} align="start">
+        <DropdownMenuLabel>Switch workspace</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {workspaces.map((workspace) => (
+          <DropdownMenuItem
+            key={workspace.id}
+            className="flex items-center gap-3 py-2"
+            onClick={() => handleSelect(workspace.id)}
+            disabled={Boolean(pendingId) || workspace.id === activeWorkspace.id}
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{workspace.name}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {formatWorkspaceSecondaryText(workspace)}
+              </p>
+            </div>
+            {workspace.id === activeWorkspace.id && (
+              <Check className="ml-auto h-4 w-4 text-primary" />
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function FileTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const { user } = useAuthContext()
   const router = useRouter()
   const { openSecondaryViewer } = useSecondaryViewer()
   const {
@@ -423,9 +545,8 @@ function FileTreeInner() {
       {!isShare && (
         <SidebarFooter className="mt-3 rounded-3xl border border-border/50 bg-background/95 px-4 py-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-foreground">{user?.name || 'Guest'}</p>
-              {user?.email && <p className="truncate text-xs text-muted-foreground/70">{user.email}</p>}
+            <div className="flex-1">
+              <WorkspaceSwitcher />
             </div>
             <SidebarUserMenu />
           </div>

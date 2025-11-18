@@ -6,23 +6,24 @@ import PublicShell from '@/widgets/public/PublicShell'
 type Summary = { id: string; title: string; updated_at: string; published_at: string }
 
 type Props = {
-  name: string
+  slug: string
   items: Summary[]
 }
 
-export default function PublicUserListPage({ name, items }: Props) {
+export default function PublicUserListPage({ slug, items }: Props) {
   const total = items.length
   const subtitle = `${total} public ${total === 1 ? 'document' : 'documents'}`
+  const profileLabel = `@${slug}`
   return (
-    <PublicShell pageType="list" title={`@${name}`} subtitle={subtitle} author={{ name }}>
+    <PublicShell pageType="list" title={profileLabel} subtitle={subtitle} author={{ name: slug }} workspaceSlug={slug}>
       <section className="space-y-8">
         <div className="flex flex-col justify-between gap-3 rounded-2xl border border-border/70 bg-card/80 px-6 py-5 text-sm text-muted-foreground shadow-sm md:flex-row md:items-center">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">Overview</p>
             <p>
               {total === 0
-                ? `@${name} has not published any documents yet.`
-                : `Displaying ${total} publicly shared ${total === 1 ? 'document' : 'documents'} from @${name}.`}
+                ? `${profileLabel} has not published any documents yet.`
+                : `Displaying ${total} publicly shared ${total === 1 ? 'document' : 'documents'} from ${profileLabel}.`}
             </p>
           </div>
           {total > 0 && (
@@ -34,7 +35,7 @@ export default function PublicUserListPage({ name, items }: Props) {
           <div className="rounded-3xl border border-dashed border-muted-foreground/30 bg-background/80 p-12 text-center text-muted-foreground">
             <p className="text-base font-medium text-foreground">Nothing public just yet</p>
             <p className="mt-2 text-sm">
-              When {`@${name}`} publishes documents, they will appear here with live updates.
+              When {profileLabel} publishes documents, they will appear here with live updates.
             </p>
           </div>
         ) : (
@@ -42,7 +43,7 @@ export default function PublicUserListPage({ name, items }: Props) {
             {items.map((doc) => (
               <PublicDocCard
                 key={doc.id}
-                href={`/u/${encodeURIComponent(name)}/${doc.id}`}
+                href={`/w/${encodeURIComponent(slug)}/${doc.id}`}
                 title={doc.title}
                 publishedAt={doc.published_at}
                 updatedAt={doc.updated_at}

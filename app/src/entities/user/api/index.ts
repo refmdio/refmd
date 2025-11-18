@@ -4,6 +4,7 @@ import {
   logout as apiLogout,
   me as apiMe,
   register as apiRegister,
+  switchWorkspace as apiSwitchWorkspace,
 } from '@/shared/api'
 
 export const userKeys = {
@@ -35,4 +36,8 @@ export async function deleteAccount() {
 
 export async function logout() {
   return apiLogout()
+}
+
+export async function switchWorkspace(workspaceId: string) {
+  return apiSwitchWorkspace({ id: workspaceId })
 }

@@ -3,19 +3,45 @@ import { useNavigate } from '@tanstack/react-router'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
 import type { UserResponse } from '@/shared/api'
+import { setClientWorkspaceId } from '@/shared/api/client.config'
 
-import { login as loginApi, register as registerApi, me as meApi, deleteAccount as deleteAccountApi, logout as logoutApi, userKeys } from '@/entities/user'
+import {
+  login as loginApi,
+  register as registerApi,
+  me as meApi,
+  deleteAccount as deleteAccountApi,
+  logout as logoutApi,
+  switchWorkspace as switchWorkspaceApi,
+  userKeys,
+} from '@/entities/user'
+
+const WORKSPACE_STORAGE_KEY = 'refmd.activeWorkspaceId'
 
 type AuthState = {
   user: UserResponse | null
+  workspaces: UserResponse['workspaces']
+  activeWorkspaceId: string | null
+  activeWorkspace: UserResponse['workspaces'][number] | null
+  permissions: string[]
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, name: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   deleteAccount: () => Promise<void>
+  switchWorkspace: (workspaceId: string) => Promise<void>
 }
 
 const Ctx = createContext<AuthState | null>(null)
+
+function readStoredWorkspaceId() {
+  if (typeof window === 'undefined') return null
+  try {
+    const stored = window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+    return stored && stored.trim().length > 0 ? stored : null
+  } catch {
+    return null
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
@@ -25,6 +51,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hasInitialData = meState?.status === 'success'
   const [user, setUser] = useState<UserResponse | null>(initialUser)
   const [loading, setLoading] = useState(() => !hasInitialData)
+  const [preferredWorkspaceId, setPreferredWorkspaceId] = useState<string | null>(() => {
+    const stored = readStoredWorkspaceId()
+    if (stored) {
+      setClientWorkspaceId(stored)
+    }
+    return stored
+  })
 
   useEffect(() => {
     if (hasInitialData) {
@@ -122,9 +155,94 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     navigate({ to: '/auth/signin' })
   }, [navigate])
 
+  const workspaces = useMemo(() => user?.workspaces ?? [], [user])
+  const activeWorkspace = useMemo(() => {
+    if (!user) return null
+    if (preferredWorkspaceId) {
+      const preferred = workspaces.find((ws) => ws.id === preferredWorkspaceId)
+      if (preferred) return preferred
+    }
+    if (user.active_workspace) {
+      return user.active_workspace
+    }
+    if (user.active_workspace_id) {
+      return workspaces.find((ws) => ws.id === user.active_workspace_id) ?? null
+    }
+    return workspaces.find((ws) => ws.is_default) ?? workspaces[0] ?? null
+  }, [user, workspaces, preferredWorkspaceId])
+  const activeWorkspaceId = useMemo(() => activeWorkspace?.id ?? null, [activeWorkspace])
+  const permissions = useMemo(() => user?.active_workspace_permissions ?? [], [user])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setClientWorkspaceId(activeWorkspaceId)
+    try {
+      if (!activeWorkspaceId) {
+        window.localStorage.removeItem(WORKSPACE_STORAGE_KEY)
+        if (preferredWorkspaceId !== null) {
+          setPreferredWorkspaceId(null)
+        }
+      } else {
+        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, activeWorkspaceId)
+        if (preferredWorkspaceId !== activeWorkspaceId) {
+          setPreferredWorkspaceId(activeWorkspaceId)
+        }
+      }
+    } catch {
+      /* noop */
+    }
+  }, [activeWorkspaceId, preferredWorkspaceId])
+
+  const switchWorkspace = useCallback(
+    async (workspaceId: string) => {
+      const previousWorkspaceId = activeWorkspaceId
+      setPreferredWorkspaceId(workspaceId)
+      setClientWorkspaceId(workspaceId)
+      try {
+        await switchWorkspaceApi(workspaceId)
+        queryClient.clear()
+        const updated = await meApi()
+        queryClient.setQueryData(userKeys.me(), updated)
+        setUser(updated)
+        navigate({ to: '/dashboard' })
+      } catch (error) {
+        if (previousWorkspaceId !== workspaceId) {
+          setPreferredWorkspaceId(previousWorkspaceId)
+          setClientWorkspaceId(previousWorkspaceId)
+        }
+        throw error
+      }
+    },
+    [navigate, queryClient, activeWorkspaceId],
+  )
+
   const value = useMemo(
-    () => ({ user, loading, signIn, signUp, signOut, deleteAccount }),
-    [user, loading, signIn, signUp, signOut, deleteAccount],
+    () => ({
+      user,
+      workspaces,
+      activeWorkspaceId,
+      activeWorkspace,
+      permissions,
+      loading,
+      signIn,
+      signUp,
+      signOut,
+      deleteAccount,
+      switchWorkspace,
+    }),
+    [
+      user,
+      workspaces,
+      activeWorkspaceId,
+      activeWorkspace,
+      permissions,
+      loading,
+      signIn,
+      signUp,
+      signOut,
+      deleteAccount,
+      switchWorkspace,
+    ],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

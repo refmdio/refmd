@@ -14,11 +14,13 @@ pub struct GetPublishStatus<'a, R: PublicRepository + ?Sized> {
 impl<'a, R: PublicRepository + ?Sized> GetPublishStatus<'a, R> {
     pub async fn execute(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Option<PublishStatusDto>> {
-        if let Some((slug, owner_name)) = self.repo.get_publish_status(owner_id, doc_id).await? {
-            let public_url = format!("/u/{}/{}", owner_name, doc_id);
+        if let Some((slug, workspace_slug)) =
+            self.repo.get_publish_status(workspace_id, doc_id).await?
+        {
+            let public_url = format!("/w/{}/{}", workspace_slug, doc_id);
             Ok(Some(PublishStatusDto { slug, public_url }))
         } else {
             Ok(None)

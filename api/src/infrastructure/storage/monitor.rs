@@ -13,6 +13,7 @@ use crate::{
     application::ports::storage_projection_queue::{
         StorageProjectionJobKind, StorageProjectionQueue,
     },
+    application::services::workspaces::permissions::PermissionSet,
     infrastructure::db::PgPool,
 };
 
@@ -73,7 +74,7 @@ impl StorageConsistencyMonitor {
     async fn scan_documents(&self) -> anyhow::Result<()> {
         let mut offset = self.doc_offset.lock().await;
         let rows = sqlx::query(
-            r#"SELECT id, path
+            r#"SELECT id, workspace_id, path
                FROM documents
                WHERE path IS NOT NULL AND type <> 'folder'
                ORDER BY updated_at DESC
@@ -92,6 +93,7 @@ impl StorageConsistencyMonitor {
         for row in rows.iter() {
             let doc_id: Uuid = row.get("id");
             let path: String = row.try_get("path").context("documents.path missing")?;
+            let workspace_id: Uuid = row.get("workspace_id");
             let abs = self.storage.absolute_from_relative(&path);
             match self.storage.exists(abs.as_path()).await {
                 Ok(true) => {
@@ -106,7 +108,7 @@ impl StorageConsistencyMonitor {
                     drop(flagged);
                     if newly_flagged {
                         warn!(document_id = %doc_id, path = %path, "storage_consistency_missing_document_file");
-                        self.enqueue_doc_resync(doc_id).await;
+                        self.enqueue_doc_resync(doc_id, workspace_id).await;
                     }
                 }
                 Err(err) => {
@@ -122,7 +124,7 @@ impl StorageConsistencyMonitor {
     async fn scan_attachments(&self) -> anyhow::Result<()> {
         let mut offset = self.attachment_offset.lock().await;
         let rows = sqlx::query(
-            r#"SELECT f.document_id, f.storage_path, d.owner_id
+            r#"SELECT f.document_id, f.storage_path, d.owner_id, d.workspace_id
                FROM files f
                JOIN documents d ON d.id = f.document_id
                ORDER BY f.created_at DESC
@@ -144,6 +146,7 @@ impl StorageConsistencyMonitor {
                 .try_get("storage_path")
                 .context("files.storage_path missing")?;
             let owner_id: Uuid = row.get("owner_id");
+            let workspace_id: Uuid = row.get("workspace_id");
             let abs = self.storage.absolute_from_relative(&storage_path);
             match self.storage.exists(abs.as_path()).await {
                 Ok(true) => {
@@ -155,8 +158,8 @@ impl StorageConsistencyMonitor {
                 Ok(false) => {
                     let mut flagged = self.flagged_attachments.lock().await;
                     if flagged.insert(storage_path.clone()) {
-                        warn!(document_id = %doc_id, attachment_path = %storage_path, "storage_consistency_missing_attachment");
-                        self.enqueue_attachment_delete(owner_id, &storage_path)
+                        warn!(document_id = %doc_id, attachment_path = %storage_path, workspace_id = %workspace_id, "storage_consistency_missing_attachment");
+                        self.enqueue_attachment_delete(workspace_id, owner_id, &storage_path)
                             .await;
                     }
                 }
@@ -172,10 +175,11 @@ impl StorageConsistencyMonitor {
 }
 
 impl StorageConsistencyMonitor {
-    async fn enqueue_doc_resync(&self, doc_id: Uuid) {
+    async fn enqueue_doc_resync(&self, doc_id: Uuid, workspace_id: Uuid) {
         if let Err(err) = self
             .jobs
             .enqueue_doc_job(
+                workspace_id,
                 doc_id,
                 StorageProjectionJobKind::DocSync,
                 Some("consistency_missing_document"),
@@ -186,9 +190,16 @@ impl StorageConsistencyMonitor {
         }
     }
 
-    async fn enqueue_attachment_delete(&self, owner_id: Uuid, storage_path: &str) {
-        let Some(repo_path) = repo_relative_from_storage(owner_id, storage_path) else {
+    async fn enqueue_attachment_delete(
+        &self,
+        workspace_id: Uuid,
+        owner_id: Uuid,
+        storage_path: &str,
+    ) {
+        let Some(repo_path) = repo_relative_from_storage(workspace_id, owner_id, storage_path)
+        else {
             warn!(
+                workspace_id = %workspace_id,
                 owner_id = %owner_id,
                 storage_path,
                 "storage_consistency_attachment_repo_path_unparseable"
@@ -198,7 +209,9 @@ impl StorageConsistencyMonitor {
         if let Err(err) = self
             .ingest_queue
             .enqueue_event(
-                owner_id,
+                workspace_id,
+                workspace_id,
+                None,
                 &repo_path,
                 "consistency",
                 StorageIngestKind::Delete,
@@ -207,10 +220,12 @@ impl StorageConsistencyMonitor {
                     "source": "consistency_monitor",
                     "storage_path": storage_path,
                 })),
+                &PermissionSet::all().to_vec(),
             )
             .await
         {
             warn!(
+                workspace_id = %workspace_id,
                 owner_id = %owner_id,
                 storage_path,
                 error = ?err,
@@ -220,15 +235,23 @@ impl StorageConsistencyMonitor {
     }
 }
 
-fn repo_relative_from_storage(owner_id: Uuid, storage_path: &str) -> Option<String> {
-    let trimmed = storage_path.trim_start_matches('/');
-    let prefix = owner_id.to_string();
-    let rest = trimmed.strip_prefix(&prefix)?.trim_start_matches('/');
-    if rest.is_empty() {
-        None
-    } else {
-        Some(rest.to_string())
+fn repo_relative_from_storage(
+    workspace_id: Uuid,
+    owner_id: Uuid,
+    storage_path: &str,
+) -> Option<String> {
+    fn strip_prefix(storage_path: &str, prefix: Uuid) -> Option<String> {
+        let trimmed = storage_path.trim_start_matches('/');
+        let prefix_str = prefix.to_string();
+        let rest = trimmed.strip_prefix(&prefix_str)?.trim_start_matches('/');
+        if rest.is_empty() {
+            None
+        } else {
+            Some(rest.to_string())
+        }
     }
+
+    strip_prefix(storage_path, workspace_id).or_else(|| strip_prefix(storage_path, owner_id))
 }
 
 #[cfg(test)]
@@ -237,13 +260,22 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn repo_relative_parses_owner_prefix() {
+    fn repo_relative_prefers_workspace_prefix_with_owner_fallback() {
+        let workspace = Uuid::new_v4();
         let owner = Uuid::new_v4();
-        let rel = format!("{}/attachments/file.png", owner);
+        let ws_rel = format!("{}/docs/foo.md", workspace);
+        let owner_rel = format!("{}/docs/bar.md", owner);
         assert_eq!(
-            repo_relative_from_storage(owner, &rel),
-            Some("attachments/file.png".into())
+            repo_relative_from_storage(workspace, owner, &ws_rel),
+            Some("docs/foo.md".into())
         );
-        assert_eq!(repo_relative_from_storage(owner, "/garbage"), None);
+        assert_eq!(
+            repo_relative_from_storage(workspace, owner, &owner_rel),
+            Some("docs/bar.md".into())
+        );
+        assert_eq!(
+            repo_relative_from_storage(workspace, owner, "/invalid"),
+            None
+        );
     }
 }

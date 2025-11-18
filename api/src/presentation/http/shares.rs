@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ use crate::application::services::errors::ServiceError;
 use crate::presentation::context::{AppContext, PresentationConfig};
 use crate::presentation::http::auth;
 use crate::presentation::http::auth::Bearer;
+use crate::presentation::http::workspace_scope;
 
 fn frontend_base(cfg: &PresentationConfig) -> String {
     cfg.frontend_url
@@ -80,14 +81,37 @@ pub struct CreateShareResponse {
 pub async fn create_share(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(req): Json<CreateShareRequest>,
 ) -> Result<Json<CreateShareResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
+    let actor = access::Actor::User(user_id);
+    ctx.authorization()
+        .require_edit(&actor, req.document_id)
+        .await
+        .map_err(|_| StatusCode::FORBIDDEN)?;
     let permission = req.permission.as_deref().unwrap_or("view");
     let service = ctx.share_service();
     let res = service
-        .create_share(user_id, req.document_id, permission, req.expires_at)
+        .create_share(
+            workspace_id,
+            user_id,
+            &permissions,
+            req.document_id,
+            permission,
+            req.expires_at,
+        )
         .await
         .map_err(map_share_error)?;
     let base = frontend_base(&ctx.cfg);
@@ -121,10 +145,21 @@ pub struct ShareItem {
 pub async fn list_document_shares(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> Result<Json<Vec<ShareItem>>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     // authorization: require edit on the document
     let actor = access::Actor::User(user_id);
     ctx.authorization()
@@ -133,7 +168,7 @@ pub async fn list_document_shares(
         .map_err(|_| StatusCode::FORBIDDEN)?;
     let service = ctx.share_service();
     let rows: Vec<ShareItemDto> = service
-        .list_document_shares(user_id, id)
+        .list_document_shares(workspace_id, &permissions, id)
         .await
         .map_err(map_share_error)?;
     let base = frontend_base(&ctx.cfg);
@@ -175,13 +210,37 @@ pub async fn list_document_shares(
 pub async fn delete_share(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     axum::extract::Path(token): axum::extract::Path<String>,
 ) -> Result<StatusCode, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.share_service();
+    let meta = service
+        .share_document_meta(&token)
+        .await
+        .map_err(map_share_error)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if meta.workspace_id != workspace_id {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let actor = access::Actor::User(user_id);
+    ctx.authorization()
+        .require_edit(&actor, meta.document_id)
+        .await
+        .map_err(|_| StatusCode::FORBIDDEN)?;
     let ok = service
-        .delete_share(user_id, &token)
+        .delete_share(workspace_id, &permissions, &token)
         .await
         .map_err(map_share_error)?;
     if ok {
@@ -222,10 +281,21 @@ impl From<ApplicableShareDto> for ApplicableShareItem {
 pub async fn list_applicable_shares(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Query(q): Query<ApplicableQuery>,
 ) -> Result<Json<Vec<ApplicableShareItem>>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     // authorize: require view on the document
     let actor = access::Actor::User(user_id);
     ctx.authorization()
@@ -235,7 +305,7 @@ pub async fn list_applicable_shares(
 
     let service = ctx.share_service();
     let rows = service
-        .list_applicable(user_id, q.doc_id)
+        .list_applicable(workspace_id, &permissions, q.doc_id)
         .await
         .map_err(map_share_error)?;
     let items: Vec<ApplicableShareItem> = rows.into_iter().map(Into::into).collect();
@@ -312,12 +382,23 @@ pub struct ActiveShareItem {
 pub async fn list_active_shares(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<ActiveShareItem>>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.share_service();
     let items: Vec<ActiveShareItemDto> = service
-        .list_active(user_id)
+        .list_active(workspace_id, &permissions)
         .await
         .map_err(map_share_error)?;
     let base = frontend_base(&ctx.cfg);
@@ -426,13 +507,37 @@ pub struct MaterializeResponse {
 pub async fn materialize_folder_share(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     axum::extract::Path(token): axum::extract::Path<String>,
 ) -> Result<Json<MaterializeResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.share_service();
+    let meta = service
+        .share_document_meta(&token)
+        .await
+        .map_err(map_share_error)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if meta.workspace_id != workspace_id {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let actor = access::Actor::User(user_id);
+    ctx.authorization()
+        .require_edit(&actor, meta.document_id)
+        .await
+        .map_err(|_| StatusCode::FORBIDDEN)?;
     let created = service
-        .materialize_folder_share(user_id, &token)
+        .materialize_folder_share(workspace_id, user_id, &permissions, &token)
         .await
         .map_err(map_share_error)?;
     Ok(Json(MaterializeResponse { created }))

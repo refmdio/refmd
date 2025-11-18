@@ -12,8 +12,10 @@ use uuid::Uuid;
 use crate::application::access;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::files::FilePayload;
+use crate::application::services::workspaces::permissions::{PERM_DOC_VIEW, PERM_FILE_UPLOAD};
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
+use crate::presentation::http::workspace_scope;
 
 // Uses AppContext as router state
 
@@ -86,11 +88,22 @@ pub struct UploadFileMultipart {
 pub async fn upload_file(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<UploadFileResponse>, StatusCode> {
     // Validate user via bearer
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_FILE_UPLOAD)
+        .await?;
 
     let mut document_id: Option<Uuid> = None;
     let mut file_bytes: Option<Vec<u8>> = None;
@@ -132,6 +145,7 @@ pub async fn upload_file(
     let file_service = ctx.file_service();
     let f = file_service
         .upload_file(
+            workspace_id,
             user_id,
             doc_id,
             bytes,
@@ -161,13 +175,24 @@ pub async fn upload_file(
 pub async fn get_file(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     AxumPath(id): AxumPath<Uuid>,
 ) -> Result<Response, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
+        .await?;
     let payload = ctx
         .file_service()
-        .download_owned_file(user_id, id)
+        .download_owned_file(workspace_id, id)
         .await
         .map_err(map_file_error)?;
     Ok(file_payload_response(payload))
@@ -189,12 +214,23 @@ pub struct FileByNameQuery {
 pub async fn get_file_by_name(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     AxumPath(filename): AxumPath<String>,
     Query(q): Query<FileByNameQuery>,
 ) -> Result<Response, StatusCode> {
     // auth: owner of the document only
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
+        .await?;
 
     let actor = access::Actor::User(user_id);
     let payload = ctx

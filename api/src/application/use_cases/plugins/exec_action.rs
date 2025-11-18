@@ -6,6 +6,9 @@ use crate::application::dto::plugins::ExecResult;
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::plugin_runtime::PluginRuntime;
+use crate::application::services::workspaces::permissions::{
+    PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet,
+};
 
 const PERMISSION_DOC_WRITE: &str = "doc.write";
 
@@ -39,22 +42,25 @@ where
 {
     pub async fn execute(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
+        workspace_permissions: &PermissionSet,
         plugin: &str,
         action: &str,
         payload: Option<serde_json::Value>,
     ) -> anyhow::Result<Option<ExecResult>> {
         let payload = payload.unwrap_or(serde_json::Value::Null);
+        let runtime_scope = Some(workspace_id);
         let permissions = self
             .runtime
-            .permissions(Some(user_id), plugin)
+            .permissions(runtime_scope, plugin)
             .await?
             .unwrap_or_default()
             .into_iter()
             .collect::<HashSet<String>>();
         let try_result = self
             .runtime
-            .execute(Some(user_id), plugin, action, &payload)
+            .execute(runtime_scope, plugin, action, &payload)
             .await?;
         let Some(res) = try_result else {
             return Ok(None);
@@ -62,7 +68,14 @@ where
 
         if !res.effects.is_empty() {
             match self
-                .apply_server_effects(user_id, plugin, &res.effects, &permissions)
+                .apply_server_effects(
+                    workspace_id,
+                    user_id,
+                    plugin,
+                    &res.effects,
+                    &permissions,
+                    workspace_permissions,
+                )
                 .await
             {
                 Ok(passthrough) => {
@@ -98,10 +111,12 @@ where
 
     async fn apply_server_effects(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
         plugin: &str,
         effects: &[serde_json::Value],
         permissions: &HashSet<String>,
+        workspace_permissions: &PermissionSet,
     ) -> Result<Vec<serde_json::Value>, PluginEffectError> {
         let mut doc_id_created: Option<Uuid> = None;
         let mut passthrough: Vec<serde_json::Value> = Vec::new();
@@ -118,6 +133,11 @@ where
                 }
                 "createDocument" => {
                     self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
+                    if !workspace_permissions.allows(PERM_DOC_CREATE) {
+                        return Err(PluginEffectError::PermissionDenied {
+                            permission: PERM_DOC_CREATE.to_string(),
+                        });
+                    }
                     let title = effect
                         .get("title")
                         .and_then(|v| v.as_str())
@@ -132,13 +152,18 @@ where
                         .and_then(|s| Uuid::parse_str(s).ok());
                     let doc = self
                         .document_repo
-                        .create_for_user(user_id, title, parent_id, doc_type)
+                        .create_for_user(workspace_id, user_id, title, parent_id, doc_type)
                         .await
                         .map_err(PluginEffectError::from)?;
                     doc_id_created = Some(doc.id);
                 }
                 "putKv" => {
                     self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
+                    if !workspace_permissions.allows(PERM_DOC_EDIT) {
+                        return Err(PluginEffectError::PermissionDenied {
+                            permission: PERM_DOC_EDIT.to_string(),
+                        });
+                    }
                     let Some(key) = effect.get("key").and_then(|v| v.as_str()) else {
                         continue;
                     };
@@ -160,6 +185,11 @@ where
                 }
                 "createRecord" => {
                     self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
+                    if !workspace_permissions.allows(PERM_DOC_EDIT) {
+                        return Err(PluginEffectError::PermissionDenied {
+                            permission: PERM_DOC_EDIT.to_string(),
+                        });
+                    }
                     let Some(kind) = effect.get("kind").and_then(|v| v.as_str()) else {
                         continue;
                     };
@@ -182,6 +212,11 @@ where
                 }
                 "updateRecord" => {
                     self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
+                    if !workspace_permissions.allows(PERM_DOC_EDIT) {
+                        return Err(PluginEffectError::PermissionDenied {
+                            permission: PERM_DOC_EDIT.to_string(),
+                        });
+                    }
                     if let Some(record_id) = effect
                         .get("recordId")
                         .and_then(|v| v.as_str())
@@ -200,6 +235,11 @@ where
                 }
                 "deleteRecord" => {
                     self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
+                    if !workspace_permissions.allows(PERM_DOC_EDIT) {
+                        return Err(PluginEffectError::PermissionDenied {
+                            permission: PERM_DOC_EDIT.to_string(),
+                        });
+                    }
                     if let Some(record_id) = effect
                         .get("recordId")
                         .and_then(|v| v.as_str())

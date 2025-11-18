@@ -14,7 +14,8 @@ where
 {
     pub async fn execute(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
+        owner_id: Uuid,
         name: Option<&str>,
     ) -> anyhow::Result<CreatedApiTokenDto> {
         let material = generate_api_token()?;
@@ -32,7 +33,8 @@ where
         let token = self
             .repo
             .create(
-                user_id,
+                workspace_id,
+                owner_id,
                 friendly_name,
                 &material.token_hash,
                 &material.token_digest,

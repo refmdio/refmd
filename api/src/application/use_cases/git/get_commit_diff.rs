@@ -9,10 +9,10 @@ pub struct GetCommitDiff<'a, W: GitWorkspacePort + ?Sized> {
 impl<'a, W: GitWorkspacePort + ?Sized> GetCommitDiff<'a, W> {
     pub async fn execute(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         from: String,
         to: String,
     ) -> anyhow::Result<Vec<TextDiffResult>> {
-        self.workspace.commit_diff(user_id, &from, &to).await
+        self.workspace.commit_diff(workspace_id, &from, &to).await
     }
 }

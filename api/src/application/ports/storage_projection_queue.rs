@@ -15,6 +15,7 @@ pub enum StorageProjectionJobKind {
 #[derive(Debug, Clone)]
 pub struct StorageProjectionJob {
     pub id: i64,
+    pub workspace_id: Uuid,
     pub job_type: StorageProjectionJobKind,
     pub doc_id: Option<Uuid>,
     pub folder_id: Option<Uuid>,
@@ -25,11 +26,18 @@ pub struct StorageProjectionJob {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageDeleteJobMetadata {
-    pub owner_id: Uuid,
+    pub workspace_id: Uuid,
     pub repo_path: Option<String>,
     pub doc_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_paths: Option<Vec<String>>,
+    #[serde(default)]
+    pub permission_snapshot: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceJobMetadata {
+    pub workspace_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +50,7 @@ pub struct StorageJobReason<T> {
 pub trait StorageProjectionQueue: Send + Sync {
     async fn enqueue_doc_job(
         &self,
+        workspace_id: Uuid,
         doc_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
@@ -50,6 +59,7 @@ pub trait StorageProjectionQueue: Send + Sync {
     async fn enqueue_doc_job_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
+        workspace_id: Uuid,
         doc_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
@@ -57,6 +67,7 @@ pub trait StorageProjectionQueue: Send + Sync {
 
     async fn enqueue_folder_job(
         &self,
+        workspace_id: Uuid,
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
@@ -65,6 +76,7 @@ pub trait StorageProjectionQueue: Send + Sync {
     async fn enqueue_folder_job_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
+        workspace_id: Uuid,
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,

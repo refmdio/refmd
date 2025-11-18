@@ -19,12 +19,12 @@ where
     pub async fn execute(
         &self,
         id: Uuid,
-        user_id: Uuid,
+        workspace_id: Uuid,
         title: Option<String>,
         parent_id: Option<Option<Uuid>>,
     ) -> anyhow::Result<Option<DomainDocument>> {
         self.repo
-            .update_title_and_parent_for_user(id, user_id, title, parent_id)
+            .update_title_and_parent_for_user(id, workspace_id, title, parent_id)
             .await
     }
 
@@ -32,12 +32,12 @@ where
         &self,
         tx: &mut Transaction<'_, Postgres>,
         id: Uuid,
-        user_id: Uuid,
+        workspace_id: Uuid,
         title: Option<String>,
         parent_id: Option<Option<Uuid>>,
     ) -> anyhow::Result<Option<DomainDocument>> {
         self.repo
-            .update_title_and_parent_for_user_tx(tx, id, user_id, title, parent_id)
+            .update_title_and_parent_for_user_tx(tx, id, workspace_id, title, parent_id)
             .await
     }
 }

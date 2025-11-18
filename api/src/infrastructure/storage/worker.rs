@@ -16,6 +16,10 @@ use crate::application::ports::storage_projection_queue::{
 };
 use crate::application::services::metrics::MetricsRegistry;
 use crate::application::services::realtime::snapshot::MarkdownExportProvider;
+use crate::application::services::workspaces::permissions::{
+    PERM_DOC_DELETE, PERM_FILE_DELETE, PERM_FOLDER_DELETE, PermissionSet,
+    permission_set_from_snapshot,
+};
 
 pub struct StorageProjectionWorker {
     jobs: Arc<dyn StorageProjectionQueue>,
@@ -229,19 +233,42 @@ impl StorageProjectionWorker {
         &self,
         metadata: &StorageDeleteJobMetadata,
     ) -> anyhow::Result<()> {
+        let permissions = permission_set_from_metadata(metadata);
         if metadata.doc_type == "folder" {
+            if !permissions.allows(PERM_FOLDER_DELETE) {
+                warn!(
+                    workspace_id = %metadata.workspace_id,
+                    "storage_projection_folder_delete_permission_denied"
+                );
+            }
+            return Ok(());
+        }
+        if !permissions.allows(PERM_DOC_DELETE) {
+            warn!(
+                workspace_id = %metadata.workspace_id,
+                "storage_projection_doc_delete_permission_denied"
+            );
             return Ok(());
         }
         let Some(repo_path) = metadata.repo_path.as_deref() else {
             return Ok(());
         };
-        let doc_relative = owner_repo_relative(metadata.owner_id, repo_path);
+        let doc_relative = workspace_repo_relative(metadata.workspace_id, repo_path);
         self.storage.delete_relative_path(&doc_relative).await?;
         if let Some(paths) = metadata.attachment_paths.as_ref() {
+            let can_delete_attachments = permissions.allows(PERM_FILE_DELETE);
             for rel in paths {
+                if !can_delete_attachments {
+                    warn!(
+                        workspace_id = %metadata.workspace_id,
+                        attachment_path = rel.as_str(),
+                        "storage_projection_attachment_delete_permission_denied"
+                    );
+                    break;
+                }
                 if let Err(err) = self.storage.delete_relative_path(rel).await {
                     warn!(
-                        owner_id = %metadata.owner_id,
+                        workspace_id = %metadata.workspace_id,
                         attachment_path = rel.as_str(),
                         error = ?err,
                         "storage_attachment_delete_failed"
@@ -259,7 +286,15 @@ impl StorageProjectionWorker {
         let Some(repo_path) = metadata.repo_path.as_deref() else {
             return Ok(());
         };
-        let folder_relative = owner_repo_relative(metadata.owner_id, repo_path);
+        let permissions = permission_set_from_metadata(metadata);
+        if !permissions.allows(PERM_FOLDER_DELETE) {
+            warn!(
+                workspace_id = %metadata.workspace_id,
+                "storage_projection_folder_delete_permission_denied"
+            );
+            return Ok(());
+        }
+        let folder_relative = workspace_repo_relative(metadata.workspace_id, repo_path);
         self.storage.delete_relative_path(&folder_relative).await?;
         Ok(())
     }
@@ -296,7 +331,11 @@ impl StorageProjectionWorker {
             "attempts": job.attempts,
             "error": error,
         });
-        if let Err(err) = self.events.append(doc_id, event_type, Some(payload)).await {
+        if let Err(err) = self
+            .events
+            .append(job.workspace_id, doc_id, event_type, Some(payload))
+            .await
+        {
             warn!(
                 error = ?err,
                 doc_id = %doc_id,
@@ -315,10 +354,14 @@ fn parse_delete_job_metadata(reason: Option<&String>) -> Option<StorageDeleteJob
     })
 }
 
-fn owner_repo_relative(owner_id: Uuid, repo_path: &str) -> String {
-    let mut full = PathBuf::from(owner_id.to_string());
+fn workspace_repo_relative(workspace_id: Uuid, repo_path: &str) -> String {
+    let mut full = PathBuf::from(workspace_id.to_string());
     full.push(repo_path.trim_start_matches('/'));
     normalize_relative_path(full)
+}
+
+fn permission_set_from_metadata(metadata: &StorageDeleteJobMetadata) -> PermissionSet {
+    permission_set_from_snapshot(&metadata.permission_snapshot)
 }
 
 #[cfg(test)]
@@ -354,6 +397,7 @@ mod tests {
         ));
         let job = StorageProjectionJob {
             id: 1,
+            workspace_id: Uuid::new_v4(),
             job_type: StorageProjectionJobKind::DocSync,
             doc_id: Some(Uuid::new_v4()),
             folder_id: None,
@@ -365,7 +409,7 @@ mod tests {
         assert_eq!(queue.completed(), vec![1]);
         assert_eq!(storage.calls(), vec!["sync_doc_paths".to_string()]);
         assert_eq!(events.events().len(), 1);
-        assert_eq!(events.events()[0].1, "storage.projection.doc_sync");
+        assert_eq!(events.events()[0].2, "storage.projection.doc_sync");
         assert_eq!(resolver_impl.writes().len(), 1);
         assert_eq!(metrics.snapshot().storage_projection_success, 1);
     }
@@ -390,6 +434,7 @@ mod tests {
         ));
         let job = StorageProjectionJob {
             id: 2,
+            workspace_id: Uuid::new_v4(),
             job_type: StorageProjectionJobKind::DocSync,
             doc_id: Some(Uuid::new_v4()),
             folder_id: None,
@@ -423,13 +468,14 @@ mod tests {
         ));
         let owner = Uuid::new_v4();
         let metadata = StorageDeleteJobMetadata {
-            owner_id: owner,
+            workspace_id: owner,
             repo_path: Some("docs/foo.md".into()),
             doc_type: "doc".into(),
             attachment_paths: Some(vec![
                 format!("{}/docs/attachments/image.png", owner),
                 format!("{}/docs/attachments/asset.bin", owner),
             ]),
+            permission_snapshot: PermissionSet::all().to_vec(),
         };
         worker.delete_doc_by_metadata(&metadata).await.unwrap();
         assert_eq!(
@@ -462,6 +508,7 @@ mod tests {
     impl StorageProjectionQueue for MockQueue {
         async fn enqueue_doc_job(
             &self,
+            _workspace_id: Uuid,
             _doc_id: Uuid,
             _kind: StorageProjectionJobKind,
             _reason: Option<&str>,
@@ -472,6 +519,7 @@ mod tests {
         async fn enqueue_doc_job_tx(
             &self,
             _tx: &mut Transaction<'_, Postgres>,
+            _workspace_id: Uuid,
             _doc_id: Uuid,
             _kind: StorageProjectionJobKind,
             _reason: Option<&str>,
@@ -481,6 +529,7 @@ mod tests {
 
         async fn enqueue_folder_job(
             &self,
+            _workspace_id: Uuid,
             _folder_id: Uuid,
             _kind: StorageProjectionJobKind,
             _reason: Option<&str>,
@@ -491,6 +540,7 @@ mod tests {
         async fn enqueue_folder_job_tx(
             &self,
             _tx: &mut Transaction<'_, Postgres>,
+            _workspace_id: Uuid,
             _folder_id: Uuid,
             _kind: StorageProjectionJobKind,
             _reason: Option<&str>,
@@ -691,11 +741,11 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingDocEventLog {
-        events: Mutex<Vec<(Uuid, String, Option<serde_json::Value>)>>,
+        events: Mutex<Vec<(Uuid, Uuid, String, Option<serde_json::Value>)>>,
     }
 
     impl RecordingDocEventLog {
-        fn events(&self) -> Vec<(Uuid, String, Option<serde_json::Value>)> {
+        fn events(&self) -> Vec<(Uuid, Uuid, String, Option<serde_json::Value>)> {
             self.events.lock().unwrap().clone()
         }
     }
@@ -704,20 +754,24 @@ mod tests {
     impl DocEventLog for RecordingDocEventLog {
         async fn append(
             &self,
+            workspace_id: Uuid,
             doc_id: Uuid,
             event_type: &str,
             payload: Option<serde_json::Value>,
         ) -> anyhow::Result<()> {
-            self.events
-                .lock()
-                .unwrap()
-                .push((doc_id, event_type.to_string(), payload));
+            self.events.lock().unwrap().push((
+                workspace_id,
+                doc_id,
+                event_type.to_string(),
+                payload,
+            ));
             Ok(())
         }
 
         async fn append_tx(
             &self,
             _tx: &mut Transaction<'_, Postgres>,
+            _workspace_id: Uuid,
             _doc_id: Uuid,
             _event_type: &str,
             _payload: Option<serde_json::Value>,

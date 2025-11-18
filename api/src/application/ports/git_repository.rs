@@ -14,7 +14,7 @@ pub struct UserGitCfg {
 pub trait GitRepository: Send + Sync {
     async fn get_config(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
     ) -> anyhow::Result<
         Option<(
             Uuid,
@@ -28,7 +28,7 @@ pub trait GitRepository: Send + Sync {
     >;
     async fn upsert_config(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         repository_url: &str,
         branch_name: Option<&str>,
         auth_type: &str,
@@ -43,11 +43,11 @@ pub trait GitRepository: Send + Sync {
         chrono::DateTime<chrono::Utc>,
         chrono::DateTime<chrono::Utc>,
     )>;
-    async fn delete_config(&self, user_id: Uuid) -> anyhow::Result<bool>;
-    async fn load_user_git_cfg(&self, user_id: Uuid) -> anyhow::Result<Option<UserGitCfg>>;
+    async fn delete_config(&self, workspace_id: Uuid) -> anyhow::Result<bool>;
+    async fn load_user_git_cfg(&self, workspace_id: Uuid) -> anyhow::Result<Option<UserGitCfg>>;
     async fn get_last_sync_log(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
     ) -> anyhow::Result<
         Option<(
             Option<chrono::DateTime<chrono::Utc>>,
@@ -58,14 +58,16 @@ pub trait GitRepository: Send + Sync {
     >;
     async fn log_sync_operation(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         operation: &str,
         status: &str,
         message: Option<&str>,
         commit_hash: Option<&str>,
     ) -> anyhow::Result<()>;
 
-    async fn delete_sync_logs(&self, user_id: Uuid) -> anyhow::Result<()>;
+    async fn delete_sync_logs(&self, workspace_id: Uuid) -> anyhow::Result<()>;
 
-    async fn delete_repository_state(&self, user_id: Uuid) -> anyhow::Result<()>;
+    async fn delete_repository_state(&self, workspace_id: Uuid) -> anyhow::Result<()>;
+
+    async fn list_auto_sync_workspaces(&self) -> anyhow::Result<Vec<Uuid>>;
 }

@@ -18,6 +18,7 @@ use crate::application::ports::storage_port::{StorageProjectionPort, StorageReso
 use crate::application::services::documents::DocumentService;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::snapshot_from_markdown;
+use crate::application::services::workspaces::permissions::WorkspacePermissionContext;
 use crate::domain::documents::document::Document as DomainDocument;
 
 pub fn normalize_repo_path(repo_path: &str) -> Option<String> {
@@ -117,6 +118,7 @@ impl StorageIngestService {
         }
         self.events
             .append(
+                event.workspace_id,
                 doc.id,
                 "document.ingest_upsert",
                 Some(Value::Object(payload_obj)),
@@ -179,6 +181,7 @@ impl StorageIngestService {
         }
         self.events
             .append(
+                event.workspace_id,
                 doc_id,
                 "attachment.ingest_upsert",
                 Some(Value::Object(payload_obj)),
@@ -204,6 +207,7 @@ impl StorageIngestService {
         self.files_repo.delete_by_id(file_id).await?;
         self.events
             .append(
+                event.workspace_id,
                 doc_id,
                 "attachment.ingest_delete",
                 Some(json!({
@@ -257,9 +261,15 @@ impl StorageIngestService {
         repo_path: &str,
         event: &StorageIngestEvent,
     ) -> anyhow::Result<()> {
+        let permissions = WorkspacePermissionContext::from_snapshot(
+            event.workspace_id,
+            &event.permission_snapshot,
+        )
+        .into_permission_set();
+        let actor_id = event.actor_id.or(Some(event.user_id));
         match self
             .document_service
-            .delete_for_user(doc.id, event.user_id)
+            .delete_for_user(event.workspace_id, doc.id, actor_id, &permissions)
             .await
         {
             Ok(true) => {
@@ -286,7 +296,7 @@ impl StorageIngestService {
         previous_repo_path: Option<&str>,
     ) -> anyhow::Result<()> {
         if !self
-            .reconcile_repo_path(doc, event.user_id, rel_path)
+            .reconcile_repo_path(doc, event.workspace_id, rel_path)
             .await?
         {
             warn!(
@@ -299,13 +309,14 @@ impl StorageIngestService {
         let mut payload_obj = serde_json::Map::new();
         payload_obj.insert("repo_path".into(), json!(repo_path));
         payload_obj.insert("doc_type".into(), json!(doc.doc_type));
-        payload_obj.insert("owner_id".into(), json!(event.user_id));
+        payload_obj.insert("owner_id".into(), json!(event.workspace_id));
         payload_obj.insert("backend".into(), json!(event.backend));
         if let Some(prev) = previous_repo_path {
             payload_obj.insert("previous_path".into(), json!(prev));
         }
         self.events
             .append(
+                event.workspace_id,
                 doc.id,
                 "document.metadata_updated",
                 Some(Value::Object(payload_obj)),
@@ -352,34 +363,34 @@ impl StorageIngestHandler for StorageIngestService {
     async fn handle_event(&self, event: &StorageIngestEvent) -> anyhow::Result<()> {
         let Some(repo_path) = normalize_repo_path(&event.repo_path) else {
             warn!(
-                user_id = %event.user_id,
+                user_id = %event.workspace_id,
                 repo_path = event.repo_path.as_str(),
                 "storage_ingest_invalid_repo_path"
             );
             return Ok(());
         };
-        let rel_path = Self::relative_path(event.user_id, &repo_path);
+        let rel_path = Self::relative_path(event.workspace_id, &repo_path);
         let payload_previous_repo_path = previous_path_from_payload(event.payload.as_ref());
 
         let mut doc_previous_repo_path: Option<String> = None;
         let mut doc = self
             .document_repo
-            .get_by_owner_and_path(event.user_id, &rel_path)
+            .get_by_owner_and_path(event.workspace_id, &rel_path)
             .await?
             .map(ResolvedDocument::from);
 
         if doc.is_none() {
             if let Some(prev_repo) = payload_previous_repo_path.as_deref() {
-                let prev_rel = Self::relative_path(event.user_id, prev_repo);
+                let prev_rel = Self::relative_path(event.workspace_id, prev_repo);
                 if let Some(prev_doc) = self
                     .document_repo
-                    .get_by_owner_and_path(event.user_id, &prev_rel)
+                    .get_by_owner_and_path(event.workspace_id, &prev_rel)
                     .await?
                     .map(ResolvedDocument::from)
                 {
                     if let Err(err) = self
                         .document_repo
-                        .update_repo_path(prev_doc.id, event.user_id, &rel_path)
+                        .update_repo_path(prev_doc.id, event.workspace_id, &rel_path)
                         .await
                     {
                         warn!(
@@ -455,7 +466,7 @@ impl StorageIngestHandler for StorageIngestService {
 
         if attachment.is_none() {
             if let Some(prev_repo) = payload_previous_repo_path.as_deref() {
-                let prev_rel = Self::relative_path(event.user_id, prev_repo);
+                let prev_rel = Self::relative_path(event.workspace_id, prev_repo);
                 if let Some(file) = self.files_repo.find_by_storage_path(&prev_rel).await? {
                     self.files_repo
                         .update_storage_path(file.0, &rel_path)
@@ -498,7 +509,7 @@ impl StorageIngestHandler for StorageIngestService {
                 Ok(payload) => payload,
                 Err(err) if is_not_found_error(&err) => {
                     info!(
-                        user_id = %event.user_id,
+                        user_id = %event.workspace_id,
                         repo_path = repo_path,
                         "storage_ingest_missing_source_skipped"
                     );
@@ -510,7 +521,7 @@ impl StorageIngestHandler for StorageIngestService {
                 Err(err) => return Err(err),
             };
             if let Some(doc) = self
-                .resolve_doc_from_front_matter(event.user_id, &payload)
+                .resolve_doc_from_front_matter(event.workspace_id, &payload)
                 .await?
             {
                 if doc.is_folder() {
@@ -527,7 +538,7 @@ impl StorageIngestHandler for StorageIngestService {
                     );
                 } else {
                     if !self
-                        .reconcile_repo_path(&doc, event.user_id, &rel_path)
+                        .reconcile_repo_path(&doc, event.workspace_id, &rel_path)
                         .await?
                     {
                         warn!(
@@ -555,14 +566,14 @@ impl StorageIngestHandler for StorageIngestService {
                 .delete_relative_path(&rel_path)
                 .await?;
             info!(
-                user_id = %event.user_id,
+                        user_id = %event.workspace_id,
                 repo_path = repo_path,
                 backend = event.backend,
                 "storage_ingest_orphan_deleted"
             );
         } else {
             warn!(
-                user_id = %event.user_id,
+                        user_id = %event.workspace_id,
                 repo_path = repo_path,
                 backend = event.backend,
                 "storage_ingest_no_target_found"

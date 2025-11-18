@@ -13,6 +13,7 @@ use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::storage_projection_queue::StorageProjectionQueue;
 use crate::application::ports::user_repository::UserRepository;
 use crate::application::services::errors::ServiceError;
+use crate::application::services::workspaces::WorkspaceService;
 use crate::application::use_cases::auth::delete_account::DeleteAccount;
 use crate::application::use_cases::auth::login::{Login as LoginUc, LoginRequest};
 use crate::application::use_cases::auth::me::GetMe;
@@ -28,6 +29,7 @@ pub struct AccountService {
     git_repo: Arc<dyn GitRepository>,
     git_workspace: Arc<dyn GitWorkspacePort>,
     storage_jobs: Arc<dyn StorageProjectionQueue>,
+    workspace_service: Arc<WorkspaceService>,
 }
 
 impl AccountService {
@@ -42,6 +44,7 @@ impl AccountService {
         git_repo: Arc<dyn GitRepository>,
         git_workspace: Arc<dyn GitWorkspacePort>,
         storage_jobs: Arc<dyn StorageProjectionQueue>,
+        workspace_service: Arc<WorkspaceService>,
     ) -> Self {
         Self {
             user_repo,
@@ -53,6 +56,7 @@ impl AccountService {
             git_repo,
             git_workspace,
             storage_jobs,
+            workspace_service,
         }
     }
 
@@ -62,23 +66,38 @@ impl AccountService {
         name: &str,
         password: &str,
     ) -> Result<UserDto, ServiceError> {
+        let user_id = Uuid::new_v4();
+        // personal workspace shares the same UUID as the user; provision it before inserting user row
+        self.workspace_service
+            .create_personal_workspace_shell(user_id, name)
+            .await?;
         let uc = RegisterUc {
             repo: self.user_repo.as_ref(),
         };
-        uc.execute(&RegisterRequest {
+        let register_request = RegisterRequest {
+            id: user_id,
             email: email.to_string(),
             name: name.to_string(),
             password: password.to_string(),
-        })
-        .await
-        .map(|user| UserDto {
+            default_workspace_id: user_id,
+        };
+        let user = match uc.execute(&register_request).await {
+            Ok(user) => user,
+            Err(err) => {
+                let _ = self.workspace_service.delete_workspace(user_id).await;
+                tracing::error!(error = ?err, "register_failed");
+                return Err(ServiceError::Conflict);
+            }
+        };
+
+        self.workspace_service
+            .ensure_owner_membership(user_id, user_id)
+            .await?;
+
+        Ok(UserDto {
             id: user.id,
             email: user.email,
             name: user.name,
-        })
-        .map_err(|err| {
-            tracing::error!(error = ?err, "register_failed");
-            ServiceError::Conflict
         })
     }
 

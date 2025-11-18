@@ -4,7 +4,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct ApiToken {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub workspace_id: Uuid,
+    pub owner_id: Uuid,
     pub name: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -22,15 +23,16 @@ pub struct ApiTokenSecret {
 pub trait ApiTokenRepository: Send + Sync {
     async fn create(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
+        owner_id: Uuid,
         name: &str,
         token_hash: &str,
         token_digest: &str,
     ) -> anyhow::Result<ApiToken>;
 
-    async fn list_active(&self, user_id: Uuid) -> anyhow::Result<Vec<ApiToken>>;
+    async fn list_active(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ApiToken>>;
 
-    async fn revoke(&self, user_id: Uuid, token_id: Uuid) -> anyhow::Result<bool>;
+    async fn revoke(&self, workspace_id: Uuid, token_id: Uuid) -> anyhow::Result<bool>;
 
     async fn find_by_digest(&self, digest: &str) -> anyhow::Result<Option<ApiTokenSecret>>;
 

@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
 use serde::Serialize;
@@ -13,6 +13,7 @@ use crate::application::services::errors::ServiceError;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
 use crate::presentation::http::documents::Document;
+use crate::presentation::http::workspace_scope;
 
 // Uses AppContext as router state
 
@@ -46,13 +47,24 @@ fn map_public_error(err: ServiceError) -> StatusCode {
 pub async fn publish_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PublishResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.public_service();
     let out = service
-        .publish_document(user_id, id)
+        .publish_document(workspace_id, &permissions, id)
         .await
         .map_err(map_public_error)?;
     Ok(Json(PublishResponse {
@@ -71,13 +83,24 @@ pub async fn publish_document(
 pub async fn unpublish_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let ok = ctx
         .public_service()
-        .unpublish_document(user_id, id)
+        .unpublish_document(workspace_id, &permissions, id)
         .await
         .map_err(map_public_error)?;
     if ok {
@@ -97,14 +120,25 @@ pub async fn unpublish_document(
 pub async fn get_publish_status(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PublishResponse>, StatusCode> {
     // Validate ownership
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let out = ctx
         .public_service()
-        .get_publish_status(user_id, id)
+        .get_publish_status(workspace_id, &permissions, id)
         .await
         .map_err(map_public_error)?;
     Ok(Json(PublishResponse {
@@ -125,18 +159,18 @@ pub struct PublicDocumentSummary {
 
 #[utoipa::path(
     get,
-    path = "/api/public/users/{name}",
+    path = "/api/public/workspaces/{slug}",
     tag = "Public Documents",
-    params(("name" = String, Path, description = "Owner name")),
-    responses((status = 200, description = "Public documents for user", body = [PublicDocumentSummary]))
+    params(("slug" = String, Path, description = "Workspace slug")),
+    responses((status = 200, description = "Public documents for workspace", body = [PublicDocumentSummary]))
 )]
-pub async fn list_user_public_documents(
+pub async fn list_workspace_public_documents(
     State(ctx): State<AppContext>,
-    Path(name): Path<String>,
+    Path(slug): Path<String>,
 ) -> Result<Json<Vec<PublicDocumentSummary>>, StatusCode> {
     let items = ctx
         .public_service()
-        .list_user_public_documents(&name)
+        .list_workspace_public_documents(&slug)
         .await
         .map_err(map_public_error)?;
     Ok(Json(
@@ -154,23 +188,24 @@ pub async fn list_user_public_documents(
 
 #[utoipa::path(
     get,
-    path = "/api/public/users/{name}/{id}",
+    path = "/api/public/workspaces/{slug}/{id}",
     tag = "Public Documents",
-    params(("name" = String, Path, description = "Owner name"), ("id" = Uuid, Path, description = "Document ID")),
+    params(("slug" = String, Path, description = "Workspace slug"), ("id" = Uuid, Path, description = "Document ID")),
     responses((status = 200, description = "Document metadata", body = Document))
 )]
-pub async fn get_public_by_owner_and_id(
+pub async fn get_public_by_workspace_and_id(
     State(ctx): State<AppContext>,
-    Path((name, id)): Path<(String, Uuid)>,
+    Path((slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<Document>, StatusCode> {
     let d = ctx
         .public_service()
-        .get_public_by_owner_and_id(&name, id)
+        .get_public_by_workspace_and_id(&slug, id)
         .await
         .map_err(map_public_error)?;
     Ok(Json(Document {
         id: d.id,
         owner_id: d.owner_id,
+        workspace_id: d.workspace_id,
         title: d.title,
         parent_id: d.parent_id,
         r#type: d.doc_type,
@@ -179,6 +214,7 @@ pub async fn get_public_by_owner_and_id(
         slug: d.slug,
         desired_path: d.desired_path,
         path: d.path,
+        created_by: d.created_by,
         archived_at: d.archived_at,
         archived_by: d.archived_by,
         archived_parent_id: d.archived_parent_id,
@@ -187,18 +223,18 @@ pub async fn get_public_by_owner_and_id(
 
 #[utoipa::path(
     get,
-    path = "/api/public/users/{name}/{id}/content",
+    path = "/api/public/workspaces/{slug}/{id}/content",
     tag = "Public Documents",
-    params(("name" = String, Path, description = "Owner name"), ("id" = Uuid, Path, description = "Document ID")),
+    params(("slug" = String, Path, description = "Workspace slug"), ("id" = Uuid, Path, description = "Document ID")),
     responses((status = 200, description = "Document content"))
 )]
-pub async fn get_public_content_by_owner_and_id(
+pub async fn get_public_content_by_workspace_and_id(
     State(ctx): State<AppContext>,
-    Path((name, id)): Path<(String, Uuid)>,
+    Path((slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let content = ctx
         .public_service()
-        .get_public_content_by_owner_and_id(&name, id)
+        .get_public_content_by_workspace_and_id(&slug, id)
         .await
         .map_err(map_public_error)?;
     Ok(Json(serde_json::json!({"content": content, "id": id})))
@@ -211,11 +247,18 @@ pub fn routes(ctx: AppContext) -> Router {
                 .delete(unpublish_document)
                 .get(get_publish_status),
         )
-        .route("/users/:name", get(list_user_public_documents))
-        .route("/users/:name/:id", get(get_public_by_owner_and_id))
+        .route("/workspaces/:slug", get(list_workspace_public_documents))
+        .route("/workspaces/:slug/:id", get(get_public_by_workspace_and_id))
         .route(
-            "/users/:name/:id/content",
-            get(get_public_content_by_owner_and_id),
+            "/workspaces/:slug/:id/content",
+            get(get_public_content_by_workspace_and_id),
+        )
+        // legacy aliases
+        .route("/users/:slug", get(list_workspace_public_documents))
+        .route("/users/:slug/:id", get(get_public_by_workspace_and_id))
+        .route(
+            "/users/:slug/:id/content",
+            get(get_public_content_by_workspace_and_id),
         )
         .with_state(ctx)
 }

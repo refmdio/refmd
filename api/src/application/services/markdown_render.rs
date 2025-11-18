@@ -126,16 +126,16 @@ impl MarkdownRenderService {
             );
         }
 
-        if let Some(user_id) = user_scope {
+        if let Some(workspace_id) = user_scope {
             let installs = self
                 .installations
-                .list_for_user(user_id)
+                .list_for_workspace(workspace_id)
                 .await
                 .map_err(ServiceError::from)?;
             for inst in installs.into_iter().filter(|i| i.status == "enabled") {
                 match self
                     .assets
-                    .load_user_manifest(&user_id, &inst.plugin_id, &inst.version)
+                    .load_user_manifest(&workspace_id, &inst.plugin_id, &inst.version)
                     .await
                 {
                     Ok(Some(manifest)) => push_renderers_from_manifest(
@@ -143,15 +143,15 @@ impl MarkdownRenderService {
                         &manifest,
                         &inst.plugin_id,
                         &inst.version,
-                        RendererScope::User { user_id },
+                        RendererScope::Workspace { workspace_id },
                     ),
                     Ok(None) => {}
                     Err(err) => warn!(
                         error = ?err,
-                        user_id = %user_id,
+                        workspace_id = %workspace_id,
                         plugin = inst.plugin_id.as_str(),
                         version = inst.version.as_str(),
-                        "user_renderer_manifest_load_failed"
+                        "workspace_renderer_manifest_load_failed"
                     ),
                 }
             }
@@ -212,7 +212,7 @@ impl MarkdownRenderService {
 
                 let user_scope = match &spec.scope {
                     RendererScope::Global => None,
-                    RendererScope::User { user_id } => Some(*user_id),
+                    RendererScope::Workspace { workspace_id } => Some(*workspace_id),
                 };
 
                 match self
@@ -416,8 +416,8 @@ impl MarkdownRenderService {
         let module = hydrate.module.as_str();
         let scope = match spec.scope {
             RendererScope::Global => AssetScope::Global,
-            RendererScope::User { user_id } => AssetScope::User {
-                owner_id: user_id,
+            RendererScope::Workspace { workspace_id } => AssetScope::User {
+                owner_id: workspace_id,
                 share_token: token,
             },
         };
@@ -444,14 +444,14 @@ struct RendererSpec {
 #[derive(Clone, Debug)]
 enum RendererScope {
     Global,
-    User { user_id: Uuid },
+    Workspace { workspace_id: Uuid },
 }
 
 impl RendererScope {
     fn as_str(&self) -> &'static str {
         match self {
             RendererScope::Global => "global",
-            RendererScope::User { .. } => "user",
+            RendererScope::Workspace { .. } => "workspace",
         }
     }
 }

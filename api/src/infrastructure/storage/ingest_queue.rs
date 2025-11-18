@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -34,23 +34,36 @@ impl PgStorageIngestQueue {
     }
 }
 
+fn parse_permission_snapshot(raw: Option<Value>) -> Vec<String> {
+    match raw {
+        Some(Value::Array(items)) => items
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 #[async_trait]
 impl StorageIngestQueue for PgStorageIngestQueue {
     async fn enqueue_event(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
+        actor_id: Option<Uuid>,
         repo_path: &str,
         backend: &str,
         kind: StorageIngestKind,
         content_hash: Option<&str>,
         payload: Option<Value>,
+        permission_snapshot: &[String],
     ) -> anyhow::Result<()> {
         let kind_str = Self::kind_to_str(kind);
         sqlx::query(
             r#"
-            INSERT INTO storage_ingest_queue (user_id, repo_path, backend, event_kind, content_hash, payload, attempts, locked_at)
-            VALUES ($1, $2, $3, $4, $5, $6, 0, NULL)
-            ON CONFLICT ON CONSTRAINT storage_ingest_queue_user_repo_backend_unique
+            INSERT INTO storage_ingest_queue (workspace_id, user_id, actor_id, repo_path, backend, event_kind, content_hash, payload, permission_snapshot, attempts, locked_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, NULL)
+            ON CONFLICT ON CONSTRAINT storage_ingest_queue_workspace_repo_backend_unique
             DO UPDATE SET event_kind = EXCLUDED.event_kind,
                           content_hash = EXCLUDED.content_hash,
                           payload = CASE
@@ -69,6 +82,8 @@ impl StorageIngestQueue for PgStorageIngestQueue {
                                   END
                               ELSE EXCLUDED.payload
                           END,
+                          actor_id = EXCLUDED.actor_id,
+                          permission_snapshot = EXCLUDED.permission_snapshot,
                           attempts = CASE
                               WHEN storage_ingest_queue.locked_at IS NULL THEN 0
                               ELSE storage_ingest_queue.attempts
@@ -87,12 +102,15 @@ impl StorageIngestQueue for PgStorageIngestQueue {
                           END
             "#,
         )
+        .bind(workspace_id)
         .bind(user_id)
+        .bind(actor_id)
         .bind(repo_path)
         .bind(backend)
         .bind(kind_str)
         .bind(content_hash)
         .bind(payload)
+        .bind(json!(permission_snapshot))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -128,9 +146,12 @@ impl StorageIngestQueue for PgStorageIngestQueue {
 
         let locked_at: DateTime<Utc> = row.get("locked_at");
 
+        let snapshot_value: Option<Value> = row.try_get("permission_snapshot").ok();
         Ok(Some(StorageIngestEvent {
             id: row.get("id"),
+            workspace_id: row.get("workspace_id"),
             user_id: row.get("user_id"),
+            actor_id: row.try_get("actor_id").ok(),
             repo_path: row.get("repo_path"),
             backend: row.get("backend"),
             kind,
@@ -138,6 +159,7 @@ impl StorageIngestQueue for PgStorageIngestQueue {
             payload: row.try_get::<Option<Value>, _>("payload").unwrap_or(None),
             attempts: row.try_get("attempts").unwrap_or_default(),
             locked_at,
+            permission_snapshot: parse_permission_snapshot(snapshot_value),
         }))
     }
 

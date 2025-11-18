@@ -209,6 +209,7 @@ impl SnapshotService {
         if let Err(err) = self
             .storage_jobs
             .enqueue_doc_job(
+                record.workspace_id,
                 *doc_id,
                 StorageProjectionJobKind::DocSync,
                 Some("snapshot_write_markdown"),
@@ -411,17 +412,17 @@ fn repo_path_from_record(
     if let Some(path) = record.desired_path.as_deref() {
         return Some(normalize_repo_path(path));
     }
-    if let (Some(owner), Some(path)) = (record.owner_id, record.path.as_deref()) {
-        return strip_owner_prefix(owner, path);
+    if let Some(path) = record.path.as_deref() {
+        return strip_workspace_prefix(record.workspace_id, path);
     }
     None
 }
 
-fn strip_owner_prefix(owner_id: Uuid, relative: &str) -> Option<String> {
+fn strip_workspace_prefix(workspace_id: Uuid, relative: &str) -> Option<String> {
     let trimmed = relative.trim_start_matches('/');
     let mut parts = trimmed.splitn(2, '/');
     let owner = parts.next()?;
-    if owner != owner_id.to_string() {
+    if owner != workspace_id.to_string() {
         return None;
     }
     parts

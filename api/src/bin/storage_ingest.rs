@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
 use api::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use api::application::services::workspaces::permissions::PermissionSet;
 use api::bootstrap::config::Config;
 use api::infrastructure::db;
 use api::infrastructure::storage::PgStorageIngestQueue;
@@ -89,14 +90,18 @@ async fn main() -> anyhow::Result<()> {
             kind,
             content_hash,
         } => {
+            let permissions = PermissionSet::all().to_vec();
             queue
                 .enqueue_event(
                     user_id,
+                    user_id,
+                    None,
                     repo_path.trim(),
                     backend.trim(),
                     kind.into(),
                     content_hash.as_deref(),
                     None,
+                    &permissions,
                 )
                 .await?;
             println!(

@@ -32,10 +32,24 @@ import type {
 } from '@/shared/api'
 import { ApiError } from '@/shared/api/client/core/ApiError'
 
+type DocumentListParams = {
+  query?: string
+  tag?: string
+  state?: 'active' | 'archived' | 'all'
+  workspaceId?: string | null
+}
+
 export const documentKeys = {
   all: ['documents'] as const,
-  list: (params?: { query?: string; tag?: string; state?: 'active' | 'archived' | 'all' }) =>
-    ['documents', 'list', params ?? {}] as const,
+  list: (params?: DocumentListParams) =>
+    [
+      'documents',
+      'list',
+      params?.workspaceId ?? 'current',
+      params?.state ?? 'active',
+      params?.query ?? null,
+      params?.tag ?? null,
+    ] as const,
   byId: (id: string) => ['documents', id] as const,
   backlinks: (id: string) => ['documents', id, 'backlinks'] as const,
   links: (id: string) => ['documents', id, 'links'] as const,
@@ -48,11 +62,10 @@ export const documentKeys = {
   ) => ['documents', id, 'snapshot', snapshotId, compare ?? 'current', base ?? 'auto'] as const,
 }
 
-export const listDocumentsQuery = (params?: { query?: string; tag?: string; state?: 'active' | 'archived' | 'all' }) => {
+export const listDocumentsQuery = (params?: DocumentListParams) => {
   const state = params?.state ?? 'active'
-  const finalParams = { ...(params ?? {}), state }
   return {
-    queryKey: documentKeys.list(finalParams),
+    queryKey: documentKeys.list({ ...params, state }),
     queryFn: () =>
       apiListDocuments({
         query: params?.query ?? null,

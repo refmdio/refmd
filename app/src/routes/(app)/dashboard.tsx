@@ -15,8 +15,9 @@ export const Route = createFileRoute('/(app)/dashboard')({
   errorComponent: ({ error }) => <RouteError error={error} />,
   beforeLoad: appBeforeLoadGuard,
   loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(meQuery())
-    await context.queryClient.ensureQueryData(listDocumentsQuery())
+    const me = await context.queryClient.ensureQueryData(meQuery())
+    const workspaceId = me?.active_workspace_id ?? null
+    await context.queryClient.ensureQueryData(listDocumentsQuery({ workspaceId }))
     return null
   },
   component: DashboardPage,

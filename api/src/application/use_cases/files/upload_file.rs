@@ -30,13 +30,17 @@ where
 {
     pub async fn execute(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
         bytes: Vec<u8>,
         orig_filename: Option<String>,
         content_type: Option<String>,
     ) -> anyhow::Result<Option<UploadedFile>> {
-        if !self.repo.is_owner_document(doc_id, owner_id).await? {
+        if !self
+            .repo
+            .is_workspace_document(doc_id, workspace_id)
+            .await?
+        {
             return Ok(None);
         }
         let stored = self

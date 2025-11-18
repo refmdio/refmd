@@ -19,17 +19,22 @@ impl SqlxUserRepository {
 impl UserRepository for SqlxUserRepository {
     async fn create_user(
         &self,
+        id: Uuid,
         email: &str,
         name: &str,
         password_hash: &str,
+        default_workspace_id: Uuid,
     ) -> anyhow::Result<UserRow> {
         let row = sqlx::query(
-            r#"INSERT INTO users (email, name, password_hash) VALUES ($1, $2, $3)
+            r#"INSERT INTO users (id, email, name, password_hash, default_workspace_id)
+               VALUES ($1, $2, $3, $4, $5)
                RETURNING id, email, name, password_hash"#,
         )
+        .bind(id)
         .bind(email)
         .bind(name)
         .bind(password_hash)
+        .bind(default_workspace_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(UserRow {

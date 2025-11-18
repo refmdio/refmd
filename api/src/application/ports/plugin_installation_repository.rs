@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct PluginInstallation {
-    pub user_id: Uuid,
+    pub workspace_id: Uuid,
     pub plugin_id: String,
     pub version: String,
     pub scope: String,
@@ -17,7 +17,7 @@ pub struct PluginInstallation {
 pub trait PluginInstallationRepository: Send + Sync {
     async fn upsert(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         plugin_id: &str,
         version: &str,
         scope: &str,
@@ -25,11 +25,14 @@ pub trait PluginInstallationRepository: Send + Sync {
         status: &str,
     ) -> anyhow::Result<()>;
 
-    async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<PluginInstallation>>;
+    async fn list_for_workspace(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<PluginInstallation>>;
 
     async fn list_all(&self) -> anyhow::Result<Vec<PluginInstallation>>;
 
-    async fn remove(&self, user_id: Uuid, plugin_id: &str) -> anyhow::Result<bool>;
+    async fn remove(&self, workspace_id: Uuid, plugin_id: &str) -> anyhow::Result<bool>;
 
-    async fn remove_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()>;
+    async fn remove_all_for_workspace(&self, workspace_id: Uuid) -> anyhow::Result<()>;
 }

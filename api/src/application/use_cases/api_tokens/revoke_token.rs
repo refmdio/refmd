@@ -10,7 +10,7 @@ impl<'a, R> RevokeApiToken<'a, R>
 where
     R: ApiTokenRepository + ?Sized,
 {
-    pub async fn execute(&self, user_id: Uuid, token_id: Uuid) -> anyhow::Result<bool> {
-        self.repo.revoke(user_id, token_id).await
+    pub async fn execute(&self, workspace_id: Uuid, token_id: Uuid) -> anyhow::Result<bool> {
+        self.repo.revoke(workspace_id, token_id).await
     }
 }

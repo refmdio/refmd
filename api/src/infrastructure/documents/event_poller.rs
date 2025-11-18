@@ -66,7 +66,7 @@ impl DocEventPoller {
 
     async fn fetch_after(&self, last_id: i64) -> anyhow::Result<Vec<DocEventRecord>> {
         let rows = sqlx::query(
-            r#"SELECT id, doc_id, event_type, payload
+            r#"SELECT id, workspace_id, doc_id, event_type, payload
                FROM doc_events
                WHERE id > $1
                ORDER BY id ASC
@@ -84,6 +84,7 @@ impl DocEventPoller {
                 let payload: Option<Value> = row.try_get("payload").ok();
                 Some(DocEventRecord {
                     id: row.get("id"),
+                    workspace_id: row.get("workspace_id"),
                     doc_id,
                     event_type,
                     payload,

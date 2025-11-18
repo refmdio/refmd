@@ -3,8 +3,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import {
   buildCanonicalUrl,
   buildOgImageUrl,
-  getPublicByOwnerAndId,
-  getPublicContentByOwnerAndId,
+  getPublicByWorkspaceAndId,
+  getPublicContentByWorkspaceAndId,
 } from '@/entities/public'
 
 import PublicUserDocumentPage, { type PublicDocumentMeta } from '@/widgets/public/PublicUserDocumentPage'
@@ -12,7 +12,7 @@ import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
 
 type LoaderData = {
-  name: string
+  slug: string
   meta: PublicDocumentMeta
   content: string
 }
@@ -22,11 +22,11 @@ export const Route = createFileRoute('/(public)/u/$name/$id')({
   pendingComponent: () => <RoutePending />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   loader: async ({ params }) => {
-    const meta = (await getPublicByOwnerAndId(params.name, params.id)) as unknown as PublicDocumentMeta
-    const contentResp = await getPublicContentByOwnerAndId(params.name, params.id)
+    const meta = (await getPublicByWorkspaceAndId(params.name, params.id)) as unknown as PublicDocumentMeta
+    const contentResp = await getPublicContentByWorkspaceAndId(params.name, params.id)
     const contentValue = typeof (contentResp as any)?.content === 'string' ? String((contentResp as any).content) : ''
     return {
-      name: params.name,
+      slug: params.name,
       meta,
       content: contentValue,
     } satisfies LoaderData
@@ -42,7 +42,7 @@ export const Route = createFileRoute('/(public)/u/$name/$id')({
     const description = rawTitle
       ? `${rawTitle} — shared by @${params.name} on RefMD.`
       : `@${params.name} shared a document on RefMD.`
-    const canonicalPath = `/u/${encodeURIComponent(params.name)}/${data.meta.id}`
+    const canonicalPath = `/w/${encodeURIComponent(params.name)}/${data.meta.id}`
     const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
     const ogImage = buildOgImageUrl(base, {
       variant: 'public-document',
@@ -76,5 +76,5 @@ export const Route = createFileRoute('/(public)/u/$name/$id')({
 
 function PublicUserDocumentRoute() {
   const data = Route.useLoaderData() as LoaderData
-  return <PublicUserDocumentPage {...data} />
+  return <PublicUserDocumentPage slug={data.slug} meta={data.meta} content={data.content} />
 }

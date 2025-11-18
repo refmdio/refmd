@@ -3,6 +3,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::application::ports::public_repository::PublicRepository;
+use crate::domain::documents::document::Document;
 use crate::infrastructure::db::PgPool;
 
 pub struct SqlxPublicRepository {
@@ -17,17 +18,19 @@ impl SqlxPublicRepository {
 
 #[async_trait]
 impl PublicRepository for SqlxPublicRepository {
-    async fn ensure_ownership_and_owner_name(
+    async fn ensure_workspace_title_and_slug(
         &self,
         doc_id: Uuid,
-        owner_id: Uuid,
+        workspace_id: Uuid,
     ) -> anyhow::Result<Option<(String, String)>> {
-        let row = sqlx::query("SELECT d.title, u.name as owner_name FROM documents d JOIN users u ON d.owner_id = u.id WHERE d.id = $1 AND d.owner_id = $2")
+        let row = sqlx::query(
+            "SELECT d.title, w.slug as workspace_slug FROM documents d JOIN workspaces w ON d.workspace_id = w.id WHERE d.id = $1 AND d.workspace_id = $2",
+        )
             .bind(doc_id)
-            .bind(owner_id)
+            .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row.map(|r| (r.get("title"), r.get("owner_name"))))
+        Ok(row.map(|r| (r.get("title"), r.get("workspace_slug"))))
     }
 
     async fn upsert_public_document(&self, doc_id: Uuid, slug: &str) -> anyhow::Result<()> {
@@ -48,12 +51,16 @@ impl PublicRepository for SqlxPublicRepository {
         Ok(n > 0)
     }
 
-    async fn is_owner_document(&self, doc_id: Uuid, owner_id: Uuid) -> anyhow::Result<bool> {
+    async fn is_workspace_document(
+        &self,
+        doc_id: Uuid,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<bool> {
         let n = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(1) FROM documents WHERE id = $1 AND owner_id = $2",
+            "SELECT COUNT(1) FROM documents WHERE id = $1 AND workspace_id = $2",
         )
         .bind(doc_id)
-        .bind(owner_id)
+        .bind(workspace_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(n > 0)
@@ -69,26 +76,26 @@ impl PublicRepository for SqlxPublicRepository {
 
     async fn get_publish_status(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Option<(String, String)>> {
         let row = sqlx::query(
-            r#"SELECT p.slug, u.name as owner_name
+            r#"SELECT p.slug, w.slug as workspace_slug
                FROM public_documents p
                JOIN documents d ON p.document_id = d.id
-               JOIN users u ON d.owner_id = u.id
-               WHERE p.document_id = $1 AND d.owner_id = $2"#,
+               JOIN workspaces w ON d.workspace_id = w.id
+               WHERE p.document_id = $1 AND d.workspace_id = $2"#,
         )
         .bind(doc_id)
-        .bind(owner_id)
+        .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| (r.get("slug"), r.get("owner_name"))))
+        Ok(row.map(|r| (r.get("slug"), r.get("workspace_slug"))))
     }
 
-    async fn list_user_public_documents(
+    async fn list_workspace_public_documents(
         &self,
-        owner_name: &str,
+        workspace_slug: &str,
     ) -> anyhow::Result<
         Vec<(
             Uuid,
@@ -101,11 +108,16 @@ impl PublicRepository for SqlxPublicRepository {
             r#"SELECT d.id, d.title, d.updated_at, p.published_at
                FROM public_documents p
                JOIN documents d ON p.document_id = d.id
-               JOIN users u ON d.owner_id = u.id
-               WHERE u.name = $1
+               JOIN workspaces w ON d.workspace_id = w.id
+               WHERE w.slug = $1
+                  OR (w.is_personal AND EXISTS (
+                        SELECT 1
+                        FROM users u
+                        WHERE u.id = w.id AND lower(u.name) = lower($1)
+                  ))
                ORDER BY d.updated_at DESC LIMIT 200"#,
         )
-        .bind(owner_name)
+        .bind(workspace_slug)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
@@ -121,72 +133,69 @@ impl PublicRepository for SqlxPublicRepository {
             .collect())
     }
 
-    async fn get_public_meta_by_owner_and_id(
+    async fn get_public_meta_by_workspace_and_id(
         &self,
-        owner_name: &str,
+        workspace_slug: &str,
         doc_id: Uuid,
-    ) -> anyhow::Result<
-        Option<(
-            Uuid,
-            Uuid,
-            String,
-            Option<Uuid>,
-            String,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-            String,
-            String,
-            Option<String>,
-            Option<chrono::DateTime<chrono::Utc>>,
-            Option<Uuid>,
-            Option<Uuid>,
-        )>,
-    > {
+    ) -> anyhow::Result<Option<Document>> {
         let row = sqlx::query(
-            r#"SELECT d.id, d.owner_id, d.title, d.parent_id, d.type, d.created_at, d.updated_at,
-                      d.slug, d.desired_path, d.path,
+            r#"SELECT d.id, d.owner_id, d.owner_user_id, d.workspace_id, d.title, d.parent_id, d.type, d.created_at, d.updated_at,
+                      d.slug, d.desired_path, d.path, d.created_by,
                       d.archived_at, d.archived_by, d.archived_parent_id
                FROM public_documents p
                JOIN documents d ON p.document_id = d.id
-               JOIN users u ON d.owner_id = u.id
-               WHERE u.name = $1 AND d.id = $2"#,
+               JOIN workspaces w ON d.workspace_id = w.id
+               WHERE (w.slug = $1
+                      OR (w.is_personal AND EXISTS (
+                            SELECT 1
+                            FROM users u
+                            WHERE u.id = w.id AND lower(u.name) = lower($1)
+                      )))
+                 AND d.id = $2"#,
         )
-        .bind(owner_name)
+        .bind(workspace_slug)
         .bind(doc_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| {
-            (
-                r.get("id"),
-                r.get("owner_id"),
-                r.get("title"),
-                r.try_get("parent_id").ok(),
-                r.get("type"),
-                r.get("created_at"),
-                r.get("updated_at"),
-                r.get("slug"),
-                r.get("desired_path"),
-                r.try_get("path").ok(),
-                r.try_get("archived_at").ok(),
-                r.try_get("archived_by").ok(),
-                r.try_get("archived_parent_id").ok(),
-            )
+        Ok(row.map(|r| Document {
+            id: r.get("id"),
+            owner_id: r.get("owner_id"),
+            owner_user_id: r.try_get("owner_user_id").ok(),
+            workspace_id: r.get("workspace_id"),
+            title: r.get("title"),
+            parent_id: r.try_get("parent_id").ok(),
+            doc_type: r.get("type"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+            slug: r.get("slug"),
+            desired_path: r.get("desired_path"),
+            path: r.try_get("path").ok(),
+            created_by: r.try_get("created_by").ok(),
+            archived_at: r.try_get("archived_at").ok(),
+            archived_by: r.try_get("archived_by").ok(),
+            archived_parent_id: r.try_get("archived_parent_id").ok(),
         }))
     }
 
-    async fn public_exists_by_owner_and_id(
+    async fn public_exists_by_workspace_and_id(
         &self,
-        owner_name: &str,
+        workspace_slug: &str,
         doc_id: Uuid,
     ) -> anyhow::Result<bool> {
         let n = sqlx::query_scalar::<_, i64>(
             r#"SELECT COUNT(1)
                FROM public_documents p
                JOIN documents d ON p.document_id = d.id
-               JOIN users u ON d.owner_id = u.id
-               WHERE u.name = $1 AND d.id = $2"#,
+               JOIN workspaces w ON d.workspace_id = w.id
+               WHERE (w.slug = $1
+                      OR (w.is_personal AND EXISTS (
+                            SELECT 1
+                            FROM users u
+                            WHERE u.id = w.id AND lower(u.name) = lower($1)
+                      )))
+                 AND d.id = $2"#,
         )
-        .bind(owner_name)
+        .bind(workspace_slug)
         .bind(doc_id)
         .fetch_one(&self.pool)
         .await?;

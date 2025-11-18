@@ -15,7 +15,7 @@ impl TokenValidationService {
         Self { repo }
     }
 
-    pub async fn validate(&self, token: &str) -> Result<Option<Uuid>, ServiceError> {
+    pub async fn validate(&self, token: &str) -> Result<Option<(Uuid, Uuid)>, ServiceError> {
         let digest = compute_digest(token);
         let record = self
             .repo
@@ -36,6 +36,6 @@ impl TokenValidationService {
             .touch_last_used(secret.token.id)
             .await
             .map_err(ServiceError::from)?;
-        Ok(Some(secret.token.user_id))
+        Ok(Some((secret.token.owner_id, secret.token.workspace_id)))
     }
 }

@@ -1,4 +1,6 @@
 use crate::application::access;
+use crate::application::dto::auth::UserDto;
+use crate::application::ports::workspace_repository::WorkspaceListItem;
 use crate::application::services::errors::ServiceError;
 use crate::presentation::context::AppContext;
 use axum::{
@@ -11,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+use crate::presentation::http::workspace_scope;
 
 const SESSION_COOKIE_NAME: &str = "access_token";
 
@@ -26,6 +30,30 @@ pub struct UserResponse {
     pub id: Uuid,
     pub email: String,
     pub name: String,
+    pub workspaces: Vec<WorkspaceMembershipResponse>,
+    pub active_workspace_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_workspace: Option<WorkspaceMembershipResponse>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub active_workspace_permissions: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct WorkspaceMembershipResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub slug: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub is_personal: bool,
+    pub role_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_role_id: Option<Uuid>,
+    pub is_default: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -63,6 +91,81 @@ fn map_account_error(err: ServiceError) -> StatusCode {
     }
 }
 
+fn map_workspace_error(err: ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Forbidden => StatusCode::FORBIDDEN,
+        ServiceError::Conflict => StatusCode::CONFLICT,
+        ServiceError::NotFound => StatusCode::NOT_FOUND,
+        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Unexpected(inner) => {
+            error!(error = ?inner, "workspace_service_error");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
+fn workspace_response_from(item: WorkspaceListItem) -> WorkspaceMembershipResponse {
+    WorkspaceMembershipResponse {
+        id: item.id,
+        name: item.name,
+        slug: item.slug,
+        icon: item.icon,
+        description: item.description,
+        is_personal: item.is_personal,
+        role_kind: item.role_kind,
+        system_role: item.system_role,
+        custom_role_id: item.custom_role_id,
+        is_default: item.is_default,
+    }
+}
+
+async fn build_user_response(
+    ctx: &AppContext,
+    user: UserDto,
+    preferred_workspace_id: Option<Uuid>,
+) -> Result<UserResponse, StatusCode> {
+    let workspaces = ctx
+        .workspace_service()
+        .list_for_user(user.id)
+        .await
+        .map_err(map_workspace_error)?
+        .into_iter()
+        .map(workspace_response_from)
+        .collect::<Vec<_>>();
+    let mut active_workspace_id = preferred_workspace_id.and_then(|id| {
+        workspaces.iter().find(|w| w.id == id).map(|w| w.id)
+    });
+    if active_workspace_id.is_none() {
+        active_workspace_id = workspaces.iter().find(|w| w.is_default).map(|w| w.id);
+    }
+    if active_workspace_id.is_none() {
+        active_workspace_id = workspaces.first().map(|w| w.id);
+    }
+    let active_workspace =
+        active_workspace_id.and_then(|id| workspaces.iter().find(|w| w.id == id).cloned());
+    let mut active_workspace_permissions = Vec::new();
+    if let Some(active_ws_id) = active_workspace_id {
+        if let Some(set) = ctx
+            .workspace_service()
+            .resolve_permission_set(active_ws_id, user.id)
+            .await
+            .map_err(map_workspace_error)?
+        {
+            active_workspace_permissions = set.to_vec();
+        }
+    }
+    Ok(UserResponse {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        workspaces,
+        active_workspace_id,
+        active_workspace,
+        active_workspace_permissions,
+    })
+}
+
 #[utoipa::path(post, path = "/api/auth/register", tag = "Auth", request_body = RegisterRequest, security(()), responses(
     (status = 200, body = UserResponse)
 ))]
@@ -75,11 +178,8 @@ pub async fn register(
         .register(&req.email, &req.name, &req.password)
         .await
         .map_err(map_account_error)?;
-    Ok(Json(UserResponse {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-    }))
+    let response = build_user_response(&ctx, user, None).await?;
+    Ok(Json(response))
 }
 
 #[utoipa::path(post, path = "/api/auth/login", tag = "Auth", request_body = LoginRequest, security(()), responses(
@@ -95,14 +195,14 @@ pub async fn login(
         .await
         .map_err(map_account_error)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let user = UserResponse {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-    };
+    let user = build_user_response(&ctx, user, None).await?;
+    let active_workspace_id = user
+        .active_workspace_id
+        .or_else(|| user.workspaces.iter().find(|w| w.is_default).map(|w| w.id))
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
     let session = ctx
         .auth_service()
-        .issue_session(user.id)
+        .issue_session(user.id, active_workspace_id)
         .map_err(map_auth_error)?;
     let cookie_value = build_session_cookie(
         &session.token,
@@ -130,20 +230,31 @@ pub async fn login(
 pub async fn me(
     State(ctx): State<AppContext>,
     bearer: Result<Bearer, StatusCode>,
+    headers: HeaderMap,
 ) -> Result<Json<UserResponse>, StatusCode> {
-    let sub = validate_bearer(&ctx, bearer?).await?;
+    let bearer = bearer?;
+    let bearer_token = bearer.0.clone();
+    let sub = validate_bearer_str(&ctx, &bearer_token).await?;
     let id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let active_workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        id,
+    )
+    .await
+    .map(Some)
+    .or_else(|err| if err == StatusCode::FORBIDDEN { Ok(None) } else { Err(err) })?;
+
     let service = ctx.account_service();
     let row = service
         .get_me(id)
         .await
         .map_err(map_account_error)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    Ok(Json(UserResponse {
-        id: row.id,
-        email: row.email,
-        name: row.name,
-    }))
+    let resp = build_user_response(&ctx, row, active_workspace_id).await?;
+    Ok(Json(resp))
 }
 
 #[utoipa::path(delete, path = "/api/auth/me", tag = "Auth", responses((status = 204)))]
@@ -274,7 +385,7 @@ pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Opti
     Some(access::Actor::ShareToken(trimmed.to_string()))
 }
 
-fn map_auth_error(err: ServiceError) -> StatusCode {
+pub(crate) fn map_auth_error(err: ServiceError) -> StatusCode {
     if err.is_internal() {
         StatusCode::INTERNAL_SERVER_ERROR
     } else {
@@ -296,7 +407,7 @@ fn get_cookie(cookie_header: &str, name: &str) -> Option<String> {
     None
 }
 
-fn build_session_cookie(token: &str, max_age_secs: usize, secure: bool) -> String {
+pub(crate) fn build_session_cookie(token: &str, max_age_secs: usize, secure: bool) -> String {
     let secure_attr = if secure { "; Secure" } else { "" };
     format!(
         "{}={}; HttpOnly{}; Path=/; Max-Age={}; SameSite=Lax",

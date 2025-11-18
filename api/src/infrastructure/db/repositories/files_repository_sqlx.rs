@@ -17,12 +17,16 @@ impl SqlxFilesRepository {
 
 #[async_trait]
 impl FilesRepository for SqlxFilesRepository {
-    async fn is_owner_document(&self, doc_id: Uuid, owner_id: Uuid) -> anyhow::Result<bool> {
+    async fn is_workspace_document(
+        &self,
+        doc_id: Uuid,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<bool> {
         let n = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(1) FROM documents WHERE id = $1 AND owner_id = $2",
+            "SELECT COUNT(1) FROM documents WHERE id = $1 AND workspace_id = $2",
         )
         .bind(doc_id)
-        .bind(owner_id)
+        .bind(workspace_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(n > 0)
@@ -58,7 +62,7 @@ impl FilesRepository for SqlxFilesRepository {
         file_id: Uuid,
     ) -> anyhow::Result<Option<(String, Option<String>, Uuid)>> {
         let row = sqlx::query(
-            r#"SELECT f.storage_path, f.content_type, d.owner_id
+            r#"SELECT f.storage_path, f.content_type, d.workspace_id
                FROM files f JOIN documents d ON f.document_id = d.id
                WHERE f.id = $1"#,
         )
@@ -69,7 +73,7 @@ impl FilesRepository for SqlxFilesRepository {
             (
                 r.get("storage_path"),
                 r.try_get("content_type").ok(),
-                r.get("owner_id"),
+                r.get("workspace_id"),
             )
         }))
     }
@@ -115,16 +119,19 @@ impl FilesRepository for SqlxFilesRepository {
             .collect())
     }
 
-    async fn list_storage_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>> {
+    async fn list_storage_paths_for_workspace(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<String>> {
         let rows = sqlx::query(
             r#"
             SELECT f.storage_path
             FROM files f
             JOIN documents d ON d.id = f.document_id
-            WHERE d.owner_id = $1
+            WHERE d.workspace_id = $1
             "#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
@@ -138,7 +145,7 @@ impl FilesRepository for SqlxFilesRepository {
         storage_path: &str,
     ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>> {
         let row = sqlx::query(
-            r#"SELECT f.id as file_id, f.document_id, d.owner_id
+            r#"SELECT f.id as file_id, f.document_id, d.workspace_id
                FROM files f
                JOIN documents d ON d.id = f.document_id
                WHERE f.storage_path = $1
@@ -147,7 +154,13 @@ impl FilesRepository for SqlxFilesRepository {
         .bind(storage_path)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| (r.get("file_id"), r.get("document_id"), r.get("owner_id"))))
+        Ok(row.map(|r| {
+            (
+                r.get("file_id"),
+                r.get("document_id"),
+                r.get("workspace_id"),
+            )
+        }))
     }
 
     async fn update_storage_path(&self, file_id: Uuid, storage_path: &str) -> anyhow::Result<()> {

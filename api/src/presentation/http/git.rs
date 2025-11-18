@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,11 @@ use crate::application::dto::git::{
     GitignoreUpdateDto, UpsertGitConfigInput,
 };
 use crate::application::services::errors::ServiceError;
+use crate::application::services::workspaces::permissions::{
+    PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC,
+};
 use crate::presentation::context::AppContext;
+use crate::presentation::http::workspace_scope;
 use tracing::error;
 use uuid::Uuid;
 
@@ -133,11 +137,39 @@ pub struct UpdateGitConfigRequest {
 pub async fn get_config(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<Option<GitConfigResponse>>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_INIT)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
     let service = ctx.git_service();
-    let resp: Option<GitConfigDto> = service.get_config(user_id).await.map_err(map_git_error)?;
+    let resp: Option<GitConfigDto> = service
+        .get_config(workspace_id)
+        .await
+        .map_err(map_git_error)?;
     let out = resp.map(Into::into);
     Ok(Json(out))
 }
@@ -146,20 +178,42 @@ pub async fn get_config(
 pub async fn create_or_update_config(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(req): Json<CreateGitConfigRequest>,
 ) -> Result<Json<GitConfigResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_INIT)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
     let input: UpsertGitConfigInput = req.into();
     let service = ctx.git_service();
-    let resp: GitConfigDto =
-        service
-            .upsert_config(user_id, &input)
-            .await
-            .map_err(|err| match err {
-                ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-                other => map_git_error(other),
-            })?;
+    let resp: GitConfigDto = service
+        .upsert_config(workspace_id, &input)
+        .await
+        .map_err(|err| match err {
+            ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            other => map_git_error(other),
+        })?;
     let out: GitConfigResponse = resp.into();
     Ok(Json(out))
 }
@@ -168,12 +222,27 @@ pub async fn create_or_update_config(
 pub async fn delete_config(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
+        .await?;
     let service = ctx.git_service();
     service
-        .delete_config(user_id)
+        .delete_config(workspace_id)
         .await
         .map_err(map_git_error)?;
     Ok(StatusCode::NO_CONTENT)
@@ -220,14 +289,23 @@ impl From<GitStatusDto> for GitStatus {
 pub async fn ignore_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<GitignoreUpdateResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let doc_id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let service = ctx.git_service();
     let res = service
-        .ignore_document(user_id, doc_id)
+        .ignore_document(workspace_id, doc_id)
         .await
         .map_err(|err| match err {
             ServiceError::NotFound => StatusCode::NOT_FOUND,
@@ -240,14 +318,23 @@ pub async fn ignore_document(
 pub async fn ignore_folder(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<GitignoreUpdateResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let folder_id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let service = ctx.git_service();
     let res = service
-        .ignore_folder(user_id, folder_id)
+        .ignore_folder(workspace_id, folder_id)
         .await
         .map_err(|err| match err {
             ServiceError::NotFound => StatusCode::NOT_FOUND,
@@ -265,13 +352,22 @@ pub struct AddPatternsRequest {
 pub async fn add_gitignore_patterns(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(req): Json<AddPatternsRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
     let added = service
-        .add_gitignore_patterns(user_id, req.patterns)
+        .add_gitignore_patterns(workspace_id, req.patterns)
         .await
         .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"added": added})))
@@ -281,12 +377,21 @@ pub async fn add_gitignore_patterns(
 pub async fn get_gitignore_patterns(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
     let patterns = service
-        .get_gitignore_patterns(user_id)
+        .get_gitignore_patterns(workspace_id)
         .await
         .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"patterns": patterns})))
@@ -301,13 +406,22 @@ pub struct CheckIgnoredRequest {
 pub async fn check_path_ignored(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(req): Json<CheckIgnoredRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
     let is_ignored = service
-        .check_path_ignored(user_id, &req.path)
+        .check_path_ignored(workspace_id, &req.path)
         .await
         .map_err(map_git_error)?;
     Ok(Json(
@@ -319,11 +433,23 @@ pub async fn check_path_ignored(
 pub async fn get_status(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<GitStatus>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
-    let dto: GitStatusDto = service.get_status(user_id).await.map_err(map_git_error)?;
+    let dto: GitStatusDto = service
+        .get_status(workspace_id)
+        .await
+        .map_err(map_git_error)?;
     let out: GitStatus = dto.into();
     Ok(Json(out))
 }
@@ -348,14 +474,23 @@ pub struct GitSyncResponse {
 pub async fn sync_now(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(req): Json<GitSyncRequest>,
 ) -> Result<Json<GitSyncResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
     let out = service
         .sync_now(
-            user_id,
+            workspace_id,
             GitSyncRequestDto {
                 message: req.message.clone(),
                 force: req.force,
@@ -388,11 +523,23 @@ pub struct GitChangesResponse {
 pub async fn get_changes(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<GitChangesResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
-    let files: Vec<GitChangeDto> = service.get_changes(user_id).await.map_err(map_git_error)?;
+    let files: Vec<GitChangeDto> = service
+        .get_changes(workspace_id)
+        .await
+        .map_err(map_git_error)?;
     let items = files
         .into_iter()
         .map(|c| GitChangeItem {
@@ -421,11 +568,23 @@ pub struct GitHistoryResponse {
 pub async fn get_history(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<GitHistoryResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
-    let commits: Vec<GitCommitInfo> = service.get_history(user_id).await.map_err(map_git_error)?;
+    let commits: Vec<GitCommitInfo> = service
+        .get_history(workspace_id)
+        .await
+        .map_err(map_git_error)?;
     let out = commits
         .into_iter()
         .map(|c| GitCommitItem {
@@ -448,12 +607,21 @@ pub async fn get_history(
 pub async fn get_working_diff(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<TextDiffResult>>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
     let diffs = service
-        .get_working_diff(user_id)
+        .get_working_diff(workspace_id)
         .await
         .map_err(map_git_error)?;
     Ok(Json(diffs))
@@ -469,13 +637,22 @@ pub async fn get_working_diff(
 pub async fn get_commit_diff(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     axum::extract::Path((from, to)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<Vec<TextDiffResult>>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
     let diffs = service
-        .get_commit_diff(user_id, &from, &to)
+        .get_commit_diff(workspace_id, &from, &to)
         .await
         .map_err(map_git_error)?;
     Ok(Json(diffs))
@@ -487,12 +664,21 @@ pub async fn get_commit_diff(
 pub async fn init_repository(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
     service
-        .init_repository(user_id)
+        .init_repository(workspace_id)
         .await
         .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"success":true})))
@@ -502,12 +688,21 @@ pub async fn init_repository(
 pub async fn deinit_repository(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
     let service = ctx.git_service();
     service
-        .deinit_repository(user_id)
+        .deinit_repository(workspace_id)
         .await
         .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"success":true})))

@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { buildCanonicalUrl, buildOgImageUrl, listUserPublicDocuments } from '@/entities/public'
+import { buildCanonicalUrl, buildOgImageUrl, listWorkspacePublicDocuments } from '@/entities/public'
 
 import PublicUserListPage from '@/widgets/public/PublicUserListPage'
 import RouteError from '@/widgets/routes/RouteError'
@@ -9,7 +9,7 @@ import RoutePending from '@/widgets/routes/RoutePending'
 type Summary = { id: string; title: string; updated_at: string; published_at: string }
 
 type LoaderData = {
-  name: string
+  slug: string
   items: Summary[]
 }
 
@@ -18,14 +18,14 @@ export const Route = createFileRoute('/(public)/u/$name/')({
   pendingComponent: () => <RoutePending />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   loader: async ({ params }) => {
-    const items = await listUserPublicDocuments(params.name)
-    return { name: params.name, items: items as Summary[] } satisfies LoaderData
+    const items = await listWorkspacePublicDocuments(params.name)
+    return { slug: params.name, items: items as Summary[] } satisfies LoaderData
   },
   head: ({ loaderData, params }) => {
     const data = loaderData as LoaderData | undefined
     if (!data) return {}
 
-    const canonicalPath = `/u/${encodeURIComponent(params.name)}`
+    const canonicalPath = `/w/${encodeURIComponent(params.name)}`
     const { base, url: canonicalUrl } = buildCanonicalUrl(canonicalPath)
     const total = data.items.length
     const hasItems = total > 0
@@ -67,6 +67,6 @@ export const Route = createFileRoute('/(public)/u/$name/')({
 })
 
 function PublicUserRoute() {
-  const { name, items } = Route.useLoaderData() as LoaderData
-  return <PublicUserListPage name={name} items={items} />
+  const { slug, items } = Route.useLoaderData() as LoaderData
+  return <PublicUserListPage slug={slug} items={items} />
 }

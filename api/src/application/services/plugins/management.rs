@@ -4,7 +4,6 @@ use serde_json::{Value, json};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::application::access::Actor;
 use crate::application::ports::plugin_asset_store::{
     PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
 };
@@ -12,9 +11,9 @@ use crate::application::ports::plugin_event_publisher::{PluginEventPublisher, Pl
 use crate::application::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::application::ports::plugin_installer::{InstalledPlugin, PluginInstaller};
 use crate::application::ports::plugin_package_fetcher::PluginPackageFetcher;
-use crate::application::ports::shares_repository::SharesRepository;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::plugins::asset_signer::{AssetScope, AssetSigner};
+use crate::application::services::workspaces::permissions::PermissionSet;
 use crate::application::use_cases::plugins::install_from_url::{
     InstallPluginError, InstallPluginFromUrl,
 };
@@ -53,7 +52,6 @@ pub enum AssetRequestScope<'a> {
 }
 
 pub struct PluginManagementService {
-    shares_repo: Arc<dyn SharesRepository>,
     installations: Arc<dyn PluginInstallationRepository>,
     assets: Arc<dyn PluginAssetStore>,
     event_publisher: Arc<dyn PluginEventPublisher>,
@@ -66,7 +64,6 @@ pub struct PluginManagementService {
 impl PluginManagementService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        shares_repo: Arc<dyn SharesRepository>,
         installations: Arc<dyn PluginInstallationRepository>,
         assets: Arc<dyn PluginAssetStore>,
         event_publisher: Arc<dyn PluginEventPublisher>,
@@ -76,7 +73,6 @@ impl PluginManagementService {
         plugin_installer: Arc<dyn PluginInstaller>,
     ) -> Self {
         Self {
-            shares_repo,
             installations,
             assets,
             event_publisher,
@@ -89,7 +85,9 @@ impl PluginManagementService {
 
     pub async fn install_from_url(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
+        _permissions: &PermissionSet,
         url: &str,
         token: Option<&str>,
     ) -> Result<InstalledPlugin, InstallPluginError> {
@@ -99,18 +97,14 @@ impl PluginManagementService {
             events: self.event_publisher.as_ref(),
             installations: self.installations.as_ref(),
         };
-        uc.execute(user_id, url, token).await
+        uc.execute(workspace_id, user_id, url, token).await
     }
 
-    pub async fn manifests_for_actor(
+    pub async fn manifests_for_workspace(
         &self,
-        actor: &Actor,
-        token_hint: Option<&str>,
+        workspace_id: Uuid,
+        _user_id: Uuid,
     ) -> Result<Vec<PluginManifestItem>, ServiceError> {
-        let asset_token = matches!(actor, Actor::ShareToken(_))
-            .then(|| token_hint)
-            .flatten();
-        let owner_id = self.owner_for_actor(actor, token_hint).await?;
         let mut items = Vec::new();
 
         let global = self
@@ -130,38 +124,38 @@ impl PluginManagementService {
             }
         }
 
-        if let Some(user_id) = owner_id {
-            let installs = self
-                .installations
-                .list_for_user(user_id)
+        let installs = self
+            .installations
+            .list_for_workspace(workspace_id)
+            .await
+            .map_err(ServiceError::from)?;
+        for inst in installs.into_iter().filter(|i| i.status == "enabled") {
+            match self
+                .assets
+                .load_user_manifest(&workspace_id, &inst.plugin_id, &inst.version)
                 .await
-                .map_err(ServiceError::from)?;
-            for inst in installs.into_iter().filter(|i| i.status == "enabled") {
-                match self
-                    .assets
-                    .load_user_manifest(&user_id, &inst.plugin_id, &inst.version)
-                    .await
-                {
-                    Ok(Some(manifest)) => {
-                        if let Some(item) = self.build_manifest_item(
-                            &inst.plugin_id,
-                            &inst.version,
-                            &manifest,
-                            ManifestScope::User { user_id },
-                            asset_token,
-                        ) {
-                            items.push(item);
-                        }
+            {
+                Ok(Some(manifest)) => {
+                    if let Some(item) = self.build_manifest_item(
+                        &inst.plugin_id,
+                        &inst.version,
+                        &manifest,
+                        ManifestScope::User {
+                            user_id: workspace_id,
+                        },
+                        None,
+                    ) {
+                        items.push(item);
                     }
-                    Ok(None) => {}
-                    Err(err) => warn!(
-                        error = ?err,
-                        plugin = inst.plugin_id.as_str(),
-                        version = inst.version.as_str(),
-                        user_id = %user_id,
-                        "user_manifest_load_failed"
-                    ),
                 }
+                Ok(None) => {}
+                Err(err) => warn!(
+                    error = ?err,
+                    plugin = inst.plugin_id.as_str(),
+                    version = inst.version.as_str(),
+                    workspace_id = %workspace_id,
+                    "workspace_manifest_load_failed"
+                ),
             }
         }
 
@@ -177,21 +171,27 @@ impl PluginManagementService {
         Ok(items)
     }
 
-    pub async fn uninstall(&self, user_id: Uuid, plugin_id: &str) -> Result<(), ServiceError> {
+    pub async fn uninstall(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        _permissions: &PermissionSet,
+        plugin_id: &str,
+    ) -> Result<(), ServiceError> {
         validate_plugin_id(plugin_id)?;
         self.installations
-            .remove(user_id, plugin_id)
+            .remove(workspace_id, plugin_id)
             .await
             .map_err(ServiceError::from)?;
 
         if let Err(err) = self
             .assets
-            .remove_user_plugin_dir(&user_id, plugin_id)
+            .remove_user_plugin_dir(&workspace_id, plugin_id)
             .await
         {
             warn!(
                 error = ?err,
-                user_id = %user_id,
+                workspace_id = %workspace_id,
                 plugin = plugin_id,
                 "plugin_uninstall_cleanup_failed"
             );
@@ -199,7 +199,12 @@ impl PluginManagementService {
 
         let event = PluginScopedEvent {
             user_id: Some(user_id),
-            payload: json!({ "event": "uninstalled", "id": plugin_id }),
+            workspace_id: Some(workspace_id),
+            payload: json!({
+                "event": "uninstalled",
+                "id": plugin_id,
+                "workspace_id": workspace_id,
+            }),
         };
         let _ = self.event_publisher.publish(&event).await;
         Ok(())
@@ -259,39 +264,6 @@ impl PluginManagementService {
                     ServiceError::Unexpected(err)
                 }
             })
-    }
-
-    pub async fn owner_for_actor(
-        &self,
-        actor: &Actor,
-        token_hint: Option<&str>,
-    ) -> Result<Option<Uuid>, ServiceError> {
-        self.resolve_plugin_owner(actor, token_hint).await
-    }
-
-    async fn resolve_plugin_owner(
-        &self,
-        actor: &Actor,
-        token_hint: Option<&str>,
-    ) -> Result<Option<Uuid>, ServiceError> {
-        match actor {
-            Actor::User(uid) => Ok(Some(*uid)),
-            Actor::ShareToken(token_str) => {
-                let lookup = token_hint
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| token_str.as_str());
-                if lookup.is_empty() {
-                    return Ok(None);
-                }
-                let owner = self
-                    .shares_repo
-                    .get_document_owner_by_token(lookup)
-                    .await
-                    .map_err(ServiceError::from)?;
-                Ok(owner)
-            }
-            Actor::Public => Ok(None),
-        }
     }
 
     fn build_manifest_item(

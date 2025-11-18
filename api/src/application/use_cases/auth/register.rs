@@ -3,6 +3,7 @@ use argon2::{
     password_hash::{PasswordHasher, SaltString},
 };
 use password_hash::rand_core::OsRng;
+use uuid::Uuid;
 
 use crate::application::ports::user_repository::{UserRepository, UserRow};
 
@@ -12,9 +13,11 @@ pub struct Register<'a, R: UserRepository + ?Sized> {
 
 #[derive(Debug, Clone)]
 pub struct RegisterRequest {
+    pub id: Uuid,
     pub email: String,
     pub name: String,
     pub password: String,
+    pub default_workspace_id: Uuid,
 }
 
 impl<'a, R: UserRepository + ?Sized> Register<'a, R> {
@@ -24,7 +27,16 @@ impl<'a, R: UserRepository + ?Sized> Register<'a, R> {
             .hash_password(req.password.as_bytes(), &salt)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?
             .to_string();
-        let user = self.repo.create_user(&req.email, &req.name, &hash).await?;
+        let user = self
+            .repo
+            .create_user(
+                req.id,
+                &req.email,
+                &req.name,
+                &hash,
+                req.default_workspace_id,
+            )
+            .await?;
         Ok(user)
     }
 }

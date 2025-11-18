@@ -21,7 +21,9 @@ impl StorageIngestKind {
 #[derive(Debug, Clone)]
 pub struct StorageIngestEvent {
     pub id: i64,
+    pub workspace_id: Uuid,
     pub user_id: Uuid,
+    pub actor_id: Option<Uuid>,
     pub repo_path: String,
     pub backend: String,
     pub kind: StorageIngestKind,
@@ -29,6 +31,7 @@ pub struct StorageIngestEvent {
     pub payload: Option<Value>,
     pub attempts: i32,
     pub locked_at: DateTime<Utc>,
+    pub permission_snapshot: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,12 +46,15 @@ pub struct StorageIngestQueueStats {
 pub trait StorageIngestQueue: Send + Sync {
     async fn enqueue_event(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
+        actor_id: Option<Uuid>,
         repo_path: &str,
         backend: &str,
         kind: StorageIngestKind,
         content_hash: Option<&str>,
         payload: Option<Value>,
+        permission_snapshot: &[String],
     ) -> anyhow::Result<()>;
 
     async fn fetch_next_event(&self) -> anyhow::Result<Option<StorageIngestEvent>>;

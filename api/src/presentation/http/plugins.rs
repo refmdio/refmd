@@ -20,12 +20,48 @@ use crate::application::services::errors::ServiceError;
 use crate::application::services::plugins::management::{
     self, AssetRequestScope, PluginAssetRequest, PluginManifestItem,
 };
+use crate::application::services::workspaces::permissions::{
+    PERM_PLUGIN_INSTALL, PERM_PLUGIN_RUN, PERM_PLUGIN_UNINSTALL, PermissionSet,
+};
 use crate::application::use_cases::plugins::install_from_url::InstallPluginError;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
+use crate::presentation::http::workspace_scope;
 
 const PERMISSION_DOC_READ: &str = "doc.read";
 const PERMISSION_DOC_WRITE: &str = "doc.write";
+
+struct PluginUserContext {
+    workspace_id: Uuid,
+    user_id: Uuid,
+    permissions: PermissionSet,
+}
+
+async fn resolve_plugin_user_context(
+    ctx: &AppContext,
+    headers: &HeaderMap,
+    bearer_token: &str,
+    user_id: Uuid,
+    required_permission: Option<&str>,
+) -> Result<PluginUserContext, StatusCode> {
+    let workspace_id =
+        workspace_scope::resolve_active_workspace_id(ctx, headers, Some(bearer_token), user_id)
+            .await
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+    let permissions = workspace_scope::resolve_workspace_permissions(ctx, workspace_id, user_id)
+        .await
+        .map_err(|_| StatusCode::FORBIDDEN)?;
+    if let Some(permission) = required_permission {
+        if !permissions.allows(permission) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+    Ok(PluginUserContext {
+        workspace_id,
+        user_id,
+        permissions,
+    })
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
@@ -128,34 +164,35 @@ impl From<PluginManifestItem> for ManifestItem {
         ("doc_id" = Uuid, Path, description = "Document ID"),
         ("kind" = String, Path, description = "Record kind"),
         ("limit" = Option<i64>, Query, description = "Limit"),
-        ("offset" = Option<i64>, Query, description = "Offset"),
-        ("token" = Option<String>, Query, description = "Share token")
+        ("offset" = Option<i64>, Query, description = "Offset")
     ),
     responses((status = 200, body = RecordsResponse)),
     tag = "Plugins"
 )]
 pub async fn list_records(
     State(ctx): State<AppContext>,
-    bearer: Option<Bearer>,
+    bearer: Bearer,
+    headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
     Path(p): Path<RecordsPath>,
 ) -> Result<Json<RecordsResponse>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
-    let token = params.get("token").map(|s| s.as_str());
-    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
-        .await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    // View permission required on doc
+    let bearer_token = bearer.0;
+    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_RUN),
+    )
+    .await?;
+    let actor = access::Actor::User(plugin_ctx.user_id);
     ctx.authorization()
         .require_view(&actor, p.doc_id)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
-
-    let owner_user_id = ctx
-        .plugin_management()
-        .owner_for_actor(&actor, token)
-        .await
-        .map_err(map_plugin_service_error)?;
 
     let limit = params
         .get("limit")
@@ -169,7 +206,11 @@ pub async fn list_records(
         .max(0);
 
     ctx.plugin_permissions()
-        .ensure(owner_user_id, &p.plugin, PERMISSION_DOC_READ)
+        .ensure(
+            Some(plugin_ctx.workspace_id),
+            &p.plugin,
+            PERMISSION_DOC_READ,
+        )
         .await
         .map_err(map_plugin_service_error)?;
 
@@ -205,8 +246,7 @@ pub struct CreateRecordBody {
     params(
         ("plugin" = String, Path, description = "Plugin ID"),
         ("doc_id" = Uuid, Path, description = "Document ID"),
-        ("kind" = String, Path, description = "Record kind"),
-        ("token" = Option<String>, Query, description = "Share token")
+        ("kind" = String, Path, description = "Record kind")
     ),
     responses((status = 200, body = serde_json::Value)),
     tag = "Plugins",
@@ -214,38 +254,41 @@ pub struct CreateRecordBody {
 )]
 pub async fn create_record(
     State(ctx): State<AppContext>,
-    bearer: Option<Bearer>,
-    Query(params): Query<HashMap<String, String>>,
+    bearer: Bearer,
+    headers: HeaderMap,
     Path(p): Path<RecordsPath>,
     Json(body): Json<CreateRecordBody>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
-    let token = params.get("token").map(|s| s.as_str());
-    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
-        .await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    // Edit permission required on doc
+    let bearer_token = bearer.0;
+    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_RUN),
+    )
+    .await?;
+    let actor = access::Actor::User(plugin_ctx.user_id);
     ctx.authorization()
         .require_edit(&actor, p.doc_id)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let owner_user_id = ctx
-        .plugin_management()
-        .owner_for_actor(&actor, token)
-        .await
-        .map_err(map_plugin_service_error)?;
-
     ctx.plugin_permissions()
-        .ensure(owner_user_id, &p.plugin, PERMISSION_DOC_WRITE)
+        .ensure(
+            Some(plugin_ctx.workspace_id),
+            &p.plugin,
+            PERMISSION_DOC_WRITE,
+        )
         .await
         .map_err(map_plugin_service_error)?;
 
     // Attach authorId and timestamps if not provided
     let mut data = body.data;
-    if let access::Actor::User(uid) = actor {
-        data["authorId"] = json!(uid);
-    }
+    data["authorId"] = json!(plugin_ctx.user_id);
 
     let plugin_data = ctx.plugin_data_service();
     let rec = plugin_data
@@ -283,12 +326,27 @@ pub struct UpdateRecordBody {
 pub async fn update_record(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(p): Path<UpdateRecordPath>,
     Json(body): Json<UpdateRecordBody>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
+    let bearer_token_raw = bearer.0;
+    let sub = crate::presentation::http::auth::validate_bearer_public(
+        &ctx,
+        Bearer(bearer_token_raw.clone()),
+    )
+    .await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token_raw.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_RUN),
+    )
+    .await?;
+    let actor = access::Actor::User(plugin_ctx.user_id);
 
     let plugin_data = ctx.plugin_data_service();
     // Get record for scope info and docId to enforce edit permission
@@ -304,12 +362,16 @@ pub async fn update_record(
 
     // Edit permission on the doc scope
     ctx.authorization()
-        .require_edit(&access::Actor::User(user_id), rec.scope_id)
+        .require_edit(&actor, rec.scope_id)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
     ctx.plugin_permissions()
-        .ensure(Some(user_id), &p.plugin, PERMISSION_DOC_WRITE)
+        .ensure(
+            Some(plugin_ctx.workspace_id),
+            &p.plugin,
+            PERMISSION_DOC_WRITE,
+        )
         .await
         .map_err(map_plugin_service_error)?;
 
@@ -337,11 +399,26 @@ pub async fn update_record(
 pub async fn delete_record(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(p): Path<UpdateRecordPath>,
 ) -> Result<StatusCode, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
+    let bearer_token_raw = bearer.0;
+    let sub = crate::presentation::http::auth::validate_bearer_public(
+        &ctx,
+        Bearer(bearer_token_raw.clone()),
+    )
+    .await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token_raw.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_RUN),
+    )
+    .await?;
+    let actor = access::Actor::User(plugin_ctx.user_id);
     let plugin_data = ctx.plugin_data_service();
     // Get record to authorize
     let rec = plugin_data
@@ -355,12 +432,16 @@ pub async fn delete_record(
     }
 
     ctx.authorization()
-        .require_edit(&access::Actor::User(user_id), rec.scope_id)
+        .require_edit(&actor, rec.scope_id)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
     ctx.plugin_permissions()
-        .ensure(Some(user_id), &p.plugin, PERMISSION_DOC_WRITE)
+        .ensure(
+            Some(plugin_ctx.workspace_id),
+            &p.plugin,
+            PERMISSION_DOC_WRITE,
+        )
         .await
         .map_err(map_plugin_service_error)?;
 
@@ -394,36 +475,41 @@ pub struct KvValueBody {
 #[utoipa::path(
     get,
     path = "/api/plugins/{plugin}/docs/{doc_id}/kv/{key}",
-    params(("plugin" = String, Path, description = "Plugin ID"), ("doc_id" = Uuid, Path, description = "Document ID"), ("key" = String, Path, description = "Key"), ("token" = Option<String>, Query, description = "Share token")),
+    params(("plugin" = String, Path, description = "Plugin ID"), ("doc_id" = Uuid, Path, description = "Document ID"), ("key" = String, Path, description = "Key")),
     responses((status = 200, body = KvValueResponse)),
     tag = "Plugins",
     operation_id = "pluginsGetKv"
 )]
 pub async fn get_kv_value(
     State(ctx): State<AppContext>,
-    bearer: Option<Bearer>,
-    Query(params): Query<HashMap<String, String>>,
+    bearer: Bearer,
+    headers: HeaderMap,
     Path(p): Path<KvPath>,
 ) -> Result<Json<KvValueResponse>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
-    let token = params.get("token").map(|s| s.as_str());
-    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
-        .await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    // View permission required on doc
+    let bearer_token = bearer.0;
+    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_RUN),
+    )
+    .await?;
+    let actor = access::Actor::User(plugin_ctx.user_id);
     ctx.authorization()
         .require_view(&actor, p.doc_id)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let owner_user_id = ctx
-        .plugin_management()
-        .owner_for_actor(&actor, token)
-        .await
-        .map_err(map_plugin_service_error)?;
-
     ctx.plugin_permissions()
-        .ensure(owner_user_id, &p.plugin, PERMISSION_DOC_READ)
+        .ensure(
+            Some(plugin_ctx.workspace_id),
+            &p.plugin,
+            PERMISSION_DOC_READ,
+        )
         .await
         .map_err(map_plugin_service_error)?;
 
@@ -440,37 +526,42 @@ pub async fn get_kv_value(
     put,
     path = "/api/plugins/{plugin}/docs/{doc_id}/kv/{key}",
     request_body = KvValueBody,
-    params(("plugin" = String, Path, description = "Plugin ID"), ("doc_id" = Uuid, Path, description = "Document ID"), ("key" = String, Path, description = "Key"), ("token" = Option<String>, Query, description = "Share token")),
+    params(("plugin" = String, Path, description = "Plugin ID"), ("doc_id" = Uuid, Path, description = "Document ID"), ("key" = String, Path, description = "Key")),
     responses((status = 204)),
     tag = "Plugins",
     operation_id = "pluginsPutKv"
 )]
 pub async fn put_kv_value(
     State(ctx): State<AppContext>,
-    bearer: Option<Bearer>,
-    Query(params): Query<HashMap<String, String>>,
+    bearer: Bearer,
+    headers: HeaderMap,
     Path(p): Path<KvPath>,
     Json(body): Json<KvValueBody>,
 ) -> Result<StatusCode, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
-    let token = params.get("token").map(|s| s.as_str());
-    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
-        .await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    // Edit permission required on doc
+    let bearer_token = bearer.0;
+    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_RUN),
+    )
+    .await?;
+    let actor = access::Actor::User(plugin_ctx.user_id);
     ctx.authorization()
         .require_edit(&actor, p.doc_id)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    let owner_user_id = ctx
-        .plugin_management()
-        .owner_for_actor(&actor, token)
-        .await
-        .map_err(map_plugin_service_error)?;
-
     ctx.plugin_permissions()
-        .ensure(owner_user_id, &p.plugin, PERMISSION_DOC_WRITE)
+        .ensure(
+            Some(plugin_ctx.workspace_id),
+            &p.plugin,
+            PERMISSION_DOC_WRITE,
+        )
         .await
         .map_err(map_plugin_service_error)?;
 
@@ -514,27 +605,23 @@ fn extract_doc_id(value: &serde_json::Value) -> Option<Uuid> {
 #[utoipa::path(
     get,
     path = "/api/me/plugins/manifest",
-    params(("token" = Option<String>, Query, description = "Share token (optional)")),
     responses((status = 200, body = [ManifestItem])),
     tag = "Plugins",
     operation_id = "pluginsGetManifest"
 )]
 pub async fn get_manifest(
     State(ctx): State<AppContext>,
-    bearer: Option<Bearer>,
-    Query(params): Query<HashMap<String, String>>,
+    bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<ManifestItem>>, StatusCode> {
-    let raw_token = params
-        .get("token")
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let token_hint = raw_token.as_deref();
-    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token_hint)
-        .await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    let service = ctx.plugin_management();
-    let manifests = service
-        .manifests_for_actor(&actor, token_hint)
+    let bearer_token = bearer.0;
+    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx =
+        resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), user_id, None).await?;
+    let manifests = ctx
+        .plugin_management()
+        .manifests_for_workspace(plugin_ctx.workspace_id, plugin_ctx.user_id)
         .await
         .map_err(map_plugin_service_error)?
         .into_iter()
@@ -554,8 +641,7 @@ pub struct ExecBody {
     request_body = ExecBody,
     params(
         ("plugin" = String, Path, description = "Plugin ID"),
-        ("action" = String, Path, description = "Action"),
-        ("token" = Option<String>, Query, description = "Share token")
+        ("action" = String, Path, description = "Action")
     ),
     responses((status = 200, body = ExecResultResponse)),
     tag = "Plugins",
@@ -563,42 +649,42 @@ pub struct ExecBody {
 )]
 pub async fn exec_action(
     State(ctx): State<AppContext>,
-    bearer: Option<Bearer>,
-    Query(params): Query<HashMap<String, String>>,
+    bearer: Bearer,
+    headers: HeaderMap,
     Path((plugin, action)): Path<(String, String)>,
     Json(body): Json<ExecBody>,
 ) -> Result<Json<ExecResultResponse>, StatusCode> {
     ensure_valid_plugin_id(&plugin)?;
-    let token = params.get("token").map(|s| s.as_str());
-    let actor = auth::resolve_actor_from_parts(&ctx, bearer, token)
-        .await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let owner_user_id = ctx
-        .plugin_management()
-        .owner_for_actor(&actor, token)
-        .await
-        .map_err(map_plugin_service_error)?
-        .ok_or(StatusCode::FORBIDDEN)?;
-
-    if let access::Actor::ShareToken(_) = actor {
-        if let Some(payload) = body.payload.as_ref() {
-            if let Some(doc_id) = extract_doc_id(payload) {
-                ctx.authorization()
-                    .require_edit(&actor, doc_id)
-                    .await
-                    .map_err(|_| StatusCode::FORBIDDEN)?;
-            } else {
-                return Err(StatusCode::FORBIDDEN);
-            }
-        } else {
-            return Err(StatusCode::FORBIDDEN);
+    let bearer_token = bearer.0;
+    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_RUN),
+    )
+    .await?;
+    let actor = access::Actor::User(plugin_ctx.user_id);
+    if let Some(payload) = body.payload.as_ref() {
+        if let Some(doc_id) = extract_doc_id(payload) {
+            ctx.authorization()
+                .require_edit(&actor, doc_id)
+                .await
+                .map_err(|_| StatusCode::FORBIDDEN)?;
         }
     }
-
     let exec_service = ctx.plugin_execution_service();
     match exec_service
-        .execute_action(owner_user_id, &plugin, &action, body.payload.clone())
+        .execute_action(
+            plugin_ctx.workspace_id,
+            plugin_ctx.user_id,
+            &plugin_ctx.permissions,
+            &plugin,
+            &action,
+            body.payload.clone(),
+        )
         .await
         .map_err(map_plugin_service_error)?
     {
@@ -671,15 +757,35 @@ pub struct InstallResponse {
 pub async fn install_from_url(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(body): Json<InstallFromUrlBody>,
 ) -> Result<Json<InstallResponse>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
+    let bearer_token_raw = bearer.0;
+    let sub = crate::presentation::http::auth::validate_bearer_public(
+        &ctx,
+        Bearer(bearer_token_raw.clone()),
+    )
+    .await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token_raw.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_INSTALL),
+    )
+    .await?;
 
     let management = ctx.plugin_management();
 
     match management
-        .install_from_url(user_id, &body.url, body.token.as_deref())
+        .install_from_url(
+            plugin_ctx.workspace_id,
+            plugin_ctx.user_id,
+            &plugin_ctx.permissions,
+            &body.url,
+            body.token.as_deref(),
+        )
         .await
     {
         Ok(installed) => Ok(Json(InstallResponse {
@@ -721,15 +827,34 @@ pub struct UninstallBody {
 pub async fn uninstall(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(body): Json<UninstallBody>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
+    let bearer_token_raw = bearer.0;
+    let sub = crate::presentation::http::auth::validate_bearer_public(
+        &ctx,
+        Bearer(bearer_token_raw.clone()),
+    )
+    .await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token_raw.as_str(),
+        user_id,
+        Some(PERM_PLUGIN_UNINSTALL),
+    )
+    .await?;
     let UninstallBody { id } = body;
     let trimmed_id = id.trim();
     ensure_valid_plugin_id(trimmed_id)?;
     ctx.plugin_management()
-        .uninstall(user_id, trimmed_id)
+        .uninstall(
+            plugin_ctx.workspace_id,
+            plugin_ctx.user_id,
+            &plugin_ctx.permissions,
+            trimmed_id,
+        )
         .await
         .map_err(map_plugin_service_error)?;
     Ok(StatusCode::NO_CONTENT)

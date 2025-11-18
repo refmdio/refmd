@@ -18,7 +18,8 @@ pub struct ShareRow {
 pub trait SharesRepository: Send + Sync {
     async fn create_share(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
+        actor_id: Uuid,
         document_id: Uuid,
         permission: &str,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -26,11 +27,11 @@ pub trait SharesRepository: Send + Sync {
 
     async fn list_document_shares(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         document_id: Uuid,
     ) -> anyhow::Result<Vec<ShareRow>>;
 
-    async fn delete_share(&self, owner_id: Uuid, token: &str) -> anyhow::Result<bool>;
+    async fn delete_share(&self, workspace_id: Uuid, token: &str) -> anyhow::Result<bool>;
 
     async fn validate_share_token(
         &self,
@@ -39,11 +40,11 @@ pub trait SharesRepository: Send + Sync {
 
     async fn list_applicable_shares_for_doc(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Vec<(String, String, Option<chrono::DateTime<chrono::Utc>>)>>; // (token, permission, expires)
 
-    async fn list_active_shares(&self, owner_id: Uuid) -> anyhow::Result<Vec<ShareRow>>;
+    async fn list_active_shares(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareRow>>;
 
     async fn resolve_share_by_token(
         &self,
@@ -58,7 +59,10 @@ pub trait SharesRepository: Send + Sync {
         )>,
     >; // (share_id, permission, expires_at, shared_id, shared_type)
 
-    async fn get_document_owner_by_token(&self, token: &str) -> anyhow::Result<Option<Uuid>>;
+    async fn get_share_document_meta(
+        &self,
+        token: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>>; // (document_id, owner_id, workspace_id)
 
     async fn list_subtree_nodes(
         &self,
@@ -76,7 +80,13 @@ pub trait SharesRepository: Send + Sync {
 
     async fn list_materialized_children(&self, parent_share_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
 
-    async fn materialize_folder_share(&self, owner_id: Uuid, token: &str) -> anyhow::Result<i64>;
+    async fn materialize_folder_share(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        token: &str,
+    ) -> anyhow::Result<i64>;
 
-    async fn revoke_subtree_shares(&self, owner_id: Uuid, root_id: Uuid) -> anyhow::Result<i64>;
+    async fn revoke_subtree_shares(&self, workspace_id: Uuid, root_id: Uuid)
+    -> anyhow::Result<i64>;
 }

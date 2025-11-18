@@ -15,14 +15,15 @@ pub struct CreateShareResult {
 impl<'a, R: SharesRepository + ?Sized> CreateShare<'a, R> {
     pub async fn execute(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
+        actor_id: Uuid,
         document_id: Uuid,
         permission: &str,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> anyhow::Result<CreateShareResult> {
         let (token, _share_id, dtype) = self
             .repo
-            .create_share(owner_id, document_id, permission, expires_at)
+            .create_share(workspace_id, actor_id, document_id, permission, expires_at)
             .await?;
         Ok(CreateShareResult {
             token,

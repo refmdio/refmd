@@ -14,6 +14,7 @@ use crate::application::ports::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
 };
 use crate::application::ports::user_repository::UserRepository;
+use crate::application::services::workspaces::permissions::PermissionSet;
 
 pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
 where
@@ -51,18 +52,26 @@ where
     pub async fn execute(&self, user_id: Uuid) -> anyhow::Result<()> {
         let doc_ids = self.document_repo.list_ids_for_user(user_id).await?;
 
-        let installations = self.plugin_installations.list_for_user(user_id).await?;
+        let installations = self
+            .plugin_installations
+            .list_for_workspace(user_id)
+            .await?;
         for inst in &installations {
             if let Err(err) = self
                 .plugin_assets
                 .remove_user_plugin_dir(&user_id, &inst.plugin_id)
                 .await
             {
-                tracing::warn!(user_id = %user_id, plugin_id = %inst.plugin_id, error = ?err, "failed to remove plugin assets for user");
+                tracing::warn!(
+                    workspace_id = %user_id,
+                    plugin_id = %inst.plugin_id,
+                    error = ?err,
+                    "failed to remove plugin assets for workspace"
+                );
             }
         }
         self.plugin_installations
-            .remove_all_for_user(user_id)
+            .remove_all_for_workspace(user_id)
             .await?;
 
         self.plugin_repo
@@ -95,10 +104,11 @@ where
                     None
                 };
                 let delete_metadata = StorageDeleteJobMetadata {
-                    owner_id: user_id,
+                    workspace_id: meta.workspace_id,
                     repo_path: Some(meta.desired_path.clone()),
                     doc_type: meta.doc_type.clone(),
                     attachment_paths,
+                    permission_snapshot: PermissionSet::all().to_vec(),
                 };
                 let reason = serde_json::to_string(&StorageJobReason {
                     reason: "delete_account".to_string(),
@@ -113,12 +123,12 @@ where
                 if let Err(err) = match kind {
                     StorageProjectionJobKind::DeleteFolder => {
                         self.storage_jobs
-                            .enqueue_folder_job(*doc_id, kind, reason_ref)
+                            .enqueue_folder_job(meta.workspace_id, *doc_id, kind, reason_ref)
                             .await
                     }
                     _ => {
                         self.storage_jobs
-                            .enqueue_doc_job(*doc_id, kind, reason_ref)
+                            .enqueue_doc_job(meta.workspace_id, *doc_id, kind, reason_ref)
                             .await
                     }
                 } {

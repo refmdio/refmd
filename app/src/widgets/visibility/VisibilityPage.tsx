@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 
-import { useUserPublicDocuments, unpublishDocument } from '@/entities/public'
+import { useWorkspacePublicDocuments, unpublishDocument } from '@/entities/public'
 import { activeSharesQuery, deleteShare } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
@@ -17,10 +17,11 @@ import type { ActiveShareItem } from '@/features/sharing'
 export type PublicDoc = { id: string; title: string; updated_at: string; published_at: string }
 
 export default function VisibilityPage() {
-  const { user } = useAuthContext()
+  const { user, activeWorkspace } = useAuthContext()
   const qc = useQueryClient()
   const { data: shareData } = useSuspenseQuery(activeSharesQuery())
-  const { data: publicDocsData, isLoading: publicLoading } = useUserPublicDocuments(user?.name)
+  const activeSlug = activeWorkspace?.slug || user?.name || ''
+  const { data: publicDocsData, isLoading: publicLoading } = useWorkspacePublicDocuments(activeSlug)
   const shares = (shareData ?? []) as ActiveShareItem[]
   const publicDocs = (publicDocsData ?? []) as PublicDoc[]
 
@@ -68,6 +69,19 @@ export default function VisibilityPage() {
     if (typeof window === 'undefined') return ''
     return window.location.origin
   }, [])
+
+  const buildPublicPath = React.useCallback(
+    (docId: string) => {
+      if (activeWorkspace?.slug) {
+        return `/w/${encodeURIComponent(activeWorkspace.slug)}/${docId}`
+      }
+      if (user?.name) {
+        return `/u/${encodeURIComponent(user.name)}/${docId}`
+      }
+      return `/w/${docId}`
+    },
+    [activeWorkspace?.slug, user?.name],
+  )
 
   const filteredShares = React.useMemo(
     () => shares.filter((s) => s.document_type === 'folder' || !s.parent_share_id),
@@ -140,7 +154,7 @@ export default function VisibilityPage() {
               ) : (
                 <div className="space-y-4">
                   {publicDocs.map((doc) => {
-                    const openUrl = `/u/${encodeURIComponent(user?.name || '')}/${doc.id}`
+                    const openUrl = buildPublicPath(doc.id)
                     const full = `${siteBase}${openUrl}`
                     return (
                       <div

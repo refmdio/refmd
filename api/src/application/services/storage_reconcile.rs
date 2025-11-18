@@ -16,6 +16,7 @@ use crate::application::ports::storage_reconcile_backend::StorageReconcileBacken
 use crate::application::ports::storage_reconcile_jobs::{
     StorageReconcileJob, StorageReconcileJobs,
 };
+use crate::application::services::workspaces::permissions::PermissionSet;
 
 const RESERVED_REPO_PATHS: &[&str] = &[".gitignore"]; // Files managed outside Document/Files repos
 
@@ -57,7 +58,7 @@ impl StorageReconcileService {
                 paths.insert(normalized);
             }
         }
-        for attachment_path in self.files.list_storage_paths_for_user(user_id).await? {
+        for attachment_path in self.files.list_storage_paths_for_workspace(user_id).await? {
             if let Some(normalized) = normalize_repo_path(&attachment_path) {
                 paths.insert(normalized);
             }
@@ -93,9 +94,12 @@ impl StorageReconcileService {
             );
             return Ok(());
         };
+        let permissions = PermissionSet::all().to_vec();
         self.ingest_queue
             .enqueue_event(
                 user_id,
+                user_id,
+                None,
                 &repo_path,
                 "reconcile",
                 StorageIngestKind::Delete,
@@ -104,6 +108,7 @@ impl StorageReconcileService {
                     "source": "reconcile",
                     "storage_path": storage_path,
                 })),
+                &permissions,
             )
             .await
     }
@@ -122,9 +127,12 @@ impl StorageReconcileService {
             return Ok(());
         }
 
+        let permissions = PermissionSet::all().to_vec();
         self.ingest_queue
             .enqueue_event(
                 user_id,
+                user_id,
+                None,
                 &repo_path,
                 "reconcile",
                 StorageIngestKind::Upsert,
@@ -133,6 +141,7 @@ impl StorageReconcileService {
                     "source": "reconcile",
                     "storage_path": storage_path,
                 })),
+                &permissions,
             )
             .await
     }
@@ -203,6 +212,7 @@ impl StorageReconcileService {
                 );
                 self.storage_jobs
                     .enqueue_doc_job(
+                        doc.workspace_id,
                         doc.id,
                         StorageProjectionJobKind::DocSync,
                         Some("storage_reconcile_missing_doc"),

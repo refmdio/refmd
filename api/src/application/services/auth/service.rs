@@ -25,11 +25,25 @@ pub struct IssuedSession {
 #[derive(Debug, Deserialize, Serialize)]
 struct Claims {
     sub: String,
+    #[serde(default)]
+    workspace_id: Option<String>,
+    #[serde(default)]
+    iat: usize,
     #[allow(dead_code)]
     exp: usize,
 }
 
 impl AuthService {
+    fn decode_claims(&self, token: &str) -> Option<Claims> {
+        jsonwebtoken::decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(self.jwt_secret.as_bytes()),
+            &Validation::default(),
+        )
+        .ok()
+        .map(|data| data.claims)
+    }
+
     pub fn new(
         jwt_secret: impl Into<String>,
         tokens: Arc<TokenValidationService>,
@@ -43,25 +57,46 @@ impl AuthService {
     }
 
     pub async fn subject_from_token(&self, token: &str) -> Result<Option<String>, ServiceError> {
-        if let Ok(data) = jsonwebtoken::decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(self.jwt_secret.as_bytes()),
-            &Validation::default(),
-        ) {
-            return Ok(Some(data.claims.sub));
+        if let Some(claims) = self.decode_claims(token) {
+            return Ok(Some(claims.sub));
         }
 
         self.tokens
             .validate(token)
             .await
-            .map(|opt| opt.map(|uuid| uuid.to_string()))
+            .map(|opt| opt.map(|(user_id, _)| user_id.to_string()))
     }
 
-    pub fn issue_session(&self, user_id: Uuid) -> Result<IssuedSession, ServiceError> {
+    pub fn workspace_from_token_claim(&self, token: &str) -> Option<Uuid> {
+        self.decode_claims(token)
+            .and_then(|claims| claims.workspace_id)
+            .and_then(|raw| Uuid::parse_str(&raw).ok())
+    }
+
+    pub async fn workspace_from_token_async(
+        &self,
+        token: &str,
+    ) -> Result<Option<Uuid>, ServiceError> {
+        if let Some(id) = self.workspace_from_token_claim(token) {
+            return Ok(Some(id));
+        }
+        self.tokens
+            .validate(token)
+            .await
+            .map(|opt| opt.map(|(_, workspace_id)| workspace_id))
+    }
+
+    pub fn issue_session(
+        &self,
+        user_id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<IssuedSession, ServiceError> {
         let now = Utc::now().timestamp() as usize;
         let exp = now + self.jwt_expires_secs;
         let claims = Claims {
             sub: user_id.to_string(),
+            workspace_id: Some(workspace_id.to_string()),
+            iat: now,
             exp,
         };
         let token = jsonwebtoken::encode(

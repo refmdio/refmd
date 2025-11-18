@@ -22,23 +22,23 @@ where
 {
     pub async fn execute(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         req: GitSyncRequestDto,
     ) -> anyhow::Result<GitSyncResponseDto> {
-        let cfg = self.repo.load_user_git_cfg(user_id).await?;
+        let cfg = self.repo.load_user_git_cfg(workspace_id).await?;
         let mut attempt_req = req.clone();
         let outcome = match self
             .workspace
-            .sync(user_id, &attempt_req, cfg.as_ref())
+            .sync(workspace_id, &attempt_req, cfg.as_ref())
             .await
         {
             Ok(outcome) => outcome,
             Err(err) => {
                 if !attempt_req.force.unwrap_or(false) && needs_force_retry(&err) {
-                    warn!(user_id = %user_id, "git_sync_retrying_with_force");
+                    warn!(workspace_id = %workspace_id, "git_sync_retrying_with_force");
                     attempt_req.force = Some(true);
                     self.workspace
-                        .sync(user_id, &attempt_req, cfg.as_ref())
+                        .sync(workspace_id, &attempt_req, cfg.as_ref())
                         .await?
                 } else {
                     return Err(err);
@@ -52,7 +52,7 @@ where
                     let _ = self
                         .repo
                         .log_sync_operation(
-                            user_id,
+                            workspace_id,
                             "commit",
                             "success",
                             Some(&outcome.message),
@@ -64,7 +64,7 @@ where
                     let _ = self
                         .repo
                         .log_sync_operation(
-                            user_id,
+                            workspace_id,
                             "push",
                             status,
                             Some(&outcome.message),

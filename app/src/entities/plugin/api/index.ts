@@ -9,6 +9,7 @@ import {
   pluginsPutKv as apiPluginsPutKv,
   pluginsUninstall as apiPluginsUninstall,
   pluginsUpdateRecord as apiPluginsUpdateRecord,
+  OpenAPI,
 } from '@/shared/api'
 import type { ManifestItem as ClientManifestItem } from '@/shared/api/client'
 
@@ -18,6 +19,17 @@ export const pluginKeys = {
   manifest: () => ['plugins', 'manifest'] as const,
 }
 
+async function withShareAuthorization<T>(token: string | undefined, fn: () => Promise<T>) {
+  if (!token) return fn()
+  const previous = OpenAPI.TOKEN
+  OpenAPI.TOKEN = token
+  try {
+    return await fn()
+  } finally {
+    OpenAPI.TOKEN = previous
+  }
+}
+
 export const pluginManifestQuery = (token?: string | null) => ({
   queryKey: token ? [...pluginKeys.manifest(), token] : pluginKeys.manifest(),
   queryFn: () => getPluginManifest(token ?? undefined),
@@ -25,7 +37,7 @@ export const pluginManifestQuery = (token?: string | null) => ({
 })
 
 export async function getPluginManifest(token?: string): Promise<PluginManifestItem[]> {
-  return apiPluginsGetManifest({ token })
+  return withShareAuthorization(token, () => apiPluginsGetManifest())
 }
 
 export async function execPluginAction(
@@ -34,12 +46,13 @@ export async function execPluginAction(
   payload: Record<string, unknown> | undefined,
   token?: string,
 ) {
-  return apiPluginsExecAction({
-    plugin: pluginId,
-    action,
-    requestBody: { payload },
-    token,
-  })
+  return withShareAuthorization(token, () =>
+    apiPluginsExecAction({
+      plugin: pluginId,
+      action,
+      requestBody: { payload },
+    }),
+  )
 }
 
 export async function listPluginRecords(
@@ -48,7 +61,7 @@ export async function listPluginRecords(
   kind: string,
   token?: string,
 ) {
-  return apiListRecords({ plugin: pluginId, docId, kind, token })
+  return withShareAuthorization(token, () => apiListRecords({ plugin: pluginId, docId, kind }))
 }
 
 export async function createPluginRecord(
@@ -58,7 +71,9 @@ export async function createPluginRecord(
   data: unknown,
   token?: string,
 ) {
-  return apiPluginsCreateRecord({ plugin: pluginId, docId, kind, requestBody: { data }, token })
+  return withShareAuthorization(token, () =>
+    apiPluginsCreateRecord({ plugin: pluginId, docId, kind, requestBody: { data } }),
+  )
 }
 
 export async function updatePluginRecord(pluginId: string, id: string, patch: unknown) {
@@ -75,7 +90,7 @@ export async function getPluginKv(
   key: string,
   token?: string,
 ) {
-  return apiPluginsGetKv({ plugin: pluginId, docId, key, token })
+  return withShareAuthorization(token, () => apiPluginsGetKv({ plugin: pluginId, docId, key }))
 }
 
 export async function putPluginKv(
@@ -85,7 +100,9 @@ export async function putPluginKv(
   value: unknown,
   token?: string,
 ) {
-  return apiPluginsPutKv({ plugin: pluginId, docId, key, requestBody: { value }, token })
+  return withShareAuthorization(token, () =>
+    apiPluginsPutKv({ plugin: pluginId, docId, key, requestBody: { value } }),
+  )
 }
 
 export async function installPluginFromUrl(url: string, token?: string) {

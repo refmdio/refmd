@@ -10,9 +10,22 @@ const resolvedBase = typeof window === 'undefined' ? getEnv('SSR_API_BASE_URL', 
 OpenAPI.BASE = resolvedBase
 OpenAPI.WITH_CREDENTIALS = true
 OpenAPI.CREDENTIALS = 'include'
-OpenAPI.HEADERS = async () => {
+
+let clientWorkspaceId: string | null = null
+
+export function setClientWorkspaceId(workspaceId: string | null) {
+  clientWorkspaceId = workspaceId
+}
+
+OpenAPI.HEADERS = async (_options) => {
+  const headers: Record<string, string> = {}
+
+  // Attach workspace header for browser requests
   if (typeof window !== 'undefined') {
-    return {}
+    if (clientWorkspaceId) {
+      headers['X-Workspace-ID'] = clientWorkspaceId
+    }
+    return headers
   }
 
   try {
@@ -20,30 +33,32 @@ OpenAPI.HEADERS = async () => {
     const authContext = (context as { auth?: { requestHeaders?: Record<string, string> } } | undefined)?.auth
     const requestHeaders = authContext?.requestHeaders ?? (context as { requestHeaders?: Record<string, string> } | undefined)?.requestHeaders
 
-    if (!requestHeaders) {
-      return {}
-    }
+    if (requestHeaders) {
+      const cookie = requestHeaders.cookie ?? requestHeaders.Cookie
+      if (cookie) {
+        headers.cookie = cookie
+      }
 
-    const headers: Record<string, string> = {}
-    const cookie = requestHeaders.cookie ?? requestHeaders.Cookie
-    if (cookie) {
-      headers.cookie = cookie
-    }
+      const forwardedProto = requestHeaders['x-forwarded-proto']
+      if (forwardedProto) {
+        headers['x-forwarded-proto'] = forwardedProto
+      }
 
-    const forwardedProto = requestHeaders['x-forwarded-proto']
-    if (forwardedProto) {
-      headers['x-forwarded-proto'] = forwardedProto
-    }
+      const forwardedHost = requestHeaders['x-forwarded-host'] ?? requestHeaders.host
+      if (forwardedHost) {
+        headers['x-forwarded-host'] = forwardedHost
+      }
 
-    const forwardedHost = requestHeaders['x-forwarded-host'] ?? requestHeaders.host
-    if (forwardedHost) {
-      headers['x-forwarded-host'] = forwardedHost
+      const workspaceHeader = requestHeaders['x-workspace-id'] ?? requestHeaders['X-Workspace-ID']
+      if (workspaceHeader) {
+        headers['X-Workspace-ID'] = workspaceHeader
+      }
     }
-
-    return headers
   } catch {
-    return {}
+    // ignore
   }
+
+  return headers
 }
 
 OpenAPI.interceptors.response.use(async (response) => {

@@ -18,13 +18,13 @@ impl TagService {
 
     pub async fn list(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         filter: Option<String>,
     ) -> Result<Vec<TagItemDto>, ServiceError> {
         let uc = ListTags {
             repo: self.repo.as_ref(),
         };
-        uc.execute(user_id, filter)
+        uc.execute(workspace_id, filter)
             .await
             .map_err(ServiceError::from)
     }

@@ -4,7 +4,8 @@ use uuid::Uuid;
 
 #[async_trait]
 pub trait FilesRepository: Send + Sync {
-    async fn is_owner_document(&self, doc_id: Uuid, owner_id: Uuid) -> anyhow::Result<bool>;
+    async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid)
+    -> anyhow::Result<bool>;
     async fn insert_file(
         &self,
         doc_id: Uuid,
@@ -17,7 +18,7 @@ pub trait FilesRepository: Send + Sync {
     async fn get_file_meta(
         &self,
         file_id: Uuid,
-    ) -> anyhow::Result<Option<(String, Option<String>, Uuid)>>; // (storage_path, content_type, owner_id)
+    ) -> anyhow::Result<Option<(String, Option<String>, Uuid)>>; // storage_path, content_type, workspace_id
     async fn get_file_path_by_doc_and_name(
         &self,
         doc_id: Uuid,
@@ -29,12 +30,15 @@ pub trait FilesRepository: Send + Sync {
         tx: &mut Transaction<'_, Postgres>,
         doc_id: Uuid,
     ) -> anyhow::Result<Vec<String>>;
-    async fn list_storage_paths_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<String>>;
+    async fn list_storage_paths_for_workspace(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<String>>;
 
     async fn find_by_storage_path(
         &self,
         storage_path: &str,
-    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>>; // (file_id, document_id, owner_id)
+    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>>; // (file_id, document_id, workspace_id)
 
     async fn update_storage_path(&self, file_id: Uuid, storage_path: &str) -> anyhow::Result<()>;
 

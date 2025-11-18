@@ -466,9 +466,9 @@ impl S3BackedPluginStore {
             self.global_cache.invalidate();
         }
 
-        if let Some(user_id) = event.user_id {
+        if let Some(owner_id) = event.workspace_id.or(event.user_id) {
             if let Some(plugin_id) = event.payload.get("id").and_then(|v| v.as_str()) {
-                let key = UserPluginKey::new(user_id, plugin_id);
+                let key = UserPluginKey::new(owner_id, plugin_id);
                 if kind == "uninstalled" {
                     self.schedule_remove_user_plugin(key);
                 } else {

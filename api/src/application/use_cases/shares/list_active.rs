@@ -8,8 +8,8 @@ pub struct ListActiveShares<'a, R: SharesRepository + ?Sized> {
 }
 
 impl<'a, R: SharesRepository + ?Sized> ListActiveShares<'a, R> {
-    pub async fn execute(&self, owner_id: Uuid) -> anyhow::Result<Vec<ActiveShareItemDto>> {
-        let rows = self.repo.list_active_shares(owner_id).await?;
+    pub async fn execute(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ActiveShareItemDto>> {
+        let rows = self.repo.list_active_shares(workspace_id).await?;
         let mut items = Vec::with_capacity(rows.len());
         for r in rows.into_iter() {
             items.push(ActiveShareItemDto {

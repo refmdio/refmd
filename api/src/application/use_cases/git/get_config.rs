@@ -7,8 +7,8 @@ pub struct GetGitConfig<'a, R: GitRepository + ?Sized> {
 }
 
 impl<'a, R: GitRepository + ?Sized> GetGitConfig<'a, R> {
-    pub async fn execute(&self, user_id: Uuid) -> anyhow::Result<Option<GitConfigDto>> {
-        Ok(self.repo.get_config(user_id).await?.map(
+    pub async fn execute(&self, workspace_id: Uuid) -> anyhow::Result<Option<GitConfigDto>> {
+        Ok(self.repo.get_config(workspace_id).await?.map(
             |(id, repository_url, branch_name, auth_type, auto_sync, created_at, updated_at)| {
                 GitConfigDto {
                     id,

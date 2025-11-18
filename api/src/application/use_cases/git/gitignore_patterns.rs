@@ -16,8 +16,8 @@ where
     G: GitignorePort + ?Sized,
     S: StorageResolverPort + ?Sized,
 {
-    pub async fn execute(&self, owner_id: uuid::Uuid) -> anyhow::Result<Vec<String>> {
-        let dir = self.storage.user_repo_dir(owner_id);
+    pub async fn execute(&self, workspace_id: uuid::Uuid) -> anyhow::Result<Vec<String>> {
+        let dir = self.storage.user_repo_dir(workspace_id);
         let patterns = self.gitignore.read_gitignore_patterns(&dir).await?;
         Ok(patterns)
     }
@@ -42,11 +42,13 @@ where
 {
     pub async fn execute(
         &self,
-        owner_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
         patterns: Vec<String>,
     ) -> anyhow::Result<usize> {
-        self.workspace.ensure_repository(owner_id, "main").await?;
-        let dir = self.storage.user_repo_dir(owner_id);
+        self.workspace
+            .ensure_repository(workspace_id, "main")
+            .await?;
+        let dir = self.storage.user_repo_dir(workspace_id);
         let _ = self.gitignore.ensure_gitignore(&dir).await?;
         let added = self
             .gitignore
@@ -62,8 +64,8 @@ pub struct CheckPathIgnored<'a, G: GitignorePort + ?Sized, S: StorageResolverPor
 }
 
 impl<'a, G: GitignorePort + ?Sized, S: StorageResolverPort + ?Sized> CheckPathIgnored<'a, G, S> {
-    pub async fn execute(&self, owner_id: uuid::Uuid, rel_path: &str) -> anyhow::Result<bool> {
-        let dir = self.storage.user_repo_dir(owner_id);
+    pub async fn execute(&self, workspace_id: uuid::Uuid, rel_path: &str) -> anyhow::Result<bool> {
+        let dir = self.storage.user_repo_dir(workspace_id);
         let patterns = self.gitignore.read_gitignore_patterns(&dir).await?;
         let p = rel_path.trim_start_matches('/');
         let mut is_ignored = false;

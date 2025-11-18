@@ -7,6 +7,7 @@ use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::plugin_runtime::PluginRuntime;
 use crate::application::services::errors::ServiceError;
+use crate::application::services::workspaces::permissions::PermissionSet;
 use crate::application::use_cases::plugins::exec_action::ExecutePluginAction;
 
 pub struct PluginExecutionService {
@@ -30,7 +31,9 @@ impl PluginExecutionService {
 
     pub async fn execute_action(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
         plugin: &str,
         action: &str,
         payload: Option<serde_json::Value>,
@@ -40,7 +43,7 @@ impl PluginExecutionService {
             plugin_repo: self.plugin_repo.as_ref(),
             document_repo: self.document_repo.as_ref(),
         };
-        uc.execute(owner_id, plugin, action, payload)
+        uc.execute(workspace_id, user_id, permissions, plugin, action, payload)
             .await
             .map_err(ServiceError::from)
     }

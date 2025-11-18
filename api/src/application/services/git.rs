@@ -59,16 +59,19 @@ impl GitService {
         }
     }
 
-    pub async fn get_config(&self, user_id: Uuid) -> Result<Option<GitConfigDto>, ServiceError> {
+    pub async fn get_config(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Option<GitConfigDto>, ServiceError> {
         let uc = GetGitConfig {
             repo: self.repo.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
     pub async fn upsert_config(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         input: &UpsertGitConfigInput,
     ) -> Result<GitConfigDto, ServiceError> {
         let uc = UpsertGitConfig {
@@ -77,99 +80,107 @@ impl GitService {
             gitignore: self.gitignore.as_ref(),
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id, input).await.map_err(ServiceError::from)
+        uc.execute(workspace_id, input)
+            .await
+            .map_err(ServiceError::from)
     }
 
-    pub async fn delete_config(&self, user_id: Uuid) -> Result<(), ServiceError> {
+    pub async fn delete_config(&self, workspace_id: Uuid) -> Result<(), ServiceError> {
         let uc = DeleteGitConfig {
             repo: self.repo.as_ref(),
         };
-        uc.execute(user_id)
+        uc.execute(workspace_id)
             .await
             .map(|_| ())
             .map_err(ServiceError::from)
     }
 
-    pub async fn get_status(&self, user_id: Uuid) -> Result<GitStatusDto, ServiceError> {
+    pub async fn get_status(&self, workspace_id: Uuid) -> Result<GitStatusDto, ServiceError> {
         let uc = GetGitStatus {
             repo: self.repo.as_ref(),
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
     pub async fn sync_now(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         payload: GitSyncRequestDto,
     ) -> Result<GitSyncResponseDto, ServiceError> {
         let uc = SyncNow {
             workspace: self.workspace.as_ref(),
             repo: self.repo.as_ref(),
         };
-        uc.execute(user_id, payload)
+        uc.execute(workspace_id, payload)
             .await
             .map_err(ServiceError::from)
     }
 
-    pub async fn get_changes(&self, user_id: Uuid) -> Result<Vec<GitChangeItem>, ServiceError> {
+    pub async fn get_changes(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<GitChangeItem>, ServiceError> {
         let uc = GetChanges {
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
-    pub async fn get_history(&self, user_id: Uuid) -> Result<Vec<GitCommitInfo>, ServiceError> {
+    pub async fn get_history(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<GitCommitInfo>, ServiceError> {
         let uc = GetHistory {
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
     pub async fn get_working_diff(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
     ) -> Result<Vec<TextDiffResult>, ServiceError> {
         let uc = GetWorkingDiff {
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
     pub async fn get_commit_diff(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         from: &str,
         to: &str,
     ) -> Result<Vec<TextDiffResult>, ServiceError> {
         let uc = GetCommitDiff {
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id, from.to_string(), to.to_string())
+        uc.execute(workspace_id, from.to_string(), to.to_string())
             .await
             .map_err(ServiceError::from)
     }
 
-    pub async fn init_repository(&self, user_id: Uuid) -> Result<(), ServiceError> {
+    pub async fn init_repository(&self, workspace_id: Uuid) -> Result<(), ServiceError> {
         let uc = InitRepo {
             repo: self.repo.as_ref(),
             storage: self.storage.as_ref(),
             gitignore: self.gitignore.as_ref(),
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
-    pub async fn deinit_repository(&self, user_id: Uuid) -> Result<(), ServiceError> {
+    pub async fn deinit_repository(&self, workspace_id: Uuid) -> Result<(), ServiceError> {
         let uc = DeinitRepo {
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
     pub async fn ignore_document(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
     ) -> Result<GitignoreUpdateDto, ServiceError> {
         let uc = IgnoreDocument {
@@ -179,7 +190,7 @@ impl GitService {
             gitignore: self.gitignore.as_ref(),
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id, doc_id)
+        uc.execute(workspace_id, doc_id)
             .await
             .map(|res| GitignoreUpdateDto {
                 added: res.added,
@@ -190,7 +201,7 @@ impl GitService {
 
     pub async fn ignore_folder(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         folder_id: Uuid,
     ) -> Result<GitignoreUpdateDto, ServiceError> {
         let uc = IgnoreFolder {
@@ -200,7 +211,7 @@ impl GitService {
             gitignore: self.gitignore.as_ref(),
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id, folder_id)
+        uc.execute(workspace_id, folder_id)
             .await
             .map(|res| GitignoreUpdateDto {
                 added: res.added,
@@ -211,7 +222,7 @@ impl GitService {
 
     pub async fn add_gitignore_patterns(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         patterns: Vec<String>,
     ) -> Result<i64, ServiceError> {
         let uc = AddGitignorePatterns {
@@ -219,29 +230,34 @@ impl GitService {
             gitignore: self.gitignore.as_ref(),
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(user_id, patterns)
+        uc.execute(workspace_id, patterns)
             .await
             .map(|count| count as i64)
             .map_err(ServiceError::from)
     }
 
-    pub async fn get_gitignore_patterns(&self, user_id: Uuid) -> Result<Vec<String>, ServiceError> {
+    pub async fn get_gitignore_patterns(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<String>, ServiceError> {
         let uc = GetGitignorePatterns {
             storage: self.storage.as_ref(),
             gitignore: self.gitignore.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
     pub async fn check_path_ignored(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         path: &str,
     ) -> Result<bool, ServiceError> {
         let uc = CheckPathIgnored {
             gitignore: self.gitignore.as_ref(),
             storage: self.storage.as_ref(),
         };
-        uc.execute(user_id, path).await.map_err(ServiceError::from)
+        uc.execute(workspace_id, path)
+            .await
+            .map_err(ServiceError::from)
     }
 }

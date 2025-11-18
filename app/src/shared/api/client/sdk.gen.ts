@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, RegisterData, RegisterResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, PatchDocumentContentData, PatchDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, InitRepositoryResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestData, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListUserPublicDocumentsData, ListUserPublicDocumentsResponse, GetPublicByOwnerAndIdData, GetPublicByOwnerAndIdResponse, GetPublicContentByOwnerAndIdData, GetPublicContentByOwnerAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, ListTagsData, ListTagsResponse, AxumWsEntryData } from './types.gen';
+import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, RegisterData, RegisterResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, PatchDocumentContentData, PatchDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, InitRepositoryResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListWorkspacePublicDocumentsData, ListWorkspacePublicDocumentsResponse, GetPublicByWorkspaceAndIdData, GetPublicByWorkspaceAndIdResponse, GetPublicContentByWorkspaceAndIdData, GetPublicContentByWorkspaceAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, ListTagsData, ListTagsResponse, AcceptInvitationData, AcceptInvitationResponse, ListWorkspacesResponse, CreateWorkspaceData, CreateWorkspaceResponse, GetWorkspaceDetailData, GetWorkspaceDetailResponse, UpdateWorkspaceData, UpdateWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, ListInvitationsData, ListInvitationsResponse, CreateInvitationData, CreateInvitationResponse, ListMembersData, ListMembersResponse, RemoveMemberData, RemoveMemberResponse, UpdateMemberRoleData, UpdateMemberRoleResponse, GetWorkspacePermissionsData, GetWorkspacePermissionsResponse, ListRolesData, ListRolesResponse, CreateRoleData, CreateRoleResponse, DeleteRoleData, DeleteRoleResponse, UpdateRoleData, UpdateRoleResponse, SwitchWorkspaceData, SwitchWorkspaceResponse2, AxumWsEntryData } from './types.gen';
 
 /**
  * @param data The data for the request.
@@ -800,18 +800,13 @@ export const pluginsInstallFromUrl = (data: PluginsInstallFromUrlData): Cancelab
 };
 
 /**
- * @param data The data for the request.
- * @param data.token Share token (optional)
  * @returns ManifestItem
  * @throws ApiError
  */
-export const pluginsGetManifest = (data: PluginsGetManifestData = {}): CancelablePromise<PluginsGetManifestResponse> => {
+export const pluginsGetManifest = (): CancelablePromise<PluginsGetManifestResponse> => {
     return __request(OpenAPI, {
         method: 'GET',
-        url: '/api/me/plugins/manifest',
-        query: {
-            token: data.token
-        }
+        url: '/api/me/plugins/manifest'
     });
 };
 
@@ -872,7 +867,6 @@ export const updateUserShortcuts = (data: UpdateUserShortcutsData): CancelablePr
  * @param data.plugin Plugin ID
  * @param data.docId Document ID
  * @param data.key Key
- * @param data.token Share token
  * @returns KvValueResponse
  * @throws ApiError
  */
@@ -884,9 +878,6 @@ export const pluginsGetKv = (data: PluginsGetKvData): CancelablePromise<PluginsG
             plugin: data.plugin,
             doc_id: data.docId,
             key: data.key
-        },
-        query: {
-            token: data.token
         }
     });
 };
@@ -897,7 +888,6 @@ export const pluginsGetKv = (data: PluginsGetKvData): CancelablePromise<PluginsG
  * @param data.docId Document ID
  * @param data.key Key
  * @param data.requestBody
- * @param data.token Share token
  * @returns void
  * @throws ApiError
  */
@@ -909,9 +899,6 @@ export const pluginsPutKv = (data: PluginsPutKvData): CancelablePromise<PluginsP
             plugin: data.plugin,
             doc_id: data.docId,
             key: data.key
-        },
-        query: {
-            token: data.token
         },
         body: data.requestBody,
         mediaType: 'application/json'
@@ -925,7 +912,6 @@ export const pluginsPutKv = (data: PluginsPutKvData): CancelablePromise<PluginsP
  * @param data.kind Record kind
  * @param data.limit Limit
  * @param data.offset Offset
- * @param data.token Share token
  * @returns RecordsResponse
  * @throws ApiError
  */
@@ -940,8 +926,7 @@ export const listRecords = (data: ListRecordsData): CancelablePromise<ListRecord
         },
         query: {
             limit: data.limit,
-            offset: data.offset,
-            token: data.token
+            offset: data.offset
         }
     });
 };
@@ -952,7 +937,6 @@ export const listRecords = (data: ListRecordsData): CancelablePromise<ListRecord
  * @param data.docId Document ID
  * @param data.kind Record kind
  * @param data.requestBody
- * @param data.token Share token
  * @returns unknown
  * @throws ApiError
  */
@@ -965,9 +949,6 @@ export const pluginsCreateRecord = (data: PluginsCreateRecordData): CancelablePr
             doc_id: data.docId,
             kind: data.kind
         },
-        query: {
-            token: data.token
-        },
         body: data.requestBody,
         mediaType: 'application/json'
     });
@@ -978,7 +959,6 @@ export const pluginsCreateRecord = (data: PluginsCreateRecordData): CancelablePr
  * @param data.plugin Plugin ID
  * @param data.action Action
  * @param data.requestBody
- * @param data.token Share token
  * @returns ExecResultResponse
  * @throws ApiError
  */
@@ -989,9 +969,6 @@ export const pluginsExecAction = (data: PluginsExecActionData): CancelablePromis
         path: {
             plugin: data.plugin,
             action: data.action
-        },
-        query: {
-            token: data.token
         },
         body: data.requestBody,
         mediaType: 'application/json'
@@ -1087,33 +1064,33 @@ export const unpublishDocument = (data: UnpublishDocumentData): CancelablePromis
 
 /**
  * @param data The data for the request.
- * @param data.name Owner name
- * @returns PublicDocumentSummary Public documents for user
+ * @param data.slug Workspace slug
+ * @returns PublicDocumentSummary Public documents for workspace
  * @throws ApiError
  */
-export const listUserPublicDocuments = (data: ListUserPublicDocumentsData): CancelablePromise<ListUserPublicDocumentsResponse> => {
+export const listWorkspacePublicDocuments = (data: ListWorkspacePublicDocumentsData): CancelablePromise<ListWorkspacePublicDocumentsResponse> => {
     return __request(OpenAPI, {
         method: 'GET',
-        url: '/api/public/users/{name}',
+        url: '/api/public/workspaces/{slug}',
         path: {
-            name: data.name
+            slug: data.slug
         }
     });
 };
 
 /**
  * @param data The data for the request.
- * @param data.name Owner name
+ * @param data.slug Workspace slug
  * @param data.id Document ID
  * @returns Document Document metadata
  * @throws ApiError
  */
-export const getPublicByOwnerAndId = (data: GetPublicByOwnerAndIdData): CancelablePromise<GetPublicByOwnerAndIdResponse> => {
+export const getPublicByWorkspaceAndId = (data: GetPublicByWorkspaceAndIdData): CancelablePromise<GetPublicByWorkspaceAndIdResponse> => {
     return __request(OpenAPI, {
         method: 'GET',
-        url: '/api/public/users/{name}/{id}',
+        url: '/api/public/workspaces/{slug}/{id}',
         path: {
-            name: data.name,
+            slug: data.slug,
             id: data.id
         }
     });
@@ -1121,17 +1098,17 @@ export const getPublicByOwnerAndId = (data: GetPublicByOwnerAndIdData): Cancelab
 
 /**
  * @param data The data for the request.
- * @param data.name Owner name
+ * @param data.slug Workspace slug
  * @param data.id Document ID
  * @returns unknown Document content
  * @throws ApiError
  */
-export const getPublicContentByOwnerAndId = (data: GetPublicContentByOwnerAndIdData): CancelablePromise<GetPublicContentByOwnerAndIdResponse> => {
+export const getPublicContentByWorkspaceAndId = (data: GetPublicContentByWorkspaceAndIdData): CancelablePromise<GetPublicContentByWorkspaceAndIdResponse> => {
     return __request(OpenAPI, {
         method: 'GET',
-        url: '/api/public/users/{name}/{id}/content',
+        url: '/api/public/workspaces/{slug}/{id}/content',
         path: {
-            name: data.name,
+            slug: data.slug,
             id: data.id
         }
     });
@@ -1271,6 +1248,295 @@ export const listTags = (data: ListTagsData = {}): CancelablePromise<ListTagsRes
         url: '/api/tags',
         query: {
             q: data.q
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.token Invitation token
+ * @returns void
+ * @throws ApiError
+ */
+export const acceptInvitation = (data: AcceptInvitationData): CancelablePromise<AcceptInvitationResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/workspace-invitations/{token}/accept',
+        path: {
+            token: data.token
+        }
+    });
+};
+
+/**
+ * @returns WorkspaceResponse
+ * @throws ApiError
+ */
+export const listWorkspaces = (): CancelablePromise<ListWorkspacesResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns WorkspaceResponse
+ * @throws ApiError
+ */
+export const createWorkspace = (data: CreateWorkspaceData): CancelablePromise<CreateWorkspaceResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/workspaces',
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns WorkspaceResponse
+ * @throws ApiError
+ */
+export const getWorkspaceDetail = (data: GetWorkspaceDetailData): CancelablePromise<GetWorkspaceDetailResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces/{id}',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.requestBody
+ * @returns WorkspaceResponse
+ * @throws ApiError
+ */
+export const updateWorkspace = (data: UpdateWorkspaceData): CancelablePromise<UpdateWorkspaceResponse> => {
+    return __request(OpenAPI, {
+        method: 'PUT',
+        url: '/api/workspaces/{id}',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns void
+ * @throws ApiError
+ */
+export const deleteWorkspace = (data: DeleteWorkspaceData): CancelablePromise<DeleteWorkspaceResponse> => {
+    return __request(OpenAPI, {
+        method: 'DELETE',
+        url: '/api/workspaces/{id}',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns WorkspaceInvitationResponse
+ * @throws ApiError
+ */
+export const listInvitations = (data: ListInvitationsData): CancelablePromise<ListInvitationsResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces/{id}/invitations',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.requestBody
+ * @returns WorkspaceInvitationResponse
+ * @throws ApiError
+ */
+export const createInvitation = (data: CreateInvitationData): CancelablePromise<CreateInvitationResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/workspaces/{id}/invitations',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns WorkspaceMemberResponse
+ * @throws ApiError
+ */
+export const listMembers = (data: ListMembersData): CancelablePromise<ListMembersResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces/{id}/members',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.userId Target user ID
+ * @returns void
+ * @throws ApiError
+ */
+export const removeMember = (data: RemoveMemberData): CancelablePromise<RemoveMemberResponse> => {
+    return __request(OpenAPI, {
+        method: 'DELETE',
+        url: '/api/workspaces/{id}/members/{user_id}',
+        path: {
+            id: data.id,
+            user_id: data.userId
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.userId Target user ID
+ * @param data.requestBody
+ * @returns WorkspaceMemberResponse
+ * @throws ApiError
+ */
+export const updateMemberRole = (data: UpdateMemberRoleData): CancelablePromise<UpdateMemberRoleResponse> => {
+    return __request(OpenAPI, {
+        method: 'PATCH',
+        url: '/api/workspaces/{id}/members/{user_id}',
+        path: {
+            id: data.id,
+            user_id: data.userId
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns WorkspacePermissionsResponse
+ * @throws ApiError
+ */
+export const getWorkspacePermissions = (data: GetWorkspacePermissionsData): CancelablePromise<GetWorkspacePermissionsResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces/{id}/permissions',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns WorkspaceRoleResponse
+ * @throws ApiError
+ */
+export const listRoles = (data: ListRolesData): CancelablePromise<ListRolesResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces/{id}/roles',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.requestBody
+ * @returns WorkspaceRoleResponse
+ * @throws ApiError
+ */
+export const createRole = (data: CreateRoleData): CancelablePromise<CreateRoleResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/workspaces/{id}/roles',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.roleId Role ID
+ * @returns void
+ * @throws ApiError
+ */
+export const deleteRole = (data: DeleteRoleData): CancelablePromise<DeleteRoleResponse> => {
+    return __request(OpenAPI, {
+        method: 'DELETE',
+        url: '/api/workspaces/{id}/roles/{role_id}',
+        path: {
+            id: data.id,
+            role_id: data.roleId
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.roleId Role ID
+ * @param data.requestBody
+ * @returns WorkspaceRoleResponse
+ * @throws ApiError
+ */
+export const updateRole = (data: UpdateRoleData): CancelablePromise<UpdateRoleResponse> => {
+    return __request(OpenAPI, {
+        method: 'PATCH',
+        url: '/api/workspaces/{id}/roles/{role_id}',
+        path: {
+            id: data.id,
+            role_id: data.roleId
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns SwitchWorkspaceResponse
+ * @throws ApiError
+ */
+export const switchWorkspace = (data: SwitchWorkspaceData): CancelablePromise<SwitchWorkspaceResponse2> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/workspaces/{id}/switch',
+        path: {
+            id: data.id
         }
     });
 };
