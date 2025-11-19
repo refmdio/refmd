@@ -1,4 +1,4 @@
-import { Plus, Folder, Blocks, Image as ImageIcon, FileSpreadsheet, Sparkles, List } from 'lucide-react'
+import { Plus, Folder, Blocks, Image as ImageIcon, FileSpreadsheet, Sparkles, List, Download, Loader2 } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -18,6 +18,8 @@ type PluginAction = {
 type Props = {
   onCreateDocument: () => void
   onCreateFolder?: () => void
+  onDownloadWorkspace?: () => void
+  downloadWorkspacePending?: boolean
   pluginCommands?: PluginAction[]
   trailing?: React.ReactNode
   temporaryActions?: {
@@ -57,7 +59,7 @@ function renderPluginIcon(name?: string) {
   return <Blocks className={iconCls} />
 }
 
-export default function FileTreeActions({ onCreateDocument, onCreateFolder, pluginCommands, trailing, temporaryActions, className }: Props) {
+export default function FileTreeActions({ onCreateDocument, onCreateFolder, onDownloadWorkspace, downloadWorkspacePending, pluginCommands, trailing, temporaryActions, className }: Props) {
   const buttonClass = cn(
     'h-9 w-9 rounded-full border border-border/40 text-muted-foreground transition-colors',
     'hover:bg-muted/70 hover:text-foreground disabled:opacity-50'
@@ -87,6 +89,23 @@ export default function FileTreeActions({ onCreateDocument, onCreateFolder, plug
           </span>
         </TooltipTrigger>
         <TooltipContent>{onCreateFolder ? 'New folder' : 'New folder (coming soon)'}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={buttonClass}
+              onClick={onDownloadWorkspace}
+              disabled={!onDownloadWorkspace || downloadWorkspacePending}
+            >
+              {downloadWorkspacePending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Download workspace</TooltipContent>
       </Tooltip>
 
       {hasTemporaryMenu && (

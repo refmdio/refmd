@@ -104,6 +104,7 @@ use utoipa::OpenApi;
         workspaces::create_invitation,
         workspaces::revoke_invitation,
         workspaces::accept_invitation,
+        workspaces::download_workspace_archive,
         health::health,
     ),
     components(schemas(
@@ -199,6 +200,7 @@ use utoipa::OpenApi;
         workspaces::WorkspacePermissionsResponse,
         workspaces::WorkspaceInvitationResponse,
         workspaces::CreateWorkspaceInvitationRequest,
+        workspaces::DownloadWorkspaceQuery,
         health::HealthResp,
     )),
     tags(

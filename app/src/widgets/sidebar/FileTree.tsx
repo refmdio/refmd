@@ -16,6 +16,8 @@ import { ScrollArea } from '@/shared/ui/scroll-area'
 import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuSkeleton } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
+import { downloadWorkspaceArchive } from '@/entities/document'
+
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext } from '@/features/edit-document'
 import {
@@ -272,6 +274,7 @@ function FileTreeInner() {
     updateDocuments,
     requestRename,
   } = useFileTree()
+  const { activeWorkspace } = useAuthContext()
   const isShare = shareToken.length > 0
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [docPickerOpen, setDocPickerOpen] = useState(false)
@@ -279,6 +282,7 @@ function FileTreeInner() {
   const [tempClearAllDialogOpen, setTempClearAllDialogOpen] = useState(false)
   const [temporaryEntries, setTemporaryEntries] = useState<TemporaryDocumentMeta[]>([])
   const [shareFolderId, setShareFolderId] = useState<string | null>(null)
+  const [workspaceDownloadPending, setWorkspaceDownloadPending] = useState(false)
   const openTemporaryDocument = useCallback(() => {
     if (typeof window === 'undefined') return
     const entry = createTemporaryDocumentEntry()
@@ -383,6 +387,23 @@ function FileTreeInner() {
       await moveDocument(nodeId, targetId)
     },
   })
+
+  const handleWorkspaceDownload = useCallback(async () => {
+    if (workspaceDownloadPending || !activeWorkspace) return
+    setWorkspaceDownloadPending(true)
+    try {
+      const filename = await downloadWorkspaceArchive({
+        workspaceId: activeWorkspace.id,
+        workspaceName: activeWorkspace.name,
+      })
+      toast.success(`Download ready: ${filename}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to download workspace'
+      toast.error(message)
+    } finally {
+      setWorkspaceDownloadPending(false)
+    }
+  }, [activeWorkspace, workspaceDownloadPending])
 
   const handleDrop = useCallback(
     async (
@@ -716,6 +737,8 @@ function FileTreeInner() {
                 onCreateDocument={() => createDocument(null)}
                 onCreateFolder={() => createFolder(null)}
                 pluginCommands={pluginMenu}
+                onDownloadWorkspace={!isShare && activeWorkspace ? handleWorkspaceDownload : undefined}
+                downloadWorkspacePending={workspaceDownloadPending}
                 trailing={<GitSyncButton compact />}
                 temporaryActions={{ onCreate: openTemporaryDocument, onShowList: openTempList }}
               />

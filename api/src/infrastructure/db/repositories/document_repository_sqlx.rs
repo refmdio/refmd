@@ -360,6 +360,20 @@ impl DocumentRepository for SqlxDocumentRepository {
             .collect())
     }
 
+    async fn list_workspace_documents(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<DomainDocument>> {
+        let rows = sqlx::query("SELECT * FROM documents WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| Self::map_row_to_document(&r))
+            .collect())
+    }
+
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>> {
         let row = sqlx::query(r#"SELECT * FROM documents WHERE id = $1"#)
             .bind(id)

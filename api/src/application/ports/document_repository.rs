@@ -45,6 +45,11 @@ pub trait DocumentRepository: Send + Sync {
 
     async fn list_paths_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<String>>;
 
+    async fn list_workspace_documents(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<DomainDocument>>;
+
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>>;
 
     async fn search_for_user(

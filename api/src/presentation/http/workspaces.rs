@@ -1,25 +1,32 @@
 use axum::routing::{delete, get, patch, post};
-use axum::{Json, Router};
 use axum::{
-    extract::Path,
-    extract::State,
+    Json, Router,
+    response::{IntoResponse, Response},
+};
+use axum::{
+    extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::application::access;
 use crate::application::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceRoleRecord,
 };
 use crate::application::services::errors::ServiceError;
 use crate::domain::workspaces::permissions::{
-    PERM_MEMBER_INVITE, PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW,
-    PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
+    PERM_DOC_VIEW, PERM_MEMBER_INVITE, PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE,
+    PERM_MEMBER_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
 };
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
+#[allow(unused_imports)]
+use crate::presentation::http::documents::DocumentDownloadBinary;
+use crate::presentation::http::documents::DownloadFormat;
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
@@ -54,6 +61,7 @@ pub fn routes(ctx: AppContext) -> Router {
             "/workspaces/:id/invitations/:invitation_id",
             delete(revoke_invitation),
         )
+        .route("/workspaces/:id/download", get(download_workspace_archive))
         .route(
             "/workspace-invitations/:token/accept",
             post(accept_invitation),
@@ -111,6 +119,12 @@ pub struct UpdateMemberRoleRequest {
 pub struct PermissionOverridePayload {
     pub permission: String,
     pub allowed: bool,
+}
+
+#[derive(Debug, Deserialize, ToSchema, Default)]
+pub struct DownloadWorkspaceQuery {
+    #[serde(default)]
+    pub format: DownloadFormat,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -501,6 +515,127 @@ pub async fn revoke_invitation(
         .await
         .map_err(map_service_error)?;
     Ok(Json(invitation_response_from(record)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/workspaces/{id}/download",
+    tag = "Workspaces",
+    params(
+        ("id" = Uuid, Path, description = "Workspace ID"),
+        ("format" = Option<DownloadFormat>, Query, description = "Download format (archive only)")
+    ),
+    responses(
+        (status = 200, description = "Workspace download", body = DocumentDownloadBinary, content_type = "application/octet-stream"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Workspace not found")
+    )
+)]
+pub async fn download_workspace_archive(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    Path(id): Path<Uuid>,
+    Query(params): Query<DownloadWorkspaceQuery>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let error_response = |status: StatusCode, code: &str, message: String| {
+        (
+            status,
+            Json(json!({
+                "error": code,
+                "message": message,
+            })),
+        )
+    };
+
+    let sub = auth::validate_bearer(&ctx, bearer)
+        .await
+        .map_err(|status| error_response(status, "unauthorized", "Unauthorized".to_string()))?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| {
+        error_response(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "Unauthorized".to_string(),
+        )
+    })?;
+
+    require_permission(&ctx, id, user_id, PERM_DOC_VIEW)
+        .await
+        .map_err(|status| error_response(status, "forbidden", "Forbidden".to_string()))?;
+
+    let workspace = ctx
+        .workspace_service()
+        .get_workspace(id)
+        .await
+        .map_err(|err| {
+            let status = map_service_error(err);
+            let (code, message) = if status == StatusCode::NOT_FOUND {
+                ("not_found", "Workspace not found".to_string())
+            } else {
+                ("internal", "Failed to load workspace".to_string())
+            };
+            error_response(status, code, message)
+        })?
+        .ok_or_else(|| {
+            error_response(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "Workspace not found".to_string(),
+            )
+        })?;
+
+    let actor = access::Actor::User(user_id);
+    let download = ctx
+        .document_service()
+        .download_workspace_root(&actor, id, &workspace.name, params.format.into())
+        .await
+        .map_err(|err| match err {
+            ServiceError::Unauthorized | ServiceError::Forbidden => {
+                error_response(StatusCode::FORBIDDEN, "forbidden", "Forbidden".to_string())
+            }
+            ServiceError::Conflict | ServiceError::NotFound => error_response(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "Workspace not found".to_string(),
+            ),
+            ServiceError::BadRequest(_) => error_response(
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                "Invalid download request".to_string(),
+            ),
+            ServiceError::Unexpected(inner) => {
+                tracing::error!(error = ?inner, workspace_id = %id, "workspace_download_failed");
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal",
+                    "Failed to prepare download".to_string(),
+                )
+            }
+        })?;
+
+    let mut headers = HeaderMap::new();
+    let content_type = HeaderValue::from_str(&download.content_type).map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid_header",
+            "Failed to prepare download headers".to_string(),
+        )
+    })?;
+    headers.insert(axum::http::header::CONTENT_TYPE, content_type);
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    let disposition = format!("attachment; filename=\"{}\"", download.filename);
+    let content_disposition = HeaderValue::from_str(&disposition).map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid_header",
+            "Failed to prepare download headers".to_string(),
+        )
+    })?;
+    headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
+
+    Ok((headers, download.bytes).into_response())
 }
 
 #[utoipa::path(

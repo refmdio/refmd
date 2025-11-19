@@ -151,6 +151,7 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::workspaces::list_invitations,
             api::presentation::http::workspaces::create_invitation,
             api::presentation::http::workspaces::accept_invitation,
+            api::presentation::http::workspaces::download_workspace_archive,
             api::presentation::http::plugins::get_manifest,
             api::presentation::http::plugins::exec_action,
             api::presentation::http::plugins::list_records,

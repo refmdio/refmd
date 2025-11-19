@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Edit, Trash2, MoreHorizontal, Users, Share2, Link as LinkIcon, Ban, Archive, ArchiveRestore } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Edit, Trash2, MoreHorizontal, Users, Share2, Link as LinkIcon, Ban, Archive, ArchiveRestore, Download } from 'lucide-react'
 import React, { useState, useCallback, memo, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
@@ -14,7 +14,7 @@ import { Input } from '@/shared/ui/input'
 import { SidebarMenuItem, SidebarMenuButton, SidebarMenuSub } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
-import { useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
+import { downloadDocumentFile, useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
 import { ignoreFolder } from '@/entities/git'
 
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
@@ -80,6 +80,7 @@ export const FolderNode = memo(function FolderNode({
   const isArchived = Boolean(node.archived)
   const archiveMutation = useArchiveDocument()
   const unarchiveMutation = useUnarchiveDocument()
+  const [downloadPending, setDownloadPending] = useState(false)
 
   const handleMenuOpenChange = useCallback((open: boolean) => {
     if (open) {
@@ -137,6 +138,19 @@ export const FolderNode = memo(function FolderNode({
     if (isArchived) return
     onCreateNew(node.id, true)
   }, [node.id, onCreateNew, isArchived])
+  const handleDownloadFolder = useCallback(async () => {
+    if (downloadPending) return
+    setDownloadPending(true)
+    try {
+      const filename = await downloadDocumentFile(node.id, { title: node.title, format: 'archive' })
+      toast.success(`Download ready: ${filename}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to download folder'
+      toast.error(message)
+    } finally {
+      setDownloadPending(false)
+    }
+  }, [downloadPending, node.id, node.title])
   const handleArchive = useCallback(async () => {
     try {
       await archiveMutation.mutateAsync(node.id)
@@ -304,19 +318,25 @@ export const FolderNode = memo(function FolderNode({
                       </DropdownMenuItem>
                       <DropdownMenuItem onSelect={(event) => guardMenuAction(event, () => handleCreateFolder())}>
                         <Folder className="h-4 w-4 mr-2" />New Folder
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={(event) => guardMenuAction(event, () => onShareFolder?.(node))}>
-                        <Users className="h-4 w-4 mr-2" />Share Folder
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={(event) => guardMenuAction(event, handleStartRename)}>
-                        <Edit className="h-4 w-4 mr-2" />Rename
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                  <DropdownMenuItem onSelect={(event) => guardMenuAction(event, async () => {
-                    try {
-                      const r = await ignoreFolder({ id: node.id })
-                      const added = (r as any).added ?? 0
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={(event) => guardMenuAction(event, () => onShareFolder?.(node))}>
+                    <Users className="h-4 w-4 mr-2" />Share Folder
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={(event) => guardMenuAction(event, handleStartRename)}>
+                    <Edit className="h-4 w-4 mr-2" />Rename
+                  </DropdownMenuItem>
+                </>
+              )}
+              <DropdownMenuItem
+                onSelect={(event) => guardMenuAction(event, handleDownloadFolder)}
+                disabled={downloadPending}
+              >
+                <Download className="h-4 w-4 mr-2" />Download Folder
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={(event) => guardMenuAction(event, async () => {
+                try {
+                  const r = await ignoreFolder({ id: node.id })
+                  const added = (r as any).added ?? 0
                       toast.success(`Folder ignored in Git (${added} pattern${added === 1 ? '' : 's'})`)
                     } catch (e: any) {
                       toast.error(`Failed to ignore: ${e?.message || e}`)

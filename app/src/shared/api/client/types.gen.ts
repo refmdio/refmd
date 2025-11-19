@@ -173,6 +173,10 @@ export type DownloadDocumentQuery = {
 
 export type DownloadFormat = 'archive' | 'markdown' | 'html' | 'html5' | 'pdf' | 'docx' | 'latex' | 'beamer' | 'context' | 'man' | 'mediawiki' | 'dokuwiki' | 'textile' | 'org' | 'texinfo' | 'opml' | 'docbook' | 'opendocument' | 'odt' | 'rtf' | 'epub' | 'epub3' | 'fb2' | 'asciidoc' | 'icml' | 'slidy' | 'slideous' | 'dzslides' | 'revealjs' | 's5' | 'json' | 'plain' | 'commonmark' | 'commonmark_x' | 'markdown_strict' | 'markdown_phpextra' | 'markdown_github' | 'rst' | 'native' | 'haddock';
 
+export type DownloadWorkspaceQuery = {
+    format?: DownloadFormat;
+};
+
 export type ExecBody = {
     payload?: unknown;
 };
@@ -1341,6 +1345,19 @@ export type DeleteWorkspaceData = {
 };
 
 export type DeleteWorkspaceResponse = (void);
+
+export type DownloadWorkspaceArchiveData = {
+    /**
+     * Download format (archive only)
+     */
+    format?: ((DownloadFormat) | null);
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type DownloadWorkspaceArchiveResponse = (DocumentDownloadBinary);
 
 export type ListInvitationsData = {
     /**

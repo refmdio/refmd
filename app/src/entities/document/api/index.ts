@@ -6,6 +6,7 @@ import {
   deleteDocument as apiDeleteDocument,
   downloadDocument as apiDownloadDocument,
   downloadDocumentSnapshot as apiDownloadDocumentSnapshot,
+  downloadWorkspaceArchive as apiDownloadWorkspaceArchive,
   getBacklinks as apiGetBacklinks,
   getDocument as apiGetDocument,
   getDocumentContent as apiGetDocumentContent,
@@ -580,6 +581,58 @@ export async function downloadDocumentFile(
   }
   const extension = resolveExtension(format)
   const filename = `${sanitizeExportName(options?.title)}.${extension}`
+  const blobUrl = URL.createObjectURL(blob)
+  try {
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    link.style.display = 'none'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  } finally {
+    URL.revokeObjectURL(blobUrl)
+  }
+  return filename
+}
+
+export async function downloadWorkspaceArchive(params: {
+  workspaceId: string
+  workspaceName: string
+  format?: DocumentDownloadFormat
+}) {
+  const format: DocumentDownloadFormat = params.format ?? 'archive'
+  let payload: unknown
+  try {
+    payload = await apiDownloadWorkspaceArchive({ id: params.workspaceId, format })
+  } catch (error) {
+    if (error instanceof ApiError) {
+      const body = error.body as { message?: unknown } | undefined
+      if (body && typeof body === 'object' && 'message' in body) {
+        const messageValue = (body as { message?: unknown }).message
+        if (typeof messageValue === 'string') {
+          throw new Error(messageValue)
+        }
+      }
+    }
+    throw error
+  }
+  const mimeType = resolveMimeType(format)
+  const blob =
+    payload instanceof Blob
+      ? payload
+      : typeof payload === 'string'
+        ? new Blob([payload], { type: mimeType })
+        : payload && typeof payload === 'object'
+          ? new Blob([JSON.stringify(payload, null, 2)], {
+              type: 'application/json; charset=utf-8',
+            })
+          : undefined
+  if (!(blob instanceof Blob)) {
+    throw new Error('Unexpected download payload')
+  }
+  const extension = resolveExtension(format)
+  const filename = `${sanitizeExportName(params.workspaceName)}.${extension}`
   const blobUrl = URL.createObjectURL(blob)
   try {
     const link = document.createElement('a')
