@@ -571,6 +571,12 @@ async fn main() -> anyhow::Result<()> {
         (engine_trait, snapshot_service)
     };
 
+    let recent_projection_cache = Arc::new(
+        api::application::services::storage_projection_cache::RecentProjectionCache::new(
+            Duration::from_secs(5),
+        ),
+    );
+
     {
         let markdown_exporter: Arc<dyn MarkdownExportProvider> = snapshot_service_arc.clone();
         let worker = Arc::new(StorageProjectionWorker::new(
@@ -581,6 +587,7 @@ async fn main() -> anyhow::Result<()> {
             doc_event_log.clone(),
             metrics.clone(),
             workspace_permissions.clone(),
+            recent_projection_cache.clone(),
         ));
         tokio::spawn(async move {
             worker.run().await;
@@ -814,6 +821,7 @@ async fn main() -> anyhow::Result<()> {
             doc_event_log.clone(),
             document_service.clone(),
             workspace_permissions.clone(),
+            recent_projection_cache.clone(),
         ));
         let worker = Arc::new(StorageIngestWorker::new(
             storage_ingest_queue.clone(),

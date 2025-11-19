@@ -61,6 +61,7 @@ pub struct MarkdownExport {
     pub bytes: Vec<u8>,
     pub repo_path: Option<String>,
     pub owner_id: Option<Uuid>,
+    pub workspace_id: Uuid,
     pub content_hash: String,
 }
 
@@ -256,6 +257,7 @@ impl SnapshotService {
             bytes,
             repo_path,
             owner_id: record.owner_id,
+            workspace_id: record.workspace_id,
             content_hash,
         }))
     }

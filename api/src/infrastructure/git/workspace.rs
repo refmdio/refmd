@@ -456,9 +456,10 @@ impl GitWorkspaceService {
         while let Some(meta) = cursor {
             chain.push(meta.clone());
             cursor = match meta.parent_commit_id.clone() {
-                Some(parent) => self
-                    .commit_meta_by_id(workspace_id, parent.as_slice())
-                    .await?,
+                Some(parent) => {
+                    self.commit_meta_by_id(workspace_id, parent.as_slice())
+                        .await?
+                }
                 None => None,
             };
         }
@@ -496,13 +497,11 @@ impl GitWorkspaceService {
                     );
                 }
             }
-            sqlx::query(
-                "DELETE FROM git_commits WHERE workspace_id = $1 AND commit_id = $2",
-            )
-            .bind(workspace_id)
-            .bind(meta.commit_id.clone())
-            .execute(&self.pool)
-            .await?;
+            sqlx::query("DELETE FROM git_commits WHERE workspace_id = $1 AND commit_id = $2")
+                .bind(workspace_id)
+                .bind(meta.commit_id.clone())
+                .execute(&self.pool)
+                .await?;
         }
         Ok(())
     }
@@ -529,9 +528,10 @@ impl GitWorkspaceService {
                     }
                     to_prune.push(meta.clone());
                     cursor = match meta.parent_commit_id.clone() {
-                        Some(parent) => self
-                            .commit_meta_by_id(workspace_id, parent.as_slice())
-                            .await?,
+                        Some(parent) => {
+                            self.commit_meta_by_id(workspace_id, parent.as_slice())
+                                .await?
+                        }
                         None => None,
                     };
                 }
@@ -543,8 +543,8 @@ impl GitWorkspaceService {
                             removed = all.len(),
                             "git_commit_pointer_reset_db_chain"
                         );
-        self.remove_commits(workspace_id, &all).await?;
-    }
+                        self.remove_commits(workspace_id, &all).await?;
+                    }
                 } else if !to_prune.is_empty() {
                     info!(
                         workspace_id = %workspace_id,
@@ -592,10 +592,7 @@ impl GitWorkspaceService {
         Ok(())
     }
 
-    async fn ensure_storage_commit_integrity(
-        &self,
-        workspace_id: Uuid,
-    ) -> anyhow::Result<()> {
+    async fn ensure_storage_commit_integrity(&self, workspace_id: Uuid) -> anyhow::Result<()> {
         loop {
             let Some(latest) = self.latest_commit_meta(workspace_id).await? else {
                 self.git_storage
@@ -603,7 +600,9 @@ impl GitWorkspaceService {
                     .await?;
                 return Ok(());
             };
-            let chain = self.collect_commit_chain(workspace_id, latest.clone()).await?;
+            let chain = self
+                .collect_commit_chain(workspace_id, latest.clone())
+                .await?;
             let mut missing_idx: Option<usize> = None;
             for (idx, meta) in chain.iter().enumerate() {
                 match self

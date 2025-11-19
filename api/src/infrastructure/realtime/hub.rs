@@ -40,6 +40,7 @@ pub struct DocumentRoom {
     #[allow(dead_code)]
     persist_sub: yrs::Subscription,
     pub seq: Arc<Mutex<i64>>, // latest persisted seq
+    pub skip_fs_persist: Arc<AtomicBool>,
 }
 
 #[derive(Clone)]
@@ -85,6 +86,7 @@ impl Hub {
         let bcast = Arc::new(BroadcastGroup::new(awareness.clone(), 64).await);
 
         let save_flags = self.save_flags.clone();
+        let skip_fs_persist_flag = Arc::new(AtomicBool::new(false));
         let start_seq = self
             .persistence
             .latest_update_seq(&doc_uuid)
@@ -197,6 +199,7 @@ impl Hub {
         let hub_for_save = self.clone();
         let doc_id_str = doc_uuid.to_string();
         let doc_for_markdown = doc.clone();
+        let skip_flag_for_updates = skip_fs_persist_flag.clone();
         let persist_sub = doc
             .observe_update_v1(move |_txn, u| {
                 // Send to the channel asynchronously to avoid blocking and prevent drops under load
@@ -210,6 +213,7 @@ impl Hub {
                 let doc_id_s = doc_id_str.clone();
                 let hub_clone = hub_for_save.clone();
                 let doc_for_markdown = doc_for_markdown.clone();
+                let skip_flag = skip_flag_for_updates.clone();
                 tokio::spawn(async move {
                     // simple debounce: set flag and sleep; if still set after sleep, run
                     {
@@ -223,6 +227,13 @@ impl Hub {
                     };
                     if should_run {
                         if let Ok(doc_uuid) = Uuid::parse_str(&doc_id_s) {
+                            if skip_flag.swap(false, Ordering::SeqCst) {
+                                tracing::debug!(
+                                    document_id = %doc_id_s,
+                                    "debounced_save_skipped_after_ingest"
+                                );
+                                return;
+                            }
                             if let Err(e) = hub_clone
                                 .snapshot_service
                                 .write_markdown(&doc_uuid, &doc_for_markdown)
@@ -246,6 +257,7 @@ impl Hub {
             broadcast: bcast.clone(),
             persist_sub,
             seq: seq.clone(),
+            skip_fs_persist: skip_fs_persist_flag.clone(),
         });
         self.inner
             .write()
@@ -256,6 +268,7 @@ impl Hub {
         let bcast_h = bcast.clone();
         let hydration = self.hydration_service.clone();
         let seq_for_hydrate = seq.clone();
+        let skip_flag_for_hydrate = skip_fs_persist_flag.clone();
         tokio::spawn(async move {
             tracing::debug!(%doc_uuid, "hydrate:start");
             match hydration
@@ -271,6 +284,8 @@ impl Hub {
                         let mut txn = doc.transact_mut();
                         if let Err(e) = txn.apply_update(update) {
                             tracing::debug!(document_id = %doc_uuid, error = ?e, "hydrate_apply_failed");
+                        } else {
+                            skip_flag_for_hydrate.store(true, Ordering::SeqCst);
                         }
                     }
 
@@ -334,6 +349,8 @@ impl Hub {
         if update_bytes.is_empty() {
             return Ok(());
         }
+
+        room.skip_fs_persist.store(true, Ordering::SeqCst);
 
         let mut encoder = EncoderV1::new();
         encoder.write_var(MSG_SYNC);

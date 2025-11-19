@@ -18,6 +18,7 @@ pub mod public;
 pub mod realtime;
 pub mod shares;
 pub mod storage_ingest;
+pub mod storage_projection_cache;
 pub mod storage_reconcile;
 pub mod storage_reconcile_scheduler;
 pub mod tagging;

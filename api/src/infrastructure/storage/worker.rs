@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Error;
 use serde_json::json;
 use sqlx::Error as SqlxError;
-use tracing::{error, info, info_span, warn};
+use tracing::{Instrument, error, info, info_span, warn};
 use uuid::Uuid;
 
 use crate::application::ports::doc_event_log::DocEventLog;
@@ -16,6 +16,7 @@ use crate::application::ports::storage_projection_queue::{
 };
 use crate::application::services::metrics::MetricsRegistry;
 use crate::application::services::realtime::snapshot::MarkdownExportProvider;
+use crate::application::services::storage_projection_cache::RecentProjectionCache;
 use crate::application::services::workspaces::WorkspacePermissionResolver;
 use crate::application::services::workspaces::permission_snapshot::permission_set_from_snapshot;
 use crate::domain::workspaces::permissions::{
@@ -28,6 +29,7 @@ pub struct StorageProjectionWorker {
     resolver: Arc<dyn StorageResolverPort>,
     markdown: Arc<dyn MarkdownExportProvider>,
     events: Arc<dyn DocEventLog>,
+    recent_exports: Arc<RecentProjectionCache>,
     lock_timeout_secs: i64,
     idle_backoff: Duration,
     max_attempts: i32,
@@ -44,6 +46,7 @@ impl StorageProjectionWorker {
         events: Arc<dyn DocEventLog>,
         metrics: Arc<MetricsRegistry>,
         permission_resolver: Arc<dyn WorkspacePermissionResolver>,
+        recent_exports: Arc<RecentProjectionCache>,
     ) -> Self {
         Self {
             jobs,
@@ -51,6 +54,7 @@ impl StorageProjectionWorker {
             resolver,
             markdown,
             events,
+            recent_exports,
             lock_timeout_secs: 30,
             idle_backoff: Duration::from_millis(500),
             max_attempts: 5,
@@ -102,101 +106,109 @@ impl StorageProjectionWorker {
             doc_id = job.doc_id.map(|id| id.to_string()),
             folder_id = job.folder_id.map(|id| id.to_string())
         );
-        let _entered = span.enter();
 
-        let delete_metadata = parse_delete_job_metadata(job.reason.as_ref());
-        let result = match job.job_type {
-            StorageProjectionJobKind::DocSync => {
-                let doc_id = job
-                    .doc_id
-                    .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
-                let res = self.handle_doc_sync(doc_id).await;
-                if res.is_ok() {
-                    self.emit_projection_event(doc_id, &job, "succeeded", None)
-                        .await;
+        async move {
+            let delete_metadata = parse_delete_job_metadata(job.reason.as_ref());
+            let result = match job.job_type {
+                StorageProjectionJobKind::DocSync => {
+                    let doc_id = job
+                        .doc_id
+                        .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
+                    let res = self.handle_doc_sync(doc_id).await;
+                    if res.is_ok() {
+                        self.emit_projection_event(doc_id, &job, "succeeded", None)
+                            .await;
+                    }
+                    res
                 }
-                res
-            }
-            StorageProjectionJobKind::FolderSync => {
-                self.handle_folder_sync(
-                    job.folder_id
-                        .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
-                )
-                .await
-            }
-            StorageProjectionJobKind::DeleteDoc => {
-                let doc_id = job
-                    .doc_id
-                    .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
-                let res = self
-                    .handle_delete_doc(doc_id, delete_metadata.as_ref())
-                    .await;
-                if res.is_ok() {
-                    self.emit_projection_event(doc_id, &job, "succeeded", None)
-                        .await;
+                StorageProjectionJobKind::FolderSync => {
+                    self.handle_folder_sync(
+                        job.folder_id
+                            .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
+                    )
+                    .await
                 }
-                res
-            }
-            StorageProjectionJobKind::DeleteFolder => {
-                self.handle_delete_folder(
-                    job.folder_id
-                        .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
-                    delete_metadata.as_ref(),
-                )
-                .await
-            }
-        };
+                StorageProjectionJobKind::DeleteDoc => {
+                    let doc_id = job
+                        .doc_id
+                        .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
+                    let res = self
+                        .handle_delete_doc(doc_id, delete_metadata.as_ref())
+                        .await;
+                    if res.is_ok() {
+                        self.emit_projection_event(doc_id, &job, "succeeded", None)
+                            .await;
+                    }
+                    res
+                }
+                StorageProjectionJobKind::DeleteFolder => {
+                    self.handle_delete_folder(
+                        job.folder_id
+                            .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
+                        delete_metadata.as_ref(),
+                    )
+                    .await
+                }
+            };
 
-        match result {
-            Ok(()) => {
-                self.jobs.complete_job(job.id, job.locked_at).await?;
-                self.metrics.inc_storage_projection_success();
-                info!("storage_projection_job_succeeded");
-            }
-            Err(err) if missing_target(&err) => {
-                warn!(
-                    error = ?err,
-                    "storage_projection_job_missing_target_skip"
-                );
-                self.jobs.complete_job(job.id, job.locked_at).await?;
-                self.metrics.inc_storage_projection_success();
-                if let Some(doc_id) = job.doc_id {
-                    self.emit_projection_event(doc_id, &job, "skipped", Some(&format!("{err:#}")))
-                        .await;
-                }
-            }
-            Err(err) => {
-                let msg = format!("{err:#}");
-                if job.attempts >= self.max_attempts {
+            match result {
+                Ok(()) => {
                     self.jobs.complete_job(job.id, job.locked_at).await?;
-                    self.metrics.inc_storage_projection_failure();
+                    self.metrics.inc_storage_projection_success();
+                    info!("storage_projection_job_succeeded");
+                }
+                Err(err) if missing_target(&err) => {
                     warn!(
                         error = ?err,
-                        attempts = job.attempts,
-                        "storage_projection_job_gave_up"
+                        "storage_projection_job_missing_target_skip"
                     );
+                    self.jobs.complete_job(job.id, job.locked_at).await?;
+                    self.metrics.inc_storage_projection_success();
                     if let Some(doc_id) = job.doc_id {
                         self.emit_projection_event(
                             doc_id,
                             &job,
-                            "failed",
-                            Some("max_attempts_exceeded"),
+                            "skipped",
+                            Some(&format!("{err:#}")),
                         )
                         .await;
                     }
-                } else {
-                    self.jobs.fail_job(job.id, job.locked_at, &msg).await?;
-                    self.metrics.inc_storage_projection_retry();
-                    warn!(error = ?err, "storage_projection_job_failed_once");
-                    if let Some(doc_id) = job.doc_id {
-                        self.emit_projection_event(doc_id, &job, "failed", Some(&msg))
+                }
+                Err(err) => {
+                    let msg = format!("{err:#}");
+                    if job.attempts >= self.max_attempts {
+                        self.jobs.complete_job(job.id, job.locked_at).await?;
+                        self.metrics.inc_storage_projection_failure();
+                        warn!(
+                            error = ?err,
+                            attempts = job.attempts,
+                            "storage_projection_job_gave_up"
+                        );
+                        if let Some(doc_id) = job.doc_id {
+                            self.emit_projection_event(
+                                doc_id,
+                                &job,
+                                "failed",
+                                Some("max_attempts_exceeded"),
+                            )
                             .await;
+                        }
+                    } else {
+                        self.jobs.fail_job(job.id, job.locked_at, &msg).await?;
+                        self.metrics.inc_storage_projection_retry();
+                        warn!(error = ?err, "storage_projection_job_failed_once");
+                        if let Some(doc_id) = job.doc_id {
+                            self.emit_projection_event(doc_id, &job, "failed", Some(&msg))
+                                .await;
+                        }
                     }
                 }
             }
-        }
 
-        Ok(())
+            Ok(())
+        }
+        .instrument(span)
+        .await
     }
 
     async fn handle_doc_sync(&self, doc_id: Uuid) -> anyhow::Result<()> {
@@ -311,6 +323,10 @@ impl StorageProjectionWorker {
             self.resolver
                 .write_bytes(path.as_path(), &export.bytes)
                 .await?;
+            if let Some(repo_path) = export.repo_path.as_deref() {
+                self.recent_exports
+                    .record(export.workspace_id, repo_path, &export.content_hash);
+            }
         }
         Ok(())
     }
@@ -507,6 +523,7 @@ mod tests {
             events.clone(),
             metrics.clone(),
             permission_resolver.clone(),
+            Arc::new(RecentProjectionCache::new(Duration::from_secs(5))),
         ));
         let job = StorageProjectionJob {
             id: 1,
@@ -547,6 +564,7 @@ mod tests {
             events,
             metrics.clone(),
             permission_resolver.clone(),
+            Arc::new(RecentProjectionCache::new(Duration::from_secs(5))),
         ));
         let job = StorageProjectionJob {
             id: 2,
@@ -584,6 +602,7 @@ mod tests {
             events,
             metrics,
             permission_resolver.clone(),
+            Arc::new(RecentProjectionCache::new(Duration::from_secs(5))),
         ));
         let owner = Uuid::new_v4();
         let metadata = StorageDeleteJobMetadata {
@@ -627,6 +646,7 @@ mod tests {
             events,
             metrics,
             permission_resolver,
+            Arc::new(RecentProjectionCache::new(Duration::from_secs(5))),
         ));
         let metadata = StorageDeleteJobMetadata {
             workspace_id: Uuid::new_v4(),
@@ -663,6 +683,7 @@ mod tests {
             events,
             metrics,
             permission_resolver,
+            Arc::new(RecentProjectionCache::new(Duration::from_secs(5))),
         ));
         let metadata = StorageDeleteJobMetadata {
             workspace_id: Uuid::new_v4(),
@@ -927,6 +948,7 @@ mod tests {
                 bytes: self.bytes.clone(),
                 repo_path: Some("docs/mock.md".into()),
                 owner_id: Some(Uuid::new_v4()),
+                workspace_id: Uuid::new_v4(),
                 content_hash: "hash".into(),
             }))
         }

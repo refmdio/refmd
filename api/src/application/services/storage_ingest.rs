@@ -18,6 +18,7 @@ use crate::application::ports::storage_port::{StorageProjectionPort, StorageReso
 use crate::application::services::documents::DocumentService;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::snapshot_from_markdown;
+use crate::application::services::storage_projection_cache::RecentProjectionCache;
 use crate::application::services::workspaces::{
     WorkspacePermissionResolver, permission_snapshot::permission_set_from_snapshot,
 };
@@ -64,6 +65,7 @@ pub struct StorageIngestService {
     events: Arc<dyn DocEventLog>,
     document_service: Arc<DocumentService>,
     permission_resolver: Arc<dyn WorkspacePermissionResolver>,
+    recent_exports: Arc<RecentProjectionCache>,
 }
 
 impl StorageIngestService {
@@ -76,6 +78,7 @@ impl StorageIngestService {
         events: Arc<dyn DocEventLog>,
         document_service: Arc<DocumentService>,
         permission_resolver: Arc<dyn WorkspacePermissionResolver>,
+        recent_exports: Arc<RecentProjectionCache>,
     ) -> Self {
         Self {
             document_repo,
@@ -86,6 +89,7 @@ impl StorageIngestService {
             events,
             document_service,
             permission_resolver,
+            recent_exports,
         }
     }
 
@@ -167,16 +171,35 @@ impl StorageIngestService {
         payload: MarkdownIngestPayload,
         previous_repo_path: Option<&str>,
     ) -> anyhow::Result<()> {
+        if event.backend == "fs_watcher"
+            && event.actor_id.is_none()
+            && self.recent_exports.is_recent_match(
+                event.workspace_id,
+                repo_path,
+                &payload.content_hash,
+            )
+        {
+            debug!(
+                doc_id = %doc.id,
+                repo_path = repo_path,
+                "storage_ingest_doc_upsert_skipped_recent_projection"
+            );
+            return Ok(());
+        }
         let snapshot = snapshot_from_markdown(&payload.body);
         self.realtime
             .apply_snapshot(&doc.id.to_string(), snapshot.as_slice())
             .await?;
-        if let Err(err) = self.realtime.force_persist(&doc.id.to_string()).await {
-            warn!(
-                error = ?err,
-                doc_id = %doc.id,
-                "storage_ingest_force_persist_failed"
-            );
+        // Persist back to storage only for API/actor initiated ingests; fs_watcher/reconcile events
+        // originate from the filesystem itself and writing would re-trigger the watcher endlessly.
+        if event.actor_id.is_some() {
+            if let Err(err) = self.realtime.force_persist(&doc.id.to_string()).await {
+                warn!(
+                    error = ?err,
+                    doc_id = %doc.id,
+                    "storage_ingest_force_persist_failed"
+                );
+            }
         }
         let mut payload_obj = serde_json::Map::new();
         payload_obj.insert("repo_path".into(), json!(repo_path));
