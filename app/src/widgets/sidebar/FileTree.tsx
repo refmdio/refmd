@@ -17,6 +17,7 @@ import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGrou
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { useAuthContext } from '@/features/auth'
+import { useEditorContext } from '@/features/edit-document'
 import {
   FileTreeProvider,
   useFileTree,
@@ -304,6 +305,8 @@ function FileTreeInner() {
   const treeFocusRef = React.useRef<HTMLDivElement | null>(null)
   const treeScrollRef = React.useRef<HTMLDivElement | null>(null)
   const lastFocusRef = React.useRef<HTMLElement | null>(null)
+  const treeFocusStateRef = React.useRef<'idle' | 'focused' | 'armed'>('idle')
+  const { editor } = useEditorContext()
   const hasActiveDocuments = documents.length > 0
   const hasArchivedDocuments = archivedDocuments.length > 0
   const handleToggleArchives = useCallback(() => setArchivesExpanded((prev) => !prev), [setArchivesExpanded])
@@ -457,11 +460,48 @@ function FileTreeInner() {
     }
     requestAnimationFrame(() => {
       el.focus()
+      treeFocusStateRef.current = 'focused'
       if (targetId) {
         scrollNodeIntoView(targetId)
       }
     })
   }, [expandParentFolders, nodeIndexMap, scrollNodeIntoView, selectedDocId, setSelectedDocId, visibleNodes])
+
+  const handleTreeFocus = useCallback(() => {
+    treeFocusStateRef.current = 'focused'
+  }, [])
+
+  const handleTreeBlur = useCallback(() => {
+    treeFocusStateRef.current = lastFocusRef.current ? 'armed' : 'idle'
+  }, [])
+
+  const restorePreviousFocus = useCallback(() => {
+    if (typeof document === 'undefined') return false
+    const treeEl = treeFocusRef.current
+    const previous = lastFocusRef.current
+    lastFocusRef.current = null
+    const tryFocus = (node: HTMLElement | null | undefined) => {
+      if (!node || node === treeEl) return false
+      if (!document.contains(node)) return false
+      node.focus()
+      treeFocusStateRef.current = 'idle'
+      return true
+    }
+    if (previous && tryFocus(previous)) {
+      return true
+    }
+    if (editor) {
+      try {
+        editor.focus()
+        treeFocusStateRef.current = 'idle'
+        return true
+      } catch {
+        /* noop */
+      }
+    }
+    treeFocusStateRef.current = 'idle'
+    return false
+  }, [editor])
 
   const toggleTreeFocus = useCallback(() => {
     if (typeof document === 'undefined') return
@@ -470,21 +510,23 @@ function FileTreeInner() {
     const active = document.activeElement as HTMLElement | null
 
     if (active === treeEl) {
-      const previous = lastFocusRef.current
-      lastFocusRef.current = null
-      if (previous && previous !== treeEl && document.contains(previous)) {
-        previous.focus()
-      } else {
+      if (!restorePreviousFocus()) {
         treeEl.blur()
       }
       return
+    }
+
+    if (treeFocusStateRef.current !== 'idle') {
+      if (restorePreviousFocus()) {
+        return
+      }
     }
 
     if (active && active !== treeEl) {
       lastFocusRef.current = active
     }
     focusTree()
-  }, [focusTree])
+  }, [focusTree, restorePreviousFocus])
 
   useShortcut('global.file-tree.focus', () => {
     toggleTreeFocus()
@@ -706,6 +748,8 @@ function FileTreeInner() {
               aria-activedescendant={selectedDocId ? `file-tree-item-${selectedDocId}` : undefined}
               className="flex h-full flex-col outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
               onKeyDown={handleTreeKeyDown}
+              onFocus={handleTreeFocus}
+              onBlur={handleTreeBlur}
             >
               <div ref={treeScrollRef} className="h-full">
                 <SidebarGroupContent className="h-full overflow-y-auto pr-0.5">
