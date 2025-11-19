@@ -543,8 +543,8 @@ impl GitWorkspaceService {
                             removed = all.len(),
                             "git_commit_pointer_reset_db_chain"
                         );
-                        self.remove_commits(workspace_id, &all).await?;
-                    }
+        self.remove_commits(workspace_id, &all).await?;
+    }
                 } else if !to_prune.is_empty() {
                     info!(
                         workspace_id = %workspace_id,
@@ -572,6 +572,65 @@ impl GitWorkspaceService {
                 }
             }
             (None, None) => {}
+        }
+        Ok(())
+    }
+
+    async fn prune_commits_from_head(
+        &self,
+        workspace_id: Uuid,
+        commits: &[CommitMeta],
+    ) -> anyhow::Result<()> {
+        if commits.is_empty() {
+            return Ok(());
+        }
+        self.remove_commits(workspace_id, commits).await?;
+        let new_latest = self.latest_commit_meta(workspace_id).await?;
+        self.git_storage
+            .set_latest_commit(workspace_id, new_latest.as_ref())
+            .await?;
+        Ok(())
+    }
+
+    async fn ensure_storage_commit_integrity(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<()> {
+        loop {
+            let Some(latest) = self.latest_commit_meta(workspace_id).await? else {
+                self.git_storage
+                    .set_latest_commit(workspace_id, None)
+                    .await?;
+                return Ok(());
+            };
+            let chain = self.collect_commit_chain(workspace_id, latest.clone()).await?;
+            let mut missing_idx: Option<usize> = None;
+            for (idx, meta) in chain.iter().enumerate() {
+                match self
+                    .git_storage
+                    .commit_meta(workspace_id, meta.commit_id.as_slice())
+                    .await?
+                {
+                    Some(_) => continue,
+                    None => {
+                        missing_idx = Some(idx);
+                        break;
+                    }
+                }
+            }
+            if let Some(idx) = missing_idx {
+                let to_remove: Vec<CommitMeta> = chain[..=idx].to_vec();
+                info!(
+                    workspace_id = %workspace_id,
+                    removed = to_remove.len(),
+                    missing_commit = %encode_commit_id(&chain[idx].commit_id),
+                    "git_commit_pointer_pruned_missing_storage_meta"
+                );
+                self.prune_commits_from_head(workspace_id, &to_remove)
+                    .await?;
+                continue;
+            }
+            break;
         }
         Ok(())
     }
@@ -1417,6 +1476,9 @@ impl GitWorkspacePort for GitWorkspaceService {
                 }
             }
         }
+
+        self.ensure_storage_commit_integrity(workspace_id).await?;
+        latest_meta = self.latest_commit_meta(workspace_id).await?;
 
         let previous_index = latest_meta
             .as_ref()

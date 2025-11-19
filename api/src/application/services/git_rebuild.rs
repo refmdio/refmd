@@ -142,7 +142,7 @@ impl GitRebuildService {
             .git_repo
             .log_sync_operation(
                 job.workspace_id,
-                "rebuild",
+                "commit",
                 "success",
                 Some(&outcome.message),
                 outcome.commit_hash.as_deref(),
@@ -171,7 +171,7 @@ impl GitRebuildService {
             );
             if let Err(log_err) = self
                 .git_repo
-                .log_sync_operation(job.workspace_id, "rebuild", "error", Some(&msg), None)
+                .log_sync_operation(job.workspace_id, "commit", "error", Some(&msg), None)
                 .await
             {
                 warn!(
