@@ -56,6 +56,7 @@ use api::application::services::storage_reconcile::StorageReconcileService;
 use api::application::services::storage_reconcile_scheduler::StorageReconcileScheduler;
 use api::application::services::tags::TagService;
 use api::application::services::user_shortcuts::UserShortcutService;
+use api::application::services::workspaces::{WorkspacePermissionResolver, WorkspaceService};
 use api::bootstrap::config::{Config, StorageBackend};
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::doc_event_log::PgDocEventLog;
@@ -115,9 +116,9 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::public::publish_document,
             api::presentation::http::public::unpublish_document,
             api::presentation::http::public::get_publish_status,
-            api::presentation::http::public::list_user_public_documents,
-            api::presentation::http::public::get_public_by_owner_and_id,
-            api::presentation::http::public::get_public_content_by_owner_and_id,
+            api::presentation::http::public::list_workspace_public_documents,
+            api::presentation::http::public::get_public_by_workspace_and_id,
+            api::presentation::http::public::get_public_content_by_workspace_and_id,
             api::presentation::http::git::get_config,
             api::presentation::http::git::create_or_update_config,
             api::presentation::http::git::delete_config,
@@ -137,6 +138,19 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::storage_ingest::enqueue_ingest_events,
             api::presentation::http::markdown::render_markdown,
             api::presentation::http::markdown::render_markdown_many,
+            api::presentation::http::workspaces::list_workspaces,
+            api::presentation::http::workspaces::create_workspace,
+            api::presentation::http::workspaces::switch_workspace,
+            api::presentation::http::workspaces::list_members,
+            api::presentation::http::workspaces::update_member_role,
+            api::presentation::http::workspaces::get_workspace_permissions,
+            api::presentation::http::workspaces::list_roles,
+            api::presentation::http::workspaces::create_role,
+            api::presentation::http::workspaces::update_role,
+            api::presentation::http::workspaces::delete_role,
+            api::presentation::http::workspaces::list_invitations,
+            api::presentation::http::workspaces::create_invitation,
+            api::presentation::http::workspaces::accept_invitation,
             api::presentation::http::plugins::get_manifest,
             api::presentation::http::plugins::exec_action,
             api::presentation::http::plugins::list_records,
@@ -155,6 +169,7 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::auth::LoginRequest,
             api::presentation::http::auth::LoginResponse,
             api::presentation::http::auth::UserResponse,
+            api::presentation::http::auth::WorkspaceMembershipResponse,
             api::presentation::http::api_tokens::ApiTokenItem,
             api::presentation::http::api_tokens::ApiTokenCreateRequest,
             api::presentation::http::api_tokens::ApiTokenCreateResponse,
@@ -198,6 +213,19 @@ use utoipa_swagger_ui::SwaggerUi;
             api::application::dto::diff::TextDiffResult,
             api::presentation::http::markdown::RenderOptionsPayload,
             api::presentation::http::markdown::PlaceholderItemPayload,
+            api::presentation::http::workspaces::WorkspaceResponse,
+            api::presentation::http::workspaces::CreateWorkspaceRequest,
+            api::presentation::http::workspaces::WorkspaceMemberResponse,
+            api::presentation::http::workspaces::UpdateMemberRoleRequest,
+            api::presentation::http::workspaces::WorkspaceRoleResponse,
+            api::presentation::http::workspaces::PermissionOverridePayload,
+            api::presentation::http::workspaces::CreateWorkspaceRoleRequest,
+            api::presentation::http::workspaces::UpdateWorkspaceRoleRequest,
+            api::presentation::http::workspaces::SwitchWorkspaceResponse,
+            api::presentation::http::workspaces::WorkspacePermissionsResponse,
+            api::presentation::http::workspaces::WorkspaceInvitationResponse,
+            api::presentation::http::workspaces::CreateWorkspaceInvitationRequest,
+            api::presentation::http::workspaces::CreateWorkspaceRequest,
             api::presentation::http::markdown::RenderResponseBody,
             api::presentation::http::markdown::RenderRequest,
             api::presentation::http::markdown::RenderManyRequest,
@@ -387,6 +415,13 @@ async fn main() -> anyhow::Result<()> {
             pool.clone(),
         ),
     );
+    let workspace_repo = Arc::new(
+        api::infrastructure::db::repositories::workspace_repository_sqlx::SqlxWorkspaceRepository::new(
+            pool.clone(),
+        ),
+    );
+    let workspace_service = Arc::new(WorkspaceService::new(workspace_repo.clone()));
+    let workspace_permissions: Arc<dyn WorkspacePermissionResolver> = workspace_service.clone();
     {
         let reconcile_service = Arc::new(StorageReconcileService::new(
             storage_reconcile_jobs.clone(),
@@ -405,7 +440,7 @@ async fn main() -> anyhow::Result<()> {
         });
         let scheduler = StorageReconcileScheduler::new(
             storage_reconcile_jobs.clone(),
-            user_repo.clone(),
+            workspace_repo.clone(),
             Duration::from_secs(60 * 60),
         );
         tokio::spawn(async move {
@@ -545,6 +580,7 @@ async fn main() -> anyhow::Result<()> {
             markdown_exporter,
             doc_event_log.clone(),
             metrics.clone(),
+            workspace_permissions.clone(),
         ));
         tokio::spawn(async move {
             worker.run().await;
@@ -598,6 +634,7 @@ async fn main() -> anyhow::Result<()> {
             git_workspace.clone(),
             git_repo.clone(),
             metrics.clone(),
+            workspace_permissions.clone(),
         ));
         tokio::spawn({
             let svc = rebuild_service.clone();
@@ -607,7 +644,7 @@ async fn main() -> anyhow::Result<()> {
         });
         let rebuild_scheduler = GitRebuildScheduler::new(
             git_rebuild_jobs.clone(),
-            user_repo.clone(),
+            git_repo.clone(),
             git_workspace.clone(),
             Duration::from_secs(cfg.git_rebuild_interval_secs),
         );
@@ -711,6 +748,7 @@ async fn main() -> anyhow::Result<()> {
         git_repo.clone(),
         git_workspace.clone(),
         storage_job_queue.clone(),
+        workspace_service.clone(),
     ));
     let plugin_event_bus = Arc::new(
         api::infrastructure::plugins::event_bus_pg::PgPluginEventBus::new(
@@ -728,12 +766,12 @@ async fn main() -> anyhow::Result<()> {
                 Ok(installs) => {
                     for inst in installs.into_iter().filter(|i| i.status == "enabled") {
                         if let Err(err) = assets
-                            .load_user_manifest(&inst.user_id, &inst.plugin_id, &inst.version)
+                            .load_user_manifest(&inst.workspace_id, &inst.plugin_id, &inst.version)
                             .await
                         {
                             tracing::warn!(
                                 error = ?err,
-                                user_id = %inst.user_id,
+                                workspace_id = %inst.workspace_id,
                                 plugin = inst.plugin_id.as_str(),
                                 version = inst.version.as_str(),
                                 "prefetch_user_plugin_failed"
@@ -775,6 +813,7 @@ async fn main() -> anyhow::Result<()> {
             storage_projection.clone(),
             doc_event_log.clone(),
             document_service.clone(),
+            workspace_permissions.clone(),
         ));
         let worker = Arc::new(StorageIngestWorker::new(
             storage_ingest_queue.clone(),
@@ -797,7 +836,6 @@ async fn main() -> anyhow::Result<()> {
         realtime_engine.clone(),
     ));
     let plugin_management_service = Arc::new(PluginManagementService::new(
-        shares_repo_impl.clone(),
         plugin_installations.clone(),
         plugin_assets.clone(),
         plugin_event_publisher.clone(),
@@ -829,6 +867,7 @@ async fn main() -> anyhow::Result<()> {
         user_shortcut_service.clone(),
         git_service.clone(),
         markdown_render_service.clone(),
+        workspace_service.clone(),
         plugin_execution_service.clone(),
         plugin_management_service.clone(),
         plugin_permission_service.clone(),
@@ -850,6 +889,11 @@ async fn main() -> anyhow::Result<()> {
     let ctx = AppContext::new(presentation_cfg, services, metrics.clone());
 
     // Build CORS
+    let cors_allow_headers = [
+        http::header::CONTENT_TYPE,
+        http::header::AUTHORIZATION,
+        http::header::HeaderName::from_static("x-workspace-id"),
+    ];
     let cors = if let Some(origin) = cfg.frontend_url.clone() {
         match HeaderValue::from_str(&origin) {
             Ok(v) => CorsLayer::new()
@@ -862,7 +906,7 @@ async fn main() -> anyhow::Result<()> {
                     http::Method::PATCH,
                     http::Method::OPTIONS,
                 ])
-                .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+                .allow_headers(cors_allow_headers.clone())
                 .allow_credentials(true),
             Err(_) => CorsLayer::new()
                 .allow_origin(AllowOrigin::mirror_request())
@@ -874,7 +918,7 @@ async fn main() -> anyhow::Result<()> {
                     http::Method::PATCH,
                     http::Method::OPTIONS,
                 ])
-                .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+                .allow_headers(cors_allow_headers.clone())
                 .allow_credentials(true),
         }
     } else {
@@ -892,7 +936,7 @@ async fn main() -> anyhow::Result<()> {
                     http::Method::PATCH,
                     http::Method::OPTIONS,
                 ])
-                .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+                .allow_headers(cors_allow_headers.clone())
         } else {
             // Development convenience
             CorsLayer::new()
@@ -905,16 +949,14 @@ async fn main() -> anyhow::Result<()> {
                     http::Method::PATCH,
                     http::Method::OPTIONS,
                 ])
-                .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
+                .allow_headers(cors_allow_headers.clone())
                 .allow_credentials(true)
         }
     };
 
-    // Ensure uploads dir exists
-    if matches!(cfg.storage_backend, StorageBackend::Filesystem) {
-        if let Err(e) = tokio::fs::create_dir_all(&cfg.storage_root).await {
-            tracing::warn!(error=?e, dir=%cfg.storage_root, "Failed to create uploads dir");
-        }
+    // Ensure uploads dir exists even when using S3 backend (local staging is still required)
+    if let Err(e) = tokio::fs::create_dir_all(&cfg.storage_root).await {
+        tracing::warn!(error=?e, dir=%cfg.storage_root, "Failed to create uploads dir");
     }
 
     // Build upload router with state
@@ -952,6 +994,10 @@ async fn main() -> anyhow::Result<()> {
         .nest(
             "/api",
             api::presentation::http::storage_ingest::routes(ctx.clone()),
+        )
+        .nest(
+            "/api",
+            api::presentation::http::workspaces::routes(ctx.clone()),
         )
         .nest(
             "/api",

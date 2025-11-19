@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::application::ports::access_repository::AccessRepository;
 use crate::application::ports::share_access_port::ShareAccessPort;
+use crate::domain::workspaces::permissions::{PERM_DOC_EDIT, PERM_DOC_VIEW};
 
 #[derive(Debug, Clone)]
 pub enum Actor {
@@ -32,22 +33,19 @@ where
 {
     match actor {
         Actor::User(uid) => {
-            let owns = access_repo
-                .user_owns_document(doc_id, *uid)
-                .await
-                .unwrap_or(false);
-            if owns {
-                let archived = access_repo
-                    .is_document_archived(doc_id)
-                    .await
-                    .unwrap_or(false);
-                if archived {
-                    Capability::View
-                } else {
-                    Capability::Edit
-                }
+            let access = match access_repo.resolve_user_document_access(doc_id, *uid).await {
+                Ok(Some(access)) => access,
+                _ => return Capability::None,
+            };
+            if !access.permissions.allows(PERM_DOC_VIEW) {
+                return Capability::None;
+            }
+            if access.is_archived {
+                Capability::View
+            } else if access.permissions.allows(PERM_DOC_EDIT) {
+                Capability::Edit
             } else {
-                Capability::None
+                Capability::View
             }
         }
         Actor::ShareToken(t) => {

@@ -14,6 +14,7 @@ use crate::application::services::errors::ServiceError;
 use crate::application::use_cases::api_tokens::create_token::CreateApiToken;
 use crate::application::use_cases::api_tokens::list_tokens::ListApiTokens;
 use crate::application::use_cases::api_tokens::revoke_token::RevokeApiToken;
+use crate::domain::workspaces::permissions::{PERM_API_TOKEN_MANAGE, PermissionSet};
 
 pub struct ApiTokenService {
     repo: Arc<dyn ApiTokenRepository>,
@@ -24,29 +25,58 @@ impl ApiTokenService {
         Self { repo }
     }
 
-    pub async fn list(&self, user_id: Uuid) -> Result<Vec<ApiTokenDto>, ServiceError> {
+    pub async fn list(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+    ) -> Result<Vec<ApiTokenDto>, ServiceError> {
+        ensure_api_token_permission(workspace_id, permissions)?;
         let uc = ListApiTokens {
             repo: self.repo.as_ref(),
         };
-        uc.execute(user_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)
     }
 
     pub async fn create(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
+        permissions: &PermissionSet,
         name: Option<&str>,
     ) -> Result<CreatedApiTokenDto, ServiceError> {
+        ensure_api_token_permission(workspace_id, permissions)?;
         let uc = CreateApiToken {
             repo: self.repo.as_ref(),
         };
-        uc.execute(user_id, name).await.map_err(ServiceError::from)
+        uc.execute(workspace_id, user_id, name)
+            .await
+            .map_err(ServiceError::from)
     }
 
-    pub async fn revoke(&self, user_id: Uuid, id: Uuid) -> Result<bool, ServiceError> {
+    pub async fn revoke(
+        &self,
+        workspace_id: Uuid,
+        id: Uuid,
+        permissions: &PermissionSet,
+    ) -> Result<bool, ServiceError> {
+        ensure_api_token_permission(workspace_id, permissions)?;
         let uc = RevokeApiToken {
             repo: self.repo.as_ref(),
         };
-        uc.execute(user_id, id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id, id)
+            .await
+            .map_err(ServiceError::from)
+    }
+}
+
+fn ensure_api_token_permission(
+    _workspace_id: Uuid,
+    permissions: &PermissionSet,
+) -> Result<(), ServiceError> {
+    if permissions.allows(PERM_API_TOKEN_MANAGE) {
+        Ok(())
+    } else {
+        Err(ServiceError::Forbidden)
     }
 }
 

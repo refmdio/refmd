@@ -19,14 +19,17 @@ use crate::application::dto::documents::{
 use crate::application::services::documents::DocumentPatchOperation;
 use crate::application::services::errors::ServiceError;
 use crate::domain::documents::document as domain;
+use crate::domain::workspaces::permissions::PERM_DOC_VIEW;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
+use crate::presentation::http::workspace_scope;
 use tracing::error;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Document {
     pub id: Uuid,
     pub owner_id: Uuid,
+    pub workspace_id: Uuid,
     pub title: String,
     pub parent_id: Option<Uuid>,
     pub r#type: String,
@@ -35,6 +38,7 @@ pub struct Document {
     pub slug: String,
     pub desired_path: String,
     pub path: Option<String>,
+    pub created_by: Option<Uuid>,
     pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived_by: Option<Uuid>,
     pub archived_parent_id: Option<Uuid>,
@@ -44,6 +48,7 @@ fn to_http_document(doc: domain::Document) -> Document {
     Document {
         id: doc.id,
         owner_id: doc.owner_id,
+        workspace_id: doc.workspace_id,
         title: doc.title,
         parent_id: doc.parent_id,
         r#type: doc.doc_type,
@@ -52,6 +57,7 @@ fn to_http_document(doc: domain::Document) -> Document {
         slug: doc.slug,
         desired_path: doc.desired_path,
         path: doc.path,
+        created_by: doc.created_by,
         archived_at: doc.archived_at,
         archived_by: doc.archived_by,
         archived_parent_id: doc.archived_parent_id,
@@ -260,10 +266,21 @@ impl From<DocumentStateFilter> for DocumentListFilter {
 pub async fn list_documents(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     q: Option<Query<ListDocumentsQuery>>,
 ) -> Result<Json<DocumentListResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
+        .await?;
     let (qstr, tag, state_param) = q
         .map(|Query(v)| (v.query, v.tag, v.state))
         .unwrap_or((None, None, None));
@@ -273,7 +290,7 @@ pub async fn list_documents(
 
     let service = ctx.document_service();
     let docs = service
-        .list_for_user(user_id, qstr, tag, state)
+        .list_for_user(workspace_id, qstr, tag, state)
         .await
         .map_err(map_service_error)?;
 
@@ -285,15 +302,33 @@ pub async fn list_documents(
 pub async fn create_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(req): Json<CreateDocumentRequest>,
 ) -> Result<Json<Document>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let title = req.title.unwrap_or_else(|| "Untitled".into());
     let dtype = req.r#type.unwrap_or_else(|| "document".into());
     let service = ctx.document_service();
     let doc = service
-        .create_for_user(user_id, &title, req.parent_id, &dtype)
+        .create_for_user(
+            workspace_id,
+            user_id,
+            &permissions,
+            &title,
+            req.parent_id,
+            &dtype,
+        )
         .await
         .map_err(map_service_error)?;
 
@@ -326,13 +361,24 @@ pub async fn get_document(
 pub async fn delete_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.document_service();
     let ok = service
-        .delete_for_user(id, user_id)
+        .delete_for_user(workspace_id, id, Some(user_id), &permissions)
         .await
         .map_err(map_service_error)?;
     if ok {
@@ -711,11 +757,22 @@ pub async fn download_document(
 pub async fn update_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateDocumentRequest>,
 ) -> Result<Json<Document>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let parent_opt = match req.parent_id.clone() {
         DoubleOption::NotProvided => None,
         DoubleOption::Null => Some(None),
@@ -723,7 +780,14 @@ pub async fn update_document(
     };
     let service = ctx.document_service();
     let doc = service
-        .update_metadata(id, user_id, req.title.clone(), parent_opt)
+        .update_metadata(
+            workspace_id,
+            id,
+            user_id,
+            &permissions,
+            req.title.clone(),
+            parent_opt,
+        )
         .await
         .map_err(map_service_error)?;
     Ok(Json(to_http_document(doc)))
@@ -743,13 +807,24 @@ pub async fn update_document(
 pub async fn archive_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Document>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let doc = ctx
         .document_service()
-        .archive_document(id, user_id)
+        .archive_document(workspace_id, id, user_id, &permissions)
         .await
         .map_err(map_service_error)?;
     Ok(Json(to_http_document(doc)))
@@ -769,13 +844,24 @@ pub async fn archive_document(
 pub async fn unarchive_document(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Document>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let doc = ctx
         .document_service()
-        .unarchive_document(id, user_id)
+        .unarchive_document(workspace_id, id, user_id, &permissions)
         .await
         .map_err(map_service_error)?;
     Ok(Json(to_http_document(doc)))
@@ -1018,15 +1104,26 @@ pub struct SnapshotTokenQuery {
 pub async fn search_documents(
     State(ctx): State<AppContext>,
     bearer: crate::presentation::http::auth::Bearer,
+    headers: HeaderMap,
     q: Option<Query<SearchQuery>>,
 ) -> Result<Json<Vec<SearchResult>>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
+        .await?;
     let query_text = q.and_then(|Query(v)| v.q);
 
     let service = ctx.document_service();
     let hits = service
-        .search_for_user(user_id, query_text, 20)
+        .search_for_user(workspace_id, query_text, 20)
         .await
         .map_err(map_service_error)?;
     let items = hits
@@ -1083,14 +1180,25 @@ pub struct OutgoingLinksResponse {
 pub async fn get_backlinks(
     State(ctx): State<AppContext>,
     bearer: crate::presentation::http::auth::Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<BacklinksResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
+        .await?;
     let actor = access::Actor::User(user_id);
     let service = ctx.document_service();
     let items = service
-        .backlinks(&actor, user_id, id)
+        .backlinks(&actor, workspace_id, id)
         .await
         .map_err(map_service_error)?;
     let backlinks: Vec<BacklinkInfo> = items
@@ -1117,14 +1225,25 @@ pub async fn get_backlinks(
 pub async fn get_outgoing_links(
     State(ctx): State<AppContext>,
     bearer: crate::presentation::http::auth::Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<OutgoingLinksResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
     let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
+        .await?;
     let actor = access::Actor::User(user_id);
     let service = ctx.document_service();
     let items = service
-        .outgoing_links(&actor, user_id, id)
+        .outgoing_links(&actor, workspace_id, id)
         .await
         .map_err(map_service_error)?;
     let links = items

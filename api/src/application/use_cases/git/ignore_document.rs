@@ -35,12 +35,14 @@ where
     D: DocumentRepository + ?Sized,
     W: GitWorkspacePort + ?Sized,
 {
-    pub async fn execute(&self, owner_id: Uuid, doc_id: Uuid) -> anyhow::Result<IgnoreResult> {
-        self.workspace.ensure_repository(owner_id, "main").await?;
+    pub async fn execute(&self, workspace_id: Uuid, doc_id: Uuid) -> anyhow::Result<IgnoreResult> {
+        self.workspace
+            .ensure_repository(workspace_id, "main")
+            .await?;
         let patterns =
-            compute_doc_patterns_with(self.docs, self.files, self.storage, doc_id, owner_id)
+            compute_doc_patterns_with(self.docs, self.files, self.storage, doc_id, workspace_id)
                 .await?;
-        let dir = self.storage.user_repo_dir(owner_id);
+        let dir = self.storage.user_repo_dir(workspace_id);
         let _ = self.gitignore.ensure_gitignore(&dir).await?;
         let added = self
             .gitignore

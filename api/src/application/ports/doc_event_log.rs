@@ -7,6 +7,7 @@ use uuid::Uuid;
 pub trait DocEventLog: Send + Sync {
     async fn append(
         &self,
+        workspace_id: Uuid,
         doc_id: Uuid,
         event_type: &str,
         payload: Option<Value>,
@@ -15,6 +16,7 @@ pub trait DocEventLog: Send + Sync {
     async fn append_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
+        workspace_id: Uuid,
         doc_id: Uuid,
         event_type: &str,
         payload: Option<Value>,

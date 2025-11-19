@@ -59,6 +59,7 @@ impl PgPluginEventBus {
                                 Ok(envelope) => {
                                     let event = PluginScopedEvent {
                                         user_id: envelope.user_id,
+                                        workspace_id: envelope.workspace_id,
                                         payload: envelope.payload,
                                     };
                                     if tx.send(event).is_err() {
@@ -92,6 +93,7 @@ impl PgPluginEventBus {
 #[derive(Debug, Serialize, Deserialize)]
 struct EventEnvelope {
     user_id: Option<uuid::Uuid>,
+    workspace_id: Option<uuid::Uuid>,
     payload: serde_json::Value,
 }
 
@@ -100,6 +102,7 @@ impl PluginEventPublisher for PgPluginEventBus {
     async fn publish(&self, event: &PluginScopedEvent) -> anyhow::Result<()> {
         let envelope = EventEnvelope {
             user_id: event.user_id,
+            workspace_id: event.workspace_id,
             payload: event.payload.clone(),
         };
         let payload = serde_json::to_string(&envelope).context("plugin_event_serialize")?;

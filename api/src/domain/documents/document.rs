@@ -4,6 +4,8 @@ use uuid::Uuid;
 pub struct Document {
     pub id: Uuid,
     pub owner_id: Uuid,
+    pub owner_user_id: Option<Uuid>,
+    pub workspace_id: Uuid,
     pub title: String,
     pub parent_id: Option<Uuid>,
     pub doc_type: String,
@@ -12,6 +14,7 @@ pub struct Document {
     pub slug: String,
     pub desired_path: String,
     pub path: Option<String>,
+    pub created_by: Option<Uuid>,
     pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived_by: Option<Uuid>,
     pub archived_parent_id: Option<Uuid>,

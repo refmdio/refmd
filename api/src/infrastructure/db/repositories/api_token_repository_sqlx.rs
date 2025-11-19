@@ -21,17 +21,19 @@ impl SqlxApiTokenRepository {
 impl ApiTokenRepository for SqlxApiTokenRepository {
     async fn create(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
+        owner_id: Uuid,
         name: &str,
         token_hash: &str,
         token_digest: &str,
     ) -> anyhow::Result<ApiToken> {
         let row = sqlx::query(
-            r#"INSERT INTO api_tokens (user_id, name, token_hash, token_digest)
-               VALUES ($1, $2, $3, $4)
-               RETURNING id, user_id, name, created_at, last_used_at, revoked_at"#,
+            r#"INSERT INTO api_tokens (workspace_id, owner_id, name, token_hash, token_digest)
+               VALUES ($1, $2, $3, $4, $5)
+               RETURNING id, workspace_id, owner_id, name, created_at, last_used_at, revoked_at"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
+        .bind(owner_id)
         .bind(name)
         .bind(token_hash)
         .bind(token_digest)
@@ -40,7 +42,8 @@ impl ApiTokenRepository for SqlxApiTokenRepository {
 
         Ok(ApiToken {
             id: row.get("id"),
-            user_id: row.get("user_id"),
+            workspace_id: row.get("workspace_id"),
+            owner_id: row.get("owner_id"),
             name: row.get("name"),
             created_at: row.get("created_at"),
             last_used_at: row.try_get("last_used_at").ok(),
@@ -48,14 +51,14 @@ impl ApiTokenRepository for SqlxApiTokenRepository {
         })
     }
 
-    async fn list_active(&self, user_id: Uuid) -> anyhow::Result<Vec<ApiToken>> {
+    async fn list_active(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ApiToken>> {
         let rows = sqlx::query(
-            r#"SELECT id, user_id, name, created_at, last_used_at, revoked_at
+            r#"SELECT id, workspace_id, owner_id, name, created_at, last_used_at, revoked_at
                FROM api_tokens
-               WHERE user_id = $1
+               WHERE workspace_id = $1
                ORDER BY created_at DESC"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -63,7 +66,8 @@ impl ApiTokenRepository for SqlxApiTokenRepository {
             .into_iter()
             .map(|row| ApiToken {
                 id: row.get("id"),
-                user_id: row.get("user_id"),
+                workspace_id: row.get("workspace_id"),
+                owner_id: row.get("owner_id"),
                 name: row.get("name"),
                 created_at: row.get("created_at"),
                 last_used_at: row.try_get("last_used_at").ok(),
@@ -72,15 +76,15 @@ impl ApiTokenRepository for SqlxApiTokenRepository {
             .collect())
     }
 
-    async fn revoke(&self, user_id: Uuid, token_id: Uuid) -> anyhow::Result<bool> {
+    async fn revoke(&self, workspace_id: Uuid, token_id: Uuid) -> anyhow::Result<bool> {
         let row = sqlx::query(
             r#"UPDATE api_tokens
                SET revoked_at = now()
-               WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+               WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL
                RETURNING id"#,
         )
         .bind(token_id)
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.is_some())
@@ -88,7 +92,7 @@ impl ApiTokenRepository for SqlxApiTokenRepository {
 
     async fn find_by_digest(&self, digest: &str) -> anyhow::Result<Option<ApiTokenSecret>> {
         let row = sqlx::query(
-            r#"SELECT id, user_id, name, created_at, last_used_at, revoked_at, token_hash, token_digest
+            r#"SELECT id, workspace_id, owner_id, name, created_at, last_used_at, revoked_at, token_hash, token_digest
                FROM api_tokens
                WHERE token_digest = $1
                LIMIT 1"#,
@@ -100,7 +104,8 @@ impl ApiTokenRepository for SqlxApiTokenRepository {
         Ok(row.map(|row| {
             let token = ApiToken {
                 id: row.get("id"),
-                user_id: row.get("user_id"),
+                workspace_id: row.get("workspace_id"),
+                owner_id: row.get("owner_id"),
                 name: row.get("name"),
                 created_at: row.get("created_at"),
                 last_used_at: row.try_get("last_used_at").ok(),

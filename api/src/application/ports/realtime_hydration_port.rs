@@ -26,6 +26,7 @@ pub struct DocumentRecord {
     pub desired_path: Option<String>,
     pub title: String,
     pub owner_id: Option<Uuid>,
+    pub workspace_id: Uuid,
 }
 
 #[async_trait]

@@ -5,6 +5,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct PluginScopedEvent {
     pub user_id: Option<Uuid>,
+    pub workspace_id: Option<Uuid>,
     pub payload: Value,
 }
 

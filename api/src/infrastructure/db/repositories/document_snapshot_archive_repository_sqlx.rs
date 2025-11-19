@@ -23,7 +23,7 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
         &self,
         input: SnapshotArchiveInsert<'_>,
     ) -> anyhow::Result<SnapshotArchiveRecord> {
-        let row = sqlx::query(
+        let inserted = sqlx::query(
             r#"INSERT INTO document_snapshot_archives (
                     document_id,
                     version,
@@ -36,6 +36,7 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     content_hash
                 )
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                ON CONFLICT (document_id, version) DO NOTHING
                 RETURNING
                     id,
                     document_id,
@@ -57,8 +58,33 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
         .bind(input.created_by)
         .bind(input.byte_size)
         .bind(input.content_hash)
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
+
+        let row = match inserted {
+            Some(row) => row,
+            None => {
+                sqlx::query(
+                    r#"SELECT
+                            id,
+                            document_id,
+                            version,
+                            label,
+                            notes,
+                            kind,
+                            created_at,
+                            created_by,
+                            byte_size,
+                            content_hash
+                       FROM document_snapshot_archives
+                       WHERE document_id = $1 AND version = $2"#,
+                )
+                .bind(input.document_id)
+                .bind(input.version as i32)
+                .fetch_one(&self.pool)
+                .await?
+            }
+        };
 
         Ok(SnapshotArchiveRecord {
             id: row.get("id"),

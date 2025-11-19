@@ -24,16 +24,16 @@ export type PublicDocumentMeta = {
 }
 
 type Props = {
-  name: string
+  slug: string
   meta: PublicDocumentMeta
   content: string
 }
 
-export default function PublicUserDocumentPage({ name, meta, content }: Props) {
+export default function PublicUserDocumentPage({ slug, meta, content }: Props) {
   const [showToc, setShowToc] = React.useState(false)
 
   return (
-    <PublicShell pageType="document" title={meta.title} author={{ name }} publishedDate={meta.updated_at}>
+    <PublicShell pageType="document" title={meta.title} author={{ name: slug }} workspaceSlug={slug} publishedDate={meta.updated_at}>
       <section className="relative space-y-6">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_300px]">
           <article className="min-w-0 overflow-hidden rounded-none border-none bg-transparent shadow-none sm:rounded-3xl sm:border sm:border-border/70 sm:bg-card/90 sm:shadow-sm sm:backdrop-blur sm:supports-[backdrop-filter]:bg-card/75">

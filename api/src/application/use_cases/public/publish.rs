@@ -26,12 +26,12 @@ pub struct PublishDocument<'a, R: PublicRepository + ?Sized> {
 impl<'a, R: PublicRepository + ?Sized> PublishDocument<'a, R> {
     pub async fn execute(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Option<PublishResponseDto>> {
-        let (title, owner_name) = match self
+        let (title, workspace_slug) = match self
             .repo
-            .ensure_ownership_and_owner_name(doc_id, owner_id)
+            .ensure_workspace_title_and_slug(doc_id, workspace_id)
             .await?
         {
             Some(v) => v,
@@ -48,7 +48,7 @@ impl<'a, R: PublicRepository + ?Sized> PublishDocument<'a, R> {
             i += 1;
         }
         self.repo.upsert_public_document(doc_id, &slug).await?;
-        let public_url = format!("/u/{}/{}", owner_name, doc_id);
+        let public_url = format!("/w/{}/{}", workspace_slug, doc_id);
         Ok(Some(PublishResponseDto { slug, public_url }))
     }
 }

@@ -10,13 +10,17 @@ use crate::application::ports::git_rebuild_job_queue::{GitRebuildJob, GitRebuild
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::services::metrics::MetricsRegistry;
+use crate::application::services::workspaces::WorkspacePermissionResolver;
+use crate::application::services::workspaces::permission_snapshot::permission_set_from_snapshot;
 use crate::application::use_cases::git::helpers::needs_force_retry;
+use crate::domain::workspaces::permissions::{PERM_GIT_SYNC, PermissionSet};
 
 pub struct GitRebuildService {
     jobs: Arc<dyn GitRebuildJobQueue>,
     workspace: Arc<dyn GitWorkspacePort>,
     git_repo: Arc<dyn GitRepository>,
     metrics: Arc<MetricsRegistry>,
+    permission_resolver: Arc<dyn WorkspacePermissionResolver>,
     idle_backoff: Duration,
     lock_timeout_secs: i64,
     max_attempts: i32,
@@ -28,12 +32,14 @@ impl GitRebuildService {
         workspace: Arc<dyn GitWorkspacePort>,
         git_repo: Arc<dyn GitRepository>,
         metrics: Arc<MetricsRegistry>,
+        permission_resolver: Arc<dyn WorkspacePermissionResolver>,
     ) -> Self {
         Self {
             jobs,
             workspace,
             git_repo,
             metrics,
+            permission_resolver,
             idle_backoff: Duration::from_secs(1),
             lock_timeout_secs: 30,
             max_attempts: 5,
@@ -73,29 +79,49 @@ impl GitRebuildService {
     }
 
     async fn process_job(&self, job: &GitRebuildJob) -> anyhow::Result<()> {
-        let status = self.workspace.status(job.user_id).await?;
+        let permissions = self.permissions_for_job(job).await;
+        if !permissions.allows(PERM_GIT_SYNC) {
+            warn!(
+                workspace_id = %job.workspace_id,
+                "git_rebuild_missing_permission"
+            );
+            self.jobs.complete(job.id).await?;
+            return Ok(());
+        }
+        let status = self.workspace.status(job.workspace_id).await?;
         if !status.repository_initialized {
             self.jobs.complete(job.id).await?;
             info!(
-                user_id = %job.user_id,
+                workspace_id = %job.workspace_id,
                 "git_rebuild_job_skipped_for_uninitialized_repo"
             );
             return Ok(());
         }
-        let cfg = self.git_repo.load_user_git_cfg(job.user_id).await?;
+        let cfg = self.git_repo.load_user_git_cfg(job.workspace_id).await?;
         let mut req = GitSyncRequestDto {
             message: Some("Automated Git rebuild".to_string()),
             force: Some(false),
             full_scan: Some(true),
             skip_push: Some(true),
         };
-        let outcome = match self.workspace.sync(job.user_id, &req, cfg.as_ref()).await {
+        let outcome = match self
+            .workspace
+            .sync(job.workspace_id, &req, cfg.as_ref())
+            .await
+        {
             Ok(outcome) => outcome,
             Err(err) => {
                 if !req.force.unwrap_or(false) && needs_force_retry(&err) {
-                    warn!(user_id = %job.user_id, "git_rebuild_retrying_with_force");
+                    warn!(
+                        workspace_id = %job.workspace_id,
+                        "git_rebuild_retrying_with_force"
+                    );
                     req.force = Some(true);
-                    match self.workspace.sync(job.user_id, &req, cfg.as_ref()).await {
+                    match self
+                        .workspace
+                        .sync(job.workspace_id, &req, cfg.as_ref())
+                        .await
+                    {
                         Ok(outcome) => outcome,
                         Err(err) => return self.on_job_error(job, err).await,
                     }
@@ -107,11 +133,15 @@ impl GitRebuildService {
 
         self.jobs.complete(job.id).await?;
         self.metrics.inc_git_rebuild_success();
-        info!(user_id = %job.user_id, files = outcome.files_changed, "git_rebuild_job_completed");
+        info!(
+            workspace_id = %job.workspace_id,
+            files = outcome.files_changed,
+            "git_rebuild_job_completed"
+        );
         if let Err(err) = self
             .git_repo
             .log_sync_operation(
-                job.user_id,
+                job.workspace_id,
                 "rebuild",
                 "success",
                 Some(&outcome.message),
@@ -119,7 +149,11 @@ impl GitRebuildService {
             )
             .await
         {
-            warn!(error = ?err, user_id = %job.user_id, "git_rebuild_log_failed");
+            warn!(
+                error = ?err,
+                workspace_id = %job.workspace_id,
+                "git_rebuild_log_failed"
+            );
         }
         Ok(())
     }
@@ -131,23 +165,73 @@ impl GitRebuildService {
             self.metrics.inc_git_rebuild_failure();
             warn!(
                 error = ?err,
-                user_id = %job.user_id,
+                workspace_id = %job.workspace_id,
                 attempts = job.attempts,
                 "git_rebuild_job_gave_up"
             );
             if let Err(log_err) = self
                 .git_repo
-                .log_sync_operation(job.user_id, "rebuild", "error", Some(&msg), None)
+                .log_sync_operation(job.workspace_id, "rebuild", "error", Some(&msg), None)
                 .await
             {
-                warn!(error = ?log_err, user_id = %job.user_id, "git_rebuild_log_failed");
+                warn!(
+                    error = ?log_err,
+                    workspace_id = %job.workspace_id,
+                    "git_rebuild_log_failed"
+                );
             }
         } else {
             self.jobs.fail(job.id, &msg).await?;
             self.metrics.inc_git_rebuild_retry();
-            warn!(error = ?err, user_id = %job.user_id, "git_rebuild_job_retrying");
+            warn!(
+                error = ?err,
+                workspace_id = %job.workspace_id,
+                "git_rebuild_job_retrying"
+            );
         }
         Ok(())
+    }
+
+    async fn permissions_for_job(&self, job: &GitRebuildJob) -> PermissionSet {
+        let set = permission_set_from_snapshot(&job.permission_snapshot);
+        if !set.is_empty() {
+            return set;
+        }
+        if let Some(actor_id) = job.actor_id {
+            match self
+                .permission_resolver
+                .load_permission_set(job.workspace_id, actor_id)
+                .await
+            {
+                Ok(Some(resolved)) => {
+                    info!(
+                        workspace_id = %job.workspace_id,
+                        actor_id = %actor_id,
+                        "git_rebuild_permissions_rehydrated"
+                    );
+                    resolved
+                }
+                Ok(None) => {
+                    warn!(
+                        workspace_id = %job.workspace_id,
+                        actor_id = %actor_id,
+                        "git_rebuild_member_missing_for_permissions"
+                    );
+                    PermissionSet::from_slice(&[PERM_GIT_SYNC])
+                }
+                Err(err) => {
+                    warn!(
+                        error = ?err,
+                        workspace_id = %job.workspace_id,
+                        actor_id = %actor_id,
+                        "git_rebuild_permission_resolve_failed"
+                    );
+                    PermissionSet::from_slice(&[PERM_GIT_SYNC])
+                }
+            }
+        } else {
+            PermissionSet::from_slice(&[PERM_GIT_SYNC])
+        }
     }
 }
 
@@ -157,6 +241,8 @@ mod tests {
     use async_trait::async_trait;
     use std::collections::VecDeque;
     use std::sync::Mutex;
+
+    use crate::application::services::errors::ServiceError;
 
     struct RecordingWorkspace {
         outcomes: Mutex<Vec<GitSyncRequestDto>>,
@@ -184,19 +270,19 @@ mod tests {
     impl GitWorkspacePort for RecordingWorkspace {
         async fn ensure_repository(
             &self,
-            _user_id: Uuid,
+            _workspace_id: Uuid,
             _default_branch: &str,
         ) -> anyhow::Result<()> {
             unimplemented!()
         }
 
-        async fn remove_repository(&self, _user_id: Uuid) -> anyhow::Result<()> {
+        async fn remove_repository(&self, _workspace_id: Uuid) -> anyhow::Result<()> {
             unimplemented!()
         }
 
         async fn status(
             &self,
-            _user_id: Uuid,
+            _workspace_id: Uuid,
         ) -> anyhow::Result<crate::application::dto::git::GitWorkspaceStatus> {
             Ok(crate::application::dto::git::GitWorkspaceStatus {
                 repository_initialized: true,
@@ -208,21 +294,21 @@ mod tests {
 
         async fn list_changes(
             &self,
-            _user_id: Uuid,
+            _workspace_id: Uuid,
         ) -> anyhow::Result<Vec<crate::application::dto::git::GitChangeItem>> {
             unimplemented!()
         }
 
         async fn working_diff(
             &self,
-            _user_id: Uuid,
+            _workspace_id: Uuid,
         ) -> anyhow::Result<Vec<crate::application::dto::diff::TextDiffResult>> {
             unimplemented!()
         }
 
         async fn commit_diff(
             &self,
-            _user_id: Uuid,
+            _workspace_id: Uuid,
             _from: &str,
             _to: &str,
         ) -> anyhow::Result<Vec<crate::application::dto::diff::TextDiffResult>> {
@@ -231,14 +317,14 @@ mod tests {
 
         async fn history(
             &self,
-            _user_id: Uuid,
+            _workspace_id: Uuid,
         ) -> anyhow::Result<Vec<crate::application::dto::git::GitCommitInfo>> {
             unimplemented!()
         }
 
         async fn sync(
             &self,
-            _user_id: Uuid,
+            _workspace_id: Uuid,
             req: &GitSyncRequestDto,
             _cfg: Option<&crate::application::ports::git_repository::UserGitCfg>,
         ) -> anyhow::Result<crate::application::dto::git::GitSyncOutcome> {
@@ -272,7 +358,12 @@ mod tests {
 
     #[async_trait]
     impl GitRebuildJobQueue for RecordingJobQueue {
-        async fn enqueue(&self, _user_id: Uuid) -> anyhow::Result<()> {
+        async fn enqueue(
+            &self,
+            _workspace_id: Uuid,
+            _actor_id: Option<Uuid>,
+            _permission_snapshot: &[String],
+        ) -> anyhow::Result<()> {
             Ok(())
         }
 
@@ -372,7 +463,7 @@ mod tests {
 
         async fn log_sync_operation(
             &self,
-            _user_id: Uuid,
+            _workspace_id: Uuid,
             _operation: &str,
             status: &str,
             _message: Option<&str>,
@@ -382,12 +473,29 @@ mod tests {
             Ok(())
         }
 
-        async fn delete_sync_logs(&self, _user_id: Uuid) -> anyhow::Result<()> {
+        async fn delete_sync_logs(&self, _workspace_id: Uuid) -> anyhow::Result<()> {
             Ok(())
         }
 
-        async fn delete_repository_state(&self, _user_id: Uuid) -> anyhow::Result<()> {
+        async fn delete_repository_state(&self, _workspace_id: Uuid) -> anyhow::Result<()> {
             Ok(())
+        }
+
+        async fn list_auto_sync_workspaces(&self) -> anyhow::Result<Vec<Uuid>> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct AllowAllPermissions;
+
+    #[async_trait]
+    impl WorkspacePermissionResolver for AllowAllPermissions {
+        async fn load_permission_set(
+            &self,
+            _workspace_id: Uuid,
+            _user_id: Uuid,
+        ) -> Result<Option<PermissionSet>, ServiceError> {
+            Ok(Some(PermissionSet::all()))
         }
     }
 
@@ -397,11 +505,19 @@ mod tests {
         let workspace = Arc::new(RecordingWorkspace::new());
         let git_repo = Arc::new(RecordingGitRepo::new());
         let metrics = Arc::new(MetricsRegistry::default());
-        let svc = GitRebuildService::new(queue.clone(), workspace, git_repo, metrics.clone());
+        let svc = GitRebuildService::new(
+            queue.clone(),
+            workspace,
+            git_repo,
+            metrics.clone(),
+            Arc::new(AllowAllPermissions),
+        );
         let job = GitRebuildJob {
             id: 1,
-            user_id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            actor_id: None,
             attempts: 1,
+            permission_snapshot: vec!["git:sync".into()],
         };
         svc.process_job(&job).await.unwrap();
         assert_eq!(queue.complete.lock().unwrap().as_slice(), &[1]);
@@ -415,11 +531,19 @@ mod tests {
         workspace.fail_with(anyhow::anyhow!("broken"));
         let git_repo = Arc::new(RecordingGitRepo::new());
         let metrics = Arc::new(MetricsRegistry::default());
-        let svc = GitRebuildService::new(queue.clone(), workspace, git_repo, metrics.clone());
+        let svc = GitRebuildService::new(
+            queue.clone(),
+            workspace,
+            git_repo,
+            metrics.clone(),
+            Arc::new(AllowAllPermissions),
+        );
         let job = GitRebuildJob {
             id: 2,
-            user_id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            actor_id: None,
             attempts: 0,
+            permission_snapshot: vec!["git:sync".into()],
         };
         svc.process_job(&job).await.unwrap();
         assert_eq!(queue.failed.lock().unwrap().as_slice(), &[2]);
@@ -434,12 +558,19 @@ mod tests {
         workspace.fail_with(anyhow::anyhow!("still broken"));
         let git_repo = Arc::new(RecordingGitRepo::new());
         let metrics = Arc::new(MetricsRegistry::default());
-        let svc =
-            GitRebuildService::new(queue.clone(), workspace.clone(), git_repo, metrics.clone());
+        let svc = GitRebuildService::new(
+            queue.clone(),
+            workspace.clone(),
+            git_repo,
+            metrics.clone(),
+            Arc::new(AllowAllPermissions),
+        );
         let job = GitRebuildJob {
             id: 3,
-            user_id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            actor_id: None,
             attempts: 0,
+            permission_snapshot: vec!["git:sync".into()],
         };
         svc.process_job(&job).await.unwrap();
         assert_eq!(queue.failed.lock().unwrap().as_slice(), &[3]);

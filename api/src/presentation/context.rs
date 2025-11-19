@@ -25,6 +25,7 @@ use crate::application::services::public::PublicService;
 use crate::application::services::shares::ShareService;
 use crate::application::services::tags::TagService;
 use crate::application::services::user_shortcuts::UserShortcutService;
+use crate::application::services::workspaces::WorkspaceService;
 
 #[derive(Debug, Clone)]
 pub struct PresentationConfig {
@@ -53,6 +54,7 @@ pub struct AppServices {
     user_shortcut_service: Arc<UserShortcutService>,
     git_service: Arc<GitService>,
     markdown_render_service: Arc<MarkdownRenderService>,
+    workspace_service: Arc<WorkspaceService>,
     plugin_execution_service: Arc<PluginExecutionService>,
     plugin_management_service: Arc<PluginManagementService>,
     plugin_permission_service: Arc<PluginPermissionService>,
@@ -78,6 +80,7 @@ impl AppServices {
         user_shortcut_service: Arc<UserShortcutService>,
         git_service: Arc<GitService>,
         markdown_render_service: Arc<MarkdownRenderService>,
+        workspace_service: Arc<WorkspaceService>,
         plugin_execution_service: Arc<PluginExecutionService>,
         plugin_management_service: Arc<PluginManagementService>,
         plugin_permission_service: Arc<PluginPermissionService>,
@@ -100,6 +103,7 @@ impl AppServices {
             user_shortcut_service,
             git_service,
             markdown_render_service,
+            workspace_service,
             plugin_execution_service,
             plugin_management_service,
             plugin_permission_service,
@@ -161,6 +165,10 @@ impl AppContext {
 
     pub fn markdown_renderer(&self) -> Arc<MarkdownRenderService> {
         self.services.markdown_render_service.clone()
+    }
+
+    pub fn workspace_service(&self) -> Arc<WorkspaceService> {
+        self.services.workspace_service.clone()
     }
 
     pub fn storage_ingest_queue(&self) -> Arc<dyn StorageIngestQueue> {

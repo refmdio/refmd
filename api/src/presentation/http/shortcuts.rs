@@ -1,4 +1,9 @@
-use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
+use axum::{
+    Json, Router,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    routing::get,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -8,7 +13,10 @@ use uuid::Uuid;
 use crate::application::dto::user_shortcuts::UserShortcutProfileDto;
 use crate::application::services::errors::ServiceError;
 use crate::presentation::context::AppContext;
-use crate::presentation::http::auth::{self, Bearer};
+use crate::presentation::http::{
+    auth::{self, Bearer},
+    workspace_scope,
+};
 use tracing::error;
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -72,12 +80,23 @@ pub struct UpdateUserShortcutRequest {
 pub async fn get_user_shortcuts(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<UserShortcutResponse>, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone())).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.user_shortcut_service();
     let profile = service
-        .get_profile(user_id)
+        .get_profile(workspace_id, user_id, &permissions)
         .await
         .map_err(map_shortcut_error)?;
     let response = profile
@@ -96,13 +115,30 @@ pub async fn get_user_shortcuts(
 pub async fn update_user_shortcuts(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(payload): Json<UpdateUserShortcutRequest>,
 ) -> Result<Json<UserShortcutResponse>, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone())).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.user_shortcut_service();
     let result = service
-        .update_profile(user_id, payload.bindings, payload.leader_key)
+        .update_profile(
+            workspace_id,
+            user_id,
+            &permissions,
+            payload.bindings,
+            payload.leader_key,
+        )
         .await
         .map_err(map_shortcut_error)?;
     Ok(Json(UserShortcutResponse::from(result)))

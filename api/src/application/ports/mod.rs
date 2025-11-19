@@ -37,3 +37,4 @@ pub mod tag_repository;
 pub mod tagging_repository;
 pub mod user_repository;
 pub mod user_shortcut_repository;
+pub mod workspace_repository;

@@ -1,13 +1,19 @@
 use crate::application::dto::public::PublicDocumentSummaryDto;
 use crate::application::ports::public_repository::PublicRepository;
 
-pub struct ListUserPublic<'a, R: PublicRepository + ?Sized> {
+pub struct ListWorkspacePublic<'a, R: PublicRepository + ?Sized> {
     pub repo: &'a R,
 }
 
-impl<'a, R: PublicRepository + ?Sized> ListUserPublic<'a, R> {
-    pub async fn execute(&self, owner_name: &str) -> anyhow::Result<Vec<PublicDocumentSummaryDto>> {
-        let rows = self.repo.list_user_public_documents(owner_name).await?;
+impl<'a, R: PublicRepository + ?Sized> ListWorkspacePublic<'a, R> {
+    pub async fn execute(
+        &self,
+        workspace_slug: &str,
+    ) -> anyhow::Result<Vec<PublicDocumentSummaryDto>> {
+        let rows = self
+            .repo
+            .list_workspace_public_documents(workspace_slug)
+            .await?;
         Ok(rows
             .into_iter()
             .map(

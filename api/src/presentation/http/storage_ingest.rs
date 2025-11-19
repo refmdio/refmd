@@ -1,4 +1,4 @@
-use axum::{Json, Router, extract::State, routing::post};
+use axum::{Json, Router, extract::State, http::HeaderMap, routing::post};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -8,6 +8,7 @@ use crate::application::ports::storage_ingest_queue::{StorageIngestKind, Storage
 use crate::application::services::storage_ingest::normalize_repo_path;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
+use crate::presentation::http::workspace_scope;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct IngestBatchRequest {
@@ -55,14 +56,28 @@ pub fn routes(ctx: AppContext) -> Router {
 pub async fn enqueue_ingest_events(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(body): Json<IngestBatchRequest>,
 ) -> Result<axum::http::StatusCode, axum::http::StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer)
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone()))
         .await?
         .parse::<Uuid>()
         .map_err(|_| axum::http::StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        sub,
+    )
+    .await
+    .map_err(|_| axum::http::StatusCode::FORBIDDEN)?;
+    let permissions = workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, sub)
+        .await
+        .map_err(|_| axum::http::StatusCode::FORBIDDEN)?;
     let queue = ctx.storage_ingest_queue();
-    enqueue_batch(queue.as_ref(), sub, &body)
+    let snapshot = permissions.to_vec();
+    enqueue_batch(queue.as_ref(), workspace_id, sub, &snapshot, &body)
         .await
         .map(|count| {
             tracing::info!(user_id = %sub, events = count, "storage_ingest_events_enqueued");
@@ -76,7 +91,9 @@ pub async fn enqueue_ingest_events(
 
 async fn enqueue_batch(
     queue: &dyn StorageIngestQueue,
-    user_id: Uuid,
+    workspace_id: Uuid,
+    actor_id: Uuid,
+    permission_snapshot: &[String],
     body: &IngestBatchRequest,
 ) -> anyhow::Result<usize> {
     let mut processed = 0usize;
@@ -91,12 +108,15 @@ async fn enqueue_batch(
         };
         queue
             .enqueue_event(
-                user_id,
+                workspace_id,
+                actor_id,
+                Some(actor_id),
                 &clean_repo,
                 event.backend.as_deref().unwrap_or("api"),
                 event.kind.clone().into(),
                 event.content_hash.as_deref(),
                 event.payload.clone(),
+                permission_snapshot,
             )
             .await?;
         processed += 1;

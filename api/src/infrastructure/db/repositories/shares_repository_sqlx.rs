@@ -52,16 +52,17 @@ impl SqlxSharesRepository {
 impl SharesRepository for SqlxSharesRepository {
     async fn create_share(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
+        actor_id: Uuid,
         document_id: Uuid,
         permission: &str,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> anyhow::Result<(String, Uuid, String)> {
         // Verify ownership and type
         let dtype: String =
-            sqlx::query_scalar("SELECT type FROM documents WHERE id = $1 AND owner_id = $2")
+            sqlx::query_scalar("SELECT type FROM documents WHERE id = $1 AND workspace_id = $2")
                 .bind(document_id)
-                .bind(owner_id)
+                .bind(workspace_id)
                 .fetch_optional(&self.pool)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("forbidden"))?;
@@ -70,7 +71,7 @@ impl SharesRepository for SqlxSharesRepository {
             .bind(document_id)
             .bind(&token)
             .bind(permission)
-            .bind(owner_id)
+            .bind(actor_id)
             .bind(expires_at)
             .fetch_one(&self.pool)
             .await?;
@@ -100,7 +101,7 @@ impl SharesRepository for SqlxSharesRepository {
             )
             .bind(document_id)
             .bind(permission)
-            .bind(owner_id)
+            .bind(actor_id)
             .bind(expires_at)
             .bind(share_id)
             .fetch_one(&self.pool)
@@ -111,18 +112,18 @@ impl SharesRepository for SqlxSharesRepository {
 
     async fn list_document_shares(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         document_id: Uuid,
     ) -> anyhow::Result<Vec<ShareRow>> {
         let rows = sqlx::query(
             r#"SELECT s.id, s.token, s.permission, s.expires_at, s.parent_share_id, s.created_at,
                       d.id as document_id, d.title as document_title, d.type as document_type
                FROM shares s JOIN documents d ON d.id = s.document_id
-               WHERE s.document_id = $1 AND d.owner_id = $2
+               WHERE s.document_id = $1 AND d.workspace_id = $2
                ORDER BY s.created_at DESC"#,
         )
         .bind(document_id)
-        .bind(owner_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
         let mut out = Vec::with_capacity(rows.len());
@@ -142,10 +143,12 @@ impl SharesRepository for SqlxSharesRepository {
         Ok(out)
     }
 
-    async fn delete_share(&self, owner_id: Uuid, token: &str) -> anyhow::Result<bool> {
-        let res = sqlx::query("DELETE FROM shares s USING documents d WHERE s.token = $1 AND s.document_id = d.id AND d.owner_id = $2")
+    async fn delete_share(&self, workspace_id: Uuid, token: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query(
+            "DELETE FROM shares s USING documents d WHERE s.token = $1 AND s.document_id = d.id AND d.workspace_id = $2",
+        )
             .bind(token)
-            .bind(owner_id)
+            .bind(workspace_id)
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected() > 0)
@@ -175,17 +178,17 @@ impl SharesRepository for SqlxSharesRepository {
 
     async fn list_applicable_shares_for_doc(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Vec<(String, String, Option<chrono::DateTime<chrono::Utc>>)>> {
         let rows = sqlx::query(
             r#"SELECT s.token, s.permission, s.expires_at
                FROM shares s
                JOIN documents d ON d.id = s.document_id
-               WHERE s.document_id = $1 AND d.owner_id = $2 AND s.created_by = $2"#,
+               WHERE s.document_id = $1 AND d.workspace_id = $2"#,
         )
         .bind(doc_id)
-        .bind(owner_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
@@ -200,16 +203,16 @@ impl SharesRepository for SqlxSharesRepository {
             .collect())
     }
 
-    async fn list_active_shares(&self, owner_id: Uuid) -> anyhow::Result<Vec<ShareRow>> {
+    async fn list_active_shares(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareRow>> {
         let rows = sqlx::query(
             r#"SELECT s.id, s.token, s.permission, s.expires_at, s.created_at, s.parent_share_id,
                       d.id as document_id, d.title as document_title, d.type as document_type
                FROM shares s
                JOIN documents d ON d.id = s.document_id
-               WHERE d.owner_id = $1 AND (s.expires_at IS NULL OR s.expires_at > now())
+               WHERE d.workspace_id = $1 AND (s.expires_at IS NULL OR s.expires_at > now())
                ORDER BY s.created_at DESC"#,
         )
-        .bind(owner_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
         let mut out = Vec::with_capacity(rows.len());
@@ -244,14 +247,23 @@ impl SharesRepository for SqlxSharesRepository {
         self.fetch_share_resolution(token).await
     }
 
-    async fn get_document_owner_by_token(&self, token: &str) -> anyhow::Result<Option<Uuid>> {
-        let owner = sqlx::query_scalar::<_, Uuid>(
-            "SELECT d.owner_id FROM shares s JOIN documents d ON d.id = s.document_id WHERE s.token = $1",
+    async fn get_share_document_meta(
+        &self,
+        token: &str,
+    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>> {
+        let row = sqlx::query(
+            "SELECT d.id as document_id, d.owner_id, d.workspace_id FROM shares s JOIN documents d ON d.id = s.document_id WHERE s.token = $1",
         )
         .bind(token)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(owner)
+        Ok(row.map(|r| {
+            (
+                r.get("document_id"),
+                r.get("owner_id"),
+                r.get("workspace_id"),
+            )
+        }))
     }
 
     async fn list_subtree_nodes(
@@ -304,9 +316,14 @@ impl SharesRepository for SqlxSharesRepository {
         Ok(ids)
     }
 
-    async fn materialize_folder_share(&self, owner_id: Uuid, token: &str) -> anyhow::Result<i64> {
+    async fn materialize_folder_share(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        token: &str,
+    ) -> anyhow::Result<i64> {
         let row = sqlx::query(
-            r#"SELECT s.id as share_id, s.permission, s.expires_at, d.id as folder_id, d.owner_id, d.type
+            r#"SELECT s.id as share_id, s.permission, s.expires_at, d.id as folder_id, d.workspace_id, d.type
                FROM shares s JOIN documents d ON d.id = s.document_id
                WHERE s.token = $1"#
         )
@@ -317,8 +334,8 @@ impl SharesRepository for SqlxSharesRepository {
             Some(r) => r,
             None => anyhow::bail!("not_found"),
         };
-        let owner: Uuid = row.get("owner_id");
-        if owner != owner_id {
+        let workspace: Uuid = row.get("workspace_id");
+        if workspace != workspace_id {
             anyhow::bail!("forbidden");
         }
         let dtype: String = row.get("type");
@@ -353,23 +370,27 @@ impl SharesRepository for SqlxSharesRepository {
         .bind(folder_id)
         .bind(share_id)
         .bind(&permission)
-        .bind(owner_id)
+        .bind(actor_id)
         .bind(expires_at)
         .fetch_one(&self.pool)
         .await?;
         Ok(created)
     }
 
-    async fn revoke_subtree_shares(&self, owner_id: Uuid, root_id: Uuid) -> anyhow::Result<i64> {
+    async fn revoke_subtree_shares(
+        &self,
+        workspace_id: Uuid,
+        root_id: Uuid,
+    ) -> anyhow::Result<i64> {
         let deleted = sqlx::query_scalar::<_, i64>(
             r#"
             WITH RECURSIVE subtree AS (
-                SELECT id FROM documents WHERE id = $1 AND owner_id = $2
+                SELECT id FROM documents WHERE id = $1 AND workspace_id = $2
                 UNION ALL
                 SELECT d.id
                 FROM documents d
                 JOIN subtree sb ON d.parent_id = sb.id
-                WHERE d.owner_id = $2
+                WHERE d.workspace_id = $2
             ),
             removed AS (
                 DELETE FROM shares s
@@ -382,7 +403,7 @@ impl SharesRepository for SqlxSharesRepository {
             "#,
         )
         .bind(root_id)
-        .bind(owner_id)
+        .bind(workspace_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(deleted)

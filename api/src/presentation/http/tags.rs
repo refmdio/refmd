@@ -11,7 +11,12 @@ use uuid::Uuid;
 
 use crate::application::dto::tags::TagItemDto;
 use crate::application::services::errors::ServiceError;
+use crate::domain::workspaces::permissions::PERM_DOC_VIEW;
 use crate::presentation::context::AppContext;
+use crate::presentation::http::{
+    auth::{self, Bearer},
+    workspace_scope,
+};
 
 #[derive(Serialize, ToSchema)]
 pub struct TagItem {
@@ -47,14 +52,22 @@ fn map_tag_error(err: ServiceError) -> StatusCode {
     responses((status = 200, body = [TagItem])))]
 pub async fn list_tags(
     State(ctx): State<AppContext>,
-    bearer: crate::presentation::http::auth::Bearer,
+    bearer: Bearer,
+    headers: axum::http::HeaderMap,
     q: Option<Query<std::collections::HashMap<String, String>>>,
 ) -> Result<Json<Vec<TagItem>>, StatusCode> {
-    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
+    let sub = auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id =
+        workspace_scope::resolve_active_workspace_id(&ctx, &headers, None, user_id).await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
+        .await?;
     let filter = q.and_then(|Query(m)| m.get("q").cloned());
     let service = ctx.tag_service();
-    let items: Vec<TagItemDto> = service.list(user_id, filter).await.map_err(map_tag_error)?;
+    let items: Vec<TagItemDto> = service
+        .list(workspace_id, filter)
+        .await
+        .map_err(map_tag_error)?;
     let out: Vec<TagItem> = items.into_iter().map(Into::into).collect();
     Ok(Json(out))
 }

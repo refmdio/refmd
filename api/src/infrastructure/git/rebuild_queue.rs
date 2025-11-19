@@ -18,32 +18,41 @@ impl PgGitRebuildJobQueue {
 
 #[async_trait]
 impl GitRebuildJobQueue for PgGitRebuildJobQueue {
-    async fn enqueue(&self, user_id: Uuid) -> anyhow::Result<()> {
+    async fn enqueue(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Option<Uuid>,
+        permission_snapshot: &[String],
+    ) -> anyhow::Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO git_rebuild_jobs (user_id, attempts, locked_at, last_error)
-            VALUES ($1, 0, NULL, NULL)
-            ON CONFLICT (user_id)
+            INSERT INTO git_rebuild_jobs (workspace_id, actor_id, permission_snapshot, attempts, locked_at, last_error)
+            VALUES ($1, $2, $3, 0, NULL, NULL)
+            ON CONFLICT (workspace_id)
             DO UPDATE SET attempts = CASE
-                           WHEN git_rebuild_jobs.locked_at IS NULL THEN 0
-                           ELSE git_rebuild_jobs.attempts
-                       END,
-                       locked_at = CASE
-                           WHEN git_rebuild_jobs.locked_at IS NULL THEN NULL
-                           ELSE git_rebuild_jobs.locked_at
-                       END,
-                       last_error = NULL,
-                       pending_retry = CASE
-                           WHEN git_rebuild_jobs.locked_at IS NULL THEN false
-                           ELSE true
-                       END,
-                       updated_at = now()
+                               WHEN git_rebuild_jobs.locked_at IS NULL THEN 0
+                               ELSE git_rebuild_jobs.attempts
+                           END,
+                           locked_at = CASE
+                               WHEN git_rebuild_jobs.locked_at IS NULL THEN NULL
+                               ELSE git_rebuild_jobs.locked_at
+                           END,
+                           last_error = NULL,
+                           actor_id = EXCLUDED.actor_id,
+                           permission_snapshot = EXCLUDED.permission_snapshot,
+                           pending_retry = CASE
+                               WHEN git_rebuild_jobs.locked_at IS NULL THEN false
+                               ELSE true
+                           END,
+                           updated_at = now()
             "#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
+        .bind(actor_id)
+        .bind(serde_json::json!(permission_snapshot))
         .execute(&self.pool)
         .await?;
-        debug!(user_id = %user_id, "git_rebuild_job_queued");
+        debug!(workspace_id = %workspace_id, "git_rebuild_job_queued");
         Ok(())
     }
 
@@ -64,7 +73,7 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
                 attempts = attempts + 1,
                 updated_at = now()
             WHERE j.id IN (SELECT id FROM next_job)
-            RETURNING j.id, j.user_id, j.attempts
+            RETURNING j.id, j.workspace_id, j.actor_id, j.permission_snapshot, j.attempts
             "#,
         )
         .bind(lock_timeout_secs.max(1))
@@ -73,8 +82,10 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
 
         Ok(row.map(|r| GitRebuildJob {
             id: r.get("id"),
-            user_id: r.get("user_id"),
+            workspace_id: r.get("workspace_id"),
+            actor_id: r.try_get("actor_id").ok(),
             attempts: r.get("attempts"),
+            permission_snapshot: parse_permission_snapshot(r.try_get("permission_snapshot").ok()),
         }))
     }
 
@@ -119,5 +130,15 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+}
+
+fn parse_permission_snapshot(raw: Option<serde_json::Value>) -> Vec<String> {
+    match raw {
+        Some(serde_json::Value::Array(items)) => items
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect(),
+        _ => Vec::new(),
     }
 }

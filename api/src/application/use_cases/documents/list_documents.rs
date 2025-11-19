@@ -10,11 +10,13 @@ pub struct ListDocuments<'a, R: DocumentRepository + ?Sized> {
 impl<'a, R: DocumentRepository + ?Sized> ListDocuments<'a, R> {
     pub async fn execute(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         query: Option<String>,
         tag: Option<String>,
         state: DocumentListState,
     ) -> anyhow::Result<Vec<DomainDocument>> {
-        self.repo.list_for_user(user_id, query, tag, state).await
+        self.repo
+            .list_for_user(workspace_id, query, tag, state)
+            .await
     }
 }

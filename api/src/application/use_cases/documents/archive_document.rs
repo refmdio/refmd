@@ -21,10 +21,11 @@ where
 {
     pub async fn execute(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
+        archived_by: Uuid,
     ) -> anyhow::Result<Option<DomainDocument>> {
-        let meta = match self.repo.get_meta_for_owner(doc_id, owner_id).await? {
+        let meta = match self.repo.get_meta_for_owner(doc_id, workspace_id).await? {
             Some(meta) => meta,
             None => return Ok(None),
         };
@@ -34,7 +35,7 @@ where
 
         let subtree = self
             .repo
-            .list_owned_subtree_documents(owner_id, doc_id)
+            .list_owned_subtree_documents(workspace_id, doc_id)
             .await?;
         for node in &subtree {
             if node.doc_type != "folder" {
@@ -44,7 +45,7 @@ where
 
         let doc = self
             .repo
-            .archive_subtree(doc_id, owner_id, owner_id)
+            .archive_subtree(doc_id, workspace_id, archived_by)
             .await?;
 
         if doc.is_some() {
@@ -61,10 +62,11 @@ where
     pub async fn execute_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         doc_id: Uuid,
+        archived_by: Uuid,
     ) -> anyhow::Result<Option<DomainDocument>> {
-        let meta = match self.repo.get_meta_for_owner(doc_id, owner_id).await? {
+        let meta = match self.repo.get_meta_for_owner(doc_id, workspace_id).await? {
             Some(meta) => meta,
             None => return Ok(None),
         };
@@ -74,7 +76,7 @@ where
 
         let subtree = self
             .repo
-            .list_owned_subtree_documents(owner_id, doc_id)
+            .list_owned_subtree_documents(workspace_id, doc_id)
             .await?;
         for node in &subtree {
             if node.doc_type != "folder" {
@@ -84,7 +86,7 @@ where
 
         let doc = self
             .repo
-            .archive_subtree_tx(tx, doc_id, owner_id, owner_id)
+            .archive_subtree_tx(tx, doc_id, workspace_id, archived_by)
             .await?;
 
         if doc.is_some() {

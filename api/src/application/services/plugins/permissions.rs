@@ -16,13 +16,13 @@ impl PluginPermissionService {
 
     pub async fn ensure(
         &self,
-        user_id: Option<Uuid>,
+        workspace_id: Option<Uuid>,
         plugin_id: &str,
         permission: &str,
     ) -> Result<(), ServiceError> {
         let perms = self
             .runtime
-            .permissions(user_id, plugin_id)
+            .permissions(workspace_id, plugin_id)
             .await
             .map_err(ServiceError::from)?;
         let Some(perms) = perms else {

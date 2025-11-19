@@ -3,10 +3,6 @@
 import { toast } from 'sonner'
 
 import {
-  listRecords,
-  pluginsExecAction,
-  pluginsGetKv,
-  pluginsPutKv,
   renderMarkdown,
   renderMarkdownMany,
   uploadFile,
@@ -15,6 +11,13 @@ import {
   type ManifestItem,
 } from '@/shared/api'
 import type { DocumentHeaderAction } from '@/shared/types/document'
+
+import {
+  execPluginAction as apiExecPluginAction,
+  getPluginKv as apiGetPluginKv,
+  listPluginRecords as apiListPluginRecords,
+  putPluginKv as apiPutPluginKv,
+} from '@/entities/plugin/api'
 
 import {
   mountSplitEditorStage,
@@ -127,12 +130,12 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
       })
       if (hostHandled) return hostHandled
 
-      const json = await pluginsExecAction({
-        plugin: manifest.id,
+      const json = await apiExecPluginAction(
+        manifest.id,
         action,
-        requestBody: { payload: args },
-        token: resolvedToken ?? undefined,
-      })
+        args,
+        resolvedToken ?? undefined,
+      )
       if (json?.effects) applyEffects(json.effects, performNavigate)
       return json
     },
@@ -431,12 +434,7 @@ async function executeHostAction(
         const kind = args?.kind
         if (typeof kind !== 'string' || !kind) throw fail('BAD_REQUEST', 'kind required')
         const token = (args?.token ?? ctx.token) || undefined
-        const response = await listRecords({
-          plugin: ctx.pluginId,
-          docId,
-          kind,
-          token,
-        })
+        const response = await apiListPluginRecords(ctx.pluginId, docId, kind, token)
         return ok(response)
       }
       case 'host.kv.get': {
@@ -444,12 +442,7 @@ async function executeHostAction(
         const key = args?.key
         if (typeof key !== 'string' || !key) throw fail('BAD_REQUEST', 'key required')
         const token = (args?.token ?? ctx.token) || undefined
-        const response = await pluginsGetKv({
-          plugin: ctx.pluginId,
-          docId,
-          key,
-          token,
-        })
+        const response = await apiGetPluginKv(ctx.pluginId, docId, key, token)
         return ok(response)
       }
       case 'host.kv.put': {
@@ -458,13 +451,7 @@ async function executeHostAction(
         if (typeof key !== 'string' || !key) throw fail('BAD_REQUEST', 'key required')
         const value = args?.value ?? null
         const token = (args?.token ?? ctx.token) || undefined
-        const response = await pluginsPutKv({
-          plugin: ctx.pluginId,
-          docId,
-          key,
-          requestBody: { value },
-          token,
-        })
+        const response = await apiPutPluginKv(ctx.pluginId, docId, key, value, token)
         return ok(response)
       }
       case 'host.files.upload': {

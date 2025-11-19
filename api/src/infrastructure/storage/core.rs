@@ -131,7 +131,7 @@ pub fn relative_from_uploads(uploads_root: &Path, full: &Path) -> String {
     }
 }
 
-// Convert uploads-relative path to repo-relative path and extract user_id.
+// Convert uploads-relative path to repo-relative path and extract workspace_id.
 // Example: "{user_uuid}/docs/foo.md" -> (user_uuid, "docs/foo.md")
 fn split_owner_and_repo_path(rel: &str) -> Option<(Uuid, String)> {
     let trimmed = rel.trim_start_matches('/');
@@ -144,21 +144,21 @@ fn split_owner_and_repo_path(rel: &str) -> Option<(Uuid, String)> {
 
 async fn mark_dirty_upsert_internal(
     pool: &PgPool,
-    user_id: Uuid,
+    workspace_id: Uuid,
     repo_path: &str,
     is_text: bool,
     content_hash: Option<&str>,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        r#"INSERT INTO git_dirty_files (user_id, path, is_text, op, content_hash)
+        r#"INSERT INTO git_dirty_files (workspace_id, path, is_text, op, content_hash)
             VALUES ($1, $2, $3, 'upsert', $4)
-            ON CONFLICT (user_id, path)
+            ON CONFLICT (workspace_id, path)
             DO UPDATE SET op = EXCLUDED.op,
                           is_text = EXCLUDED.is_text,
                           content_hash = EXCLUDED.content_hash,
                           created_at = now()"#,
     )
-    .bind(user_id)
+    .bind(workspace_id)
     .bind(repo_path)
     .bind(is_text)
     .bind(content_hash)
@@ -169,17 +169,17 @@ async fn mark_dirty_upsert_internal(
 
 async fn mark_dirty_delete_internal(
     pool: &PgPool,
-    user_id: Uuid,
+    workspace_id: Uuid,
     repo_path: &str,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        r#"INSERT INTO git_dirty_files (user_id, path, is_text, op, content_hash)
+        r#"INSERT INTO git_dirty_files (workspace_id, path, is_text, op, content_hash)
             VALUES ($1, $2, false, 'delete', NULL)
-            ON CONFLICT (user_id, path)
+            ON CONFLICT (workspace_id, path)
             DO UPDATE SET op = EXCLUDED.op,
                           created_at = now()"#,
     )
-    .bind(user_id)
+    .bind(workspace_id)
     .bind(repo_path)
     .execute(pool)
     .await?;
@@ -194,10 +194,11 @@ pub async fn mark_dirty_upsert_abs_path(
     content_hash: Option<&str>,
 ) -> anyhow::Result<()> {
     let rel = relative_from_uploads(uploads_root, abs_path).replace('\\', "/");
-    if let Some((user_id, repo_path)) = split_owner_and_repo_path(&rel) {
+    if let Some((workspace_id, repo_path)) = split_owner_and_repo_path(&rel) {
         if !repo_path.is_empty() {
             let _ =
-                mark_dirty_upsert_internal(pool, user_id, &repo_path, is_text, content_hash).await;
+                mark_dirty_upsert_internal(pool, workspace_id, &repo_path, is_text, content_hash)
+                    .await;
         }
     }
     Ok(())
@@ -210,10 +211,11 @@ pub async fn mark_dirty_upsert_relative(
     content_hash: Option<&str>,
 ) -> anyhow::Result<()> {
     let rel = relative.trim_start_matches('/');
-    if let Some((user_id, repo_path)) = split_owner_and_repo_path(rel) {
+    if let Some((workspace_id, repo_path)) = split_owner_and_repo_path(rel) {
         if !repo_path.is_empty() {
             let _ =
-                mark_dirty_upsert_internal(pool, user_id, &repo_path, is_text, content_hash).await;
+                mark_dirty_upsert_internal(pool, workspace_id, &repo_path, is_text, content_hash)
+                    .await;
         }
     }
     Ok(())
@@ -221,9 +223,9 @@ pub async fn mark_dirty_upsert_relative(
 
 pub async fn mark_dirty_delete_relative(pool: &PgPool, relative: &str) -> anyhow::Result<()> {
     let rel = relative.trim_start_matches('/');
-    if let Some((user_id, repo_path)) = split_owner_and_repo_path(rel) {
+    if let Some((workspace_id, repo_path)) = split_owner_and_repo_path(rel) {
         if !repo_path.is_empty() {
-            let _ = mark_dirty_delete_internal(pool, user_id, &repo_path).await;
+            let _ = mark_dirty_delete_internal(pool, workspace_id, &repo_path).await;
         }
     }
     Ok(())

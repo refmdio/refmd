@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
 use crate::application::services::storage_ingest::normalize_repo_path;
+use crate::domain::workspaces::permissions::PermissionSet;
 
 pub struct FsIngestWatcher {
     uploads_root: PathBuf,
@@ -107,14 +108,18 @@ impl FsIngestWatcher {
         } else {
             (None, None)
         };
+        let permissions = PermissionSet::all().to_vec();
         self.queue
             .enqueue_event(
                 user_id,
+                user_id,
+                None,
                 &clean_repo,
                 &self.backend_name,
                 kind,
                 content_hash.as_deref(),
                 payload,
+                &permissions,
             )
             .await?;
         debug!(
@@ -146,14 +151,18 @@ impl FsIngestWatcher {
         };
         let (content_hash, payload) = self.capture_file_metadata(to, &clean_to).await;
         let payload = attach_previous_path(payload, &clean_from);
+        let permissions = PermissionSet::all().to_vec();
         self.queue
             .enqueue_event(
                 to_user,
+                to_user,
+                None,
                 &clean_to,
                 &self.backend_name,
                 StorageIngestKind::Upsert,
                 content_hash.as_deref(),
                 payload,
+                &permissions,
             )
             .await?;
         debug!(

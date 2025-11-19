@@ -51,26 +51,29 @@ impl GitWorkspaceService {
         })
     }
 
-    async fn load_repository_state(&self, user_id: Uuid) -> anyhow::Result<Option<(bool, String)>> {
+    async fn load_repository_state(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Option<(bool, String)>> {
         let row = sqlx::query(
-            "SELECT initialized, default_branch FROM git_repository_state WHERE user_id = $1",
+            "SELECT initialized, default_branch FROM git_repository_state WHERE workspace_id = $1",
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|r| (r.get("initialized"), r.get("default_branch"))))
     }
 
-    async fn latest_commit_meta(&self, user_id: Uuid) -> anyhow::Result<Option<CommitMeta>> {
+    async fn latest_commit_meta(&self, workspace_id: Uuid) -> anyhow::Result<Option<CommitMeta>> {
         let row = sqlx::query(
             r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
                       committed_at, pack_key, file_hash_index
                FROM git_commits
-               WHERE user_id = $1
+               WHERE workspace_id = $1
                ORDER BY committed_at DESC
                LIMIT 1"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -79,34 +82,36 @@ impl GitWorkspaceService {
 
     async fn load_commit_meta_ref(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         rev: &str,
     ) -> anyhow::Result<Option<CommitMeta>> {
         if let Some(base) = rev.strip_suffix('^') {
-            let Some(meta) = self.commit_meta_by_hex(user_id, base).await? else {
+            let Some(meta) = self.commit_meta_by_hex(workspace_id, base).await? else {
                 return Ok(None);
             };
             if let Some(parent_id) = meta.parent_commit_id.clone() {
-                return self.commit_meta_by_id(user_id, parent_id.as_slice()).await;
+                return self
+                    .commit_meta_by_id(workspace_id, parent_id.as_slice())
+                    .await;
             }
             return Ok(None);
         }
-        self.commit_meta_by_hex(user_id, rev).await
+        self.commit_meta_by_hex(workspace_id, rev).await
     }
 
     async fn commit_meta_by_id(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         commit_id: &[u8],
     ) -> anyhow::Result<Option<CommitMeta>> {
         let row = sqlx::query(
             r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
                       committed_at, pack_key, file_hash_index
                FROM git_commits
-               WHERE user_id = $1 AND commit_id = $2
+               WHERE workspace_id = $1 AND commit_id = $2
                LIMIT 1"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .bind(commit_id)
         .fetch_optional(&self.pool)
         .await?;
@@ -115,7 +120,7 @@ impl GitWorkspaceService {
 
     async fn commit_meta_by_hex(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         hex: &str,
     ) -> anyhow::Result<Option<CommitMeta>> {
         let bytes = crate::application::ports::git_storage::decode_commit_id(hex)?;
@@ -123,32 +128,32 @@ impl GitWorkspaceService {
             r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
                       committed_at, pack_key, file_hash_index
                FROM git_commits
-               WHERE user_id = $1 AND commit_id = $2
+               WHERE workspace_id = $1 AND commit_id = $2
                LIMIT 1"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .bind(bytes)
         .fetch_optional(&self.pool)
         .await?;
         row.map(|r| row_to_commit_meta(r)).transpose()
     }
 
-    async fn ensure_latest_meta(&self, user_id: Uuid) -> anyhow::Result<Option<CommitMeta>> {
-        if let Some(meta) = self.latest_commit_meta(user_id).await? {
+    async fn ensure_latest_meta(&self, workspace_id: Uuid) -> anyhow::Result<Option<CommitMeta>> {
+        if let Some(meta) = self.latest_commit_meta(workspace_id).await? {
             return Ok(Some(meta));
         }
-        let Some(storage_latest) = self.git_storage.latest_commit(user_id).await? else {
+        let Some(storage_latest) = self.git_storage.latest_commit(workspace_id).await? else {
             return Ok(None);
         };
-        info!(user_id = %user_id, commit = %encode_commit_id(&storage_latest.commit_id), "git_backfill_latest_from_storage");
-        self.backfill_commits_from_storage(user_id, &storage_latest)
+        info!(workspace_id = %workspace_id, commit = %encode_commit_id(&storage_latest.commit_id), "git_backfill_latest_from_storage");
+        self.backfill_commits_from_storage(workspace_id, &storage_latest)
             .await?;
         Ok(Some(storage_latest))
     }
 
     async fn bootstrap_remote_history(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         cfg: &UserGitCfg,
         branch: &str,
     ) -> anyhow::Result<Option<CommitMeta>> {
@@ -178,11 +183,11 @@ impl GitWorkspaceService {
             return Ok(None);
         }
 
-        let mut latest_meta = self.git_storage.latest_commit(user_id).await?;
+        let mut latest_meta = self.git_storage.latest_commit(workspace_id).await?;
 
         for oid in ordered {
             if self
-                .commit_meta_by_id(user_id, oid.as_bytes())
+                .commit_meta_by_id(workspace_id, oid.as_bytes())
                 .await?
                 .is_some()
             {
@@ -233,7 +238,7 @@ impl GitWorkspaceService {
                 let commit_id = oid.as_bytes().to_vec();
                 let pack_key = format!(
                     "git/packs/{}/{}.pack",
-                    user_id,
+                    workspace_id,
                     encode_commit_id(&commit_id)
                 );
 
@@ -253,7 +258,7 @@ impl GitWorkspaceService {
 
             let prev_latest = latest_meta.clone();
             let snapshot_keys = match self
-                .store_commit_snapshots(user_id, &meta.commit_id, &snapshots)
+                .store_commit_snapshots(workspace_id, &meta.commit_id, &snapshots)
                 .await
             {
                 Ok(keys) => keys,
@@ -264,7 +269,7 @@ impl GitWorkspaceService {
 
             if let Err(err) = self
                 .git_storage
-                .store_pack(user_id, &pack_bytes, &meta)
+                .store_pack(workspace_id, &pack_bytes, &meta)
                 .await
             {
                 for key in snapshot_keys.iter().rev() {
@@ -275,16 +280,19 @@ impl GitWorkspaceService {
 
             if let Err(err) = self
                 .git_storage
-                .set_latest_commit(user_id, Some(&meta))
+                .set_latest_commit(workspace_id, Some(&meta))
                 .await
             {
-                let _ = self.git_storage.delete_pack(user_id, &meta.commit_id).await;
+                let _ = self
+                    .git_storage
+                    .delete_pack(workspace_id, &meta.commit_id)
+                    .await;
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
                 let _ = self
                     .git_storage
-                    .set_latest_commit(user_id, prev_latest.as_ref())
+                    .set_latest_commit(workspace_id, prev_latest.as_ref())
                     .await;
                 return Err(err);
             }
@@ -294,7 +302,7 @@ impl GitWorkspaceService {
                 r#"INSERT INTO git_commits (
                         commit_id,
                         parent_commit_id,
-                        user_id,
+                        workspace_id,
                         message,
                         author_name,
                         author_email,
@@ -306,7 +314,7 @@ impl GitWorkspaceService {
             )
             .bind(meta.commit_id.clone())
             .bind(meta.parent_commit_id.clone())
-            .bind(user_id)
+            .bind(workspace_id)
             .bind(meta.message.clone())
             .bind(meta.author_name.clone())
             .bind(meta.author_email.clone())
@@ -318,43 +326,53 @@ impl GitWorkspaceService {
 
             if let Err(err) = insert_res {
                 tx.rollback().await.ok();
-                let _ = self.git_storage.delete_pack(user_id, &meta.commit_id).await;
+                let _ = self
+                    .git_storage
+                    .delete_pack(workspace_id, &meta.commit_id)
+                    .await;
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
                 let _ = self
                     .git_storage
-                    .set_latest_commit(user_id, prev_latest.as_ref())
+                    .set_latest_commit(workspace_id, prev_latest.as_ref())
                     .await;
                 return Err(err.into());
             }
 
-            if let Err(err) =
-                sqlx::query("UPDATE git_repository_state SET updated_at = now() WHERE user_id = $1")
-                    .bind(user_id)
-                    .execute(&mut *tx)
-                    .await
+            if let Err(err) = sqlx::query(
+                "UPDATE git_repository_state SET updated_at = now() WHERE workspace_id = $1",
+            )
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await
             {
                 tx.rollback().await.ok();
-                let _ = self.git_storage.delete_pack(user_id, &meta.commit_id).await;
+                let _ = self
+                    .git_storage
+                    .delete_pack(workspace_id, &meta.commit_id)
+                    .await;
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
                 let _ = self
                     .git_storage
-                    .set_latest_commit(user_id, prev_latest.as_ref())
+                    .set_latest_commit(workspace_id, prev_latest.as_ref())
                     .await;
                 return Err(err.into());
             }
 
             if let Err(err) = tx.commit().await {
-                let _ = self.git_storage.delete_pack(user_id, &meta.commit_id).await;
+                let _ = self
+                    .git_storage
+                    .delete_pack(workspace_id, &meta.commit_id)
+                    .await;
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
                 let _ = self
                     .git_storage
-                    .set_latest_commit(user_id, prev_latest.as_ref())
+                    .set_latest_commit(workspace_id, prev_latest.as_ref())
                     .await;
                 return Err(err.into());
             }
@@ -364,19 +382,19 @@ impl GitWorkspaceService {
 
         drop(repo);
         let _ = temp_dir.close();
-        self.git_storage.latest_commit(user_id).await
+        self.git_storage.latest_commit(workspace_id).await
     }
 
     async fn backfill_commits_from_storage(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         latest: &CommitMeta,
     ) -> anyhow::Result<()> {
         let mut pending = Vec::new();
         let mut cursor = Some(latest.clone());
         while let Some(meta) = cursor {
             if self
-                .commit_meta_by_id(user_id, meta.commit_id.as_slice())
+                .commit_meta_by_id(workspace_id, meta.commit_id.as_slice())
                 .await?
                 .is_some()
             {
@@ -386,7 +404,7 @@ impl GitWorkspaceService {
             cursor = match meta.parent_commit_id.clone() {
                 Some(parent) => {
                     self.git_storage
-                        .commit_meta(user_id, parent.as_slice())
+                        .commit_meta(workspace_id, parent.as_slice())
                         .await?
                 }
                 None => None,
@@ -402,7 +420,7 @@ impl GitWorkspaceService {
                 r#"INSERT INTO git_commits (
                         commit_id,
                         parent_commit_id,
-                        user_id,
+                        workspace_id,
                         message,
                         author_name,
                         author_email,
@@ -414,7 +432,7 @@ impl GitWorkspaceService {
             )
             .bind(meta.commit_id.clone())
             .bind(meta.parent_commit_id.clone())
-            .bind(user_id)
+            .bind(workspace_id)
             .bind(meta.message.clone())
             .bind(meta.author_name.clone())
             .bind(meta.author_email.clone())
@@ -430,14 +448,14 @@ impl GitWorkspaceService {
 
     async fn collect_current_state(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
     ) -> anyhow::Result<HashMap<String, FileSnapshot>> {
         let mut state: HashMap<String, FileSnapshot> = HashMap::new();
 
         let doc_rows = sqlx::query(
             "SELECT id, desired_path FROM documents WHERE owner_id = $1 AND type <> 'folder'",
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -468,7 +486,7 @@ impl GitWorkspaceService {
                JOIN documents d ON d.id = f.document_id
                WHERE d.owner_id = $1"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -548,14 +566,14 @@ impl GitWorkspaceService {
         Ok(())
     }
 
-    async fn fetch_dirty(&self, user_id: Uuid) -> anyhow::Result<Vec<DirtyRow>> {
+    async fn fetch_dirty(&self, workspace_id: Uuid) -> anyhow::Result<Vec<DirtyRow>> {
         let rows = sqlx::query(
             r#"SELECT path, is_text, op, content_hash
                FROM git_dirty_files
-               WHERE user_id = $1
+               WHERE workspace_id = $1
                ORDER BY created_at ASC"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -575,9 +593,9 @@ impl GitWorkspaceService {
         Ok(out)
     }
 
-    async fn clear_dirty(&self, user_id: Uuid) -> anyhow::Result<u64> {
-        let res = sqlx::query("DELETE FROM git_dirty_files WHERE user_id = $1")
-            .bind(user_id)
+    async fn clear_dirty(&self, workspace_id: Uuid) -> anyhow::Result<u64> {
+        let res = sqlx::query("DELETE FROM git_dirty_files WHERE workspace_id = $1")
+            .bind(workspace_id)
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected())
@@ -585,7 +603,7 @@ impl GitWorkspaceService {
 
     async fn export_markdown_for_repo_path(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         repo_path: &str,
     ) -> anyhow::Result<Option<(Vec<u8>, String)>> {
         let trimmed = repo_path.trim_start_matches('/');
@@ -601,7 +619,7 @@ impl GitWorkspaceService {
                 sqlx::query(
                     "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND archived_at IS NOT NULL AND type <> 'folder' LIMIT 1",
                 )
-                .bind(user_id)
+                .bind(workspace_id)
                 .bind(candidate)
                 .fetch_optional(&self.pool)
                 .await?
@@ -609,7 +627,7 @@ impl GitWorkspaceService {
                 sqlx::query(
                     "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND type <> 'folder' LIMIT 1",
                 )
-                .bind(user_id)
+                .bind(workspace_id)
                 .bind(candidate)
                 .fetch_optional(&self.pool)
                 .await?
@@ -658,13 +676,13 @@ impl GitWorkspaceService {
 
     async fn store_commit_snapshots(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         commit_id: &[u8],
         state: &HashMap<String, FileSnapshot>,
     ) -> anyhow::Result<Vec<BlobKey>> {
         let mut stored = Vec::new();
         for (path, snapshot) in state.iter() {
-            let key = blob_key(user_id, commit_id, path);
+            let key = blob_key(workspace_id, commit_id, path);
             let bytes = self.snapshot_bytes(snapshot).await?;
             if let Err(err) = self.git_storage.put_blob(&key, &bytes).await {
                 for key in stored.iter().rev() {
@@ -689,11 +707,11 @@ impl GitWorkspaceService {
 
     async fn load_file_snapshot(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         commit_id: &[u8],
         path: &str,
     ) -> anyhow::Result<Option<Vec<u8>>> {
-        let key = blob_key(user_id, commit_id, path);
+        let key = blob_key(workspace_id, commit_id, path);
         match self.git_storage.fetch_blob(&key).await {
             Ok(bytes) => Ok(Some(bytes)),
             Err(err) => {
@@ -730,13 +748,13 @@ impl GitWorkspaceService {
 
     async fn commit_diff_via_packs(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         from_meta: Option<&CommitMeta>,
         to_meta: &CommitMeta,
     ) -> anyhow::Result<Vec<TextDiffResult>> {
         let (to_pack_dir, to_pack_paths) = persist_pack_chain(
             self.git_storage.as_ref(),
-            user_id,
+            workspace_id,
             Some(to_meta.commit_id.as_slice()),
         )
         .await?
@@ -752,7 +770,7 @@ impl GitWorkspaceService {
                 Some(
                     persist_pack_chain(
                         self.git_storage.as_ref(),
-                        user_id,
+                        workspace_id,
                         Some(from_meta.commit_id.as_slice()),
                     )
                     .await?
@@ -826,7 +844,7 @@ impl GitWorkspaceService {
 
     async fn commit_diff_from_storage(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         from_meta: Option<&CommitMeta>,
         to_meta: Option<&CommitMeta>,
     ) -> anyhow::Result<Vec<TextDiffResult>> {
@@ -852,14 +870,14 @@ impl GitWorkspaceService {
 
             let old_bytes = match (from_meta, old_hash) {
                 (Some(meta), Some(_)) => {
-                    self.load_file_snapshot(user_id, meta.commit_id.as_slice(), &path)
+                    self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), &path)
                         .await?
                 }
                 _ => None,
             };
             let new_bytes = match new_hash {
                 Some(_) => {
-                    self.load_file_snapshot(user_id, to_meta.commit_id.as_slice(), &path)
+                    self.load_file_snapshot(workspace_id, to_meta.commit_id.as_slice(), &path)
                         .await?
                 }
                 None => None,
@@ -893,42 +911,46 @@ impl GitWorkspaceService {
 
 #[async_trait]
 impl GitWorkspacePort for GitWorkspaceService {
-    async fn ensure_repository(&self, user_id: Uuid, default_branch: &str) -> anyhow::Result<()> {
+    async fn ensure_repository(
+        &self,
+        workspace_id: Uuid,
+        default_branch: &str,
+    ) -> anyhow::Result<()> {
         sqlx::query(
-            r#"INSERT INTO git_repository_state (user_id, initialized, default_branch, initialized_at, updated_at)
+            r#"INSERT INTO git_repository_state (workspace_id, initialized, default_branch, initialized_at, updated_at)
                VALUES ($1, true, $2, now(), now())
-               ON CONFLICT (user_id) DO UPDATE SET
+               ON CONFLICT (workspace_id) DO UPDATE SET
                  initialized = true,
                  default_branch = EXCLUDED.default_branch,
                  initialized_at = COALESCE(git_repository_state.initialized_at, EXCLUDED.initialized_at),
                  updated_at = now()"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .bind(default_branch)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
-    async fn remove_repository(&self, user_id: Uuid) -> anyhow::Result<()> {
+    async fn remove_repository(&self, workspace_id: Uuid) -> anyhow::Result<()> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM git_commits WHERE user_id = $1")
-            .bind(user_id)
+        sqlx::query("DELETE FROM git_commits WHERE workspace_id = $1")
+            .bind(workspace_id)
             .execute(&mut *tx)
             .await?;
         sqlx::query(
-            "UPDATE git_repository_state SET initialized = false, updated_at = now() WHERE user_id = $1",
+            "UPDATE git_repository_state SET initialized = false, updated_at = now() WHERE workspace_id = $1",
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        self.git_storage.delete_all(user_id).await?;
+        self.git_storage.delete_all(workspace_id).await?;
         Ok(())
     }
 
-    async fn status(&self, user_id: Uuid) -> anyhow::Result<GitWorkspaceStatus> {
-        let state = self.load_repository_state(user_id).await?;
+    async fn status(&self, workspace_id: Uuid) -> anyhow::Result<GitWorkspaceStatus> {
+        let state = self.load_repository_state(workspace_id).await?;
         let Some((initialized, branch)) = state else {
             return Ok(GitWorkspaceStatus {
                 repository_initialized: false,
@@ -946,13 +968,13 @@ impl GitWorkspacePort for GitWorkspaceService {
             });
         }
         // Dirty-driven status: avoid full workspace scan
-        let latest = self.latest_commit_meta(user_id).await?;
+        let latest = self.latest_commit_meta(workspace_id).await?;
         let previous_index: HashMap<String, String> = latest
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
 
-        let dirty = self.fetch_dirty(user_id).await?;
+        let dirty = self.fetch_dirty(workspace_id).await?;
         let mut added: u32 = 0;
         let mut modified: u32 = 0;
         let mut deleted: u32 = 0;
@@ -987,9 +1009,9 @@ impl GitWorkspacePort for GitWorkspaceService {
         })
     }
 
-    async fn list_changes(&self, user_id: Uuid) -> anyhow::Result<Vec<GitChangeItem>> {
+    async fn list_changes(&self, workspace_id: Uuid) -> anyhow::Result<Vec<GitChangeItem>> {
         // If repository isn't initialized, nothing to report
-        if let Some((initialized, _branch)) = self.load_repository_state(user_id).await? {
+        if let Some((initialized, _branch)) = self.load_repository_state(workspace_id).await? {
             if !initialized {
                 return Ok(Vec::new());
             }
@@ -998,12 +1020,12 @@ impl GitWorkspacePort for GitWorkspaceService {
         }
 
         // Use dirty set to derive changes without scanning storage
-        let latest = self.latest_commit_meta(user_id).await?;
+        let latest = self.latest_commit_meta(workspace_id).await?;
         let previous_index: HashMap<String, String> = latest
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
-        let dirty = self.fetch_dirty(user_id).await?;
+        let dirty = self.fetch_dirty(workspace_id).await?;
 
         let mut change_map: BTreeMap<String, String> = BTreeMap::new();
         for d in dirty.iter() {
@@ -1037,13 +1059,13 @@ impl GitWorkspacePort for GitWorkspaceService {
         Ok(changes)
     }
 
-    async fn working_diff(&self, user_id: Uuid) -> anyhow::Result<Vec<TextDiffResult>> {
-        let latest = self.latest_commit_meta(user_id).await?;
+    async fn working_diff(&self, workspace_id: Uuid) -> anyhow::Result<Vec<TextDiffResult>> {
+        let latest = self.latest_commit_meta(workspace_id).await?;
         let previous_index = latest
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
-        let current = self.collect_current_state(user_id).await?;
+        let current = self.collect_current_state(workspace_id).await?;
         let delta = self.compute_deltas(&current, &previous_index);
         let mut results = Vec::new();
 
@@ -1056,7 +1078,7 @@ impl GitWorkspacePort for GitWorkspaceService {
                     let new_content = String::from_utf8_lossy(&new_bytes).to_string();
                     let old_bytes = match (&latest_commit_id, previous_index.get(path)) {
                         (Some(commit_id), Some(_)) => {
-                            self.load_file_snapshot(user_id, commit_id.as_slice(), path)
+                            self.load_file_snapshot(workspace_id, commit_id.as_slice(), path)
                                 .await?
                         }
                         _ => None,
@@ -1082,7 +1104,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             let old_bytes = if let (Some(commit_id), Some(_)) =
                 (&latest_commit_id, previous_index.get(&path))
             {
-                self.load_file_snapshot(user_id, commit_id.as_slice(), &path)
+                self.load_file_snapshot(workspace_id, commit_id.as_slice(), &path)
                     .await?
             } else {
                 None
@@ -1096,16 +1118,16 @@ impl GitWorkspacePort for GitWorkspaceService {
 
     async fn commit_diff(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         from: &str,
         to: &str,
     ) -> anyhow::Result<Vec<TextDiffResult>> {
-        let from_meta = self.load_commit_meta_ref(user_id, from).await?;
-        let to_meta = self.load_commit_meta_ref(user_id, to).await?;
+        let from_meta = self.load_commit_meta_ref(workspace_id, from).await?;
+        let to_meta = self.load_commit_meta_ref(workspace_id, to).await?;
 
         if let Some(to_meta_ref) = to_meta.as_ref() {
             match self
-                .commit_diff_via_packs(user_id, from_meta.as_ref(), to_meta_ref)
+                .commit_diff_via_packs(workspace_id, from_meta.as_ref(), to_meta_ref)
                 .await
             {
                 Ok(results) => return Ok(results),
@@ -1123,19 +1145,19 @@ impl GitWorkspacePort for GitWorkspaceService {
             }
         }
 
-        self.commit_diff_from_storage(user_id, from_meta.as_ref(), to_meta.as_ref())
+        self.commit_diff_from_storage(workspace_id, from_meta.as_ref(), to_meta.as_ref())
             .await
     }
 
-    async fn history(&self, user_id: Uuid) -> anyhow::Result<Vec<GitCommitInfo>> {
+    async fn history(&self, workspace_id: Uuid) -> anyhow::Result<Vec<GitCommitInfo>> {
         let rows = sqlx::query(
             r#"SELECT commit_id, message, author_name, author_email, committed_at
                FROM git_commits
-               WHERE user_id = $1
+               WHERE workspace_id = $1
                ORDER BY committed_at DESC
                LIMIT 200"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -1161,11 +1183,11 @@ impl GitWorkspacePort for GitWorkspaceService {
 
     async fn sync(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         req: &GitSyncRequestDto,
         cfg: Option<&UserGitCfg>,
     ) -> anyhow::Result<GitSyncOutcome> {
-        let state = self.load_repository_state(user_id).await?;
+        let state = self.load_repository_state(workspace_id).await?;
         let Some((state_initialized, state_default_branch)) = state else {
             anyhow::bail!("repository not initialized")
         };
@@ -1177,13 +1199,13 @@ impl GitWorkspacePort for GitWorkspaceService {
             .map(|c| c.branch_name.clone())
             .unwrap_or(state_default_branch.clone());
 
-        let mut latest_meta = self.ensure_latest_meta(user_id).await?;
+        let mut latest_meta = self.ensure_latest_meta(workspace_id).await?;
         if latest_meta.is_none() {
             if let Some(cfg) = cfg {
                 if !cfg.repository_url.is_empty() {
                     // Best-effort attempt to bootstrap remote history; ignore errors (e.g., redirects or auth loops)
                     let _ = self
-                        .bootstrap_remote_history(user_id, cfg, branch_hint.as_str())
+                        .bootstrap_remote_history(workspace_id, cfg, branch_hint.as_str())
                         .await;
                 }
             }
@@ -1197,39 +1219,39 @@ impl GitWorkspacePort for GitWorkspaceService {
         let force_full_scan = req.full_scan.unwrap_or(false);
         let skip_push = req.skip_push.unwrap_or(false);
 
-        latest_meta = self.ensure_latest_meta(user_id).await?;
+        latest_meta = self.ensure_latest_meta(workspace_id).await?;
 
-        let mut storage_latest = self.git_storage.latest_commit(user_id).await?;
+        let mut storage_latest = self.git_storage.latest_commit(workspace_id).await?;
         let mut storage_commit_hex = storage_latest
             .as_ref()
             .map(|m| encode_commit_id(&m.commit_id));
         let mut db_commit_hex = latest_meta.as_ref().map(|m| encode_commit_id(&m.commit_id));
         if storage_commit_hex != db_commit_hex {
             warn!(
-                user_id = %user_id,
+                workspace_id = %workspace_id,
                 db_commit = ?db_commit_hex,
                 storage_commit = ?storage_commit_hex,
                 "git_commit_pointer_mismatch_detected"
             );
             if let Some(storage_meta) = storage_latest.as_ref() {
-                self.backfill_commits_from_storage(user_id, storage_meta)
+                self.backfill_commits_from_storage(workspace_id, storage_meta)
                     .await?;
-                latest_meta = self.latest_commit_meta(user_id).await?;
+                latest_meta = self.latest_commit_meta(workspace_id).await?;
             }
-            storage_latest = self.git_storage.latest_commit(user_id).await?;
+            storage_latest = self.git_storage.latest_commit(workspace_id).await?;
             storage_commit_hex = storage_latest
                 .as_ref()
                 .map(|m| encode_commit_id(&m.commit_id));
             db_commit_hex = latest_meta.as_ref().map(|m| encode_commit_id(&m.commit_id));
             if storage_commit_hex == db_commit_hex {
                 info!(
-                    user_id = %user_id,
+                    workspace_id = %workspace_id,
                     commit = ?storage_commit_hex,
                     "git_commit_pointer_repaired_from_storage"
                 );
             } else {
                 error!(
-                    user_id = %user_id,
+                    workspace_id = %workspace_id,
                     db_commit = ?db_commit_hex,
                     storage_commit = ?storage_commit_hex,
                     "git_commit_pointer_irreparable"
@@ -1244,7 +1266,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
-        let dirty_rows = self.fetch_dirty(user_id).await?;
+        let dirty_rows = self.fetch_dirty(workspace_id).await?;
 
         // Determine strategy: forced full scan or initial commit uses full state rebuild.
         let use_full_scan = force_full_scan || latest_meta.is_none();
@@ -1288,7 +1310,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         // If still nothing to do
         if !use_full_scan && upserts.is_empty() && deletes.is_empty() {
             // Nothing to commit: clear any leftover dirty and exit.
-            let _ = self.clear_dirty(user_id).await;
+            let _ = self.clear_dirty(workspace_id).await;
             return Ok(GitSyncOutcome {
                 files_changed: 0,
                 commit_hash: latest_meta.map(|c| encode_commit_id(&c.commit_id)),
@@ -1314,7 +1336,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         let files_changed_for_response: u32;
 
         if use_full_scan {
-            let current = self.collect_current_state(user_id).await?;
+            let current = self.collect_current_state(workspace_id).await?;
             let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
             for (path, snapshot) in current.iter() {
                 let bytes = self.snapshot_bytes(snapshot).await?;
@@ -1327,7 +1349,10 @@ impl GitWorkspacePort for GitWorkspaceService {
             let mut stale_paths: Vec<String> = Vec::new();
             for (path, up) in upserts.iter() {
                 if up.is_text {
-                    match self.export_markdown_for_repo_path(user_id, path).await? {
+                    match self
+                        .export_markdown_for_repo_path(workspace_id, path)
+                        .await?
+                    {
                         Some((bytes, hash)) => {
                             precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
                             next_file_hash_index.insert(path.clone(), hash.clone());
@@ -1347,7 +1372,7 @@ impl GitWorkspacePort for GitWorkspaceService {
                     continue;
                 }
 
-                let storage_rel = format!("{}/{}", user_id, path);
+                let storage_rel = format!("{}/{}", workspace_id, path);
                 let abs = self.storage.absolute_from_relative(&storage_rel);
                 match self.storage.read_bytes(abs.as_path()).await {
                     Ok(bytes) => {
@@ -1374,12 +1399,13 @@ impl GitWorkspacePort for GitWorkspaceService {
             }
             if !stale_paths.is_empty() {
                 for p in stale_paths {
-                    let _ =
-                        sqlx::query("DELETE FROM git_dirty_files WHERE user_id = $1 AND path = $2")
-                            .bind(user_id)
-                            .bind(&p)
-                            .execute(&self.pool)
-                            .await;
+                    let _ = sqlx::query(
+                        "DELETE FROM git_dirty_files WHERE workspace_id = $1 AND path = $2",
+                    )
+                    .bind(workspace_id)
+                    .bind(&p)
+                    .execute(&self.pool)
+                    .await;
                 }
             }
             for d in deletes.iter() {
@@ -1392,7 +1418,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             Some(
                 persist_pack_chain(
                     self.git_storage.as_ref(),
-                    user_id,
+                    workspace_id,
                     Some(prev_meta.commit_id.as_slice()),
                 )
                 .await?
@@ -1489,7 +1515,7 @@ impl GitWorkspacePort for GitWorkspaceService {
                 author_name: Some(author_name.clone()),
                 author_email: Some(author_email.clone()),
                 committed_at,
-                pack_key: format!("git/packs/{}/{}.pack", user_id, commit_hex.clone()),
+                pack_key: format!("git/packs/{}/{}.pack", workspace_id, commit_hex.clone()),
                 file_hash_index,
             };
 
@@ -1523,8 +1549,8 @@ impl GitWorkspacePort for GitWorkspaceService {
         let mut tx = self.pool.begin().await?;
         // Recheck repository state exists before writing.
         let repo_row2 =
-            sqlx::query("SELECT initialized FROM git_repository_state WHERE user_id = $1")
-                .bind(user_id)
+            sqlx::query("SELECT initialized FROM git_repository_state WHERE workspace_id = $1")
+                .bind(workspace_id)
                 .fetch_optional(&mut *tx)
                 .await?;
         let Some(repo_row2) = repo_row2 else {
@@ -1541,7 +1567,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             r#"INSERT INTO git_commits (
                     commit_id,
                     parent_commit_id,
-                    user_id,
+                    workspace_id,
                     message,
                     author_name,
                     author_email,
@@ -1552,7 +1578,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         )
         .bind(meta.commit_id.clone())
         .bind(meta.parent_commit_id.clone())
-        .bind(user_id)
+        .bind(workspace_id)
         .bind(meta.message.clone())
         .bind(meta.author_name.clone())
         .bind(meta.author_email.clone())
@@ -1562,17 +1588,17 @@ impl GitWorkspacePort for GitWorkspaceService {
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query("UPDATE git_repository_state SET updated_at = now() WHERE user_id = $1")
-            .bind(user_id)
+        sqlx::query("UPDATE git_repository_state SET updated_at = now() WHERE workspace_id = $1")
+            .bind(workspace_id)
             .execute(&mut *tx)
             .await?;
 
         // Only store snapshots for changed text files (incremental), or all in initial full scan
         let snapshot_keys = if use_full_scan {
             // full state snapshot
-            let current = self.collect_current_state(user_id).await?;
+            let current = self.collect_current_state(workspace_id).await?;
             match self
-                .store_commit_snapshots(user_id, &meta.commit_id, &current)
+                .store_commit_snapshots(workspace_id, &meta.commit_id, &current)
                 .await
             {
                 Ok(keys) => keys,
@@ -1583,7 +1609,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             }
         } else {
             match self
-                .store_commit_snapshots(user_id, &meta.commit_id, &changed_text_snapshots)
+                .store_commit_snapshots(workspace_id, &meta.commit_id, &changed_text_snapshots)
                 .await
             {
                 Ok(keys) => keys,
@@ -1596,7 +1622,7 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         if let Err(err) = self
             .git_storage
-            .store_pack(user_id, &pack_bytes, &meta)
+            .store_pack(workspace_id, &pack_bytes, &meta)
             .await
         {
             for key in snapshot_keys.iter().rev() {
@@ -1608,10 +1634,13 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         if let Err(err) = self
             .git_storage
-            .set_latest_commit(user_id, Some(&meta))
+            .set_latest_commit(workspace_id, Some(&meta))
             .await
         {
-            let _ = self.git_storage.delete_pack(user_id, &meta.commit_id).await;
+            let _ = self
+                .git_storage
+                .delete_pack(workspace_id, &meta.commit_id)
+                .await;
             for key in snapshot_keys.iter().rev() {
                 let _ = self.git_storage.delete_blob(key).await;
             }
@@ -1620,19 +1649,22 @@ impl GitWorkspacePort for GitWorkspaceService {
         }
 
         if let Err(err) = tx.commit().await {
-            let _ = self.git_storage.delete_pack(user_id, &meta.commit_id).await;
+            let _ = self
+                .git_storage
+                .delete_pack(workspace_id, &meta.commit_id)
+                .await;
             for key in snapshot_keys.iter().rev() {
                 let _ = self.git_storage.delete_blob(key).await;
             }
             let _ = self
                 .git_storage
-                .set_latest_commit(user_id, latest_meta.as_ref())
+                .set_latest_commit(workspace_id, latest_meta.as_ref())
                 .await;
             return Err(err.into());
         }
 
         // Best-effort clear of processed dirty entries
-        let _ = self.clear_dirty(user_id).await;
+        let _ = self.clear_dirty(workspace_id).await;
         let outcome_message = if pushed {
             "sync completed".to_string()
         } else if skip_push {
@@ -1684,10 +1716,10 @@ fn apply_pack_to_repo(repo: &Repository, pack: &[u8]) -> anyhow::Result<()> {
 
 async fn persist_pack_chain(
     storage: &dyn GitStorage,
-    user_id: Uuid,
+    workspace_id: Uuid,
     until: Option<&[u8]>,
 ) -> anyhow::Result<Option<(TempDir, Vec<PathBuf>)>> {
-    let mut stream = storage.load_pack_chain(user_id, until).await?;
+    let mut stream = storage.load_pack_chain(workspace_id, until).await?;
     let temp_dir = tempfile::tempdir()?;
     let mut pack_paths = Vec::new();
     let mut index: usize = 0;
@@ -2018,11 +2050,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn blob_key(user_id: Uuid, commit_id: &[u8], path: &str) -> BlobKey {
+fn blob_key(workspace_id: Uuid, commit_id: &[u8], path: &str) -> BlobKey {
     let encoded_path = urlencoding::encode(path);
     let commit_hex = encode_commit_id(commit_id);
     BlobKey {
-        path: format!("{}/{}/{}", user_id, commit_hex, encoded_path),
+        path: format!("{}/{}/{}", workspace_id, commit_hex, encoded_path),
     }
 }
 

@@ -7,8 +7,12 @@ pub struct UnpublishDocument<'a, R: PublicRepository + ?Sized> {
 }
 
 impl<'a, R: PublicRepository + ?Sized> UnpublishDocument<'a, R> {
-    pub async fn execute(&self, owner_id: Uuid, doc_id: Uuid) -> anyhow::Result<bool> {
-        if !self.repo.is_owner_document(doc_id, owner_id).await? {
+    pub async fn execute(&self, workspace_id: Uuid, doc_id: Uuid) -> anyhow::Result<bool> {
+        if !self
+            .repo
+            .is_workspace_document(doc_id, workspace_id)
+            .await?
+        {
             return Ok(false);
         }
         self.repo.delete_public_document(doc_id).await

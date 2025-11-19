@@ -7,7 +7,7 @@ pub struct GetWorkingDiff<'a, W: GitWorkspacePort + ?Sized> {
 }
 
 impl<'a, W: GitWorkspacePort + ?Sized> GetWorkingDiff<'a, W> {
-    pub async fn execute(&self, user_id: Uuid) -> anyhow::Result<Vec<TextDiffResult>> {
-        self.workspace.working_diff(user_id).await
+    pub async fn execute(&self, workspace_id: Uuid) -> anyhow::Result<Vec<TextDiffResult>> {
+        self.workspace.working_diff(workspace_id).await
     }
 }

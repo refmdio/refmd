@@ -10,6 +10,7 @@ use crate::application::use_cases::user_shortcuts::get_shortcuts::GetUserShortcu
 use crate::application::use_cases::user_shortcuts::update_shortcuts::{
     UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,
 };
+use crate::domain::workspaces::permissions::{PERM_SHORTCUT_UPDATE, PermissionSet};
 
 pub struct UserShortcutService {
     repo: Arc<dyn UserShortcutRepository>,
@@ -26,8 +27,11 @@ impl UserShortcutService {
 
     pub async fn get_profile(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
+        permissions: &PermissionSet,
     ) -> Result<Option<UserShortcutProfileDto>, ServiceError> {
+        ensure_shortcut_permission(workspace_id, permissions)?;
         let uc = GetUserShortcuts {
             repo: self.repo.as_ref(),
         };
@@ -36,10 +40,13 @@ impl UserShortcutService {
 
     pub async fn update_profile(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
+        permissions: &PermissionSet,
         bindings: Value,
         leader_key: Option<String>,
     ) -> Result<UserShortcutProfileDto, ServiceError> {
+        ensure_shortcut_permission(workspace_id, permissions)?;
         let uc = UpdateUserShortcuts {
             repo: self.repo.as_ref(),
             max_payload_bytes: self.max_payload_bytes,
@@ -58,5 +65,16 @@ impl UserShortcutService {
             }
             UpdateUserShortcutsError::Storage(inner) => ServiceError::Unexpected(inner),
         })
+    }
+}
+
+fn ensure_shortcut_permission(
+    _workspace_id: Uuid,
+    permissions: &PermissionSet,
+) -> Result<(), ServiceError> {
+    if permissions.allows(PERM_SHORTCUT_UPDATE) {
+        Ok(())
+    } else {
+        Err(ServiceError::Forbidden)
     }
 }

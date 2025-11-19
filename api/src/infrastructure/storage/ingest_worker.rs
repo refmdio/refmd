@@ -14,7 +14,8 @@ pub struct LoggingStorageIngestHandler;
 impl StorageIngestHandler for LoggingStorageIngestHandler {
     async fn handle_event(&self, event: &StorageIngestEvent) -> anyhow::Result<()> {
         info!(
-            user_id = %event.user_id,
+            workspace_id = %event.workspace_id,
+            actor_id = ?event.actor_id,
             repo_path = event.repo_path,
             backend = event.backend,
             kind = ?event.kind,
@@ -118,12 +119,15 @@ mod tests {
     impl StorageIngestQueue for MockQueue {
         async fn enqueue_event(
             &self,
+            _workspace_id: Uuid,
             _user_id: Uuid,
+            _actor_id: Option<Uuid>,
             _repo_path: &str,
             _backend: &str,
             _kind: StorageIngestKind,
             _content_hash: Option<&str>,
             _payload: Option<serde_json::Value>,
+            _permission_snapshot: &[String],
         ) -> anyhow::Result<()> {
             unimplemented!()
         }
@@ -177,7 +181,9 @@ mod tests {
     fn sample_event(id: i64) -> StorageIngestEvent {
         StorageIngestEvent {
             id,
+            workspace_id: Uuid::new_v4(),
             user_id: Uuid::new_v4(),
+            actor_id: None,
             repo_path: "docs/foo.md".into(),
             backend: "fs".into(),
             kind: StorageIngestKind::Upsert,
@@ -185,6 +191,7 @@ mod tests {
             payload: None,
             attempts: 0,
             locked_at: Utc::now(),
+            permission_snapshot: vec![],
         }
     }
 

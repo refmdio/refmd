@@ -4,10 +4,11 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import { useShareToken } from '@/shared/contexts/share-token-context'
 
 import { listDocuments } from '@/entities/document'
-import { listUserPublicDocuments } from '@/entities/public'
+import { listWorkspacePublicDocuments } from '@/entities/public'
 import { browseShare, listActiveShares, shareKeys } from '@/entities/share'
 import { meQuery } from '@/entities/user'
 
+import { useAuthContext } from '@/features/auth'
 import type { DocumentNode } from '@/features/file-tree/model/types'
 
 type CtxType = {
@@ -44,6 +45,8 @@ type DbDoc = {
   type?: 'document' | 'folder'
   archived_at?: string | null
   archived_parent_id?: string | null
+  owner_id?: string | null
+  workspace_id?: string | null
 }
 
 type BuildTreeOptions = {
@@ -145,10 +148,28 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
 
   const userId = me?.id ?? null
   const userName = me?.name ?? null
+  const { activeWorkspaceId, activeWorkspace } = useAuthContext()
+  const workspaceStorageKey = activeWorkspaceId ?? 'default'
+  const workspaceSlug = activeWorkspace?.slug ?? userName ?? null
+
+  const filterByWorkspace = useCallback(
+    (items: DbDoc[]) => {
+      if (!activeWorkspaceId) return items
+      return items.filter((doc) => {
+        const owner = doc.workspace_id ?? doc.owner_id
+        if (!owner) {
+          // Backend might omit workspace_id for older records; assume active workspace
+          return true
+        }
+        return owner === activeWorkspaceId
+      })
+    },
+    [activeWorkspaceId],
+  )
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const key = `file-tree-expanded-${userId || 'default'}`
+    const key = `file-tree-expanded-${userId || 'default'}-${workspaceStorageKey}`
     try {
       const saved = localStorage.getItem(key)
       if (saved) {
@@ -159,19 +180,19 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
       /* noop */
     }
     setInited(true)
-  }, [userId])
+  }, [userId, workspaceStorageKey])
 
   useEffect(() => {
     if (!inited) return
-    const key = `file-tree-expanded-${userId || 'default'}`
+    const key = `file-tree-expanded-${userId || 'default'}-${workspaceStorageKey}`
     try {
       localStorage.setItem(key, JSON.stringify(Array.from(expanded)))
     } catch {
       /* noop */
     }
-  }, [expanded, inited, userId])
+  }, [expanded, inited, userId, workspaceStorageKey])
 
-  const archivesStorageKey = `file-tree-archives-${userId || 'default'}`
+  const archivesStorageKey = `file-tree-archives-${userId || 'default'}-${workspaceStorageKey}`
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -195,12 +216,12 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
   }, [archivesExpanded, archivesInited, archivesStorageKey])
 
   const { data: documentsUser = [], isLoading: isLoadingUser } = useQuery({
-    queryKey: ['documents', userId, 'active'],
-    enabled: !!userId && !isShare,
+    queryKey: ['documents', userId, workspaceStorageKey, 'active'],
+    enabled: !!userId && !!activeWorkspaceId && !isShare,
     queryFn: async () => {
       const res = await listDocuments({ state: 'active' })
       const items = (res.items ?? []) as unknown as DbDoc[]
-      return buildTree(items)
+      return buildTree(filterByWorkspace(items))
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
@@ -220,11 +241,12 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
   }, [documentsUser, isShare])
 
   const { data: archivedDocumentsRaw = [], isLoading: isLoadingArchived } = useQuery({
-    queryKey: ['documents', userId, 'archived'],
-    enabled: !!userId && !isShare,
+    queryKey: ['documents', userId, workspaceStorageKey, 'archived'],
+    enabled: !!userId && !!activeWorkspaceId && !isShare,
     queryFn: async () => {
       const res = await listDocuments({ state: 'archived' })
-      return (res.items ?? []) as unknown as DbDoc[]
+      const items = (res.items ?? []) as unknown as DbDoc[]
+      return filterByWorkspace(items)
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
@@ -322,11 +344,11 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
   )
 
   const { data: publicDocs = [] } = useQuery({
-    queryKey: ['public-docs', userName],
-    enabled: !!userName && !isShare,
+    queryKey: ['public-docs', workspaceSlug],
+    enabled: !!workspaceSlug && !isShare,
     queryFn: async () => {
       try {
-        return await listUserPublicDocuments(userName!)
+        return await listWorkspacePublicDocuments(workspaceSlug!)
       } catch {
         return []
       }
@@ -405,18 +427,18 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
   const refreshDocuments = useCallback(() => {
     if (isShare) {
       qc.invalidateQueries({ queryKey: ['share-documents', shareToken] })
-    } else {
-      qc.invalidateQueries({ queryKey: ['documents', userId, 'active'] })
-      qc.invalidateQueries({ queryKey: ['documents', userId, 'archived'] })
+    } else if (activeWorkspaceId) {
+      qc.invalidateQueries({ queryKey: ['documents', userId, activeWorkspaceId, 'active'] })
+      qc.invalidateQueries({ queryKey: ['documents', userId, activeWorkspaceId, 'archived'] })
     }
-  }, [qc, isShare, shareToken, userId])
+  }, [qc, isShare, shareToken, userId, activeWorkspaceId])
 
   const updateDocuments = useCallback(
     (nextDocs: DocumentNode[]) => {
       if (isShare) qc.setQueryData(['share-documents', shareToken], nextDocs)
-      else qc.setQueryData(['documents', userId, 'active'], nextDocs)
+      else if (activeWorkspaceId) qc.setQueryData(['documents', userId, activeWorkspaceId, 'active'], nextDocs)
     },
-    [isShare, qc, shareToken, userId],
+    [isShare, qc, shareToken, userId, activeWorkspaceId],
   )
 
   const requestRename = useCallback((id: string) => setRenameTarget(id), [])

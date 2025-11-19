@@ -8,6 +8,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct DocEventRecord {
     pub id: i64,
+    pub workspace_id: Uuid,
     pub doc_id: Uuid,
     pub event_type: String,
     pub payload: Option<Value>,

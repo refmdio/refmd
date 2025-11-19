@@ -43,6 +43,7 @@ impl PgStorageProjectionQueue {
 impl StorageProjectionQueue for PgStorageProjectionQueue {
     async fn enqueue_doc_job(
         &self,
+        workspace_id: Uuid,
         doc_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
@@ -55,8 +56,8 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         let job_type = Self::kind_to_str(kind);
         sqlx::query(
             r#"
-            INSERT INTO storage_projection_jobs (job_type, doc_id, reason, attempts, locked_at, last_error)
-            VALUES ($1, $2, $3, 0, NULL, NULL)
+            INSERT INTO storage_projection_jobs (workspace_id, job_type, doc_id, reason, attempts, locked_at, last_error)
+            VALUES ($1, $2, $3, $4, 0, NULL, NULL)
             ON CONFLICT (job_type, doc_id) WHERE doc_id IS NOT NULL
             DO UPDATE SET reason = EXCLUDED.reason,
                           locked_at = CASE
@@ -71,6 +72,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                               WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
                               ELSE storage_projection_jobs.last_error
                           END,
+                          workspace_id = EXCLUDED.workspace_id,
                           pending_retry = CASE
                               WHEN storage_projection_jobs.locked_at IS NULL THEN false
                               ELSE true
@@ -78,6 +80,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                           updated_at = now()
             "#,
         )
+        .bind(workspace_id)
         .bind(job_type)
         .bind(doc_id)
         .bind(reason)
@@ -89,6 +92,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
     async fn enqueue_doc_job_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
+        workspace_id: Uuid,
         doc_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
@@ -101,8 +105,8 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         let job_type = Self::kind_to_str(kind);
         sqlx::query(
             r#"
-            INSERT INTO storage_projection_jobs (job_type, doc_id, reason, attempts, locked_at, last_error)
-            VALUES ($1, $2, $3, 0, NULL, NULL)
+            INSERT INTO storage_projection_jobs (workspace_id, job_type, doc_id, reason, attempts, locked_at, last_error)
+            VALUES ($1, $2, $3, $4, 0, NULL, NULL)
             ON CONFLICT (job_type, doc_id) WHERE doc_id IS NOT NULL
             DO UPDATE SET reason = EXCLUDED.reason,
                           locked_at = CASE
@@ -117,6 +121,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                               WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
                               ELSE storage_projection_jobs.last_error
                           END,
+                          workspace_id = EXCLUDED.workspace_id,
                           pending_retry = CASE
                               WHEN storage_projection_jobs.locked_at IS NULL THEN false
                               ELSE true
@@ -124,6 +129,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                           updated_at = now()
             "#,
         )
+        .bind(workspace_id)
         .bind(job_type)
         .bind(doc_id)
         .bind(reason)
@@ -134,6 +140,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
 
     async fn enqueue_folder_job(
         &self,
+        workspace_id: Uuid,
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
@@ -146,8 +153,8 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         let job_type = Self::kind_to_str(kind);
         sqlx::query(
             r#"
-            INSERT INTO storage_projection_jobs (job_type, folder_id, reason, attempts, locked_at, last_error)
-            VALUES ($1, $2, $3, 0, NULL, NULL)
+            INSERT INTO storage_projection_jobs (workspace_id, job_type, folder_id, reason, attempts, locked_at, last_error)
+            VALUES ($1, $2, $3, $4, 0, NULL, NULL)
             ON CONFLICT (job_type, folder_id) WHERE folder_id IS NOT NULL
             DO UPDATE SET reason = EXCLUDED.reason,
                           locked_at = CASE
@@ -162,6 +169,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                               WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
                               ELSE storage_projection_jobs.last_error
                           END,
+                          workspace_id = EXCLUDED.workspace_id,
                           pending_retry = CASE
                               WHEN storage_projection_jobs.locked_at IS NULL THEN false
                               ELSE true
@@ -169,6 +177,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                           updated_at = now()
             "#,
         )
+        .bind(workspace_id)
         .bind(job_type)
         .bind(folder_id)
         .bind(reason)
@@ -180,6 +189,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
     async fn enqueue_folder_job_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
+        workspace_id: Uuid,
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
@@ -192,8 +202,8 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         let job_type = Self::kind_to_str(kind);
         sqlx::query(
             r#"
-            INSERT INTO storage_projection_jobs (job_type, folder_id, reason, attempts, locked_at, last_error)
-            VALUES ($1, $2, $3, 0, NULL, NULL)
+            INSERT INTO storage_projection_jobs (workspace_id, job_type, folder_id, reason, attempts, locked_at, last_error)
+            VALUES ($1, $2, $3, $4, 0, NULL, NULL)
             ON CONFLICT (job_type, folder_id) WHERE folder_id IS NOT NULL
             DO UPDATE SET reason = EXCLUDED.reason,
                           locked_at = CASE
@@ -208,6 +218,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                               WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
                               ELSE storage_projection_jobs.last_error
                           END,
+                          workspace_id = EXCLUDED.workspace_id,
                           pending_retry = CASE
                               WHEN storage_projection_jobs.locked_at IS NULL THEN false
                               ELSE true
@@ -215,6 +226,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                           updated_at = now()
             "#,
         )
+        .bind(workspace_id)
         .bind(job_type)
         .bind(folder_id)
         .bind(reason)
@@ -242,7 +254,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                 attempts = attempts + 1,
                 updated_at = now()
             WHERE j.id IN (SELECT id FROM next_job)
-            RETURNING j.id, j.job_type, j.doc_id, j.folder_id, j.reason, j.attempts, j.locked_at
+            RETURNING j.id, j.workspace_id, j.job_type, j.doc_id, j.folder_id, j.reason, j.attempts, j.locked_at
             "#,
         )
         .bind(lock_timeout_secs.max(1))
@@ -258,6 +270,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
 
         Ok(Some(StorageProjectionJob {
             id: row.get("id"),
+            workspace_id: row.get("workspace_id"),
             job_type: kind,
             doc_id: row.try_get::<Option<Uuid>, _>("doc_id").unwrap_or(None),
             folder_id: row.try_get::<Option<Uuid>, _>("folder_id").unwrap_or(None),

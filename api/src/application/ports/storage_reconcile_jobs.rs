@@ -4,14 +4,14 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct StorageReconcileJob {
     pub id: i64,
-    pub user_id: Uuid,
+    pub workspace_id: Uuid,
     pub scope: String,
     pub attempts: i32,
 }
 
 #[async_trait]
 pub trait StorageReconcileJobs: Send + Sync {
-    async fn enqueue(&self, user_id: Uuid, scope: &str) -> anyhow::Result<()>;
+    async fn enqueue(&self, workspace_id: Uuid, scope: &str) -> anyhow::Result<()>;
     async fn fetch_next(
         &self,
         lock_timeout_secs: i64,

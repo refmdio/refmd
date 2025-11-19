@@ -47,7 +47,7 @@ const PUBLIC_PATHS = new Set([
   '/robots.txt',
 ])
 
-const PUBLIC_PREFIXES = ['/_', '/api', '/auth', '/share', '/u/', '/assets']
+const PUBLIC_PREFIXES = ['/_', '/api', '/auth', '/share', '/u/', '/w/', '/assets']
 
 function hasStaticExtension(pathname: string) {
   const idx = pathname.lastIndexOf('.')

@@ -23,3 +23,4 @@ pub mod storage_reconcile_scheduler;
 pub mod tagging;
 pub mod tags;
 pub mod user_shortcuts;
+pub mod workspaces;

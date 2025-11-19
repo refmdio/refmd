@@ -7,7 +7,7 @@ pub struct GetChanges<'a, W: GitWorkspacePort + ?Sized> {
 }
 
 impl<'a, W: GitWorkspacePort + ?Sized> GetChanges<'a, W> {
-    pub async fn execute(&self, user_id: Uuid) -> anyhow::Result<Vec<GitChangeItem>> {
-        self.workspace.list_changes(user_id).await
+    pub async fn execute(&self, workspace_id: Uuid) -> anyhow::Result<Vec<GitChangeItem>> {
+        self.workspace.list_changes(workspace_id).await
     }
 }

@@ -40,6 +40,7 @@ where
 {
     pub async fn execute(
         &self,
+        workspace_id: Uuid,
         user_id: Uuid,
         url: &str,
         token: Option<&str>,
@@ -51,13 +52,13 @@ where
             .map_err(InstallPluginError::Download)?;
         let installed = self
             .installer
-            .install_for_user(user_id, &bytes)
+            .install_for_user(workspace_id, &bytes)
             .await
             .map_err(InstallPluginError::Install)?;
 
         self.installations
             .upsert(
-                user_id,
+                workspace_id,
                 &installed.id,
                 &installed.version,
                 "user",
@@ -69,10 +70,12 @@ where
 
         let event = PluginScopedEvent {
             user_id: Some(user_id),
+            workspace_id: Some(workspace_id),
             payload: serde_json::json!({
                 "event": "installed",
                 "id": installed.id,
                 "version": installed.version,
+                "workspace_id": workspace_id,
             }),
         };
         self.events

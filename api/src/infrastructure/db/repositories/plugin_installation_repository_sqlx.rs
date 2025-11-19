@@ -21,7 +21,7 @@ impl SqlxPluginInstallationRepository {
 impl PluginInstallationRepository for SqlxPluginInstallationRepository {
     async fn upsert(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         plugin_id: &str,
         version: &str,
         scope: &str,
@@ -30,9 +30,9 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
     ) -> anyhow::Result<()> {
         sqlx::query(
             r#"INSERT INTO plugin_installations
-               (user_id, plugin_id, version, scope, origin_url, status)
+               (workspace_id, plugin_id, version, scope, origin_url, status)
                VALUES ($1, $2, $3, $4, $5, $6)
-               ON CONFLICT (user_id, plugin_id)
+               ON CONFLICT (workspace_id, plugin_id)
                DO UPDATE SET
                  version = EXCLUDED.version,
                  scope = EXCLUDED.scope,
@@ -40,7 +40,7 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
                  status = EXCLUDED.status,
                  updated_at = now()"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .bind(plugin_id)
         .bind(version)
         .bind(scope)
@@ -51,20 +51,23 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
         Ok(())
     }
 
-    async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<PluginInstallation>> {
+    async fn list_for_workspace(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<PluginInstallation>> {
         let rows = sqlx::query(
-            r#"SELECT user_id, plugin_id, version, scope, origin_url, status, installed_at, updated_at
+            r#"SELECT workspace_id, plugin_id, version, scope, origin_url, status, installed_at, updated_at
                FROM plugin_installations
-               WHERE user_id = $1"#,
+               WHERE workspace_id = $1"#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
 
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             out.push(PluginInstallation {
-                user_id: row.get("user_id"),
+                workspace_id: row.get("workspace_id"),
                 plugin_id: row.get("plugin_id"),
                 version: row.get("version"),
                 scope: row.get("scope"),
@@ -80,7 +83,7 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
 
     async fn list_all(&self) -> anyhow::Result<Vec<PluginInstallation>> {
         let rows = sqlx::query(
-            r#"SELECT user_id, plugin_id, version, scope, origin_url, status, installed_at, updated_at
+            r#"SELECT workspace_id, plugin_id, version, scope, origin_url, status, installed_at, updated_at
                FROM plugin_installations"#,
         )
         .fetch_all(&self.pool)
@@ -89,7 +92,7 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             out.push(PluginInstallation {
-                user_id: row.get("user_id"),
+                workspace_id: row.get("workspace_id"),
                 plugin_id: row.get("plugin_id"),
                 version: row.get("version"),
                 scope: row.get("scope"),
@@ -103,19 +106,20 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
         Ok(out)
     }
 
-    async fn remove(&self, user_id: Uuid, plugin_id: &str) -> anyhow::Result<bool> {
-        let res =
-            sqlx::query("DELETE FROM plugin_installations WHERE user_id = $1 AND plugin_id = $2")
-                .bind(user_id)
-                .bind(plugin_id)
-                .execute(&self.pool)
-                .await?;
+    async fn remove(&self, workspace_id: Uuid, plugin_id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query(
+            "DELETE FROM plugin_installations WHERE workspace_id = $1 AND plugin_id = $2",
+        )
+        .bind(workspace_id)
+        .bind(plugin_id)
+        .execute(&self.pool)
+        .await?;
         Ok(res.rows_affected() > 0)
     }
 
-    async fn remove_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM plugin_installations WHERE user_id = $1")
-            .bind(user_id)
+    async fn remove_all_for_workspace(&self, workspace_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM plugin_installations WHERE workspace_id = $1")
+            .bind(workspace_id)
             .execute(&self.pool)
             .await?;
         Ok(())

@@ -97,11 +97,34 @@ export type CreateShareResponse = {
     url: string;
 };
 
+export type CreateWorkspaceInvitationRequest = {
+    custom_role_id?: (string) | null;
+    email: string;
+    expires_at?: (string) | null;
+    role_kind: string;
+    system_role?: (string) | null;
+};
+
+export type CreateWorkspaceRequest = {
+    description?: (string) | null;
+    icon?: (string) | null;
+    name: string;
+};
+
+export type CreateWorkspaceRoleRequest = {
+    base_role: string;
+    description?: (string) | null;
+    name: string;
+    overrides?: Array<PermissionOverridePayload> | null;
+    priority?: (number) | null;
+};
+
 export type Document = {
     archived_at?: (string) | null;
     archived_by?: (string) | null;
     archived_parent_id?: (string) | null;
     created_at: string;
+    created_by?: (string) | null;
     desired_path: string;
     id: string;
     owner_id: string;
@@ -111,6 +134,7 @@ export type Document = {
     title: string;
     type: string;
     updated_at: string;
+    workspace_id: string;
 };
 
 export type DocumentArchiveBinary = Blob | File;
@@ -288,6 +312,11 @@ export type PatchDocumentContentRequest = {
     operations: Array<DocumentPatchOperationRequest>;
 };
 
+export type PermissionOverridePayload = {
+    allowed: boolean;
+    permission: string;
+};
+
 export type PlaceholderItemPayload = {
     code: string;
     id: string;
@@ -426,6 +455,10 @@ export type SnapshotSummary = {
     notes?: (string) | null;
 };
 
+export type SwitchWorkspaceResponse = {
+    access_token: string;
+};
+
 export type TagItem = {
     count: number;
     name: string;
@@ -468,6 +501,12 @@ export type UpdateGitConfigRequest = {
     repository_url?: (string) | null;
 };
 
+export type UpdateMemberRoleRequest = {
+    custom_role_id?: (string) | null;
+    role_kind: string;
+    system_role?: (string) | null;
+};
+
 export type UpdateRecordBody = {
     patch: unknown;
 };
@@ -477,6 +516,20 @@ export type UpdateUserShortcutRequest = {
         [key: string]: unknown;
     };
     leader_key?: (string) | null;
+};
+
+export type UpdateWorkspaceRequest = {
+    description?: (string) | null;
+    icon?: (string) | null;
+    name?: (string) | null;
+};
+
+export type UpdateWorkspaceRoleRequest = {
+    base_role?: (string) | null;
+    description?: (string) | null;
+    name?: (string) | null;
+    overrides?: Array<PermissionOverridePayload> | null;
+    priority?: (number) | null;
 };
 
 export type UploadFileMultipart = {
@@ -499,9 +552,13 @@ export type UploadFileResponse = {
 };
 
 export type UserResponse = {
+    active_workspace?: ((WorkspaceMembershipResponse) | null);
+    active_workspace_id?: (string) | null;
+    active_workspace_permissions?: Array<string>;
     email: string;
     id: string;
     name: string;
+    workspaces: Array<WorkspaceMembershipResponse>;
 };
 
 export type UserShortcutResponse = {
@@ -510,6 +567,74 @@ export type UserShortcutResponse = {
     };
     leader_key?: (string) | null;
     updated_at?: (string) | null;
+};
+
+export type WorkspaceInvitationResponse = {
+    accepted_at?: (string) | null;
+    accepted_by?: (string) | null;
+    created_at: string;
+    custom_role_id?: (string) | null;
+    email: string;
+    expires_at?: (string) | null;
+    id: string;
+    invited_by: string;
+    revoked_at?: (string) | null;
+    role_kind: string;
+    system_role?: (string) | null;
+    token: string;
+    workspace_id: string;
+};
+
+export type WorkspaceMemberResponse = {
+    custom_role_id?: (string) | null;
+    email: string;
+    is_default: boolean;
+    name: string;
+    role_kind: string;
+    system_role?: (string) | null;
+    user_id: string;
+    workspace_id: string;
+};
+
+export type WorkspaceMembershipResponse = {
+    custom_role_id?: (string) | null;
+    description?: (string) | null;
+    icon?: (string) | null;
+    id: string;
+    is_default: boolean;
+    is_personal: boolean;
+    name: string;
+    role_kind: string;
+    slug: string;
+    system_role?: (string) | null;
+};
+
+export type WorkspacePermissionsResponse = {
+    permissions: Array<string>;
+    workspace_id: string;
+};
+
+export type WorkspaceResponse = {
+    custom_role_id?: (string) | null;
+    description?: (string) | null;
+    icon?: (string) | null;
+    id: string;
+    is_default: boolean;
+    is_personal: boolean;
+    name: string;
+    role_kind: string;
+    slug: string;
+    system_role?: (string) | null;
+};
+
+export type WorkspaceRoleResponse = {
+    base_role: string;
+    description?: (string) | null;
+    id: string;
+    name: string;
+    overrides: Array<PermissionOverridePayload>;
+    priority: number;
+    workspace_id: string;
 };
 
 export type LoginData = {
@@ -902,13 +1027,6 @@ export type PluginsInstallFromUrlData = {
 
 export type PluginsInstallFromUrlResponse = (InstallResponse);
 
-export type PluginsGetManifestData = {
-    /**
-     * Share token (optional)
-     */
-    token?: (string) | null;
-};
-
 export type PluginsGetManifestResponse = (Array<ManifestItem>);
 
 export type PluginsUninstallData = {
@@ -940,10 +1058,6 @@ export type PluginsGetKvData = {
      * Plugin ID
      */
     plugin: string;
-    /**
-     * Share token
-     */
-    token?: (string) | null;
 };
 
 export type PluginsGetKvResponse = (KvValueResponse);
@@ -962,10 +1076,6 @@ export type PluginsPutKvData = {
      */
     plugin: string;
     requestBody: KvValueBody;
-    /**
-     * Share token
-     */
-    token?: (string) | null;
 };
 
 export type PluginsPutKvResponse = (void);
@@ -991,10 +1101,6 @@ export type ListRecordsData = {
      * Plugin ID
      */
     plugin: string;
-    /**
-     * Share token
-     */
-    token?: (string) | null;
 };
 
 export type ListRecordsResponse = (RecordsResponse);
@@ -1013,10 +1119,6 @@ export type PluginsCreateRecordData = {
      */
     plugin: string;
     requestBody: CreateRecordBody;
-    /**
-     * Share token
-     */
-    token?: (string) | null;
 };
 
 export type PluginsCreateRecordResponse = (unknown);
@@ -1031,10 +1133,6 @@ export type PluginsExecActionData = {
      */
     plugin: string;
     requestBody: ExecBody;
-    /**
-     * Share token
-     */
-    token?: (string) | null;
 };
 
 export type PluginsExecActionResponse = (ExecResultResponse);
@@ -1093,40 +1191,40 @@ export type UnpublishDocumentData = {
 
 export type UnpublishDocumentResponse = (void);
 
-export type ListUserPublicDocumentsData = {
+export type ListWorkspacePublicDocumentsData = {
     /**
-     * Owner name
+     * Workspace slug
      */
-    name: string;
+    slug: string;
 };
 
-export type ListUserPublicDocumentsResponse = (Array<PublicDocumentSummary>);
+export type ListWorkspacePublicDocumentsResponse = (Array<PublicDocumentSummary>);
 
-export type GetPublicByOwnerAndIdData = {
+export type GetPublicByWorkspaceAndIdData = {
     /**
      * Document ID
      */
     id: string;
     /**
-     * Owner name
+     * Workspace slug
      */
-    name: string;
+    slug: string;
 };
 
-export type GetPublicByOwnerAndIdResponse = (Document);
+export type GetPublicByWorkspaceAndIdResponse = (Document);
 
-export type GetPublicContentByOwnerAndIdData = {
+export type GetPublicContentByWorkspaceAndIdData = {
     /**
      * Document ID
      */
     id: string;
     /**
-     * Owner name
+     * Workspace slug
      */
-    name: string;
+    slug: string;
 };
 
-export type GetPublicContentByOwnerAndIdResponse = (unknown);
+export type GetPublicContentByWorkspaceAndIdResponse = (unknown);
 
 export type CreateShareData = {
     requestBody: CreateShareRequest;
@@ -1198,6 +1296,183 @@ export type ListTagsData = {
 };
 
 export type ListTagsResponse = (Array<TagItem>);
+
+export type AcceptInvitationData = {
+    /**
+     * Invitation token
+     */
+    token: string;
+};
+
+export type AcceptInvitationResponse = (void);
+
+export type ListWorkspacesResponse = (Array<WorkspaceResponse>);
+
+export type CreateWorkspaceData = {
+    requestBody: CreateWorkspaceRequest;
+};
+
+export type CreateWorkspaceResponse = (WorkspaceResponse);
+
+export type GetWorkspaceDetailData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type GetWorkspaceDetailResponse = (WorkspaceResponse);
+
+export type UpdateWorkspaceData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    requestBody: UpdateWorkspaceRequest;
+};
+
+export type UpdateWorkspaceResponse = (WorkspaceResponse);
+
+export type DeleteWorkspaceData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type DeleteWorkspaceResponse = (void);
+
+export type ListInvitationsData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type ListInvitationsResponse = (Array<WorkspaceInvitationResponse>);
+
+export type CreateInvitationData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    requestBody: CreateWorkspaceInvitationRequest;
+};
+
+export type CreateInvitationResponse = (WorkspaceInvitationResponse);
+
+export type RevokeInvitationData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    /**
+     * Invitation ID
+     */
+    invitationId: string;
+};
+
+export type RevokeInvitationResponse = (WorkspaceInvitationResponse);
+
+export type ListMembersData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type ListMembersResponse = (Array<WorkspaceMemberResponse>);
+
+export type RemoveMemberData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    /**
+     * Target user ID
+     */
+    userId: string;
+};
+
+export type RemoveMemberResponse = (void);
+
+export type UpdateMemberRoleData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    requestBody: UpdateMemberRoleRequest;
+    /**
+     * Target user ID
+     */
+    userId: string;
+};
+
+export type UpdateMemberRoleResponse = (WorkspaceMemberResponse);
+
+export type GetWorkspacePermissionsData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type GetWorkspacePermissionsResponse = (WorkspacePermissionsResponse);
+
+export type ListRolesData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type ListRolesResponse = (Array<WorkspaceRoleResponse>);
+
+export type CreateRoleData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    requestBody: CreateWorkspaceRoleRequest;
+};
+
+export type CreateRoleResponse = (WorkspaceRoleResponse);
+
+export type DeleteRoleData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    /**
+     * Role ID
+     */
+    roleId: string;
+};
+
+export type DeleteRoleResponse = (void);
+
+export type UpdateRoleData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    requestBody: UpdateWorkspaceRoleRequest;
+    /**
+     * Role ID
+     */
+    roleId: string;
+};
+
+export type UpdateRoleResponse = (WorkspaceRoleResponse);
+
+export type SwitchWorkspaceData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type SwitchWorkspaceResponse2 = (SwitchWorkspaceResponse);
 
 export type AxumWsEntryData = {
     /**

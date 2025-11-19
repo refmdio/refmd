@@ -27,7 +27,7 @@ where
 {
     pub async fn execute(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         req: &UpsertGitConfigInput,
     ) -> anyhow::Result<GitConfigDto> {
         if req.auth_type != "token" && req.auth_type != "ssh" {
@@ -39,7 +39,7 @@ where
         let (id, repository_url, branch_name, auth_type, auto_sync, created_at, updated_at) = self
             .repo
             .upsert_config(
-                user_id,
+                workspace_id,
                 &req.repository_url,
                 req.branch_name.as_deref(),
                 &req.auth_type,
@@ -48,9 +48,9 @@ where
             )
             .await?;
         self.workspace
-            .ensure_repository(user_id, &branch_name)
+            .ensure_repository(workspace_id, &branch_name)
             .await?;
-        let dir = self.storage.user_repo_dir(user_id);
+        let dir = self.storage.user_repo_dir(workspace_id);
         let _ = self.gitignore.ensure_gitignore(&dir).await?;
         Ok(GitConfigDto {
             id,

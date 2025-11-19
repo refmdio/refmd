@@ -16,14 +16,19 @@ import { useCreateApiToken, useApiTokens, useRevokeApiToken } from '@/entities/a
 
 import { useAuthContext } from '@/features/auth'
 
-const PUBLIC_PROFILE_URL = (name?: string | null) => `/u/${encodeURIComponent(name ?? '')}/`
+const PUBLIC_PROFILE_URL = (slug?: string | null, fallbackName?: string | null) => {
+  if (slug && slug.trim().length > 0) {
+    return `/w/${encodeURIComponent(slug)}`
+  }
+  return `/u/${encodeURIComponent(fallbackName ?? '')}/`
+}
 
 export default function ProfilePage() {
-  const { user, deleteAccount } = useAuthContext()
+  const { user, deleteAccount, activeWorkspace, activeWorkspaceId } = useAuthContext()
   const displayName = user?.name || 'User'
   const initials = displayName.slice(0, 1).toUpperCase()
   const email = user?.email || 'No email attached'
-  const publicUrl = PUBLIC_PROFILE_URL(user?.name)
+  const publicUrl = PUBLIC_PROFILE_URL(activeWorkspace?.slug, user?.name)
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -31,11 +36,12 @@ export default function ProfilePage() {
   const [generatedToken, setGeneratedToken] = useState<string | null>(null)
   const [revokeDialogFor, setRevokeDialogFor] = useState<{ id: string; name: string } | null>(null)
 
-  const tokensQuery = useApiTokens()
+  const tokensQuery = useApiTokens({ workspaceId: activeWorkspaceId })
   const tokens = tokensQuery.data ?? []
   const activeTokens = useMemo(() => tokens.filter((token) => !token.revoked_at), [tokens])
 
   const createTokenMutation = useCreateApiToken({
+    workspaceId: activeWorkspaceId,
     onSuccess: (data) => {
       setGeneratedToken(data.token)
       setNewTokenName('')
@@ -47,6 +53,7 @@ export default function ProfilePage() {
   })
 
   const revokeTokenMutation = useRevokeApiToken({
+    workspaceId: activeWorkspaceId,
     onSuccess: () => {
       toast.success('API token revoked')
       setRevokeDialogFor(null)

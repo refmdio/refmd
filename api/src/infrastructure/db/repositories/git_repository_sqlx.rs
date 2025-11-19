@@ -24,7 +24,7 @@ impl SqlxGitRepository {
 impl GitRepository for SqlxGitRepository {
     async fn get_config(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
     ) -> anyhow::Result<
         Option<(
             Uuid,
@@ -36,8 +36,8 @@ impl GitRepository for SqlxGitRepository {
             chrono::DateTime<chrono::Utc>,
         )>,
     > {
-        let row = sqlx::query("SELECT id, repository_url, branch_name, auth_type, auto_sync, created_at, updated_at FROM git_configs WHERE user_id = $1 LIMIT 1")
-            .bind(user_id)
+        let row = sqlx::query("SELECT id, repository_url, branch_name, auth_type, auto_sync, created_at, updated_at FROM git_configs WHERE workspace_id = $1 LIMIT 1")
+            .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|r| {
@@ -55,7 +55,7 @@ impl GitRepository for SqlxGitRepository {
 
     async fn upsert_config(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         repository_url: &str,
         branch_name: Option<&str>,
         auth_type: &str,
@@ -72,9 +72,9 @@ impl GitRepository for SqlxGitRepository {
     )> {
         let enc_auth = crypto::encrypt_auth_data(&self.encryption_key, auth_data);
         let row = sqlx::query(
-            r#"INSERT INTO git_configs (user_id, repository_url, branch_name, auth_type, auth_data, auto_sync)
+            r#"INSERT INTO git_configs (workspace_id, repository_url, branch_name, auth_type, auth_data, auto_sync)
                VALUES ($1, $2, COALESCE($3, 'main'), $4, $5, COALESCE($6, true))
-               ON CONFLICT ON CONSTRAINT git_configs_user_id_unique DO UPDATE SET
+               ON CONFLICT ON CONSTRAINT git_configs_workspace_unique DO UPDATE SET
                  repository_url = EXCLUDED.repository_url,
                  branch_name = EXCLUDED.branch_name,
                  auth_type = EXCLUDED.auth_type,
@@ -83,7 +83,7 @@ impl GitRepository for SqlxGitRepository {
                  updated_at = now()
                RETURNING id, repository_url, branch_name, auth_type, auto_sync, created_at, updated_at"#
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .bind(repository_url)
         .bind(branch_name)
         .bind(auth_type)
@@ -102,17 +102,17 @@ impl GitRepository for SqlxGitRepository {
         ))
     }
 
-    async fn delete_config(&self, user_id: Uuid) -> anyhow::Result<bool> {
-        let res = sqlx::query("DELETE FROM git_configs WHERE user_id = $1")
-            .bind(user_id)
+    async fn delete_config(&self, workspace_id: Uuid) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM git_configs WHERE workspace_id = $1")
+            .bind(workspace_id)
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected() > 0)
     }
 
-    async fn load_user_git_cfg(&self, user_id: Uuid) -> anyhow::Result<Option<UserGitCfg>> {
-        let row = sqlx::query("SELECT repository_url, branch_name, auth_type, auth_data, auto_sync FROM git_configs WHERE user_id = $1 LIMIT 1")
-            .bind(user_id)
+    async fn load_user_git_cfg(&self, workspace_id: Uuid) -> anyhow::Result<Option<UserGitCfg>> {
+        let row = sqlx::query("SELECT repository_url, branch_name, auth_type, auth_data, auto_sync FROM git_configs WHERE workspace_id = $1 LIMIT 1")
+            .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|r| {
@@ -134,7 +134,7 @@ impl GitRepository for SqlxGitRepository {
 
     async fn get_last_sync_log(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
     ) -> anyhow::Result<
         Option<(
             Option<chrono::DateTime<chrono::Utc>>,
@@ -143,8 +143,8 @@ impl GitRepository for SqlxGitRepository {
             Option<String>,
         )>,
     > {
-        let row = sqlx::query("SELECT status, message, commit_hash, created_at FROM git_sync_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1")
-            .bind(user_id)
+        let row = sqlx::query("SELECT status, message, commit_hash, created_at FROM git_sync_logs WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 1")
+            .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|r| {
@@ -159,14 +159,14 @@ impl GitRepository for SqlxGitRepository {
 
     async fn log_sync_operation(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
         operation: &str,
         status: &str,
         message: Option<&str>,
         commit_hash: Option<&str>,
     ) -> anyhow::Result<()> {
-        let _ = sqlx::query("INSERT INTO git_sync_logs (user_id, operation, status, message, commit_hash) VALUES ($1, $2, $3, $4, $5)")
-            .bind(user_id)
+        let _ = sqlx::query("INSERT INTO git_sync_logs (workspace_id, operation, status, message, commit_hash) VALUES ($1, $2, $3, $4, $5)")
+            .bind(workspace_id)
             .bind(operation)
             .bind(status)
             .bind(message)
@@ -176,19 +176,31 @@ impl GitRepository for SqlxGitRepository {
         Ok(())
     }
 
-    async fn delete_sync_logs(&self, user_id: Uuid) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM git_sync_logs WHERE user_id = $1")
-            .bind(user_id)
+    async fn delete_sync_logs(&self, workspace_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM git_sync_logs WHERE workspace_id = $1")
+            .bind(workspace_id)
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 
-    async fn delete_repository_state(&self, user_id: Uuid) -> anyhow::Result<()> {
-        sqlx::query("DELETE FROM git_repository_state WHERE user_id = $1")
-            .bind(user_id)
+    async fn delete_repository_state(&self, workspace_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM git_repository_state WHERE workspace_id = $1")
+            .bind(workspace_id)
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn list_auto_sync_workspaces(&self) -> anyhow::Result<Vec<Uuid>> {
+        let rows = sqlx::query(
+            "SELECT workspace_id FROM git_configs WHERE auto_sync IS DISTINCT FROM false",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.try_get("workspace_id").ok())
+            .collect())
     }
 }

@@ -46,7 +46,8 @@ impl FileService {
 
     pub async fn upload_file(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
+        actor_id: Uuid,
         doc_id: Uuid,
         bytes: Vec<u8>,
         orig_filename: Option<String>,
@@ -59,18 +60,18 @@ impl FileService {
             public_base_url,
         };
         let uploaded = uc
-            .execute(user_id, doc_id, bytes, orig_filename, content_type)
+            .execute(workspace_id, doc_id, bytes, orig_filename, content_type)
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::Forbidden)?;
-        self.emit_attachment_upsert(user_id, doc_id, &uploaded)
+        self.emit_attachment_upsert(workspace_id, actor_id, doc_id, &uploaded)
             .await;
         Ok(uploaded)
     }
 
     pub async fn download_owned_file(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         file_id: Uuid,
     ) -> Result<FilePayload, ServiceError> {
         let meta = self
@@ -79,8 +80,8 @@ impl FileService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
-        let (path, content_type, stored_owner) = meta;
-        if stored_owner != owner_id {
+        let (path, content_type, stored_workspace) = meta;
+        if stored_workspace != workspace_id {
             return Err(ServiceError::Forbidden);
         }
         let abs_path = self.storage.absolute_from_relative(&path);
@@ -161,13 +162,20 @@ impl FileService {
         })
     }
 
-    async fn emit_attachment_upsert(&self, owner_id: Uuid, doc_id: Uuid, file: &UploadedFile) {
-        let Some(repo_path) = repo_relative_from_storage(owner_id, &file.storage_path) else {
+    async fn emit_attachment_upsert(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        doc_id: Uuid,
+        file: &UploadedFile,
+    ) {
+        let Some(repo_path) = repo_relative_from_storage(workspace_id, &file.storage_path) else {
             return;
         };
         if let Err(err) = self
             .events
             .append(
+                workspace_id,
                 doc_id,
                 "attachment.ingest_upsert",
                 Some(json!({
@@ -176,7 +184,8 @@ impl FileService {
                     "backend": "api",
                     "size": file.size,
                     "content_hash": file.content_hash,
-                    "owner_id": owner_id.to_string(),
+                    "workspace_id": workspace_id.to_string(),
+                    "actor_id": actor_id.to_string(),
                 })),
             )
             .await
@@ -190,9 +199,9 @@ impl FileService {
     }
 }
 
-fn repo_relative_from_storage(owner_id: Uuid, storage_path: &str) -> Option<String> {
+fn repo_relative_from_storage(workspace_id: Uuid, storage_path: &str) -> Option<String> {
     let trimmed = storage_path.trim_start_matches('/');
-    let owner_prefix = owner_id.to_string();
+    let owner_prefix = workspace_id.to_string();
     let remainder = trimmed
         .strip_prefix(&owner_prefix)
         .map(|rest| rest.trim_start_matches('/'))

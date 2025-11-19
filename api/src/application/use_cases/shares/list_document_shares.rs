@@ -10,12 +10,12 @@ pub struct ListDocumentShares<'a, R: SharesRepository + ?Sized> {
 impl<'a, R: SharesRepository + ?Sized> ListDocumentShares<'a, R> {
     pub async fn execute(
         &self,
-        owner_id: Uuid,
+        workspace_id: Uuid,
         document_id: Uuid,
     ) -> anyhow::Result<Vec<ShareItemDto>> {
         let rows = self
             .repo
-            .list_document_shares(owner_id, document_id)
+            .list_document_shares(workspace_id, document_id)
             .await?;
         Ok(rows
             .into_iter()

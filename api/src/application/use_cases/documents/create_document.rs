@@ -11,26 +11,28 @@ pub struct CreateDocument<'a, R: DocumentRepository + ?Sized> {
 impl<'a, R: DocumentRepository + ?Sized> CreateDocument<'a, R> {
     pub async fn execute(
         &self,
-        user_id: Uuid,
+        workspace_id: Uuid,
+        created_by: Uuid,
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
     ) -> anyhow::Result<DomainDocument> {
         self.repo
-            .create_for_user(user_id, title, parent_id, doc_type)
+            .create_for_user(workspace_id, created_by, title, parent_id, doc_type)
             .await
     }
 
     pub async fn execute_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        user_id: Uuid,
+        workspace_id: Uuid,
+        created_by: Uuid,
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
     ) -> anyhow::Result<DomainDocument> {
         self.repo
-            .create_for_user_tx(tx, user_id, title, parent_id, doc_type)
+            .create_for_user_tx(tx, workspace_id, created_by, title, parent_id, doc_type)
             .await
     }
 }

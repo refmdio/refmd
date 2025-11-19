@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{delete, get},
 };
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,10 @@ use uuid::Uuid;
 use crate::application::dto::api_tokens::{ApiTokenDto, CreatedApiTokenDto};
 use crate::application::services::errors::ServiceError;
 use crate::presentation::context::AppContext;
-use crate::presentation::http::auth::{self, Bearer};
+use crate::presentation::http::{
+    auth::{self, Bearer},
+    workspace_scope,
+};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiTokenItem {
@@ -83,12 +86,26 @@ pub struct ApiTokenCreateRequest {
 pub async fn list_api_tokens(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<ApiTokenItem>>, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone())).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
 
     let service = ctx.api_token_service();
-    let items = service.list(user_id).await.map_err(map_token_error)?;
+    let items = service
+        .list(workspace_id, &permissions)
+        .await
+        .map_err(map_token_error)?;
     Ok(Json(items.into_iter().map(ApiTokenItem::from).collect()))
 }
 
@@ -102,14 +119,25 @@ pub async fn list_api_tokens(
 pub async fn create_api_token(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Json(payload): Json<ApiTokenCreateRequest>,
 ) -> Result<Json<ApiTokenCreateResponse>, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone())).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
 
     let service = ctx.api_token_service();
     let created = service
-        .create(user_id, payload.name.as_deref())
+        .create(workspace_id, user_id, &permissions, payload.name.as_deref())
         .await
         .map_err(map_token_error)?;
     Ok(Json(ApiTokenCreateResponse::from(created)))
@@ -125,13 +153,27 @@ pub async fn create_api_token(
 pub async fn revoke_api_token(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone())).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
 
     let service = ctx.api_token_service();
-    let revoked = service.revoke(user_id, id).await.map_err(map_token_error)?;
+    let revoked = service
+        .revoke(workspace_id, id, &permissions)
+        .await
+        .map_err(map_token_error)?;
     if revoked {
         Ok(StatusCode::NO_CONTENT)
     } else {

@@ -8,17 +8,23 @@ import {
 import type { CreateApiTokenResponse, ListApiTokensResponse } from '@/shared/api'
 
 export const apiTokenKeys = {
-  all: ['api-tokens'] as const,
+  root: ['api-tokens'] as const,
+  list: (workspaceId?: string | null) => ['api-tokens', workspaceId ?? 'current'] as const,
 }
 
-export const apiTokensQuery = () => ({
-  queryKey: apiTokenKeys.all,
+export const apiTokensQuery = (workspaceId?: string | null) => ({
+  queryKey: apiTokenKeys.list(workspaceId),
   queryFn: () => apiListApiTokens() as Promise<ListApiTokensResponse>,
 })
 
-export function useApiTokens(options?: { enabled?: boolean }) {
+type UseApiTokensOptions = {
+  enabled?: boolean
+  workspaceId?: string | null
+}
+
+export function useApiTokens(options?: UseApiTokensOptions) {
   return useQuery({
-    ...apiTokensQuery(),
+    ...apiTokensQuery(options?.workspaceId),
     enabled: options?.enabled ?? true,
   })
 }
@@ -26,6 +32,7 @@ export function useApiTokens(options?: { enabled?: boolean }) {
 type CreateVariables = { name?: string }
 
 export function useCreateApiToken(options?: {
+  workspaceId?: string | null
   onSuccess?: (data: CreateApiTokenResponse, variables: CreateVariables | undefined) => void
   onError?: (error: unknown, variables: CreateVariables | undefined) => void
 }) {
@@ -38,7 +45,7 @@ export function useCreateApiToken(options?: {
         },
       }) as Promise<CreateApiTokenResponse>,
     onSuccess: (data, variables) => {
-      qc.invalidateQueries({ queryKey: apiTokenKeys.all })
+      qc.invalidateQueries({ queryKey: apiTokenKeys.list(options?.workspaceId) })
       options?.onSuccess?.(data, variables)
     },
     onError: (error, variables) => {
@@ -48,6 +55,7 @@ export function useCreateApiToken(options?: {
 }
 
 export function useRevokeApiToken(options?: {
+  workspaceId?: string | null
   onSuccess?: (tokenId: string) => void
   onError?: (error: unknown, tokenId: string) => void
 }) {
@@ -55,7 +63,7 @@ export function useRevokeApiToken(options?: {
   return useMutation({
     mutationFn: (tokenId: string) => apiRevokeApiToken({ id: tokenId }) as Promise<void>,
     onSuccess: (_data, tokenId) => {
-      qc.invalidateQueries({ queryKey: apiTokenKeys.all })
+      qc.invalidateQueries({ queryKey: apiTokenKeys.list(options?.workspaceId) })
       options?.onSuccess?.(tokenId)
     },
     onError: (error, tokenId) => {

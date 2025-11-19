@@ -15,10 +15,20 @@ type Props = {
   title?: string
   subtitle?: string
   author?: { name?: string | null }
+  workspaceSlug?: string | null
   publishedDate?: string
 }
 
-export default function PublicShell({ children, pageType, showThemeToggle = true, title, subtitle, author, publishedDate }: Props) {
+export default function PublicShell({
+  children,
+  pageType,
+  showThemeToggle = true,
+  title,
+  subtitle,
+  author,
+  workspaceSlug,
+  publishedDate,
+}: Props) {
   const { isDarkMode, toggleTheme } = useTheme()
   const pageBadgeText = pageType === 'document' ? 'Public Document' : pageType === 'scrap' ? 'Public Scrap' : 'Public Documents'
   const formattedPublishedDate = React.useMemo(() => {
@@ -30,6 +40,12 @@ export default function PublicShell({ children, pageType, showThemeToggle = true
     }
   }, [publishedDate])
   const authorName = author?.name?.trim()
+  const canonicalSlug = workspaceSlug?.trim() || authorName
+  const profileHref = workspaceSlug?.trim()
+    ? `/w/${encodeURIComponent(workspaceSlug.trim())}`
+    : authorName
+    ? `/u/${encodeURIComponent(authorName)}`
+    : '/w/'
   return (
     <div className="relative isolate min-h-screen bg-background text-foreground">
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[-18rem] -z-10 overflow-hidden">
@@ -41,13 +57,13 @@ export default function PublicShell({ children, pageType, showThemeToggle = true
 
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/65">
         <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6 md:px-10">
-          <div className="flex items-center gap-2">
-            <a href="/" className="text-lg font-semibold tracking-tight text-foreground transition-colors hover:text-primary">
-              RefMD
-            </a>
-            <Badge variant="secondary" className="hidden sm:inline-flex rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide">
-              {pageBadgeText}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <a href="/" className="text-lg font-semibold tracking-tight text-foreground transition-colors hover:text-primary">
+                RefMD
+              </a>
+              <Badge variant="secondary" className="hidden sm:inline-flex rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide">
+                {pageBadgeText}
+              </Badge>
           </div>
 
           <div className="ml-auto flex items-center gap-2">
@@ -85,7 +101,7 @@ export default function PublicShell({ children, pageType, showThemeToggle = true
                   <>
                     <DropdownMenuLabel>Author</DropdownMenuLabel>
                     <DropdownMenuItem asChild>
-                      <a href={`/u/${authorName}`} className="flex items-center gap-2">
+                      <a href={profileHref} className="flex items-center gap-2">
                         <Avatar className="h-6 w-6 text-xs">
                           <AvatarFallback>{authorName.slice(0, 1).toUpperCase()}</AvatarFallback>
                         </Avatar>
@@ -134,15 +150,17 @@ export default function PublicShell({ children, pageType, showThemeToggle = true
             )}
           </div>
 
-          {authorName && (
+          {canonicalSlug && (
             <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-muted/30 px-4 py-3 shadow-sm">
-              <Avatar className="h-11 w-11 text-base">
-                <AvatarFallback>{authorName.slice(0, 1).toUpperCase()}</AvatarFallback>
-              </Avatar>
+              {authorName ? (
+                <Avatar className="h-11 w-11 text-base">
+                  <AvatarFallback>{authorName.slice(0, 1).toUpperCase()}</AvatarFallback>
+                </Avatar>
+              ) : null}
               <div className="space-y-1 text-sm">
-                <p className="font-semibold text-foreground">@{authorName}</p>
+                <p className="font-semibold text-foreground">@{canonicalSlug}</p>
                 <a
-                  href={`/u/${authorName}`}
+                  href={profileHref}
                   className="inline-flex items-center gap-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                 >
                   View public profile

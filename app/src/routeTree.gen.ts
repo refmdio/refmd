@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OgVariantDotpngRouteImport } from './routes/og/$variant[.]png'
+import { Route as appWorkspacesRouteImport } from './routes/(app)/workspaces'
 import { Route as appTemporaryRouteImport } from './routes/(app)/temporary'
 import { Route as appSettingsRouteImport } from './routes/(app)/settings'
 import { Route as appProfileRouteImport } from './routes/(app)/profile'
@@ -22,7 +23,9 @@ import { Route as authAuthSignupRouteImport } from './routes/(auth)/auth/signup'
 import { Route as authAuthSigninRouteImport } from './routes/(auth)/auth/signin'
 import { Route as appTemporaryIdRouteImport } from './routes/(app)/temporary/$id'
 import { Route as appDocumentIdRouteImport } from './routes/(app)/document/$id'
+import { Route as publicWSlugIndexRouteImport } from './routes/(public)/w/$slug/index'
 import { Route as publicUNameIndexRouteImport } from './routes/(public)/u/$name/index'
+import { Route as publicWSlugIdRouteImport } from './routes/(public)/w/$slug/$id'
 import { Route as publicUNameIdRouteImport } from './routes/(public)/u/$name/$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -33,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
 const OgVariantDotpngRoute = OgVariantDotpngRouteImport.update({
   id: '/og/$variant.png',
   path: '/og/$variant.png',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appWorkspacesRoute = appWorkspacesRouteImport.update({
+  id: '/(app)/workspaces',
+  path: '/workspaces',
   getParentRoute: () => rootRouteImport,
 } as any)
 const appTemporaryRoute = appTemporaryRouteImport.update({
@@ -90,9 +98,19 @@ const appDocumentIdRoute = appDocumentIdRouteImport.update({
   path: '/document/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const publicWSlugIndexRoute = publicWSlugIndexRouteImport.update({
+  id: '/(public)/w/$slug/',
+  path: '/w/$slug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const publicUNameIndexRoute = publicUNameIndexRouteImport.update({
   id: '/(public)/u/$name/',
   path: '/u/$name/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const publicWSlugIdRoute = publicWSlugIdRouteImport.update({
+  id: '/(public)/w/$slug/$id',
+  path: '/w/$slug/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const publicUNameIdRoute = publicUNameIdRouteImport.update({
@@ -108,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsRoute
   '/temporary': typeof appTemporaryRouteWithChildren
+  '/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/document/$id': typeof appDocumentIdRoute
   '/temporary/$id': typeof appTemporaryIdRoute
@@ -116,7 +135,9 @@ export interface FileRoutesByFullPath {
   '/share/$token': typeof shareShareTokenRoute
   '/visibility': typeof appVisibilityIndexRoute
   '/u/$name/$id': typeof publicUNameIdRoute
+  '/w/$slug/$id': typeof publicWSlugIdRoute
   '/u/$name': typeof publicUNameIndexRoute
+  '/w/$slug': typeof publicWSlugIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -125,6 +146,7 @@ export interface FileRoutesByTo {
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsRoute
   '/temporary': typeof appTemporaryRouteWithChildren
+  '/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/document/$id': typeof appDocumentIdRoute
   '/temporary/$id': typeof appTemporaryIdRoute
@@ -133,7 +155,9 @@ export interface FileRoutesByTo {
   '/share/$token': typeof shareShareTokenRoute
   '/visibility': typeof appVisibilityIndexRoute
   '/u/$name/$id': typeof publicUNameIdRoute
+  '/w/$slug/$id': typeof publicWSlugIdRoute
   '/u/$name': typeof publicUNameIndexRoute
+  '/w/$slug': typeof publicWSlugIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -143,6 +167,7 @@ export interface FileRoutesById {
   '/(app)/profile': typeof appProfileRoute
   '/(app)/settings': typeof appSettingsRoute
   '/(app)/temporary': typeof appTemporaryRouteWithChildren
+  '/(app)/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/(app)/document/$id': typeof appDocumentIdRoute
   '/(app)/temporary/$id': typeof appTemporaryIdRoute
@@ -151,7 +176,9 @@ export interface FileRoutesById {
   '/(share)/share/$token': typeof shareShareTokenRoute
   '/(app)/visibility/': typeof appVisibilityIndexRoute
   '/(public)/u/$name/$id': typeof publicUNameIdRoute
+  '/(public)/w/$slug/$id': typeof publicWSlugIdRoute
   '/(public)/u/$name/': typeof publicUNameIndexRoute
+  '/(public)/w/$slug/': typeof publicWSlugIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -162,6 +189,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/settings'
     | '/temporary'
+    | '/workspaces'
     | '/og/$variant.png'
     | '/document/$id'
     | '/temporary/$id'
@@ -170,7 +198,9 @@ export interface FileRouteTypes {
     | '/share/$token'
     | '/visibility'
     | '/u/$name/$id'
+    | '/w/$slug/$id'
     | '/u/$name'
+    | '/w/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -179,6 +209,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/settings'
     | '/temporary'
+    | '/workspaces'
     | '/og/$variant.png'
     | '/document/$id'
     | '/temporary/$id'
@@ -187,7 +218,9 @@ export interface FileRouteTypes {
     | '/share/$token'
     | '/visibility'
     | '/u/$name/$id'
+    | '/w/$slug/$id'
     | '/u/$name'
+    | '/w/$slug'
   id:
     | '__root__'
     | '/'
@@ -196,6 +229,7 @@ export interface FileRouteTypes {
     | '/(app)/profile'
     | '/(app)/settings'
     | '/(app)/temporary'
+    | '/(app)/workspaces'
     | '/og/$variant.png'
     | '/(app)/document/$id'
     | '/(app)/temporary/$id'
@@ -204,7 +238,9 @@ export interface FileRouteTypes {
     | '/(share)/share/$token'
     | '/(app)/visibility/'
     | '/(public)/u/$name/$id'
+    | '/(public)/w/$slug/$id'
     | '/(public)/u/$name/'
+    | '/(public)/w/$slug/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -214,6 +250,7 @@ export interface RootRouteChildren {
   appProfileRoute: typeof appProfileRoute
   appSettingsRoute: typeof appSettingsRoute
   appTemporaryRoute: typeof appTemporaryRouteWithChildren
+  appWorkspacesRoute: typeof appWorkspacesRoute
   OgVariantDotpngRoute: typeof OgVariantDotpngRoute
   appDocumentIdRoute: typeof appDocumentIdRoute
   authAuthSigninRoute: typeof authAuthSigninRoute
@@ -221,7 +258,9 @@ export interface RootRouteChildren {
   shareShareTokenRoute: typeof shareShareTokenRoute
   appVisibilityIndexRoute: typeof appVisibilityIndexRoute
   publicUNameIdRoute: typeof publicUNameIdRoute
+  publicWSlugIdRoute: typeof publicWSlugIdRoute
   publicUNameIndexRoute: typeof publicUNameIndexRoute
+  publicWSlugIndexRoute: typeof publicWSlugIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -238,6 +277,13 @@ declare module '@tanstack/react-router' {
       path: '/og/$variant.png'
       fullPath: '/og/$variant.png'
       preLoaderRoute: typeof OgVariantDotpngRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/workspaces': {
+      id: '/(app)/workspaces'
+      path: '/workspaces'
+      fullPath: '/workspaces'
+      preLoaderRoute: typeof appWorkspacesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(app)/temporary': {
@@ -317,11 +363,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof appDocumentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/(public)/w/$slug/': {
+      id: '/(public)/w/$slug/'
+      path: '/w/$slug'
+      fullPath: '/w/$slug'
+      preLoaderRoute: typeof publicWSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/(public)/u/$name/': {
       id: '/(public)/u/$name/'
       path: '/u/$name'
       fullPath: '/u/$name'
       preLoaderRoute: typeof publicUNameIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(public)/w/$slug/$id': {
+      id: '/(public)/w/$slug/$id'
+      path: '/w/$slug/$id'
+      fullPath: '/w/$slug/$id'
+      preLoaderRoute: typeof publicWSlugIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(public)/u/$name/$id': {
@@ -353,6 +413,7 @@ const rootRouteChildren: RootRouteChildren = {
   appProfileRoute: appProfileRoute,
   appSettingsRoute: appSettingsRoute,
   appTemporaryRoute: appTemporaryRouteWithChildren,
+  appWorkspacesRoute: appWorkspacesRoute,
   OgVariantDotpngRoute: OgVariantDotpngRoute,
   appDocumentIdRoute: appDocumentIdRoute,
   authAuthSigninRoute: authAuthSigninRoute,
@@ -360,7 +421,9 @@ const rootRouteChildren: RootRouteChildren = {
   shareShareTokenRoute: shareShareTokenRoute,
   appVisibilityIndexRoute: appVisibilityIndexRoute,
   publicUNameIdRoute: publicUNameIdRoute,
+  publicWSlugIdRoute: publicWSlugIdRoute,
   publicUNameIndexRoute: publicUNameIndexRoute,
+  publicWSlugIndexRoute: publicWSlugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

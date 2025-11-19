@@ -7,13 +7,16 @@ import { toast } from 'sonner'
 import { listDocumentsQuery, useCreateDocument } from '@/entities/document'
 import { meQuery } from '@/entities/user'
 
+import { useAuthContext } from '@/features/auth'
+
 type Document = { id: string; title: string; created_at: string; updated_at: string; type?: string | null }
 
 export default function DashboardPage() {
   const navigate = useNavigate()
   const [creating, setCreating] = useState(false)
   const { data: me } = useSuspenseQuery(meQuery())
-  const { data: list } = useSuspenseQuery(listDocumentsQuery())
+  const { activeWorkspaceId } = useAuthContext()
+  const { data: list } = useSuspenseQuery(listDocumentsQuery({ workspaceId: activeWorkspaceId }))
   const user = me || { id: '', name: 'User', email: '' }
   const documents = useMemo(() => {
     const items = (list?.items ?? []) as Document[]
