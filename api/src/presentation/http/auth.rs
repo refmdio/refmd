@@ -133,9 +133,8 @@ async fn build_user_response(
         .into_iter()
         .map(workspace_response_from)
         .collect::<Vec<_>>();
-    let mut active_workspace_id = preferred_workspace_id.and_then(|id| {
-        workspaces.iter().find(|w| w.id == id).map(|w| w.id)
-    });
+    let mut active_workspace_id =
+        preferred_workspace_id.and_then(|id| workspaces.iter().find(|w| w.id == id).map(|w| w.id));
     if active_workspace_id.is_none() {
         active_workspace_id = workspaces.iter().find(|w| w.is_default).map(|w| w.id);
     }
@@ -245,7 +244,13 @@ pub async fn me(
     )
     .await
     .map(Some)
-    .or_else(|err| if err == StatusCode::FORBIDDEN { Ok(None) } else { Err(err) })?;
+    .or_else(|err| {
+        if err == StatusCode::FORBIDDEN {
+            Ok(None)
+        } else {
+            Err(err)
+        }
+    })?;
 
     let service = ctx.account_service();
     let row = service

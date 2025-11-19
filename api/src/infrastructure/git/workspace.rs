@@ -51,7 +51,10 @@ impl GitWorkspaceService {
         })
     }
 
-    async fn load_repository_state(&self, workspace_id: Uuid) -> anyhow::Result<Option<(bool, String)>> {
+    async fn load_repository_state(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Option<(bool, String)>> {
         let row = sqlx::query(
             "SELECT initialized, default_branch FROM git_repository_state WHERE workspace_id = $1",
         )
@@ -87,7 +90,9 @@ impl GitWorkspaceService {
                 return Ok(None);
             };
             if let Some(parent_id) = meta.parent_commit_id.clone() {
-                return self.commit_meta_by_id(workspace_id, parent_id.as_slice()).await;
+                return self
+                    .commit_meta_by_id(workspace_id, parent_id.as_slice())
+                    .await;
             }
             return Ok(None);
         }
@@ -278,7 +283,10 @@ impl GitWorkspaceService {
                 .set_latest_commit(workspace_id, Some(&meta))
                 .await
             {
-                let _ = self.git_storage.delete_pack(workspace_id, &meta.commit_id).await;
+                let _ = self
+                    .git_storage
+                    .delete_pack(workspace_id, &meta.commit_id)
+                    .await;
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
@@ -318,7 +326,10 @@ impl GitWorkspaceService {
 
             if let Err(err) = insert_res {
                 tx.rollback().await.ok();
-                let _ = self.git_storage.delete_pack(workspace_id, &meta.commit_id).await;
+                let _ = self
+                    .git_storage
+                    .delete_pack(workspace_id, &meta.commit_id)
+                    .await;
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
@@ -329,14 +340,18 @@ impl GitWorkspaceService {
                 return Err(err.into());
             }
 
-            if let Err(err) =
-                sqlx::query("UPDATE git_repository_state SET updated_at = now() WHERE workspace_id = $1")
-                    .bind(workspace_id)
-                    .execute(&mut *tx)
-                    .await
+            if let Err(err) = sqlx::query(
+                "UPDATE git_repository_state SET updated_at = now() WHERE workspace_id = $1",
+            )
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await
             {
                 tx.rollback().await.ok();
-                let _ = self.git_storage.delete_pack(workspace_id, &meta.commit_id).await;
+                let _ = self
+                    .git_storage
+                    .delete_pack(workspace_id, &meta.commit_id)
+                    .await;
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
@@ -348,7 +363,10 @@ impl GitWorkspaceService {
             }
 
             if let Err(err) = tx.commit().await {
-                let _ = self.git_storage.delete_pack(workspace_id, &meta.commit_id).await;
+                let _ = self
+                    .git_storage
+                    .delete_pack(workspace_id, &meta.commit_id)
+                    .await;
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
@@ -1331,7 +1349,10 @@ impl GitWorkspacePort for GitWorkspaceService {
             let mut stale_paths: Vec<String> = Vec::new();
             for (path, up) in upserts.iter() {
                 if up.is_text {
-                    match self.export_markdown_for_repo_path(workspace_id, path).await? {
+                    match self
+                        .export_markdown_for_repo_path(workspace_id, path)
+                        .await?
+                    {
                         Some((bytes, hash)) => {
                             precomputed_upsert_bytes.insert(path.clone(), bytes.clone());
                             next_file_hash_index.insert(path.clone(), hash.clone());
@@ -1378,12 +1399,13 @@ impl GitWorkspacePort for GitWorkspaceService {
             }
             if !stale_paths.is_empty() {
                 for p in stale_paths {
-                    let _ =
-                        sqlx::query("DELETE FROM git_dirty_files WHERE workspace_id = $1 AND path = $2")
-                            .bind(workspace_id)
-                            .bind(&p)
-                            .execute(&self.pool)
-                            .await;
+                    let _ = sqlx::query(
+                        "DELETE FROM git_dirty_files WHERE workspace_id = $1 AND path = $2",
+                    )
+                    .bind(workspace_id)
+                    .bind(&p)
+                    .execute(&self.pool)
+                    .await;
                 }
             }
             for d in deletes.iter() {
@@ -1615,7 +1637,10 @@ impl GitWorkspacePort for GitWorkspaceService {
             .set_latest_commit(workspace_id, Some(&meta))
             .await
         {
-            let _ = self.git_storage.delete_pack(workspace_id, &meta.commit_id).await;
+            let _ = self
+                .git_storage
+                .delete_pack(workspace_id, &meta.commit_id)
+                .await;
             for key in snapshot_keys.iter().rev() {
                 let _ = self.git_storage.delete_blob(key).await;
             }
@@ -1624,7 +1649,10 @@ impl GitWorkspacePort for GitWorkspaceService {
         }
 
         if let Err(err) = tx.commit().await {
-            let _ = self.git_storage.delete_pack(workspace_id, &meta.commit_id).await;
+            let _ = self
+                .git_storage
+                .delete_pack(workspace_id, &meta.commit_id)
+                .await;
             for key in snapshot_keys.iter().rev() {
                 let _ = self.git_storage.delete_blob(key).await;
             }

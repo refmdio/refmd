@@ -13,7 +13,7 @@ use crate::{
     application::ports::storage_projection_queue::{
         StorageProjectionJobKind, StorageProjectionQueue,
     },
-    application::services::workspaces::permissions::PermissionSet,
+    domain::workspaces::permissions::PermissionSet,
     infrastructure::db::PgPool,
 };
 

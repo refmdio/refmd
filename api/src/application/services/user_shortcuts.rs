@@ -6,11 +6,11 @@ use uuid::Uuid;
 use crate::application::dto::user_shortcuts::UserShortcutProfileDto;
 use crate::application::ports::user_shortcut_repository::UserShortcutRepository;
 use crate::application::services::errors::ServiceError;
-use crate::application::services::workspaces::permissions::{PERM_SHORTCUT_UPDATE, PermissionSet};
 use crate::application::use_cases::user_shortcuts::get_shortcuts::GetUserShortcuts;
 use crate::application::use_cases::user_shortcuts::update_shortcuts::{
     UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,
 };
+use crate::domain::workspaces::permissions::{PERM_SHORTCUT_UPDATE, PermissionSet};
 
 pub struct UserShortcutService {
     repo: Arc<dyn UserShortcutRepository>,

@@ -20,10 +20,10 @@ use crate::application::services::errors::ServiceError;
 use crate::application::services::plugins::management::{
     self, AssetRequestScope, PluginAssetRequest, PluginManifestItem,
 };
-use crate::application::services::workspaces::permissions::{
+use crate::application::use_cases::plugins::install_from_url::InstallPluginError;
+use crate::domain::workspaces::permissions::{
     PERM_PLUGIN_INSTALL, PERM_PLUGIN_RUN, PERM_PLUGIN_UNINSTALL, PermissionSet,
 };
-use crate::application::use_cases::plugins::install_from_url::InstallPluginError;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
 use crate::presentation::http::workspace_scope;

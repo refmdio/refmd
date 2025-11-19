@@ -7,8 +7,8 @@ use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::plugin_runtime::PluginRuntime;
 use crate::application::services::errors::ServiceError;
-use crate::application::services::workspaces::permissions::PermissionSet;
 use crate::application::use_cases::plugins::exec_action::ExecutePluginAction;
+use crate::domain::workspaces::permissions::PermissionSet;
 
 pub struct PluginExecutionService {
     plugin_repo: Arc<dyn PluginRepository>,

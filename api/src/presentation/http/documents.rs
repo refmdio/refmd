@@ -18,8 +18,8 @@ use crate::application::dto::documents::{
 };
 use crate::application::services::documents::DocumentPatchOperation;
 use crate::application::services::errors::ServiceError;
-use crate::application::services::workspaces::permissions::PERM_DOC_VIEW;
 use crate::domain::documents::document as domain;
+use crate::domain::workspaces::permissions::PERM_DOC_VIEW;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
 use crate::presentation::http::workspace_scope;

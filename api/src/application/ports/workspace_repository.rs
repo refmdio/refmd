@@ -1,3 +1,4 @@
+use anyhow::Error;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -87,6 +88,12 @@ pub struct WorkspaceInvitationRecord {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug)]
+pub enum WorkspaceSetDefaultError {
+    MembershipNotFound,
+    Unexpected(Error),
+}
+
 #[async_trait]
 pub trait WorkspaceRepository: Send + Sync {
     async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<WorkspaceListItem>>;
@@ -122,7 +129,7 @@ pub trait WorkspaceRepository: Send + Sync {
         &self,
         user_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<WorkspaceMemberRow>;
+    ) -> Result<WorkspaceMemberRow, WorkspaceSetDefaultError>;
 
     async fn list_members(&self, workspace_id: Uuid) -> anyhow::Result<Vec<WorkspaceMemberDetail>>;
 
@@ -146,6 +153,12 @@ pub trait WorkspaceRepository: Send + Sync {
         workspace_id: Uuid,
         user_id: Uuid,
     ) -> anyhow::Result<Option<WorkspacePermissionRecord>>;
+
+    async fn count_system_role_members(
+        &self,
+        workspace_id: Uuid,
+        system_role: &str,
+    ) -> anyhow::Result<i64>;
 
     async fn list_roles(&self, workspace_id: Uuid) -> anyhow::Result<Vec<WorkspaceRoleRecord>>;
 
@@ -172,6 +185,12 @@ pub trait WorkspaceRepository: Send + Sync {
 
     async fn delete_role(&self, workspace_id: Uuid, role_id: Uuid) -> anyhow::Result<bool>;
     async fn delete_workspace(&self, workspace_id: Uuid) -> anyhow::Result<bool>;
+
+    async fn get_role(
+        &self,
+        workspace_id: Uuid,
+        role_id: Uuid,
+    ) -> anyhow::Result<Option<WorkspaceRoleRecord>>;
 
     async fn delete_member(&self, workspace_id: Uuid, user_id: Uuid) -> anyhow::Result<bool>;
     async fn update_workspace(
@@ -211,4 +230,6 @@ pub trait WorkspaceRepository: Send + Sync {
         workspace_id: Uuid,
         invitation_id: Uuid,
     ) -> anyhow::Result<Option<WorkspaceInvitationRecord>>;
+
+    async fn list_all_workspace_ids(&self) -> anyhow::Result<Vec<Uuid>>;
 }

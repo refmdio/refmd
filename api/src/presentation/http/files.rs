@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::application::access;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::files::FilePayload;
-use crate::application::services::workspaces::permissions::{PERM_DOC_VIEW, PERM_FILE_UPLOAD};
+use crate::domain::workspaces::permissions::{PERM_DOC_VIEW, PERM_FILE_UPLOAD};
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
 use crate::presentation::http::workspace_scope;

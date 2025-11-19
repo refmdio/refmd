@@ -1,7 +1,7 @@
 use axum::http::{HeaderMap, StatusCode};
 use uuid::Uuid;
 
-use crate::application::services::workspaces::permissions::PermissionSet;
+use crate::domain::workspaces::permissions::PermissionSet;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::workspaces::map_service_error;
 

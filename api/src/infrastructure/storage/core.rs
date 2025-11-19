@@ -213,14 +213,9 @@ pub async fn mark_dirty_upsert_relative(
     let rel = relative.trim_start_matches('/');
     if let Some((workspace_id, repo_path)) = split_owner_and_repo_path(rel) {
         if !repo_path.is_empty() {
-            let _ = mark_dirty_upsert_internal(
-                pool,
-                workspace_id,
-                &repo_path,
-                is_text,
-                content_hash,
-            )
-            .await;
+            let _ =
+                mark_dirty_upsert_internal(pool, workspace_id, &repo_path, is_text, content_hash)
+                    .await;
         }
     }
     Ok(())

@@ -84,7 +84,9 @@ impl AccountService {
         let user = match uc.execute(&register_request).await {
             Ok(user) => user,
             Err(err) => {
-                let _ = self.workspace_service.delete_workspace(user_id).await;
+                if let Err(err) = self.workspace_service.delete_workspace(user_id).await {
+                    tracing::warn!(error = ?err, user_id = %user_id, "workspace_cleanup_failed");
+                }
                 tracing::error!(error = ?err, "register_failed");
                 return Err(ServiceError::Conflict);
             }

@@ -4,24 +4,6 @@ import { Building2, Shield, Sparkles, Trash2, UserPlus, Users2 } from 'lucide-re
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-import {
-  acceptInvitation as acceptWorkspaceInvitationApi,
-  createInvitation as createWorkspaceInvitationApi,
-  createWorkspace as createWorkspaceApi,
-  listMembers as listWorkspaceMembersApi,
-  listRoles as listWorkspaceRolesApi,
-  listInvitations as listWorkspaceInvitationsApi,
-  revokeInvitation as revokeWorkspaceInvitationApi,
-  updateMemberRole as updateWorkspaceMemberRoleApi,
-  createRole as createWorkspaceRoleApi,
-  updateRole as updateWorkspaceRoleApi,
-  deleteRole as deleteWorkspaceRoleApi,
-  removeMember as removeWorkspaceMemberApi,
-  type PermissionOverridePayload,
-  type WorkspaceInvitationResponse,
-  type WorkspaceMemberResponse,
-  type WorkspaceRoleResponse,
-} from '@/shared/api'
 import { ApiError } from '@/shared/api'
 import { cn } from '@/shared/lib/utils'
 import { Badge } from '@/shared/ui/badge'
@@ -34,9 +16,37 @@ import { Switch } from '@/shared/ui/switch'
 import { Textarea } from '@/shared/ui/textarea'
 
 import { me as meApi, userKeys } from '@/entities/user'
-import { deleteWorkspace as deleteWorkspaceApi, updateWorkspace as updateWorkspaceApi } from '@/entities/workspace/api'
+import {
+  listWorkspaceInvitations,
+  listWorkspaceMembers,
+  listWorkspaceRoles,
+  workspaceKeys,
+  type WorkspaceInvitationResponse,
+  type WorkspaceMemberResponse,
+  type WorkspaceRoleResponse,
+} from '@/entities/workspace/api'
 
 import { useAuthContext } from '@/features/auth'
+import {
+  acceptWorkspaceInvitationAction,
+  DEFAULT_INVITE_ROLE,
+  PERMISSION_GROUPS,
+  buildSystemPermissionSet,
+  computeOverrides,
+  createWorkspaceAction,
+  createWorkspaceRoleAction,
+  deleteWorkspaceAction,
+  deleteWorkspaceRoleAction,
+  leaveWorkspaceAction,
+  roleToPermissionSet,
+  removeWorkspaceMemberAction,
+  revokeWorkspaceInvitationAction,
+  sendWorkspaceInvitationAction,
+  updateWorkspaceMemberRoleAction,
+  updateWorkspaceRoleAction,
+  updateWorkspaceSettingsAction,
+} from '@/features/workspaces'
+import type { BaseRole, InviteRoleValue, SystemRole } from '@/features/workspaces'
 
 function formatWorkspaceSecondaryText(workspace: ReturnType<typeof useAuthContext>['workspaces'][number]) {
   if (workspace.is_personal) {
@@ -48,145 +58,6 @@ function formatWorkspaceSecondaryText(workspace: ReturnType<typeof useAuthContex
       ? `${(workspace.system_role || 'member').replace(/^\w/, (ltr) => ltr.toUpperCase())} role`
       : 'Custom role'
   return slug ? `${slug} - ${role}` : role
-}
-
-const PERMISSION_GROUPS = [
-  {
-    title: 'Documents & Folders',
-    permissions: [
-      { id: 'doc:view', label: 'View documents' },
-      { id: 'doc:edit', label: 'Edit documents' },
-      { id: 'doc:create', label: 'Create documents' },
-      { id: 'doc:archive', label: 'Archive documents' },
-      { id: 'doc:delete', label: 'Delete documents' },
-      { id: 'doc:move', label: 'Move documents' },
-      { id: 'folder:create', label: 'Create folders' },
-      { id: 'folder:delete', label: 'Delete folders' },
-    ],
-  },
-  {
-    title: 'Files & Attachments',
-    permissions: [
-      { id: 'file:upload', label: 'Upload files' },
-      { id: 'file:delete', label: 'Delete files' },
-    ],
-  },
-  {
-    title: 'Sharing & Publishing',
-    permissions: [
-      { id: 'share:create', label: 'Create share links' },
-      { id: 'share:delete', label: 'Delete share links' },
-      { id: 'public:publish', label: 'Publish publicly' },
-      { id: 'public:unpublish', label: 'Unpublish' },
-    ],
-  },
-  {
-    title: 'Members & Workspaces',
-    permissions: [
-      { id: 'member:view', label: 'View members' },
-      { id: 'member:invite', label: 'Invite members' },
-      { id: 'member:update_role', label: 'Manage roles' },
-      { id: 'member:remove', label: 'Remove members' },
-      { id: 'workspace:update_settings', label: 'Update workspace settings' },
-      { id: 'workspace:delete', label: 'Delete workspace' },
-    ],
-  },
-  {
-    title: 'Integrations',
-    permissions: [
-      { id: 'plugin:install', label: 'Install plugins' },
-      { id: 'plugin:uninstall', label: 'Uninstall plugins' },
-      { id: 'plugin:run', label: 'Run plugins' },
-      { id: 'git:init', label: 'Initialize Git' },
-      { id: 'git:sync', label: 'Sync with Git' },
-      { id: 'git:configure', label: 'Configure Git' },
-    ],
-  },
-  {
-    title: 'Automation & API',
-    permissions: [
-      { id: 'shortcut:update', label: 'Manage shortcuts' },
-      { id: 'api_token:manage', label: 'Manage API tokens' },
-    ],
-  },
-]
-
-const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap((group) => group.permissions.map((item) => item.id))
-
-type BaseRole = 'viewer' | 'editor' | 'admin'
-type SystemRole = BaseRole | 'owner'
-type InviteRoleValue = `system:${SystemRole}` | `custom:${string}`
-
-const DEFAULT_INVITE_ROLE: InviteRoleValue = 'system:editor'
-
-const SYSTEM_ROLE_DEFAULTS: Record<SystemRole, string[]> = {
-  owner: ALL_PERMISSIONS,
-  admin: ALL_PERMISSIONS.filter((perm) => perm !== 'workspace:delete'),
-  editor: [
-    'doc:view',
-    'doc:edit',
-    'doc:create',
-    'doc:archive',
-    'doc:delete',
-    'doc:move',
-    'folder:create',
-    'folder:delete',
-    'file:upload',
-    'file:delete',
-    'share:create',
-    'share:delete',
-    'public:publish',
-    'public:unpublish',
-    'plugin:run',
-    'plugin:install',
-    'plugin:uninstall',
-    'git:init',
-    'git:sync',
-    'git:configure',
-    'shortcut:update',
-    'api_token:manage',
-  ],
-  viewer: ['doc:view'],
-}
-
-function buildSystemPermissionSet(role: SystemRole) {
-  return new Set(SYSTEM_ROLE_DEFAULTS[role])
-}
-
-function applyOverrides(
-  base: Set<string>,
-  overrides?: PermissionOverridePayload[] | null,
-) {
-  if (!overrides || overrides.length === 0) {
-    return base
-  }
-  const next = new Set(base)
-  overrides.forEach((override) => {
-    if (override.allowed) {
-      next.add(override.permission)
-    } else {
-      next.delete(override.permission)
-    }
-  })
-  return next
-}
-
-function roleToPermissionSet(role: WorkspaceRoleResponse) {
-  const base = buildSystemPermissionSet(role.base_role as BaseRole)
-  return applyOverrides(base, role.overrides)
-}
-
-function computeOverrides(baseRole: BaseRole, selected: Set<string>): PermissionOverridePayload[] {
-  const baseSet = buildSystemPermissionSet(baseRole)
-  const overrides: PermissionOverridePayload[] = []
-  ALL_PERMISSIONS.forEach((perm) => {
-    const inBase = baseSet.has(perm)
-    const isSelected = selected.has(perm)
-    if (inBase !== isSelected) {
-      overrides.push({ permission: perm, allowed: isSelected })
-    }
-  })
-  return overrides
 }
 
 type RoleFormState = {
@@ -250,6 +121,7 @@ export default function WorkspacesPage() {
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [deletingWorkspace, setDeletingWorkspace] = useState(false)
   const [revokingInvitationId, setRevokingInvitationId] = useState<string | null>(null)
+  const [leavingWorkspaceId, setLeavingWorkspaceId] = useState<string | null>(null)
 
   const workspaceId = activeWorkspaceId
   const workspaceName = activeWorkspace?.name ?? 'Workspace'
@@ -258,35 +130,36 @@ export default function WorkspacesPage() {
   const canInviteMembers = permissions.includes('member:invite')
   const canRemoveMembers = permissions.includes('member:remove')
   const canManageRoles = permissions.includes('member:update_role')
-  const canViewInvitations = canInviteMembers || canViewMembers
+  const canFetchRoles = canManageRoles || canInviteMembers || canViewMembers
+  const canViewInvitations = canInviteMembers
   const canEditWorkspace = permissions.includes('workspace:update_settings')
   const canDeleteWorkspace = permissions.includes('workspace:delete')
   const hasActiveWorkspace = Boolean(workspaceId)
 
   const membersQuery = useQuery({
-    queryKey: ['workspace-members', workspaceId],
+    queryKey: workspaceKeys.members(workspaceId),
     enabled: !!workspaceId && canViewMembers,
     queryFn: async () => {
       if (!workspaceId) return [] as WorkspaceMemberResponse[]
-      return listWorkspaceMembersApi({ id: workspaceId }) as Promise<WorkspaceMemberResponse[]>
+      return listWorkspaceMembers(workspaceId)
     },
   })
 
   const rolesQuery = useQuery({
-    queryKey: ['workspace-roles', workspaceId],
-    enabled: !!workspaceId && canManageRoles,
+    queryKey: workspaceKeys.roles(workspaceId),
+    enabled: !!workspaceId && canFetchRoles,
     queryFn: async () => {
       if (!workspaceId) return [] as WorkspaceRoleResponse[]
-      return listWorkspaceRolesApi({ id: workspaceId }) as Promise<WorkspaceRoleResponse[]>
+      return listWorkspaceRoles(workspaceId)
     },
   })
 
   const invitationsQuery = useQuery({
-    queryKey: ['workspace-invitations', workspaceId],
+    queryKey: workspaceKeys.invitations(workspaceId),
     enabled: !!workspaceId && canViewInvitations,
     queryFn: async () => {
       if (!workspaceId) return [] as WorkspaceInvitationResponse[]
-      return listWorkspaceInvitationsApi({ id: workspaceId }) as Promise<WorkspaceInvitationResponse[]>
+      return listWorkspaceInvitations(workspaceId)
     },
   })
 
@@ -363,13 +236,17 @@ export default function WorkspacesPage() {
   const handleMemberRoleChange = async (memberId: string, selection: string) => {
     if (!workspaceId) return
     setMemberRoleUpdating(memberId)
-    const [kind, value] = selection.split(':')
-    const payload =
+    const [kind, value] = selection.split(':') as ['system' | 'custom', string]
+    const roleSelection =
       kind === 'custom'
-        ? { role_kind: 'custom', custom_role_id: value, system_role: undefined }
-        : { role_kind: 'system', system_role: value, custom_role_id: undefined }
+        ? { kind: 'custom' as const, customRoleId: value }
+        : { kind: 'system' as const, systemRole: value as SystemRole }
     try {
-      await updateWorkspaceMemberRoleApi({ id: workspaceId, userId: memberId, requestBody: payload })
+      await updateWorkspaceMemberRoleAction({ workspaceId, memberId, selection: roleSelection })
+      if (memberId === user?.id) {
+        const updated = await meApi()
+        queryClient.setQueryData(userKeys.me(), updated)
+      }
       toast.success('Member updated')
       await membersQuery.refetch()
     } catch (error) {
@@ -387,12 +264,7 @@ export default function WorkspacesPage() {
     }
     setCreating(true)
     try {
-      await createWorkspaceApi({
-        requestBody: {
-          name: createName.trim(),
-          description: createDescription.trim() || undefined,
-        },
-      })
+      await createWorkspaceAction({ name: createName, description: createDescription })
       const updated = await meApi()
       queryClient.setQueryData(userKeys.me(), updated)
       toast.success('Workspace created')
@@ -420,10 +292,7 @@ export default function WorkspacesPage() {
     }
     setSettingsSaving(true)
     try {
-      await updateWorkspaceApi(workspaceId, {
-        name: settingsName.trim(),
-        description: settingsDescription.trim(),
-      })
+      await updateWorkspaceSettingsAction({ workspaceId, name: settingsName, description: settingsDescription })
       const updated = await meApi()
       queryClient.setQueryData(userKeys.me(), updated)
       await Promise.all([
@@ -452,7 +321,7 @@ export default function WorkspacesPage() {
     }
     setDeletingWorkspace(true)
     try {
-      await deleteWorkspaceApi(workspaceId)
+      await deleteWorkspaceAction(workspaceId)
       toast.success('Workspace deleted')
       const updated = await meApi()
       queryClient.clear()
@@ -492,15 +361,11 @@ export default function WorkspacesPage() {
       if (roleKind === 'custom' && !roleValue) {
         throw new Error('Select a valid custom role')
       }
-      await createWorkspaceInvitationApi({
-        id: workspaceId,
-        requestBody: {
-          email: inviteEmail.trim(),
-          role_kind: roleKind,
-          system_role: roleKind === 'system' ? (roleValue as SystemRole) : undefined,
-          custom_role_id: roleKind === 'custom' ? roleValue : undefined,
-        },
-      })
+      const selection =
+        roleKind === 'custom'
+          ? { kind: 'custom' as const, customRoleId: roleValue }
+          : { kind: 'system' as const, systemRole: roleValue as SystemRole }
+      await sendWorkspaceInvitationAction({ workspaceId, email: inviteEmail.trim(), selection })
       toast.success('Invitation sent')
       setInviteEmail('')
       setInviteRole(DEFAULT_INVITE_ROLE)
@@ -536,7 +401,7 @@ export default function WorkspacesPage() {
     }
     setRevokingInvitationId(invitationId)
     try {
-      await revokeWorkspaceInvitationApi({ id: workspaceId, invitationId })
+      await revokeWorkspaceInvitationAction(workspaceId, invitationId)
       toast.success('Invitation revoked')
       await invitationsQuery.refetch()
     } catch (error) {
@@ -559,7 +424,7 @@ export default function WorkspacesPage() {
     }
     setMemberRemovingId(memberId)
     try {
-      await removeWorkspaceMemberApi({ id: workspaceId, userId: memberId })
+      await removeWorkspaceMemberAction(workspaceId, memberId)
       toast.success('Member removed')
       await membersQuery.refetch()
     } catch (error) {
@@ -571,11 +436,41 @@ export default function WorkspacesPage() {
     }
   }
 
+  const handleLeaveWorkspace = async (workspaceId: string) => {
+    if (!user) return
+    if (workspaceId === user.id) {
+      toast.error('Personal workspaces cannot be left')
+      return
+    }
+    if (!window.confirm('Leave this workspace? You will lose access to its documents.')) {
+      return
+    }
+    setLeavingWorkspaceId(workspaceId)
+    try {
+      await leaveWorkspaceAction(workspaceId)
+      const updated = await meApi()
+      queryClient.setQueryData(userKeys.me(), updated)
+      queryClient.removeQueries({ queryKey: workspaceKeys.members(workspaceId) })
+      queryClient.removeQueries({ queryKey: workspaceKeys.roles(workspaceId) })
+      queryClient.removeQueries({ queryKey: workspaceKeys.invitations(workspaceId) })
+      toast.success('You left the workspace')
+    } catch (error) {
+      console.error('[workspaces] leave workspace failed', error)
+      let message = error instanceof Error ? error.message : 'Failed to leave workspace'
+      if (error instanceof ApiError && error.status === 400) {
+        message = 'This workspace cannot be left right now'
+      }
+      toast.error(message)
+    } finally {
+      setLeavingWorkspaceId(null)
+    }
+  }
+
   const handleAcceptInvite = async () => {
     if (!inviteToken) return
     setAcceptingInvite(true)
     try {
-      await acceptWorkspaceInvitationApi({ token: inviteToken })
+      await acceptWorkspaceInvitationAction(inviteToken)
       const updated = await meApi()
       queryClient.setQueryData(userKeys.me(), updated)
       toast.success('Invitation accepted')
@@ -599,9 +494,9 @@ export default function WorkspacesPage() {
       await switchWorkspace(workspaceId)
       toast.success('Workspace switched')
       await Promise.all([
-        membersQuery.refetch(),
-        rolesQuery.refetch(),
-        invitationsQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: workspaceKeys.members(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: workspaceKeys.roles(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: workspaceKeys.invitations(workspaceId) }),
       ])
     } catch (error) {
       console.error('[workspaces] switch failed', error)
@@ -646,28 +541,24 @@ export default function WorkspacesPage() {
     try {
       const overrides = computeOverrides(roleForm.baseRole, roleForm.permissions)
       if (roleDialogMode === 'create') {
-        await createWorkspaceRoleApi({
-          id: workspaceId,
-          requestBody: {
-            name: roleForm.name.trim(),
-            base_role: roleForm.baseRole,
-            description: roleForm.description.trim() || undefined,
-            priority: roleForm.priority,
-            overrides,
-          },
+        await createWorkspaceRoleAction({
+          workspaceId,
+          name: roleForm.name,
+          baseRole: roleForm.baseRole,
+          description: roleForm.description,
+          priority: roleForm.priority,
+          overrides,
         })
         toast.success('Role created')
       } else if (editingRole) {
-        await updateWorkspaceRoleApi({
-          id: workspaceId,
+        await updateWorkspaceRoleAction({
+          workspaceId,
           roleId: editingRole.id,
-          requestBody: {
-            name: roleForm.name.trim(),
-            base_role: roleForm.baseRole,
-            description: roleForm.description.trim() || undefined,
-            priority: roleForm.priority,
-            overrides,
-          },
+          name: roleForm.name,
+          baseRole: roleForm.baseRole,
+          description: roleForm.description,
+          priority: roleForm.priority,
+          overrides,
         })
         toast.success('Role updated')
       }
@@ -687,7 +578,7 @@ export default function WorkspacesPage() {
     if (!workspaceId || !editingRole) return
     setRoleDeleting(true)
     try {
-      await deleteWorkspaceRoleApi({ id: workspaceId, roleId: editingRole.id })
+      await deleteWorkspaceRoleAction(workspaceId, editingRole.id)
       toast.success('Role deleted')
       setRoleDialogOpen(false)
       setEditingRole(null)
@@ -870,6 +761,8 @@ export default function WorkspacesPage() {
               {workspaces.map((workspace) => {
                 const isActive = workspace.id === activeWorkspaceId
                 const isSwitching = switchingId === workspace.id
+                const canLeave = !workspace.is_personal && workspace.id !== user?.id
+                const leaving = leavingWorkspaceId === workspace.id
                 return (
                   <div
                     key={workspace.id}
@@ -901,6 +794,17 @@ export default function WorkspacesPage() {
                         >
                           {isSwitching ? 'Switching…' : isActive ? 'Current' : 'Switch'}
                         </Button>
+                        {canLeave && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="rounded-full text-destructive hover:text-destructive"
+                            disabled={leaving}
+                            onClick={() => handleLeaveWorkspace(workspace.id)}
+                          >
+                            {leaving ? 'Leaving…' : 'Leave'}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1107,6 +1011,14 @@ export default function WorkspacesPage() {
                       <div key={idx} className="h-20 animate-pulse rounded-2xl bg-muted/40" />
                     ))}
                   </div>
+                ) : rolesQuery.isError ? (
+                  <p className="mt-4 text-sm text-destructive">
+                    {rolesQuery.error instanceof ApiError && rolesQuery.error.status === 403
+                      ? 'You do not have permission to view custom roles.'
+                      : rolesQuery.error instanceof Error
+                        ? rolesQuery.error.message
+                        : 'Failed to load custom roles.'}
+                  </p>
                 ) : customRoles.length === 0 ? (
                   <p className="mt-4 text-sm text-muted-foreground">No custom roles yet.</p>
                 ) : (

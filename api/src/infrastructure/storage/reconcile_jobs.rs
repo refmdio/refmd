@@ -20,12 +20,12 @@ impl PgStorageReconcileJobs {
 
 #[async_trait]
 impl StorageReconcileJobs for PgStorageReconcileJobs {
-    async fn enqueue(&self, user_id: Uuid, scope: &str) -> anyhow::Result<()> {
+    async fn enqueue(&self, workspace_id: Uuid, scope: &str) -> anyhow::Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO storage_reconcile_jobs (user_id, scope, attempts, locked_at, last_error)
+            INSERT INTO storage_reconcile_jobs (workspace_id, scope, attempts, locked_at, last_error)
             VALUES ($1, $2, 0, NULL, NULL)
-            ON CONFLICT ON CONSTRAINT storage_reconcile_jobs_user_scope_unique
+            ON CONFLICT ON CONSTRAINT storage_reconcile_jobs_workspace_scope_unique
             DO UPDATE
             SET attempts = CASE
                     WHEN storage_reconcile_jobs.locked_at IS NULL THEN 0
@@ -43,11 +43,15 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
                 updated_at = now()
             "#,
         )
-        .bind(user_id)
+        .bind(workspace_id)
         .bind(scope)
         .execute(&self.pool)
         .await?;
-        debug!(user_id = %user_id, scope, "storage_reconcile_job_enqueued");
+        debug!(
+            workspace_id = %workspace_id,
+            scope,
+            "storage_reconcile_job_enqueued"
+        );
         Ok(())
     }
 
@@ -70,7 +74,7 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
                 attempts = attempts + 1,
                 updated_at = now()
             WHERE j.id IN (SELECT id FROM next_job)
-            RETURNING j.id, j.user_id, j.scope, j.attempts
+            RETURNING j.id, j.workspace_id, j.scope, j.attempts
             "#,
         )
         .bind(lock_timeout_secs.max(1))
@@ -79,7 +83,7 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
 
         Ok(row.map(|r| StorageReconcileJob {
             id: r.get("id"),
-            user_id: r.get("user_id"),
+            workspace_id: r.get("workspace_id"),
             scope: r.get("scope"),
             attempts: r.get("attempts"),
         }))

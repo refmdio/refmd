@@ -33,6 +33,8 @@ pub struct StorageDeleteJobMetadata {
     pub attachment_paths: Option<Vec<String>>,
     #[serde(default)]
     pub permission_snapshot: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

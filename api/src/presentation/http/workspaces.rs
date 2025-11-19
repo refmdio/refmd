@@ -14,7 +14,7 @@ use crate::application::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceRoleRecord,
 };
 use crate::application::services::errors::ServiceError;
-use crate::application::services::workspaces::permissions::{
+use crate::domain::workspaces::permissions::{
     PERM_MEMBER_INVITE, PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW,
     PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
 };
@@ -30,6 +30,7 @@ pub fn routes(ctx: AppContext) -> Router {
                 .put(update_workspace)
                 .delete(delete_workspace),
         )
+        .route("/workspaces/:id/leave", post(leave_workspace))
         .route("/workspaces/:id/switch", post(switch_workspace))
         .route("/workspaces/:id/members", get(list_members))
         .route(
@@ -292,6 +293,28 @@ async fn require_permission(
     }
 }
 
+async fn require_any_permission(
+    ctx: &AppContext,
+    workspace_id: Uuid,
+    user_id: Uuid,
+    permissions: &[&str],
+) -> Result<(), StatusCode> {
+    if permissions.is_empty() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let set = ctx
+        .workspace_service()
+        .resolve_permission_set(workspace_id, user_id)
+        .await
+        .map_err(map_service_error)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+    if permissions.iter().any(|perm| set.allows(perm)) {
+        Ok(())
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
+}
+
 fn validate_base_role(role: &str) -> bool {
     matches!(role, "viewer" | "editor" | "admin")
 }
@@ -370,7 +393,17 @@ pub async fn list_roles(
 ) -> Result<Json<Vec<WorkspaceRoleResponse>>, StatusCode> {
     let sub = auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    require_permission(&ctx, id, user_id, PERM_MEMBER_VIEW).await?;
+    require_any_permission(
+        &ctx,
+        id,
+        user_id,
+        &[
+            PERM_MEMBER_VIEW,
+            PERM_MEMBER_UPDATE_ROLE,
+            PERM_MEMBER_INVITE,
+        ],
+    )
+    .await?;
     let roles = ctx
         .workspace_service()
         .list_roles(id)
@@ -396,7 +429,7 @@ pub async fn list_invitations(
 ) -> Result<Json<Vec<WorkspaceInvitationResponse>>, StatusCode> {
     let sub = auth::validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    require_permission(&ctx, id, user_id, PERM_MEMBER_VIEW).await?;
+    require_permission(&ctx, id, user_id, PERM_MEMBER_INVITE).await?;
     let invitations = ctx
         .workspace_service()
         .list_invitations(id)
@@ -495,6 +528,7 @@ pub async fn create_role(
         .workspace_service()
         .create_role(
             id,
+            user_id,
             body.name.trim(),
             body.base_role.trim(),
             body.description.as_deref(),
@@ -541,6 +575,7 @@ pub async fn update_role(
         .workspace_service()
         .update_role(
             workspace_id,
+            user_id,
             role_id,
             body.name.as_deref(),
             body.base_role.as_deref(),
@@ -795,6 +830,7 @@ pub async fn update_member_role(
         .update_member_role(
             workspace_id,
             member_id,
+            user_id,
             &body.role_kind,
             body.system_role.as_deref(),
             body.custom_role_id,
@@ -833,7 +869,28 @@ pub async fn remove_member(
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_REMOVE).await?;
     ctx.workspace_service()
-        .remove_member(workspace_id, member_id)
+        .remove_member(workspace_id, member_id, Some(user_id))
+        .await
+        .map_err(map_service_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/workspaces/{id}/leave",
+    tag = "Workspaces",
+    params(("id" = Uuid, Path, description = "Workspace ID")),
+    responses((status = 204))
+)]
+pub async fn leave_workspace(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    Path(workspace_id): Path<Uuid>,
+) -> Result<StatusCode, StatusCode> {
+    let sub = auth::validate_bearer(&ctx, bearer).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    ctx.workspace_service()
+        .leave_workspace(workspace_id, user_id)
         .await
         .map_err(map_service_error)?;
     Ok(StatusCode::NO_CONTENT)

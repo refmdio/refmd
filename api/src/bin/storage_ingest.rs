@@ -3,8 +3,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
 use api::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
-use api::application::services::workspaces::permissions::PermissionSet;
 use api::bootstrap::config::Config;
+use api::domain::workspaces::permissions::PermissionSet;
 use api::infrastructure::db;
 use api::infrastructure::storage::PgStorageIngestQueue;
 

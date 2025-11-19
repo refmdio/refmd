@@ -26,10 +26,6 @@ use crate::application::ports::storage_projection_queue::{
 };
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
-use crate::application::services::workspaces::permissions::{
-    PERM_DOC_ARCHIVE, PERM_DOC_CREATE, PERM_DOC_DELETE, PERM_DOC_EDIT, PERM_DOC_MOVE,
-    PERM_FOLDER_CREATE, PERM_FOLDER_DELETE, PermissionSet,
-};
 use crate::application::use_cases::documents::archive_document::ArchiveDocument;
 use crate::application::use_cases::documents::create_document::CreateDocument;
 use crate::application::use_cases::documents::delete_document::DeleteDocument;
@@ -52,6 +48,10 @@ use crate::application::use_cases::documents::update_document::UpdateDocument;
 use crate::domain::documents::document::{
     BacklinkInfo as DomainBacklink, Document as DomainDocument, OutgoingLink as DomainOutgoingLink,
     SearchHit,
+};
+use crate::domain::workspaces::permissions::{
+    PERM_DOC_ARCHIVE, PERM_DOC_CREATE, PERM_DOC_DELETE, PERM_DOC_EDIT, PERM_DOC_MOVE,
+    PERM_FOLDER_CREATE, PERM_FOLDER_DELETE, PermissionSet,
 };
 use serde_json::json;
 
@@ -153,23 +153,24 @@ impl DocumentService {
         self.enqueue_projection_for_document_tx(&mut tx, &doc, "create_document")
             .await?;
         let repo_path = doc.desired_path.clone();
+        let event_payload = json!({
+            "title": doc.title,
+            "parent_id": doc.parent_id,
+            "doc_type": doc.doc_type,
+            "repo_path": repo_path,
+            "slug": doc.slug,
+            "desired_path": doc.desired_path,
+            "owner_id": doc.workspace_id,
+            "actor_id": actor_id,
+        });
+        tx.commit().await.map_err(map_sqlx_error)?;
         self.record_event(
             doc.workspace_id,
             doc.id,
             "document.created",
-            Some(json!({
-                "title": doc.title,
-                "parent_id": doc.parent_id,
-                "doc_type": doc.doc_type,
-                "repo_path": repo_path,
-                "slug": doc.slug,
-                "desired_path": doc.desired_path,
-                "owner_id": doc.workspace_id,
-                "actor_id": actor_id,
-            })),
+            Some(event_payload),
         )
         .await;
-        tx.commit().await.map_err(map_sqlx_error)?;
         Ok(doc)
     }
 
@@ -216,6 +217,7 @@ impl DocumentService {
             repo: self.document_repo.as_ref(),
         };
         let mut deleted = false;
+        let mut delete_events = Vec::new();
         for entry in delete_plan {
             if uc
                 .execute_tx(&mut tx, entry.doc_id, workspace_id)
@@ -229,14 +231,18 @@ impl DocumentService {
                     workspace_id,
                     &entry,
                     &permission_snapshot,
+                    actor_id,
                 )
                 .await?;
-                self.record_delete_event(workspace_id, &entry, actor_id)
-                    .await;
+                delete_events.push(entry.clone());
             }
         }
         if deleted {
             tx.commit().await.map_err(map_sqlx_error)?;
+            for entry in delete_events {
+                self.record_delete_event(workspace_id, &entry, actor_id)
+                    .await;
+            }
             Ok(true)
         } else {
             tx.rollback().await.map_err(map_sqlx_error)?;
@@ -298,20 +304,21 @@ impl DocumentService {
         self.enqueue_doc_sync_tx(&mut tx, doc.workspace_id, doc.id, "update_content")
             .await?;
         let repo_path = doc.desired_path.clone();
+        let event_payload = json!({
+            "repo_path": repo_path,
+            "desired_path": doc.desired_path,
+            "slug": doc.slug,
+            "doc_type": doc.doc_type,
+            "owner_id": doc.workspace_id,
+        });
+        tx.commit().await.map_err(map_sqlx_error)?;
         self.record_event(
             doc.workspace_id,
             doc.id,
             "document.content_updated",
-            Some(json!({
-                "repo_path": repo_path,
-                "desired_path": doc.desired_path,
-                "slug": doc.slug,
-                "doc_type": doc.doc_type,
-                "owner_id": doc.workspace_id,
-            })),
+            Some(event_payload),
         )
         .await;
-        tx.commit().await.map_err(map_sqlx_error)?;
         Ok(doc)
     }
 
@@ -416,25 +423,26 @@ impl DocumentService {
         self.enqueue_projection_for_document_tx(&mut tx, &doc, "update_metadata")
             .await?;
         let repo_path = doc.desired_path.clone();
+        let event_payload = json!({
+            "title": doc.title,
+            "parent_id": doc.parent_id,
+            "repo_path": repo_path,
+            "doc_type": doc.doc_type,
+            "slug": doc.slug,
+            "desired_path": doc.desired_path,
+            "owner_id": doc.workspace_id,
+            "actor_id": actor_id,
+            "previous_path": previous_repo_path,
+            "previous_desired_path": meta.desired_path,
+        });
+        tx.commit().await.map_err(map_sqlx_error)?;
         self.record_event(
             doc.workspace_id,
             doc.id,
             "document.metadata_updated",
-            Some(json!({
-                "title": doc.title,
-                "parent_id": doc.parent_id,
-                "repo_path": repo_path,
-                "doc_type": doc.doc_type,
-                "slug": doc.slug,
-                "desired_path": doc.desired_path,
-                "owner_id": doc.workspace_id,
-                "actor_id": actor_id,
-                "previous_path": previous_repo_path,
-                "previous_desired_path": meta.desired_path,
-            })),
+            Some(event_payload),
         )
         .await;
-        tx.commit().await.map_err(map_sqlx_error)?;
         Ok(doc)
     }
 
@@ -464,23 +472,24 @@ impl DocumentService {
         self.enqueue_projection_for_document_tx(&mut tx, &doc, "archive_document")
             .await?;
         let repo_path = doc.desired_path.clone();
+        let event_payload = json!({
+            "repo_path": repo_path,
+            "doc_type": doc.doc_type,
+            "slug": doc.slug,
+            "desired_path": doc.desired_path,
+            "owner_id": doc.workspace_id,
+            "actor_id": actor_id,
+            "previous_path": previous_repo_path,
+            "previous_desired_path": meta.desired_path,
+        });
+        tx.commit().await.map_err(map_sqlx_error)?;
         self.record_event(
             doc.workspace_id,
             doc.id,
             "document.archived",
-            Some(json!({
-                "repo_path": repo_path,
-                "doc_type": doc.doc_type,
-                "slug": doc.slug,
-                "desired_path": doc.desired_path,
-                "owner_id": doc.workspace_id,
-                "actor_id": actor_id,
-                "previous_path": previous_repo_path,
-                "previous_desired_path": meta.desired_path,
-            })),
+            Some(event_payload),
         )
         .await;
-        tx.commit().await.map_err(map_sqlx_error)?;
         Ok(doc)
     }
 
@@ -510,23 +519,24 @@ impl DocumentService {
         self.enqueue_projection_for_document_tx(&mut tx, &doc, "unarchive_document")
             .await?;
         let repo_path = doc.desired_path.clone();
+        let event_payload = json!({
+            "repo_path": repo_path,
+            "doc_type": doc.doc_type,
+            "slug": doc.slug,
+            "desired_path": doc.desired_path,
+            "owner_id": doc.workspace_id,
+            "actor_id": actor_id,
+            "previous_path": previous_repo_path,
+            "previous_desired_path": meta.desired_path,
+        });
+        tx.commit().await.map_err(map_sqlx_error)?;
         self.record_event(
             doc.workspace_id,
             doc.id,
             "document.unarchived",
-            Some(json!({
-                "repo_path": repo_path,
-                "doc_type": doc.doc_type,
-                "slug": doc.slug,
-                "desired_path": doc.desired_path,
-                "owner_id": doc.workspace_id,
-                "actor_id": actor_id,
-                "previous_path": previous_repo_path,
-                "previous_desired_path": meta.desired_path,
-            })),
+            Some(event_payload),
         )
         .await;
-        tx.commit().await.map_err(map_sqlx_error)?;
         Ok(doc)
     }
 
@@ -979,6 +989,7 @@ impl DocumentService {
         workspace_id: Uuid,
         entry: &PendingDelete,
         permission_snapshot: &[String],
+        actor_id: Option<Uuid>,
     ) -> Result<(), ServiceError> {
         let repo_path = entry.repo_path(workspace_id);
         let metadata = StorageDeleteJobMetadata {
@@ -991,6 +1002,7 @@ impl DocumentService {
                 Some(entry.attachments.clone())
             },
             permission_snapshot: permission_snapshot.to_vec(),
+            actor_id,
         };
         if entry.doc_type == "folder" {
             self.enqueue_folder_delete_tx(
@@ -1109,6 +1121,7 @@ fn is_folder(doc_type: &str) -> usize {
     if doc_type == "folder" { 1 } else { 0 }
 }
 
+#[derive(Clone)]
 struct PendingDelete {
     doc_id: Uuid,
     doc_type: String,

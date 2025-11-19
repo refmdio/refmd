@@ -2,7 +2,7 @@ use uuid::Uuid;
 
 use crate::application::ports::access_repository::AccessRepository;
 use crate::application::ports::share_access_port::ShareAccessPort;
-use crate::application::services::workspaces::permissions::{PERM_DOC_EDIT, PERM_DOC_VIEW};
+use crate::domain::workspaces::permissions::{PERM_DOC_EDIT, PERM_DOC_VIEW};
 
 #[derive(Debug, Clone)]
 pub enum Actor {

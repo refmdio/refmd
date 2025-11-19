@@ -11,10 +11,10 @@ use uuid::Uuid;
 use crate::application::dto::api_tokens::{ApiTokenDto, CreatedApiTokenDto};
 use crate::application::ports::api_token_repository::ApiTokenRepository;
 use crate::application::services::errors::ServiceError;
-use crate::application::services::workspaces::permissions::{PERM_API_TOKEN_MANAGE, PermissionSet};
 use crate::application::use_cases::api_tokens::create_token::CreateApiToken;
 use crate::application::use_cases::api_tokens::list_tokens::ListApiTokens;
 use crate::application::use_cases::api_tokens::revoke_token::RevokeApiToken;
+use crate::domain::workspaces::permissions::{PERM_API_TOKEN_MANAGE, PermissionSet};
 
 pub struct ApiTokenService {
     repo: Arc<dyn ApiTokenRepository>,

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
 use crate::application::services::storage_ingest::normalize_repo_path;
-use crate::application::services::workspaces::permissions::PermissionSet;
+use crate::domain::workspaces::permissions::PermissionSet;
 
 pub struct FsIngestWatcher {
     uploads_root: PathBuf,

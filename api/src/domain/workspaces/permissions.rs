@@ -1,8 +1,5 @@
 use std::collections::BTreeSet;
 
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 pub const PERM_DOC_VIEW: &str = "doc:view";
 pub const PERM_DOC_EDIT: &str = "doc:edit";
 pub const PERM_DOC_CREATE: &str = "doc:create";
@@ -69,6 +66,10 @@ pub struct PermissionSet {
 }
 
 impl PermissionSet {
+    pub fn is_empty(&self) -> bool {
+        self.allowed.is_empty()
+    }
+
     pub fn allows(&self, permission: &str) -> bool {
         self.allowed.contains(permission)
     }
@@ -87,6 +88,13 @@ impl PermissionSet {
 
     pub fn to_vec(&self) -> Vec<String> {
         self.allowed.iter().cloned().collect()
+    }
+
+    pub fn contains_all(&self, other: &PermissionSet) -> bool {
+        other
+            .allowed
+            .iter()
+            .all(|permission| self.allowed.contains(permission))
     }
 
     pub fn union(mut self, other: PermissionSet) -> Self {
@@ -172,50 +180,4 @@ where
         }
     }
     base
-}
-
-pub fn permission_set_from_snapshot(snapshot: &[String]) -> PermissionSet {
-    if snapshot.is_empty() {
-        PermissionSet::all()
-    } else {
-        PermissionSet::from_strings(snapshot.iter().cloned())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkspacePermissionContext {
-    pub workspace_id: Uuid,
-    pub permission_snapshot: Vec<String>,
-}
-
-impl WorkspacePermissionContext {
-    pub fn new(workspace_id: Uuid, permission_set: &PermissionSet) -> Self {
-        Self {
-            workspace_id,
-            permission_snapshot: permission_set.to_vec(),
-        }
-    }
-
-    pub fn from_snapshot(workspace_id: Uuid, snapshot: &[String]) -> Self {
-        Self {
-            workspace_id,
-            permission_snapshot: snapshot.to_vec(),
-        }
-    }
-
-    pub fn workspace_id(&self) -> Uuid {
-        self.workspace_id
-    }
-
-    pub fn snapshot(&self) -> &[String] {
-        &self.permission_snapshot
-    }
-
-    pub fn into_permission_set(self) -> PermissionSet {
-        permission_set_from_snapshot(&self.permission_snapshot)
-    }
-
-    pub fn to_permission_set(&self) -> PermissionSet {
-        permission_set_from_snapshot(&self.permission_snapshot)
-    }
 }

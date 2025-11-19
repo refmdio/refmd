@@ -2,41 +2,48 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
-use crate::application::ports::user_repository::UserRepository;
+use crate::application::ports::workspace_repository::WorkspaceRepository;
 use tracing::{error, info};
 
 pub struct StorageReconcileScheduler {
     jobs: Arc<dyn StorageReconcileJobs>,
-    users: Arc<dyn UserRepository>,
+    workspaces: Arc<dyn WorkspaceRepository>,
     interval: Duration,
 }
 
 impl StorageReconcileScheduler {
     pub fn new(
         jobs: Arc<dyn StorageReconcileJobs>,
-        users: Arc<dyn UserRepository>,
+        workspaces: Arc<dyn WorkspaceRepository>,
         interval: Duration,
     ) -> Self {
         Self {
             jobs,
-            users,
+            workspaces,
             interval,
         }
     }
 
     pub async fn run(self) {
         loop {
-            match self.users.list_user_ids().await {
+            match self.workspaces.list_all_workspace_ids().await {
                 Ok(ids) => {
                     for id in ids {
                         if let Err(err) = self.jobs.enqueue(id, "full").await {
-                            error!(error = ?err, user_id = %id, "storage_reconcile_enqueue_failed");
+                            error!(
+                                error = ?err,
+                                workspace_id = %id,
+                                "storage_reconcile_enqueue_failed"
+                            );
                         } else {
-                            info!(user_id = %id, "storage_reconcile_job_enqueued");
+                            info!(workspace_id = %id, "storage_reconcile_job_enqueued");
                         }
                     }
                 }
-                Err(err) => error!(error = ?err, "storage_reconcile_scheduler_user_list_failed"),
+                Err(err) => error!(
+                    error = ?err,
+                    "storage_reconcile_scheduler_workspace_list_failed"
+                ),
             }
             tokio::time::sleep(self.interval).await;
         }

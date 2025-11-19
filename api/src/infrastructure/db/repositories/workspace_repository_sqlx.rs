@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::application::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceMemberRow,
     WorkspacePermissionRecord, WorkspaceRepository, WorkspaceRoleRecord, WorkspaceRow,
+    WorkspaceSetDefaultError,
 };
 use crate::infrastructure::db::PgPool;
 
@@ -120,6 +121,12 @@ impl SqlxWorkspaceRepository {
                 .flatten(),
             created_at: row.get("created_at"),
         }
+    }
+}
+
+impl From<sqlx::Error> for WorkspaceSetDefaultError {
+    fn from(err: sqlx::Error) -> Self {
+        WorkspaceSetDefaultError::Unexpected(err.into())
     }
 }
 
@@ -285,12 +292,17 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         &self,
         user_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<WorkspaceMemberRow> {
-        let mut tx = self.pool.begin().await?;
+    ) -> Result<WorkspaceMemberRow, WorkspaceSetDefaultError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(WorkspaceSetDefaultError::from)?;
         sqlx::query(r#"UPDATE workspace_members SET is_default = false WHERE user_id = $1"#)
             .bind(user_id)
             .execute(tx.as_mut())
-            .await?;
+            .await
+            .map_err(WorkspaceSetDefaultError::from)?;
 
         let row = sqlx::query(
             r#"UPDATE workspace_members
@@ -301,20 +313,22 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .bind(workspace_id)
         .bind(user_id)
         .fetch_optional(tx.as_mut())
-        .await?;
+        .await
+        .map_err(WorkspaceSetDefaultError::from)?;
 
-        if row.is_none() {
-            bail!("membership_not_found");
-        }
+        let Some(row) = row else {
+            tx.rollback().await.ok();
+            return Err(WorkspaceSetDefaultError::MembershipNotFound);
+        };
 
         sqlx::query(r#"UPDATE users SET default_workspace_id = $1 WHERE id = $2"#)
             .bind(workspace_id)
             .bind(user_id)
             .execute(tx.as_mut())
-            .await?;
+            .await
+            .map_err(WorkspaceSetDefaultError::from)?;
 
-        tx.commit().await?;
-        let row = row.unwrap();
+        tx.commit().await.map_err(WorkspaceSetDefaultError::from)?;
         Ok(WorkspaceMemberRow {
             workspace_id: row.get("workspace_id"),
             user_id: row.get("user_id"),
@@ -481,6 +495,25 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         Ok(Some(record))
     }
 
+    async fn count_system_role_members(
+        &self,
+        workspace_id: Uuid,
+        system_role: &str,
+    ) -> anyhow::Result<i64> {
+        let count = sqlx::query_scalar(
+            r#"SELECT COUNT(1)::BIGINT
+               FROM workspace_members
+               WHERE workspace_id = $1
+                 AND role_kind = 'system'
+                 AND system_role = $2"#,
+        )
+        .bind(workspace_id)
+        .bind(system_role)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
     async fn list_roles(&self, workspace_id: Uuid) -> anyhow::Result<Vec<WorkspaceRoleRecord>> {
         let rows = sqlx::query(
             r#"SELECT r.id,
@@ -609,6 +642,32 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn get_role(
+        &self,
+        workspace_id: Uuid,
+        role_id: Uuid,
+    ) -> anyhow::Result<Option<WorkspaceRoleRecord>> {
+        let rows = sqlx::query(
+            r#"SELECT r.id,
+                      r.workspace_id,
+                      r.name,
+                      r.description,
+                      r.base_role,
+                      r.priority,
+                      p.permission,
+                      p.allowed
+               FROM workspace_roles r
+               LEFT JOIN workspace_role_permissions p ON p.workspace_role_id = r.id
+               WHERE r.workspace_id = $1 AND r.id = $2"#,
+        )
+        .bind(workspace_id)
+        .bind(role_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut roles = self.collect_roles(rows);
+        Ok(roles.pop())
     }
 
     async fn delete_member(&self, workspace_id: Uuid, user_id: Uuid) -> anyhow::Result<bool> {
@@ -816,5 +875,12 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|row| self.map_invitation_row(&row)))
+    }
+
+    async fn list_all_workspace_ids(&self) -> anyhow::Result<Vec<Uuid>> {
+        let rows = sqlx::query("SELECT id FROM workspaces ORDER BY created_at")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|row| row.get("id")).collect())
     }
 }

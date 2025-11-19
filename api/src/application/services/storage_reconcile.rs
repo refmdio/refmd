@@ -16,7 +16,7 @@ use crate::application::ports::storage_reconcile_backend::StorageReconcileBacken
 use crate::application::ports::storage_reconcile_jobs::{
     StorageReconcileJob, StorageReconcileJobs,
 };
-use crate::application::services::workspaces::permissions::PermissionSet;
+use crate::domain::workspaces::permissions::PermissionSet;
 
 const RESERVED_REPO_PATHS: &[&str] = &[".gitignore"]; // Files managed outside Document/Files repos
 
@@ -51,31 +51,35 @@ impl StorageReconcileService {
         }
     }
 
-    async fn enumerate_known_paths(&self, user_id: Uuid) -> anyhow::Result<HashSet<String>> {
+    async fn enumerate_known_paths(&self, workspace_id: Uuid) -> anyhow::Result<HashSet<String>> {
         let mut paths = HashSet::new();
-        for path in self.documents.list_paths_for_user(user_id).await? {
+        for path in self.documents.list_paths_for_user(workspace_id).await? {
             if let Some(normalized) = normalize_repo_path(&path) {
                 paths.insert(normalized);
             }
         }
-        for attachment_path in self.files.list_storage_paths_for_workspace(user_id).await? {
+        for attachment_path in self
+            .files
+            .list_storage_paths_for_workspace(workspace_id)
+            .await?
+        {
             if let Some(normalized) = normalize_repo_path(&attachment_path) {
                 paths.insert(normalized);
             }
         }
-        for reserved in reserved_storage_paths(user_id) {
+        for reserved in reserved_storage_paths(workspace_id) {
             paths.insert(reserved);
         }
         Ok(paths)
     }
 
-    async fn enumerate_storage_paths(&self, user_id: Uuid) -> anyhow::Result<Vec<String>> {
-        self.backend.list_paths(user_id).await
+    async fn enumerate_storage_paths(&self, workspace_id: Uuid) -> anyhow::Result<Vec<String>> {
+        self.backend.list_paths(workspace_id).await
     }
 
-    fn repo_relative_path(user_id: Uuid, storage_path: &str) -> Option<String> {
+    fn repo_relative_path(workspace_id: Uuid, storage_path: &str) -> Option<String> {
         let trimmed = storage_path.trim_start_matches('/');
-        let prefix = user_id.to_string();
+        let prefix = workspace_id.to_string();
         let rest = trimmed.strip_prefix(&prefix)?;
         let repo = rest.trim_start_matches('/');
         if repo.is_empty() {
@@ -85,10 +89,10 @@ impl StorageReconcileService {
         }
     }
 
-    async fn enqueue_delete(&self, user_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
-        let Some(repo_path) = Self::repo_relative_path(user_id, storage_path) else {
+    async fn enqueue_delete(&self, workspace_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
+        let Some(repo_path) = Self::repo_relative_path(workspace_id, storage_path) else {
             warn!(
-                user_id = %user_id,
+                workspace_id = %workspace_id,
                 storage_path,
                 "storage_reconcile_repo_path_unparseable"
             );
@@ -97,8 +101,8 @@ impl StorageReconcileService {
         let permissions = PermissionSet::all().to_vec();
         self.ingest_queue
             .enqueue_event(
-                user_id,
-                user_id,
+                workspace_id,
+                workspace_id,
                 None,
                 &repo_path,
                 "reconcile",
@@ -113,10 +117,10 @@ impl StorageReconcileService {
             .await
     }
 
-    async fn enqueue_upsert(&self, user_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
-        let Some(repo_path) = Self::repo_relative_path(user_id, storage_path) else {
+    async fn enqueue_upsert(&self, workspace_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
+        let Some(repo_path) = Self::repo_relative_path(workspace_id, storage_path) else {
             warn!(
-                user_id = %user_id,
+                workspace_id = %workspace_id,
                 storage_path,
                 "storage_reconcile_repo_path_unparseable"
             );
@@ -130,8 +134,8 @@ impl StorageReconcileService {
         let permissions = PermissionSet::all().to_vec();
         self.ingest_queue
             .enqueue_event(
-                user_id,
-                user_id,
+                workspace_id,
+                workspace_id,
                 None,
                 &repo_path,
                 "reconcile",
@@ -147,8 +151,8 @@ impl StorageReconcileService {
     }
 
     async fn process_job(&self, job: &StorageReconcileJob) -> anyhow::Result<()> {
-        let known = self.enumerate_known_paths(job.user_id).await?;
-        let storage_paths = self.enumerate_storage_paths(job.user_id).await?;
+        let known = self.enumerate_known_paths(job.workspace_id).await?;
+        let storage_paths = self.enumerate_storage_paths(job.workspace_id).await?;
         let mut seen: HashSet<String> = HashSet::new();
         for raw_path in storage_paths {
             let Some(path) = normalize_repo_path(&raw_path) else {
@@ -156,30 +160,34 @@ impl StorageReconcileService {
             };
             if !known.contains(&path) {
                 info!(
-                    user_id = %job.user_id,
+                    workspace_id = %job.workspace_id,
                     repo_path = path,
                     "storage_reconcile_orphan_detected"
                 );
-                self.enqueue_delete(job.user_id, &path).await?;
+                self.enqueue_delete(job.workspace_id, &path).await?;
                 continue;
             }
             seen.insert(path.clone());
 
             if self.ingest_known_paths {
-                self.enqueue_upsert(job.user_id, &path).await?;
+                self.enqueue_upsert(job.workspace_id, &path).await?;
             }
         }
 
         for missing in known.difference(&seen) {
-            self.handle_missing_path(job.user_id, missing).await?;
+            self.handle_missing_path(job.workspace_id, missing).await?;
         }
         Ok(())
     }
 
-    async fn handle_missing_path(&self, user_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
-        let Some(repo_path) = Self::repo_relative_path(user_id, storage_path) else {
+    async fn handle_missing_path(
+        &self,
+        workspace_id: Uuid,
+        storage_path: &str,
+    ) -> anyhow::Result<()> {
+        let Some(repo_path) = Self::repo_relative_path(workspace_id, storage_path) else {
             warn!(
-                user_id = %user_id,
+                workspace_id = %workspace_id,
                 storage_path,
                 "storage_reconcile_missing_path_invalid"
             );
@@ -190,22 +198,22 @@ impl StorageReconcileService {
         }
         if is_attachment_repo_path(&repo_path) {
             info!(
-                user_id = %user_id,
+                workspace_id = %workspace_id,
                 repo_path = repo_path,
                 "storage_reconcile_missing_attachment_cleanup"
             );
-            self.enqueue_delete(user_id, storage_path).await?;
+            self.enqueue_delete(workspace_id, storage_path).await?;
             return Ok(());
         }
 
         match self
             .documents
-            .get_by_owner_and_path(user_id, storage_path)
+            .get_by_owner_and_path(workspace_id, storage_path)
             .await?
         {
             Some(doc) => {
                 info!(
-                    user_id = %user_id,
+                    workspace_id = %workspace_id,
                     doc_id = %doc.id,
                     repo_path = repo_path,
                     "storage_reconcile_missing_doc_enqueued"
@@ -221,7 +229,7 @@ impl StorageReconcileService {
             }
             None => {
                 warn!(
-                    user_id = %user_id,
+                    workspace_id = %workspace_id,
                     repo_path = repo_path,
                     "storage_reconcile_missing_doc_unknown"
                 );
@@ -251,10 +259,10 @@ impl StorageReconcileService {
     }
 }
 
-fn reserved_storage_paths(user_id: Uuid) -> impl Iterator<Item = String> {
+fn reserved_storage_paths(workspace_id: Uuid) -> impl Iterator<Item = String> {
     RESERVED_REPO_PATHS
         .iter()
-        .map(move |rel| format!("{}/{}", user_id, rel.trim_start_matches('/')))
+        .map(move |rel| format!("{}/{}", workspace_id, rel.trim_start_matches('/')))
 }
 
 fn is_reserved_repo_path(repo_path: &str) -> bool {
@@ -284,10 +292,10 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn reserved_paths_are_under_user_root() {
-        let user = Uuid::new_v4();
-        let collected: Vec<String> = reserved_storage_paths(user).collect();
-        assert_eq!(collected, vec![format!("{}/.gitignore", user)]);
+    fn reserved_paths_are_under_workspace_root() {
+        let workspace = Uuid::new_v4();
+        let collected: Vec<String> = reserved_storage_paths(workspace).collect();
+        assert_eq!(collected, vec![format!("{}/.gitignore", workspace)]);
     }
 
     #[test]

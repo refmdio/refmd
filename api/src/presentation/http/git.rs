@@ -15,9 +15,7 @@ use crate::application::dto::git::{
     GitignoreUpdateDto, UpsertGitConfigInput,
 };
 use crate::application::services::errors::ServiceError;
-use crate::application::services::workspaces::permissions::{
-    PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC,
-};
+use crate::domain::workspaces::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
 use crate::presentation::context::AppContext;
 use crate::presentation::http::workspace_scope;
 use tracing::error;

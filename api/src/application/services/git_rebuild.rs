@@ -10,16 +10,17 @@ use crate::application::ports::git_rebuild_job_queue::{GitRebuildJob, GitRebuild
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::services::metrics::MetricsRegistry;
-use crate::application::services::workspaces::permissions::{
-    PERM_GIT_SYNC, permission_set_from_snapshot,
-};
+use crate::application::services::workspaces::WorkspacePermissionResolver;
+use crate::application::services::workspaces::permission_snapshot::permission_set_from_snapshot;
 use crate::application::use_cases::git::helpers::needs_force_retry;
+use crate::domain::workspaces::permissions::{PERM_GIT_SYNC, PermissionSet};
 
 pub struct GitRebuildService {
     jobs: Arc<dyn GitRebuildJobQueue>,
     workspace: Arc<dyn GitWorkspacePort>,
     git_repo: Arc<dyn GitRepository>,
     metrics: Arc<MetricsRegistry>,
+    permission_resolver: Arc<dyn WorkspacePermissionResolver>,
     idle_backoff: Duration,
     lock_timeout_secs: i64,
     max_attempts: i32,
@@ -31,12 +32,14 @@ impl GitRebuildService {
         workspace: Arc<dyn GitWorkspacePort>,
         git_repo: Arc<dyn GitRepository>,
         metrics: Arc<MetricsRegistry>,
+        permission_resolver: Arc<dyn WorkspacePermissionResolver>,
     ) -> Self {
         Self {
             jobs,
             workspace,
             git_repo,
             metrics,
+            permission_resolver,
             idle_backoff: Duration::from_secs(1),
             lock_timeout_secs: 30,
             max_attempts: 5,
@@ -76,7 +79,7 @@ impl GitRebuildService {
     }
 
     async fn process_job(&self, job: &GitRebuildJob) -> anyhow::Result<()> {
-        let permissions = permission_set_from_snapshot(&job.permission_snapshot);
+        let permissions = self.permissions_for_job(job).await;
         if !permissions.allows(PERM_GIT_SYNC) {
             warn!(
                 workspace_id = %job.workspace_id,
@@ -188,6 +191,48 @@ impl GitRebuildService {
         }
         Ok(())
     }
+
+    async fn permissions_for_job(&self, job: &GitRebuildJob) -> PermissionSet {
+        let set = permission_set_from_snapshot(&job.permission_snapshot);
+        if !set.is_empty() {
+            return set;
+        }
+        if let Some(actor_id) = job.actor_id {
+            match self
+                .permission_resolver
+                .load_permission_set(job.workspace_id, actor_id)
+                .await
+            {
+                Ok(Some(resolved)) => {
+                    info!(
+                        workspace_id = %job.workspace_id,
+                        actor_id = %actor_id,
+                        "git_rebuild_permissions_rehydrated"
+                    );
+                    resolved
+                }
+                Ok(None) => {
+                    warn!(
+                        workspace_id = %job.workspace_id,
+                        actor_id = %actor_id,
+                        "git_rebuild_member_missing_for_permissions"
+                    );
+                    PermissionSet::from_slice(&[PERM_GIT_SYNC])
+                }
+                Err(err) => {
+                    warn!(
+                        error = ?err,
+                        workspace_id = %job.workspace_id,
+                        actor_id = %actor_id,
+                        "git_rebuild_permission_resolve_failed"
+                    );
+                    PermissionSet::from_slice(&[PERM_GIT_SYNC])
+                }
+            }
+        } else {
+            PermissionSet::from_slice(&[PERM_GIT_SYNC])
+        }
+    }
 }
 
 #[cfg(test)]
@@ -196,6 +241,8 @@ mod tests {
     use async_trait::async_trait;
     use std::collections::VecDeque;
     use std::sync::Mutex;
+
+    use crate::application::services::errors::ServiceError;
 
     struct RecordingWorkspace {
         outcomes: Mutex<Vec<GitSyncRequestDto>>,
@@ -439,13 +486,32 @@ mod tests {
         }
     }
 
+    struct AllowAllPermissions;
+
+    #[async_trait]
+    impl WorkspacePermissionResolver for AllowAllPermissions {
+        async fn load_permission_set(
+            &self,
+            _workspace_id: Uuid,
+            _user_id: Uuid,
+        ) -> Result<Option<PermissionSet>, ServiceError> {
+            Ok(Some(PermissionSet::all()))
+        }
+    }
+
     #[tokio::test]
     async fn successful_job_updates_metrics() {
         let queue = Arc::new(RecordingJobQueue::new());
         let workspace = Arc::new(RecordingWorkspace::new());
         let git_repo = Arc::new(RecordingGitRepo::new());
         let metrics = Arc::new(MetricsRegistry::default());
-        let svc = GitRebuildService::new(queue.clone(), workspace, git_repo, metrics.clone());
+        let svc = GitRebuildService::new(
+            queue.clone(),
+            workspace,
+            git_repo,
+            metrics.clone(),
+            Arc::new(AllowAllPermissions),
+        );
         let job = GitRebuildJob {
             id: 1,
             workspace_id: Uuid::new_v4(),
@@ -465,7 +531,13 @@ mod tests {
         workspace.fail_with(anyhow::anyhow!("broken"));
         let git_repo = Arc::new(RecordingGitRepo::new());
         let metrics = Arc::new(MetricsRegistry::default());
-        let svc = GitRebuildService::new(queue.clone(), workspace, git_repo, metrics.clone());
+        let svc = GitRebuildService::new(
+            queue.clone(),
+            workspace,
+            git_repo,
+            metrics.clone(),
+            Arc::new(AllowAllPermissions),
+        );
         let job = GitRebuildJob {
             id: 2,
             workspace_id: Uuid::new_v4(),
@@ -486,8 +558,13 @@ mod tests {
         workspace.fail_with(anyhow::anyhow!("still broken"));
         let git_repo = Arc::new(RecordingGitRepo::new());
         let metrics = Arc::new(MetricsRegistry::default());
-        let svc =
-            GitRebuildService::new(queue.clone(), workspace.clone(), git_repo, metrics.clone());
+        let svc = GitRebuildService::new(
+            queue.clone(),
+            workspace.clone(),
+            git_repo,
+            metrics.clone(),
+            Arc::new(AllowAllPermissions),
+        );
         let job = GitRebuildJob {
             id: 3,
             workspace_id: Uuid::new_v4(),

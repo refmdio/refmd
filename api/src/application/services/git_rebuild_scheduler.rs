@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::application::ports::git_rebuild_job_queue::GitRebuildJobQueue;
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
-use crate::application::services::workspaces::permissions::{
+use crate::domain::workspaces::permissions::{
     PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC, PermissionSet,
 };
 

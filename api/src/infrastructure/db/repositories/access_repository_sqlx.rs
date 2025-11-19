@@ -3,8 +3,8 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::application::ports::access_repository::{AccessRepository, DocumentUserAccess};
-use crate::application::services::workspaces::permissions::{
-    apply_custom_overrides, system_role_permissions,
+use crate::domain::workspaces::permissions::{
+    PermissionSet, apply_custom_overrides, system_role_permissions,
 };
 use crate::infrastructure::db::PgPool;
 
@@ -69,18 +69,6 @@ impl AccessRepository for SqlxAccessRepository {
             .ok()
             .flatten();
 
-        let mut permissions = match role_kind.as_str() {
-            "system" => {
-                let role = system_role.as_deref().unwrap_or("viewer");
-                system_role_permissions(role)
-            }
-            "custom" => {
-                let base = custom_base_role.as_deref().unwrap_or("viewer");
-                system_role_permissions(base)
-            }
-            _ => system_role_permissions("viewer"),
-        };
-
         let mut overrides = Vec::new();
         for row in rows {
             if let (Some(permission), Some(allowed)) = (
@@ -93,9 +81,12 @@ impl AccessRepository for SqlxAccessRepository {
             }
         }
 
-        if !overrides.is_empty() {
-            permissions = apply_custom_overrides(permissions, overrides);
-        }
+        let permissions = build_permission_set(
+            &role_kind,
+            system_role.as_deref(),
+            custom_base_role.as_deref(),
+            overrides,
+        );
 
         Ok(Some(DocumentUserAccess {
             workspace_id,
@@ -123,5 +114,29 @@ impl AccessRepository for SqlxAccessRepository {
         .await?
         .unwrap_or(false);
         Ok(archived)
+    }
+}
+
+fn build_permission_set(
+    role_kind: &str,
+    system_role: Option<&str>,
+    custom_base_role: Option<&str>,
+    overrides: Vec<(String, bool)>,
+) -> PermissionSet {
+    let set = match role_kind {
+        "system" => {
+            let role = system_role.unwrap_or("viewer");
+            system_role_permissions(role)
+        }
+        "custom" => {
+            let base = custom_base_role.unwrap_or("viewer");
+            system_role_permissions(base)
+        }
+        _ => system_role_permissions("viewer"),
+    };
+    if overrides.is_empty() {
+        set
+    } else {
+        apply_custom_overrides(set, overrides)
     }
 }

@@ -13,10 +13,10 @@ use crate::application::ports::plugin_installer::{InstalledPlugin, PluginInstall
 use crate::application::ports::plugin_package_fetcher::PluginPackageFetcher;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::plugins::asset_signer::{AssetScope, AssetSigner};
-use crate::application::services::workspaces::permissions::PermissionSet;
 use crate::application::use_cases::plugins::install_from_url::{
     InstallPluginError, InstallPluginFromUrl,
 };
+use crate::domain::workspaces::permissions::PermissionSet;
 
 #[derive(Debug, Clone)]
 pub struct PluginManifestItem {

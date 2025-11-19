@@ -6,9 +6,7 @@ use crate::application::dto::plugins::ExecResult;
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::plugin_runtime::PluginRuntime;
-use crate::application::services::workspaces::permissions::{
-    PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet,
-};
+use crate::domain::workspaces::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet};
 
 const PERMISSION_DOC_WRITE: &str = "doc.write";
 

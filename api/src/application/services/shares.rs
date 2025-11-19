@@ -8,9 +8,6 @@ use crate::application::dto::shares::{
 };
 use crate::application::ports::shares_repository::SharesRepository;
 use crate::application::services::errors::ServiceError;
-use crate::application::services::workspaces::permissions::{
-    PERM_SHARE_CREATE, PERM_SHARE_DELETE, PermissionSet,
-};
 use crate::application::use_cases::shares::browse_share::BrowseShare;
 use crate::application::use_cases::shares::create_share::CreateShare;
 use crate::application::use_cases::shares::delete_share::DeleteShare;
@@ -18,6 +15,7 @@ use crate::application::use_cases::shares::list_active::ListActiveShares;
 use crate::application::use_cases::shares::list_applicable::ListApplicableShares;
 use crate::application::use_cases::shares::list_document_shares::ListDocumentShares;
 use crate::application::use_cases::shares::validate_share::ValidateShare;
+use crate::domain::workspaces::permissions::{PERM_SHARE_CREATE, PERM_SHARE_DELETE, PermissionSet};
 
 pub struct ShareService {
     repo: Arc<dyn SharesRepository>,

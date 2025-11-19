@@ -16,9 +16,10 @@ use crate::application::ports::storage_projection_queue::{
 };
 use crate::application::services::metrics::MetricsRegistry;
 use crate::application::services::realtime::snapshot::MarkdownExportProvider;
-use crate::application::services::workspaces::permissions::{
+use crate::application::services::workspaces::WorkspacePermissionResolver;
+use crate::application::services::workspaces::permission_snapshot::permission_set_from_snapshot;
+use crate::domain::workspaces::permissions::{
     PERM_DOC_DELETE, PERM_FILE_DELETE, PERM_FOLDER_DELETE, PermissionSet,
-    permission_set_from_snapshot,
 };
 
 pub struct StorageProjectionWorker {
@@ -31,6 +32,7 @@ pub struct StorageProjectionWorker {
     idle_backoff: Duration,
     max_attempts: i32,
     metrics: Arc<MetricsRegistry>,
+    permission_resolver: Arc<dyn WorkspacePermissionResolver>,
 }
 
 impl StorageProjectionWorker {
@@ -41,6 +43,7 @@ impl StorageProjectionWorker {
         markdown: Arc<dyn MarkdownExportProvider>,
         events: Arc<dyn DocEventLog>,
         metrics: Arc<MetricsRegistry>,
+        permission_resolver: Arc<dyn WorkspacePermissionResolver>,
     ) -> Self {
         Self {
             jobs,
@@ -52,6 +55,7 @@ impl StorageProjectionWorker {
             idle_backoff: Duration::from_millis(500),
             max_attempts: 5,
             metrics,
+            permission_resolver,
         }
     }
 
@@ -233,7 +237,7 @@ impl StorageProjectionWorker {
         &self,
         metadata: &StorageDeleteJobMetadata,
     ) -> anyhow::Result<()> {
-        let permissions = permission_set_from_metadata(metadata);
+        let permissions = self.permission_set_from_metadata(metadata).await?;
         if metadata.doc_type == "folder" {
             if !permissions.allows(PERM_FOLDER_DELETE) {
                 warn!(
@@ -286,7 +290,7 @@ impl StorageProjectionWorker {
         let Some(repo_path) = metadata.repo_path.as_deref() else {
             return Ok(());
         };
-        let permissions = permission_set_from_metadata(metadata);
+        let permissions = self.permission_set_from_metadata(metadata).await?;
         if !permissions.allows(PERM_FOLDER_DELETE) {
             warn!(
                 workspace_id = %metadata.workspace_id,
@@ -360,8 +364,56 @@ fn workspace_repo_relative(workspace_id: Uuid, repo_path: &str) -> String {
     normalize_relative_path(full)
 }
 
-fn permission_set_from_metadata(metadata: &StorageDeleteJobMetadata) -> PermissionSet {
-    permission_set_from_snapshot(&metadata.permission_snapshot)
+const FALLBACK_DELETE_PERMISSIONS: &[&str] =
+    &[PERM_DOC_DELETE, PERM_FOLDER_DELETE, PERM_FILE_DELETE];
+
+impl StorageProjectionWorker {
+    async fn permission_set_from_metadata(
+        &self,
+        metadata: &StorageDeleteJobMetadata,
+    ) -> anyhow::Result<PermissionSet> {
+        let set = permission_set_from_snapshot(&metadata.permission_snapshot);
+        if !set.is_empty() {
+            return Ok(set);
+        }
+        if let Some(actor_id) = metadata.actor_id {
+            match self
+                .permission_resolver
+                .load_permission_set(metadata.workspace_id, actor_id)
+                .await
+            {
+                Ok(Some(resolved)) => {
+                    info!(
+                        workspace_id = %metadata.workspace_id,
+                        actor_id = %actor_id,
+                        "storage_projection_permissions_rehydrated"
+                    );
+                    return Ok(resolved);
+                }
+                Ok(None) => {
+                    warn!(
+                        workspace_id = %metadata.workspace_id,
+                        actor_id = %actor_id,
+                        "storage_projection_actor_missing_for_permissions"
+                    );
+                }
+                Err(err) => {
+                    warn!(
+                        error = ?err,
+                        workspace_id = %metadata.workspace_id,
+                        actor_id = %actor_id,
+                        "storage_projection_permission_resolve_failed"
+                    );
+                }
+            }
+        } else {
+            warn!(
+                workspace_id = %metadata.workspace_id,
+                "storage_projection_permission_snapshot_missing_no_actor"
+            );
+        }
+        Ok(PermissionSet::from_slice(FALLBACK_DELETE_PERMISSIONS))
+    }
 }
 
 #[cfg(test)]
@@ -374,9 +426,67 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use crate::application::ports::storage_port::StoredAttachment;
+    use crate::application::services::errors::ServiceError;
     use crate::application::services::realtime::snapshot::{
         MarkdownExport, MarkdownExportProvider,
     };
+
+    struct AllowAllPermissions;
+
+    #[async_trait]
+    impl WorkspacePermissionResolver for AllowAllPermissions {
+        async fn load_permission_set(
+            &self,
+            _workspace_id: Uuid,
+            _user_id: Uuid,
+        ) -> Result<Option<PermissionSet>, ServiceError> {
+            Ok(Some(PermissionSet::all()))
+        }
+    }
+
+    struct RecordingPermissionResolver {
+        called: AtomicBool,
+    }
+
+    impl RecordingPermissionResolver {
+        fn new() -> Self {
+            Self {
+                called: AtomicBool::new(false),
+            }
+        }
+
+        fn was_called(&self) -> bool {
+            self.called.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl WorkspacePermissionResolver for RecordingPermissionResolver {
+        async fn load_permission_set(
+            &self,
+            _workspace_id: Uuid,
+            _user_id: Uuid,
+        ) -> Result<Option<PermissionSet>, ServiceError> {
+            self.called.store(true, Ordering::SeqCst);
+            Ok(Some(PermissionSet::from_slice(&[
+                PERM_DOC_DELETE,
+                PERM_FOLDER_DELETE,
+            ])))
+        }
+    }
+
+    struct NonePermissionResolver;
+
+    #[async_trait]
+    impl WorkspacePermissionResolver for NonePermissionResolver {
+        async fn load_permission_set(
+            &self,
+            _workspace_id: Uuid,
+            _user_id: Uuid,
+        ) -> Result<Option<PermissionSet>, ServiceError> {
+            Ok(None)
+        }
+    }
 
     #[tokio::test]
     async fn doc_sync_invokes_storage_and_completes_job() {
@@ -387,6 +497,8 @@ mod tests {
         let markdown: Arc<dyn MarkdownExportProvider> = Arc::new(MockMarkdownExporter::new());
         let events = Arc::new(RecordingDocEventLog::default());
         let metrics = Arc::new(MetricsRegistry::default());
+        let permission_resolver: Arc<dyn WorkspacePermissionResolver> =
+            Arc::new(AllowAllPermissions);
         let worker = Arc::new(StorageProjectionWorker::new(
             queue.clone(),
             storage.clone(),
@@ -394,6 +506,7 @@ mod tests {
             markdown.clone(),
             events.clone(),
             metrics.clone(),
+            permission_resolver.clone(),
         ));
         let job = StorageProjectionJob {
             id: 1,
@@ -424,6 +537,8 @@ mod tests {
         let markdown: Arc<dyn MarkdownExportProvider> = Arc::new(MockMarkdownExporter::new());
         let events = Arc::new(RecordingDocEventLog::default());
         let metrics = Arc::new(MetricsRegistry::default());
+        let permission_resolver: Arc<dyn WorkspacePermissionResolver> =
+            Arc::new(AllowAllPermissions);
         let worker = Arc::new(StorageProjectionWorker::new(
             queue.clone(),
             storage,
@@ -431,6 +546,7 @@ mod tests {
             markdown,
             events,
             metrics.clone(),
+            permission_resolver.clone(),
         ));
         let job = StorageProjectionJob {
             id: 2,
@@ -458,6 +574,8 @@ mod tests {
         let markdown: Arc<dyn MarkdownExportProvider> = Arc::new(MockMarkdownExporter::new());
         let events = Arc::new(RecordingDocEventLog::default());
         let metrics = Arc::new(MetricsRegistry::default());
+        let permission_resolver: Arc<dyn WorkspacePermissionResolver> =
+            Arc::new(AllowAllPermissions);
         let worker = Arc::new(StorageProjectionWorker::new(
             queue,
             storage.clone(),
@@ -465,6 +583,7 @@ mod tests {
             markdown,
             events,
             metrics,
+            permission_resolver.clone(),
         ));
         let owner = Uuid::new_v4();
         let metadata = StorageDeleteJobMetadata {
@@ -476,6 +595,7 @@ mod tests {
                 format!("{}/docs/attachments/asset.bin", owner),
             ]),
             permission_snapshot: PermissionSet::all().to_vec(),
+            actor_id: None,
         };
         worker.delete_doc_by_metadata(&metadata).await.unwrap();
         assert_eq!(
@@ -486,6 +606,79 @@ mod tests {
                 format!("delete_relative_path:{}/docs/attachments/asset.bin", owner)
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn empty_snapshot_uses_resolver_permissions_when_available() {
+        let queue = Arc::new(MockQueue::default());
+        let storage = Arc::new(RecordingStoragePort::default());
+        let resolver_impl = Arc::new(MockResolver::default());
+        let resolver: Arc<dyn StorageResolverPort> = resolver_impl.clone();
+        let markdown: Arc<dyn MarkdownExportProvider> = Arc::new(MockMarkdownExporter::new());
+        let events = Arc::new(RecordingDocEventLog::default());
+        let metrics = Arc::new(MetricsRegistry::default());
+        let resolver_stub = Arc::new(RecordingPermissionResolver::new());
+        let permission_resolver: Arc<dyn WorkspacePermissionResolver> = resolver_stub.clone();
+        let worker = Arc::new(StorageProjectionWorker::new(
+            queue,
+            storage,
+            resolver,
+            markdown,
+            events,
+            metrics,
+            permission_resolver,
+        ));
+        let metadata = StorageDeleteJobMetadata {
+            workspace_id: Uuid::new_v4(),
+            repo_path: Some("docs/foo.md".into()),
+            doc_type: "doc".into(),
+            attachment_paths: None,
+            permission_snapshot: Vec::new(),
+            actor_id: Some(Uuid::new_v4()),
+        };
+        let set = worker
+            .permission_set_from_metadata(&metadata)
+            .await
+            .unwrap();
+        assert!(resolver_stub.was_called());
+        assert!(set.allows(PERM_DOC_DELETE));
+    }
+
+    #[tokio::test]
+    async fn empty_snapshot_without_actor_falls_back_to_minimum_permissions() {
+        let queue = Arc::new(MockQueue::default());
+        let storage = Arc::new(RecordingStoragePort::default());
+        let resolver_impl = Arc::new(MockResolver::default());
+        let resolver: Arc<dyn StorageResolverPort> = resolver_impl.clone();
+        let markdown: Arc<dyn MarkdownExportProvider> = Arc::new(MockMarkdownExporter::new());
+        let events = Arc::new(RecordingDocEventLog::default());
+        let metrics = Arc::new(MetricsRegistry::default());
+        let permission_resolver: Arc<dyn WorkspacePermissionResolver> =
+            Arc::new(NonePermissionResolver);
+        let worker = Arc::new(StorageProjectionWorker::new(
+            queue,
+            storage,
+            resolver,
+            markdown,
+            events,
+            metrics,
+            permission_resolver,
+        ));
+        let metadata = StorageDeleteJobMetadata {
+            workspace_id: Uuid::new_v4(),
+            repo_path: Some("docs/foo.md".into()),
+            doc_type: "doc".into(),
+            attachment_paths: None,
+            permission_snapshot: Vec::new(),
+            actor_id: None,
+        };
+        let set = worker
+            .permission_set_from_metadata(&metadata)
+            .await
+            .unwrap();
+        assert!(set.allows(PERM_DOC_DELETE));
+        assert!(set.allows(PERM_FOLDER_DELETE));
+        assert!(set.allows(PERM_FILE_DELETE));
     }
 
     #[derive(Default)]
@@ -771,12 +964,18 @@ mod tests {
         async fn append_tx(
             &self,
             _tx: &mut Transaction<'_, Postgres>,
-            _workspace_id: Uuid,
-            _doc_id: Uuid,
-            _event_type: &str,
-            _payload: Option<serde_json::Value>,
+            workspace_id: Uuid,
+            doc_id: Uuid,
+            event_type: &str,
+            payload: Option<serde_json::Value>,
         ) -> anyhow::Result<()> {
-            unimplemented!()
+            self.events.lock().unwrap().push((
+                workspace_id,
+                doc_id,
+                event_type.to_string(),
+                payload,
+            ));
+            Ok(())
         }
     }
 }

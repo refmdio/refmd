@@ -109,7 +109,7 @@ async fn enqueue_batch(
         queue
             .enqueue_event(
                 workspace_id,
-                workspace_id,
+                actor_id,
                 Some(actor_id),
                 &clean_repo,
                 event.backend.as_deref().unwrap_or("api"),

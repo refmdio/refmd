@@ -14,7 +14,7 @@ use crate::application::ports::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
 };
 use crate::application::ports::user_repository::UserRepository;
-use crate::application::services::workspaces::permissions::PermissionSet;
+use crate::domain::workspaces::permissions::PermissionSet;
 
 pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
 where
@@ -109,6 +109,7 @@ where
                     doc_type: meta.doc_type.clone(),
                     attachment_paths,
                     permission_snapshot: PermissionSet::all().to_vec(),
+                    actor_id: Some(user_id),
                 };
                 let reason = serde_json::to_string(&StorageJobReason {
                     reason: "delete_account".to_string(),

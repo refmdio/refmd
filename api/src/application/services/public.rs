@@ -6,15 +6,15 @@ use crate::application::dto::public::PublicDocumentSummaryDto;
 use crate::application::ports::public_repository::PublicRepository;
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::services::errors::ServiceError;
-use crate::application::services::workspaces::permissions::{
-    PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH, PermissionSet,
-};
 use crate::application::use_cases::public::get_public::GetPublicByWorkspaceAndId;
 use crate::application::use_cases::public::get_status::{GetPublishStatus, PublishStatusDto};
 use crate::application::use_cases::public::list_workspace::ListWorkspacePublic;
 use crate::application::use_cases::public::publish::{PublishDocument, PublishResponseDto};
 use crate::application::use_cases::public::unpublish::UnpublishDocument;
 use crate::domain::documents::document::Document;
+use crate::domain::workspaces::permissions::{
+    PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH, PermissionSet,
+};
 
 pub struct PublicService {
     repo: Arc<dyn PublicRepository>,

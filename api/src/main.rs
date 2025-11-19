@@ -56,7 +56,7 @@ use api::application::services::storage_reconcile::StorageReconcileService;
 use api::application::services::storage_reconcile_scheduler::StorageReconcileScheduler;
 use api::application::services::tags::TagService;
 use api::application::services::user_shortcuts::UserShortcutService;
-use api::application::services::workspaces::WorkspaceService;
+use api::application::services::workspaces::{WorkspacePermissionResolver, WorkspaceService};
 use api::bootstrap::config::{Config, StorageBackend};
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::doc_event_log::PgDocEventLog;
@@ -421,6 +421,7 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
     let workspace_service = Arc::new(WorkspaceService::new(workspace_repo.clone()));
+    let workspace_permissions: Arc<dyn WorkspacePermissionResolver> = workspace_service.clone();
     {
         let reconcile_service = Arc::new(StorageReconcileService::new(
             storage_reconcile_jobs.clone(),
@@ -439,7 +440,7 @@ async fn main() -> anyhow::Result<()> {
         });
         let scheduler = StorageReconcileScheduler::new(
             storage_reconcile_jobs.clone(),
-            user_repo.clone(),
+            workspace_repo.clone(),
             Duration::from_secs(60 * 60),
         );
         tokio::spawn(async move {
@@ -579,6 +580,7 @@ async fn main() -> anyhow::Result<()> {
             markdown_exporter,
             doc_event_log.clone(),
             metrics.clone(),
+            workspace_permissions.clone(),
         ));
         tokio::spawn(async move {
             worker.run().await;
@@ -632,6 +634,7 @@ async fn main() -> anyhow::Result<()> {
             git_workspace.clone(),
             git_repo.clone(),
             metrics.clone(),
+            workspace_permissions.clone(),
         ));
         tokio::spawn({
             let svc = rebuild_service.clone();
@@ -810,6 +813,7 @@ async fn main() -> anyhow::Result<()> {
             storage_projection.clone(),
             doc_event_log.clone(),
             document_service.clone(),
+            workspace_permissions.clone(),
         ));
         let worker = Arc::new(StorageIngestWorker::new(
             storage_ingest_queue.clone(),

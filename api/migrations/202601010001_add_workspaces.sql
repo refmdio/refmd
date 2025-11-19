@@ -180,9 +180,6 @@ WHERE owner_user_id IS NULL;
 ALTER TABLE documents
     ADD CONSTRAINT documents_owner_user_id_fk FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
-ALTER TABLE documents
-    ALTER COLUMN owner_user_id SET NOT NULL;
-
 DO $$
 BEGIN
     ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_owner_id_fkey;
@@ -516,3 +513,40 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_storage_projection_jobs_workspace
     ON storage_projection_jobs(workspace_id);
+
+-- Storage reconcile jobs move to workspace scope
+DO $$
+BEGIN
+    ALTER TABLE storage_reconcile_jobs DROP CONSTRAINT IF EXISTS storage_reconcile_jobs_user_id_fkey;
+EXCEPTION
+    WHEN undefined_object THEN NULL;
+END $$;
+
+ALTER TABLE storage_reconcile_jobs
+    RENAME COLUMN user_id TO workspace_id;
+
+DO $$
+BEGIN
+    ALTER TABLE storage_reconcile_jobs
+        ADD CONSTRAINT storage_reconcile_jobs_workspace_fk
+            FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE storage_reconcile_jobs
+    DROP CONSTRAINT IF EXISTS storage_reconcile_jobs_user_scope_unique;
+
+ALTER TABLE storage_reconcile_jobs
+    ADD CONSTRAINT storage_reconcile_jobs_workspace_scope_unique
+        UNIQUE (workspace_id, scope);
+
+DROP INDEX IF EXISTS idx_storage_reconcile_jobs_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_storage_reconcile_jobs_workspace_scope
+    ON storage_reconcile_jobs(workspace_id, scope)
+    WHERE locked_at IS NULL;
+
+DROP INDEX IF EXISTS idx_storage_reconcile_jobs_pending;
+CREATE INDEX IF NOT EXISTS idx_storage_reconcile_jobs_pending
+    ON storage_reconcile_jobs (locked_at, created_at)
+    WHERE locked_at IS NULL;
