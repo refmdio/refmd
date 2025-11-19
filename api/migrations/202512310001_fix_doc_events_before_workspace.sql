@@ -5,7 +5,7 @@ ALTER TABLE doc_events
     ADD COLUMN IF NOT EXISTS workspace_id UUID;
 
 UPDATE doc_events AS de
-SET workspace_id = d.workspace_id
+SET workspace_id = d.owner_id
 FROM documents AS d
 WHERE de.doc_id = d.id
   AND de.workspace_id IS NULL;
