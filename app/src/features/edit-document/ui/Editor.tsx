@@ -97,7 +97,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const { isDarkMode } = useTheme()
   const isMobile = useIsMobile()
   const { setEditor } = useEditorContext()
-  const { viewMode, setViewMode } = useViewContext()
+  const { viewMode, setViewMode, viewModeHydrated, hasPersistentViewMode } = useViewContext()
   const navigate = useNavigate()
   const monacoTheme = isDarkMode ? 'vs-dark' : 'vs'
   const brandedMonacoTheme = isDarkMode ? REFMD_DARK_THEME : REFMD_LIGHT_THEME
@@ -163,8 +163,12 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   ;(onMonacoMount as any)._onTextChange = onEditorContentChange
   ;(onMonacoMount as any)._onCaretAtEnd = onCaretAtEndChange
   useEffect(() => {
+    if (!viewModeHydrated) return
+    if (hasPersistentViewMode) return
+    if (!initialViewProp) return
+    if (viewMode === initialViewProp) return
     safeExecute('set initial view mode', () => setViewMode(initialViewProp))
-  }, [initialViewProp, setViewMode])
+  }, [hasPersistentViewMode, initialViewProp, setViewMode, viewMode, viewModeHydrated])
 
   useAwarenessStyles(awareness, { userId, userName })
 

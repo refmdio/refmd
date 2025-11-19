@@ -3,9 +3,15 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { useShortcut } from '@/shared/hooks/use-shortcut'
 import type { ViewMode } from '@/shared/types/view-mode'
 
+const VIEW_MODE_STORAGE_KEY = 'refmd-view-mode'
+
+type ViewModeSetter = ViewMode | ((prev: ViewMode) => ViewMode)
+
 type Ctx = {
   viewMode: ViewMode
-  setViewMode: (m: ViewMode) => void
+  setViewMode: (mode: ViewModeSetter) => void
+  viewModeHydrated: boolean
+  hasPersistentViewMode: boolean
   showBacklinks: boolean
   setShowBacklinks: (v: boolean) => void
   toggleBacklinks: () => void
@@ -18,10 +24,45 @@ type Ctx = {
 const ViewCtx = createContext<Ctx | null>(null)
 
 export function ViewProvider({ children }: { children: React.ReactNode }) {
-  const [viewMode, setViewMode] = useState<ViewMode>('split')
+  const [viewMode, setViewModeState] = useState<ViewMode>('split')
+  const [viewModeHydrated, setViewModeHydrated] = useState(() => typeof window === 'undefined')
+  const [hasPersistentViewMode, setHasPersistentViewMode] = useState(false)
   const [showBacklinks, setShowBacklinks] = useState(false)
   const [searchPresetTag, setSearchPresetTag] = useState<string | null>(null)
   const [searchNonce, setSearchNonce] = useState(0)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
+      if (saved === 'editor' || saved === 'split' || saved === 'preview') {
+        setViewModeState(saved)
+        setHasPersistentViewMode(true)
+      }
+    } catch {
+      /* noop */
+    } finally {
+      setViewModeHydrated(true)
+    }
+  }, [])
+
+  const setViewMode = useCallback((mode: ViewModeSetter) => {
+    setViewModeState((prev) => {
+      const next = typeof mode === 'function' ? (mode as (value: ViewMode) => ViewMode)(prev) : mode
+      if (next === prev) return prev
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(VIEW_MODE_STORAGE_KEY, next)
+        }
+      } catch {
+        /* noop */
+      }
+      setHasPersistentViewMode(true)
+      return next
+    })
+  }, [])
 
   const toggleBacklinks = useCallback(() => setShowBacklinks((v) => !v), [])
   const openSearch = useCallback((presetTag?: string | null) => {
@@ -70,6 +111,8 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<Ctx>(() => ({
     viewMode,
+    viewModeHydrated,
+    hasPersistentViewMode,
     setViewMode,
     showBacklinks,
     setShowBacklinks,
@@ -77,7 +120,7 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
     searchPresetTag,
     searchNonce,
     openSearch,
-  }), [viewMode, showBacklinks, toggleBacklinks, searchPresetTag, searchNonce, openSearch])
+  }), [viewMode, viewModeHydrated, hasPersistentViewMode, showBacklinks, toggleBacklinks, searchPresetTag, searchNonce, openSearch, setViewMode])
 
   return <ViewCtx.Provider value={value}>{children}</ViewCtx.Provider>
 }
