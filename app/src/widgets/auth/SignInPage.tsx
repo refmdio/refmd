@@ -1,11 +1,12 @@
 import { Link, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/shared/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
+import { GOOGLE_CLIENT_ID } from '@/shared/lib/config'
 import { useAuthContext } from '@/features/auth'
 
 type Props = {
@@ -13,13 +14,59 @@ type Props = {
   redirectSearch?: string
 }
 
+type GoogleCredentialResponse = {
+  credential?: string
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize(config: Record<string, unknown>): void
+          renderButton(element: HTMLElement, options?: Record<string, unknown>): void
+        }
+      }
+    }
+  }
+}
+
+const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
+
 export function SignInPage({ redirect, redirectSearch }: Props) {
   const navigate = useNavigate()
-  const { signIn } = useAuthContext()
+  const { signIn, signInWithProvider } = useAuthContext()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [socialLoading, setSocialLoading] = useState(false)
+  const googleClientId = GOOGLE_CLIENT_ID
+  const isGoogleEnabled = Boolean(googleClientId)
+  const googleButtonRef = useRef<HTMLDivElement | null>(null)
+
+  const finishSignIn = useCallback(() => {
+    const redirectTo = redirect || '/dashboard'
+    const parsedRedirectSearch = parseRedirectSearch(redirectSearch)
+    if (parsedRedirectSearch) navigate({ to: redirectTo, search: () => parsedRedirectSearch })
+    else navigate({ to: redirectTo })
+  }, [navigate, redirect, redirectSearch])
+
+  const handleGoogleCredential = useCallback(
+    async (credential: string) => {
+      setSocialLoading(true)
+      setError(null)
+      try {
+        await signInWithProvider('google', { credential })
+        finishSignIn()
+      } catch (err: any) {
+        setError(err?.message || 'Googleでのサインインに失敗しました')
+      } finally {
+        setSocialLoading(false)
+      }
+    },
+    [finishSignIn, signInWithProvider],
+  )
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,16 +74,70 @@ export function SignInPage({ redirect, redirectSearch }: Props) {
     setError(null)
     try {
       await signIn(email, password)
-      const redirectTo = redirect || '/dashboard'
-      const parsedRedirectSearch = parseRedirectSearch(redirectSearch)
-      if (parsedRedirectSearch) navigate({ to: redirectTo, search: () => parsedRedirectSearch })
-      else navigate({ to: redirectTo })
+      finishSignIn()
     } catch (err: any) {
       setError(err?.message || 'Failed to sign in')
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!isGoogleEnabled) return
+    if (typeof window === 'undefined') return
+    let cancelled = false
+    let script = document.querySelector<HTMLScriptElement>('script[data-google-identity]')
+
+    const initialize = () => {
+      if (cancelled) return
+      if (!window.google || !googleButtonRef.current) return
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: (response: GoogleCredentialResponse) => {
+          if (response?.credential) {
+            void handleGoogleCredential(response.credential)
+          } else {
+            setError('Google認証に失敗しました')
+          }
+        },
+      })
+      googleButtonRef.current.innerHTML = ''
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        width: '100%',
+        text: 'continue_with',
+        shape: 'rectangular',
+      })
+    }
+
+    if (script && (script.dataset.loaded === 'true')) {
+      initialize()
+      return
+    }
+
+    if (!script) {
+      script = document.createElement('script')
+      script.src = GOOGLE_SCRIPT_SRC
+      script.async = true
+      script.defer = true
+      script.dataset.googleIdentity = 'true'
+      document.head.appendChild(script)
+    }
+
+    const handleLoad = () => {
+      if (!script) return
+      script.dataset.loaded = 'true'
+      initialize()
+    }
+
+    script.addEventListener('load', handleLoad)
+
+    return () => {
+      cancelled = true
+      script?.removeEventListener('load', handleLoad)
+    }
+  }, [googleClientId, handleGoogleCredential, isGoogleEnabled])
 
   return (
     <div className="min-h-svh flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 px-4">
@@ -60,6 +161,22 @@ export function SignInPage({ redirect, redirectSearch }: Props) {
               {loading ? 'Signing in…' : 'Sign In'}
             </Button>
           </form>
+          {isGoogleEnabled && (
+            <div className="mt-6">
+              <div className="relative mb-4">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-muted-foreground/30" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase text-muted-foreground">
+                  <span className="bg-white px-2 dark:bg-gray-900">or continue with</span>
+                </div>
+              </div>
+              <div ref={googleButtonRef} className="flex justify-center" />
+              {socialLoading && (
+                <p className="mt-2 text-center text-xs text-muted-foreground">Signing in with Google…</p>
+              )}
+            </div>
+          )}
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600 dark:text-gray-400">
               Don’t have an account?{' '}

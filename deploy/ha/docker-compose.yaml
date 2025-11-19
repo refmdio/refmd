@@ -104,6 +104,7 @@ services:
       STORAGE_MONITOR_BATCH_SIZE: 200
       GIT_REBUILD_ENABLED: "true"
       GIT_REBUILD_INTERVAL_SECS: 21600
+      # GOOGLE_OAUTH_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
     depends_on:
       postgres:
         condition: service_healthy
@@ -150,6 +151,7 @@ services:
       STORAGE_MONITOR_BATCH_SIZE: 200
       GIT_REBUILD_ENABLED: "true"
       GIT_REBUILD_INTERVAL_SECS: 21600
+      # GOOGLE_OAUTH_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
     depends_on:
       postgres:
         condition: service_healthy
@@ -165,6 +167,7 @@ services:
       SSR_API_BASE_URL: http://nginx
       VITE_API_BASE_URL: http://localhost:8888
       VITE_PUBLIC_BASE_URL: http://localhost:3000
+      # VITE_GOOGLE_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
     depends_on:
       api-a:
         condition: service_started
@@ -178,6 +181,7 @@ services:
       SSR_API_BASE_URL: http://nginx
       VITE_API_BASE_URL: http://localhost:8888
       VITE_PUBLIC_BASE_URL: http://localhost:3000
+      # VITE_GOOGLE_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
     depends_on:
       api-a:
         condition: service_started

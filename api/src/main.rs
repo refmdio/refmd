@@ -29,6 +29,7 @@ use api::application::ports::storage_reconcile_backend::StorageReconcileBackend;
 use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
 use api::application::services::api_tokens::ApiTokenService;
 use api::application::services::auth::account::AccountService;
+use api::application::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
 use api::application::services::auth::service::AuthService;
 use api::application::services::auth::token_validation::TokenValidationService;
 use api::application::services::authorization::AuthorizationService;
@@ -58,6 +59,7 @@ use api::application::services::tags::TagService;
 use api::application::services::user_shortcuts::UserShortcutService;
 use api::application::services::workspaces::{WorkspacePermissionResolver, WorkspaceService};
 use api::bootstrap::config::{Config, StorageBackend};
+use api::infrastructure::auth::google::GoogleIdentityProvider;
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::doc_event_log::PgDocEventLog;
 use api::infrastructure::documents::event_poller::DocEventPoller;
@@ -79,6 +81,7 @@ use utoipa_swagger_ui::SwaggerUi;
         paths(
             api::presentation::http::auth::register,
             api::presentation::http::auth::login,
+            api::presentation::http::auth::oauth_login,
             api::presentation::http::auth::logout,
             api::presentation::http::auth::me,
             api::presentation::http::api_tokens::list_api_tokens,
@@ -169,6 +172,7 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::auth::RegisterRequest,
             api::presentation::http::auth::LoginRequest,
             api::presentation::http::auth::LoginResponse,
+            api::presentation::http::auth::OAuthLoginRequest,
             api::presentation::http::auth::UserResponse,
             api::presentation::http::auth::WorkspaceMembershipResponse,
             api::presentation::http::api_tokens::ApiTokenItem,
@@ -865,6 +869,20 @@ async fn main() -> anyhow::Result<()> {
         api::infrastructure::health::db_probe::DatabaseHealthProbe::new(pool.clone());
     let health_service = Arc::new(HealthService::new(health_probe));
 
+    let mut external_auth_providers: Vec<Arc<dyn ExternalAuthVerifier>> = Vec::new();
+    if let Some(google_cfg) = cfg.google_oauth.clone() {
+        match GoogleIdentityProvider::new(google_cfg.client_ids.clone()) {
+            Ok(provider) => {
+                tracing::info!("google_oauth_provider_enabled");
+                external_auth_providers.push(Arc::new(provider));
+            }
+            Err(err) => {
+                tracing::warn!(error = ?err, "google_oauth_provider_init_failed");
+            }
+        }
+    }
+    let external_auth_registry = Arc::new(ExternalAuthRegistry::new(external_auth_providers));
+
     let services = AppServices::new(
         authorization_service,
         document_service.clone(),
@@ -887,6 +905,7 @@ async fn main() -> anyhow::Result<()> {
         auth_service.clone(),
         realtime_engine.clone(),
         storage_ingest_queue.clone(),
+        external_auth_registry.clone(),
     );
 
     let presentation_cfg = PresentationConfig {

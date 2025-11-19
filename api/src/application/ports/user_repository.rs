@@ -7,6 +7,7 @@ pub struct UserRow {
     pub email: String,
     pub name: String,
     pub password_hash: Option<String>,
+    pub google_subject: Option<String>,
 }
 
 #[async_trait]
@@ -16,11 +17,15 @@ pub trait UserRepository: Send + Sync {
         id: Uuid,
         email: &str,
         name: &str,
-        password_hash: &str,
+        password_hash: Option<&str>,
         default_workspace_id: Uuid,
+        google_subject: Option<&str>,
     ) -> anyhow::Result<UserRow>;
     async fn find_by_email(&self, email: &str) -> anyhow::Result<Option<UserRow>>;
+    async fn find_by_google_subject(&self, google_subject: &str)
+    -> anyhow::Result<Option<UserRow>>;
     async fn find_by_id(&self, id: Uuid) -> anyhow::Result<Option<UserRow>>;
+    async fn set_google_subject(&self, id: Uuid, google_subject: &str) -> anyhow::Result<()>;
     async fn delete_user(&self, id: Uuid) -> anyhow::Result<bool>;
     async fn list_user_ids(&self) -> anyhow::Result<Vec<Uuid>>;
 }

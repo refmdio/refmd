@@ -1,11 +1,12 @@
 use crate::application::access;
 use crate::application::dto::auth::UserDto;
 use crate::application::ports::workspace_repository::WorkspaceListItem;
+use crate::application::services::auth::external::{ExternalAuthPayload, ExternalAuthProviderKind};
 use crate::application::services::errors::ServiceError;
 use crate::presentation::context::AppContext;
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
@@ -68,13 +69,86 @@ pub struct LoginResponse {
     pub user: UserResponse,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct OAuthLoginRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
+}
+
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
+        .route("/oauth/:provider", post(oauth_login))
         .route("/logout", post(logout))
         .route("/me", get(me).delete(delete_account))
         .with_state(ctx)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/auth/oauth/{provider}",
+    tag = "Auth",
+    params(
+        ("provider" = String, Path, description = "OAuth provider identifier (e.g., google)")
+    ),
+    request_body = OAuthLoginRequest,
+    security(()),
+    responses((status = 200, body = LoginResponse))
+)]
+pub async fn oauth_login(
+    Path(provider): Path<String>,
+    State(ctx): State<AppContext>,
+    Json(req): Json<OAuthLoginRequest>,
+) -> Result<(HeaderMap, Json<LoginResponse>), StatusCode> {
+    let provider_kind =
+        ExternalAuthProviderKind::try_from(provider.as_str()).map_err(|_| StatusCode::NOT_FOUND)?;
+    let registry = ctx.external_auth();
+    let verifier = registry
+        .get(provider_kind)
+        .ok_or(StatusCode::NOT_IMPLEMENTED)?;
+    let payload = ExternalAuthPayload {
+        credential: req.credential.clone(),
+        code: req.code.clone(),
+        redirect_uri: req.redirect_uri.clone(),
+    };
+    let identity = verifier.verify(&payload).await.map_err(map_auth_error)?;
+    let account_service = ctx.account_service();
+    let user_dto = account_service
+        .sign_in_with_external(identity)
+        .await
+        .map_err(map_account_error)?;
+    let user = build_user_response(&ctx, user_dto, None).await?;
+    let active_workspace_id = user
+        .active_workspace_id
+        .or_else(|| user.workspaces.iter().find(|w| w.is_default).map(|w| w.id))
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let session = ctx
+        .auth_service()
+        .issue_session(user.id, active_workspace_id)
+        .map_err(map_auth_error)?;
+    let cookie_value = build_session_cookie(
+        &session.token,
+        ctx.auth_service().session_ttl_secs(),
+        ctx.cfg.session_cookie_secure,
+    );
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::SET_COOKIE,
+        axum::http::HeaderValue::from_str(&cookie_value)
+            .unwrap_or(axum::http::HeaderValue::from_static("")),
+    );
+    Ok((
+        headers,
+        Json(LoginResponse {
+            access_token: session.token,
+            user,
+        }),
+    ))
 }
 
 fn map_account_error(err: ServiceError) -> StatusCode {

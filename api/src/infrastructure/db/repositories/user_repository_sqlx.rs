@@ -22,19 +22,21 @@ impl UserRepository for SqlxUserRepository {
         id: Uuid,
         email: &str,
         name: &str,
-        password_hash: &str,
+        password_hash: Option<&str>,
         default_workspace_id: Uuid,
+        google_subject: Option<&str>,
     ) -> anyhow::Result<UserRow> {
         let row = sqlx::query(
-            r#"INSERT INTO users (id, email, name, password_hash, default_workspace_id)
-               VALUES ($1, $2, $3, $4, $5)
-               RETURNING id, email, name, password_hash"#,
+            r#"INSERT INTO users (id, email, name, password_hash, default_workspace_id, google_subject)
+               VALUES ($1, $2, $3, $4, $5, $6)
+               RETURNING id, email, name, password_hash, google_subject"#,
         )
         .bind(id)
         .bind(email)
         .bind(name)
         .bind(password_hash)
         .bind(default_workspace_id)
+        .bind(google_subject)
         .fetch_one(&self.pool)
         .await?;
         Ok(UserRow {
@@ -42,25 +44,49 @@ impl UserRepository for SqlxUserRepository {
             email: row.get("email"),
             name: row.get("name"),
             password_hash: row.try_get("password_hash").ok(),
+            google_subject: row.try_get("google_subject").ok(),
         })
     }
 
     async fn find_by_email(&self, email: &str) -> anyhow::Result<Option<UserRow>> {
-        let row =
-            sqlx::query(r#"SELECT id, email, name, password_hash FROM users WHERE email = $1"#)
-                .bind(email)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row = sqlx::query(
+            r#"SELECT id, email, name, password_hash, google_subject FROM users WHERE email = $1"#,
+        )
+        .bind(email)
+        .fetch_optional(&self.pool)
+        .await?;
         Ok(row.map(|r| UserRow {
             id: r.get("id"),
             email: r.get("email"),
             name: r.get("name"),
             password_hash: r.try_get("password_hash").ok(),
+            google_subject: r.try_get("google_subject").ok(),
+        }))
+    }
+
+    async fn find_by_google_subject(
+        &self,
+        google_subject: &str,
+    ) -> anyhow::Result<Option<UserRow>> {
+        let row = sqlx::query(
+            r#"SELECT id, email, name, password_hash, google_subject
+               FROM users
+               WHERE google_subject = $1"#,
+        )
+        .bind(google_subject)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| UserRow {
+            id: r.get("id"),
+            email: r.get("email"),
+            name: r.get("name"),
+            password_hash: r.try_get("password_hash").ok(),
+            google_subject: r.try_get("google_subject").ok(),
         }))
     }
 
     async fn find_by_id(&self, id: Uuid) -> anyhow::Result<Option<UserRow>> {
-        let row = sqlx::query(r#"SELECT id, email, name FROM users WHERE id = $1"#)
+        let row = sqlx::query(r#"SELECT id, email, name, google_subject FROM users WHERE id = $1"#)
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
@@ -69,7 +95,17 @@ impl UserRepository for SqlxUserRepository {
             email: r.get("email"),
             name: r.get("name"),
             password_hash: None,
+            google_subject: r.try_get("google_subject").ok(),
         }))
+    }
+
+    async fn set_google_subject(&self, id: Uuid, google_subject: &str) -> anyhow::Result<()> {
+        sqlx::query(r#"UPDATE users SET google_subject = $1 WHERE id = $2"#)
+            .bind(google_subject)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     async fn delete_user(&self, id: Uuid) -> anyhow::Result<bool> {

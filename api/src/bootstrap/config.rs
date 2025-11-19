@@ -71,6 +71,12 @@ pub struct Config {
     pub snapshot_archive_interval_secs: u64,
     pub git_rebuild_enabled: bool,
     pub git_rebuild_interval_secs: u64,
+    pub google_oauth: Option<GoogleOAuthConfig>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GoogleOAuthConfig {
+    pub client_ids: Vec<String>,
 }
 
 impl Config {
@@ -185,6 +191,15 @@ impl Config {
         let git_rebuild_interval_secs = env_var(&["GIT_REBUILD_INTERVAL_SECS"])
             .and_then(|s| s.parse().ok())
             .unwrap_or(6 * 60 * 60);
+        let google_oauth = env_var(&["GOOGLE_OAUTH_CLIENT_IDS", "GOOGLE_OAUTH_CLIENT_ID"])
+            .map(|raw| {
+                raw.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|ids| !ids.is_empty())
+            .map(|ids| GoogleOAuthConfig { client_ids: ids });
 
         // Production hardening: require proper FRONTEND_URL and robust secrets
         if is_production {
@@ -269,6 +284,7 @@ impl Config {
             snapshot_archive_interval_secs,
             git_rebuild_enabled,
             git_rebuild_interval_secs,
+            google_oauth,
         })
     }
 }

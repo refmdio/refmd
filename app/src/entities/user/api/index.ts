@@ -5,6 +5,7 @@ import {
   me as apiMe,
   register as apiRegister,
   switchWorkspace as apiSwitchWorkspace,
+  oauthLogin as apiOauthLogin,
 } from '@/shared/api'
 
 export const userKeys = {
@@ -20,6 +21,16 @@ export const meQuery = () => ({
 // Use-case oriented helpers
 export async function login(email: string, password: string) {
   return apiLogin({ requestBody: { email, password } })
+}
+
+export type OAuthLoginPayload = {
+  credential?: string
+  code?: string
+  redirect_uri?: string
+}
+
+export async function oauthLogin(provider: string, payload: OAuthLoginPayload) {
+  return apiOauthLogin({ provider, requestBody: payload })
 }
 
 export async function register(email: string, name: string, password: string) {

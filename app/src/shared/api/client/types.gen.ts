@@ -296,6 +296,12 @@ export type MaterializeResponse = {
     created: number;
 };
 
+export type OAuthLoginRequest = {
+    code?: (string) | null;
+    credential?: (string) | null;
+    redirect_uri?: (string) | null;
+};
+
 export type OutgoingLink = {
     document_id: string;
     document_type: string;
@@ -652,6 +658,16 @@ export type LogoutResponse = (void);
 export type MeResponse = (UserResponse);
 
 export type DeleteAccountResponse = (void);
+
+export type OauthLoginData = {
+    /**
+     * OAuth provider identifier (e.g., google)
+     */
+    provider: string;
+    requestBody: OAuthLoginRequest;
+};
+
+export type OauthLoginResponse = (LoginResponse);
 
 export type RegisterData = {
     requestBody: RegisterRequest;

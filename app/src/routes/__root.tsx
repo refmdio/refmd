@@ -36,6 +36,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     const env = {
       VITE_API_BASE_URL: getEnv('VITE_API_BASE_URL'),
       VITE_PUBLIC_BASE_URL: getEnv('VITE_PUBLIC_BASE_URL'),
+      VITE_GOOGLE_CLIENT_ID: getEnv('VITE_GOOGLE_CLIENT_ID'),
     }
 
     const serializedEnv = JSON.stringify(env)

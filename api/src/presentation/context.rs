@@ -9,6 +9,7 @@ pub use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtime
 use crate::application::ports::storage_ingest_queue::StorageIngestQueue;
 use crate::application::services::api_tokens::ApiTokenService;
 use crate::application::services::auth::account::AccountService;
+use crate::application::services::auth::external::ExternalAuthRegistry;
 use crate::application::services::auth::service::AuthService;
 use crate::application::services::authorization::AuthorizationService;
 use crate::application::services::documents::DocumentService;
@@ -65,6 +66,7 @@ pub struct AppServices {
     auth_service: Arc<AuthService>,
     realtime_engine: Arc<dyn RealtimeEngine>,
     storage_ingest_queue: Arc<dyn StorageIngestQueue>,
+    external_auth: Arc<ExternalAuthRegistry>,
 }
 
 impl AppServices {
@@ -91,6 +93,7 @@ impl AppServices {
         auth_service: Arc<AuthService>,
         realtime_engine: Arc<dyn RealtimeEngine>,
         storage_ingest_queue: Arc<dyn StorageIngestQueue>,
+        external_auth: Arc<ExternalAuthRegistry>,
     ) -> Self {
         Self {
             authorization,
@@ -114,6 +117,7 @@ impl AppServices {
             auth_service,
             realtime_engine,
             storage_ingest_queue,
+            external_auth,
         }
     }
 }
@@ -201,6 +205,10 @@ impl AppContext {
 
     pub fn auth_service(&self) -> Arc<AuthService> {
         self.services.auth_service.clone()
+    }
+
+    pub fn external_auth(&self) -> Arc<ExternalAuthRegistry> {
+        self.services.external_auth.clone()
     }
 
     pub fn metrics(&self) -> Arc<MetricsRegistry> {

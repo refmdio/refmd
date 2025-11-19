@@ -17,6 +17,8 @@ export const API_BASE_URL = getEnv('VITE_API_BASE_URL', '')
 // Public site base URL (used for SEO canonical/OG tags)
 export const PUBLIC_BASE_URL = getEnv('VITE_PUBLIC_BASE_URL', '')
 
+export const GOOGLE_CLIENT_ID = getEnv('VITE_GOOGLE_CLIENT_ID', '')
+
 // Derived Yjs WebSocket server URL (ws(s)://<api-origin>/yjs)
 export const YJS_SERVER_URL = (() => {
   if (!API_BASE_URL) return ''

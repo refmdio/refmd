@@ -12,6 +12,7 @@ import {
   deleteAccount as deleteAccountApi,
   logout as logoutApi,
   switchWorkspace as switchWorkspaceApi,
+  oauthLogin as oauthLoginApi,
   userKeys,
 } from '@/entities/user'
 
@@ -24,11 +25,18 @@ type AuthState = {
   activeWorkspace: UserResponse['workspaces'][number] | null
   permissions: string[]
   loading: boolean
-  signIn: (email: string, password: string) => Promise<void>
+  signIn: (email: string, password: string) => Promise<UserResponse>
+  signInWithProvider: (provider: string, payload: OAuthPayload) => Promise<UserResponse>
   signUp: (email: string, name: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   deleteAccount: () => Promise<void>
   switchWorkspace: (workspaceId: string) => Promise<void>
+}
+
+type OAuthPayload = {
+  credential?: string
+  code?: string
+  redirect_uri?: string
 }
 
 const Ctx = createContext<AuthState | null>(null)
@@ -125,13 +133,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [queryClient])
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const res = await loginApi(email, password)
-    // Cookie is set by server; ignore access_token in response
-    queryClient.clear()
-    queryClient.setQueryData(userKeys.me(), res.user)
-    setUser(res.user)
-  }, [])
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      const res = await loginApi(email, password)
+      queryClient.clear()
+      queryClient.setQueryData(userKeys.me(), res.user)
+      setUser(res.user)
+      return res.user
+    },
+    [queryClient],
+  )
+
+  const signInWithProvider = useCallback(
+    async (provider: string, payload: OAuthPayload) => {
+      const res = await oauthLoginApi(provider, payload)
+      queryClient.clear()
+      queryClient.setQueryData(userKeys.me(), res.user)
+      setUser(res.user)
+      return res.user
+    },
+    [queryClient],
+  )
 
   const signUp = useCallback(async (email: string, name: string, password: string) => {
     await registerApi(email, name, password)
@@ -225,6 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       permissions,
       loading,
       signIn,
+      signInWithProvider,
       signUp,
       signOut,
       deleteAccount,
@@ -238,6 +261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       permissions,
       loading,
       signIn,
+      signInWithProvider,
       signUp,
       signOut,
       deleteAccount,
