@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ApiError } from '@/shared/api'
+import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
@@ -216,7 +217,6 @@ export default function WorkspacesPage() {
     setSettingsDescription(activeWorkspace?.description ?? '')
   }, [activeWorkspace?.id, activeWorkspace?.name, activeWorkspace?.description])
 
-  const totalPersonal = useMemo(() => workspaces.filter((ws) => ws.is_personal).length, [workspaces])
   const ownerCount = useMemo(
     () => workspaces.filter((ws) => ws.system_role === 'owner').length,
     [workspaces],
@@ -645,16 +645,11 @@ export default function WorkspacesPage() {
               </Button>
             </div>
           </div>
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
             <div className="rounded-2xl border border-border/70 bg-muted/20 p-5">
               <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground/80">Total</p>
               <p className="mt-2 text-3xl font-semibold text-foreground">{workspaces.length}</p>
               <p className="text-sm text-muted-foreground">Workspaces you can access</p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-muted/20 p-5">
-              <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground/80">Personal</p>
-              <p className="mt-2 text-3xl font-semibold text-foreground">{totalPersonal}</p>
-              <p className="text-sm text-muted-foreground">Personal sandboxes</p>
             </div>
             <div className="rounded-2xl border border-border/70 bg-muted/20 p-5">
               <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground/80">Owners</p>
@@ -1059,7 +1054,7 @@ export default function WorkspacesPage() {
       </div>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={cn('sm:max-w-md', overlayPanelClass)}>
           <DialogHeader>
             <DialogTitle>Create a workspace</DialogTitle>
             <DialogDescription>
@@ -1099,7 +1094,7 @@ export default function WorkspacesPage() {
       </Dialog>
 
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={cn('sm:max-w-md', overlayPanelClass)}>
           <DialogHeader>
             <DialogTitle>Invite a member</DialogTitle>
             <DialogDescription>Enter an email and choose the role for this member.</DialogDescription>
@@ -1143,7 +1138,7 @@ export default function WorkspacesPage() {
       </Dialog>
 
       <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className={cn('max-h-[90vh] overflow-y-auto sm:max-w-2xl', overlayPanelClass)}>
           <DialogHeader>
             <DialogTitle>{roleDialogMode === 'create' ? 'Create role' : 'Edit role'}</DialogTitle>
             <DialogDescription>Customize permissions for this workspace role.</DialogDescription>
