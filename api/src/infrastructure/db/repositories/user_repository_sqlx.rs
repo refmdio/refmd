@@ -24,19 +24,17 @@ impl UserRepository for SqlxUserRepository {
         name: &str,
         password_hash: Option<&str>,
         default_workspace_id: Uuid,
-        google_subject: Option<&str>,
     ) -> anyhow::Result<UserRow> {
         let row = sqlx::query(
-            r#"INSERT INTO users (id, email, name, password_hash, default_workspace_id, google_subject)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id, email, name, password_hash, google_subject"#,
+            r#"INSERT INTO users (id, email, name, password_hash, default_workspace_id)
+               VALUES ($1, $2, $3, $4, $5)
+               RETURNING id, email, name, password_hash"#,
         )
         .bind(id)
         .bind(email)
         .bind(name)
         .bind(password_hash)
         .bind(default_workspace_id)
-        .bind(google_subject)
         .fetch_one(&self.pool)
         .await?;
         Ok(UserRow {
@@ -44,36 +42,36 @@ impl UserRepository for SqlxUserRepository {
             email: row.get("email"),
             name: row.get("name"),
             password_hash: row.try_get("password_hash").ok(),
-            google_subject: row.try_get("google_subject").ok(),
         })
     }
 
     async fn find_by_email(&self, email: &str) -> anyhow::Result<Option<UserRow>> {
-        let row = sqlx::query(
-            r#"SELECT id, email, name, password_hash, google_subject FROM users WHERE email = $1"#,
-        )
-        .bind(email)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row =
+            sqlx::query(r#"SELECT id, email, name, password_hash FROM users WHERE email = $1"#)
+                .bind(email)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|r| UserRow {
             id: r.get("id"),
             email: r.get("email"),
             name: r.get("name"),
             password_hash: r.try_get("password_hash").ok(),
-            google_subject: r.try_get("google_subject").ok(),
         }))
     }
 
-    async fn find_by_google_subject(
+    async fn find_by_external_identity(
         &self,
-        google_subject: &str,
+        provider: &str,
+        subject: &str,
     ) -> anyhow::Result<Option<UserRow>> {
         let row = sqlx::query(
-            r#"SELECT id, email, name, password_hash, google_subject
-               FROM users
-               WHERE google_subject = $1"#,
+            r#"SELECT u.id, u.email, u.name, u.password_hash
+               FROM user_external_accounts a
+               JOIN users u ON u.id = a.user_id
+               WHERE a.provider = $1 AND a.subject = $2"#,
         )
-        .bind(google_subject)
+        .bind(provider)
+        .bind(subject)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|r| UserRow {
@@ -81,12 +79,11 @@ impl UserRepository for SqlxUserRepository {
             email: r.get("email"),
             name: r.get("name"),
             password_hash: r.try_get("password_hash").ok(),
-            google_subject: r.try_get("google_subject").ok(),
         }))
     }
 
     async fn find_by_id(&self, id: Uuid) -> anyhow::Result<Option<UserRow>> {
-        let row = sqlx::query(r#"SELECT id, email, name, google_subject FROM users WHERE id = $1"#)
+        let row = sqlx::query(r#"SELECT id, email, name FROM users WHERE id = $1"#)
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
@@ -95,16 +92,25 @@ impl UserRepository for SqlxUserRepository {
             email: r.get("email"),
             name: r.get("name"),
             password_hash: None,
-            google_subject: r.try_get("google_subject").ok(),
         }))
     }
 
-    async fn set_google_subject(&self, id: Uuid, google_subject: &str) -> anyhow::Result<()> {
-        sqlx::query(r#"UPDATE users SET google_subject = $1 WHERE id = $2"#)
-            .bind(google_subject)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+    async fn link_external_identity(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        subject: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"INSERT INTO user_external_accounts (user_id, provider, subject)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (provider, subject) DO UPDATE SET user_id = EXCLUDED.user_id"#,
+        )
+        .bind(user_id)
+        .bind(provider)
+        .bind(subject)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

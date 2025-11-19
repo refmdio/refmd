@@ -12,9 +12,7 @@ use crate::application::ports::plugin_installation_repository::PluginInstallatio
 use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::storage_projection_queue::StorageProjectionQueue;
 use crate::application::ports::user_repository::UserRepository;
-use crate::application::services::auth::external::{
-    ExternalAuthIdentity, ExternalAuthProviderKind,
-};
+use crate::application::services::auth::external::ExternalAuthIdentity;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::workspaces::WorkspaceService;
 use crate::application::use_cases::auth::delete_account::DeleteAccount;
@@ -164,25 +162,23 @@ impl AccountService {
         &self,
         identity: ExternalAuthIdentity,
     ) -> Result<UserDto, ServiceError> {
-        match identity.provider {
-            ExternalAuthProviderKind::Google => self
-                .handle_google_identity(identity)
-                .await
-                .map_err(ServiceError::from),
-        }
-    }
-
-    async fn handle_google_identity(
-        &self,
-        identity: ExternalAuthIdentity,
-    ) -> Result<UserDto, ServiceError> {
         if !identity.email_verified {
             return Err(ServiceError::Unauthorized);
         }
+        self.handle_external_identity(identity)
+            .await
+            .map_err(ServiceError::from)
+    }
+
+    async fn handle_external_identity(
+        &self,
+        identity: ExternalAuthIdentity,
+    ) -> Result<UserDto, ServiceError> {
+        let provider = identity.provider.as_str();
         let subject = identity.subject.clone();
         if let Some(existing) = self
             .user_repo
-            .find_by_google_subject(&subject)
+            .find_by_external_identity(provider, &subject)
             .await
             .map_err(ServiceError::from)?
         {
@@ -204,12 +200,10 @@ impl AccountService {
             .await
             .map_err(ServiceError::from)?
         {
-            if existing.google_subject.is_none() {
-                self.user_repo
-                    .set_google_subject(existing.id, &subject)
-                    .await
-                    .map_err(ServiceError::from)?;
-            }
+            self.user_repo
+                .link_external_identity(existing.id, provider, &subject)
+                .await
+                .map_err(ServiceError::from)?;
             return Ok(UserDto {
                 id: existing.id,
                 email: existing.email,
@@ -217,14 +211,18 @@ impl AccountService {
             });
         }
 
-        self.create_external_user(&email, &identity, &subject).await
+        let user = self.create_external_user(&email, &identity).await?;
+        self.user_repo
+            .link_external_identity(user.id, provider, &subject)
+            .await
+            .map_err(ServiceError::from)?;
+        Ok(user)
     }
 
     async fn create_external_user(
         &self,
         email: &str,
         identity: &ExternalAuthIdentity,
-        subject: &str,
     ) -> Result<UserDto, ServiceError> {
         let trimmed_name = identity
             .name
@@ -248,7 +246,7 @@ impl AccountService {
 
         let create_result = self
             .user_repo
-            .create_user(user_id, email, &trimmed_name, None, user_id, Some(subject))
+            .create_user(user_id, email, &trimmed_name, None, user_id)
             .await;
 
         let user = match create_result {

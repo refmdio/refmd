@@ -35,7 +35,6 @@ impl<'a, R: UserRepository + ?Sized> Register<'a, R> {
                 &req.name,
                 Some(&hash),
                 req.default_workspace_id,
-                None,
             )
             .await?;
         Ok(user)

@@ -8,12 +8,14 @@ use crate::application::services::errors::ServiceError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExternalAuthProviderKind {
     Google,
+    Github,
 }
 
 impl ExternalAuthProviderKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             ExternalAuthProviderKind::Google => "google",
+            ExternalAuthProviderKind::Github => "github",
         }
     }
 }
@@ -24,6 +26,7 @@ impl TryFrom<&str> for ExternalAuthProviderKind {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value.to_lowercase().as_str() {
             "google" => Ok(ExternalAuthProviderKind::Google),
+            "github" => Ok(ExternalAuthProviderKind::Github),
             _ => Err(()),
         }
     }

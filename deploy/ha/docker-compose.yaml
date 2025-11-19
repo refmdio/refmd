@@ -105,6 +105,9 @@ services:
       GIT_REBUILD_ENABLED: "true"
       GIT_REBUILD_INTERVAL_SECS: 21600
       # GOOGLE_OAUTH_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
+      # GITHUB_OAUTH_CLIENT_ID: your-github-client-id
+      # GITHUB_OAUTH_CLIENT_SECRET: your-github-client-secret
+      # GITHUB_OAUTH_REDIRECT_URI: http://localhost:3000/auth/signin
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,6 +155,9 @@ services:
       GIT_REBUILD_ENABLED: "true"
       GIT_REBUILD_INTERVAL_SECS: 21600
       # GOOGLE_OAUTH_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
+      # GITHUB_OAUTH_CLIENT_ID: your-github-client-id
+      # GITHUB_OAUTH_CLIENT_SECRET: your-github-client-secret
+      # GITHUB_OAUTH_REDIRECT_URI: http://localhost:3000/auth/signin
     depends_on:
       postgres:
         condition: service_healthy
@@ -168,6 +174,8 @@ services:
       VITE_API_BASE_URL: http://localhost:8888
       VITE_PUBLIC_BASE_URL: http://localhost:3000
       # VITE_GOOGLE_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
+      # VITE_GITHUB_CLIENT_ID: your-github-client-id
+      # VITE_GITHUB_REDIRECT_URI: http://localhost:3000/auth/signin
     depends_on:
       api-a:
         condition: service_started
@@ -182,6 +190,8 @@ services:
       VITE_API_BASE_URL: http://localhost:8888
       VITE_PUBLIC_BASE_URL: http://localhost:3000
       # VITE_GOOGLE_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
+      # VITE_GITHUB_CLIENT_ID: your-github-client-id
+      # VITE_GITHUB_REDIRECT_URI: http://localhost:3000/auth/signin
     depends_on:
       api-a:
         condition: service_started

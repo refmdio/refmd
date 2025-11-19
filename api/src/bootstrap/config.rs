@@ -72,11 +72,19 @@ pub struct Config {
     pub git_rebuild_enabled: bool,
     pub git_rebuild_interval_secs: u64,
     pub google_oauth: Option<GoogleOAuthConfig>,
+    pub github_oauth: Option<GithubOAuthConfig>,
 }
 
 #[derive(Clone, Debug)]
 pub struct GoogleOAuthConfig {
     pub client_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GithubOAuthConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: Option<String>,
 }
 
 impl Config {
@@ -200,6 +208,21 @@ impl Config {
             })
             .filter(|ids| !ids.is_empty())
             .map(|ids| GoogleOAuthConfig { client_ids: ids });
+        let github_oauth = match (
+            env_var(&["GITHUB_OAUTH_CLIENT_ID"]),
+            env_var(&["GITHUB_OAUTH_CLIENT_SECRET"]),
+        ) {
+            (Some(client_id), Some(client_secret))
+                if !client_id.is_empty() && !client_secret.is_empty() =>
+            {
+                Some(GithubOAuthConfig {
+                    client_id,
+                    client_secret,
+                    redirect_uri: env_var(&["GITHUB_OAUTH_REDIRECT_URI"]),
+                })
+            }
+            _ => None,
+        };
 
         // Production hardening: require proper FRONTEND_URL and robust secrets
         if is_production {
@@ -285,6 +308,7 @@ impl Config {
             git_rebuild_enabled,
             git_rebuild_interval_secs,
             google_oauth,
+            github_oauth,
         })
     }
 }

@@ -59,6 +59,7 @@ use api::application::services::tags::TagService;
 use api::application::services::user_shortcuts::UserShortcutService;
 use api::application::services::workspaces::{WorkspacePermissionResolver, WorkspaceService};
 use api::bootstrap::config::{Config, StorageBackend};
+use api::infrastructure::auth::github::GithubOAuthProvider;
 use api::infrastructure::auth::google::GoogleIdentityProvider;
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::doc_event_log::PgDocEventLog;
@@ -878,6 +879,21 @@ async fn main() -> anyhow::Result<()> {
             }
             Err(err) => {
                 tracing::warn!(error = ?err, "google_oauth_provider_init_failed");
+            }
+        }
+    }
+    if let Some(github_cfg) = cfg.github_oauth.clone() {
+        match GithubOAuthProvider::new(
+            github_cfg.client_id.clone(),
+            github_cfg.client_secret.clone(),
+            github_cfg.redirect_uri.clone(),
+        ) {
+            Ok(provider) => {
+                tracing::info!("github_oauth_provider_enabled");
+                external_auth_providers.push(Arc::new(provider));
+            }
+            Err(err) => {
+                tracing::warn!(error = ?err, "github_oauth_provider_init_failed");
             }
         }
     }

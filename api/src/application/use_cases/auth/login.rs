@@ -35,7 +35,6 @@ impl<'a, R: UserRepository + ?Sized> Login<'a, R> {
                 email: row.email,
                 name: row.name,
                 password_hash: None,
-                google_subject: None,
             }))
         } else {
             Ok(None)
