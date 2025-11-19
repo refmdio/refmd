@@ -11,6 +11,7 @@ use crate::application::services::api_tokens::ApiTokenService;
 use crate::application::services::auth::account::AccountService;
 use crate::application::services::auth::external::ExternalAuthRegistry;
 use crate::application::services::auth::service::AuthService;
+use crate::application::services::auth::user_sessions::UserSessionService;
 use crate::application::services::authorization::AuthorizationService;
 use crate::application::services::documents::DocumentService;
 use crate::application::services::files::FileService;
@@ -64,6 +65,7 @@ pub struct AppServices {
     health_service: Arc<HealthService>,
     account_service: Arc<AccountService>,
     auth_service: Arc<AuthService>,
+    session_service: Arc<UserSessionService>,
     realtime_engine: Arc<dyn RealtimeEngine>,
     storage_ingest_queue: Arc<dyn StorageIngestQueue>,
     external_auth: Arc<ExternalAuthRegistry>,
@@ -91,6 +93,7 @@ impl AppServices {
         health_service: Arc<HealthService>,
         account_service: Arc<AccountService>,
         auth_service: Arc<AuthService>,
+        session_service: Arc<UserSessionService>,
         realtime_engine: Arc<dyn RealtimeEngine>,
         storage_ingest_queue: Arc<dyn StorageIngestQueue>,
         external_auth: Arc<ExternalAuthRegistry>,
@@ -115,6 +118,7 @@ impl AppServices {
             health_service,
             account_service,
             auth_service,
+            session_service,
             realtime_engine,
             storage_ingest_queue,
             external_auth,
@@ -205,6 +209,10 @@ impl AppContext {
 
     pub fn auth_service(&self) -> Arc<AuthService> {
         self.services.auth_service.clone()
+    }
+
+    pub fn session_service(&self) -> Arc<UserSessionService> {
+        self.services.session_service.clone()
     }
 
     pub fn external_auth(&self) -> Arc<ExternalAuthRegistry> {

@@ -25,7 +25,7 @@ type AuthState = {
   activeWorkspace: UserResponse['workspaces'][number] | null
   permissions: string[]
   loading: boolean
-  signIn: (email: string, password: string) => Promise<UserResponse>
+  signIn: (email: string, password: string, options?: SignInOptions) => Promise<UserResponse>
   signInWithProvider: (provider: string, payload: OAuthPayload) => Promise<UserResponse>
   signUp: (email: string, name: string, password: string) => Promise<void>
   signOut: () => Promise<void>
@@ -37,6 +37,11 @@ type OAuthPayload = {
   credential?: string
   code?: string
   redirect_uri?: string
+  remember_me?: boolean
+}
+
+type SignInOptions = {
+  remember?: boolean
 }
 
 const Ctx = createContext<AuthState | null>(null)
@@ -134,8 +139,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [queryClient])
 
   const signIn = useCallback(
-    async (email: string, password: string) => {
-      const res = await loginApi(email, password)
+    async (email: string, password: string, options?: SignInOptions) => {
+      const res = await loginApi(email, password, options)
       queryClient.clear()
       queryClient.setQueryData(userKeys.me(), res.user)
       setUser(res.user)

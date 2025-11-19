@@ -31,6 +31,8 @@ struct Claims {
     iat: usize,
     #[allow(dead_code)]
     exp: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sid: Option<String>,
 }
 
 impl AuthService {
@@ -90,6 +92,7 @@ impl AuthService {
         &self,
         user_id: Uuid,
         workspace_id: Uuid,
+        session_id: Option<Uuid>,
     ) -> Result<IssuedSession, ServiceError> {
         let now = Utc::now().timestamp() as usize;
         let exp = now + self.jwt_expires_secs;
@@ -98,6 +101,7 @@ impl AuthService {
             workspace_id: Some(workspace_id.to_string()),
             iat: now,
             exp,
+            sid: session_id.map(|id| id.to_string()),
         };
         let token = jsonwebtoken::encode(
             &Header::default(),

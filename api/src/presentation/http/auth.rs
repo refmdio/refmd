@@ -1,23 +1,27 @@
 use crate::application::access;
 use crate::application::dto::auth::UserDto;
+use crate::application::ports::user_session_repository::UserSessionRecord;
 use crate::application::ports::workspace_repository::WorkspaceListItem;
 use crate::application::services::auth::external::{ExternalAuthPayload, ExternalAuthProviderKind};
+use crate::application::services::auth::user_sessions::{IssuedSessionBundle, SessionMetadata};
 use crate::application::services::errors::ServiceError;
 use crate::presentation::context::AppContext;
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
-    routing::{get, post},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    routing::{delete, get, post},
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::presentation::http::workspace_scope;
 
 const SESSION_COOKIE_NAME: &str = "access_token";
+const REFRESH_COOKIE_NAME: &str = "refresh_token";
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterRequest {
@@ -37,6 +41,26 @@ pub struct UserResponse {
     pub active_workspace: Option<WorkspaceMembershipResponse>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub active_workspace_permissions: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SessionResponse {
+    pub id: Uuid,
+    pub workspace_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip_address: Option<String>,
+    pub remember_me: bool,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub current: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RefreshResponse {
+    pub access_token: String,
 }
 
 #[derive(Debug, Serialize, ToSchema, Clone)]
@@ -61,6 +85,8 @@ pub struct WorkspaceMembershipResponse {
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
+    #[serde(default)]
+    pub remember_me: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -77,6 +103,8 @@ pub struct OAuthLoginRequest {
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redirect_uri: Option<String>,
+    #[serde(default)]
+    pub remember_me: bool,
 }
 
 pub fn routes(ctx: AppContext) -> Router {
@@ -85,6 +113,9 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/login", post(login))
         .route("/oauth/:provider", post(oauth_login))
         .route("/logout", post(logout))
+        .route("/refresh", post(refresh_session))
+        .route("/sessions", get(list_sessions))
+        .route("/sessions/:id", delete(revoke_session))
         .route("/me", get(me).delete(delete_account))
         .with_state(ctx)
 }
@@ -103,6 +134,7 @@ pub fn routes(ctx: AppContext) -> Router {
 pub async fn oauth_login(
     Path(provider): Path<String>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Json(req): Json<OAuthLoginRequest>,
 ) -> Result<(HeaderMap, Json<LoginResponse>), StatusCode> {
     let provider_kind =
@@ -127,25 +159,27 @@ pub async fn oauth_login(
         .active_workspace_id
         .or_else(|| user.workspaces.iter().find(|w| w.is_default).map(|w| w.id))
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let session = ctx
-        .auth_service()
-        .issue_session(user.id, active_workspace_id)
+    let client_ip = extract_client_ip(&headers);
+    let user_agent = extract_user_agent(&headers);
+    let issued = ctx
+        .session_service()
+        .issue_new_session(
+            user.id,
+            active_workspace_id,
+            req.remember_me,
+            SessionMetadata {
+                user_agent,
+                ip_address: client_ip.as_deref(),
+            },
+        )
+        .await
         .map_err(map_auth_error)?;
-    let cookie_value = build_session_cookie(
-        &session.token,
-        ctx.auth_service().session_ttl_secs(),
-        ctx.cfg.session_cookie_secure,
-    );
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(&cookie_value)
-            .unwrap_or(axum::http::HeaderValue::from_static("")),
-    );
+    let mut response_headers = HeaderMap::new();
+    apply_session_cookies(&ctx, &mut response_headers, &issued);
     Ok((
-        headers,
+        response_headers,
         Json(LoginResponse {
-            access_token: session.token,
+            access_token: issued.access.token,
             user,
         }),
     ))
@@ -191,6 +225,23 @@ fn workspace_response_from(item: WorkspaceListItem) -> WorkspaceMembershipRespon
         system_role: item.system_role,
         custom_role_id: item.custom_role_id,
         is_default: item.is_default,
+    }
+}
+
+fn session_response_from(
+    record: UserSessionRecord,
+    current_session_id: Option<Uuid>,
+) -> SessionResponse {
+    SessionResponse {
+        id: record.id,
+        workspace_id: record.workspace_id,
+        user_agent: record.user_agent,
+        ip_address: record.ip_address,
+        remember_me: record.remember_me,
+        created_at: record.created_at,
+        last_seen_at: record.last_seen_at,
+        expires_at: record.expires_at,
+        current: current_session_id.map_or(false, |id| id == record.id),
     }
 }
 
@@ -260,6 +311,7 @@ pub async fn register(
 ))]
 pub async fn login(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<LoginResponse>), StatusCode> {
     let service = ctx.account_service();
@@ -273,28 +325,63 @@ pub async fn login(
         .active_workspace_id
         .or_else(|| user.workspaces.iter().find(|w| w.is_default).map(|w| w.id))
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    let session = ctx
-        .auth_service()
-        .issue_session(user.id, active_workspace_id)
+    let client_ip = extract_client_ip(&headers);
+    let user_agent = extract_user_agent(&headers);
+    let issued = ctx
+        .session_service()
+        .issue_new_session(
+            user.id,
+            active_workspace_id,
+            req.remember_me,
+            SessionMetadata {
+                user_agent,
+                ip_address: client_ip.as_deref(),
+            },
+        )
+        .await
         .map_err(map_auth_error)?;
-    let cookie_value = build_session_cookie(
-        &session.token,
-        ctx.auth_service().session_ttl_secs(),
-        ctx.cfg.session_cookie_secure,
-    );
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(&cookie_value)
-            .unwrap_or(axum::http::HeaderValue::from_static("")),
-    );
+    let mut response_headers = HeaderMap::new();
+    apply_session_cookies(&ctx, &mut response_headers, &issued);
 
     Ok((
-        headers,
+        response_headers,
         Json(LoginResponse {
-            access_token: session.token,
+            access_token: issued.access.token,
             user,
+        }),
+    ))
+}
+
+#[utoipa::path(post, path = "/api/auth/refresh", tag = "Auth", responses(
+    (status = 200, body = RefreshResponse)
+))]
+pub async fn refresh_session(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<RefreshResponse>), StatusCode> {
+    let refresh_token = extract_refresh_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let client_ip = extract_client_ip(&headers);
+    let user_agent = extract_user_agent(&headers);
+    let issued = ctx
+        .session_service()
+        .refresh_session(
+            &refresh_token,
+            None,
+            SessionMetadata {
+                user_agent,
+                ip_address: client_ip.as_deref(),
+            },
+        )
+        .await
+        .map_err(map_auth_error)?;
+
+    let mut response_headers = HeaderMap::new();
+    apply_session_cookies(&ctx, &mut response_headers, &issued);
+    Ok((
+        response_headers,
+        Json(RefreshResponse {
+            access_token: issued.access.token,
         }),
     ))
 }
@@ -348,13 +435,13 @@ pub async fn delete_account(
         .delete_account(user_id)
         .await
         .map_err(map_account_error)?;
+    ctx.session_service()
+        .revoke_all_for_user(user_id)
+        .await
+        .map_err(map_auth_error)?;
 
     let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(&clear_session_cookie(ctx.cfg.session_cookie_secure))
-            .unwrap_or(axum::http::HeaderValue::from_static("")),
-    );
+    clear_auth_cookies(&mut headers, ctx.cfg.session_cookie_secure);
 
     Ok((headers, StatusCode::NO_CONTENT))
 }
@@ -486,11 +573,53 @@ fn get_cookie(cookie_header: &str, name: &str) -> Option<String> {
     None
 }
 
+fn extract_cookie_from_headers(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookie| get_cookie(cookie, name))
+}
+
+pub(crate) fn extract_refresh_token(headers: &HeaderMap) -> Option<String> {
+    extract_cookie_from_headers(headers, REFRESH_COOKIE_NAME)
+}
+
+pub(crate) fn extract_user_agent<'a>(headers: &'a HeaderMap) -> Option<&'a str> {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+}
+
+pub(crate) fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
+    if let Some(value) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        if let Some(first) = value.split(',').next() {
+            let trimmed = first.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    headers
+        .get("x-real-ip")
+        .or_else(|| headers.get("cf-connecting-ip"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub(crate) fn build_session_cookie(token: &str, max_age_secs: usize, secure: bool) -> String {
     let secure_attr = if secure { "; Secure" } else { "" };
     format!(
         "{}={}; HttpOnly{}; Path=/; Max-Age={}; SameSite=Lax",
         SESSION_COOKIE_NAME, token, secure_attr, max_age_secs
+    )
+}
+
+fn build_refresh_cookie(token: &str, max_age_secs: usize, secure: bool) -> String {
+    let secure_attr = if secure { "; Secure" } else { "" };
+    format!(
+        "{}={}; HttpOnly{}; Path=/; Max-Age={}; SameSite=Lax",
+        REFRESH_COOKIE_NAME, token, secure_attr, max_age_secs
     )
 }
 
@@ -502,14 +631,146 @@ fn clear_session_cookie(secure: bool) -> String {
     )
 }
 
-#[utoipa::path(post, path = "/api/auth/logout", tag = "Auth", responses((status = 204)))]
-pub async fn logout(State(ctx): State<AppContext>) -> Result<(HeaderMap, StatusCode), StatusCode> {
-    // Clear cookie by setting it expired
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(&clear_session_cookie(ctx.cfg.session_cookie_secure))
-            .unwrap_or(axum::http::HeaderValue::from_static("")),
+fn clear_refresh_cookie(secure: bool) -> String {
+    let secure_attr = if secure { "; Secure" } else { "" };
+    format!(
+        "{}=; HttpOnly{}; Path=/; Max-Age=0; SameSite=Lax",
+        REFRESH_COOKIE_NAME, secure_attr
+    )
+}
+
+fn append_cookie(headers: &mut HeaderMap, value: String) {
+    if let Ok(header_value) = HeaderValue::from_str(&value) {
+        headers.append(header::SET_COOKIE, header_value);
+    }
+}
+
+fn refresh_cookie_max_age(expires_at: DateTime<Utc>) -> usize {
+    let now = Utc::now();
+    if expires_at <= now {
+        0
+    } else {
+        (expires_at - now).num_seconds().max(0) as usize
+    }
+}
+
+pub(crate) fn apply_session_cookies(
+    ctx: &AppContext,
+    headers: &mut HeaderMap,
+    issued: &IssuedSessionBundle,
+) {
+    append_cookie(
+        headers,
+        build_session_cookie(
+            &issued.access.token,
+            ctx.auth_service().session_ttl_secs(),
+            ctx.cfg.session_cookie_secure,
+        ),
     );
-    Ok((headers, StatusCode::NO_CONTENT))
+    append_cookie(
+        headers,
+        build_refresh_cookie(
+            &issued.refresh_token,
+            refresh_cookie_max_age(issued.refresh_expires_at),
+            ctx.cfg.session_cookie_secure,
+        ),
+    );
+}
+
+pub(crate) fn clear_auth_cookies(headers: &mut HeaderMap, secure: bool) {
+    append_cookie(headers, clear_session_cookie(secure));
+    append_cookie(headers, clear_refresh_cookie(secure));
+}
+
+#[utoipa::path(post, path = "/api/auth/logout", tag = "Auth", responses((status = 204)))]
+pub async fn logout(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, StatusCode), StatusCode> {
+    if let Some(refresh_token) = extract_refresh_token(&headers) {
+        if let Err(err) = ctx.session_service().revoke_by_token(&refresh_token).await {
+            warn!(error = ?err, "logout_revoke_session_failed");
+        }
+    }
+    let mut response_headers = HeaderMap::new();
+    clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
+    Ok((response_headers, StatusCode::NO_CONTENT))
+}
+
+#[utoipa::path(get, path = "/api/auth/sessions", tag = "Auth", responses((status = 200, body = [SessionResponse])))]
+pub async fn list_sessions(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+) -> Result<Json<Vec<SessionResponse>>, StatusCode> {
+    let sub = validate_bearer(&ctx, bearer).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let current_session_id = if let Some(refresh_token) = extract_refresh_token(&headers) {
+        match ctx
+            .session_service()
+            .find_session_by_token(&refresh_token)
+            .await
+        {
+            Ok(Some(session)) => Some(session.id),
+            Ok(None) => None,
+            Err(err) => {
+                warn!(error = ?err, "resolve_current_session_failed");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let sessions = ctx
+        .session_service()
+        .list_for_user(user_id)
+        .await
+        .map_err(map_auth_error)?;
+    let now = Utc::now();
+    let payload = sessions
+        .into_iter()
+        .filter(|session| session.revoked_at.is_none() && session.expires_at > now)
+        .map(|session| session_response_from(session, current_session_id))
+        .collect();
+    Ok(Json(payload))
+}
+
+#[utoipa::path(delete, path = "/api/auth/sessions/{id}", tag = "Auth", params(("id" = Uuid, Path, description = "Session ID")), responses((status = 204)))]
+pub async fn revoke_session(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    Path(session_id): Path<Uuid>,
+) -> Result<(HeaderMap, StatusCode), StatusCode> {
+    let sub = validate_bearer(&ctx, bearer).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let current_session_id = if let Some(refresh_token) = extract_refresh_token(&headers) {
+        match ctx
+            .session_service()
+            .find_session_by_token(&refresh_token)
+            .await
+        {
+            Ok(Some(session)) => Some(session.id),
+            Ok(None) => None,
+            Err(err) => {
+                warn!(error = ?err, "resolve_current_session_failed");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    ctx.session_service()
+        .revoke_session(user_id, session_id)
+        .await
+        .map_err(|err| match err {
+            ServiceError::Forbidden => StatusCode::FORBIDDEN,
+            ServiceError::NotFound => StatusCode::NOT_FOUND,
+            other => map_auth_error(other),
+        })?;
+    let mut response_headers = HeaderMap::new();
+    if current_session_id == Some(session_id) {
+        clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
+    }
+    Ok((response_headers, StatusCode::NO_CONTENT))
 }

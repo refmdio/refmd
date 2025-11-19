@@ -32,6 +32,7 @@ use api::application::services::auth::account::AccountService;
 use api::application::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
 use api::application::services::auth::service::AuthService;
 use api::application::services::auth::token_validation::TokenValidationService;
+use api::application::services::auth::user_sessions::UserSessionService;
 use api::application::services::authorization::AuthorizationService;
 use api::application::services::doc_events::{
     DocEventSubscriber, FanoutDocEventSubscriber, LoggingDocEventSubscriber,
@@ -83,8 +84,11 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::auth::register,
             api::presentation::http::auth::login,
             api::presentation::http::auth::oauth_login,
+            api::presentation::http::auth::refresh_session,
             api::presentation::http::auth::logout,
             api::presentation::http::auth::me,
+            api::presentation::http::auth::list_sessions,
+            api::presentation::http::auth::revoke_session,
             api::presentation::http::api_tokens::list_api_tokens,
             api::presentation::http::api_tokens::create_api_token,
             api::presentation::http::api_tokens::revoke_api_token,
@@ -475,6 +479,17 @@ async fn main() -> anyhow::Result<()> {
         cfg.jwt_secret_pem.clone(),
         token_validation_service.clone(),
         cfg.jwt_expires_secs as usize,
+    ));
+    let user_session_repo = Arc::new(
+        api::infrastructure::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository::new(
+            pool.clone(),
+        ),
+    );
+    let session_service = Arc::new(UserSessionService::new(
+        user_session_repo.clone(),
+        auth_service.clone(),
+        cfg.session_refresh_ttl_secs,
+        cfg.session_refresh_remember_ttl_secs,
     ));
     let user_shortcuts = Arc::new(
         api::infrastructure::db::repositories::user_shortcut_repository_sqlx::SqlxUserShortcutRepository::new(
@@ -919,6 +934,7 @@ async fn main() -> anyhow::Result<()> {
         health_service.clone(),
         account_service.clone(),
         auth_service.clone(),
+        session_service.clone(),
         realtime_engine.clone(),
         storage_ingest_queue.clone(),
         external_auth_registry.clone(),

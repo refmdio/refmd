@@ -4,6 +4,7 @@ export type GithubOAuthStatePayload = {
   nonce: string
   redirect?: string
   redirectSearch?: RedirectSearchParams
+  rememberMe?: boolean
 }
 
 export const GITHUB_STATE_STORAGE_KEY = 'refmd.github.oauth.state'
@@ -76,6 +77,9 @@ export function readGithubOAuthState(): GithubOAuthStatePayload | null {
           nonce: parsed.nonce,
           redirect: typeof parsed.redirect === 'string' ? parsed.redirect : undefined,
           redirectSearch: normalizeRedirectSearchValue((parsed as { redirectSearch?: unknown }).redirectSearch),
+          rememberMe: typeof (parsed as { rememberMe?: unknown }).rememberMe === 'boolean'
+            ? ((parsed as { rememberMe?: boolean }).rememberMe as boolean)
+            : undefined,
         }
       }
     } catch {

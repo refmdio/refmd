@@ -1,15 +1,25 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+
 import {
   deleteAccount as apiDeleteAccount,
+  listSessions as apiListSessions,
   login as apiLogin,
   logout as apiLogout,
   me as apiMe,
   register as apiRegister,
+  revokeSession as apiRevokeSession,
   switchWorkspace as apiSwitchWorkspace,
   oauthLogin as apiOauthLogin,
+  refreshSession as apiRefreshSession,
 } from '@/shared/api'
+import type { SessionResponse } from '@/shared/api'
 
 export const userKeys = {
   me: () => ['me'] as const,
+}
+
+export const userSessionKeys = {
+  list: () => ['auth-sessions'] as const,
 }
 
 export const meQuery = () => ({
@@ -19,14 +29,15 @@ export const meQuery = () => ({
 })
 
 // Use-case oriented helpers
-export async function login(email: string, password: string) {
-  return apiLogin({ requestBody: { email, password } })
+export async function login(email: string, password: string, options?: { remember?: boolean }) {
+  return apiLogin({ requestBody: { email, password, remember_me: options?.remember ?? false } })
 }
 
 export type OAuthLoginPayload = {
   credential?: string
   code?: string
   redirect_uri?: string
+  remember_me?: boolean
 }
 
 export async function oauthLogin(provider: string, payload: OAuthLoginPayload) {
@@ -51,4 +62,45 @@ export async function logout() {
 
 export async function switchWorkspace(workspaceId: string) {
   return apiSwitchWorkspace({ id: workspaceId })
+}
+
+export async function refreshSession() {
+  return apiRefreshSession()
+}
+
+export async function listSessions() {
+  return apiListSessions() as Promise<SessionResponse[]>
+}
+
+export async function revokeSession(sessionId: string) {
+  return apiRevokeSession({ id: sessionId })
+}
+
+export const userSessionsQuery = () => ({
+  queryKey: userSessionKeys.list(),
+  queryFn: () => listSessions(),
+})
+
+export function useUserSessions(options?: { enabled?: boolean }) {
+  return useQuery({
+    ...userSessionsQuery(),
+    enabled: options?.enabled ?? true,
+  })
+}
+
+export function useRevokeSession(options?: {
+  onSuccess?: (sessionId: string) => void
+  onError?: (error: unknown, sessionId: string) => void
+}) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (sessionId: string) => apiRevokeSession({ id: sessionId }),
+    onSuccess: (_data, sessionId) => {
+      qc.invalidateQueries({ queryKey: userSessionKeys.list() })
+      options?.onSuccess?.(sessionId)
+    },
+    onError: (error, sessionId) => {
+      options?.onError?.(error, sessionId)
+    },
+  })
 }

@@ -8,6 +8,7 @@ import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
 import { useAuthContext } from '@/features/auth'
+
 import {
   buildRedirectSearchString,
   clearGithubOAuthState,
@@ -63,6 +64,7 @@ export function SignInPage({
   const { signIn, signInWithProvider } = useAuthContext()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [socialLoading, setSocialLoading] = useState(false)
@@ -146,7 +148,7 @@ export function SignInPage({
       setSocialLoading(true)
       setError(null)
       try {
-        await signInWithProvider('google', { credential })
+        await signInWithProvider('google', { credential, remember_me: rememberMe })
         finishSignIn()
       } catch (err: any) {
         setError(err?.message || 'Failed to sign in with Google')
@@ -154,7 +156,7 @@ export function SignInPage({
         setSocialLoading(false)
       }
     },
-    [finishSignIn, signInWithProvider],
+    [finishSignIn, rememberMe, signInWithProvider],
   )
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -162,7 +164,7 @@ export function SignInPage({
     setLoading(true)
     setError(null)
     try {
-      await signIn(email, password)
+      await signIn(email, password, { remember: rememberMe })
       finishSignIn()
     } catch (err: any) {
       setError(err?.message || 'Failed to sign in')
@@ -180,6 +182,9 @@ export function SignInPage({
           redirectSearch: storedState.redirectSearch,
         }
       : undefined
+    if (storedState?.rememberMe !== undefined) {
+      setRememberMe(storedState.rememberMe)
+    }
     if (oauthError) {
       setError(`GitHub authentication error: ${oauthError}`)
       clearOauthSearch(storedOverride)
@@ -208,6 +213,7 @@ export function SignInPage({
         await signInWithProvider('github', {
           code: oauthCode,
           redirect_uri: redirectUri,
+          remember_me: storedState.rememberMe ?? rememberMe,
         })
         if (!cancelled) {
           clearOauthSearch()
@@ -239,6 +245,7 @@ export function SignInPage({
     oauthError,
     clearOauthSearch,
     finishSignIn,
+    rememberMe,
     resolveGithubRedirectUri,
     signInWithProvider,
   ])
@@ -256,6 +263,7 @@ export function SignInPage({
       nonce: state,
       redirect: redirect || undefined,
       redirectSearch: sanitizedRedirectSearch,
+      rememberMe,
     }
     if (!writeGithubOAuthState(stored)) {
       setError('Unable to start GitHub sign in. Please enable site data storage and try again.')
@@ -268,7 +276,7 @@ export function SignInPage({
     url.searchParams.set('state', state)
     url.searchParams.set('allow_signup', 'true')
     window.location.href = url.toString()
-  }, [isGithubEnabled, redirect, resolveGithubRedirectUri, sanitizedRedirectSearch])
+  }, [isGithubEnabled, redirect, rememberMe, resolveGithubRedirectUri, sanitizedRedirectSearch])
 
   useEffect(() => {
     if (!isGoogleEnabled) return
@@ -365,6 +373,22 @@ export function SignInPage({
               required
               autoComplete="current-password"
             />
+          </div>
+          <div className="flex items-center justify-between">
+            <Label
+              htmlFor="remember"
+              className="flex cursor-pointer items-center gap-2 text-sm font-normal text-muted-foreground"
+            >
+              <input
+                id="remember"
+                name="remember"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                className="md-checkbox"
+              />
+              Keep me signed in
+            </Label>
           </div>
           {error && <div className="text-sm text-red-600">{error}</div>}
           <Button type="submit" className="w-full" disabled={loading}>

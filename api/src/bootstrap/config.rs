@@ -37,6 +37,8 @@ pub struct Config {
     pub database_url: String,
     pub jwt_secret_pem: String,
     pub jwt_expires_secs: i64,
+    pub session_refresh_ttl_secs: i64,
+    pub session_refresh_remember_ttl_secs: i64,
     pub snapshot_interval_secs: u64,
     pub snapshot_keep_versions: i64,
     pub updates_keep_window: i64,
@@ -101,6 +103,12 @@ impl Config {
         let jwt_expires_secs = env_var(&["JWT_EXPIRES_SECS"])
             .and_then(|s| s.parse().ok())
             .unwrap_or(60 * 60);
+        let session_refresh_ttl_secs = env_var(&["SESSION_REFRESH_TTL_SECS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(60 * 60 * 24);
+        let session_refresh_remember_ttl_secs = env_var(&["SESSION_REFRESH_REMEMBER_TTL_SECS"])
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(60 * 60 * 24 * 30);
         let snapshot_interval_secs = env_var(&["SNAPSHOT_INTERVAL_SECS"])
             .and_then(|s| s.parse().ok())
             .unwrap_or(300);
@@ -273,6 +281,8 @@ impl Config {
             database_url,
             jwt_secret_pem,
             jwt_expires_secs,
+            session_refresh_ttl_secs,
+            session_refresh_remember_ttl_secs,
             snapshot_interval_secs,
             snapshot_keep_versions,
             updates_keep_window,
