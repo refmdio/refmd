@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import type { WorkspaceMembershipResponse } from '@/shared/api'
+import { useShortcut } from '@/shared/hooks/use-shortcut'
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -37,6 +38,20 @@ import {
 } from '@/features/temporary-document'
 
 const userMenuIconClass = 'h-4 w-4'
+const TREE_NAV_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Home', 'End'])
+
+type VisibleTreeNode = {
+  node: DocumentNode
+  parentId: string | null
+  depth: number
+}
+
+function escapeSelector(value: string) {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value)
+  }
+  return value.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1')
+}
 
 function SidebarUserMenu() {
   const { user, signOut, activeWorkspace } = useAuthContext()
@@ -251,6 +266,7 @@ function FileTreeInner() {
     shareToken,
     toggleFolder,
     expandFolder,
+    expandParentFolders,
     refreshDocuments,
     updateDocuments,
     requestRename,
@@ -285,6 +301,9 @@ function FileTreeInner() {
     setTempDialogOpen(true)
   }, [refreshTempEntries])
   const docPickerPromiseRef = React.useRef<((value: string | null) => void) | null>(null)
+  const treeFocusRef = React.useRef<HTMLDivElement | null>(null)
+  const treeScrollRef = React.useRef<HTMLDivElement | null>(null)
+  const lastFocusRef = React.useRef<HTMLElement | null>(null)
   const hasActiveDocuments = documents.length > 0
   const hasArchivedDocuments = archivedDocuments.length > 0
   const handleToggleArchives = useCallback(() => setArchivesExpanded((prev) => !prev), [setArchivesExpanded])
@@ -387,7 +406,203 @@ function FileTreeInner() {
     if (m && m[0]) setSelectedDocId(m[0])
   }, [pathname])
 
-  const renderNode = useCallback((node: DocumentNode, parentId?: string): React.ReactNode => {
+  const treeNavigation = useMemo(() => {
+    const nodes: VisibleTreeNode[] = []
+    const parentMap = new Map<string, string | null>()
+    const indexMap = new Map<string, number>()
+    const traverse = (list: DocumentNode[], depth: number, parentId: string | null) => {
+      for (const entry of list) {
+        nodes.push({ node: entry, parentId, depth })
+        parentMap.set(entry.id, parentId)
+        indexMap.set(entry.id, nodes.length - 1)
+        if (entry.type === 'folder' && expandedFolders.has(entry.id) && entry.children?.length) {
+          traverse(entry.children, depth + 1, entry.id)
+        }
+      }
+    }
+    traverse(documents, 1, null)
+    return { nodes, parentMap, indexMap }
+  }, [documents, expandedFolders])
+  const visibleNodes = treeNavigation.nodes
+  const nodeParentMap = treeNavigation.parentMap
+  const nodeIndexMap = treeNavigation.indexMap
+
+  const scrollNodeIntoView = useCallback((nodeId: string | null) => {
+    if (!nodeId || !treeScrollRef.current) return
+    const selector = `[data-document-node="${escapeSelector(nodeId)}"]`
+    const target = treeScrollRef.current.querySelector<HTMLElement>(selector)
+    if (target) {
+      target.scrollIntoView({ block: 'nearest' })
+    }
+  }, [treeScrollRef])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    if (!selectedDocId) return
+    if (!treeFocusRef.current) return
+    if (document.activeElement !== treeFocusRef.current) return
+    scrollNodeIntoView(selectedDocId)
+  }, [scrollNodeIntoView, selectedDocId])
+
+  const focusTree = useCallback(() => {
+    const el = treeFocusRef.current
+    if (!el) return
+    if (selectedDocId && !nodeIndexMap.has(selectedDocId)) {
+      expandParentFolders(selectedDocId)
+    }
+    let targetId = selectedDocId
+    if (!targetId && visibleNodes[0]) {
+      targetId = visibleNodes[0].node.id
+      setSelectedDocId(targetId)
+    }
+    requestAnimationFrame(() => {
+      el.focus()
+      if (targetId) {
+        scrollNodeIntoView(targetId)
+      }
+    })
+  }, [expandParentFolders, nodeIndexMap, scrollNodeIntoView, selectedDocId, setSelectedDocId, visibleNodes])
+
+  const toggleTreeFocus = useCallback(() => {
+    if (typeof document === 'undefined') return
+    const treeEl = treeFocusRef.current
+    if (!treeEl) return
+    const active = document.activeElement as HTMLElement | null
+
+    if (active === treeEl) {
+      const previous = lastFocusRef.current
+      lastFocusRef.current = null
+      if (previous && previous !== treeEl && document.contains(previous)) {
+        previous.focus()
+      } else {
+        treeEl.blur()
+      }
+      return
+    }
+
+    if (active && active !== treeEl) {
+      lastFocusRef.current = active
+    }
+    focusTree()
+  }, [focusTree])
+
+  useShortcut('global.file-tree.focus', () => {
+    toggleTreeFocus()
+  })
+
+  const handleTreeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.currentTarget !== event.target) return
+    const normalizedKey = event.key === 'Spacebar' ? ' ' : event.key
+    if (!TREE_NAV_KEYS.has(normalizedKey)) {
+      return
+    }
+    if (!visibleNodes.length) {
+      event.preventDefault()
+      return
+    }
+
+    let activeId = selectedDocId
+    if (activeId && !nodeIndexMap.has(activeId)) {
+      expandParentFolders(activeId)
+      event.preventDefault()
+      return
+    }
+    if (!activeId) {
+      activeId = visibleNodes[0]?.node.id ?? null
+      if (activeId) {
+        setSelectedDocId(activeId)
+      }
+    }
+
+    if (!activeId) {
+      event.preventDefault()
+      return
+    }
+
+    const currentIndex = nodeIndexMap.get(activeId) ?? 0
+    const currentEntry = visibleNodes[currentIndex]
+    if (!currentEntry) {
+      event.preventDefault()
+      return
+    }
+
+    const moveSelection = (nextIndex: number) => {
+      if (nextIndex < 0 || nextIndex >= visibleNodes.length) return
+      const nextEntry = visibleNodes[nextIndex]
+      if (!nextEntry) return
+      if (nextEntry.node.id === selectedDocId) return
+      setSelectedDocId(nextEntry.node.id)
+      scrollNodeIntoView(nextEntry.node.id)
+    }
+
+    const currentNode = currentEntry.node
+    switch (normalizedKey) {
+      case 'ArrowDown': {
+        event.preventDefault()
+        if (currentIndex < visibleNodes.length - 1) {
+          moveSelection(currentIndex + 1)
+        }
+        break
+      }
+      case 'ArrowUp': {
+        event.preventDefault()
+        if (currentIndex > 0) {
+          moveSelection(currentIndex - 1)
+        }
+        break
+      }
+      case 'Home': {
+        event.preventDefault()
+        moveSelection(0)
+        break
+      }
+      case 'End': {
+        event.preventDefault()
+        moveSelection(visibleNodes.length - 1)
+        break
+      }
+      case 'ArrowRight': {
+        event.preventDefault()
+        if (currentNode.type === 'folder') {
+          if (!expandedFolders.has(currentNode.id) && currentNode.children?.length) {
+            expandFolder(currentNode.id)
+          } else if (currentNode.children?.length) {
+            moveSelection(currentIndex + 1)
+          }
+        } else {
+          void navigateToDocument(currentNode.id)
+        }
+        break
+      }
+      case 'ArrowLeft': {
+        event.preventDefault()
+        if (currentNode.type === 'folder' && expandedFolders.has(currentNode.id)) {
+          toggleFolder(currentNode.id)
+        } else {
+          const parentId = nodeParentMap.get(currentNode.id)
+          if (parentId) {
+            setSelectedDocId(parentId)
+            scrollNodeIntoView(parentId)
+          }
+        }
+        break
+      }
+      case 'Enter':
+      case ' ': {
+        event.preventDefault()
+        if (currentNode.type === 'folder') {
+          toggleFolder(currentNode.id)
+        } else {
+          void navigateToDocument(currentNode.id)
+        }
+        break
+      }
+      default:
+        break
+    }
+  }, [expandFolder, expandParentFolders, expandedFolders, navigateToDocument, nodeIndexMap, nodeParentMap, scrollNodeIntoView, selectedDocId, setSelectedDocId, toggleFolder, visibleNodes])
+
+  const renderNode = useCallback((node: DocumentNode, parentId?: string, depth = 1): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.id)
     const isSelected = selectedDocId === node.id
     const isDragging = drag.dragState.draggedItem === node.id
@@ -398,6 +613,7 @@ function FileTreeInner() {
         <FolderNode
           key={node.id}
           node={node}
+          depth={depth}
           isExpanded={isExpanded}
           isSelected={isSelected}
           isDragging={isDragging}
@@ -413,7 +629,7 @@ function FileTreeInner() {
           onDragLeave={drag.handleDragLeave}
           onDragOver={drag.handleDragOver}
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
-          renderChildren={() => node.children?.map((c) => renderNode(c, node.id))}
+          renderChildren={() => node.children?.map((c) => renderNode(c, node.id, depth + 1))}
           onShareFolder={(folder) => setShareFolderId(folder.id)}
         />
       )
@@ -423,6 +639,7 @@ function FileTreeInner() {
         key={node.id}
         node={node}
         parentId={parentId}
+        depth={depth}
         isSelected={isSelected}
         isDragging={isDragging}
         isDropTarget={isDropTarget}
@@ -439,7 +656,7 @@ function FileTreeInner() {
         onOpenSecondaryViewer={openSecondaryViewer}
       />
     )
-  }, [expandedFolders, toggleFolder, renameDocument, deleteDocument, onSelect, createDocument, drag, handleDrop, createFolder, fileTreeRules])
+  }, [createDocument, createFolder, deleteDocument, drag, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   return (
     <div className="flex h-full flex-1 flex-col">
@@ -481,25 +698,37 @@ function FileTreeInner() {
           )}
 
           <SidebarGroup className="h-full overflow-hidden rounded-2xl bg-muted/10 px-1.5 py-3">
-            <SidebarGroupContent className="h-full overflow-y-auto pr-0.5">
-              {loading ? (
-                <SidebarMenu className="gap-1.5">
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <SidebarMenuItem key={i} className="rounded-xl border border-border/40 bg-background/60 px-2">
-                      <SidebarMenuSkeleton showIcon />
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              ) : !hasActiveDocuments && !hasArchivedDocuments ? (
-                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border/60 bg-background/40 px-4 py-12 text-center text-xs text-muted-foreground">
-                  No documents yet. Start by creating a new note or folder.
-                </div>
-              ) : (
-                <SidebarMenu className="gap-1.5">
-                  {documents.map((n) => renderNode(n))}
-                </SidebarMenu>
-              )}
-            </SidebarGroupContent>
+            <div
+              ref={treeFocusRef}
+              tabIndex={0}
+              role="tree"
+              aria-label={isShare ? 'Shared file tree' : 'Workspace file tree'}
+              aria-activedescendant={selectedDocId ? `file-tree-item-${selectedDocId}` : undefined}
+              className="flex h-full flex-col outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+              onKeyDown={handleTreeKeyDown}
+            >
+              <div ref={treeScrollRef} className="h-full">
+                <SidebarGroupContent className="h-full overflow-y-auto pr-0.5">
+                  {loading ? (
+                    <SidebarMenu className="gap-1.5">
+                      {Array.from({ length: 8 }).map((_, i) => (
+                        <SidebarMenuItem key={i} className="rounded-xl border border-border/40 bg-background/60 px-2">
+                          <SidebarMenuSkeleton showIcon />
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  ) : !hasActiveDocuments && !hasArchivedDocuments ? (
+                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border/60 bg-background/40 px-4 py-12 text-center text-xs text-muted-foreground">
+                      No documents yet. Start by creating a new note or folder.
+                    </div>
+                  ) : (
+                    <SidebarMenu className="gap-1.5">
+                      {documents.map((n) => renderNode(n))}
+                    </SidebarMenu>
+                  )}
+                </SidebarGroupContent>
+              </div>
+            </div>
           </SidebarGroup>
         </SidebarContent>
 

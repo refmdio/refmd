@@ -23,6 +23,7 @@ import { useFileTree, type DocumentNode } from '@/features/file-tree'
 
 type FolderNodeProps = {
   node: DocumentNode
+  depth: number
   isExpanded: boolean
   isSelected: boolean
   isDragging: boolean
@@ -44,6 +45,7 @@ type FolderNodeProps = {
 
 export const FolderNode = memo(function FolderNode({
   node,
+  depth,
   isExpanded,
   isSelected,
   isDragging,
@@ -177,6 +179,12 @@ export const FolderNode = memo(function FolderNode({
 
   return (
     <SidebarMenuItem
+      id={`file-tree-item-${node.id}`}
+      role="treeitem"
+      aria-selected={isSelected}
+      aria-expanded={isExpanded}
+      aria-level={depth}
+      data-document-node={node.id}
       className={cn(
         'relative rounded-2xl border border-transparent transition-colors duration-150 ease-out',
         shouldShowDropHighlight && 'border-primary/40 bg-primary/10',

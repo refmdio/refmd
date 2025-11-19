@@ -48,6 +48,7 @@ type FileTreeRule = { pluginId: string; icon: string; identify?: { type: 'kvFlag
 type FileNodeProps = {
   node: DocumentNode
   parentId?: string
+  depth: number
   isSelected: boolean
   isDragging: boolean
   isDropTarget: boolean
@@ -67,6 +68,7 @@ type FileNodeProps = {
 export const FileNode = memo(function FileNode({
   node,
   parentId,
+  depth,
   isSelected,
   isDragging,
   isDropTarget,
@@ -310,6 +312,11 @@ export const FileNode = memo(function FileNode({
 
   return (
     <SidebarMenuItem
+      id={`file-tree-item-${node.id}`}
+      role="treeitem"
+      aria-selected={isSelected}
+      aria-level={depth}
+      data-document-node={node.id}
       className={cn(
         'relative rounded-2xl border border-transparent transition-colors duration-150 ease-out',
         isSelected && 'border-primary/40 shadow-sm',

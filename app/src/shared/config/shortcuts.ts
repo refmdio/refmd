@@ -62,6 +62,17 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: 'global.file-tree.focus',
+    label: 'Focus file tree',
+    description: 'Move keyboard focus to the workspace file tree',
+    category: 'Navigation',
+    scope: 'global',
+    default: {
+      mac: [chord('e', { meta: true, shift: true })],
+      windows: [chord('e', { ctrl: true, shift: true })],
+    },
+  },
+  {
     id: 'global.document.new',
     label: 'Create new document',
     description: 'Create a regular workspace document',
