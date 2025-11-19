@@ -446,6 +446,136 @@ impl GitWorkspaceService {
         Ok(())
     }
 
+    async fn collect_commit_chain(
+        &self,
+        workspace_id: Uuid,
+        start: CommitMeta,
+    ) -> anyhow::Result<Vec<CommitMeta>> {
+        let mut chain = Vec::new();
+        let mut cursor = Some(start);
+        while let Some(meta) = cursor {
+            chain.push(meta.clone());
+            cursor = match meta.parent_commit_id.clone() {
+                Some(parent) => self
+                    .commit_meta_by_id(workspace_id, parent.as_slice())
+                    .await?,
+                None => None,
+            };
+        }
+        Ok(chain)
+    }
+
+    async fn remove_commits(
+        &self,
+        workspace_id: Uuid,
+        commits: &[CommitMeta],
+    ) -> anyhow::Result<()> {
+        for meta in commits {
+            let commit_hex = encode_commit_id(&meta.commit_id);
+            if let Err(error) = self
+                .git_storage
+                .delete_pack(workspace_id, &meta.commit_id)
+                .await
+            {
+                warn!(
+                    workspace_id = %workspace_id,
+                    commit = %commit_hex,
+                    error = ?error,
+                    "git_commit_cleanup_pack_failed"
+                );
+            }
+            for path in meta.file_hash_index.keys() {
+                let key = blob_key(workspace_id, &meta.commit_id, path);
+                if let Err(error) = self.git_storage.delete_blob(&key).await {
+                    warn!(
+                        workspace_id = %workspace_id,
+                        commit = %commit_hex,
+                        path = %path,
+                        error = ?error,
+                        "git_commit_cleanup_blob_failed"
+                    );
+                }
+            }
+            sqlx::query(
+                "DELETE FROM git_commits WHERE workspace_id = $1 AND commit_id = $2",
+            )
+            .bind(workspace_id)
+            .bind(meta.commit_id.clone())
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn realign_commit_history(
+        &self,
+        workspace_id: Uuid,
+        storage_latest: Option<CommitMeta>,
+        db_latest: Option<CommitMeta>,
+    ) -> anyhow::Result<()> {
+        match (storage_latest, db_latest) {
+            (Some(storage), Some(db)) => {
+                if storage.commit_id == db.commit_id {
+                    return Ok(());
+                }
+                let storage_id = storage.commit_id.clone();
+                let mut cursor = Some(db.clone());
+                let mut reached_storage = false;
+                let mut to_prune: Vec<CommitMeta> = Vec::new();
+                while let Some(meta) = cursor.clone() {
+                    if meta.commit_id == storage_id {
+                        reached_storage = true;
+                        break;
+                    }
+                    to_prune.push(meta.clone());
+                    cursor = match meta.parent_commit_id.clone() {
+                        Some(parent) => self
+                            .commit_meta_by_id(workspace_id, parent.as_slice())
+                            .await?,
+                        None => None,
+                    };
+                }
+                if !reached_storage {
+                    let all = self.collect_commit_chain(workspace_id, db.clone()).await?;
+                    if !all.is_empty() {
+                        info!(
+                            workspace_id = %workspace_id,
+                            removed = all.len(),
+                            "git_commit_pointer_reset_db_chain"
+                        );
+                        self.remove_commits(workspace_id, &all).await?;
+                    }
+                } else if !to_prune.is_empty() {
+                    info!(
+                        workspace_id = %workspace_id,
+                        removed = to_prune.len(),
+                        "git_commit_pointer_pruned_db_commits"
+                    );
+                    self.remove_commits(workspace_id, &to_prune).await?;
+                }
+                self.backfill_commits_from_storage(workspace_id, &storage)
+                    .await?;
+            }
+            (Some(storage), None) => {
+                self.backfill_commits_from_storage(workspace_id, &storage)
+                    .await?;
+            }
+            (None, Some(db)) => {
+                let all = self.collect_commit_chain(workspace_id, db).await?;
+                if !all.is_empty() {
+                    info!(
+                        workspace_id = %workspace_id,
+                        removed = all.len(),
+                        "git_commit_pointer_dropped_db_history"
+                    );
+                    self.remove_commits(workspace_id, &all).await?;
+                }
+            }
+            (None, None) => {}
+        }
+        Ok(())
+    }
+
     async fn collect_current_state(
         &self,
         workspace_id: Uuid,
@@ -1250,15 +1380,41 @@ impl GitWorkspacePort for GitWorkspaceService {
                     "git_commit_pointer_repaired_from_storage"
                 );
             } else {
-                error!(
+                warn!(
                     workspace_id = %workspace_id,
                     db_commit = ?db_commit_hex,
                     storage_commit = ?storage_commit_hex,
-                    "git_commit_pointer_irreparable"
+                    "git_commit_pointer_attempting_realign"
                 );
-                anyhow::bail!(
-                    "repository latest commit mismatch between database ({db_commit_hex:?}) and storage ({storage_commit_hex:?})"
-                );
+                self.realign_commit_history(
+                    workspace_id,
+                    storage_latest.clone(),
+                    latest_meta.clone(),
+                )
+                .await?;
+                latest_meta = self.ensure_latest_meta(workspace_id).await?;
+                storage_latest = self.git_storage.latest_commit(workspace_id).await?;
+                storage_commit_hex = storage_latest
+                    .as_ref()
+                    .map(|m| encode_commit_id(&m.commit_id));
+                db_commit_hex = latest_meta.as_ref().map(|m| encode_commit_id(&m.commit_id));
+                if storage_commit_hex == db_commit_hex {
+                    info!(
+                        workspace_id = %workspace_id,
+                        commit = ?db_commit_hex,
+                        "git_commit_pointer_repaired_by_prune"
+                    );
+                } else {
+                    error!(
+                        workspace_id = %workspace_id,
+                        db_commit = ?db_commit_hex,
+                        storage_commit = ?storage_commit_hex,
+                        "git_commit_pointer_irreparable"
+                    );
+                    anyhow::bail!(
+                        "repository latest commit mismatch between database ({db_commit_hex:?}) and storage ({storage_commit_hex:?})"
+                    );
+                }
             }
         }
 
