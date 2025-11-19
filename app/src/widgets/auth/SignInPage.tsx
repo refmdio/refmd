@@ -8,6 +8,14 @@ import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
 import { useAuthContext } from '@/features/auth'
+import {
+  buildRedirectSearchString,
+  clearGithubOAuthState,
+  parseRedirectSearch,
+  readGithubOAuthState,
+  type RedirectSearchParams,
+  writeGithubOAuthState,
+} from './github-oauth-state'
 
 type Props = {
   redirect?: string
@@ -36,8 +44,6 @@ declare global {
 }
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
-const GITHUB_STATE_STORAGE_KEY = 'refmd.github.oauth.state'
-
 function buildGithubState() {
   if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
     return window.crypto.randomUUID()
@@ -65,36 +71,48 @@ export function SignInPage({
   const isGithubEnabled = Boolean(GITHUB_CLIENT_ID)
   const googleButtonRef = useRef<HTMLDivElement | null>(null)
 
-  const sanitizedRedirectSearch = useMemo(() => {
-    const parsed = parseRedirectSearch(redirectSearch)
-    if (!parsed) return undefined
-    const filtered = Object.entries(parsed).filter(([key]) => {
-      const lower = key.toLowerCase()
-      return lower !== 'code' && lower !== 'state' && lower !== 'provider' && lower !== 'error'
-    })
-    if (!filtered.length) return undefined
-    return Object.fromEntries(filtered)
-  }, [redirectSearch])
+  const sanitizedRedirectSearch = useMemo<RedirectSearchParams | undefined>(
+    () => parseRedirectSearch(redirectSearch),
+    [redirectSearch],
+  )
 
-  const finishSignIn = useCallback(() => {
-    const redirectTo = redirect || '/dashboard'
-    if (sanitizedRedirectSearch) {
-      navigate({ to: redirectTo, search: () => sanitizedRedirectSearch })
-    } else {
-      navigate({ to: redirectTo })
-    }
-  }, [navigate, redirect, sanitizedRedirectSearch])
+  const finishSignIn = useCallback(
+    (override?: { redirect?: string; redirectSearch?: RedirectSearchParams }) => {
+      const redirectTo = override?.redirect || redirect || '/dashboard'
+      const searchPayload = override?.redirectSearch ?? sanitizedRedirectSearch
+      if (searchPayload) {
+        navigate({ to: redirectTo, search: () => searchPayload })
+      } else {
+        navigate({ to: redirectTo })
+      }
+      clearGithubOAuthState()
+    },
+    [navigate, redirect, sanitizedRedirectSearch],
+  )
 
-  const clearOauthSearch = useCallback(() => {
-    navigate({
-      to: '/auth/signin',
-      search: () => ({
-        redirect,
-        redirectSearch,
-      }),
-      replace: true,
-    })
-  }, [navigate, redirect, redirectSearch])
+  const clearOauthSearch = useCallback(
+    (override?: { redirect?: string; redirectSearch?: RedirectSearchParams }) => {
+      navigate({
+        to: '/auth/signin',
+        search: () => {
+          const nextSearch: { redirect?: string; redirectSearch?: string } = {}
+          const nextRedirect = override?.redirect ?? redirect
+          if (nextRedirect !== undefined) {
+            nextSearch.redirect = nextRedirect
+          }
+          const nextRedirectSearch = override?.redirectSearch
+            ? buildRedirectSearchString(override.redirectSearch)
+            : redirectSearch
+          if (nextRedirectSearch !== undefined) {
+            nextSearch.redirectSearch = nextRedirectSearch
+          }
+          return nextSearch
+        },
+        replace: true,
+      })
+    },
+    [navigate, redirect, redirectSearch],
+  )
 
   const resolveGithubRedirectUri = useCallback(() => {
     const ensureProviderParam = (uri: string) => {
@@ -155,25 +173,31 @@ export function SignInPage({
 
   useEffect(() => {
     if (oauthProvider !== 'github') return
+    const storedState = readGithubOAuthState()
+    const storedOverride = storedState
+      ? {
+          redirect: storedState.redirect,
+          redirectSearch: storedState.redirectSearch,
+        }
+      : undefined
     if (oauthError) {
       setError(`GitHub authentication error: ${oauthError}`)
-      clearOauthSearch()
+      clearOauthSearch(storedOverride)
+      clearGithubOAuthState()
       return
     }
     if (!oauthCode) return
-    const storedState =
-      typeof window !== 'undefined'
-        ? window.sessionStorage.getItem(GITHUB_STATE_STORAGE_KEY)
-        : null
-    if (!storedState || storedState !== oauthState) {
+    if (!storedState || storedState.nonce !== oauthState) {
       setError('GitHub authentication state mismatch')
-      clearOauthSearch()
+      clearOauthSearch(storedOverride)
+      clearGithubOAuthState()
       return
     }
     const redirectUri = resolveGithubRedirectUri()
     if (!redirectUri) {
       setError('GitHub redirect URL is not configured')
-      clearOauthSearch()
+      clearOauthSearch(storedOverride)
+      clearGithubOAuthState()
       return
     }
     let cancelled = false
@@ -187,19 +211,21 @@ export function SignInPage({
         })
         if (!cancelled) {
           clearOauthSearch()
-          finishSignIn()
+          finishSignIn({
+            redirect: storedState.redirect,
+            redirectSearch: storedState.redirectSearch,
+          })
         }
       } catch (err: any) {
         if (!cancelled) {
           setError(err?.message || 'Failed to sign in with GitHub')
+          clearOauthSearch(storedOverride)
         }
       } finally {
         if (!cancelled) {
           setSocialLoading(false)
         }
-        if (typeof window !== 'undefined') {
-          window.sessionStorage.removeItem(GITHUB_STATE_STORAGE_KEY)
-        }
+        clearGithubOAuthState()
       }
     }
     void exchange()
@@ -219,16 +245,21 @@ export function SignInPage({
 
   const startGithubSignIn = useCallback(() => {
     if (!isGithubEnabled || typeof window === 'undefined') return
+    setError(null)
     const redirectUri = resolveGithubRedirectUri()
     if (!redirectUri) {
       setError('GitHub redirect URL is not configured')
       return
     }
     const state = buildGithubState()
-    try {
-      window.sessionStorage.setItem(GITHUB_STATE_STORAGE_KEY, state)
-    } catch {
-      /* ignore */
+    const stored = {
+      nonce: state,
+      redirect: redirect || undefined,
+      redirectSearch: sanitizedRedirectSearch,
+    }
+    if (!writeGithubOAuthState(stored)) {
+      setError('Unable to start GitHub sign in. Please enable site data storage and try again.')
+      return
     }
     const url = new URL('https://github.com/login/oauth/authorize')
     url.searchParams.set('client_id', GITHUB_CLIENT_ID)
@@ -237,7 +268,7 @@ export function SignInPage({
     url.searchParams.set('state', state)
     url.searchParams.set('allow_signup', 'true')
     window.location.href = url.toString()
-  }, [isGithubEnabled, resolveGithubRedirectUri])
+  }, [isGithubEnabled, redirect, resolveGithubRedirectUri, sanitizedRedirectSearch])
 
   useEffect(() => {
     if (!isGoogleEnabled) return
@@ -383,24 +414,4 @@ export function SignInPage({
       </div>
     </div>
   )
-}
-
-function parseRedirectSearch(search?: string) {
-  if (!search) return undefined
-
-  try {
-    const params = new URLSearchParams(search)
-    if (!params.toString()) return undefined
-
-    const result: Record<string, string | string[]> = {}
-    params.forEach((value, key) => {
-      if (result[key] === undefined) result[key] = value
-      else if (Array.isArray(result[key])) (result[key] as string[]).push(value)
-      else result[key] = [result[key] as string, value]
-    })
-
-    return result
-  } catch {
-    return undefined
-  }
 }

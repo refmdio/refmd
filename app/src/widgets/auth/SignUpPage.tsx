@@ -21,6 +21,12 @@ export function SignUpPage() {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      setError('Workspace name must include at least one visible character')
+      setLoading(false)
+      return
+    }
     if (password !== confirmPassword) {
       setError('Passwords do not match')
       setLoading(false)
@@ -32,7 +38,7 @@ export function SignUpPage() {
       return
     }
     try {
-      await signUp(email, name, password)
+      await signUp(email, trimmedName, password)
       navigate({ to: '/auth/signin' })
     } catch (err: any) {
       setError(err?.message || 'Failed to create account')
@@ -62,8 +68,8 @@ export function SignUpPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              pattern="[a-zA-Z0-9_-]+"
-              title="Name can only contain letters, numbers, hyphens, and underscores"
+              pattern=".*\\S.*"
+              title="Workspace name must include at least one visible character"
             />
           </div>
           <div className="space-y-2">
