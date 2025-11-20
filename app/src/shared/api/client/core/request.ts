@@ -170,6 +170,61 @@ export const getRequestBody = (options: ApiRequestOptions): unknown => {
 	return undefined;
 };
 
+const AUTH_REFRESH_ENDPOINT = '/api/auth/refresh';
+const AUTH_REFRESH_SKIP_PREFIXES = [
+	'/api/auth/login',
+	'/api/auth/register',
+	'/api/auth/oauth',
+	'/api/auth/oauth/{provider}',
+	'/api/auth/oauth/{provider}/state',
+	AUTH_REFRESH_ENDPOINT,
+];
+const isBrowserEnvironment = typeof window !== 'undefined';
+let refreshInFlight: Promise<boolean> | null = null;
+
+const shouldRetryWithRefresh = <T>(
+	response: Response,
+	options: ApiRequestOptions<T>,
+	config: OpenAPIConfig,
+	alreadyRetried: boolean
+): boolean => {
+	if (alreadyRetried) return false;
+	if (!isBrowserEnvironment) return false;
+	if (!config.WITH_CREDENTIALS) return false;
+	if (response.status !== 401) return false;
+	return !AUTH_REFRESH_SKIP_PREFIXES.some(prefix => options.url.startsWith(prefix));
+};
+
+const triggerSessionRefresh = (config: OpenAPIConfig): Promise<boolean> => {
+	if (!refreshInFlight) {
+		const refreshUrl = `${config.BASE}${AUTH_REFRESH_ENDPOINT}`;
+		refreshInFlight = (async () => {
+			try {
+				const refreshResponse = await fetch(refreshUrl, {
+					method: 'POST',
+					credentials: config.CREDENTIALS ?? 'include',
+				});
+				if (!refreshResponse.ok) {
+					return false;
+				}
+				// Consume body to avoid locking the connection; ignore parse errors
+				try {
+					await refreshResponse.clone().text();
+				} catch (error) {
+					/* noop */
+				}
+				return true;
+			} catch (error) {
+				console.warn('[api] refresh_session_request_failed', error);
+				return false;
+			} finally {
+				refreshInFlight = null;
+			}
+		})();
+	}
+	return refreshInFlight;
+};
+
 export const sendRequest = async (
 	config: OpenAPIConfig,
 	options: ApiRequestOptions,
@@ -318,6 +373,15 @@ export const request = <T>(config: OpenAPIConfig, options: ApiRequestOptions<T>)
 
 			if (!onCancel.isCancelled) {
 				let response = await sendRequest(config, options, url, body, formData, headers, onCancel);
+				let retriedAfterRefresh = false;
+
+				if (shouldRetryWithRefresh(response, options, config, retriedAfterRefresh)) {
+					const refreshed = await triggerSessionRefresh(config);
+					if (refreshed) {
+						retriedAfterRefresh = true;
+						response = await sendRequest(config, options, url, body, formData, headers, onCancel);
+					}
+				}
 
 				for (const fn of config.interceptors.response._fns) {
 					response = await fn(response);

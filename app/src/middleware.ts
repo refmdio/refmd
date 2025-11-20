@@ -5,16 +5,7 @@ import { API_BASE_URL, getEnv } from '@/shared/lib/config'
 import { validateShareToken } from '@/entities/share'
 
 import { resolveAuthRedirect } from '@/features/auth/lib/guards'
-import type { AuthRedirectTarget } from '@/features/auth/lib/guards'
-
-type AuthMiddlewareContext = {
-  redirectChecked: boolean
-  redirectTarget: AuthRedirectTarget | null
-  isAuthenticated: boolean
-  shareToken?: string
-  shareTokenValidated?: boolean
-  requestHeaders?: Record<string, string>
-}
+import type { AuthRedirectTarget, AuthMiddlewareContext } from '@/features/auth/lib/types'
 
 type AuthServerContext = {
   auth: AuthMiddlewareContext
@@ -47,7 +38,7 @@ const PUBLIC_PATHS = new Set([
   '/robots.txt',
 ])
 
-const PUBLIC_PREFIXES = ['/_', '/api', '/auth', '/share', '/u/', '/w/', '/assets']
+const PUBLIC_PREFIXES = ['/_', '/api', '/share', '/u/', '/w/', '/assets']
 
 function hasStaticExtension(pathname: string) {
   const idx = pathname.lastIndexOf('.')
@@ -90,7 +81,7 @@ function paramsToObject(params: URLSearchParams) {
 function buildRedirectUrl(origin: string, target: AuthRedirectTarget) {
   const url = new URL(target.to, origin)
   const searchParams = new URLSearchParams()
-  for (const [key, value] of Object.entries(target.search)) {
+  for (const [key, value] of Object.entries(target.search ?? {})) {
     if (value === undefined || value === null) continue
     if (Array.isArray(value)) {
       value.forEach((item) => searchParams.append(key, String(item)))
@@ -109,6 +100,37 @@ function toHeaderRecord(headers: Headers) {
     record[key.toLowerCase()] = value
   })
   return record
+}
+
+async function determineAuthState(
+  headers: Record<string, string>,
+  apiBaseUrl?: string,
+  origin?: string,
+): Promise<{ authenticated: boolean; user: AuthMiddlewareContext['user'] }> {
+  const cookie = headers['cookie'] ?? headers['Cookie']
+  if (!cookie) {
+    return { authenticated: false, user: null }
+  }
+  const base = apiBaseUrl ?? getEnv('SSR_API_BASE_URL', API_BASE_URL) ?? origin
+  if (!base) {
+    return { authenticated: false, user: null }
+  }
+  try {
+    const meUrl = new URL('/api/auth/me', base)
+    const res = await fetch(meUrl.toString(), {
+      method: 'GET',
+      headers: { cookie },
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      return { authenticated: false, user: null }
+    }
+    const user = (await res.json()) as AuthMiddlewareContext['user']
+    return { authenticated: true, user }
+  } catch (error) {
+    console.warn('[auth-middleware] auth state check failed', error)
+    return { authenticated: false, user: null }
+  }
 }
 
 export const authMiddleware = createMiddleware().server<AuthServerContext>(
@@ -145,7 +167,12 @@ export const authMiddleware = createMiddleware().server<AuthServerContext>(
     middlewareContext.auth.requestHeaders = headers
     const apiBaseUrl = getEnv('SSR_API_BASE_URL', API_BASE_URL)
 
-    const redirectTarget = await resolveAuthRedirect({
+    const authState = await determineAuthState(headers, apiBaseUrl, origin)
+    middlewareContext.auth.redirectChecked = true
+    middlewareContext.auth.isAuthenticated = authState.authenticated
+    middlewareContext.auth.user = authState.user ?? null
+
+    const authDecision = await resolveAuthRedirect({
       auth: middlewareContext.auth,
       location: { pathname: currentPath, search: requestUrl.search },
       search: paramsToObject(searchParams),
@@ -156,15 +183,14 @@ export const authMiddleware = createMiddleware().server<AuthServerContext>(
       event: { node: { req: { headers } } },
     })
 
-    middlewareContext.auth.redirectChecked = true
-    middlewareContext.auth.redirectTarget = redirectTarget ?? null
-    middlewareContext.auth.isAuthenticated = !redirectTarget
+    middlewareContext.auth.redirectTarget = authDecision.redirect
+    middlewareContext.auth.isAuthenticated = authDecision.authenticated
 
-    if (!redirectTarget) {
+    if (!authDecision.redirect) {
       return next({ context: middlewareContext })
     }
 
-    const destination = buildRedirectUrl(origin, redirectTarget)
+    const destination = buildRedirectUrl(origin, authDecision.redirect)
 
     return {
       request,

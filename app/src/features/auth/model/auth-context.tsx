@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
+import { getGlobalStartContext } from '@tanstack/start-client-core'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
 import type { UserResponse } from '@/shared/api'
@@ -15,6 +16,8 @@ import {
   oauthLogin as oauthLoginApi,
   userKeys,
 } from '@/entities/user'
+
+import type { AuthMiddlewareContext } from '@/features/auth/lib/types'
 
 const WORKSPACE_STORAGE_KEY = 'refmd.activeWorkspaceId'
 
@@ -47,6 +50,16 @@ type SignInOptions = {
 
 const Ctx = createContext<AuthState | null>(null)
 
+function readInitialAuthContext(): AuthMiddlewareContext | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const context = getGlobalStartContext() as { auth?: AuthMiddlewareContext } | undefined
+    return context?.auth ?? null
+  } catch {
+    return null
+  }
+}
+
 function readStoredWorkspaceId() {
   if (typeof window === 'undefined') return null
   try {
@@ -60,9 +73,19 @@ function readStoredWorkspaceId() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const initialAuthContext = useMemo(() => readInitialAuthContext(), [])
+  const ssrUser = initialAuthContext?.user ?? null
+
+  if (ssrUser) {
+    const existingUser = queryClient.getQueryData(userKeys.me()) as UserResponse | undefined
+    if (!existingUser) {
+      queryClient.setQueryData(userKeys.me(), ssrUser)
+    }
+  }
+
   const meState = queryClient.getQueryState(userKeys.me())
-  const initialUser = ((meState?.data as UserResponse | null | undefined) ?? null) as UserResponse | null
-  const hasInitialData = meState?.status === 'success'
+  const initialUser = ((meState?.data as UserResponse | null | undefined) ?? ssrUser ?? null) as UserResponse | null
+  const hasInitialData = meState?.status === 'success' || Boolean(ssrUser)
   const [user, setUser] = useState<UserResponse | null>(initialUser)
   const [loading, setLoading] = useState(() => !hasInitialData)
   const [preferredWorkspaceId, setPreferredWorkspaceId] = useState<string | null>(() => {

@@ -71,11 +71,10 @@ impl UserSessionService {
 
     fn clamp_string(value: Option<&str>, max_len: usize) -> Option<String> {
         Self::sanitize_metadata(value).map(|s| {
-            let mut owned = s.to_string();
-            if owned.len() > max_len {
-                owned.truncate(max_len);
+            if s.chars().count() <= max_len {
+                return s.to_string();
             }
-            owned
+            s.chars().take(max_len).collect::<String>()
         })
     }
 
