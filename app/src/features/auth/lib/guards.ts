@@ -108,7 +108,10 @@ async function hasCurrentUser(ctx?: any) {
     if (middlewareAuth.user) {
       return true
     }
-    return Boolean(middlewareAuth.isAuthenticated)
+    if (middlewareAuth.isAuthenticated) {
+      return true
+    }
+    return Boolean(middlewareAuth.hasRefreshToken)
   }
 
   const cachedUser = getCachedUser(ctx)

@@ -12,6 +12,7 @@ export type AuthMiddlewareContext = {
   shareToken?: string
   shareTokenValidated?: boolean
   requestHeaders?: Record<string, string>
+  hasRefreshToken?: boolean
   user?: UserResponse | null
 }
 
