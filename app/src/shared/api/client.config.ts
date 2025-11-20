@@ -17,6 +17,19 @@ export function setClientWorkspaceId(workspaceId: string | null) {
   clientWorkspaceId = workspaceId
 }
 
+function resolveSSRRequestHeaders(): Record<string, string> | undefined {
+  if (typeof window !== 'undefined') return undefined
+  try {
+    const context = getGlobalStartContext()
+    const authContext = (context as { auth?: { requestHeaders?: Record<string, string> } } | undefined)?.auth
+    return (
+      authContext?.requestHeaders ?? (context as { requestHeaders?: Record<string, string> } | undefined)?.requestHeaders
+    )
+  } catch {
+    return undefined
+  }
+}
+
 OpenAPI.HEADERS = async (_options) => {
   const headers: Record<string, string> = {}
 
@@ -28,38 +41,33 @@ OpenAPI.HEADERS = async (_options) => {
     return headers
   }
 
-  try {
-    const context = getGlobalStartContext()
-    const authContext = (context as { auth?: { requestHeaders?: Record<string, string> } } | undefined)?.auth
-    const requestHeaders = authContext?.requestHeaders ?? (context as { requestHeaders?: Record<string, string> } | undefined)?.requestHeaders
-
-    if (requestHeaders) {
-      const cookie = requestHeaders.cookie ?? requestHeaders.Cookie
-      if (cookie) {
-        headers.cookie = cookie
-      }
-
-      const forwardedProto = requestHeaders['x-forwarded-proto']
-      if (forwardedProto) {
-        headers['x-forwarded-proto'] = forwardedProto
-      }
-
-      const forwardedHost = requestHeaders['x-forwarded-host'] ?? requestHeaders.host
-      if (forwardedHost) {
-        headers['x-forwarded-host'] = forwardedHost
-      }
-
-      const workspaceHeader = requestHeaders['x-workspace-id'] ?? requestHeaders['X-Workspace-ID']
-      if (workspaceHeader) {
-        headers['X-Workspace-ID'] = workspaceHeader
-      }
+  const requestHeaders = resolveSSRRequestHeaders()
+  if (requestHeaders) {
+    const cookie = requestHeaders.cookie ?? requestHeaders.Cookie
+    if (cookie) {
+      headers.cookie = cookie
     }
-  } catch {
-    // ignore
+
+    const forwardedProto = requestHeaders['x-forwarded-proto'] ?? requestHeaders['X-Forwarded-Proto']
+    if (forwardedProto) {
+      headers['x-forwarded-proto'] = forwardedProto
+    }
+
+    const forwardedHost = requestHeaders['x-forwarded-host'] ?? requestHeaders['X-Forwarded-Host'] ?? requestHeaders.host
+    if (forwardedHost) {
+      headers['x-forwarded-host'] = forwardedHost
+    }
+
+    const workspaceHeader = requestHeaders['x-workspace-id'] ?? requestHeaders['X-Workspace-ID']
+    if (workspaceHeader) {
+      headers['X-Workspace-ID'] = workspaceHeader
+    }
   }
 
   return headers
 }
+
+OpenAPI.getSSRHeaders = resolveSSRRequestHeaders
 
 OpenAPI.interceptors.response.use(async (response) => {
   const contentDisposition = response.headers.get('content-disposition') ?? ''

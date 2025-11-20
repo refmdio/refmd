@@ -75,6 +75,12 @@ impl AuthService {
             .and_then(|raw| Uuid::parse_str(&raw).ok())
     }
 
+    pub fn session_id_from_token_claim(&self, token: &str) -> Option<Uuid> {
+        self.decode_claims(token)
+            .and_then(|claims| claims.sid)
+            .and_then(|raw| Uuid::parse_str(&raw).ok())
+    }
+
     pub async fn workspace_from_token_async(
         &self,
         token: &str,

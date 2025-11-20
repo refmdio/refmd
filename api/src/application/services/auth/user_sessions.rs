@@ -257,6 +257,25 @@ impl UserSessionService {
             .map_err(ServiceError::from)
     }
 
+    pub async fn ensure_session_active(&self, session_id: Uuid) -> Result<(), ServiceError> {
+        let record = self
+            .repo
+            .find_by_id(session_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::Unauthorized)?;
+        let now = Utc::now();
+        if record.revoked_at.is_some() || record.expires_at <= now {
+            let _ = self.repo.revoke(session_id).await;
+            return Err(ServiceError::Unauthorized);
+        }
+        self.repo
+            .touch(session_id)
+            .await
+            .map_err(ServiceError::from)?;
+        Ok(())
+    }
+
     pub async fn list_for_user(
         &self,
         user_id: Uuid,
@@ -278,5 +297,356 @@ impl UserSessionService {
             .await
             .map_err(ServiceError::from)?
             .map(|secret| secret.session))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::ports::api_token_repository::{
+        ApiToken, ApiTokenRepository, ApiTokenSecret,
+    };
+    use crate::application::ports::user_session_repository::{
+        UserSessionRepository, UserSessionSecret,
+    };
+    use crate::application::services::auth::token_validation::TokenValidationService;
+    use anyhow::bail;
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[derive(Default)]
+    struct InMemorySessionRepo {
+        sessions: Mutex<HashMap<Uuid, SessionEntry>>,
+        digests: Mutex<HashMap<String, Uuid>>,
+    }
+
+    struct SessionEntry {
+        record: UserSessionRecord,
+        token_hash: String,
+        token_digest: String,
+    }
+
+    impl SessionEntry {
+        fn secret(&self) -> UserSessionSecret {
+            UserSessionSecret {
+                session: self.record.clone(),
+                token_hash: self.token_hash.clone(),
+                token_digest: self.token_digest.clone(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl UserSessionRepository for InMemorySessionRepo {
+        async fn create(
+            &self,
+            user_id: Uuid,
+            workspace_id: Uuid,
+            token_hash: &str,
+            token_digest: &str,
+            expires_at: DateTime<Utc>,
+            remember_me: bool,
+            user_agent: Option<&str>,
+            ip_address: Option<&str>,
+        ) -> anyhow::Result<UserSessionRecord> {
+            let mut sessions = self.sessions.lock().await;
+            let mut digests = self.digests.lock().await;
+            let id = Uuid::new_v4();
+            let now = Utc::now();
+            let record = UserSessionRecord {
+                id,
+                user_id,
+                workspace_id,
+                user_agent: user_agent.map(|s| s.to_string()),
+                ip_address: ip_address.map(|s| s.to_string()),
+                remember_me,
+                created_at: now,
+                last_seen_at: now,
+                expires_at,
+                revoked_at: None,
+            };
+            sessions.insert(
+                id,
+                SessionEntry {
+                    record: record.clone(),
+                    token_hash: token_hash.to_string(),
+                    token_digest: token_digest.to_string(),
+                },
+            );
+            digests.insert(token_digest.to_string(), id);
+            Ok(record)
+        }
+
+        async fn find_by_digest(
+            &self,
+            token_digest: &str,
+        ) -> anyhow::Result<Option<UserSessionSecret>> {
+            let digests = self.digests.lock().await;
+            let sessions = self.sessions.lock().await;
+            Ok(digests
+                .get(token_digest)
+                .and_then(|id| sessions.get(id))
+                .map(|entry| entry.secret()))
+        }
+
+        async fn update_token(
+            &self,
+            session_id: Uuid,
+            token_hash: &str,
+            token_digest: &str,
+            expires_at: DateTime<Utc>,
+            user_agent: Option<&str>,
+            ip_address: Option<&str>,
+        ) -> anyhow::Result<bool> {
+            let mut sessions = self.sessions.lock().await;
+            let mut digests = self.digests.lock().await;
+            let Some(entry) = sessions.get_mut(&session_id) else {
+                return Ok(false);
+            };
+            if entry.record.revoked_at.is_some() {
+                return Ok(false);
+            }
+            digests.retain(|_, id| id != &session_id);
+            entry.token_hash = token_hash.to_string();
+            entry.token_digest = token_digest.to_string();
+            entry.record.expires_at = expires_at;
+            entry.record.last_seen_at = Utc::now();
+            entry.record.user_agent = user_agent.map(|s| s.to_string());
+            entry.record.ip_address = ip_address.map(|s| s.to_string());
+            digests.insert(token_digest.to_string(), session_id);
+            Ok(true)
+        }
+
+        async fn update_workspace(
+            &self,
+            session_id: Uuid,
+            workspace_id: Uuid,
+        ) -> anyhow::Result<bool> {
+            let mut sessions = self.sessions.lock().await;
+            if let Some(entry) = sessions.get_mut(&session_id) {
+                if entry.record.revoked_at.is_none() {
+                    entry.record.workspace_id = workspace_id;
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+
+        async fn touch(&self, session_id: Uuid) -> anyhow::Result<()> {
+            if let Some(entry) = self.sessions.lock().await.get_mut(&session_id) {
+                entry.record.last_seen_at = Utc::now();
+            }
+            Ok(())
+        }
+
+        async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<UserSessionRecord>> {
+            let sessions = self.sessions.lock().await;
+            Ok(sessions
+                .values()
+                .filter(|entry| entry.record.user_id == user_id)
+                .map(|entry| entry.record.clone())
+                .collect())
+        }
+
+        async fn find_by_id(&self, session_id: Uuid) -> anyhow::Result<Option<UserSessionRecord>> {
+            Ok(self
+                .sessions
+                .lock()
+                .await
+                .get(&session_id)
+                .map(|entry| entry.record.clone()))
+        }
+
+        async fn revoke(&self, session_id: Uuid) -> anyhow::Result<bool> {
+            let mut sessions = self.sessions.lock().await;
+            if let Some(entry) = sessions.get_mut(&session_id) {
+                if entry.record.revoked_at.is_none() {
+                    entry.record.revoked_at = Some(Utc::now());
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+
+        async fn revoke_by_digest(&self, token_digest: &str) -> anyhow::Result<bool> {
+            let id = {
+                let digests = self.digests.lock().await;
+                digests.get(token_digest).cloned()
+            };
+            if let Some(session_id) = id {
+                return self.revoke(session_id).await;
+            }
+            Ok(false)
+        }
+
+        async fn revoke_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()> {
+            let mut sessions = self.sessions.lock().await;
+            for entry in sessions
+                .values_mut()
+                .filter(|entry| entry.record.user_id == user_id)
+            {
+                entry.record.revoked_at = Some(Utc::now());
+            }
+            Ok(())
+        }
+    }
+
+    struct NoopApiTokenRepo;
+
+    #[async_trait]
+    impl ApiTokenRepository for NoopApiTokenRepo {
+        async fn create(
+            &self,
+            _workspace_id: Uuid,
+            _owner_id: Uuid,
+            _name: &str,
+            _token_hash: &str,
+            _token_digest: &str,
+        ) -> anyhow::Result<ApiToken> {
+            bail!("not implemented")
+        }
+
+        async fn list_active(&self, _workspace_id: Uuid) -> anyhow::Result<Vec<ApiToken>> {
+            bail!("not implemented")
+        }
+
+        async fn revoke(&self, _workspace_id: Uuid, _token_id: Uuid) -> anyhow::Result<bool> {
+            bail!("not implemented")
+        }
+
+        async fn find_by_digest(&self, _digest: &str) -> anyhow::Result<Option<ApiTokenSecret>> {
+            Ok(None)
+        }
+
+        async fn touch_last_used(&self, _token_id: Uuid) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn build_service() -> UserSessionService {
+        let repo = Arc::new(InMemorySessionRepo::default());
+        let token_validation = Arc::new(TokenValidationService::new(Arc::new(NoopApiTokenRepo)));
+        let auth = Arc::new(AuthService::new("secret", token_validation, 60));
+        UserSessionService::new(repo, auth, 120, 600)
+    }
+
+    #[tokio::test]
+    async fn issue_and_refresh_session_updates_state() {
+        let service = build_service();
+        let user_id = Uuid::new_v4();
+        let workspace_a = Uuid::new_v4();
+        let workspace_b = Uuid::new_v4();
+        let issued = service
+            .issue_new_session(
+                user_id,
+                workspace_a,
+                false,
+                SessionMetadata {
+                    user_agent: Some(&"a".repeat(600)),
+                    ip_address: Some("10.0.0.1"),
+                },
+            )
+            .await
+            .expect("issue session");
+        assert_eq!(issued.session.workspace_id, workspace_a);
+        assert!(issued.session.user_agent.as_ref().unwrap().len() <= 500);
+
+        let refreshed = service
+            .refresh_session(
+                &issued.refresh_token,
+                Some(workspace_b),
+                SessionMetadata {
+                    user_agent: Some("Mozilla/5.0"),
+                    ip_address: Some("127.0.0.1"),
+                },
+            )
+            .await
+            .expect("refresh session");
+        assert_eq!(refreshed.session.workspace_id, workspace_b);
+        assert_ne!(refreshed.refresh_token, issued.refresh_token);
+        assert_eq!(refreshed.session.user_agent.as_deref(), Some("Mozilla/5.0"));
+    }
+
+    #[tokio::test]
+    async fn revoke_session_requires_owner() {
+        let service = build_service();
+        let owner = Uuid::new_v4();
+        let intruder = Uuid::new_v4();
+        let workspace = Uuid::new_v4();
+        let issued = service
+            .issue_new_session(
+                owner,
+                workspace,
+                false,
+                SessionMetadata {
+                    user_agent: None,
+                    ip_address: None,
+                },
+            )
+            .await
+            .expect("issue session");
+        let err = service
+            .revoke_session(intruder, issued.session.id)
+            .await
+            .expect_err("should be forbidden");
+        assert!(matches!(err, ServiceError::Forbidden));
+        let revoked = service
+            .revoke_session(owner, issued.session.id)
+            .await
+            .expect("owner can revoke");
+        assert!(revoked);
+    }
+
+    #[tokio::test]
+    async fn ensure_session_active_allows_valid_session() {
+        let service = build_service();
+        let user_id = Uuid::new_v4();
+        let workspace = Uuid::new_v4();
+        let issued = service
+            .issue_new_session(
+                user_id,
+                workspace,
+                false,
+                SessionMetadata {
+                    user_agent: None,
+                    ip_address: None,
+                },
+            )
+            .await
+            .expect("issue session");
+        service
+            .ensure_session_active(issued.session.id)
+            .await
+            .expect("session should be active");
+    }
+
+    #[tokio::test]
+    async fn ensure_session_active_rejects_revoked_session() {
+        let service = build_service();
+        let user_id = Uuid::new_v4();
+        let workspace = Uuid::new_v4();
+        let issued = service
+            .issue_new_session(
+                user_id,
+                workspace,
+                false,
+                SessionMetadata {
+                    user_agent: None,
+                    ip_address: None,
+                },
+            )
+            .await
+            .expect("issue session");
+        service
+            .revoke_session(user_id, issued.session.id)
+            .await
+            .expect("revoke session");
+        let err = service
+            .ensure_session_active(issued.session.id)
+            .await
+            .expect_err("session should be invalid");
+        assert!(matches!(err, ServiceError::Unauthorized));
     }
 }

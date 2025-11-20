@@ -18,6 +18,10 @@ impl ExternalAuthProviderKind {
             ExternalAuthProviderKind::Github => "github",
         }
     }
+
+    pub fn requires_state(&self) -> bool {
+        matches!(self, ExternalAuthProviderKind::Github)
+    }
 }
 
 impl TryFrom<&str> for ExternalAuthProviderKind {

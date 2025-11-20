@@ -7,6 +7,8 @@ import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
+import { createOauthState } from '@/entities/user'
+
 import { useAuthContext } from '@/features/auth'
 
 import {
@@ -45,12 +47,6 @@ declare global {
 }
 
 const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
-function buildGithubState() {
-  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
-    return window.crypto.randomUUID()
-  }
-  return Math.random().toString(36).slice(2)
-}
 
 export function SignInPage({
   redirect,
@@ -214,6 +210,7 @@ export function SignInPage({
           code: oauthCode,
           redirect_uri: redirectUri,
           remember_me: storedState.rememberMe ?? rememberMe,
+          state: oauthState,
         })
         if (!cancelled) {
           clearOauthSearch()
@@ -250,7 +247,7 @@ export function SignInPage({
     signInWithProvider,
   ])
 
-  const startGithubSignIn = useCallback(() => {
+  const startGithubSignIn = useCallback(async () => {
     if (!isGithubEnabled || typeof window === 'undefined') return
     setError(null)
     const redirectUri = resolveGithubRedirectUri()
@@ -258,24 +255,32 @@ export function SignInPage({
       setError('GitHub redirect URL is not configured')
       return
     }
-    const state = buildGithubState()
-    const stored = {
-      nonce: state,
-      redirect: redirect || undefined,
-      redirectSearch: sanitizedRedirectSearch,
-      rememberMe,
+    setSocialLoading(true)
+    try {
+      const stateResponse = await createOauthState('github')
+      const state = stateResponse.state
+      const stored = {
+        nonce: state,
+        redirect: redirect || undefined,
+        redirectSearch: sanitizedRedirectSearch,
+        rememberMe,
+      }
+      if (!writeGithubOAuthState(stored)) {
+        setError('Unable to start GitHub sign in. Please enable site data storage and try again.')
+        setSocialLoading(false)
+        return
+      }
+      const url = new URL('https://github.com/login/oauth/authorize')
+      url.searchParams.set('client_id', GITHUB_CLIENT_ID)
+      url.searchParams.set('redirect_uri', redirectUri)
+      url.searchParams.set('scope', 'read:user user:email')
+      url.searchParams.set('state', state)
+      url.searchParams.set('allow_signup', 'true')
+      window.location.href = url.toString()
+    } catch (err: any) {
+      setError(err?.message || 'Unable to start GitHub sign in')
+      setSocialLoading(false)
     }
-    if (!writeGithubOAuthState(stored)) {
-      setError('Unable to start GitHub sign in. Please enable site data storage and try again.')
-      return
-    }
-    const url = new URL('https://github.com/login/oauth/authorize')
-    url.searchParams.set('client_id', GITHUB_CLIENT_ID)
-    url.searchParams.set('redirect_uri', redirectUri)
-    url.searchParams.set('scope', 'read:user user:email')
-    url.searchParams.set('state', state)
-    url.searchParams.set('allow_signup', 'true')
-    window.location.href = url.toString()
   }, [isGithubEnabled, redirect, rememberMe, resolveGithubRedirectUri, sanitizedRedirectSearch])
 
   useEffect(() => {

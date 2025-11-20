@@ -38,6 +38,7 @@ type OAuthPayload = {
   code?: string
   redirect_uri?: string
   remember_me?: boolean
+  state?: string
 }
 
 type SignInOptions = {

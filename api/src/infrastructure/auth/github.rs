@@ -61,8 +61,10 @@ impl GithubOAuthProvider {
 #[derive(Debug, Deserialize)]
 struct GithubTokenResponse {
     access_token: Option<String>,
-    scope: Option<String>,
-    token_type: Option<String>,
+    #[serde(rename = "scope")]
+    _scope: Option<String>,
+    #[serde(rename = "token_type")]
+    _token_type: Option<String>,
     error: Option<String>,
     error_description: Option<String>,
 }

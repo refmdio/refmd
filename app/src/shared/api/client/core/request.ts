@@ -201,49 +201,6 @@ export const sendRequest = async (
 	return await fetch(url, request);
 };
 
-const AUTH_REFRESH_PATH = '/api/auth/refresh';
-const AUTH_PATHS_NO_RETRY = ['/api/auth/login', '/api/auth/oauth', '/api/auth/register', AUTH_REFRESH_PATH];
-let refreshPromise: Promise<boolean> | null = null;
-
-const shouldAttemptTokenRefresh = (options: ApiRequestOptions): boolean => {
-	// Allow consumers to opt-out via custom flag
-	if ((options as { skipAuthRefresh?: boolean }).skipAuthRefresh) {
-		return false;
-	}
-	return !AUTH_PATHS_NO_RETRY.some(path => options.url.includes(path));
-};
-
-const buildRefreshUrl = (config: OpenAPIConfig): string => {
-	const base = config.BASE || '';
-	if (!base) {
-		return AUTH_REFRESH_PATH;
-	}
-	if (base.endsWith('/') && AUTH_REFRESH_PATH.startsWith('/')) {
-		return `${base.slice(0, -1)}${AUTH_REFRESH_PATH}`;
-	}
-	return `${base}${AUTH_REFRESH_PATH}`;
-};
-
-const refreshAuthToken = async (config: OpenAPIConfig): Promise<boolean> => {
-	if (!refreshPromise) {
-		refreshPromise = (async () => {
-			try {
-				const response = await fetch(buildRefreshUrl(config), {
-					method: 'POST',
-					headers: { Accept: 'application/json' },
-					credentials: config.WITH_CREDENTIALS ? config.CREDENTIALS : 'same-origin',
-				});
-				return response.ok;
-			} catch {
-				return false;
-			}
-		})().finally(() => {
-			refreshPromise = null;
-		});
-	}
-	return refreshPromise;
-};
-
 export const getResponseHeader = (response: Response, responseHeader?: string): string | undefined => {
 	if (responseHeader) {
 		const content = response.headers.get(responseHeader);
@@ -355,23 +312,12 @@ export const request = <T>(config: OpenAPIConfig, options: ApiRequestOptions<T>)
 	return new CancelablePromise(async (resolve, reject, onCancel) => {
 		try {
 			const url = getUrl(config, options);
+			const formData = getFormData(options);
+			const body = getRequestBody(options);
+			const headers = await getHeaders(config, options);
 
-			for (let attempt = 0; attempt < 2; attempt++) {
-				if (onCancel.isCancelled) {
-					return;
-				}
-				const formData = getFormData(options);
-				const body = getRequestBody(options);
-				const headers = await getHeaders(config, options);
-
+			if (!onCancel.isCancelled) {
 				let response = await sendRequest(config, options, url, body, formData, headers, onCancel);
-
-				if (response.status === 401 && attempt === 0 && shouldAttemptTokenRefresh(options)) {
-					const refreshed = await refreshAuthToken(config);
-					if (refreshed) {
-						continue;
-					}
-				}
 
 				for (const fn of config.interceptors.response._fns) {
 					response = await fn(response);
@@ -396,7 +342,6 @@ export const request = <T>(config: OpenAPIConfig, options: ApiRequestOptions<T>)
 				catchErrorCodes(options, result);
 
 				resolve(result.body);
-				return;
 			}
 		} catch (error) {
 			reject(error);

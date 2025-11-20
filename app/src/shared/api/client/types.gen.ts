@@ -302,6 +302,11 @@ export type OAuthLoginRequest = {
     credential?: (string) | null;
     redirect_uri?: (string) | null;
     remember_me?: boolean;
+    state?: (string) | null;
+};
+
+export type OAuthStateResponse = {
+    state: string;
 };
 
 export type OutgoingLink = {
@@ -686,6 +691,15 @@ export type OauthLoginData = {
 };
 
 export type OauthLoginResponse = (LoginResponse);
+
+export type OauthStateData = {
+    /**
+     * OAuth provider identifier
+     */
+    provider: string;
+};
+
+export type OauthStateResponse = (OAuthStateResponse);
 
 export type RefreshSessionResponse = (RefreshResponse);
 

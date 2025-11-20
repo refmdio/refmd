@@ -10,6 +10,7 @@ import {
   revokeSession as apiRevokeSession,
   switchWorkspace as apiSwitchWorkspace,
   oauthLogin as apiOauthLogin,
+  oauthState as apiOauthState,
   refreshSession as apiRefreshSession,
 } from '@/shared/api'
 import type { SessionResponse } from '@/shared/api'
@@ -38,10 +39,15 @@ export type OAuthLoginPayload = {
   code?: string
   redirect_uri?: string
   remember_me?: boolean
+  state?: string
 }
 
 export async function oauthLogin(provider: string, payload: OAuthLoginPayload) {
   return apiOauthLogin({ provider, requestBody: payload })
+}
+
+export async function createOauthState(provider: string) {
+  return apiOauthState({ provider })
 }
 
 export async function register(email: string, name: string, password: string) {

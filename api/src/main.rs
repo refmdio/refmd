@@ -83,6 +83,7 @@ use utoipa_swagger_ui::SwaggerUi;
         paths(
             api::presentation::http::auth::register,
             api::presentation::http::auth::login,
+            api::presentation::http::auth::oauth_state,
             api::presentation::http::auth::oauth_login,
             api::presentation::http::auth::refresh_session,
             api::presentation::http::auth::logout,
@@ -178,6 +179,7 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::auth::LoginRequest,
             api::presentation::http::auth::LoginResponse,
             api::presentation::http::auth::OAuthLoginRequest,
+            api::presentation::http::auth::OAuthStateResponse,
             api::presentation::http::auth::UserResponse,
             api::presentation::http::auth::WorkspaceMembershipResponse,
             api::presentation::http::api_tokens::ApiTokenItem,

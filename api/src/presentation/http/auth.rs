@@ -12,7 +12,8 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     routing::{delete, get, post},
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
+use rand::{Rng, distributions::Alphanumeric, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use tracing::{error, warn};
 use utoipa::ToSchema;
@@ -22,6 +23,8 @@ use crate::presentation::http::workspace_scope;
 
 const SESSION_COOKIE_NAME: &str = "access_token";
 const REFRESH_COOKIE_NAME: &str = "refresh_token";
+const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state";
+const OAUTH_STATE_TTL_SECS: i64 = 300;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterRequest {
@@ -105,12 +108,20 @@ pub struct OAuthLoginRequest {
     pub redirect_uri: Option<String>,
     #[serde(default)]
     pub remember_me: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OAuthStateResponse {
+    pub state: String,
 }
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
+        .route("/oauth/:provider/state", post(oauth_state))
         .route("/oauth/:provider", post(oauth_login))
         .route("/logout", post(logout))
         .route("/refresh", post(refresh_session))
@@ -118,6 +129,32 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/sessions/:id", delete(revoke_session))
         .route("/me", get(me).delete(delete_account))
         .with_state(ctx)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/auth/oauth/{provider}/state",
+    tag = "Auth",
+    params(("provider" = String, Path, description = "OAuth provider identifier")),
+    security(()),
+    responses((status = 200, body = OAuthStateResponse))
+)]
+pub async fn oauth_state(
+    Path(provider): Path<String>,
+    State(ctx): State<AppContext>,
+) -> Result<(HeaderMap, Json<OAuthStateResponse>), StatusCode> {
+    let provider_kind =
+        ExternalAuthProviderKind::try_from(provider.as_str()).map_err(|_| StatusCode::NOT_FOUND)?;
+    if ctx.external_auth().get(provider_kind).is_none() {
+        return Err(StatusCode::NOT_IMPLEMENTED);
+    }
+    let state = generate_oauth_state();
+    let mut headers = HeaderMap::new();
+    append_cookie(
+        &mut headers,
+        build_oauth_state_cookie(provider_kind, &state, ctx.cfg.session_cookie_secure),
+    );
+    Ok((headers, Json(OAuthStateResponse { state })))
 }
 
 #[utoipa::path(
@@ -143,6 +180,13 @@ pub async fn oauth_login(
     let verifier = registry
         .get(provider_kind)
         .ok_or(StatusCode::NOT_IMPLEMENTED)?;
+    let mut response_headers = HeaderMap::new();
+    if provider_kind.requires_state() {
+        let provided_state = req.state.as_deref().ok_or(StatusCode::BAD_REQUEST)?;
+        validate_oauth_state_cookie(&headers, provider_kind, provided_state)
+            .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        clear_oauth_state_cookie(&mut response_headers, ctx.cfg.session_cookie_secure);
+    }
     let payload = ExternalAuthPayload {
         credential: req.credential.clone(),
         code: req.code.clone(),
@@ -174,7 +218,6 @@ pub async fn oauth_login(
         )
         .await
         .map_err(map_auth_error)?;
-    let mut response_headers = HeaderMap::new();
     apply_session_cookies(&ctx, &mut response_headers, &issued);
     Ok((
         response_headers,
@@ -503,11 +546,19 @@ pub async fn validate_bearer_public(
 
 pub async fn validate_bearer_str(ctx: &AppContext, token: &str) -> Result<String, StatusCode> {
     let service = ctx.auth_service();
-    service
+    let session_service = ctx.session_service();
+    let subject = service
         .subject_from_token(token)
         .await
         .map_err(map_auth_error)?
-        .ok_or(StatusCode::UNAUTHORIZED)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if let Some(session_id) = service.session_id_from_token_claim(token) {
+        session_service
+            .ensure_session_active(session_id)
+            .await
+            .map_err(map_auth_error)?;
+    }
+    Ok(subject)
 }
 
 pub async fn resolve_actor_from_parts(
@@ -543,6 +594,18 @@ pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Opti
     let service = ctx.auth_service();
     if let Ok(Some(sub)) = service.subject_from_token(trimmed).await {
         if let Ok(uid) = Uuid::parse_str(&sub) {
+            if let Some(session_id) = service.session_id_from_token_claim(trimmed) {
+                if let Err(err) = ctx
+                    .session_service()
+                    .ensure_session_active(session_id)
+                    .await
+                {
+                    if err.is_internal() {
+                        error!(error = ?err, "session_validation_failed");
+                    }
+                    return None;
+                }
+            }
             return Some(access::Actor::User(uid));
         } else {
             return Some(access::Actor::Public);
@@ -560,6 +623,105 @@ pub(crate) fn map_auth_error(err: ServiceError) -> StatusCode {
 }
 
 // --- Cookie helpers & logout ---
+
+fn generate_oauth_state() -> String {
+    OsRng
+        .sample_iter(&Alphanumeric)
+        .take(48)
+        .map(char::from)
+        .collect()
+}
+
+fn build_oauth_state_cookie(
+    provider: ExternalAuthProviderKind,
+    state: &str,
+    secure: bool,
+) -> String {
+    let issued_at = Utc::now().timestamp();
+    let value = format!("{}:{}:{}", provider.as_str(), state, issued_at);
+    let secure_attr = if secure { "; Secure" } else { "" };
+    format!(
+        "{}={}; HttpOnly{}; Path=/; Max-Age={}; SameSite=Lax",
+        OAUTH_STATE_COOKIE_NAME, value, secure_attr, OAUTH_STATE_TTL_SECS
+    )
+}
+
+fn clear_oauth_state_cookie(headers: &mut HeaderMap, secure: bool) {
+    let secure_attr = if secure { "; Secure" } else { "" };
+    append_cookie(
+        headers,
+        format!(
+            "{}=; HttpOnly{}; Path=/; Max-Age=0; SameSite=Lax",
+            OAUTH_STATE_COOKIE_NAME, secure_attr
+        ),
+    );
+}
+
+fn validate_oauth_state_cookie(
+    headers: &HeaderMap,
+    provider: ExternalAuthProviderKind,
+    provided_state: &str,
+) -> Result<(), ()> {
+    let cookie_value = extract_cookie_from_headers(headers, OAUTH_STATE_COOKIE_NAME).ok_or(())?;
+    let mut segments = cookie_value.splitn(3, ':');
+    let provider_raw = segments.next().ok_or(())?;
+    let stored_state = segments.next().ok_or(())?;
+    let issued_raw = segments.next().ok_or(())?;
+    let parsed_provider = ExternalAuthProviderKind::try_from(provider_raw).map_err(|_| ())?;
+    if parsed_provider != provider || stored_state != provided_state {
+        return Err(());
+    }
+    let issued_ts: i64 = issued_raw.parse().map_err(|_| ())?;
+    let issued_at = DateTime::<Utc>::from_timestamp(issued_ts, 0).ok_or(())?;
+    if Utc::now() - issued_at > Duration::seconds(OAUTH_STATE_TTL_SECS) {
+        return Err(());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderValue, header};
+
+    fn cookie_headers(
+        provider: ExternalAuthProviderKind,
+        state: &str,
+        issued_at: i64,
+    ) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        let raw_value = format!(
+            "{}={}:{}:{}",
+            OAUTH_STATE_COOKIE_NAME,
+            provider.as_str(),
+            state,
+            issued_at
+        );
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&raw_value).expect("header"),
+        );
+        headers
+    }
+
+    #[test]
+    fn oauth_state_cookie_roundtrip() {
+        let provider = ExternalAuthProviderKind::Github;
+        let state = "state-token";
+        let issued = Utc::now().timestamp();
+        let headers = cookie_headers(provider, state, issued);
+        assert!(validate_oauth_state_cookie(&headers, provider, state).is_ok());
+    }
+
+    #[test]
+    fn oauth_state_cookie_rejects_expired() {
+        let provider = ExternalAuthProviderKind::Github;
+        let state = "expired";
+        let issued = Utc::now().timestamp() - (OAUTH_STATE_TTL_SECS + 10);
+        let headers = cookie_headers(provider, state, issued);
+        assert!(validate_oauth_state_cookie(&headers, provider, state).is_err());
+    }
+}
 
 fn get_cookie(cookie_header: &str, name: &str) -> Option<String> {
     for part in cookie_header.split(';') {
@@ -694,6 +856,7 @@ pub async fn logout(
     }
     let mut response_headers = HeaderMap::new();
     clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
+    clear_oauth_state_cookie(&mut response_headers, ctx.cfg.session_cookie_secure);
     Ok((response_headers, StatusCode::NO_CONTENT))
 }
 

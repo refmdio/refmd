@@ -12,6 +12,7 @@ use utoipa::OpenApi;
     paths(
         auth::register,
         auth::login,
+        auth::oauth_state,
         auth::oauth_login,
         auth::refresh_session,
         auth::logout,
@@ -116,6 +117,7 @@ use utoipa::OpenApi;
         auth::LoginRequest,
         auth::LoginResponse,
         auth::OAuthLoginRequest,
+        auth::OAuthStateResponse,
         auth::UserResponse,
         auth::WorkspaceMembershipResponse,
         auth::SessionResponse,
