@@ -12,8 +12,9 @@ import {
   oauthLogin as apiOauthLogin,
   oauthState as apiOauthState,
   refreshSession as apiRefreshSession,
+  listOauthProviders as apiListOauthProviders,
 } from '@/shared/api'
-import type { SessionResponse } from '@/shared/api'
+import type { SessionResponse, AuthProvidersResponse } from '@/shared/api'
 
 export const userKeys = {
   me: () => ['me'] as const,
@@ -21,6 +22,10 @@ export const userKeys = {
 
 export const userSessionKeys = {
   list: () => ['auth-sessions'] as const,
+}
+
+export const authProviderKeys = {
+  list: () => ['auth-providers'] as const,
 }
 
 export const meQuery = () => ({
@@ -74,6 +79,10 @@ export async function refreshSession() {
   return apiRefreshSession()
 }
 
+export async function listAuthProviders() {
+  return apiListOauthProviders()
+}
+
 export async function listSessions() {
   return apiListSessions() as Promise<SessionResponse[]>
 }
@@ -85,6 +94,13 @@ export async function revokeSession(sessionId: string) {
 export const userSessionsQuery = () => ({
   queryKey: userSessionKeys.list(),
   queryFn: () => listSessions(),
+})
+
+export const authProvidersQuery = () => ({
+  queryKey: authProviderKeys.list(),
+  queryFn: () => listAuthProviders() as Promise<AuthProvidersResponse>,
+  staleTime: 5 * 60 * 1000,
+  retry: 2,
 })
 
 export function useUserSessions(options?: { enabled?: boolean }) {

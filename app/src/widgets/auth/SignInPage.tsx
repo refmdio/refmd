@@ -2,6 +2,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { GithubIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import type { AuthProvidersResponse } from '@/shared/api'
 import { GITHUB_CLIENT_ID, GITHUB_REDIRECT_URI, GOOGLE_CLIENT_ID } from '@/shared/lib/config'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
@@ -20,6 +21,8 @@ import {
   writeGithubOAuthState,
 } from './github-oauth-state'
 
+type AuthProviderInfo = AuthProvidersResponse['providers'][number]
+
 type Props = {
   redirect?: string
   redirectSearch?: string
@@ -27,6 +30,10 @@ type Props = {
   oauthCode?: string
   oauthState?: string
   oauthError?: string
+  providers?: AuthProviderInfo[]
+  providerLoadFailed?: boolean
+  providersLoading?: boolean
+  onRetryProviders?: () => void | Promise<unknown>
 }
 
 type GoogleCredentialResponse = {
@@ -55,6 +62,10 @@ export function SignInPage({
   oauthCode,
   oauthState,
   oauthError,
+  providers,
+  providerLoadFailed = false,
+  providersLoading = false,
+  onRetryProviders,
 }: Props) {
   const navigate = useNavigate()
   const { signIn, signInWithProvider } = useAuthContext()
@@ -65,8 +76,16 @@ export function SignInPage({
   const [error, setError] = useState<string | null>(null)
   const [socialLoading, setSocialLoading] = useState(false)
   const googleClientId = GOOGLE_CLIENT_ID
-  const isGoogleEnabled = Boolean(googleClientId)
-  const isGithubEnabled = Boolean(GITHUB_CLIENT_ID)
+  const providerList = providers ?? []
+  const providerSet = useMemo(() => new Set(providerList.map((provider) => provider.id)), [providerList])
+  const providerListResolved = Array.isArray(providers)
+  const shouldRestrictProviders = providerListResolved
+  const isGoogleConfigured = Boolean(googleClientId)
+  const isGithubConfigured = Boolean(GITHUB_CLIENT_ID)
+  const isGoogleAllowed = !shouldRestrictProviders || providerSet.has('google')
+  const isGithubAllowed = !shouldRestrictProviders || providerSet.has('github')
+  const isGoogleEnabled = isGoogleConfigured && isGoogleAllowed
+  const isGithubEnabled = isGithubConfigured && isGithubAllowed
   const googleButtonRef = useRef<HTMLDivElement | null>(null)
 
   const sanitizedRedirectSearch = useMemo<RedirectSearchParams | undefined>(
@@ -342,6 +361,31 @@ export function SignInPage({
 
   const showSocial = isGithubEnabled || isGoogleEnabled
   const socialButtonWidth = 320
+  const retryProviderFetch = useCallback(() => {
+    if (!onRetryProviders) return
+    void onRetryProviders()
+  }, [onRetryProviders])
+
+  const providerErrorNotice = providerLoadFailed ? (
+    <div className="text-center text-xs text-amber-600 space-y-2">
+      <p>
+        Social sign-in is temporarily unavailable.{' '}
+        {showSocial ? 'Please try again later.' : 'Use email and password or retry fetching providers.'}
+      </p>
+      {onRetryProviders && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={retryProviderFetch}
+          disabled={providersLoading}
+          className="mx-auto"
+        >
+          {providersLoading ? 'Retrying…' : 'Retry fetching providers'}
+        </Button>
+      )}
+    </div>
+  ) : null
 
   return (
     <div className="min-h-svh flex items-center justify-center bg-background px-4 py-12">
@@ -432,8 +476,10 @@ export function SignInPage({
                 Signing in with {oauthProvider === 'github' ? 'GitHub' : 'Google'}…
               </p>
             )}
+            {providerErrorNotice}
           </div>
         )}
+        {!showSocial && providerErrorNotice}
         <div className="text-center text-sm text-muted-foreground">
           Don’t have an account?{' '}
           <Link to="/auth/signup" className="font-medium text-primary hover:underline">

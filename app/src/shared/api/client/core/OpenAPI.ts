@@ -28,7 +28,6 @@ export type OpenAPIConfig = {
 	CREDENTIALS: 'include' | 'omit' | 'same-origin';
 	ENCODE_PATH?: ((path: string) => string) | undefined;
 	HEADERS?: Headers | Resolver<Headers> | undefined;
-	getSSRHeaders?: () => Record<string, string> | undefined;
 	PASSWORD?: string | Resolver<string> | undefined;
 	TOKEN?: string | Resolver<string> | undefined;
 	USERNAME?: string | Resolver<string> | undefined;
@@ -45,7 +44,6 @@ export const OpenAPI: OpenAPIConfig = {
 	CREDENTIALS: 'include',
 	ENCODE_PATH: undefined,
 	HEADERS: undefined,
-	getSSRHeaders: undefined,
 	PASSWORD: undefined,
 	TOKEN: undefined,
 	USERNAME: undefined,

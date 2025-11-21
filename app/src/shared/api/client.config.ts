@@ -11,10 +11,50 @@ OpenAPI.BASE = resolvedBase
 OpenAPI.WITH_CREDENTIALS = true
 OpenAPI.CREDENTIALS = 'include'
 
-let clientWorkspaceId: string | null = null
+const WORKSPACE_RUNTIME_STORAGE_KEY = 'refmd.runtimeWorkspaceId'
+let inMemoryWorkspaceId: string | null = null
+
+function readSessionWorkspaceId() {
+  if (typeof window === 'undefined') return null
+  try {
+    const value = window.sessionStorage.getItem(WORKSPACE_RUNTIME_STORAGE_KEY)
+    if (value && value.trim().length > 0) {
+      return value
+    }
+  } catch {
+    /* noop */
+  }
+  return null
+}
+
+function writeSessionWorkspaceId(workspaceId: string | null) {
+  if (typeof window === 'undefined') return
+  try {
+    if (workspaceId && workspaceId.trim().length > 0) {
+      window.sessionStorage.setItem(WORKSPACE_RUNTIME_STORAGE_KEY, workspaceId)
+    } else {
+      window.sessionStorage.removeItem(WORKSPACE_RUNTIME_STORAGE_KEY)
+    }
+  } catch {
+    /* noop */
+  }
+}
 
 export function setClientWorkspaceId(workspaceId: string | null) {
-  clientWorkspaceId = workspaceId
+  inMemoryWorkspaceId = workspaceId
+  writeSessionWorkspaceId(workspaceId)
+}
+
+function getClientWorkspaceId() {
+  if (typeof window === 'undefined') {
+    return inMemoryWorkspaceId
+  }
+  const sessionValue = readSessionWorkspaceId()
+  if (sessionValue) {
+    inMemoryWorkspaceId = sessionValue
+    return sessionValue
+  }
+  return inMemoryWorkspaceId
 }
 
 function resolveSSRRequestHeaders(): Record<string, string> | undefined {
@@ -30,13 +70,18 @@ function resolveSSRRequestHeaders(): Record<string, string> | undefined {
   }
 }
 
+export function getSSRRequestHeaders(): Record<string, string> | undefined {
+  return resolveSSRRequestHeaders()
+}
+
 OpenAPI.HEADERS = async (_options) => {
   const headers: Record<string, string> = {}
 
   // Attach workspace header for browser requests
   if (typeof window !== 'undefined') {
-    if (clientWorkspaceId) {
-      headers['X-Workspace-ID'] = clientWorkspaceId
+    const workspaceId = getClientWorkspaceId()
+    if (workspaceId) {
+      headers['X-Workspace-ID'] = workspaceId
     }
     return headers
   }
@@ -66,8 +111,6 @@ OpenAPI.HEADERS = async (_options) => {
 
   return headers
 }
-
-OpenAPI.getSSRHeaders = resolveSSRRequestHeaders
 
 OpenAPI.interceptors.response.use(async (response) => {
   const contentDisposition = response.headers.get('content-disposition') ?? ''

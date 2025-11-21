@@ -208,4 +208,25 @@ impl UserSessionRepository for SqlxUserSessionRepository {
         .await?;
         Ok(())
     }
+
+    async fn delete_expired(&self, before: DateTime<Utc>, batch_size: i64) -> anyhow::Result<u64> {
+        let rows = sqlx::query(
+            r#"WITH expired AS (
+                    SELECT id
+                    FROM user_sessions
+                    WHERE expires_at < $1
+                    ORDER BY expires_at ASC
+                    LIMIT $2
+                )
+                DELETE FROM user_sessions
+                WHERE id IN (SELECT id FROM expired)
+                RETURNING 1"#,
+        )
+        .bind(before)
+        .bind(batch_size)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.len() as u64)
+    }
 }

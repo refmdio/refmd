@@ -9,6 +9,9 @@ export type AuthMiddlewareContext = {
   redirectChecked: boolean
   redirectTarget: AuthRedirectTarget | null
   isAuthenticated: boolean
+  authResolved?: boolean
+  deferUntil?: number
+  deferDurationMs?: number
   shareToken?: string
   shareTokenValidated?: boolean
   requestHeaders?: Record<string, string>

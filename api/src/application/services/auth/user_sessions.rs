@@ -490,6 +490,30 @@ mod tests {
             }
             Ok(())
         }
+
+        async fn delete_expired(
+            &self,
+            before: DateTime<Utc>,
+            batch_size: i64,
+        ) -> anyhow::Result<u64> {
+            let mut sessions = self.sessions.lock().await;
+            let mut digests = self.digests.lock().await;
+            let mut removed = 0u64;
+            let ids: Vec<Uuid> = sessions
+                .iter()
+                .filter(|(_, entry)| entry.record.expires_at < before)
+                .map(|(id, _)| *id)
+                .take(batch_size as usize)
+                .collect();
+            for id in ids {
+                if let Some(entry) = sessions.remove(&id) {
+                    digests.retain(|_, digest_id| *digest_id != id);
+                    removed += 1;
+                    drop(entry);
+                }
+            }
+            Ok(removed)
+        }
     }
 
     struct NoopApiTokenRepo;

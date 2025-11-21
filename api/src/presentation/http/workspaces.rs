@@ -230,7 +230,7 @@ fn to_response(
 
 pub(crate) fn map_service_error(err: ServiceError) -> StatusCode {
     match err {
-        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
         ServiceError::Forbidden => StatusCode::FORBIDDEN,
         ServiceError::Conflict => StatusCode::CONFLICT,
         ServiceError::NotFound => StatusCode::NOT_FOUND,
@@ -593,7 +593,7 @@ pub async fn download_workspace_archive(
         .download_workspace_root(&actor, id, &workspace.name, params.format.into())
         .await
         .map_err(|err| match err {
-            ServiceError::Unauthorized | ServiceError::Forbidden => {
+            ServiceError::Unauthorized | ServiceError::TokenExpired | ServiceError::Forbidden => {
                 error_response(StatusCode::FORBIDDEN, "forbidden", "Forbidden".to_string())
             }
             ServiceError::Conflict | ServiceError::NotFound => error_response(
@@ -1071,7 +1071,7 @@ pub async fn switch_workspace(
             .await
         {
             Ok(bundle) => issued = Some(bundle),
-            Err(ServiceError::Unauthorized) => {
+            Err(ServiceError::Unauthorized | ServiceError::TokenExpired) => {
                 issued = None;
             }
             Err(err) => return Err(auth::map_auth_error(err)),
@@ -1147,7 +1147,7 @@ pub async fn accept_invitation(
         .get_me(user_id)
         .await
         .map_err(|err| match err {
-            ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+            ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
             ServiceError::Forbidden => StatusCode::FORBIDDEN,
             ServiceError::NotFound => StatusCode::UNAUTHORIZED,
             _ => StatusCode::INTERNAL_SERVER_ERROR,

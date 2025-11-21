@@ -171,16 +171,15 @@ export const getRequestBody = (options: ApiRequestOptions): unknown => {
 };
 
 const AUTH_REFRESH_ENDPOINT = '/api/auth/refresh';
-const AUTH_REFRESH_SKIP_PREFIXES = [
-	'/api/auth/login',
-	'/api/auth/register',
-	'/api/auth/oauth',
-	'/api/auth/oauth/{provider}',
-	'/api/auth/oauth/{provider}/state',
-	AUTH_REFRESH_ENDPOINT,
-];
+const TOKEN_EXPIRED_MARKER = 'error="token_expired"';
 const isBrowserEnvironment = typeof window !== 'undefined';
 let refreshInFlight: Promise<boolean> | null = null;
+
+const hasExpiredSessionHeader = (response: Response): boolean => {
+	const header = response.headers.get('www-authenticate');
+	if (!header) return false;
+	return header.toLowerCase().includes(TOKEN_EXPIRED_MARKER);
+};
 
 const shouldRetryWithRefresh = <T>(
 	response: Response,
@@ -192,7 +191,9 @@ const shouldRetryWithRefresh = <T>(
 	if (!isBrowserEnvironment) return false;
 	if (!config.WITH_CREDENTIALS) return false;
 	if (response.status !== 401) return false;
-	return !AUTH_REFRESH_SKIP_PREFIXES.some(prefix => options.url.startsWith(prefix));
+	if (!hasExpiredSessionHeader(response)) return false;
+	if (options.url.startsWith(AUTH_REFRESH_ENDPOINT)) return false;
+	return true;
 };
 
 const triggerSessionRefresh = (config: OpenAPIConfig): Promise<boolean> => {
@@ -207,7 +208,6 @@ const triggerSessionRefresh = (config: OpenAPIConfig): Promise<boolean> => {
 				if (!refreshResponse.ok) {
 					return false;
 				}
-				// Consume body to avoid locking the connection; ignore parse errors
 				try {
 					await refreshResponse.clone().text();
 				} catch (error) {

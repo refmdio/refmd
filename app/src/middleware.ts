@@ -41,6 +41,8 @@ const PUBLIC_PATHS = new Set([
 ])
 
 const PUBLIC_PREFIXES = ['/_', '/api', '/share', '/u/', '/w/', '/assets']
+const AUTH_REQUEST_TIMEOUT_MS = 5000
+const AUTH_DEFER_WINDOW_MS = 30_000
 
 function hasStaticExtension(pathname: string) {
   const idx = pathname.lastIndexOf('.')
@@ -61,12 +63,6 @@ function shouldBypass(pathname: string) {
 
 function isDocumentPath(pathname: string) {
   return pathname.startsWith('/document/')
-}
-
-function isAuthPath(pathname: string) {
-  if (!pathname || pathname === '/') return false
-  if (pathname === '/auth') return true
-  return pathname.startsWith('/auth/')
 }
 
 function paramsToObject(params: URLSearchParams) {
@@ -125,31 +121,194 @@ function toHeaderRecord(headers: Headers) {
   return record
 }
 
+function scrubRequestHeaders(auth: AuthMiddlewareContext) {
+  if ('requestHeaders' in auth) {
+    delete auth.requestHeaders
+  }
+}
+
+type ParsedSetCookie = {
+  name: string
+  value: string
+  remove: boolean
+  path?: string | null
+  domain?: string | null
+}
+
+function parseSetCookie(entry: string): ParsedSetCookie | null {
+  const segments = entry.split(';')
+  if (segments.length === 0) {
+    return null
+  }
+  const pair = segments[0].trim()
+  const eqIdx = pair.indexOf('=')
+  if (eqIdx === -1) return null
+  const name = pair.slice(0, eqIdx).trim()
+  if (!name) return null
+  const value = pair.slice(eqIdx + 1).trim()
+  let remove = value.length === 0
+  let path: string | null | undefined
+  let domain: string | null | undefined
+  for (let i = 1; i < segments.length; i += 1) {
+    const segment = segments[i].trim()
+    if (!segment) continue
+    const eqIdx = segment.indexOf('=')
+    const key = (eqIdx === -1 ? segment : segment.slice(0, eqIdx)).trim().toLowerCase()
+    const rawValue = eqIdx === -1 ? '' : segment.slice(eqIdx + 1).trim()
+    if (key === 'max-age') {
+      const parsed = Number.parseInt(rawValue, 10)
+      if (Number.isFinite(parsed) && parsed <= 0) {
+        remove = true
+      }
+      continue
+    }
+    if (key === 'expires') {
+      const expiresAt = new Date(rawValue)
+      if (!Number.isNaN(expiresAt.valueOf()) && expiresAt.valueOf() <= Date.now()) {
+        remove = true
+      }
+      continue
+    }
+    if (key === 'path') {
+      path = rawValue.length > 0 ? rawValue : '/'
+      continue
+    }
+    if (key === 'domain') {
+      domain = rawValue.length > 0 ? rawValue.toLowerCase() : undefined
+      continue
+    }
+  }
+  return { name, value, remove, path, domain }
+}
+
+type CookieEntry = {
+  name: string
+  value: string
+  path?: string | null
+  domain?: string | null
+}
+
+function parseCookieHeader(header?: string) {
+  const jar: CookieEntry[] = []
+  if (!header) {
+    return jar
+  }
+  header.split(';').forEach((part) => {
+    const trimmed = part.trim()
+    if (!trimmed) return
+    const eqIdx = trimmed.indexOf('=')
+    if (eqIdx === -1) return
+    const name = trimmed.slice(0, eqIdx).trim()
+    if (!name) return
+    const value = trimmed.slice(eqIdx + 1).trim()
+    jar.push({ name, value })
+  })
+  return jar
+}
+
+function entriesMatch(entry: CookieEntry, target: ParsedSetCookie) {
+  if (entry.name !== target.name) return false
+
+  const entryPath = entry.path ?? null
+  const targetPath = target.path ?? null
+  const pathMatches = entryPath === null || targetPath === null ? true : entryPath === targetPath
+
+  const entryDomain = entry.domain ?? null
+  const targetDomain = target.domain ?? null
+  const domainMatches = entryDomain === null || targetDomain === null ? true : entryDomain === targetDomain
+
+  return pathMatches && domainMatches
+}
+
+function mergeCookieHeader(existing: string | undefined, updates: string[]) {
+  if (updates.length === 0) return existing
+  const jar = parseCookieHeader(existing)
+  let mutated = false
+
+  updates.forEach((setCookie) => {
+    const parsed = parseSetCookie(setCookie)
+    if (!parsed) return
+    if (parsed.remove) {
+      let removed = false
+      for (let i = jar.length - 1; i >= 0; i -= 1) {
+        if (entriesMatch(jar[i], parsed)) {
+          jar.splice(i, 1)
+          removed = true
+        }
+      }
+      if (!removed && parsed.path == null && parsed.domain == null) {
+        // No path/domain info means remove all cookies with the same name
+        for (let i = jar.length - 1; i >= 0; i -= 1) {
+          if (jar[i].name === parsed.name) {
+            jar.splice(i, 1)
+            removed = true
+          }
+        }
+      }
+      mutated = mutated || removed
+    } else {
+      const existingIndex = jar.findIndex((entry) => entriesMatch(entry, parsed))
+      const newEntry: CookieEntry = {
+        name: parsed.name,
+        value: parsed.value,
+        path: parsed.path ?? null,
+        domain: parsed.domain ?? null,
+      }
+      if (existingIndex >= 0) {
+        jar[existingIndex] = newEntry
+      } else {
+        jar.push(newEntry)
+      }
+      mutated = true
+    }
+  })
+
+  if (!mutated) return existing
+  if (jar.length === 0) return undefined
+  return jar.map((entry) => `${entry.name}=${entry.value}`).join('; ')
+}
+
+function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = AUTH_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const finalInit: RequestInit = { ...init }
+  if (!finalInit.signal) {
+    finalInit.signal = controller.signal
+  }
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  return fetch(input, finalInit).finally(() => {
+    clearTimeout(timer)
+  })
+}
+
 type DeterminedAuthState = {
   authenticated: boolean
   user: AuthMiddlewareContext['user']
   hasRefreshToken: boolean
   setCookies: string[]
+  resolved: boolean
 }
 
 type RefreshSessionResult = {
   accessToken?: string
   setCookies: string[]
+  status: 'success' | 'unauthorized' | 'error'
 }
 
 async function tryRefreshSession(
   base: string,
   cookie: string,
-): Promise<RefreshSessionResult | null> {
+): Promise<RefreshSessionResult> {
   try {
     const refreshUrl = new URL('/api/auth/refresh', base)
-    const res = await fetch(refreshUrl.toString(), {
+    const res = await fetchWithTimeout(refreshUrl.toString(), {
       method: 'POST',
       headers: { cookie },
       credentials: 'include',
     })
+    const setCookies = extractSetCookieHeaders(res)
     if (!res.ok) {
-      return null
+      const status = res.status === 401 ? 'unauthorized' : 'error'
+      return { status, setCookies }
     }
     let accessToken: string | undefined
     try {
@@ -160,10 +319,10 @@ async function tryRefreshSession(
     } catch {
       /* no-op */
     }
-    return { accessToken, setCookies: extractSetCookieHeaders(res) }
+    return { accessToken, setCookies, status: 'success' }
   } catch (error) {
     console.warn('[auth-middleware] refresh request failed', error)
-    return null
+    return { status: 'error', setCookies: [] }
   }
 }
 
@@ -176,7 +335,7 @@ async function determineAuthState(
   const hasRefreshToken = hasCookie(cookie, REFRESH_COOKIE_NAME)
   const base = apiBaseUrl ?? getEnv('SSR_API_BASE_URL', API_BASE_URL) ?? origin
   if (!cookie || !base) {
-    return { authenticated: false, user: null, hasRefreshToken, setCookies: [] }
+    return { authenticated: false, user: null, hasRefreshToken, setCookies: [], resolved: true }
   }
 
   const meUrl = new URL('/api/auth/me', base)
@@ -185,7 +344,7 @@ async function determineAuthState(
     if (authToken) {
       requestHeaders.authorization = `Bearer ${authToken}`
     }
-    return fetch(meUrl.toString(), {
+    return fetchWithTimeout(meUrl.toString(), {
       method: 'GET',
       headers: requestHeaders,
       credentials: 'include',
@@ -196,19 +355,45 @@ async function determineAuthState(
     const res = await fetchMe()
     if (res.ok) {
       const user = (await res.json()) as AuthMiddlewareContext['user']
-      return { authenticated: true, user, hasRefreshToken, setCookies: [] }
+      return { authenticated: true, user, hasRefreshToken, setCookies: [], resolved: true }
     }
-    if (res.status !== 401 || !hasRefreshToken) {
-      return { authenticated: false, user: null, hasRefreshToken, setCookies: [] }
+    if (res.status !== 401) {
+      return {
+        authenticated: false,
+        user: null,
+        hasRefreshToken,
+        setCookies: [],
+        resolved: hasRefreshToken ? false : true,
+      }
+    }
+    if (!hasRefreshToken) {
+      return { authenticated: false, user: null, hasRefreshToken, setCookies: [], resolved: true }
     }
   } catch (error) {
     console.warn('[auth-middleware] auth state check failed', error)
-    return { authenticated: false, user: null, hasRefreshToken, setCookies: [] }
+    return { authenticated: false, user: null, hasRefreshToken, setCookies: [], resolved: false }
   }
 
   const refreshResult = await tryRefreshSession(base, cookie)
-  if (!refreshResult) {
-    return { authenticated: false, user: null, hasRefreshToken, setCookies: [] }
+
+  if (refreshResult.status === 'error') {
+    return {
+      authenticated: false,
+      user: null,
+      hasRefreshToken,
+      setCookies: refreshResult.setCookies,
+      resolved: false,
+    }
+  }
+
+  if (refreshResult.status === 'unauthorized') {
+    return {
+      authenticated: false,
+      user: null,
+      hasRefreshToken: false,
+      setCookies: refreshResult.setCookies,
+      resolved: true,
+    }
   }
 
   if (refreshResult.accessToken) {
@@ -221,10 +406,34 @@ async function determineAuthState(
           user,
           hasRefreshToken: true,
           setCookies: refreshResult.setCookies,
+          resolved: true,
         }
+      }
+      if (refreshed.status === 401) {
+        return {
+          authenticated: false,
+          user: null,
+          hasRefreshToken: false,
+          setCookies: refreshResult.setCookies,
+          resolved: true,
+        }
+      }
+      return {
+        authenticated: false,
+        user: null,
+        hasRefreshToken: true,
+        setCookies: refreshResult.setCookies,
+        resolved: false,
       }
     } catch (error) {
       console.warn('[auth-middleware] me after refresh failed', error)
+      return {
+        authenticated: false,
+        user: null,
+        hasRefreshToken: true,
+        setCookies: refreshResult.setCookies,
+        resolved: false,
+      }
     }
   }
 
@@ -233,6 +442,7 @@ async function determineAuthState(
     user: null,
     hasRefreshToken: true,
     setCookies: refreshResult.setCookies,
+    resolved: false,
   }
 }
 
@@ -250,6 +460,7 @@ export const authMiddleware = createMiddleware().server<AuthServerContext>(
         redirectChecked: false,
         redirectTarget: null,
         isAuthenticated: false,
+        authResolved: false,
         hasRefreshToken: false,
       },
     }
@@ -268,27 +479,39 @@ export const authMiddleware = createMiddleware().server<AuthServerContext>(
     }
 
     const headers = toHeaderRecord(request.headers)
-    middlewareContext.auth.requestHeaders = headers
+    Object.defineProperty(middlewareContext.auth, 'requestHeaders', {
+      value: headers,
+      writable: true,
+      configurable: true,
+      enumerable: false,
+    })
     const apiBaseUrl = getEnv('SSR_API_BASE_URL', API_BASE_URL)
     const responseCookies: string[] = []
-    const cookieHeader = headers['cookie'] ?? headers['Cookie']
-    const hasRefreshFromCookie = hasCookie(cookieHeader, REFRESH_COOKIE_NAME)
-    const shouldResolveAuth = !isAuthPath(currentPath)
+    let cookieHeader: string | undefined = headers['cookie'] ?? headers['Cookie']
 
-    if (shouldResolveAuth) {
-      const authState = await determineAuthState(headers, apiBaseUrl, origin)
-      middlewareContext.auth.redirectChecked = true
-      middlewareContext.auth.isAuthenticated = authState.authenticated
-      middlewareContext.auth.user = authState.user ?? null
-      middlewareContext.auth.hasRefreshToken = authState.hasRefreshToken
-      if (authState.setCookies.length > 0) {
-        responseCookies.push(...authState.setCookies)
-      }
+    const authState = await determineAuthState(headers, apiBaseUrl, origin)
+    middlewareContext.auth.redirectChecked = true
+    middlewareContext.auth.authResolved = authState.resolved
+    middlewareContext.auth.isAuthenticated = authState.authenticated
+    middlewareContext.auth.user = authState.user ?? null
+    middlewareContext.auth.hasRefreshToken = authState.hasRefreshToken
+    if (!authState.resolved && authState.hasRefreshToken) {
+      middlewareContext.auth.deferDurationMs = AUTH_DEFER_WINDOW_MS
+      delete middlewareContext.auth.deferUntil
     } else {
-      middlewareContext.auth.redirectChecked = true
-      middlewareContext.auth.isAuthenticated = false
-      middlewareContext.auth.user = null
-      middlewareContext.auth.hasRefreshToken = hasRefreshFromCookie
+      delete middlewareContext.auth.deferUntil
+      delete middlewareContext.auth.deferDurationMs
+    }
+
+    if (authState.setCookies.length > 0) {
+      responseCookies.push(...authState.setCookies)
+      const merged = mergeCookieHeader(cookieHeader, authState.setCookies)
+      cookieHeader = merged
+      if (merged) {
+        headers['cookie'] = merged
+      } else {
+        delete headers['cookie']
+      }
     }
 
     const authDecision = await resolveAuthRedirect({
@@ -311,26 +534,34 @@ export const authMiddleware = createMiddleware().server<AuthServerContext>(
       })
     }
 
-    if (!authDecision.redirect) {
-      const result = await next({ context: middlewareContext })
-      appendCookies(result.response)
-      return result
+    const finalize = () => {
+      scrubRequestHeaders(middlewareContext.auth)
     }
 
-    const destination = buildRedirectUrl(origin, authDecision.redirect)
-    const response = new Response(null, {
-      status: 302,
-      headers: {
-        Location: destination,
-      },
-    })
-    appendCookies(response)
+    try {
+      if (!authDecision.redirect) {
+        const result = await next({ context: middlewareContext })
+        appendCookies(result.response)
+        return result
+      }
 
-    return {
-      request,
-      pathname,
-      context: middlewareContext,
-      response,
+      const destination = buildRedirectUrl(origin, authDecision.redirect)
+      const response = new Response(null, {
+        status: 302,
+        headers: {
+          Location: destination,
+        },
+      })
+      appendCookies(response)
+
+      return {
+        request,
+        pathname,
+        context: middlewareContext,
+        response,
+      }
+    } finally {
+      finalize()
     }
   },
 )

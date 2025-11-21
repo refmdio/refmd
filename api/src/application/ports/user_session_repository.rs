@@ -63,4 +63,6 @@ pub trait UserSessionRepository: Send + Sync {
     async fn revoke_by_digest(&self, token_digest: &str) -> anyhow::Result<bool>;
 
     async fn revoke_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()>;
+
+    async fn delete_expired(&self, before: DateTime<Utc>, batch_size: i64) -> anyhow::Result<u64>;
 }

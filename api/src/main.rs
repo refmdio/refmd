@@ -4,14 +4,15 @@ use std::sync::Arc;
 use anyhow::Context;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::MatchedPath;
-use axum::{Router, routing::get};
+use axum::{Router, middleware, routing::get};
+use chrono::Utc;
 use dotenvy::dotenv;
 use http::HeaderValue;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use api::application::ports::doc_event_log::DocEventLog;
 use api::application::ports::git_rebuild_job_queue::GitRebuildJobQueue;
@@ -27,6 +28,7 @@ use api::application::ports::storage_port::{StorageProjectionPort, StorageResolv
 use api::application::ports::storage_projection_queue::StorageProjectionQueue;
 use api::application::ports::storage_reconcile_backend::StorageReconcileBackend;
 use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
+use api::application::ports::user_session_repository::UserSessionRepository;
 use api::application::services::api_tokens::ApiTokenService;
 use api::application::services::auth::account::AccountService;
 use api::application::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
@@ -78,6 +80,9 @@ use api::presentation::context::{AppContext, AppServices, PresentationConfig};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+const SESSION_CLEANUP_INTERVAL_SECS: u64 = 15 * 60;
+const SESSION_CLEANUP_BATCH_SIZE: i64 = 500;
+
 #[derive(OpenApi)]
 #[openapi(
         paths(
@@ -85,6 +90,7 @@ use utoipa_swagger_ui::SwaggerUi;
             api::presentation::http::auth::login,
             api::presentation::http::auth::oauth_state,
             api::presentation::http::auth::oauth_login,
+            api::presentation::http::auth::list_oauth_providers,
             api::presentation::http::auth::refresh_session,
             api::presentation::http::auth::logout,
             api::presentation::http::auth::me,
@@ -493,6 +499,42 @@ async fn main() -> anyhow::Result<()> {
         cfg.session_refresh_ttl_secs,
         cfg.session_refresh_remember_ttl_secs,
     ));
+
+    {
+        let repo = user_session_repo.clone();
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(Duration::from_secs(SESSION_CLEANUP_INTERVAL_SECS));
+            loop {
+                ticker.tick().await;
+                let cutoff = Utc::now();
+                let mut total_removed: u64 = 0;
+                loop {
+                    match repo
+                        .delete_expired(cutoff, SESSION_CLEANUP_BATCH_SIZE)
+                        .await
+                    {
+                        Ok(removed) => {
+                            if removed == 0 {
+                                break;
+                            }
+                            total_removed += removed;
+                            if removed < SESSION_CLEANUP_BATCH_SIZE as u64 {
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            warn!(error = ?err, "user_session_cleanup_failed");
+                            break;
+                        }
+                    }
+                }
+                if total_removed > 0 {
+                    debug!(removed = total_removed, "user_session_cleanup_deleted");
+                }
+            }
+        });
+    }
     let user_shortcuts = Arc::new(
         api::infrastructure::db::repositories::user_shortcut_repository_sqlx::SqlxUserShortcutRepository::new(
             pool.clone(),
@@ -956,6 +998,7 @@ async fn main() -> anyhow::Result<()> {
         http::header::AUTHORIZATION,
         http::header::HeaderName::from_static("x-workspace-id"),
     ];
+    let cors_expose_headers = [http::header::WWW_AUTHENTICATE];
     let cors = if let Some(origin) = cfg.frontend_url.clone() {
         match HeaderValue::from_str(&origin) {
             Ok(v) => CorsLayer::new()
@@ -969,6 +1012,7 @@ async fn main() -> anyhow::Result<()> {
                     http::Method::OPTIONS,
                 ])
                 .allow_headers(cors_allow_headers.clone())
+                .expose_headers(cors_expose_headers.clone())
                 .allow_credentials(true),
             Err(_) => CorsLayer::new()
                 .allow_origin(AllowOrigin::mirror_request())
@@ -981,6 +1025,7 @@ async fn main() -> anyhow::Result<()> {
                     http::Method::OPTIONS,
                 ])
                 .allow_headers(cors_allow_headers.clone())
+                .expose_headers(cors_expose_headers.clone())
                 .allow_credentials(true),
         }
     } else {
@@ -999,6 +1044,7 @@ async fn main() -> anyhow::Result<()> {
                     http::Method::OPTIONS,
                 ])
                 .allow_headers(cors_allow_headers.clone())
+                .expose_headers(cors_expose_headers.clone())
         } else {
             // Development convenience
             CorsLayer::new()
@@ -1012,6 +1058,7 @@ async fn main() -> anyhow::Result<()> {
                     http::Method::OPTIONS,
                 ])
                 .allow_headers(cors_allow_headers.clone())
+                .expose_headers(cors_expose_headers.clone())
                 .allow_credentials(true)
         }
     };
@@ -1070,6 +1117,9 @@ async fn main() -> anyhow::Result<()> {
             api::presentation::http::public::routes(ctx.clone()),
         )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
+        .layer(middleware::from_fn(
+            api::presentation::http::auth::request_status::middleware,
+        ))
         .layer(cors)
         // Global body size limit for uploads (configurable)
         .layer(DefaultBodyLimit::max(cfg.upload_max_bytes))

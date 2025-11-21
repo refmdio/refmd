@@ -93,4 +93,8 @@ impl ExternalAuthRegistry {
     pub fn is_empty(&self) -> bool {
         self.providers.is_empty()
     }
+
+    pub fn list(&self) -> Vec<ExternalAuthProviderKind> {
+        self.providers.keys().copied().collect()
+    }
 }

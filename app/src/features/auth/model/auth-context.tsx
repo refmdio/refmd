@@ -1,8 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { getGlobalStartContext } from '@tanstack/start-client-core'
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
+import { ApiError } from '@/shared/api'
 import type { UserResponse } from '@/shared/api'
 import { setClientWorkspaceId } from '@/shared/api/client.config'
 
@@ -17,6 +18,7 @@ import {
   userKeys,
 } from '@/entities/user'
 
+import { updateRuntimeAuthContext } from '@/features/auth/lib/runtime-context'
 import type { AuthMiddlewareContext } from '@/features/auth/lib/types'
 
 const WORKSPACE_STORAGE_KEY = 'refmd.activeWorkspaceId'
@@ -75,6 +77,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()
   const initialAuthContext = useMemo(() => readInitialAuthContext(), [])
   const ssrUser = initialAuthContext?.user ?? null
+  const [runtimeHasRefreshToken, setRuntimeHasRefreshToken] = useState<boolean>(
+    initialAuthContext?.hasRefreshToken ?? false,
+  )
+  const runtimeRefreshRef = useRef(runtimeHasRefreshToken)
+
+  const updateAuthContext = useCallback(
+    (partial: Partial<AuthMiddlewareContext>) => {
+      const normalized: Partial<AuthMiddlewareContext> = { ...partial }
+      if ('deferUntil' in normalized) {
+        normalized.deferDurationMs = undefined
+      }
+      if (initialAuthContext) {
+        Object.assign(initialAuthContext, normalized)
+      }
+      updateRuntimeAuthContext((ctx) => {
+        Object.assign(ctx, normalized)
+      })
+    },
+    [initialAuthContext],
+  )
+
+  useEffect(() => {
+    runtimeRefreshRef.current = runtimeHasRefreshToken
+  }, [runtimeHasRefreshToken])
 
   if (ssrUser) {
     const existingUser = queryClient.getQueryData(userKeys.me()) as UserResponse | undefined
@@ -100,33 +126,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (hasInitialData) {
       setUser(initialUser)
       setLoading(false)
+      updateAuthContext({
+        user: initialUser,
+        isAuthenticated: Boolean(initialUser),
+        authResolved: true,
+        hasRefreshToken: runtimeRefreshRef.current,
+        deferUntil: undefined,
+      })
       return
     }
 
     let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    const maxAttempts = 3
+    const baseDelay = 2000
 
-    const init = async () => {
+    const attemptFetch = async (attempt: number) => {
+      if (cancelled) return
+      const delay = baseDelay * Math.max(1, attempt + 1)
+      updateAuthContext({
+        authResolved: false,
+        deferUntil: Date.now() + delay,
+        hasRefreshToken: runtimeRefreshRef.current,
+      })
+      setLoading(true)
       try {
         const me = await meApi()
         if (cancelled) return
-        setUser(me)
         queryClient.setQueryData(userKeys.me(), me)
-      } catch {
+        setUser(me)
+        setRuntimeHasRefreshToken(true)
+        runtimeRefreshRef.current = true
+        updateAuthContext({
+          user: me,
+          isAuthenticated: true,
+          authResolved: true,
+          hasRefreshToken: true,
+          deferUntil: undefined,
+        })
+        setLoading(false)
+      } catch (error) {
         if (cancelled) return
-        setUser(null)
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
+        const isApiError = error instanceof ApiError
+        if (!isApiError && attempt < maxAttempts - 1) {
+          retryTimer = setTimeout(() => {
+            retryTimer = null
+            void attemptFetch(attempt + 1)
+          }, delay)
+          return
         }
+
+        let nextHasRefresh = runtimeRefreshRef.current
+        if (isApiError && error.status === 401) {
+          nextHasRefresh = false
+          setRuntimeHasRefreshToken(false)
+          runtimeRefreshRef.current = false
+        }
+        setUser(null)
+        updateAuthContext({
+          user: null,
+          isAuthenticated: false,
+          authResolved: true,
+          hasRefreshToken: nextHasRefresh,
+          deferUntil: undefined,
+        })
+        setLoading(false)
       }
     }
 
-    void init()
+    void attemptFetch(0)
 
     return () => {
       cancelled = true
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+      }
     }
-  }, [hasInitialData, initialUser, queryClient])
+  }, [hasInitialData, initialUser, queryClient, updateAuthContext])
 
   useEffect(() => {
     const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
@@ -141,18 +217,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const status = typed.query.state.status
       if (status === 'pending') {
         setLoading(true)
+        updateAuthContext({
+          authResolved: false,
+          deferUntil: Date.now() + 5000,
+          hasRefreshToken: runtimeRefreshRef.current,
+        })
         return
       }
 
       if (status === 'success') {
         const data = typed.query.state.data as UserResponse | undefined
         setUser(data ?? null)
+        updateAuthContext({
+          user: data ?? null,
+          isAuthenticated: Boolean(data),
+          authResolved: true,
+          hasRefreshToken: runtimeRefreshRef.current,
+          deferUntil: undefined,
+        })
         setLoading(false)
         return
       }
 
       if (status === 'error') {
         setUser(null)
+        updateAuthContext({
+          user: null,
+          isAuthenticated: false,
+          authResolved: true,
+          deferUntil: undefined,
+        })
         setLoading(false)
       }
     })
@@ -160,7 +254,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       unsubscribe()
     }
-  }, [queryClient])
+  }, [queryClient, updateAuthContext])
 
   const signIn = useCallback(
     async (email: string, password: string, options?: SignInOptions) => {
@@ -168,9 +262,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       queryClient.clear()
       queryClient.setQueryData(userKeys.me(), res.user)
       setUser(res.user)
+      setRuntimeHasRefreshToken(true)
+      runtimeRefreshRef.current = true
+      updateAuthContext({
+        user: res.user,
+        isAuthenticated: true,
+        authResolved: true,
+        hasRefreshToken: true,
+        deferUntil: undefined,
+      })
       return res.user
     },
-    [queryClient],
+    [queryClient, updateAuthContext],
   )
 
   const signInWithProvider = useCallback(
@@ -179,9 +282,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       queryClient.clear()
       queryClient.setQueryData(userKeys.me(), res.user)
       setUser(res.user)
+      setRuntimeHasRefreshToken(true)
+      runtimeRefreshRef.current = true
+      updateAuthContext({
+        user: res.user,
+        isAuthenticated: true,
+        authResolved: true,
+        hasRefreshToken: true,
+        deferUntil: undefined,
+      })
       return res.user
     },
-    [queryClient],
+    [queryClient, updateAuthContext],
   )
 
   const signUp = useCallback(async (email: string, name: string, password: string) => {
@@ -196,15 +308,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     queryClient.clear()
     setUser(null)
+    setRuntimeHasRefreshToken(false)
+    runtimeRefreshRef.current = false
+    updateAuthContext({
+      user: null,
+      isAuthenticated: false,
+      authResolved: true,
+      hasRefreshToken: false,
+      deferUntil: undefined,
+    })
     navigate({ to: '/auth/signin' })
-  }, [navigate])
+  }, [navigate, queryClient, updateAuthContext])
 
   const deleteAccount = useCallback(async () => {
     await deleteAccountApi()
     queryClient.clear()
     setUser(null)
+    setRuntimeHasRefreshToken(false)
+    runtimeRefreshRef.current = false
+    updateAuthContext({
+      user: null,
+      isAuthenticated: false,
+      authResolved: true,
+      hasRefreshToken: false,
+      deferUntil: undefined,
+    })
     navigate({ to: '/auth/signin' })
-  }, [navigate])
+  }, [navigate, queryClient, updateAuthContext])
 
   const workspaces = useMemo(() => user?.workspaces ?? [], [user])
   const activeWorkspace = useMemo(() => {

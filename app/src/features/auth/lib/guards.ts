@@ -6,6 +6,7 @@ import type { UserResponse } from '@/shared/api'
 import { validateShareToken } from '@/entities/share'
 import { me as fetchCurrentUser, userKeys } from '@/entities/user'
 
+import { getRuntimeAuthContext } from './runtime-context'
 import type { AuthMiddlewareContext, AuthRedirectTarget, AuthResolution } from './types'
 
 // Re-export so callers can keep importing from this module
@@ -25,7 +26,46 @@ function getMiddlewareAuthContext(ctx: any): AuthMiddlewareContext | undefined {
       return candidate as AuthMiddlewareContext
     }
   }
+  if (typeof window !== 'undefined') {
+    const runtimeContext = getRuntimeAuthContext()
+    if (runtimeContext) {
+      return runtimeContext
+    }
+  }
   return undefined
+}
+
+function resolveDeferDeadline(auth: AuthMiddlewareContext): number | undefined {
+  if (typeof auth.deferUntil === 'number') {
+    return auth.deferUntil
+  }
+  if (typeof auth.deferDurationMs === 'number') {
+    const deadline = Date.now() + auth.deferDurationMs
+    auth.deferUntil = deadline
+    delete auth.deferDurationMs
+    return deadline
+  }
+  return undefined
+}
+
+function shouldDeferAuthDecision(ctx: any): boolean {
+  const auth = getMiddlewareAuthContext(ctx)
+  if (!auth) return false
+  if (auth.authResolved === false && auth.hasRefreshToken === true) {
+    const deadline = resolveDeferDeadline(auth)
+    if (typeof deadline === 'number') {
+      const now = Date.now()
+      if (now > deadline) {
+        auth.authResolved = true
+        delete auth.deferUntil
+        delete auth.deferDurationMs
+        return false
+      }
+      return true
+    }
+    return true
+  }
+  return false
 }
 
 function normalizeSearch(value: MaybeSearch): string {
@@ -103,6 +143,9 @@ function getCachedUser(ctx?: any): UserResponse | null {
 }
 
 async function hasCurrentUser(ctx?: any) {
+  if (shouldDeferAuthDecision(ctx)) {
+    return true
+  }
   const middlewareAuth = getMiddlewareAuthContext(ctx)
   if (middlewareAuth?.redirectChecked) {
     if (middlewareAuth.user) {
@@ -111,7 +154,15 @@ async function hasCurrentUser(ctx?: any) {
     if (middlewareAuth.isAuthenticated) {
       return true
     }
-    return Boolean(middlewareAuth.hasRefreshToken)
+    if (middlewareAuth.authResolved === true) {
+      return false
+    }
+    if (middlewareAuth.authResolved === false) {
+      return false
+    }
+    if (middlewareAuth.hasRefreshToken && middlewareAuth.authResolved === undefined) {
+      return true
+    }
   }
 
   const cachedUser = getCachedUser(ctx)
@@ -145,6 +196,10 @@ export async function resolveAuthRedirect(ctx?: any): Promise<AuthResolution> {
     } catch {
       // fall through to auth checks when validation fails
     }
+  }
+
+  if (shouldDeferAuthDecision(ctx)) {
+    return { redirect: null, authenticated: false }
   }
 
   const authenticated = await hasCurrentUser(ctx)
@@ -201,6 +256,10 @@ export async function documentBeforeLoadGuard(ctx?: any) {
     } catch {
       // fall through to auth guard when token validation or access check fails
     }
+  }
+
+  if (shouldDeferAuthDecision(ctx)) {
+    return
   }
 
   const authenticated = await hasCurrentUser(ctx)

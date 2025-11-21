@@ -49,6 +49,15 @@ export type ApplicableShareItem = {
     token: string;
 };
 
+export type AuthProviderInfoResponse = {
+    id: string;
+    requires_state: boolean;
+};
+
+export type AuthProvidersResponse = {
+    providers: Array<AuthProviderInfoResponse>;
+};
+
 export type BacklinkInfo = {
     document_id: string;
     document_type: string;
@@ -700,6 +709,8 @@ export type OauthStateData = {
 };
 
 export type OauthStateResponse = (OAuthStateResponse);
+
+export type ListOauthProvidersResponse = (AuthProvidersResponse);
 
 export type RefreshSessionResponse = (RefreshResponse);
 

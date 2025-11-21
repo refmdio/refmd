@@ -10,6 +10,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::IntoResponse,
     routing::{delete, get, post},
 };
 use chrono::{DateTime, Duration, Utc};
@@ -25,6 +26,38 @@ const SESSION_COOKIE_NAME: &str = "access_token";
 const REFRESH_COOKIE_NAME: &str = "refresh_token";
 const OAUTH_STATE_COOKIE_NAME: &str = "oauth_state";
 const OAUTH_STATE_TTL_SECS: i64 = 300;
+
+pub mod request_status {
+    use std::cell::Cell;
+
+    use axum::{body::Body, middleware::Next, response::Response};
+    use axum::http::Request;
+    use http::{StatusCode, header};
+
+    tokio::task_local! {
+        static TOKEN_EXPIRED_FLAG: Cell<bool>;
+    }
+
+    pub fn mark_token_expired() {
+        let _ = TOKEN_EXPIRED_FLAG.try_with(|flag| flag.set(true));
+    }
+
+    pub async fn middleware(req: Request<Body>, next: Next) -> Response {
+        TOKEN_EXPIRED_FLAG
+            .scope(Cell::new(false), async move {
+                let mut response = next.run(req).await;
+                let expired = TOKEN_EXPIRED_FLAG.with(|flag| flag.get());
+                if expired && response.status() == StatusCode::UNAUTHORIZED {
+                    response.headers_mut().insert(
+                        header::WWW_AUTHENTICATE,
+                        header::HeaderValue::from_static("Bearer error=\"token_expired\""),
+                    );
+                }
+                response
+            })
+            .await
+    }
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterRequest {
@@ -64,6 +97,17 @@ pub struct SessionResponse {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RefreshResponse {
     pub access_token: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuthProviderInfoResponse {
+    pub id: String,
+    pub requires_state: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuthProvidersResponse {
+    pub providers: Vec<AuthProviderInfoResponse>,
 }
 
 #[derive(Debug, Serialize, ToSchema, Clone)]
@@ -123,6 +167,7 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/login", post(login))
         .route("/oauth/:provider/state", post(oauth_state))
         .route("/oauth/:provider", post(oauth_login))
+        .route("/providers", get(list_oauth_providers))
         .route("/logout", post(logout))
         .route("/refresh", post(refresh_session))
         .route("/sessions", get(list_sessions))
@@ -228,9 +273,31 @@ pub async fn oauth_login(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/auth/providers",
+    tag = "Auth",
+    security(()),
+    responses((status = 200, body = AuthProvidersResponse))
+)]
+pub async fn list_oauth_providers(
+    State(ctx): State<AppContext>,
+) -> Result<Json<AuthProvidersResponse>, StatusCode> {
+    let providers = ctx
+        .external_auth()
+        .list()
+        .into_iter()
+        .map(|kind| AuthProviderInfoResponse {
+            id: kind.as_str().to_string(),
+            requires_state: kind.requires_state(),
+        })
+        .collect();
+    Ok(Json(AuthProvidersResponse { providers }))
+}
+
 fn map_account_error(err: ServiceError) -> StatusCode {
     match err {
-        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
         ServiceError::Forbidden => StatusCode::FORBIDDEN,
         ServiceError::Conflict => StatusCode::CONFLICT,
         ServiceError::NotFound => StatusCode::NOT_FOUND,
@@ -244,7 +311,7 @@ fn map_account_error(err: ServiceError) -> StatusCode {
 
 fn map_workspace_error(err: ServiceError) -> StatusCode {
     match err {
-        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
         ServiceError::Forbidden => StatusCode::FORBIDDEN,
         ServiceError::Conflict => StatusCode::CONFLICT,
         ServiceError::NotFound => StatusCode::NOT_FOUND,
@@ -402,11 +469,18 @@ pub async fn login(
 pub async fn refresh_session(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-) -> Result<(HeaderMap, Json<RefreshResponse>), StatusCode> {
-    let refresh_token = extract_refresh_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+) -> Result<axum::response::Response, StatusCode> {
+    let mut response_headers = HeaderMap::new();
+    let refresh_token = match extract_refresh_token(&headers) {
+        Some(token) => token,
+        None => {
+            clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
+            return Ok((response_headers, StatusCode::UNAUTHORIZED).into_response());
+        }
+    };
     let client_ip = extract_client_ip(&headers);
     let user_agent = extract_user_agent(&headers);
-    let issued = ctx
+    let issued = match ctx
         .session_service()
         .refresh_session(
             &refresh_token,
@@ -417,16 +491,23 @@ pub async fn refresh_session(
             },
         )
         .await
-        .map_err(map_auth_error)?;
+    {
+        Ok(bundle) => bundle,
+        Err(ServiceError::Unauthorized) => {
+            clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
+            return Ok((response_headers, StatusCode::UNAUTHORIZED).into_response());
+        }
+        Err(err) => return Err(map_auth_error(err)),
+    };
 
-    let mut response_headers = HeaderMap::new();
     apply_session_cookies(&ctx, &mut response_headers, &issued);
     Ok((
         response_headers,
         Json(RefreshResponse {
             access_token: issued.access.token,
         }),
-    ))
+    )
+        .into_response())
 }
 
 #[utoipa::path(get, path = "/api/auth/me", tag = "Auth", responses((status = 200, body = UserResponse)))]
@@ -547,11 +628,15 @@ pub async fn validate_bearer_public(
 pub async fn validate_bearer_str(ctx: &AppContext, token: &str) -> Result<String, StatusCode> {
     let service = ctx.auth_service();
     let session_service = ctx.session_service();
-    let subject = service
-        .subject_from_token(token)
-        .await
-        .map_err(map_auth_error)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let subject = match service.subject_from_token(token).await {
+        Ok(Some(sub)) => sub,
+        Ok(None) => return Err(StatusCode::UNAUTHORIZED),
+        Err(ServiceError::TokenExpired) => {
+            request_status::mark_token_expired();
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        Err(err) => return Err(map_auth_error(err)),
+    };
     if let Some(session_id) = service.session_id_from_token_claim(token) {
         session_service
             .ensure_session_active(session_id)
@@ -592,24 +677,36 @@ pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Opti
         return None;
     }
     let service = ctx.auth_service();
-    if let Ok(Some(sub)) = service.subject_from_token(trimmed).await {
-        if let Ok(uid) = Uuid::parse_str(&sub) {
-            if let Some(session_id) = service.session_id_from_token_claim(trimmed) {
-                if let Err(err) = ctx
-                    .session_service()
-                    .ensure_session_active(session_id)
-                    .await
-                {
-                    if err.is_internal() {
-                        error!(error = ?err, "session_validation_failed");
+    match service.subject_from_token(trimmed).await {
+        Ok(Some(sub)) => {
+            if let Ok(uid) = Uuid::parse_str(&sub) {
+                if let Some(session_id) = service.session_id_from_token_claim(trimmed) {
+                    if let Err(err) = ctx
+                        .session_service()
+                        .ensure_session_active(session_id)
+                        .await
+                    {
+                        if err.is_internal() {
+                            error!(error = ?err, "session_validation_failed");
+                        }
+                        return None;
                     }
-                    return None;
                 }
+                return Some(access::Actor::User(uid));
+            } else {
+                return Some(access::Actor::Public);
             }
-            return Some(access::Actor::User(uid));
-        } else {
-            return Some(access::Actor::Public);
         }
+        Err(ServiceError::TokenExpired) => {
+            request_status::mark_token_expired();
+            return None;
+        }
+        Err(err) => {
+            if err.is_internal() {
+                error!(error = ?err, "token_validation_failed");
+            }
+        }
+        Ok(None) => {}
     }
     Some(access::Actor::ShareToken(trimmed.to_string()))
 }

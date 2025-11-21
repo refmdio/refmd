@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Error as AnyError;
 use chrono::Utc;
+use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -36,13 +37,12 @@ struct Claims {
 }
 
 impl AuthService {
-    fn decode_claims(&self, token: &str) -> Option<Claims> {
+    fn decode_claims(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
         jsonwebtoken::decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_secret.as_bytes()),
             &Validation::default(),
         )
-        .ok()
         .map(|data| data.claims)
     }
 
@@ -59,8 +59,15 @@ impl AuthService {
     }
 
     pub async fn subject_from_token(&self, token: &str) -> Result<Option<String>, ServiceError> {
-        if let Some(claims) = self.decode_claims(token) {
-            return Ok(Some(claims.sub));
+        match self.decode_claims(token) {
+            Ok(claims) => {
+                return Ok(Some(claims.sub));
+            }
+            Err(err) => {
+                if matches!(err.kind(), ErrorKind::ExpiredSignature) {
+                    return Err(ServiceError::TokenExpired);
+                }
+            }
         }
 
         self.tokens
@@ -71,12 +78,14 @@ impl AuthService {
 
     pub fn workspace_from_token_claim(&self, token: &str) -> Option<Uuid> {
         self.decode_claims(token)
+            .ok()
             .and_then(|claims| claims.workspace_id)
             .and_then(|raw| Uuid::parse_str(&raw).ok())
     }
 
     pub fn session_id_from_token_claim(&self, token: &str) -> Option<Uuid> {
         self.decode_claims(token)
+            .ok()
             .and_then(|claims| claims.sid)
             .and_then(|raw| Uuid::parse_str(&raw).ok())
     }

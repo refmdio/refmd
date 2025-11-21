@@ -56,6 +56,55 @@ impl GithubOAuthProvider {
             })
             .or_else(|| self.default_redirect_uri.clone())
     }
+
+    async fn resolve_verified_email(
+        &self,
+        headers: HeaderMap,
+        access_token: &str,
+        profile_email: Option<&str>,
+    ) -> Result<String, ServiceError> {
+        let emails: Vec<GithubEmail> = self
+            .client
+            .get(USER_EMAILS_URL)
+            .headers(headers)
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|err| {
+                warn!(error = ?err, "github_emails_request_failed");
+                ServiceError::Unauthorized
+            })?
+            .json()
+            .await
+            .map_err(|err| {
+                warn!(error = ?err, "github_emails_parse_failed");
+                ServiceError::Unauthorized
+            })?;
+
+        let mut preferred: Option<String> = None;
+        let mut fallback: Option<String> = None;
+
+        for entry in emails {
+            if !entry.verified {
+                continue;
+            }
+            if let Some(profile) = profile_email {
+                if profile.eq_ignore_ascii_case(&entry.email) {
+                    return Ok(entry.email);
+                }
+            }
+            if entry.primary && preferred.is_none() {
+                preferred = Some(entry.email.clone());
+            }
+            if fallback.is_none() {
+                fallback = Some(entry.email);
+            }
+        }
+
+        preferred
+            .or(fallback)
+            .ok_or(ServiceError::BadRequest("email_required"))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,48 +214,9 @@ impl ExternalAuthVerifier for GithubOAuthProvider {
                 ServiceError::Unauthorized
             })?;
 
-        let email = if user
-            .email
-            .as_ref()
-            .map(|e| !e.trim().is_empty())
-            .unwrap_or(false)
-        {
-            user.email.clone()
-        } else {
-            let emails: Vec<GithubEmail> = self
-                .client
-                .get(USER_EMAILS_URL)
-                .headers(headers)
-                .bearer_auth(&access_token)
-                .send()
-                .await
-                .map_err(|err| {
-                    warn!(error = ?err, "github_emails_request_failed");
-                    ServiceError::Unauthorized
-                })?
-                .json()
-                .await
-                .map_err(|err| {
-                    warn!(error = ?err, "github_emails_parse_failed");
-                    ServiceError::Unauthorized
-                })?;
-            let mut selected: Option<GithubEmail> = None;
-            for entry in emails {
-                if !entry.verified {
-                    continue;
-                }
-                if entry.primary {
-                    selected = Some(entry);
-                    break;
-                }
-                if selected.is_none() {
-                    selected = Some(entry);
-                }
-            }
-            selected.map(|entry| entry.email)
-        };
-
-        let email = email.ok_or(ServiceError::BadRequest("email_required"))?;
+        let email = self
+            .resolve_verified_email(headers, &access_token, user.email.as_deref())
+            .await?;
 
         Ok(ExternalAuthIdentity {
             provider: ExternalAuthProviderKind::Github,
