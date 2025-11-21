@@ -175,7 +175,20 @@ impl GitService {
         let uc = DeinitRepo {
             workspace: self.workspace.as_ref(),
         };
-        uc.execute(workspace_id).await.map_err(ServiceError::from)
+        uc.execute(workspace_id).await.map_err(ServiceError::from)?;
+        self.repo
+            .delete_sync_logs(workspace_id)
+            .await
+            .map_err(ServiceError::from)?;
+        self.repo
+            .delete_repository_state(workspace_id)
+            .await
+            .map_err(ServiceError::from)?;
+        self.repo
+            .delete_config(workspace_id)
+            .await
+            .map(|_| ())
+            .map_err(ServiceError::from)
     }
 
     pub async fn ignore_document(

@@ -1117,6 +1117,10 @@ impl GitWorkspacePort for GitWorkspaceService {
 
     async fn remove_repository(&self, workspace_id: Uuid) -> anyhow::Result<()> {
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM git_dirty_files WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM git_commits WHERE workspace_id = $1")
             .bind(workspace_id)
             .execute(&mut *tx)
