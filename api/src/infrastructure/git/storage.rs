@@ -221,6 +221,12 @@ impl GitStorage for FilesystemGitStorage {
         self.read_meta(meta_path.as_path()).await
     }
 
+    async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> anyhow::Result<()> {
+        let commit_hex = encode_commit_id(&meta.commit_id);
+        let meta_path = self.meta_path(user_id, &commit_hex);
+        self.write_meta(meta_path.as_path(), meta).await
+    }
+
     async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
         let root = self.blobs_root();
         let path = sanitize_blob_path(root.as_path(), &key.path)?;
@@ -599,6 +605,14 @@ impl GitStorage for S3GitStorage {
         let commit_hex = encode_commit_id(commit_id);
         let meta_key = self.key_for_meta(user_id, &commit_hex);
         self.fetch_meta(&meta_key).await
+    }
+
+    async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> anyhow::Result<()> {
+        let commit_hex = encode_commit_id(&meta.commit_id);
+        let meta_key = self.key_for_meta(user_id, &commit_hex);
+        let stored = StoredCommitMeta::from_meta(meta);
+        let data = serde_json::to_vec_pretty(&stored)?;
+        self.put_object(&meta_key, &data).await
     }
 
     async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {

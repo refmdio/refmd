@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{self, ErrorKind, Write};
 use std::path::PathBuf;
@@ -940,34 +940,27 @@ impl GitWorkspaceService {
         from_meta: Option<&CommitMeta>,
         to_meta: &CommitMeta,
     ) -> anyhow::Result<Vec<TextDiffResult>> {
-        let (to_pack_dir, to_pack_paths) = persist_pack_chain(
-            self.git_storage.as_ref(),
-            workspace_id,
-            Some(to_meta.commit_id.as_slice()),
-        )
-        .await?
-        .ok_or_else(|| {
-            anyhow!(
-                "missing pack data for commit {}",
-                encode_commit_id(&to_meta.commit_id)
-            )
-        })?;
+        let (to_pack_dir, to_pack_paths) = self
+            .persist_pack_chain(workspace_id, Some(to_meta.commit_id.as_slice()))
+            .await?
+            .ok_or_else(|| {
+                anyhow!(
+                    "missing pack data for commit {}",
+                    encode_commit_id(&to_meta.commit_id)
+                )
+            })?;
 
         let from_pack = if let Some(from_meta) = from_meta {
             if from_meta.commit_id != to_meta.commit_id {
                 Some(
-                    persist_pack_chain(
-                        self.git_storage.as_ref(),
-                        workspace_id,
-                        Some(from_meta.commit_id.as_slice()),
-                    )
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "missing pack data for commit {}",
-                            encode_commit_id(&from_meta.commit_id)
-                        )
-                    })?,
+                    self.persist_pack_chain(workspace_id, Some(from_meta.commit_id.as_slice()))
+                        .await?
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "missing pack data for commit {}",
+                                encode_commit_id(&from_meta.commit_id)
+                            )
+                        })?,
                 )
             } else {
                 None
@@ -1633,18 +1626,14 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         let previous_pack = if let Some(prev_meta) = latest_meta.as_ref() {
             Some(
-                persist_pack_chain(
-                    self.git_storage.as_ref(),
-                    workspace_id,
-                    Some(prev_meta.commit_id.as_slice()),
-                )
-                .await?
-                .ok_or_else(|| {
-                    anyhow!(
-                        "missing pack data for commit {}",
-                        encode_commit_id(&prev_meta.commit_id)
-                    )
-                })?,
+                self.persist_pack_chain(workspace_id, Some(prev_meta.commit_id.as_slice()))
+                    .await?
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "missing pack data for commit {}",
+                            encode_commit_id(&prev_meta.commit_id)
+                        )
+                    })?,
             )
         } else {
             None
@@ -1899,6 +1888,87 @@ impl GitWorkspacePort for GitWorkspaceService {
     }
 }
 
+impl GitWorkspaceService {
+    async fn persist_pack_chain(
+        &self,
+        workspace_id: Uuid,
+        until: Option<&[u8]>,
+    ) -> anyhow::Result<Option<(TempDir, Vec<PathBuf>)>> {
+        let mut attempts = 0;
+        loop {
+            match self.git_storage.load_pack_chain(workspace_id, until).await {
+                Ok(mut stream) => {
+                    let temp_dir = tempfile::tempdir()?;
+                    let mut pack_paths = Vec::new();
+                    let mut index: usize = 0;
+                    while let Some(pack) = stream.next().await {
+                        let pack = pack?;
+                        let path = temp_dir.path().join(format!("{:08}.pack", index));
+                        tokio::fs::write(&path, &pack.bytes).await?;
+                        pack_paths.push(path);
+                        index += 1;
+                    }
+                    if pack_paths.is_empty() {
+                        return Ok(None);
+                    } else {
+                        return Ok(Some((temp_dir, pack_paths)));
+                    }
+                }
+                Err(err) => {
+                    if attempts == 0 {
+                        if let Some(commit_hex) = missing_metadata_commit(&err) {
+                            match self
+                                .repair_missing_commit_metadata(workspace_id, &commit_hex)
+                                .await
+                            {
+                                Ok(_) => {
+                                    attempts += 1;
+                                    continue;
+                                }
+                                Err(repair_err) => {
+                                    warn!(
+                                        workspace_id = %workspace_id,
+                                        commit = %commit_hex,
+                                        error = ?repair_err,
+                                        "git_commit_metadata_repair_failed"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    return Err(err);
+                }
+            }
+        }
+    }
+
+    async fn repair_missing_commit_metadata(
+        &self,
+        workspace_id: Uuid,
+        start_hex: &str,
+    ) -> anyhow::Result<()> {
+        let mut current_hex = start_hex.to_string();
+        let mut visited = HashSet::new();
+        loop {
+            if !visited.insert(current_hex.clone()) {
+                break;
+            }
+            let Some(meta) = self.commit_meta_by_hex(workspace_id, &current_hex).await? else {
+                anyhow::bail!("commit {} not found in database", current_hex);
+            };
+            self.git_storage
+                .restore_commit_meta(workspace_id, &meta)
+                .await?;
+            if let Some(parent) = meta.parent_commit_id.as_ref() {
+                current_hex = encode_commit_id(parent);
+            } else {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
 fn row_to_commit_meta(row: sqlx::postgres::PgRow) -> anyhow::Result<CommitMeta> {
     let commit_id: Vec<u8> = row.get("commit_id");
     let parent_commit_id: Option<Vec<u8>> = row.try_get("parent_commit_id").ok();
@@ -1931,27 +2001,23 @@ fn apply_pack_to_repo(repo: &Repository, pack: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn persist_pack_chain(
-    storage: &dyn GitStorage,
-    workspace_id: Uuid,
-    until: Option<&[u8]>,
-) -> anyhow::Result<Option<(TempDir, Vec<PathBuf>)>> {
-    let mut stream = storage.load_pack_chain(workspace_id, until).await?;
-    let temp_dir = tempfile::tempdir()?;
-    let mut pack_paths = Vec::new();
-    let mut index: usize = 0;
-    while let Some(pack) = stream.next().await {
-        let pack = pack?;
-        let path = temp_dir.path().join(format!("{:08}.pack", index));
-        tokio::fs::write(&path, &pack.bytes).await?;
-        pack_paths.push(path);
-        index += 1;
+fn missing_metadata_commit(err: &anyhow::Error) -> Option<String> {
+    let needle = "metadata not found for commit ";
+    for cause in err.chain() {
+        let msg = cause.to_string();
+        if let Some(idx) = msg.find(needle) {
+            let start = idx + needle.len();
+            let rest = &msg[start..];
+            let commit: String = rest
+                .chars()
+                .take_while(|ch| ch.is_ascii_hexdigit())
+                .collect();
+            if !commit.is_empty() {
+                return Some(commit);
+            }
+        }
     }
-    if pack_paths.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some((temp_dir, pack_paths)))
-    }
+    None
 }
 
 fn apply_pack_files(repo: &Repository, pack_paths: &[PathBuf]) -> anyhow::Result<()> {
