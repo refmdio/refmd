@@ -29,7 +29,6 @@ type Props = {
   className?: string
 }
 
-// Minimal actions aligned to current API (document creation + refresh).
 const iconCls = 'h-4 w-4 mr-2 text-muted-foreground'
 const iconAliases: Record<string, LucideIcon> = {
   Image: ImageIcon,
@@ -61,14 +60,15 @@ function renderPluginIcon(name?: string) {
 
 export default function FileTreeActions({ onCreateDocument, onCreateFolder, onDownloadWorkspace, downloadWorkspacePending, pluginCommands, trailing, temporaryActions, className }: Props) {
   const buttonClass = cn(
-    'h-9 w-9 rounded-full border border-border/40 text-muted-foreground transition-colors',
-    'hover:bg-muted/70 hover:text-foreground disabled:opacity-50'
+    'h-8 w-8 shrink-0 rounded-xl border border-border/50 text-muted-foreground transition-colors',
+    'hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-0',
+    'disabled:opacity-50'
   )
   const hasEnabledPluginCommand = pluginCommands?.some((cmd) => !cmd.disabled && typeof cmd.onClick === 'function') ?? false
   const hasTemporaryMenu = Boolean(temporaryActions?.onCreate || temporaryActions?.onShowList)
 
   return (
-    <div className={cn('flex items-center gap-2', className)}>
+    <div className={cn('flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto', className)}>
       <Tooltip>
         <TooltipTrigger asChild>
           <span>
@@ -176,7 +176,8 @@ export default function FileTreeActions({ onCreateDocument, onCreateFolder, onDo
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {trailing}
+
+      {trailing && <span className="shrink-0 pl-1">{trailing}</span>}
     </div>
   )
 }
