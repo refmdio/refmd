@@ -22,7 +22,9 @@ use crate::application::ports::awareness_port::AwarenessPublisher;
 use crate::application::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository;
 use crate::application::ports::linkgraph_repository::LinkGraphRepository;
 use crate::application::ports::realtime_hydration_port::{DocStateReader, RealtimeBacklogReader};
-use crate::application::ports::realtime_persistence_port::DocPersistencePort;
+use crate::application::ports::realtime_persistence_port::{
+    DocPersistencePort, DocumentMissingError,
+};
 use crate::application::ports::realtime_port::RealtimeEngine as RealtimeEngineTrait;
 use crate::application::ports::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 use crate::application::ports::storage_port::StorageResolverPort;
@@ -561,6 +563,14 @@ fn spawn_persistence_worker(
                                             );
                                         }
                                     }
+                                }
+                                Err(err)
+                                    if err.downcast_ref::<DocumentMissingError>().is_some() =>
+                                {
+                                    tracing::debug!(
+                                        document_id = %doc_uuid,
+                                        "redis_worker_snapshot_missing_document"
+                                    );
                                 }
                                 Err(e) => {
                                     tracing::error!(

@@ -22,7 +22,9 @@ use yrs::{Doc, ReadTxn, StateVector, Text, Transact, Update};
 use yrs_warp::AwarenessRef;
 use yrs_warp::broadcast::BroadcastGroup;
 
-use crate::application::ports::realtime_persistence_port::DocPersistencePort;
+use crate::application::ports::realtime_persistence_port::{
+    DocPersistencePort, DocumentMissingError,
+};
 use crate::application::services::realtime::doc_hydration::{
     DocHydrationService, HydrationOptions,
 };
@@ -180,6 +182,12 @@ impl Hub {
                                         "persist_document_snapshot_skipped_no_changes"
                                     );
                                 }
+                            }
+                            Err(err) if err.downcast_ref::<DocumentMissingError>().is_some() => {
+                                tracing::debug!(
+                                    document_id = %persist_doc,
+                                    "persist_document_snapshot_missing_document"
+                                );
                             }
                             Err(e) => {
                                 tracing::error!(

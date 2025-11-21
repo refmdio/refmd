@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::application::ports::realtime_persistence_port::DocPersistencePort;
+use crate::application::ports::realtime_persistence_port::{
+    DocPersistencePort, DocumentMissingError,
+};
 use crate::infrastructure::db::PgPool;
 
 #[derive(Clone)]
@@ -48,7 +50,7 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
         version: i64,
         snapshot: &[u8],
     ) -> anyhow::Result<()> {
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO document_snapshots (document_id, version, snapshot) VALUES ($1, $2, $3)
              ON CONFLICT (document_id, version) DO UPDATE SET snapshot = EXCLUDED.snapshot",
         )
@@ -56,8 +58,23 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
         .bind(version as i32)
         .bind(snapshot)
         .execute(&self.pool)
-        .await?;
-        Ok(())
+        .await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(db_err))
+                if matches!(
+                    db_err.constraint(),
+                    Some("document_snapshots_document_id_fkey")
+                ) =>
+            {
+                Err(DocumentMissingError {
+                    document_id: *doc_id,
+                }
+                .into())
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> anyhow::Result<Option<(i64, Vec<u8>)>> {

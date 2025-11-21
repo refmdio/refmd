@@ -1,6 +1,13 @@
 use async_trait::async_trait;
 use futures_util::stream::BoxStream;
+use thiserror::Error;
 use uuid::Uuid;
+
+#[derive(Debug, Error)]
+#[error("document_missing")]
+pub struct DocumentMissingError {
+    pub document_id: Uuid,
+}
 
 #[derive(Debug, Clone)]
 pub struct PersistenceTask {
