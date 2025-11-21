@@ -11,10 +11,67 @@ OpenAPI.BASE = resolvedBase
 OpenAPI.WITH_CREDENTIALS = true
 OpenAPI.CREDENTIALS = 'include'
 
-let clientWorkspaceId: string | null = null
+const WORKSPACE_RUNTIME_STORAGE_KEY = 'refmd.runtimeWorkspaceId'
+let inMemoryWorkspaceId: string | null = null
+
+function readSessionWorkspaceId() {
+  if (typeof window === 'undefined') return null
+  try {
+    const value = window.sessionStorage.getItem(WORKSPACE_RUNTIME_STORAGE_KEY)
+    if (value && value.trim().length > 0) {
+      return value
+    }
+  } catch {
+    /* noop */
+  }
+  return null
+}
+
+function writeSessionWorkspaceId(workspaceId: string | null) {
+  if (typeof window === 'undefined') return
+  try {
+    if (workspaceId && workspaceId.trim().length > 0) {
+      window.sessionStorage.setItem(WORKSPACE_RUNTIME_STORAGE_KEY, workspaceId)
+    } else {
+      window.sessionStorage.removeItem(WORKSPACE_RUNTIME_STORAGE_KEY)
+    }
+  } catch {
+    /* noop */
+  }
+}
 
 export function setClientWorkspaceId(workspaceId: string | null) {
-  clientWorkspaceId = workspaceId
+  inMemoryWorkspaceId = workspaceId
+  writeSessionWorkspaceId(workspaceId)
+}
+
+function getClientWorkspaceId() {
+  if (typeof window === 'undefined') {
+    return inMemoryWorkspaceId
+  }
+  const sessionValue = readSessionWorkspaceId()
+  if (sessionValue) {
+    inMemoryWorkspaceId = sessionValue
+    return sessionValue
+  }
+  return inMemoryWorkspaceId
+}
+
+function resolveSSRRequestHeaders(): Record<string, string> | undefined {
+  if (typeof window !== 'undefined') return undefined
+  try {
+    const context = getGlobalStartContext()
+    const authContext = (context as { auth?: { requestHeaders?: Record<string, string> } } | undefined)?.auth
+    return (
+      authContext?.requestHeaders ?? (context as { requestHeaders?: Record<string, string> } | undefined)?.requestHeaders
+    )
+  } catch {
+    return undefined
+  }
+}
+
+export function getSSRRequestHeaders(): Record<string, string> | undefined {
+  return resolveSSRRequestHeaders()
 }
 
 OpenAPI.HEADERS = async (_options) => {
@@ -22,40 +79,34 @@ OpenAPI.HEADERS = async (_options) => {
 
   // Attach workspace header for browser requests
   if (typeof window !== 'undefined') {
-    if (clientWorkspaceId) {
-      headers['X-Workspace-ID'] = clientWorkspaceId
+    const workspaceId = getClientWorkspaceId()
+    if (workspaceId) {
+      headers['X-Workspace-ID'] = workspaceId
     }
     return headers
   }
 
-  try {
-    const context = getGlobalStartContext()
-    const authContext = (context as { auth?: { requestHeaders?: Record<string, string> } } | undefined)?.auth
-    const requestHeaders = authContext?.requestHeaders ?? (context as { requestHeaders?: Record<string, string> } | undefined)?.requestHeaders
-
-    if (requestHeaders) {
-      const cookie = requestHeaders.cookie ?? requestHeaders.Cookie
-      if (cookie) {
-        headers.cookie = cookie
-      }
-
-      const forwardedProto = requestHeaders['x-forwarded-proto']
-      if (forwardedProto) {
-        headers['x-forwarded-proto'] = forwardedProto
-      }
-
-      const forwardedHost = requestHeaders['x-forwarded-host'] ?? requestHeaders.host
-      if (forwardedHost) {
-        headers['x-forwarded-host'] = forwardedHost
-      }
-
-      const workspaceHeader = requestHeaders['x-workspace-id'] ?? requestHeaders['X-Workspace-ID']
-      if (workspaceHeader) {
-        headers['X-Workspace-ID'] = workspaceHeader
-      }
+  const requestHeaders = resolveSSRRequestHeaders()
+  if (requestHeaders) {
+    const cookie = requestHeaders.cookie ?? requestHeaders.Cookie
+    if (cookie) {
+      headers.cookie = cookie
     }
-  } catch {
-    // ignore
+
+    const forwardedProto = requestHeaders['x-forwarded-proto'] ?? requestHeaders['X-Forwarded-Proto']
+    if (forwardedProto) {
+      headers['x-forwarded-proto'] = forwardedProto
+    }
+
+    const forwardedHost = requestHeaders['x-forwarded-host'] ?? requestHeaders['X-Forwarded-Host'] ?? requestHeaders.host
+    if (forwardedHost) {
+      headers['x-forwarded-host'] = forwardedHost
+    }
+
+    const workspaceHeader = requestHeaders['x-workspace-id'] ?? requestHeaders['X-Workspace-ID']
+    if (workspaceHeader) {
+      headers['X-Workspace-ID'] = workspaceHeader
+    }
   }
 
   return headers

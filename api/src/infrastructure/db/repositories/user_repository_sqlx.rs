@@ -22,7 +22,7 @@ impl UserRepository for SqlxUserRepository {
         id: Uuid,
         email: &str,
         name: &str,
-        password_hash: &str,
+        password_hash: Option<&str>,
         default_workspace_id: Uuid,
     ) -> anyhow::Result<UserRow> {
         let row = sqlx::query(
@@ -59,6 +59,29 @@ impl UserRepository for SqlxUserRepository {
         }))
     }
 
+    async fn find_by_external_identity(
+        &self,
+        provider: &str,
+        subject: &str,
+    ) -> anyhow::Result<Option<UserRow>> {
+        let row = sqlx::query(
+            r#"SELECT u.id, u.email, u.name, u.password_hash
+               FROM user_external_accounts a
+               JOIN users u ON u.id = a.user_id
+               WHERE a.provider = $1 AND a.subject = $2"#,
+        )
+        .bind(provider)
+        .bind(subject)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| UserRow {
+            id: r.get("id"),
+            email: r.get("email"),
+            name: r.get("name"),
+            password_hash: r.try_get("password_hash").ok(),
+        }))
+    }
+
     async fn find_by_id(&self, id: Uuid) -> anyhow::Result<Option<UserRow>> {
         let row = sqlx::query(r#"SELECT id, email, name FROM users WHERE id = $1"#)
             .bind(id)
@@ -70,6 +93,25 @@ impl UserRepository for SqlxUserRepository {
             name: r.get("name"),
             password_hash: None,
         }))
+    }
+
+    async fn link_external_identity(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        subject: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r#"INSERT INTO user_external_accounts (user_id, provider, subject)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (provider, subject) DO UPDATE SET user_id = EXCLUDED.user_id"#,
+        )
+        .bind(user_id)
+        .bind(provider)
+        .bind(subject)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn delete_user(&self, id: Uuid) -> anyhow::Result<bool> {

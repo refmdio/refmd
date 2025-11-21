@@ -1,36 +1,186 @@
 import { Link, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { GithubIcon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import type { AuthProvidersResponse } from '@/shared/api'
+import { GITHUB_CLIENT_ID, GITHUB_REDIRECT_URI, GOOGLE_CLIENT_ID } from '@/shared/lib/config'
 import { Button } from '@/shared/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
+import { createOauthState } from '@/entities/user'
+
 import { useAuthContext } from '@/features/auth'
+
+import {
+  buildRedirectSearchString,
+  clearGithubOAuthState,
+  parseRedirectSearch,
+  readGithubOAuthState,
+  type RedirectSearchParams,
+  writeGithubOAuthState,
+} from './github-oauth-state'
+
+type AuthProviderInfo = AuthProvidersResponse['providers'][number]
 
 type Props = {
   redirect?: string
   redirectSearch?: string
+  oauthProvider?: string
+  oauthCode?: string
+  oauthState?: string
+  oauthError?: string
+  providers?: AuthProviderInfo[]
+  providerLoadFailed?: boolean
+  providersLoading?: boolean
+  onRetryProviders?: () => void | Promise<unknown>
 }
 
-export function SignInPage({ redirect, redirectSearch }: Props) {
+type GoogleCredentialResponse = {
+  credential?: string
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize(config: Record<string, unknown>): void
+          renderButton(element: HTMLElement, options?: Record<string, unknown>): void
+        }
+      }
+    }
+  }
+}
+
+const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client'
+
+export function SignInPage({
+  redirect,
+  redirectSearch,
+  oauthProvider,
+  oauthCode,
+  oauthState,
+  oauthError,
+  providers,
+  providerLoadFailed = false,
+  providersLoading = false,
+  onRetryProviders,
+}: Props) {
   const navigate = useNavigate()
-  const { signIn } = useAuthContext()
+  const { signIn, signInWithProvider } = useAuthContext()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [socialLoading, setSocialLoading] = useState(false)
+  const googleClientId = GOOGLE_CLIENT_ID
+  const providerList = providers ?? []
+  const providerSet = useMemo(() => new Set(providerList.map((provider) => provider.id)), [providerList])
+  const providerListResolved = Array.isArray(providers)
+  const shouldRestrictProviders = providerListResolved
+  const isGoogleConfigured = Boolean(googleClientId)
+  const isGithubConfigured = Boolean(GITHUB_CLIENT_ID)
+  const isGoogleAllowed = !shouldRestrictProviders || providerSet.has('google')
+  const isGithubAllowed = !shouldRestrictProviders || providerSet.has('github')
+  const isGoogleEnabled = isGoogleConfigured && isGoogleAllowed
+  const isGithubEnabled = isGithubConfigured && isGithubAllowed
+  const googleButtonRef = useRef<HTMLDivElement | null>(null)
+
+  const sanitizedRedirectSearch = useMemo<RedirectSearchParams | undefined>(
+    () => parseRedirectSearch(redirectSearch),
+    [redirectSearch],
+  )
+
+  const finishSignIn = useCallback(
+    (override?: { redirect?: string; redirectSearch?: RedirectSearchParams }) => {
+      const redirectTo = override?.redirect || redirect || '/dashboard'
+      const searchPayload = override?.redirectSearch ?? sanitizedRedirectSearch
+      if (searchPayload) {
+        navigate({ to: redirectTo, search: () => searchPayload })
+      } else {
+        navigate({ to: redirectTo })
+      }
+      clearGithubOAuthState()
+    },
+    [navigate, redirect, sanitizedRedirectSearch],
+  )
+
+  const clearOauthSearch = useCallback(
+    (override?: { redirect?: string; redirectSearch?: RedirectSearchParams }) => {
+      navigate({
+        to: '/auth/signin',
+        search: () => {
+          const nextSearch: { redirect?: string; redirectSearch?: string } = {}
+          const nextRedirect = override?.redirect ?? redirect
+          if (nextRedirect !== undefined) {
+            nextSearch.redirect = nextRedirect
+          }
+          const nextRedirectSearch = override?.redirectSearch
+            ? buildRedirectSearchString(override.redirectSearch)
+            : redirectSearch
+          if (nextRedirectSearch !== undefined) {
+            nextSearch.redirectSearch = nextRedirectSearch
+          }
+          return nextSearch
+        },
+        replace: true,
+      })
+    },
+    [navigate, redirect, redirectSearch],
+  )
+
+  const resolveGithubRedirectUri = useCallback(() => {
+    const ensureProviderParam = (uri: string) => {
+      if (!uri) return uri
+      try {
+        const parsed = new URL(uri)
+        if (!parsed.searchParams.has('provider')) {
+          parsed.searchParams.set('provider', 'github')
+        }
+        return parsed.toString()
+      } catch {
+        if (uri.includes('provider=')) {
+          return uri
+        }
+        const separator = uri.includes('?') ? '&' : '?'
+        return `${uri}${separator}provider=github`
+      }
+    }
+
+    if (GITHUB_REDIRECT_URI && GITHUB_REDIRECT_URI.trim().length > 0) {
+      return ensureProviderParam(GITHUB_REDIRECT_URI)
+    }
+    if (typeof window !== 'undefined') {
+      return ensureProviderParam(`${window.location.origin}/auth/signin`)
+    }
+    return ''
+  }, [])
+
+  const handleGoogleCredential = useCallback(
+    async (credential: string) => {
+      setSocialLoading(true)
+      setError(null)
+      try {
+        await signInWithProvider('google', { credential, remember_me: rememberMe })
+        finishSignIn()
+      } catch (err: any) {
+        setError(err?.message || 'Failed to sign in with Google')
+      } finally {
+        setSocialLoading(false)
+      }
+    },
+    [finishSignIn, rememberMe, signInWithProvider],
+  )
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
     try {
-      await signIn(email, password)
-      const redirectTo = redirect || '/dashboard'
-      const parsedRedirectSearch = parseRedirectSearch(redirectSearch)
-      if (parsedRedirectSearch) navigate({ to: redirectTo, search: () => parsedRedirectSearch })
-      else navigate({ to: redirectTo })
+      await signIn(email, password, { remember: rememberMe })
+      finishSignIn()
     } catch (err: any) {
       setError(err?.message || 'Failed to sign in')
     } finally {
@@ -38,58 +188,305 @@ export function SignInPage({ redirect, redirectSearch }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (oauthProvider !== 'github') return
+    const storedState = readGithubOAuthState()
+    const storedOverride = storedState
+      ? {
+          redirect: storedState.redirect,
+          redirectSearch: storedState.redirectSearch,
+        }
+      : undefined
+    if (storedState?.rememberMe !== undefined) {
+      setRememberMe(storedState.rememberMe)
+    }
+    if (oauthError) {
+      setError(`GitHub authentication error: ${oauthError}`)
+      clearOauthSearch(storedOverride)
+      clearGithubOAuthState()
+      return
+    }
+    if (!oauthCode) return
+    if (!storedState || storedState.nonce !== oauthState) {
+      setError('GitHub authentication state mismatch')
+      clearOauthSearch(storedOverride)
+      clearGithubOAuthState()
+      return
+    }
+    const redirectUri = resolveGithubRedirectUri()
+    if (!redirectUri) {
+      setError('GitHub redirect URL is not configured')
+      clearOauthSearch(storedOverride)
+      clearGithubOAuthState()
+      return
+    }
+    let cancelled = false
+    const exchange = async () => {
+      setSocialLoading(true)
+      setError(null)
+      try {
+        await signInWithProvider('github', {
+          code: oauthCode,
+          redirect_uri: redirectUri,
+          remember_me: storedState.rememberMe ?? rememberMe,
+          state: oauthState,
+        })
+        if (!cancelled) {
+          clearOauthSearch()
+          finishSignIn({
+            redirect: storedState.redirect,
+            redirectSearch: storedState.redirectSearch,
+          })
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err?.message || 'Failed to sign in with GitHub')
+          clearOauthSearch(storedOverride)
+        }
+      } finally {
+        if (!cancelled) {
+          setSocialLoading(false)
+        }
+        clearGithubOAuthState()
+      }
+    }
+    void exchange()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    oauthProvider,
+    oauthCode,
+    oauthState,
+    oauthError,
+    clearOauthSearch,
+    finishSignIn,
+    rememberMe,
+    resolveGithubRedirectUri,
+    signInWithProvider,
+  ])
+
+  const startGithubSignIn = useCallback(async () => {
+    if (!isGithubEnabled || typeof window === 'undefined') return
+    setError(null)
+    const redirectUri = resolveGithubRedirectUri()
+    if (!redirectUri) {
+      setError('GitHub redirect URL is not configured')
+      return
+    }
+    setSocialLoading(true)
+    try {
+      const stateResponse = await createOauthState('github')
+      const state = stateResponse.state
+      const stored = {
+        nonce: state,
+        redirect: redirect || undefined,
+        redirectSearch: sanitizedRedirectSearch,
+        rememberMe,
+      }
+      if (!writeGithubOAuthState(stored)) {
+        setError('Unable to start GitHub sign in. Please enable site data storage and try again.')
+        setSocialLoading(false)
+        return
+      }
+      const url = new URL('https://github.com/login/oauth/authorize')
+      url.searchParams.set('client_id', GITHUB_CLIENT_ID)
+      url.searchParams.set('redirect_uri', redirectUri)
+      url.searchParams.set('scope', 'read:user user:email')
+      url.searchParams.set('state', state)
+      url.searchParams.set('allow_signup', 'true')
+      window.location.href = url.toString()
+    } catch (err: any) {
+      setError(err?.message || 'Unable to start GitHub sign in')
+      setSocialLoading(false)
+    }
+  }, [isGithubEnabled, redirect, rememberMe, resolveGithubRedirectUri, sanitizedRedirectSearch])
+
+  useEffect(() => {
+    if (!isGoogleEnabled) return
+    if (typeof window === 'undefined') return
+    let cancelled = false
+    let script = document.querySelector<HTMLScriptElement>('script[data-google-identity]')
+
+    const initialize = () => {
+      if (cancelled) return
+      if (!window.google || !googleButtonRef.current) return
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: (response: GoogleCredentialResponse) => {
+          if (response?.credential) {
+            void handleGoogleCredential(response.credential)
+          } else {
+            setError('Failed to sign in with Google')
+          }
+        },
+      })
+      googleButtonRef.current.innerHTML = ''
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        width: 320,
+        text: 'continue_with',
+        shape: 'rectangular',
+      })
+    }
+
+    if (script && script.dataset.loaded === 'true') {
+      initialize()
+      return
+    }
+
+    if (!script) {
+      script = document.createElement('script')
+      script.src = GOOGLE_SCRIPT_SRC
+      script.async = true
+      script.defer = true
+      script.dataset.googleIdentity = 'true'
+      document.head.appendChild(script)
+    }
+
+    const handleLoad = () => {
+      if (!script) return
+      script.dataset.loaded = 'true'
+      initialize()
+    }
+
+    script.addEventListener('load', handleLoad)
+
+    return () => {
+      cancelled = true
+      script?.removeEventListener('load', handleLoad)
+    }
+  }, [googleClientId, handleGoogleCredential, isGoogleEnabled])
+
+  const showSocial = isGithubEnabled || isGoogleEnabled
+  const socialButtonWidth = 320
+  const retryProviderFetch = useCallback(() => {
+    if (!onRetryProviders) return
+    void onRetryProviders()
+  }, [onRetryProviders])
+
+  const providerErrorNotice = providerLoadFailed ? (
+    <div className="text-center text-xs text-amber-600 space-y-2">
+      <p>
+        Social sign-in is temporarily unavailable.{' '}
+        {showSocial ? 'Please try again later.' : 'Use email and password or retry fetching providers.'}
+      </p>
+      {onRetryProviders && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={retryProviderFetch}
+          disabled={providersLoading}
+          className="mx-auto"
+        >
+          {providersLoading ? 'Retrying…' : 'Retry fetching providers'}
+        </Button>
+      )}
+    </div>
+  ) : null
+
   return (
-    <div className="min-h-svh flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
-          <CardDescription>Sign in to your RefMD account</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" placeholder="Enter your email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" name="password" type="password" placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
-            </div>
-            {error && <div className="text-sm text-red-600">{error}</div>}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in…' : 'Sign In'}
-            </Button>
-          </form>
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Don’t have an account?{' '}
-              <Link to="/auth/signup" className="font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300">
-                Sign up
-              </Link>
-            </p>
+    <div className="min-h-svh flex items-center justify-center bg-background px-4 py-12">
+      <div className="w-full max-w-md space-y-6">
+        <div className="text-center space-y-2">
+          <p className="text-sm font-medium text-muted-foreground">Welcome back</p>
+          <h1 className="text-3xl font-semibold tracking-tight">Sign in to RefMD</h1>
+          <p className="text-sm text-muted-foreground">
+            Access your workspaces, documents, and shortcuts without missing a beat.
+          </p>
+        </div>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </div>
-        </CardContent>
-      </Card>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <Label
+              htmlFor="remember"
+              className="flex cursor-pointer items-center gap-2 text-sm font-normal text-muted-foreground"
+            >
+              <input
+                id="remember"
+                name="remember"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                className="md-checkbox"
+              />
+              Keep me signed in
+            </Label>
+          </div>
+          {error && <div className="text-sm text-red-600">{error}</div>}
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign In'}
+          </Button>
+        </form>
+        {showSocial && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted-foreground">
+              <span className="h-px flex-1 bg-muted" />
+              <span>or continue with</span>
+              <span className="h-px flex-1 bg-muted" />
+            </div>
+            <div className="flex flex-col items-center gap-3">
+              {isGithubEnabled && (
+                <button
+                  type="button"
+                  onClick={startGithubSignIn}
+                  style={{ width: socialButtonWidth }}
+                  className="flex items-center justify-center gap-2 rounded-md border border-input bg-background py-2 text-sm font-medium text-foreground shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <GithubIcon className="h-4 w-4" />
+                  Continue with GitHub
+                </button>
+              )}
+              {isGoogleEnabled && (
+                <div
+                  ref={googleButtonRef}
+                  className="flex justify-center"
+                  style={{ width: socialButtonWidth }}
+                />
+              )}
+            </div>
+            {socialLoading && (
+              <p className="text-center text-xs text-muted-foreground">
+                Signing in with {oauthProvider === 'github' ? 'GitHub' : 'Google'}…
+              </p>
+            )}
+            {providerErrorNotice}
+          </div>
+        )}
+        {!showSocial && providerErrorNotice}
+        <div className="text-center text-sm text-muted-foreground">
+          Don’t have an account?{' '}
+          <Link to="/auth/signup" className="font-medium text-primary hover:underline">
+            Sign up
+          </Link>
+        </div>
+      </div>
     </div>
   )
-}
-
-function parseRedirectSearch(search?: string) {
-  if (!search) return undefined
-
-  try {
-    const params = new URLSearchParams(search)
-    if (!params.toString()) return undefined
-
-    const result: Record<string, string | string[]> = {}
-    params.forEach((value, key) => {
-      if (result[key] === undefined) result[key] = value
-      else if (Array.isArray(result[key])) (result[key] as string[]).push(value)
-      else result[key] = [result[key] as string, value]
-    })
-
-    return result
-  } catch {
-    return undefined
-  }
 }

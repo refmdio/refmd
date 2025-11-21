@@ -35,7 +35,7 @@ impl From<TagItemDto> for TagItem {
 
 fn map_tag_error(err: ServiceError) -> StatusCode {
     match err {
-        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
         ServiceError::Forbidden => StatusCode::FORBIDDEN,
         ServiceError::Conflict => StatusCode::CONFLICT,
         ServiceError::NotFound => StatusCode::NOT_FOUND,

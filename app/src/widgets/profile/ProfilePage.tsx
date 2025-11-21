@@ -1,18 +1,18 @@
 import { Link } from '@tanstack/react-router'
-import { ArrowRight, Copy, Globe, Key, Mail, Shield, Trash2, Users } from 'lucide-react'
+import { ArrowRight, Copy, Globe, Key, Loader2, Mail, Shield, Trash2, Users } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-
-
 
 import { Avatar, AvatarFallback } from '@/shared/ui/avatar'
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
 import ConfirmDialog from '@/shared/ui/confirm-dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
 import { Input } from '@/shared/ui/input'
 
 import { useCreateApiToken, useApiTokens, useRevokeApiToken } from '@/entities/api-token'
+import { useUserSessions, useRevokeSession } from '@/entities/user'
 
 import { useAuthContext } from '@/features/auth'
 
@@ -35,6 +35,7 @@ export default function ProfilePage() {
   const [newTokenName, setNewTokenName] = useState('')
   const [generatedToken, setGeneratedToken] = useState<string | null>(null)
   const [revokeDialogFor, setRevokeDialogFor] = useState<{ id: string; name: string } | null>(null)
+  const [sessionsDialogOpen, setSessionsDialogOpen] = useState(false)
 
   const tokensQuery = useApiTokens({ workspaceId: activeWorkspaceId })
   const tokens = tokensQuery.data ?? []
@@ -73,6 +74,24 @@ export default function ProfilePage() {
     if (!revokeDialogFor) return
     revokeTokenMutation.mutate(revokeDialogFor.id)
   }, [revokeDialogFor, revokeTokenMutation])
+
+  const sessionsQuery = useUserSessions({ enabled: sessionsDialogOpen })
+  const sessions = sessionsQuery.data ?? []
+  const revokeSessionMutation = useRevokeSession({
+    onSuccess: () => {
+      toast.success('Session revoked')
+    },
+    onError: () => {
+      toast.error('Failed to revoke session')
+    },
+  })
+
+  const handleRevokeSession = useCallback(
+    (sessionId: string) => {
+      revokeSessionMutation.mutate(sessionId)
+    },
+    [revokeSessionMutation],
+  )
 
   const formatTimestamp = useCallback((value?: string | null) => {
     if (!value) return 'Never used'
@@ -157,7 +176,12 @@ export default function ProfilePage() {
                   Your account is protected by workspace authentication. Sign out from other devices to keep things secure.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" className="rounded-full px-4" disabled>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full px-4"
+                    onClick={() => setSessionsDialogOpen(true)}
+                  >
                     Manage sessions
                   </Button>
                   <Button
@@ -296,6 +320,57 @@ export default function ProfilePage() {
           </Card>
         </section>
       </div>
+      <Dialog open={sessionsDialogOpen} onOpenChange={setSessionsDialogOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Active sessions</DialogTitle>
+            <DialogDescription>Sign out from browsers or devices you no longer use.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {sessionsQuery.isLoading ? (
+              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading sessions…
+              </div>
+            ) : sessions.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No active sessions</p>
+            ) : (
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                {sessions.map((session) => {
+                  const isPending =
+                    revokeSessionMutation.isPending && revokeSessionMutation.variables === session.id
+                  return (
+                    <div key={session.id} className="flex items-start justify-between rounded-lg border border-border/60 p-3">
+                      <div className="space-y-1 text-sm">
+                        <p className="font-medium text-foreground">{session.user_agent || 'Unknown device'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Last active {formatTimestamp(session.last_seen_at)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {session.ip_address ? `IP ${session.ip_address}` : 'IP unknown'}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {session.current && <Badge variant="secondary">Current</Badge>}
+                          {session.remember_me && <Badge variant="outline">Remembered</Badge>}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={session.current || isPending}
+                          onClick={() => handleRevokeSession(session.id)}
+                        >
+                          {isPending ? 'Removing…' : 'Remove'}
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

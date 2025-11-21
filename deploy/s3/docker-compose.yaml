@@ -76,6 +76,10 @@ services:
       S3_USE_PATH_STYLE: "true"
       PLUGINS_DIR: /app/plugins
       PLUGIN_ASSET_SIGN_KEY: change-me-please
+      # GOOGLE_OAUTH_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
+      # GITHUB_OAUTH_CLIENT_ID: your-github-client-id
+      # GITHUB_OAUTH_CLIENT_SECRET: your-github-client-secret
+      # GITHUB_OAUTH_REDIRECT_URI: http://localhost:3000/auth/signin
       PLUGIN_TIMEOUT_SECS: 10
       PLUGIN_MEMORY_MAX_MB: 256
       PLUGIN_ASSET_URL_TTL_SECS: 120
@@ -100,6 +104,9 @@ services:
       SSR_API_BASE_URL: http://api:8888
       VITE_API_BASE_URL: http://localhost:8888
       VITE_PUBLIC_BASE_URL: http://localhost:3000
+      # VITE_GOOGLE_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
+      # VITE_GITHUB_CLIENT_ID: your-github-client-id
+      # VITE_GITHUB_REDIRECT_URI: http://localhost:3000/auth/signin
     ports:
       - "3000:80"
     depends_on:

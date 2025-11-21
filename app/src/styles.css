@@ -203,7 +203,8 @@
   margin-left: var(--prose-list-indent);
   padding-left: var(--prose-list-indent);
 }
-.prose input[type='checkbox'] {
+.prose input[type='checkbox'],
+.md-checkbox {
   @apply cursor-pointer;
   margin: 0;
   accent-color: var(--primary);

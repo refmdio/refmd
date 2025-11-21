@@ -66,7 +66,7 @@ fn to_http_document(doc: domain::Document) -> Document {
 
 fn map_service_error(err: ServiceError) -> StatusCode {
     match err {
-        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
         ServiceError::Forbidden => StatusCode::FORBIDDEN,
         ServiceError::Conflict => StatusCode::CONFLICT,
         ServiceError::NotFound => StatusCode::NOT_FOUND,
@@ -683,6 +683,7 @@ pub async fn download_document(
     let download = match service.download_document(&actor, id, format.into()).await {
         Ok(payload) => payload,
         Err(ServiceError::Unauthorized)
+        | Err(ServiceError::TokenExpired)
         | Err(ServiceError::Forbidden)
         | Err(ServiceError::NotFound) => {
             return Err(error_response(

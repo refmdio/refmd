@@ -1,29 +1,20 @@
+import type { QueryClient } from '@tanstack/react-query'
 import { redirect } from '@tanstack/react-router'
 
-import { API_BASE_URL, getEnv } from '@/shared/lib/config'
+import type { UserResponse } from '@/shared/api'
 
 import { validateShareToken } from '@/entities/share'
-import { me as fetchCurrentUser } from '@/entities/user'
+import { me as fetchCurrentUser, userKeys } from '@/entities/user'
+
+import { getRuntimeAuthContext } from './runtime-context'
+import type { AuthMiddlewareContext, AuthRedirectTarget, AuthResolution } from './types'
+
+// Re-export so callers can keep importing from this module
+export type { AuthRedirectTarget, AuthMiddlewareContext, AuthResolution } from './types'
 
 type MaybeSearch = string | Record<string, unknown> | null | undefined
 
-export type AuthRedirectTarget = {
-  to: string
-  search: {
-    redirect: string
-    redirectSearch?: string
-  }
-}
-
-type MiddlewareAuthContext = {
-  redirectChecked?: boolean
-  redirectTarget?: AuthRedirectTarget | null
-  isAuthenticated?: boolean
-  shareToken?: string
-  shareTokenValidated?: boolean
-}
-
-function getMiddlewareAuthContext(ctx: any): MiddlewareAuthContext | undefined {
+function getMiddlewareAuthContext(ctx: any): AuthMiddlewareContext | undefined {
   const candidates = [
     ctx?.serverContext?.auth,
     ctx?.context?.auth,
@@ -32,13 +23,50 @@ function getMiddlewareAuthContext(ctx: any): MiddlewareAuthContext | undefined {
 
   for (const candidate of candidates) {
     if (candidate && typeof candidate === 'object') {
-      return candidate as MiddlewareAuthContext
+      return candidate as AuthMiddlewareContext
+    }
+  }
+  if (typeof window !== 'undefined') {
+    const runtimeContext = getRuntimeAuthContext()
+    if (runtimeContext) {
+      return runtimeContext
     }
   }
   return undefined
 }
 
-const SSR_AUTH_ENDPOINT = '/api/auth/me'
+function resolveDeferDeadline(auth: AuthMiddlewareContext): number | undefined {
+  if (typeof auth.deferUntil === 'number') {
+    return auth.deferUntil
+  }
+  if (typeof auth.deferDurationMs === 'number') {
+    const deadline = Date.now() + auth.deferDurationMs
+    auth.deferUntil = deadline
+    delete auth.deferDurationMs
+    return deadline
+  }
+  return undefined
+}
+
+function shouldDeferAuthDecision(ctx: any): boolean {
+  const auth = getMiddlewareAuthContext(ctx)
+  if (!auth) return false
+  if (auth.authResolved === false && auth.hasRefreshToken === true) {
+    const deadline = resolveDeferDeadline(auth)
+    if (typeof deadline === 'number') {
+      const now = Date.now()
+      if (now > deadline) {
+        auth.authResolved = true
+        delete auth.deferUntil
+        delete auth.deferDurationMs
+        return false
+      }
+      return true
+    }
+    return true
+  }
+  return false
+}
 
 function normalizeSearch(value: MaybeSearch): string {
   if (typeof value === 'string') return value
@@ -101,89 +129,46 @@ function createAuthRedirect(pathname: string, search: string): AuthRedirectTarge
   }
 }
 
-function resolveCookieHeader(ctx: any): string | null {
-  const layers = [ctx?.serverContext, ctx?.context, ctx]
-
-  const extractFromCandidate = (candidate: unknown): string | null => {
-    if (!candidate) return null
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return candidate
-    }
-    if (Array.isArray(candidate)) {
-      const merged = candidate.filter(Boolean).join('; ')
-      return merged.trim().length > 0 ? merged : null
-    }
-    if (typeof candidate === 'object') {
-      const value = (candidate as Record<string, string | string[] | undefined>).cookie
-      if (typeof value === 'string' && value.trim().length > 0) {
-        return value
-      }
-      if (Array.isArray(value)) {
-        const merged = value.filter(Boolean).join('; ')
-        if (merged.trim().length > 0) return merged
-      }
-    }
-    return null
-  }
-
-  for (const layer of layers) {
-    const candidates = [layer?.headers, layer?.request?.headers, layer?.event?.node?.req?.headers]
-    for (const candidate of candidates) {
-      const resolved = extractFromCandidate(candidate)
-      if (resolved) {
-        return resolved
-      }
-    }
-  }
-  return null
+function isAuthRoute(pathname: string) {
+  if (!pathname || pathname === '/') return false
+  if (pathname === '/auth') return true
+  return pathname.startsWith('/auth/')
 }
 
-function resolveApiBase(ctx: any): string {
-  const layered = [ctx?.serverContext, ctx?.context, ctx]
-  for (const layer of layered) {
-    const candidate = typeof layer?.apiBaseUrl === 'string' ? layer.apiBaseUrl.trim() : ''
-    if (candidate.length > 0) return candidate
-  }
+function getCachedUser(ctx?: any): UserResponse | null {
+  const queryClient = ctx?.context?.queryClient as QueryClient | undefined
+  if (!queryClient) return null
+  const cached = queryClient.getQueryData(userKeys.me()) as UserResponse | undefined
+  return cached ?? null
+}
 
-  const envBase = getEnv('SSR_API_BASE_URL', API_BASE_URL)
-  if (envBase && envBase.trim().length > 0) {
-    return envBase.trim()
+async function hasCurrentUser(ctx?: any) {
+  if (shouldDeferAuthDecision(ctx)) {
+    return true
   }
-
-  for (const layer of layered) {
-    const originCandidate = typeof layer?.origin === 'string' ? layer.origin.trim() : ''
-    if (originCandidate.length > 0) {
-      return originCandidate
+  const middlewareAuth = getMiddlewareAuthContext(ctx)
+  if (middlewareAuth?.redirectChecked) {
+    if (middlewareAuth.user) {
+      return true
+    }
+    if (middlewareAuth.isAuthenticated) {
+      return true
+    }
+    if (middlewareAuth.authResolved === true) {
+      return false
+    }
+    if (middlewareAuth.authResolved === false) {
+      return false
+    }
+    if (middlewareAuth.hasRefreshToken && middlewareAuth.authResolved === undefined) {
+      return true
     }
   }
 
-  const fromOrigin = typeof ctx?.origin === 'string' ? ctx.origin.trim() : ''
-  return fromOrigin
-}
-
-async function hasCurrentUserRemote(ctx: any, cookieHeader: string | null) {
-  if (!cookieHeader || typeof fetch === 'undefined') return false
-
-  const base = resolveApiBase(ctx)
-  if (!base || base.length === 0) return false
-
-  try {
-    const endpoint = new URL(SSR_AUTH_ENDPOINT, base)
-    const res = await fetch(endpoint.toString(), {
-      method: 'GET',
-      credentials: 'include',
-      headers: {
-        cookie: cookieHeader,
-      },
-    })
-    return res.ok
-  } catch (error) {
-    console.warn('[auth] remote auth check failed', error)
-    return false
+  const cachedUser = getCachedUser(ctx)
+  if (cachedUser) {
+    return true
   }
-}
-
-async function hasCurrentUserFallback() {
   try {
     await fetchCurrentUser()
     return true
@@ -192,26 +177,7 @@ async function hasCurrentUserFallback() {
   }
 }
 
-async function hasCurrentUser(ctx?: any) {
-  const isServer = typeof window === 'undefined'
-  const cookieHeader = resolveCookieHeader(ctx)
-  if (cookieHeader) {
-    const authenticated = await hasCurrentUserRemote(ctx, cookieHeader)
-    if (authenticated) return true
-  }
-
-  if (isServer) {
-    if (!ctx?.event) {
-      // SSR beforeLoad (no Nitro event) relies on middleware that already handled auth
-      return true
-    }
-    return false
-  }
-
-  return hasCurrentUserFallback()
-}
-
-export async function resolveAuthRedirect(ctx?: any): Promise<AuthRedirectTarget | null> {
+export async function resolveAuthRedirect(ctx?: any): Promise<AuthResolution> {
   const { pathname, search, tokenOverride } = resolveLocation(ctx)
   const middlewareAuth = getMiddlewareAuthContext(ctx)
   const shareToken = extractShareToken(ctx, search, tokenOverride)
@@ -221,37 +187,52 @@ export async function resolveAuthRedirect(ctx?: any): Promise<AuthRedirectTarget
       middlewareAuth?.shareTokenValidated &&
       middlewareAuth.shareToken === shareToken
     ) {
-      return null
+      return { redirect: null, authenticated: false }
     }
 
     try {
       await validateShareToken(shareToken)
-      return null
+      return { redirect: null, authenticated: false }
     } catch {
       // fall through to auth checks when validation fails
     }
   }
 
-  if (middlewareAuth?.redirectChecked) {
-    if (middlewareAuth.redirectTarget) {
-      return middlewareAuth.redirectTarget
-    }
-    if (middlewareAuth.isAuthenticated) {
-      return null
-    }
+  if (shouldDeferAuthDecision(ctx)) {
+    return { redirect: null, authenticated: false }
   }
 
   const authenticated = await hasCurrentUser(ctx)
   if (!authenticated) {
-    return createAuthRedirect(pathname, search)
+    if (isAuthRoute(pathname)) {
+      return { redirect: null, authenticated: false }
+    }
+    return { redirect: createAuthRedirect(pathname, search), authenticated: false }
   }
-  return null
+  if (isAuthRoute(pathname)) {
+    return { redirect: { to: '/dashboard' }, authenticated }
+  }
+  return { redirect: null, authenticated }
 }
 
 export async function appBeforeLoadGuard(ctx?: any) {
-  const result = await resolveAuthRedirect(ctx)
-  if (result) {
-    throw redirect(result)
+  const { redirect: target } = await resolveAuthRedirect(ctx)
+  if (target) {
+    throw redirect(target)
+  }
+}
+
+export const requireAuthGuard = appBeforeLoadGuard
+
+export async function authPageGuard(ctx?: any) {
+  const { pathname } = resolveLocation(ctx)
+  if (!isAuthRoute(pathname)) return
+  const { redirect: target, authenticated } = await resolveAuthRedirect(ctx)
+  if (target) {
+    throw redirect(target)
+  }
+  if (authenticated) {
+    throw redirect({ to: '/dashboard' })
   }
 }
 
@@ -275,6 +256,10 @@ export async function documentBeforeLoadGuard(ctx?: any) {
     } catch {
       // fall through to auth guard when token validation or access check fails
     }
+  }
+
+  if (shouldDeferAuthDecision(ctx)) {
+    return
   }
 
   const authenticated = await hasCurrentUser(ctx)

@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useEffect } from 'react'
 
-import { appBeforeLoadGuard } from '@/features/auth'
+import { requireAuthGuard } from '@/features/auth'
 import { EditorOverlay } from '@/features/edit-document'
 import { createTemporaryDocumentEntry } from '@/features/temporary-document'
 
@@ -10,7 +10,7 @@ import RoutePending from '@/widgets/routes/RoutePending'
 
 export const Route = createFileRoute('/(app)/temporary')({
   staticData: { layout: 'app' },
-  beforeLoad: appBeforeLoadGuard,
+  beforeLoad: requireAuthGuard,
   pendingComponent: () => <RoutePending label="Preparing temporary document…" />,
   errorComponent: ({ error }) => <RouteError error={error} />,
   component: TemporaryRedirect,

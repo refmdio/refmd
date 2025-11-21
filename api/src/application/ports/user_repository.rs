@@ -16,11 +16,22 @@ pub trait UserRepository: Send + Sync {
         id: Uuid,
         email: &str,
         name: &str,
-        password_hash: &str,
+        password_hash: Option<&str>,
         default_workspace_id: Uuid,
     ) -> anyhow::Result<UserRow>;
     async fn find_by_email(&self, email: &str) -> anyhow::Result<Option<UserRow>>;
+    async fn find_by_external_identity(
+        &self,
+        provider: &str,
+        subject: &str,
+    ) -> anyhow::Result<Option<UserRow>>;
     async fn find_by_id(&self, id: Uuid) -> anyhow::Result<Option<UserRow>>;
+    async fn link_external_identity(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        subject: &str,
+    ) -> anyhow::Result<()>;
     async fn delete_user(&self, id: Uuid) -> anyhow::Result<bool>;
     async fn list_user_ids(&self) -> anyhow::Result<Vec<Uuid>>;
 }

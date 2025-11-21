@@ -44,7 +44,7 @@ fn share_scope(document_type: &str) -> String {
 
 fn map_share_error(err: ServiceError) -> StatusCode {
     match err {
-        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
         ServiceError::Forbidden => StatusCode::FORBIDDEN,
         ServiceError::Conflict => StatusCode::CONFLICT,
         ServiceError::NotFound => StatusCode::NOT_FOUND,

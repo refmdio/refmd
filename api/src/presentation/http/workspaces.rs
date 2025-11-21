@@ -5,7 +5,7 @@ use axum::{
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -17,13 +17,17 @@ use crate::application::access;
 use crate::application::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceRoleRecord,
 };
+use crate::application::services::auth::user_sessions::SessionMetadata;
 use crate::application::services::errors::ServiceError;
 use crate::domain::workspaces::permissions::{
     PERM_DOC_VIEW, PERM_MEMBER_INVITE, PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE,
     PERM_MEMBER_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
 };
 use crate::presentation::context::AppContext;
-use crate::presentation::http::auth::{self, Bearer};
+use crate::presentation::http::auth::{
+    self, Bearer, apply_session_cookies, extract_client_ip, extract_refresh_token,
+    extract_user_agent,
+};
 #[allow(unused_imports)]
 use crate::presentation::http::documents::DocumentDownloadBinary;
 use crate::presentation::http::documents::DownloadFormat;
@@ -226,7 +230,7 @@ fn to_response(
 
 pub(crate) fn map_service_error(err: ServiceError) -> StatusCode {
     match err {
-        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
         ServiceError::Forbidden => StatusCode::FORBIDDEN,
         ServiceError::Conflict => StatusCode::CONFLICT,
         ServiceError::NotFound => StatusCode::NOT_FOUND,
@@ -589,7 +593,7 @@ pub async fn download_workspace_archive(
         .download_workspace_root(&actor, id, &workspace.name, params.format.into())
         .await
         .map_err(|err| match err {
-            ServiceError::Unauthorized | ServiceError::Forbidden => {
+            ServiceError::Unauthorized | ServiceError::TokenExpired | ServiceError::Forbidden => {
                 error_response(StatusCode::FORBIDDEN, "forbidden", "Forbidden".to_string())
             }
             ServiceError::Conflict | ServiceError::NotFound => error_response(
@@ -1041,6 +1045,7 @@ pub async fn leave_workspace(
 pub async fn switch_workspace(
     State(ctx): State<AppContext>,
     bearer: Bearer,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<(HeaderMap, Json<SwitchWorkspaceResponse>), StatusCode> {
     let sub = auth::validate_bearer(&ctx, bearer).await?;
@@ -1049,24 +1054,50 @@ pub async fn switch_workspace(
         .set_default_workspace(user_id, id)
         .await
         .map_err(map_service_error)?;
-    let session = ctx
-        .auth_service()
-        .issue_session(user_id, id)
-        .map_err(auth::map_auth_error)?;
-    let cookie_value = auth::build_session_cookie(
-        &session.token,
-        ctx.auth_service().session_ttl_secs(),
-        ctx.cfg.session_cookie_secure,
-    );
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::SET_COOKIE,
-        HeaderValue::from_str(&cookie_value).unwrap_or(HeaderValue::from_static("")),
-    );
+    let client_ip = extract_client_ip(&headers);
+    let user_agent = extract_user_agent(&headers);
+    let session_service = ctx.session_service();
+    let mut issued = None;
+    if let Some(refresh_token) = extract_refresh_token(&headers) {
+        match session_service
+            .refresh_session(
+                &refresh_token,
+                Some(id),
+                SessionMetadata {
+                    user_agent,
+                    ip_address: client_ip.as_deref(),
+                },
+            )
+            .await
+        {
+            Ok(bundle) => issued = Some(bundle),
+            Err(ServiceError::Unauthorized | ServiceError::TokenExpired) => {
+                issued = None;
+            }
+            Err(err) => return Err(auth::map_auth_error(err)),
+        }
+    }
+    let issued = match issued {
+        Some(bundle) => bundle,
+        None => session_service
+            .issue_new_session(
+                user_id,
+                id,
+                false,
+                SessionMetadata {
+                    user_agent,
+                    ip_address: client_ip.as_deref(),
+                },
+            )
+            .await
+            .map_err(auth::map_auth_error)?,
+    };
+    let mut response_headers = HeaderMap::new();
+    apply_session_cookies(&ctx, &mut response_headers, &issued);
     Ok((
-        headers,
+        response_headers,
         Json(SwitchWorkspaceResponse {
-            access_token: session.token,
+            access_token: issued.access.token,
         }),
     ))
 }
@@ -1116,7 +1147,7 @@ pub async fn accept_invitation(
         .get_me(user_id)
         .await
         .map_err(|err| match err {
-            ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+            ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
             ServiceError::Forbidden => StatusCode::FORBIDDEN,
             ServiceError::NotFound => StatusCode::UNAUTHORIZED,
             _ => StatusCode::INTERNAL_SERVER_ERROR,

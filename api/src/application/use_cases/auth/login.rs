@@ -21,8 +21,11 @@ impl<'a, R: UserRepository + ?Sized> Login<'a, R> {
             Some(r) => r,
             None => return Ok(None),
         };
-        let hash = row.password_hash.clone().unwrap_or_default();
-        let parsed = PasswordHash::new(&hash).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let hash = match row.password_hash.as_deref() {
+            Some(hash) if !hash.is_empty() => hash,
+            _ => return Ok(None),
+        };
+        let parsed = PasswordHash::new(hash).map_err(|e| anyhow::anyhow!(e.to_string()))?;
         if Argon2::default()
             .verify_password(req.password.as_bytes(), &parsed)
             .is_ok()

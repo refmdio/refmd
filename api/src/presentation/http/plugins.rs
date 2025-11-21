@@ -579,7 +579,7 @@ fn ensure_valid_plugin_id(id: &str) -> Result<(), StatusCode> {
 
 fn map_plugin_service_error(err: ServiceError) -> StatusCode {
     match err {
-        ServiceError::Unauthorized => StatusCode::UNAUTHORIZED,
+        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
         ServiceError::Forbidden => StatusCode::FORBIDDEN,
         ServiceError::Conflict => StatusCode::CONFLICT,
         ServiceError::NotFound => StatusCode::NOT_FOUND,

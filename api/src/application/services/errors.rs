@@ -5,6 +5,8 @@ use thiserror::Error;
 pub enum ServiceError {
     #[error("unauthorized")]
     Unauthorized,
+    #[error("token expired")]
+    TokenExpired,
     #[error("forbidden")]
     Forbidden,
     #[error("conflict")]

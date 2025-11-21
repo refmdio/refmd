@@ -49,6 +49,15 @@ export type ApplicableShareItem = {
     token: string;
 };
 
+export type AuthProviderInfoResponse = {
+    id: string;
+    requires_state: boolean;
+};
+
+export type AuthProvidersResponse = {
+    providers: Array<AuthProviderInfoResponse>;
+};
+
 export type BacklinkInfo = {
     document_id: string;
     document_type: string;
@@ -271,6 +280,7 @@ export type KvValueResponse = {
 export type LoginRequest = {
     email: string;
     password: string;
+    remember_me?: boolean;
 };
 
 export type LoginResponse = {
@@ -294,6 +304,18 @@ export type ManifestItem = {
 
 export type MaterializeResponse = {
     created: number;
+};
+
+export type OAuthLoginRequest = {
+    code?: (string) | null;
+    credential?: (string) | null;
+    redirect_uri?: (string) | null;
+    remember_me?: boolean;
+    state?: (string) | null;
+};
+
+export type OAuthStateResponse = {
+    state: string;
 };
 
 export type OutgoingLink = {
@@ -343,6 +365,10 @@ export type RecordsResponse = {
     items: Array<unknown>;
 };
 
+export type RefreshResponse = {
+    access_token: string;
+};
+
 export type RegisterRequest = {
     email: string;
     name: string;
@@ -385,6 +411,18 @@ export type SearchResult = {
     path?: (string) | null;
     title: string;
     updated_at: string;
+};
+
+export type SessionResponse = {
+    created_at: string;
+    current: boolean;
+    expires_at: string;
+    id: string;
+    ip_address?: (string) | null;
+    last_seen_at: string;
+    remember_me: boolean;
+    user_agent?: (string) | null;
+    workspace_id: string;
 };
 
 export type ShareBrowseResponse = {
@@ -653,11 +691,45 @@ export type MeResponse = (UserResponse);
 
 export type DeleteAccountResponse = (void);
 
+export type OauthLoginData = {
+    /**
+     * OAuth provider identifier (e.g., google)
+     */
+    provider: string;
+    requestBody: OAuthLoginRequest;
+};
+
+export type OauthLoginResponse = (LoginResponse);
+
+export type OauthStateData = {
+    /**
+     * OAuth provider identifier
+     */
+    provider: string;
+};
+
+export type OauthStateResponse = (OAuthStateResponse);
+
+export type ListOauthProvidersResponse = (AuthProvidersResponse);
+
+export type RefreshSessionResponse = (RefreshResponse);
+
 export type RegisterData = {
     requestBody: RegisterRequest;
 };
 
 export type RegisterResponse = (UserResponse);
+
+export type ListSessionsResponse = (Array<SessionResponse>);
+
+export type RevokeSessionData = {
+    /**
+     * Session ID
+     */
+    id: string;
+};
+
+export type RevokeSessionResponse = (void);
 
 export type ListDocumentsData = {
     /**
