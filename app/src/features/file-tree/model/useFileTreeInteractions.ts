@@ -33,6 +33,43 @@ type UseFileTreeInteractionsOptions = {
   navigate: NavigateFn
 }
 
+function cloneTree(nodes: DocumentNode[]): DocumentNode[] {
+  return nodes.map((node) => ({
+    ...node,
+    children: node.children ? cloneTree(node.children) : undefined,
+  }))
+}
+
+function updateNodeTitleInTree(nodes: DocumentNode[], id: string, title: string): boolean {
+  for (const node of nodes) {
+    if (node.id === id) {
+      node.title = title
+      return true
+    }
+    if (node.children && updateNodeTitleInTree(node.children, id, title)) {
+      return true
+    }
+  }
+  return false
+}
+
+function removeNodeFromTree(nodes: DocumentNode[], id: string): boolean {
+  for (let i = 0; i < nodes.length; i += 1) {
+    const node = nodes[i]
+    if (node.id === id) {
+      nodes.splice(i, 1)
+      return true
+    }
+    if (node.children && removeNodeFromTree(node.children, id)) {
+      if (!node.children.length) {
+        node.children = undefined
+      }
+      return true
+    }
+  }
+  return false
+}
+
 function buildPluginMenu(
   items: PluginCommand[],
   runner: (pluginId: string, action: string) => void,
@@ -174,25 +211,11 @@ export function useFileTreeInteractions({
 
   const renameDocument = useCallback(
     async (id: string, title: string) => {
-      const cloneTree = (nodes: DocumentNode[]): DocumentNode[] =>
-        nodes.map((node) => ({
-          ...node,
-          children: node.children ? cloneTree(node.children) : undefined,
-        }))
-
       const updatedTree = cloneTree(documents)
-      const apply = (nodes: DocumentNode[]): boolean => {
-        for (const node of nodes) {
-          if (node.id === id) {
-            node.title = title
-            return true
-          }
-          if (node.children && apply(node.children)) return true
-        }
-        return false
+      const applied = updateNodeTitleInTree(updatedTree, id, title)
+      if (applied) {
+        updateDocuments(updatedTree)
       }
-      apply(updatedTree)
-      updateDocuments(updatedTree)
 
       try {
         await updateDocumentTitle(id, title)
@@ -210,22 +233,42 @@ export function useFileTreeInteractions({
   const deleteDocument = useCallback(
     async (id: string) => {
       const wasSelected = getSelectedDocumentId() === id
+      const previousTree = documents
+      const optimisticTree = cloneTree(documents)
+      const removed = removeNodeFromTree(optimisticTree, id)
+      if (removed) {
+        updateDocuments(optimisticTree)
+      }
+      if (wasSelected) {
+        setSelectedDocumentId(null)
+      }
       try {
         await deleteDocumentApi(id)
-        if (wasSelected) {
-          setSelectedDocumentId(null)
-          if (!isShare) {
-            navigate({ to: '/dashboard' })
-          }
+        if (wasSelected && !isShare) {
+          navigate({ to: '/dashboard' })
         }
         refreshDocuments()
         toast.success('Deleted')
       } catch (error) {
+        if (removed) {
+          updateDocuments(previousTree)
+        }
+        if (wasSelected) {
+          setSelectedDocumentId(id)
+        }
         console.error('[file-tree] delete failed', error)
         toast.error('Failed to delete')
       }
     },
-    [getSelectedDocumentId, isShare, navigate, refreshDocuments, setSelectedDocumentId],
+    [
+      documents,
+      getSelectedDocumentId,
+      isShare,
+      navigate,
+      refreshDocuments,
+      setSelectedDocumentId,
+      updateDocuments,
+    ],
   )
 
   const navigateToDocument = useCallback(
