@@ -310,7 +310,7 @@ impl GitWorkspaceService {
                         pack_key,
                         file_hash_index
                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-                    ON CONFLICT (commit_id) DO NOTHING"#,
+                    ON CONFLICT (workspace_id, commit_id) DO NOTHING"#,
             )
             .bind(meta.commit_id.clone())
             .bind(meta.parent_commit_id.clone())
@@ -428,7 +428,7 @@ impl GitWorkspaceService {
                         pack_key,
                         file_hash_index
                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-                    ON CONFLICT (commit_id) DO NOTHING"#,
+                    ON CONFLICT (workspace_id, commit_id) DO NOTHING"#,
             )
             .bind(meta.commit_id.clone())
             .bind(meta.parent_commit_id.clone())
