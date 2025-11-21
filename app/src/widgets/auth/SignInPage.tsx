@@ -3,7 +3,6 @@ import { GithubIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AuthProvidersResponse } from '@/shared/api'
-import { GITHUB_CLIENT_ID, GITHUB_REDIRECT_URI, GOOGLE_CLIENT_ID } from '@/shared/lib/config'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
@@ -75,17 +74,33 @@ export function SignInPage({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [socialLoading, setSocialLoading] = useState(false)
-  const googleClientId = GOOGLE_CLIENT_ID
   const providerList = providers ?? []
-  const providerSet = useMemo(() => new Set(providerList.map((provider) => provider.id)), [providerList])
-  const providerListResolved = Array.isArray(providers)
-  const shouldRestrictProviders = providerListResolved
-  const isGoogleConfigured = Boolean(googleClientId)
-  const isGithubConfigured = Boolean(GITHUB_CLIENT_ID)
-  const isGoogleAllowed = !shouldRestrictProviders || providerSet.has('google')
-  const isGithubAllowed = !shouldRestrictProviders || providerSet.has('github')
-  const isGoogleEnabled = isGoogleConfigured && isGoogleAllowed
-  const isGithubEnabled = isGithubConfigured && isGithubAllowed
+  const googleProvider = useMemo(
+    () => providerList.find((provider) => provider.id === 'google'),
+    [providerList],
+  )
+  const githubProvider = useMemo(
+    () => providerList.find((provider) => provider.id === 'github'),
+    [providerList],
+  )
+
+  const pickClientId = useCallback((provider?: AuthProviderInfo | null) => {
+    if (!provider) return ''
+    for (const value of provider.client_ids ?? []) {
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed.length > 0) {
+          return trimmed
+        }
+      }
+    }
+    return ''
+  }, [])
+
+  const googleClientId = useMemo(() => pickClientId(googleProvider), [googleProvider, pickClientId])
+  const githubClientId = useMemo(() => pickClientId(githubProvider), [githubProvider, pickClientId])
+  const isGoogleEnabled = Boolean(googleProvider && googleClientId)
+  const isGithubEnabled = Boolean(githubProvider && githubClientId)
   const googleButtonRef = useRef<HTMLDivElement | null>(null)
 
   const sanitizedRedirectSearch = useMemo<RedirectSearchParams | undefined>(
@@ -149,14 +164,15 @@ export function SignInPage({
       }
     }
 
-    if (GITHUB_REDIRECT_URI && GITHUB_REDIRECT_URI.trim().length > 0) {
-      return ensureProviderParam(GITHUB_REDIRECT_URI)
+    const configured = githubProvider?.redirect_uri?.trim()
+    if (configured && configured.length > 0) {
+      return ensureProviderParam(configured)
     }
     if (typeof window !== 'undefined') {
       return ensureProviderParam(`${window.location.origin}/auth/signin`)
     }
     return ''
-  }, [])
+  }, [githubProvider])
 
   const handleGoogleCredential = useCallback(
     async (credential: string) => {
@@ -290,7 +306,7 @@ export function SignInPage({
         return
       }
       const url = new URL('https://github.com/login/oauth/authorize')
-      url.searchParams.set('client_id', GITHUB_CLIENT_ID)
+      url.searchParams.set('client_id', githubClientId)
       url.searchParams.set('redirect_uri', redirectUri)
       url.searchParams.set('scope', 'read:user user:email')
       url.searchParams.set('state', state)
@@ -300,7 +316,7 @@ export function SignInPage({
       setError(err?.message || 'Unable to start GitHub sign in')
       setSocialLoading(false)
     }
-  }, [isGithubEnabled, redirect, rememberMe, resolveGithubRedirectUri, sanitizedRedirectSearch])
+  }, [githubClientId, isGithubEnabled, redirect, rememberMe, resolveGithubRedirectUri, sanitizedRedirectSearch])
 
   useEffect(() => {
     if (!isGoogleEnabled) return

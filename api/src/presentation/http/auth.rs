@@ -30,8 +30,8 @@ const OAUTH_STATE_TTL_SECS: i64 = 300;
 pub mod request_status {
     use std::cell::Cell;
 
-    use axum::{body::Body, middleware::Next, response::Response};
     use axum::http::Request;
+    use axum::{body::Body, middleware::Next, response::Response};
     use http::{StatusCode, header};
 
     tokio::task_local! {
@@ -103,6 +103,9 @@ pub struct RefreshResponse {
 pub struct AuthProviderInfoResponse {
     pub id: String,
     pub requires_state: bool,
+    pub client_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -285,11 +288,13 @@ pub async fn list_oauth_providers(
 ) -> Result<Json<AuthProvidersResponse>, StatusCode> {
     let providers = ctx
         .external_auth()
-        .list()
+        .list_descriptors()
         .into_iter()
-        .map(|kind| AuthProviderInfoResponse {
-            id: kind.as_str().to_string(),
-            requires_state: kind.requires_state(),
+        .map(|descriptor| AuthProviderInfoResponse {
+            id: descriptor.kind.as_str().to_string(),
+            requires_state: descriptor.requires_state,
+            client_ids: descriptor.client_ids,
+            redirect_uri: descriptor.redirect_uri,
         })
         .collect();
     Ok(Json(AuthProvidersResponse { providers }))

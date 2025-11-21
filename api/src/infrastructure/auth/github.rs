@@ -4,7 +4,8 @@ use serde::Deserialize;
 use tracing::warn;
 
 use crate::application::services::auth::external::{
-    ExternalAuthIdentity, ExternalAuthPayload, ExternalAuthProviderKind, ExternalAuthVerifier,
+    ExternalAuthIdentity, ExternalAuthPayload, ExternalAuthProviderDescriptor,
+    ExternalAuthProviderKind, ExternalAuthVerifier,
 };
 use crate::application::services::errors::ServiceError;
 
@@ -148,6 +149,16 @@ fn build_default_headers() -> HeaderMap {
 impl ExternalAuthVerifier for GithubOAuthProvider {
     fn provider(&self) -> ExternalAuthProviderKind {
         ExternalAuthProviderKind::Github
+    }
+
+    fn descriptor(&self) -> ExternalAuthProviderDescriptor {
+        let kind = self.provider();
+        ExternalAuthProviderDescriptor {
+            kind,
+            requires_state: kind.requires_state(),
+            client_ids: vec![self.client_id.clone()],
+            redirect_uri: self.default_redirect_uri.clone(),
+        }
     }
 
     async fn verify(

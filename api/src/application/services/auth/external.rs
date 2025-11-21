@@ -37,6 +37,14 @@ impl TryFrom<&str> for ExternalAuthProviderKind {
 }
 
 #[derive(Debug, Clone)]
+pub struct ExternalAuthProviderDescriptor {
+    pub kind: ExternalAuthProviderKind,
+    pub requires_state: bool,
+    pub client_ids: Vec<String>,
+    pub redirect_uri: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ExternalAuthPayload {
     pub credential: Option<String>,
     pub code: Option<String>,
@@ -66,6 +74,7 @@ pub struct ExternalAuthIdentity {
 #[async_trait]
 pub trait ExternalAuthVerifier: Send + Sync {
     fn provider(&self) -> ExternalAuthProviderKind;
+    fn descriptor(&self) -> ExternalAuthProviderDescriptor;
     async fn verify(
         &self,
         payload: &ExternalAuthPayload,
@@ -94,7 +103,10 @@ impl ExternalAuthRegistry {
         self.providers.is_empty()
     }
 
-    pub fn list(&self) -> Vec<ExternalAuthProviderKind> {
-        self.providers.keys().copied().collect()
+    pub fn list_descriptors(&self) -> Vec<ExternalAuthProviderDescriptor> {
+        self.providers
+            .values()
+            .map(|provider| provider.descriptor())
+            .collect()
     }
 }

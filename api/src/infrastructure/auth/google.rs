@@ -5,7 +5,8 @@ use serde::Deserialize;
 use tracing::warn;
 
 use crate::application::services::auth::external::{
-    ExternalAuthIdentity, ExternalAuthPayload, ExternalAuthProviderKind, ExternalAuthVerifier,
+    ExternalAuthIdentity, ExternalAuthPayload, ExternalAuthProviderDescriptor,
+    ExternalAuthProviderKind, ExternalAuthVerifier,
 };
 use crate::application::services::errors::ServiceError;
 
@@ -15,21 +16,30 @@ const TOKENINFO_URL: &str = "https://oauth2.googleapis.com/tokeninfo";
 pub struct GoogleIdentityProvider {
     client: reqwest::Client,
     audiences: HashSet<String>,
+    audience_list: Vec<String>,
 }
 
 impl GoogleIdentityProvider {
     pub fn new(client_ids: Vec<String>) -> anyhow::Result<Self> {
-        let filtered: HashSet<String> = client_ids
-            .into_iter()
-            .map(|id| id.trim().to_string())
-            .filter(|id| !id.is_empty())
-            .collect();
-        if filtered.is_empty() {
+        let mut audiences = HashSet::new();
+        let mut ordered: Vec<String> = Vec::new();
+        for id in client_ids {
+            let trimmed = id.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let value = trimmed.to_string();
+            if audiences.insert(value.clone()) {
+                ordered.push(value);
+            }
+        }
+        if audiences.is_empty() {
             anyhow::bail!("google client ids must not be empty");
         }
         Ok(Self {
             client: reqwest::Client::new(),
-            audiences: filtered,
+            audiences,
+            audience_list: ordered,
         })
     }
 }
@@ -56,6 +66,16 @@ fn parse_email_verified(value: Option<String>) -> bool {
 impl ExternalAuthVerifier for GoogleIdentityProvider {
     fn provider(&self) -> ExternalAuthProviderKind {
         ExternalAuthProviderKind::Google
+    }
+
+    fn descriptor(&self) -> ExternalAuthProviderDescriptor {
+        let kind = self.provider();
+        ExternalAuthProviderDescriptor {
+            kind,
+            requires_state: kind.requires_state(),
+            client_ids: self.audience_list.clone(),
+            redirect_uri: None,
+        }
     }
 
     async fn verify(

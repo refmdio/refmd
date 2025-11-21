@@ -104,9 +104,6 @@ services:
       SSR_API_BASE_URL: http://api:8888
       VITE_API_BASE_URL: http://localhost:8888
       VITE_PUBLIC_BASE_URL: http://localhost:3000
-      # VITE_GOOGLE_CLIENT_ID: your-google-client-id.apps.googleusercontent.com
-      # VITE_GITHUB_CLIENT_ID: your-github-client-id
-      # VITE_GITHUB_REDIRECT_URI: http://localhost:3000/auth/signin
     ports:
       - "3000:80"
     depends_on:
