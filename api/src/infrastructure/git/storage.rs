@@ -227,6 +227,20 @@ impl GitStorage for FilesystemGitStorage {
         self.write_meta(meta_path.as_path(), meta).await
     }
 
+    async fn fetch_pack_for_commit(
+        &self,
+        user_id: Uuid,
+        commit_id: &[u8],
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let commit_hex = encode_commit_id(commit_id);
+        let pack_path = self.pack_path(user_id, &commit_hex);
+        if !fs::try_exists(&pack_path).await.unwrap_or(false) {
+            return Ok(None);
+        }
+        let bytes = fs::read(&pack_path).await?;
+        Ok(Some(bytes))
+    }
+
     async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
         let root = self.blobs_root();
         let path = sanitize_blob_path(root.as_path(), &key.path)?;
@@ -613,6 +627,16 @@ impl GitStorage for S3GitStorage {
         let stored = StoredCommitMeta::from_meta(meta);
         let data = serde_json::to_vec_pretty(&stored)?;
         self.put_object(&meta_key, &data).await
+    }
+
+    async fn fetch_pack_for_commit(
+        &self,
+        user_id: Uuid,
+        commit_id: &[u8],
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let commit_hex = encode_commit_id(commit_id);
+        let pack_key = self.key_for_pack(user_id, &commit_hex);
+        self.get_object(&pack_key).await
     }
 
     async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
