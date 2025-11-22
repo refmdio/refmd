@@ -13,12 +13,12 @@ import { useAuthContext } from '@/features/auth'
 
 import {
   buildRedirectSearchString,
-  clearGithubOAuthState,
+  clearOauthState,
   parseRedirectSearch,
-  readGithubOAuthState,
+  readOauthState,
   type RedirectSearchParams,
-  writeGithubOAuthState,
-} from './github-oauth-state'
+  writeOauthState,
+} from './oauth-state'
 
 type AuthProviderInfo = AuthProvidersResponse['providers'][number]
 
@@ -74,16 +74,7 @@ export function SignInPage({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [socialLoading, setSocialLoading] = useState(false)
-  const providerList = providers ?? []
-  const googleProvider = useMemo(
-    () => providerList.find((provider) => provider.id === 'google'),
-    [providerList],
-  )
-  const githubProvider = useMemo(
-    () => providerList.find((provider) => provider.id === 'github'),
-    [providerList],
-  )
-
+  const [activeSocialProvider, setActiveSocialProvider] = useState<string | null>(null)
   const pickClientId = useCallback((provider?: AuthProviderInfo | null) => {
     if (!provider) return ''
     for (const value of provider.client_ids ?? []) {
@@ -96,11 +87,68 @@ export function SignInPage({
     }
     return ''
   }, [])
+  const providerList = providers ?? []
+  const providerMap = useMemo(() => new Map(providerList.map((provider) => [provider.id, provider])), [providerList])
+  const googleProvider = useMemo(
+    () => providerList.find((provider) => provider.id === 'google'),
+    [providerList],
+  )
+  const codeProviders = useMemo(
+    () =>
+      providerList.filter((provider) => {
+        if (!provider.requires_state) return false
+        const authUrl = provider.authorization_url?.trim()
+        if (!authUrl) return false
+        return Boolean(pickClientId(provider))
+      }),
+    [pickClientId, providerList],
+  )
+  const getProviderLabel = useCallback(
+    (providerId?: string | null) => {
+      if (!providerId) return 'provider'
+      const provider = providerMap.get(providerId)
+      return provider?.name?.trim() || provider?.id || providerId
+    },
+    [providerMap],
+  )
+  const clearAllOauthState = useCallback(() => {
+    clearOauthState('github')
+    providerList.forEach((provider) => {
+      if (provider.requires_state && provider.id !== 'github') {
+        clearOauthState(provider.id)
+      }
+    })
+  }, [providerList])
+  const resolveRedirectUri = useCallback((providerId: string, provider?: AuthProviderInfo | null) => {
+    const ensureProviderParam = (uri: string) => {
+      if (!uri) return uri
+      try {
+        const parsed = new URL(uri)
+        if (!parsed.searchParams.has('provider')) {
+          parsed.searchParams.set('provider', providerId)
+        }
+        return parsed.toString()
+      } catch {
+        if (uri.includes('provider=')) {
+          return uri
+        }
+        const separator = uri.includes('?') ? '&' : '?'
+        return `${uri}${separator}provider=${providerId}`
+      }
+    }
+
+    const configured = provider?.redirect_uri?.trim()
+    if (configured && configured.length > 0) {
+      return ensureProviderParam(configured)
+    }
+    if (typeof window !== 'undefined') {
+      return ensureProviderParam(`${window.location.origin}/auth/signin`)
+    }
+    return ''
+  }, [])
 
   const googleClientId = useMemo(() => pickClientId(googleProvider), [googleProvider, pickClientId])
-  const githubClientId = useMemo(() => pickClientId(githubProvider), [githubProvider, pickClientId])
   const isGoogleEnabled = Boolean(googleProvider && googleClientId)
-  const isGithubEnabled = Boolean(githubProvider && githubClientId)
   const googleButtonRef = useRef<HTMLDivElement | null>(null)
 
   const sanitizedRedirectSearch = useMemo<RedirectSearchParams | undefined>(
@@ -117,9 +165,9 @@ export function SignInPage({
       } else {
         navigate({ to: redirectTo })
       }
-      clearGithubOAuthState()
+      clearAllOauthState()
     },
-    [navigate, redirect, sanitizedRedirectSearch],
+    [clearAllOauthState, navigate, redirect, sanitizedRedirectSearch],
   )
 
   const clearOauthSearch = useCallback(
@@ -146,37 +194,10 @@ export function SignInPage({
     [navigate, redirect, redirectSearch],
   )
 
-  const resolveGithubRedirectUri = useCallback(() => {
-    const ensureProviderParam = (uri: string) => {
-      if (!uri) return uri
-      try {
-        const parsed = new URL(uri)
-        if (!parsed.searchParams.has('provider')) {
-          parsed.searchParams.set('provider', 'github')
-        }
-        return parsed.toString()
-      } catch {
-        if (uri.includes('provider=')) {
-          return uri
-        }
-        const separator = uri.includes('?') ? '&' : '?'
-        return `${uri}${separator}provider=github`
-      }
-    }
-
-    const configured = githubProvider?.redirect_uri?.trim()
-    if (configured && configured.length > 0) {
-      return ensureProviderParam(configured)
-    }
-    if (typeof window !== 'undefined') {
-      return ensureProviderParam(`${window.location.origin}/auth/signin`)
-    }
-    return ''
-  }, [githubProvider])
-
   const handleGoogleCredential = useCallback(
     async (credential: string) => {
       setSocialLoading(true)
+      setActiveSocialProvider('google')
       setError(null)
       try {
         await signInWithProvider('google', { credential, remember_me: rememberMe })
@@ -185,6 +206,7 @@ export function SignInPage({
         setError(err?.message || 'Failed to sign in with Google')
       } finally {
         setSocialLoading(false)
+        setActiveSocialProvider(null)
       }
     },
     [finishSignIn, rememberMe, signInWithProvider],
@@ -205,8 +227,19 @@ export function SignInPage({
   }
 
   useEffect(() => {
-    if (oauthProvider !== 'github') return
-    const storedState = readGithubOAuthState()
+    if (!oauthProvider) return
+    if (!providerMap.size) return
+    const provider = providerMap.get(oauthProvider)
+    if (!provider) {
+      if (providersLoading) return
+      setError('Requested OAuth provider is not available. Please try again or use another sign-in method.')
+      clearOauthSearch()
+      clearOauthState(oauthProvider)
+      return
+    }
+    if (!provider.requires_state) return
+    const providerLabel = provider.name?.trim() || provider.id
+    const storedState = readOauthState(oauthProvider)
     const storedOverride = storedState
       ? {
           redirect: storedState.redirect,
@@ -217,31 +250,32 @@ export function SignInPage({
       setRememberMe(storedState.rememberMe)
     }
     if (oauthError) {
-      setError(`GitHub authentication error: ${oauthError}`)
+      setError(`${providerLabel} authentication error: ${oauthError}`)
       clearOauthSearch(storedOverride)
-      clearGithubOAuthState()
+      clearOauthState(oauthProvider)
       return
     }
     if (!oauthCode) return
     if (!storedState || storedState.nonce !== oauthState) {
-      setError('GitHub authentication state mismatch')
+      setError(`${providerLabel} authentication state mismatch`)
       clearOauthSearch(storedOverride)
-      clearGithubOAuthState()
+      clearOauthState(oauthProvider)
       return
     }
-    const redirectUri = resolveGithubRedirectUri()
+    const redirectUri = resolveRedirectUri(oauthProvider, provider)
     if (!redirectUri) {
-      setError('GitHub redirect URL is not configured')
+      setError(`${providerLabel} redirect URL is not configured`)
       clearOauthSearch(storedOverride)
-      clearGithubOAuthState()
+      clearOauthState(oauthProvider)
       return
     }
     let cancelled = false
+    setActiveSocialProvider(oauthProvider)
     const exchange = async () => {
       setSocialLoading(true)
       setError(null)
       try {
-        await signInWithProvider('github', {
+        await signInWithProvider(oauthProvider, {
           code: oauthCode,
           redirect_uri: redirectUri,
           remember_me: storedState.rememberMe ?? rememberMe,
@@ -256,14 +290,15 @@ export function SignInPage({
         }
       } catch (err: any) {
         if (!cancelled) {
-          setError(err?.message || 'Failed to sign in with GitHub')
+          setError(err?.message || `Failed to sign in with ${providerLabel}`)
           clearOauthSearch(storedOverride)
         }
       } finally {
         if (!cancelled) {
           setSocialLoading(false)
+          setActiveSocialProvider(null)
         }
-        clearGithubOAuthState()
+        clearOauthState(oauthProvider)
       }
     }
     void exchange()
@@ -278,45 +313,75 @@ export function SignInPage({
     clearOauthSearch,
     finishSignIn,
     rememberMe,
-    resolveGithubRedirectUri,
+    resolveRedirectUri,
     signInWithProvider,
+    providerMap,
+    providersLoading,
   ])
 
-  const startGithubSignIn = useCallback(async () => {
-    if (!isGithubEnabled || typeof window === 'undefined') return
-    setError(null)
-    const redirectUri = resolveGithubRedirectUri()
-    if (!redirectUri) {
-      setError('GitHub redirect URL is not configured')
-      return
-    }
-    setSocialLoading(true)
-    try {
-      const stateResponse = await createOauthState('github')
-      const state = stateResponse.state
-      const stored = {
-        nonce: state,
-        redirect: redirect || undefined,
-        redirectSearch: sanitizedRedirectSearch,
-        rememberMe,
-      }
-      if (!writeGithubOAuthState(stored)) {
-        setError('Unable to start GitHub sign in. Please enable site data storage and try again.')
-        setSocialLoading(false)
+  const startOauthSignIn = useCallback(
+    async (providerId: string) => {
+      if (typeof window === 'undefined') return
+      const provider = providerMap.get(providerId)
+      if (!provider || !provider.requires_state) return
+      const clientId = pickClientId(provider)
+      const authorizationUrl = provider.authorization_url?.trim()
+      const label = provider.name?.trim() || provider.id
+      if (!clientId) {
+        setError(`${label} client ID is not configured`)
         return
       }
-      const url = new URL('https://github.com/login/oauth/authorize')
-      url.searchParams.set('client_id', githubClientId)
-      url.searchParams.set('redirect_uri', redirectUri)
-      url.searchParams.set('scope', 'read:user user:email')
-      url.searchParams.set('state', state)
-      url.searchParams.set('allow_signup', 'true')
-      window.location.href = url.toString()
-    } catch (err: any) {
-      setError(err?.message || 'Unable to start GitHub sign in')
-      setSocialLoading(false)
-    }
-  }, [githubClientId, isGithubEnabled, redirect, rememberMe, resolveGithubRedirectUri, sanitizedRedirectSearch])
+      if (!authorizationUrl) {
+        setError(`${label} authorization URL is not configured`)
+        return
+      }
+      const redirectUri = resolveRedirectUri(providerId, provider)
+      if (!redirectUri) {
+        setError(`${label} redirect URL is not configured`)
+        return
+      }
+      setError(null)
+      setSocialLoading(true)
+      setActiveSocialProvider(providerId)
+      try {
+        const stateResponse = await createOauthState(providerId)
+        const state = stateResponse.state
+        const stored = {
+          nonce: state,
+          redirect: redirect || undefined,
+          redirectSearch: sanitizedRedirectSearch,
+          rememberMe,
+        }
+        if (!writeOauthState(providerId, stored)) {
+          setError(
+            `Unable to start ${label} sign in. Please enable site data storage and try again.`,
+          )
+          setSocialLoading(false)
+          setActiveSocialProvider(null)
+          return
+        }
+        const url = new URL(authorizationUrl)
+        url.searchParams.set('client_id', clientId)
+        url.searchParams.set('redirect_uri', redirectUri)
+        url.searchParams.set('response_type', 'code')
+        const scopeParam =
+          provider.scopes && provider.scopes.length > 0
+            ? provider.scopes.join(' ')
+            : 'openid profile email'
+        url.searchParams.set('scope', scopeParam)
+        url.searchParams.set('state', state)
+        if (providerId === 'github') {
+          url.searchParams.set('allow_signup', 'true')
+        }
+        window.location.href = url.toString()
+      } catch (err: any) {
+        setError(err?.message || `Unable to start ${label} sign in`)
+        setSocialLoading(false)
+        setActiveSocialProvider(null)
+      }
+    },
+    [pickClientId, providerMap, redirect, rememberMe, resolveRedirectUri, sanitizedRedirectSearch],
+  )
 
   useEffect(() => {
     if (!isGoogleEnabled) return
@@ -375,7 +440,7 @@ export function SignInPage({
     }
   }, [googleClientId, handleGoogleCredential, isGoogleEnabled])
 
-  const showSocial = isGithubEnabled || isGoogleEnabled
+  const showSocial = isGoogleEnabled || codeProviders.length > 0
   const socialButtonWidth = 320
   const retryProviderFetch = useCallback(() => {
     if (!onRetryProviders) return
@@ -468,17 +533,18 @@ export function SignInPage({
               <span className="h-px flex-1 bg-muted" />
             </div>
             <div className="flex flex-col items-center gap-3">
-              {isGithubEnabled && (
+              {codeProviders.map((provider) => (
                 <button
+                  key={provider.id}
                   type="button"
-                  onClick={startGithubSignIn}
+                  onClick={() => startOauthSignIn(provider.id)}
                   style={{ width: socialButtonWidth }}
                   className="flex items-center justify-center gap-2 rounded-md border border-input bg-background py-2 text-sm font-medium text-foreground shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <GithubIcon className="h-4 w-4" />
-                  Continue with GitHub
+                  {provider.id === 'github' && <GithubIcon className="h-4 w-4" />}
+                  Continue with {provider.name ?? provider.id}
                 </button>
-              )}
+              ))}
               {isGoogleEnabled && (
                 <div
                   ref={googleButtonRef}
@@ -489,7 +555,7 @@ export function SignInPage({
             </div>
             {socialLoading && (
               <p className="text-center text-xs text-muted-foreground">
-                Signing in with {oauthProvider === 'github' ? 'GitHub' : 'Google'}…
+                Signing in with {getProviderLabel(activeSocialProvider ?? oauthProvider)}…
               </p>
             )}
             {providerErrorNotice}

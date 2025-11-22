@@ -1,13 +1,18 @@
 export type RedirectSearchParams = Record<string, string | string[]>
 
-export type GithubOAuthStatePayload = {
+export type OAuthStatePayload = {
   nonce: string
   redirect?: string
   redirectSearch?: RedirectSearchParams
   rememberMe?: boolean
 }
 
-export const GITHUB_STATE_STORAGE_KEY = 'refmd.github.oauth.state'
+const STORAGE_KEY_PREFIX = 'refmd.oauth.state.'
+const LEGACY_GITHUB_STATE_STORAGE_KEY = 'refmd.github.oauth.state'
+
+function storageKey(provider: string) {
+  return `${STORAGE_KEY_PREFIX}${provider}`
+}
 
 function normalizeRedirectSearchValue(value: unknown): RedirectSearchParams | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
@@ -65,10 +70,10 @@ export function buildRedirectSearchString(params?: RedirectSearchParams) {
   return serialized ? `?${serialized}` : undefined
 }
 
-export function readGithubOAuthState(): GithubOAuthStatePayload | null {
+function readStateFromStorage(key: string): OAuthStatePayload | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = window.sessionStorage.getItem(GITHUB_STATE_STORAGE_KEY)
+    const raw = window.sessionStorage.getItem(key)
     if (!raw) return null
     try {
       const parsed = JSON.parse(raw)
@@ -83,7 +88,6 @@ export function readGithubOAuthState(): GithubOAuthStatePayload | null {
         }
       }
     } catch {
-      // 以前は単なるプレーン文字列だったため後方互換として返す
       return { nonce: raw }
     }
     return { nonce: raw }
@@ -92,20 +96,36 @@ export function readGithubOAuthState(): GithubOAuthStatePayload | null {
   }
 }
 
-export function writeGithubOAuthState(payload: GithubOAuthStatePayload): boolean {
+export function readOauthState(provider: string): OAuthStatePayload | null {
+  const fromPrimary = readStateFromStorage(storageKey(provider))
+  if (fromPrimary) return fromPrimary
+  if (provider === 'github') {
+    return readStateFromStorage(LEGACY_GITHUB_STATE_STORAGE_KEY)
+  }
+  return null
+}
+
+export function writeOauthState(provider: string, payload: OAuthStatePayload): boolean {
   if (typeof window === 'undefined') return false
   try {
-    window.sessionStorage.setItem(GITHUB_STATE_STORAGE_KEY, JSON.stringify(payload))
+    const data = JSON.stringify(payload)
+    window.sessionStorage.setItem(storageKey(provider), data)
+    if (provider === 'github') {
+      window.sessionStorage.setItem(LEGACY_GITHUB_STATE_STORAGE_KEY, data)
+    }
     return true
   } catch {
     return false
   }
 }
 
-export function clearGithubOAuthState() {
+export function clearOauthState(provider: string) {
   if (typeof window === 'undefined') return
   try {
-    window.sessionStorage.removeItem(GITHUB_STATE_STORAGE_KEY)
+    window.sessionStorage.removeItem(storageKey(provider))
+    if (provider === 'github') {
+      window.sessionStorage.removeItem(LEGACY_GITHUB_STATE_STORAGE_KEY)
+    }
   } catch {
     /* noop */
   }

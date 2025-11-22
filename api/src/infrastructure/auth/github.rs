@@ -9,6 +9,7 @@ use crate::application::services::auth::external::{
 };
 use crate::application::services::errors::ServiceError;
 
+const AUTH_URL: &str = "https://github.com/login/oauth/authorize";
 const TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 const USER_URL: &str = "https://api.github.com/user";
 const USER_EMAILS_URL: &str = "https://api.github.com/user/emails";
@@ -158,6 +159,9 @@ impl ExternalAuthVerifier for GithubOAuthProvider {
             requires_state: kind.requires_state(),
             client_ids: vec![self.client_id.clone()],
             redirect_uri: self.default_redirect_uri.clone(),
+            display_name: Some("GitHub".to_string()),
+            authorization_url: Some(AUTH_URL.to_string()),
+            scopes: vec!["read:user".to_string(), "user:email".to_string()],
         }
     }
 

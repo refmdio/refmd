@@ -9,6 +9,7 @@ use crate::application::services::errors::ServiceError;
 pub enum ExternalAuthProviderKind {
     Google,
     Github,
+    Oidc,
 }
 
 impl ExternalAuthProviderKind {
@@ -16,11 +17,15 @@ impl ExternalAuthProviderKind {
         match self {
             ExternalAuthProviderKind::Google => "google",
             ExternalAuthProviderKind::Github => "github",
+            ExternalAuthProviderKind::Oidc => "oidc",
         }
     }
 
     pub fn requires_state(&self) -> bool {
-        matches!(self, ExternalAuthProviderKind::Github)
+        matches!(
+            self,
+            ExternalAuthProviderKind::Github | ExternalAuthProviderKind::Oidc
+        )
     }
 }
 
@@ -31,6 +36,7 @@ impl TryFrom<&str> for ExternalAuthProviderKind {
         match value.to_lowercase().as_str() {
             "google" => Ok(ExternalAuthProviderKind::Google),
             "github" => Ok(ExternalAuthProviderKind::Github),
+            "oidc" => Ok(ExternalAuthProviderKind::Oidc),
             _ => Err(()),
         }
     }
@@ -42,6 +48,9 @@ pub struct ExternalAuthProviderDescriptor {
     pub requires_state: bool,
     pub client_ids: Vec<String>,
     pub redirect_uri: Option<String>,
+    pub display_name: Option<String>,
+    pub authorization_url: Option<String>,
+    pub scopes: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

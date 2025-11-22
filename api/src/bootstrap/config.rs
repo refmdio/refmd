@@ -75,6 +75,7 @@ pub struct Config {
     pub git_rebuild_interval_secs: u64,
     pub google_oauth: Option<GoogleOAuthConfig>,
     pub github_oauth: Option<GithubOAuthConfig>,
+    pub oidc_oauth: Option<OidcOAuthConfig>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +88,17 @@ pub struct GithubOAuthConfig {
     pub client_id: String,
     pub client_secret: String,
     pub redirect_uri: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OidcOAuthConfig {
+    pub issuer_url: String,
+    pub discovery_url: Option<String>,
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: Option<String>,
+    pub scopes: Vec<String>,
+    pub display_name: Option<String>,
 }
 
 impl Config {
@@ -231,6 +243,35 @@ impl Config {
             }
             _ => None,
         };
+        let oidc_oauth = match (
+            env_var(&["OIDC_OAUTH_ISSUER", "OIDC_OAUTH_ISSUER_URL"]),
+            env_var(&["OIDC_OAUTH_CLIENT_ID"]),
+            env_var(&["OIDC_OAUTH_CLIENT_SECRET"]),
+        ) {
+            (Some(issuer_url), Some(client_id), Some(client_secret))
+                if !issuer_url.trim().is_empty()
+                    && !client_id.trim().is_empty()
+                    && !client_secret.trim().is_empty() =>
+            {
+                let scopes = env_var(&["OIDC_OAUTH_SCOPES"]).map(|raw| {
+                    raw.split(',')
+                        .flat_map(|part| part.split_whitespace())
+                        .map(|value| value.trim().to_string())
+                        .filter(|value| !value.is_empty())
+                        .collect::<Vec<_>>()
+                });
+                Some(OidcOAuthConfig {
+                    issuer_url,
+                    discovery_url: env_var(&["OIDC_OAUTH_DISCOVERY_URL"]),
+                    client_id,
+                    client_secret,
+                    redirect_uri: env_var(&["OIDC_OAUTH_REDIRECT_URI"]),
+                    scopes: scopes.unwrap_or_default(),
+                    display_name: env_var(&["OIDC_OAUTH_DISPLAY_NAME"]),
+                })
+            }
+            _ => None,
+        };
 
         // Production hardening: require proper FRONTEND_URL and robust secrets
         if is_production {
@@ -319,6 +360,7 @@ impl Config {
             git_rebuild_interval_secs,
             google_oauth,
             github_oauth,
+            oidc_oauth,
         })
     }
 }

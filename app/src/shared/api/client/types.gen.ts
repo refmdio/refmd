@@ -50,10 +50,13 @@ export type ApplicableShareItem = {
 };
 
 export type AuthProviderInfoResponse = {
+    authorization_url?: (string) | null;
     client_ids: Array<string>;
     id: string;
+    name?: (string) | null;
     redirect_uri?: (string) | null;
     requires_state: boolean;
+    scopes?: Array<string>;
 };
 
 export type AuthProvidersResponse = {

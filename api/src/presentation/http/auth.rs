@@ -106,6 +106,12 @@ pub struct AuthProviderInfoResponse {
     pub client_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redirect_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -295,6 +301,9 @@ pub async fn list_oauth_providers(
             requires_state: descriptor.requires_state,
             client_ids: descriptor.client_ids,
             redirect_uri: descriptor.redirect_uri,
+            name: descriptor.display_name,
+            authorization_url: descriptor.authorization_url,
+            scopes: descriptor.scopes,
         })
         .collect();
     Ok(Json(AuthProvidersResponse { providers }))

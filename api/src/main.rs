@@ -64,6 +64,7 @@ use api::application::services::workspaces::{WorkspacePermissionResolver, Worksp
 use api::bootstrap::config::{Config, StorageBackend};
 use api::infrastructure::auth::github::GithubOAuthProvider;
 use api::infrastructure::auth::google::GoogleIdentityProvider;
+use api::infrastructure::auth::oidc::OidcIdentityProvider;
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::doc_event_log::PgDocEventLog;
 use api::infrastructure::documents::event_poller::DocEventPoller;
@@ -953,6 +954,17 @@ async fn main() -> anyhow::Result<()> {
             }
             Err(err) => {
                 tracing::warn!(error = ?err, "github_oauth_provider_init_failed");
+            }
+        }
+    }
+    if let Some(oidc_cfg) = cfg.oidc_oauth.clone() {
+        match OidcIdentityProvider::discover(oidc_cfg).await {
+            Ok(provider) => {
+                tracing::info!("oidc_oauth_provider_enabled");
+                external_auth_providers.push(Arc::new(provider));
+            }
+            Err(err) => {
+                tracing::warn!(error = ?err, "oidc_oauth_provider_init_failed");
             }
         }
     }
