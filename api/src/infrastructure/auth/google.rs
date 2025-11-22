@@ -75,6 +75,9 @@ impl ExternalAuthVerifier for GoogleIdentityProvider {
             requires_state: kind.requires_state(),
             client_ids: self.audience_list.clone(),
             redirect_uri: None,
+            display_name: Some("Google".to_string()),
+            authorization_url: None,
+            scopes: Vec::new(),
         }
     }
 
