@@ -8,14 +8,17 @@ use crate::application::services::errors::ServiceError;
 use crate::presentation::context::AppContext;
 use axum::{
     Json, Router,
-    extract::{Path, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    body::Body,
+    extract::{Path, State, Extension},
+    http::{HeaderMap, HeaderValue, Request, StatusCode, header},
+    middleware::Next,
     response::IntoResponse,
     routing::{delete, get, post},
 };
 use chrono::{DateTime, Duration, Utc};
 use rand::{Rng, distributions::Alphanumeric, rngs::OsRng};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tracing::{error, warn};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -482,46 +485,20 @@ pub async fn login(
 ))]
 pub async fn refresh_session(
     State(ctx): State<AppContext>,
-    headers: HeaderMap,
+    refreshed: Option<Extension<RefreshedSession>>,
 ) -> Result<axum::response::Response, StatusCode> {
-    let mut response_headers = HeaderMap::new();
-    let refresh_token = match extract_refresh_token(&headers) {
-        Some(token) => token,
-        None => {
-            clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
-            return Ok((response_headers, StatusCode::UNAUTHORIZED).into_response());
-        }
-    };
-    let client_ip = extract_client_ip(&headers);
-    let user_agent = extract_user_agent(&headers);
-    let issued = match ctx
-        .session_service()
-        .refresh_session(
-            &refresh_token,
-            None,
-            SessionMetadata {
-                user_agent,
-                ip_address: client_ip.as_deref(),
-            },
-        )
-        .await
-    {
-        Ok(bundle) => bundle,
-        Err(ServiceError::Unauthorized) => {
-            clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
-            return Ok((response_headers, StatusCode::UNAUTHORIZED).into_response());
-        }
-        Err(err) => return Err(map_auth_error(err)),
-    };
+    if let Some(Extension(bundle)) = refreshed {
+        return Ok(
+            Json(RefreshResponse {
+                access_token: bundle.0.access.token.clone(),
+            })
+            .into_response(),
+        );
+    }
 
-    apply_session_cookies(&ctx, &mut response_headers, &issued);
-    Ok((
-        response_headers,
-        Json(RefreshResponse {
-            access_token: issued.access.token,
-        }),
-    )
-        .into_response())
+    let mut response_headers = HeaderMap::new();
+    clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
+    Ok((response_headers, StatusCode::UNAUTHORIZED).into_response())
 }
 
 #[utoipa::path(get, path = "/api/auth/me", tag = "Auth", responses((status = 200, body = UserResponse)))]
@@ -591,6 +568,38 @@ use axum::http::request::Parts;
 #[derive(Debug, Clone)]
 pub struct Bearer(pub String);
 
+#[derive(Debug, Clone)]
+pub struct AccessTokenOverride(pub String);
+
+#[derive(Clone)]
+pub struct RefreshedSession(pub Arc<IssuedSessionBundle>);
+
+fn unauthorized_token_expired(ctx: &AppContext) -> axum::response::Response {
+    let mut headers = HeaderMap::new();
+    clear_auth_cookies(&mut headers, ctx.cfg.session_cookie_secure);
+    let _ = headers.insert(
+        header::WWW_AUTHENTICATE,
+        HeaderValue::from_static("Bearer error=\"token_expired\""),
+    );
+    (headers, StatusCode::UNAUTHORIZED).into_response()
+}
+
+fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
+    if let Some(auth) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(t) = auth.strip_prefix("Bearer ") {
+            return Some(t.to_string());
+        }
+    }
+    extract_cookie_from_headers(headers, SESSION_COOKIE_NAME)
+}
+
+fn should_skip_refresh(path: &str) -> bool {
+    path.starts_with("/api/public") || path.starts_with("/api/health") || path == "/metrics"
+}
+
 #[axum::async_trait]
 impl<S> FromRequestParts<S> for Bearer
 where
@@ -599,6 +608,9 @@ where
     type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        if let Some(token) = parts.extensions.get::<AccessTokenOverride>() {
+            return Ok(Bearer(token.0.clone()));
+        }
         // 1) Prefer Authorization header if present
         if let Some(auth) = parts
             .headers
@@ -683,6 +695,73 @@ pub async fn resolve_actor_from_parts(
         return resolve_actor_from_token_str(ctx, token).await;
     }
     None
+}
+
+pub async fn refresh_middleware(
+    State(ctx): State<AppContext>,
+    mut req: Request<Body>,
+    next: Next,
+) -> axum::response::Response {
+    let path = req.uri().path().to_owned();
+    if should_skip_refresh(&path) {
+        return next.run(req).await;
+    }
+
+    let mut refreshed: Option<Arc<IssuedSessionBundle>> = None;
+    let force_refresh = path == "/api/auth/refresh";
+
+    if force_refresh || extract_bearer_token(req.headers()).is_some() {
+        let auth = ctx.auth_service();
+        let session_service = ctx.session_service();
+
+        let token_expired = if force_refresh {
+            true
+        } else if let Some(access_token) = extract_bearer_token(req.headers()) {
+            match auth.subject_from_token(&access_token).await {
+                Ok(Some(_)) => false,
+                Ok(None) => false,
+                Err(ServiceError::TokenExpired) => true,
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
+
+        if token_expired {
+            if let Some(refresh_token) = extract_refresh_token(req.headers()) {
+                let client_ip = extract_client_ip(req.headers());
+                let meta = SessionMetadata {
+                    user_agent: extract_user_agent(req.headers()),
+                    ip_address: client_ip.as_deref(),
+                };
+                match session_service
+                    .refresh_session(&refresh_token, None, meta)
+                    .await
+                {
+                    Ok(bundle) => {
+                        let shared = Arc::new(bundle);
+                        req.extensions_mut()
+                            .insert(AccessTokenOverride(shared.access.token.clone()));
+                        req.extensions_mut()
+                            .insert(RefreshedSession(shared.clone()));
+                        refreshed = Some(shared);
+                    }
+                    Err(ServiceError::Unauthorized) => {
+                        return unauthorized_token_expired(&ctx);
+                    }
+                    Err(err) => return map_auth_error(err).into_response(),
+                }
+            } else {
+                return unauthorized_token_expired(&ctx);
+            }
+        }
+    }
+
+    let mut response = next.run(req).await;
+    if let Some(bundle) = refreshed {
+        apply_session_cookies(&ctx, response.headers_mut(), bundle.as_ref());
+    }
+    response
 }
 
 pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Option<access::Actor> {

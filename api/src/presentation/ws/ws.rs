@@ -4,9 +4,9 @@ use std::sync::Arc;
 use crate::application::access::Capability;
 use crate::application::ports::realtime_port::RealtimeError;
 use crate::presentation::context::{AppContext, DynRealtimeSink, DynRealtimeStream};
-use crate::presentation::http::auth;
+use crate::presentation::http::auth::{self, AccessTokenOverride};
 use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -43,33 +43,36 @@ pub async fn axum_ws_entry(
     Query(query): Query<AuthQuery>,
     headers: HeaderMap,
     State(state): State<AppContext>,
+    override_token: Option<Extension<AccessTokenOverride>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let token = query
-        .token
-        .or(query.access_token)
-        .or_else(|| {
-            headers
-                .get(axum::http::header::AUTHORIZATION)
-                .and_then(|h| h.to_str().ok().map(|s| s.to_owned()))
-                .and_then(|s| s.strip_prefix("Bearer ").map(|s| s.to_string()))
-        })
-        .or_else(|| {
-            // Fallback to cookie `access_token`
-            headers
-                .get(axum::http::header::COOKIE)
-                .and_then(|h| h.to_str().ok())
-                .and_then(|cookie_hdr| {
-                    for part in cookie_hdr.split(';') {
-                        let kv = part.trim();
-                        if let Some((k, v)) = kv.split_once('=') {
-                            if k.trim() == "access_token" {
-                                return Some(v.trim().to_string());
+    let token = override_token.map(|Extension(t)| t.0).or_else(|| {
+        query
+            .token
+            .or(query.access_token)
+            .or_else(|| {
+                headers
+                    .get(axum::http::header::AUTHORIZATION)
+                    .and_then(|h| h.to_str().ok().map(|s| s.to_owned()))
+                    .and_then(|s| s.strip_prefix("Bearer ").map(|s| s.to_string()))
+            })
+            .or_else(|| {
+                // Fallback to cookie `access_token`
+                headers
+                    .get(axum::http::header::COOKIE)
+                    .and_then(|h| h.to_str().ok())
+                    .and_then(|cookie_hdr| {
+                        for part in cookie_hdr.split(';') {
+                            let kv = part.trim();
+                            if let Some((k, v)) = kv.split_once('=') {
+                                if k.trim() == "access_token" {
+                                    return Some(v.trim().to_string());
+                                }
                             }
                         }
-                    }
-                    None
-                })
-        });
+                        None
+                    })
+            })
+    });
 
     // Try to parse document ID
     let doc_uuid = Uuid::parse_str(&doc_id).map_err(|_| StatusCode::UNAUTHORIZED)?;

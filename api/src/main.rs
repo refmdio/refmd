@@ -1129,6 +1129,10 @@ async fn main() -> anyhow::Result<()> {
             api::presentation::http::public::routes(ctx.clone()),
         )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
+        .layer(middleware::from_fn_with_state(
+            ctx.clone(),
+            api::presentation::http::auth::refresh_middleware,
+        ))
         .layer(middleware::from_fn(
             api::presentation::http::auth::request_status::middleware,
         ))
@@ -1166,7 +1170,14 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(api_addr).await?;
     let ws_router = Router::new()
         .route("/api/yjs/:id", get(api::presentation::ws::axum_ws_entry))
-        .with_state(ctx.clone());
+        .with_state(ctx.clone())
+        .layer(middleware::from_fn_with_state(
+            ctx.clone(),
+            api::presentation::http::auth::refresh_middleware,
+        ))
+        .layer(middleware::from_fn(
+            api::presentation::http::auth::request_status::middleware,
+        ));
 
     let app = api_router.merge(ws_router);
 
