@@ -709,26 +709,31 @@ pub async fn refresh_middleware(
 
     let mut refreshed: Option<Arc<IssuedSessionBundle>> = None;
     let force_refresh = path == "/api/auth/refresh";
+    let access_token = extract_bearer_token(req.headers());
+    let refresh_token = extract_refresh_token(req.headers());
 
-    if force_refresh || extract_bearer_token(req.headers()).is_some() {
+    if force_refresh || access_token.is_some() || refresh_token.is_some() {
         let auth = ctx.auth_service();
         let session_service = ctx.session_service();
 
-        let token_expired = if force_refresh {
+        let token_expired_or_missing = if force_refresh {
             true
-        } else if let Some(access_token) = extract_bearer_token(req.headers()) {
+        } else if let Some(access_token) = access_token {
             match auth.subject_from_token(&access_token).await {
                 Ok(Some(_)) => false,
                 Ok(None) => false,
                 Err(ServiceError::TokenExpired) => true,
                 Err(_) => false,
             }
+        } else if refresh_token.is_some() {
+            // Access token already expired/absent but refresh token still exists.
+            true
         } else {
             false
         };
 
-        if token_expired {
-            if let Some(refresh_token) = extract_refresh_token(req.headers()) {
+        if token_expired_or_missing {
+            if let Some(refresh_token) = refresh_token {
                 let client_ip = extract_client_ip(req.headers());
                 let meta = SessionMetadata {
                     user_agent: extract_user_agent(req.headers()),
