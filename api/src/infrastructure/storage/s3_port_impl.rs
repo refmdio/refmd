@@ -278,7 +278,9 @@ impl S3StoragePort {
             }
         }
 
-        sqlx::query("UPDATE documents SET path = $2, updated_at = now() WHERE id = $1")
+        // Avoid touching updated_at for background projection moves; user edits already
+        // advance the timestamp when the path/metadata actually changes.
+        sqlx::query("UPDATE documents SET path = $2 WHERE id = $1")
             .bind(doc_id)
             .bind(&target_rel)
             .execute(&self.pool)

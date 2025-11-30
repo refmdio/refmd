@@ -320,7 +320,10 @@ pub async fn move_doc_paths(
     }
 
     // Update documents.path
-    let _ = sqlx::query("UPDATE documents SET path = $2, updated_at = now() WHERE id = $1")
+    // Path reconciliation shouldn't rewrite updated_at; user-visible edits already touch it
+    // when the path/metadata actually changes. This keeps background projection jobs from
+    // bumping the doc's last-updated timestamp.
+    let _ = sqlx::query("UPDATE documents SET path = $2 WHERE id = $1")
         .bind(doc_id)
         .bind(&target_rel)
         .execute(pool)
