@@ -751,9 +751,7 @@ pub async fn refresh_middleware(
                             .insert(RefreshedSession(shared.clone()));
                         refreshed = Some(shared);
                     }
-                    Err(ServiceError::Unauthorized) => {
-                        return unauthorized_token_expired(&ctx);
-                    }
+                    Err(ServiceError::Unauthorized) => return unauthorized_token_expired(&ctx),
                     Err(err) => return map_auth_error(err).into_response(),
                 }
             } else {
