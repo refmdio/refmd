@@ -17,19 +17,20 @@ type Options = {
 
 export function usePluginDocumentRedirect(docId: string, options: Options = {}) {
   const { enabled = true, navigate: externalNavigate } = options
-  const [redirecting, setRedirecting] = useState(false)
+  const [status, setStatus] = useState<'idle' | 'checking' | 'redirecting'>('idle')
 
   useEffect(() => {
     if (!enabled || !docId) {
-      setRedirecting(false)
+      setStatus('idle')
       return
     }
     if (typeof window === 'undefined') {
-      setRedirecting(false)
+      setStatus('idle')
       return
     }
 
     let cancelled = false
+    setStatus('checking')
 
     const run = async () => {
       try {
@@ -40,7 +41,7 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
         })()
         const manifest = await getPluginManifest(shareToken)
         if (!Array.isArray(manifest) || manifest.length === 0) {
-          if (!cancelled) setRedirecting(false)
+          if (!cancelled) setStatus('idle')
           return
         }
         const currentRoute = window.location.pathname + window.location.search + window.location.hash
@@ -59,7 +60,7 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
           .filter((value): value is { plugin: PluginManifestItem; loader: Promise<any> } => value !== null)
 
         if (candidates.length === 0) {
-          if (!cancelled) setRedirecting(false)
+          if (!cancelled) setStatus('idle')
           return
         }
 
@@ -113,7 +114,7 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
             const origin = (host as any)?.origin || ''
             const canOpen = await mod.canOpen(docId, { token: shareToken, origin, host })
             if (!canOpen || typeof mod.getRoute !== 'function') continue
-            if (!cancelled) setRedirecting(true)
+            if (!cancelled) setStatus('redirecting')
             const to = await mod.getRoute(docId, { token: shareToken, origin, host })
             if (typeof to === 'string' && to) {
               navigateTo(to)
@@ -123,10 +124,10 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
             console.error('[plugins] redirect resolution failed', candidate?.plugin?.id ?? 'unknown', error)
           }
         }
-        if (!cancelled) setRedirecting(false)
+        if (!cancelled) setStatus('idle')
       } catch (error) {
         console.error('[plugins] redirect orchestration failed', error)
-        if (!cancelled) setRedirecting(false)
+        if (!cancelled) setStatus('idle')
       }
     }
 
@@ -136,5 +137,8 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
     }
   }, [docId, enabled, externalNavigate])
 
-  return redirecting
+  return {
+    redirecting: status === 'redirecting',
+    resolving: status !== 'idle',
+  }
 }
