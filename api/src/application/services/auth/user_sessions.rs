@@ -20,6 +20,7 @@ pub struct SessionMetadata<'a> {
     pub ip_address: Option<&'a str>,
 }
 
+#[derive(Clone)]
 pub struct IssuedSessionBundle {
     pub access: IssuedSession,
     pub refresh_token: String,
@@ -166,25 +167,17 @@ impl UserSessionService {
             return Err(ServiceError::Unauthorized);
         }
 
-        let remember_me = secret.session.remember_me;
+        let mut session = secret.session;
+        if let Some(workspace_id) = workspace_override {
+            session.workspace_id = workspace_id;
+        }
+
+        let remember_me = session.remember_me;
         let ttl = self.ttl_for(remember_me);
         let expires_at = now + ttl;
         let (refresh_token, token_hash, token_digest) =
             Self::generate_refresh_token().map_err(ServiceError::Unexpected)?;
         let (user_agent, ip_address) = self.metadata(&meta);
-
-        let mut session = secret.session;
-        if let Some(workspace_id) = workspace_override {
-            session.workspace_id = workspace_id;
-            let updated = self
-                .repo
-                .update_workspace(session.id, workspace_id)
-                .await
-                .map_err(ServiceError::from)?;
-            if !updated {
-                return Err(ServiceError::Unauthorized);
-            }
-        }
 
         session.expires_at = expires_at;
         session.last_seen_at = now;
@@ -195,11 +188,13 @@ impl UserSessionService {
             .repo
             .update_token(
                 session.id,
+                &secret.token_digest,
                 &token_hash,
                 &token_digest,
                 expires_at,
                 user_agent.as_deref(),
                 ip_address.as_deref(),
+                workspace_override,
             )
             .await
             .map_err(ServiceError::from)?;
@@ -393,11 +388,13 @@ mod tests {
         async fn update_token(
             &self,
             session_id: Uuid,
+            expected_token_digest: &str,
             token_hash: &str,
             token_digest: &str,
             expires_at: DateTime<Utc>,
             user_agent: Option<&str>,
             ip_address: Option<&str>,
+            workspace_id: Option<Uuid>,
         ) -> anyhow::Result<bool> {
             let mut sessions = self.sessions.lock().await;
             let mut digests = self.digests.lock().await;
@@ -407,6 +404,9 @@ mod tests {
             if entry.record.revoked_at.is_some() {
                 return Ok(false);
             }
+            if entry.token_digest != expected_token_digest {
+                return Ok(false);
+            }
             digests.retain(|_, id| id != &session_id);
             entry.token_hash = token_hash.to_string();
             entry.token_digest = token_digest.to_string();
@@ -414,6 +414,9 @@ mod tests {
             entry.record.last_seen_at = Utc::now();
             entry.record.user_agent = user_agent.map(|s| s.to_string());
             entry.record.ip_address = ip_address.map(|s| s.to_string());
+            if let Some(ws) = workspace_id {
+                entry.record.workspace_id = ws;
+            }
             digests.insert(token_digest.to_string(), session_id);
             Ok(true)
         }
@@ -590,6 +593,69 @@ mod tests {
         assert_eq!(refreshed.session.workspace_id, workspace_b);
         assert_ne!(refreshed.refresh_token, issued.refresh_token);
         assert_eq!(refreshed.session.user_agent.as_deref(), Some("Mozilla/5.0"));
+    }
+
+    #[tokio::test]
+    async fn concurrent_refresh_allows_only_one_success() {
+        let service = build_service();
+        let user_id = Uuid::new_v4();
+        let workspace = Uuid::new_v4();
+        let issued = service
+            .issue_new_session(
+                user_id,
+                workspace,
+                true,
+                SessionMetadata {
+                    user_agent: Some("ua0"),
+                    ip_address: Some("10.0.0.1"),
+                },
+            )
+            .await
+            .expect("issue session");
+
+        let fut1 = service.refresh_session(
+            &issued.refresh_token,
+            None,
+            SessionMetadata {
+                user_agent: Some("ua1"),
+                ip_address: Some("10.0.0.2"),
+            },
+        );
+        let fut2 = service.refresh_session(
+            &issued.refresh_token,
+            None,
+            SessionMetadata {
+                user_agent: Some("ua2"),
+                ip_address: Some("10.0.0.3"),
+            },
+        );
+
+        let (res1, res2) = tokio::join!(fut1, fut2);
+        let (refreshed, err) = match (res1, res2) {
+            (Ok(bundle), Err(err)) => (bundle, err),
+            (Err(err), Ok(bundle)) => (bundle, err),
+            (Ok(_), Ok(_)) => panic!("both refreshes succeeded unexpectedly"),
+            (Err(e1), Err(e2)) => {
+                panic!("both refreshes failed unexpectedly: {e1:?} / {e2:?}")
+            }
+        };
+
+        assert!(matches!(err, ServiceError::Unauthorized));
+        assert_ne!(refreshed.refresh_token, issued.refresh_token);
+
+        // New refresh token should continue to work normally.
+        let refreshed3 = service
+            .refresh_session(
+                &refreshed.refresh_token,
+                None,
+                SessionMetadata {
+                    user_agent: Some("ua3"),
+                    ip_address: Some("10.0.0.4"),
+                },
+            )
+            .await
+            .expect("refresh3");
+        assert_ne!(refreshed3.refresh_token, refreshed.refresh_token);
     }
 
     #[tokio::test]

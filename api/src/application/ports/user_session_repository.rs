@@ -43,11 +43,13 @@ pub trait UserSessionRepository: Send + Sync {
     async fn update_token(
         &self,
         session_id: Uuid,
+        expected_token_digest: &str,
         token_hash: &str,
         token_digest: &str,
         expires_at: DateTime<Utc>,
         user_agent: Option<&str>,
         ip_address: Option<&str>,
+        workspace_id: Option<Uuid>,
     ) -> anyhow::Result<bool>;
 
     async fn update_workspace(&self, session_id: Uuid, workspace_id: Uuid) -> anyhow::Result<bool>;

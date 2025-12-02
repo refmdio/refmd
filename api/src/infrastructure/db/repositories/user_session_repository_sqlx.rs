@@ -91,11 +91,13 @@ impl UserSessionRepository for SqlxUserSessionRepository {
     async fn update_token(
         &self,
         session_id: Uuid,
+        expected_token_digest: &str,
         token_hash: &str,
         token_digest: &str,
         expires_at: DateTime<Utc>,
         user_agent: Option<&str>,
         ip_address: Option<&str>,
+        workspace_id: Option<Uuid>,
     ) -> anyhow::Result<bool> {
         let row = sqlx::query(
             r#"UPDATE user_sessions
@@ -104,8 +106,11 @@ impl UserSessionRepository for SqlxUserSessionRepository {
                    expires_at = $4,
                    last_seen_at = now(),
                    user_agent = $5,
-                   ip_address = $6
-               WHERE id = $1 AND revoked_at IS NULL
+                   ip_address = $6,
+                   workspace_id = COALESCE($8, workspace_id)
+               WHERE id = $1
+                 AND revoked_at IS NULL
+                 AND token_digest = $7
                RETURNING id"#,
         )
         .bind(session_id)
@@ -114,6 +119,8 @@ impl UserSessionRepository for SqlxUserSessionRepository {
         .bind(expires_at)
         .bind(user_agent)
         .bind(ip_address)
+        .bind(expected_token_digest)
+        .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
 
