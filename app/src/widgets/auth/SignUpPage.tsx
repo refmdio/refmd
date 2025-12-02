@@ -68,8 +68,6 @@ export function SignUpPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              pattern=".*\\S.*"
-              title="Workspace name must include at least one visible character"
             />
           </div>
           <div className="space-y-2">
