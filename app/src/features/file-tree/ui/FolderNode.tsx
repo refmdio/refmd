@@ -24,6 +24,8 @@ import { useFileTree, type DocumentNode } from '@/features/file-tree'
 type FolderNodeProps = {
   node: DocumentNode
   depth: number
+  indentPx?: number
+  suppressChildren?: boolean
   isExpanded: boolean
   isSelected: boolean
   isDragging: boolean
@@ -46,6 +48,8 @@ type FolderNodeProps = {
 export const FolderNode = memo(function FolderNode({
   node,
   depth,
+  indentPx,
+  suppressChildren = false,
   isExpanded,
   isSelected,
   isDragging,
@@ -205,6 +209,7 @@ export const FolderNode = memo(function FolderNode({
         isSelected && 'border-primary/40 bg-primary/10 shadow-sm',
         isArchived && 'border-dashed border-border/40 opacity-80'
       )}
+      style={indentPx ? { marginLeft: indentPx } : undefined}
     >
       <div
         draggable={!isEditing && !isArchived}
@@ -371,7 +376,7 @@ export const FolderNode = memo(function FolderNode({
         )}
       </div>
 
-      {isExpanded && (
+      {isExpanded && !suppressChildren && (
         <SidebarMenuSub
           className={cn('gap-0.5 relative min-h-[40px]')}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); onDragOver(e, node.id, 'folder') }}

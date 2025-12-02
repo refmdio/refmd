@@ -131,6 +131,7 @@ impl DocEventPoller {
         'outer: loop {
             match self.fetch_after(cursor).await {
                 Ok(events) if !events.is_empty() => {
+                    let mut batch_cursor = cursor;
                     for evt in events {
                         if let Err(err) = self.subscriber.handle_event(&evt).await {
                             warn!(
@@ -141,17 +142,20 @@ impl DocEventPoller {
                             tokio::time::sleep(self.poll_interval).await;
                             continue 'outer;
                         }
-                        let new_cursor = evt.id;
-                        if let Err(err) = self.persist_cursor(new_cursor).await {
+                        batch_cursor = evt.id;
+                    }
+
+                    if batch_cursor > cursor {
+                        if let Err(err) = self.persist_cursor(batch_cursor).await {
                             error!(
                                 error = ?err,
-                                event_id = evt.id,
+                                cursor = batch_cursor,
                                 "doc_event_cursor_persist_failed"
                             );
                             tokio::time::sleep(self.poll_interval).await;
                             continue 'outer;
                         }
-                        cursor = new_cursor;
+                        cursor = batch_cursor;
                     }
                 }
                 Ok(_) => {

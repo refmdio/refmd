@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::application::access;
 use crate::application::services::errors::ServiceError;
 use crate::application::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
@@ -164,6 +166,8 @@ pub async fn render_markdown_many(
     }
 
     let bearer_token = bearer.as_ref().map(|b| b.0.clone());
+    let bearer_scope = resolve_user_scope_from_inputs(&ctx, bearer_token.as_deref(), None).await;
+    let mut share_scope_cache: HashMap<String, Option<Uuid>> = HashMap::new();
     let mut tasks = Vec::with_capacity(items.len());
 
     for item in items {
@@ -172,9 +176,19 @@ pub async fn render_markdown_many(
         }
         let RenderRequest { text, options } = item;
         let options: RenderOptions = options.into();
-        let user_scope =
-            resolve_user_scope_from_inputs(&ctx, bearer_token.as_deref(), options.token.as_deref())
-                .await;
+        let user_scope = if bearer_scope.is_some() {
+            bearer_scope
+        } else if let Some(token) = options.token.as_deref() {
+            if let Some(scope) = share_scope_cache.get(token) {
+                *scope
+            } else {
+                let scope = resolve_user_scope_from_inputs(&ctx, None, Some(token)).await;
+                share_scope_cache.insert(token.to_string(), scope);
+                scope
+            }
+        } else {
+            None
+        };
         tasks.push(MarkdownRenderTask {
             text,
             options,

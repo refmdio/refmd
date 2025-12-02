@@ -49,6 +49,7 @@ type FileNodeProps = {
   node: DocumentNode
   parentId?: string
   depth: number
+  indentPx?: number
   isSelected: boolean
   isDragging: boolean
   isDropTarget: boolean
@@ -69,6 +70,7 @@ export const FileNode = memo(function FileNode({
   node,
   parentId,
   depth,
+  indentPx,
   isSelected,
   isDragging,
   isDropTarget,
@@ -324,6 +326,7 @@ export const FileNode = memo(function FileNode({
         isDropTarget && 'border-primary/40 bg-primary/10',
         isArchived && 'border-dashed border-border/40 opacity-80'
       )}
+      style={indentPx ? { marginLeft: indentPx } : undefined}
     >
       <div
         ref={rowRef}

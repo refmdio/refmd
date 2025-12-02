@@ -1,4 +1,5 @@
 import { Link, useRouter, useRouterState } from '@tanstack/react-router'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Archive, Blocks, Eye, FileText, Github, LogOut, Settings, Users, ChevronDown, ChevronRight, Check, Loader2, Building2 } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -47,13 +48,6 @@ type VisibleTreeNode = {
   node: DocumentNode
   parentId: string | null
   depth: number
-}
-
-function escapeSelector(value: string) {
-  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
-    return CSS.escape(value)
-  }
-  return value.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1')
 }
 
 function SidebarUserMenu() {
@@ -451,14 +445,21 @@ function FileTreeInner() {
   const nodeParentMap = treeNavigation.parentMap
   const nodeIndexMap = treeNavigation.indexMap
 
+  const estimateRowHeight = useCallback(() => 48, [])
+  const rowVirtualizer = useVirtualizer({
+    count: visibleNodes.length,
+    getScrollElement: () => treeScrollRef.current,
+    estimateSize: estimateRowHeight,
+    overscan: 12,
+  })
+
   const scrollNodeIntoView = useCallback((nodeId: string | null) => {
-    if (!nodeId || !treeScrollRef.current) return
-    const selector = `[data-document-node="${escapeSelector(nodeId)}"]`
-    const target = treeScrollRef.current.querySelector<HTMLElement>(selector)
-    if (target) {
-      target.scrollIntoView({ block: 'nearest' })
+    if (!nodeId) return
+    const idx = nodeIndexMap.get(nodeId)
+    if (typeof idx === 'number') {
+      rowVirtualizer.scrollToIndex(idx, { align: 'center' })
     }
-  }, [treeScrollRef])
+  }, [nodeIndexMap, rowVirtualizer])
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -665,14 +666,77 @@ function FileTreeInner() {
     }
   }, [expandFolder, expandParentFolders, expandedFolders, navigateToDocument, nodeIndexMap, nodeParentMap, scrollNodeIntoView, selectedDocId, setSelectedDocId, toggleFolder, visibleNodes])
 
-  const renderNode = useCallback((node: DocumentNode, parentId?: string, depth = 1): React.ReactNode => {
+  const renderVirtualRow = useCallback((entry: VisibleTreeNode) => {
+    const { node, parentId, depth } = entry
+    const parent = parentId ?? undefined
+    const isExpanded = expandedFolders.has(node.id)
+    const isSelected = selectedDocId === node.id
+    const isDragging = drag.dragState.draggedItem === node.id
+    const isDropTarget = drag.dragState.dropTarget === node.id
+    const indentPx = Math.max(0, (depth - 1) * 14)
+
+    if (node.type === 'folder') {
+      return (
+        <FolderNode
+          key={node.id}
+          node={node}
+          depth={depth}
+          indentPx={indentPx}
+          suppressChildren
+          isExpanded={isExpanded}
+          isSelected={isSelected}
+          isDragging={isDragging}
+          isDropTarget={isDropTarget}
+          hasChildDropTarget={false}
+          onToggle={toggleFolder}
+          onRename={renameDocument}
+          onDelete={deleteDocument}
+          onCreateNew={(pid, isFolder) => (isFolder ? createFolder(pid) : createDocument(pid))}
+          onDragStart={drag.handleDragStart}
+          onDragEnd={drag.handleDragEnd}
+          onDragEnter={drag.handleDragEnter}
+          onDragLeave={drag.handleDragLeave}
+          onDragOver={drag.handleDragOver}
+          onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
+          renderChildren={undefined}
+          onShareFolder={(folder) => setShareFolderId(folder.id)}
+        />
+      )
+    }
+
+    return (
+      <FileNode
+        key={node.id}
+        node={node}
+        parentId={parent}
+        depth={depth}
+        indentPx={indentPx}
+        isSelected={isSelected}
+        isDragging={isDragging}
+        isDropTarget={isDropTarget}
+        onSelect={onSelect}
+        onRename={renameDocument}
+        onDelete={deleteDocument}
+        onDragStart={drag.handleDragStart}
+        onDragEnd={drag.handleDragEnd}
+        onDragEnter={drag.handleDragEnter}
+        onDragLeave={drag.handleDragLeave}
+        onDragOver={drag.handleDragOver}
+        onDrop={async (e, id, type) => { await handleDrop(e, id, type, parent) }}
+        pluginRules={fileTreeRules}
+        onOpenSecondaryViewer={openSecondaryViewer}
+      />
+    )
+  }, [createDocument, createFolder, deleteDocument, drag, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+
+  const renderNestedNode = useCallback((node: DocumentNode, parentId?: string, depth = 1): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.id)
     const isSelected = selectedDocId === node.id
     const isDragging = drag.dragState.draggedItem === node.id
     const isDropTarget = drag.dragState.dropTarget === node.id
     const childHasDropTarget = false
     if (node.type === 'folder') {
-    return (
+      return (
         <FolderNode
           key={node.id}
           node={node}
@@ -692,7 +756,7 @@ function FileTreeInner() {
           onDragLeave={drag.handleDragLeave}
           onDragOver={drag.handleDragOver}
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
-          renderChildren={() => node.children?.map((c) => renderNode(c, node.id, depth + 1))}
+          renderChildren={() => node.children?.map((c) => renderNestedNode(c, node.id, depth + 1))}
           onShareFolder={(folder) => setShareFolderId(folder.id)}
         />
       )
@@ -774,8 +838,8 @@ function FileTreeInner() {
               onFocus={handleTreeFocus}
               onBlur={handleTreeBlur}
             >
-              <div ref={treeScrollRef} className="h-full">
-                <SidebarGroupContent className="h-full overflow-y-auto pr-0.5">
+              <div ref={treeScrollRef} className="h-full overflow-y-auto">
+                <SidebarGroupContent className="h-full pr-0.5">
                   {loading ? (
                     <SidebarMenu className="gap-1.5">
                       {Array.from({ length: 8 }).map((_, i) => (
@@ -790,7 +854,26 @@ function FileTreeInner() {
                     </div>
                   ) : (
                     <SidebarMenu className="gap-1.5">
-                      {documents.map((n) => renderNode(n))}
+                      <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
+                        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                          const entry = visibleNodes[virtualRow.index]
+                          return (
+                            <div
+                              key={entry.node.id}
+                              data-virtual-index={virtualRow.index}
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                transform: `translateY(${virtualRow.start}px)`,
+                              }}
+                            >
+                              {renderVirtualRow(entry)}
+                            </div>
+                          )
+                        })}
+                      </div>
                     </SidebarMenu>
                   )}
                 </SidebarGroupContent>
@@ -826,13 +909,13 @@ function FileTreeInner() {
                   </span>
                 </span>
               </Button>
-              {archivesExpanded && hasArchivedDocuments && (
-                <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
-                  {archivedDocuments.map((n) => (
-                    <div key={n.id}>{renderNode(n)}</div>
-                  ))}
-                </div>
-              )}
+                  {archivesExpanded && hasArchivedDocuments && (
+                    <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
+                      {archivedDocuments.map((n) => (
+                        <div key={n.id}>{renderNestedNode(n)}</div>
+                      ))}
+                    </div>
+                  )}
             </div>
           </SidebarFooter>
         )}
