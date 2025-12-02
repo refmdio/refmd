@@ -12,8 +12,9 @@ RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --locked --rele
 # Actual sources
 COPY . ./
 ENV SQLX_OFFLINE=true
-RUN cargo build --locked --release --bin api \
-    && strip target/release/api
+RUN cargo build --locked --release --bin api --bin refmd \
+    && strip target/release/api \
+    && strip target/release/refmd
 
 # -- Runtime stage -----------------------------------------------------
 FROM debian:bullseye-slim AS runtime
@@ -32,6 +33,8 @@ ENV RUST_LOG=api=info,axum=info,tower_http=info \
     UPLOADS_DIR=/data/uploads
 WORKDIR /app
 COPY --from=build /build/target/release/api /app/api
+COPY --from=build /build/target/release/refmd /app/refmd
+ENV PATH="/app:${PATH}"
 
 RUN useradd -m -u 10001 appuser \
     && mkdir -p /data/uploads \
