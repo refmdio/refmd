@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { FileText, Link2 } from 'lucide-react'
+import { BookmarkPlus, FileText } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -57,10 +57,10 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
             <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-4">{title}</h1>
             <p className="text-xl text-gray-600 dark:text-gray-300">Select a document from the list or from the sidebar.</p>
             <div className="mt-4 flex justify-center">
-              <Button variant="outline" size="sm" onClick={handleSave} disabled={saving}>
-                <Link2 className="mr-2 h-4 w-4" />
-                Save to workspace
-              </Button>
+          <Button variant="outline" size="sm" onClick={handleSave} disabled={saving}>
+            <BookmarkPlus className="mr-2 h-4 w-4" />
+            Save to workspace
+          </Button>
             </div>
           </div>
 
@@ -108,7 +108,7 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
         <h1 className="text-2xl font-bold mb-4">{title}</h1>
         <p className="text-gray-600 dark:text-gray-300 mb-6">Select a document to view:</p>
         <Button variant="outline" size="sm" className="mb-4" onClick={handleSave} disabled={saving}>
-          <Link2 className="mr-2 h-4 w-4" />
+          <BookmarkPlus className="mr-2 h-4 w-4" />
           Save to workspace
         </Button>
         <div className="border rounded-lg bg-card">

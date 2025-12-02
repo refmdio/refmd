@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { Download, History, Link2 } from 'lucide-react'
+import { BookmarkPlus, Download, History } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
@@ -211,7 +211,7 @@ function DocumentClient({
       label: 'Save to workspace',
       onSelect: handleSaveShare,
       disabled: !shareToken || !user || savingShare,
-      icon: <Link2 className="h-4 w-4" />,
+      icon: <BookmarkPlus className="h-4 w-4" />,
       tooltip: 'Add this shared document to your workspace file tree',
     }
 

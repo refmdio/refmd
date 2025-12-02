@@ -88,17 +88,22 @@ impl SharesRepository for SqlxSharesRepository {
                 ),
                 targets AS (
                   SELECT id FROM subtree WHERE type <> 'folder'
-                ),
-                inserted AS (
-                  INSERT INTO shares (document_id, token, permission, created_by, expires_at, parent_share_id)
-                  SELECT t.id, gen_random_uuid()::text, $2, $3, $4, $5
-                  FROM targets t
-                  WHERE NOT EXISTS (SELECT 1 FROM shares s2 WHERE s2.document_id = t.id AND s2.created_by = $3)
-                  RETURNING 1
-                )
-                SELECT COALESCE(COUNT(*),0) FROM inserted
-                "#
+            ),
+            inserted AS (
+              INSERT INTO shares (document_id, token, permission, created_by, expires_at, parent_share_id)
+              SELECT t.id, gen_random_uuid()::text, $2, $3, $4, $5
+              FROM targets t
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM shares s2
+                WHERE s2.document_id = t.id
+                  AND s2.parent_share_id = $5
+              )
+              RETURNING 1
             )
+            SELECT COALESCE(COUNT(*),0) FROM inserted
+            "#
+        )
             .bind(document_id)
             .bind(permission)
             .bind(actor_id)
@@ -464,6 +469,12 @@ impl SharesRepository for SqlxSharesRepository {
         let permission: String = row.get("permission");
         let expires_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("expires_at").ok();
 
+        if let Some(exp) = expires_at {
+            if exp < chrono::Utc::now() {
+                anyhow::bail!("not_found");
+            }
+        }
+
         let created = sqlx::query_scalar::<_, i64>(
             r#"
             WITH RECURSIVE subtree AS (
@@ -478,7 +489,12 @@ impl SharesRepository for SqlxSharesRepository {
               INSERT INTO shares (document_id, token, permission, created_by, expires_at, parent_share_id)
               SELECT t.id, gen_random_uuid()::text, $3, $4, $5, $2
               FROM targets t
-              WHERE NOT EXISTS (SELECT 1 FROM shares s2 WHERE s2.document_id = t.id AND s2.created_by = $4)
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM shares s2
+                WHERE s2.document_id = t.id
+                  AND s2.parent_share_id = $2
+              )
               RETURNING 1
             )
             SELECT COALESCE(COUNT(*),0) FROM inserted
@@ -513,7 +529,6 @@ impl SharesRepository for SqlxSharesRepository {
                 DELETE FROM shares s
                 USING subtree sb
                 WHERE s.document_id = sb.id
-                  AND s.created_by = $2
                 RETURNING 1
             )
             SELECT COALESCE(COUNT(*), 0) FROM removed
