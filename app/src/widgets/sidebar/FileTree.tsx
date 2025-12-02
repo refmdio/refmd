@@ -260,6 +260,7 @@ function FileTreeInner() {
     setArchivesExpanded,
     expandedFolders,
     loading,
+    isShare,
     shareToken,
     toggleFolder,
     expandFolder,
@@ -269,7 +270,6 @@ function FileTreeInner() {
     requestRename,
   } = useFileTree()
   const { activeWorkspace } = useAuthContext()
-  const isShare = shareToken.length > 0
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [docPickerOpen, setDocPickerOpen] = useState(false)
   const [tempDialogOpen, setTempDialogOpen] = useState(false)
@@ -364,6 +364,7 @@ function FileTreeInner() {
     moveDocument,
   } = useFileTreeInteractions({
     shareToken,
+    isShare,
     documents,
     getSelectedDocumentId: () => selectedDocId,
     setSelectedDocumentId: setSelectedDocId,
@@ -414,9 +415,29 @@ function FileTreeInner() {
     },
     [drag],
   )
-  const onSelect = useCallback(async (id: string, _type: DocumentNode['type']) => {
-    await navigateToDocument(id)
-  }, [navigateToDocument])
+
+  const openNode = useCallback(async (node: DocumentNode) => {
+    setSelectedDocId(node.id)
+    const targetId = node.sourceId ?? node.id
+    if (node.isShareMount && node.shareToken) {
+      await router.navigate({
+        to: '/document/$id',
+        params: { id: targetId },
+        search: (prev: Record<string, unknown>) => {
+          const next = { ...prev }
+          next.token = node.shareToken
+          next.shareMount = '1'
+          return next
+        },
+      })
+      return
+    }
+    await navigateToDocument(targetId)
+  }, [navigateToDocument, router])
+
+  const onSelect = useCallback(async (node: DocumentNode) => {
+    await openNode(node)
+  }, [openNode])
 
   // Sync selection from current URL (when user navigates elsewhere)
   useEffect(() => {
@@ -657,14 +678,14 @@ function FileTreeInner() {
         if (currentNode.type === 'folder') {
           toggleFolder(currentNode.id)
         } else {
-          void navigateToDocument(currentNode.id)
+          void openNode(currentNode)
         }
         break
       }
       default:
         break
     }
-  }, [expandFolder, expandParentFolders, expandedFolders, navigateToDocument, nodeIndexMap, nodeParentMap, scrollNodeIntoView, selectedDocId, setSelectedDocId, toggleFolder, visibleNodes])
+  }, [expandFolder, expandParentFolders, expandedFolders, nodeIndexMap, nodeParentMap, openNode, scrollNodeIntoView, selectedDocId, setSelectedDocId, toggleFolder, visibleNodes])
 
   const renderVirtualRow = useCallback((entry: VisibleTreeNode) => {
     const { node, parentId, depth } = entry

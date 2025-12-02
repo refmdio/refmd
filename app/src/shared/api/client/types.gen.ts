@@ -100,6 +100,11 @@ export type CreateRecordBody = {
     data: unknown;
 };
 
+export type CreateShareMountRequest = {
+    parent_folder_id?: (string) | null;
+    token: string;
+};
+
 export type CreateShareRequest = {
     document_id: string;
     expires_at?: (string) | null;
@@ -464,6 +469,17 @@ export type ShareItem = {
     scope: string;
     token: string;
     url: string;
+};
+
+export type ShareMountItem = {
+    created_at: string;
+    id: string;
+    parent_folder_id?: (string) | null;
+    permission: string;
+    target_document_id: string;
+    target_document_type: string;
+    target_title: string;
+    token: string;
 };
 
 export type SnapshotDiffBaseParam = 'auto' | 'current' | 'previous';
@@ -1350,6 +1366,23 @@ export type MaterializeFolderShareData = {
 };
 
 export type MaterializeFolderShareResponse = (MaterializeResponse);
+
+export type ListShareMountsResponse = (Array<ShareMountItem>);
+
+export type CreateShareMountData = {
+    requestBody: CreateShareMountRequest;
+};
+
+export type CreateShareMountResponse = (ShareMountItem);
+
+export type DeleteShareMountData = {
+    /**
+     * Share mount ID
+     */
+    id: string;
+};
+
+export type DeleteShareMountResponse = (void);
 
 export type ValidateShareTokenData = {
     /**

@@ -7,6 +7,7 @@ import {
   updateDocumentParent,
   updateDocumentTitle,
 } from '@/entities/document'
+import { deleteShareMount } from '@/entities/share'
 import { usePluginExecutor, usePluginManifest, type PluginCommand } from '@/entities/plugin'
 
 import type { DocumentNode } from '@/features/file-tree/model/types'
@@ -22,6 +23,7 @@ type NavigateFn = (options: { to: string; params?: Record<string, unknown>; sear
 
 type UseFileTreeInteractionsOptions = {
   shareToken: string
+  isShare: boolean
   documents: DocumentNode[]
   getSelectedDocumentId: () => string | null
   setSelectedDocumentId: (id: string | null) => void
@@ -114,6 +116,7 @@ function buildPluginMenu(
 
 export function useFileTreeInteractions({
   shareToken,
+  isShare,
   documents,
   getSelectedDocumentId,
   setSelectedDocumentId,
@@ -124,8 +127,8 @@ export function useFileTreeInteractions({
   requestDocumentId,
   navigate,
 }: UseFileTreeInteractionsOptions) {
-  const isShare = !!shareToken
-  const { plugins, commands, rules } = usePluginManifest({ enabled: !isShare })
+  const isShareView = isShare
+  const { plugins, commands, rules } = usePluginManifest({ enabled: !isShareView })
 
   const { runPluginCommand, resolveDocRoute } = usePluginExecutor({
     plugins,
@@ -230,8 +233,9 @@ export function useFileTreeInteractions({
     [documents, refreshDocuments, updateDocuments],
   )
 
-  const deleteDocument = useCallback(
-    async (id: string) => {
+  const deleteNode = useCallback(
+    async (node: DocumentNode) => {
+      const { id } = node
       const wasSelected = getSelectedDocumentId() === id
       const previousTree = documents
       const optimisticTree = cloneTree(documents)
@@ -242,33 +246,37 @@ export function useFileTreeInteractions({
       if (wasSelected) {
         setSelectedDocumentId(null)
       }
-      try {
-        await deleteDocumentApi(id)
-        if (wasSelected && !isShare) {
-          navigate({ to: '/dashboard' })
-        }
-        refreshDocuments()
-        toast.success('Deleted')
-      } catch (error) {
+
+      const restore = () => {
         if (removed) {
           updateDocuments(previousTree)
         }
         if (wasSelected) {
           setSelectedDocumentId(id)
         }
+      }
+
+      try {
+        if (node.isShareMount && node.shareMountId) {
+          await deleteShareMount(node.shareMountId)
+          refreshDocuments()
+          toast.success('Removed shared document')
+          return
+        }
+
+        await deleteDocumentApi(id)
+        if (wasSelected && !isShareView) {
+          navigate({ to: '/dashboard' })
+        }
+        refreshDocuments()
+        toast.success('Deleted')
+      } catch (error) {
+        restore()
         console.error('[file-tree] delete failed', error)
         toast.error('Failed to delete')
       }
     },
-    [
-      documents,
-      getSelectedDocumentId,
-      isShare,
-      navigate,
-      refreshDocuments,
-      setSelectedDocumentId,
-      updateDocuments,
-    ],
+    [documents, getSelectedDocumentId, isShareView, navigate, refreshDocuments, setSelectedDocumentId, updateDocuments],
   )
 
   const navigateToDocument = useCallback(
@@ -278,7 +286,7 @@ export function useFileTreeInteractions({
       if (target.startsWith('/document/')) {
         const match = target.match(/\/document\/(.+?)(?:\?|$)/)
         const docId = match?.[1] || id
-        if (isShare) {
+        if (isShareView) {
           const tokenForNav = shareToken
           if (tokenForNav) {
             if (typeof window !== 'undefined') {
@@ -307,6 +315,12 @@ export function useFileTreeInteractions({
           navigate({
             to: '/document/$id',
             params: { id: docId },
+            search: (prev: Record<string, unknown>) => {
+              const next = { ...prev }
+              delete (next as any).token
+              delete (next as any).shareMount
+              return next
+            },
           })
         }
         return
@@ -325,7 +339,7 @@ export function useFileTreeInteractions({
         window.location.href = target
       }
     },
-    [isShare, navigate, resolveDocRoute, setSelectedDocumentId, shareToken],
+    [isShareView, navigate, resolveDocRoute, setSelectedDocumentId, shareToken],
   )
 
   const moveDocument = useCallback(
@@ -353,7 +367,7 @@ export function useFileTreeInteractions({
     createDocument,
     createFolder,
     renameDocument,
-    deleteDocument,
+    deleteDocument: deleteNode,
     navigateToDocument,
     moveDocument,
     resolveDocRoute,

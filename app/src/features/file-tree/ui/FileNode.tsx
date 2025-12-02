@@ -53,9 +53,9 @@ type FileNodeProps = {
   isSelected: boolean
   isDragging: boolean
   isDropTarget: boolean
-  onSelect: (id: string, type: 'file' | 'folder') => void
+  onSelect: (node: DocumentNode) => void
   onRename: (id: string, newTitle: string) => void
-  onDelete: (id: string) => void
+  onDelete: (node: DocumentNode) => void
   onDragStart: (e: React.DragEvent, id: string) => void
   onDragEnd: (e: React.DragEvent) => void
   onDragEnter: (e: React.DragEvent, id: string, type: 'file' | 'folder') => void
@@ -103,6 +103,7 @@ export const FileNode = memo(function FileNode({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const menuGuardRef = useRef<{ block: boolean; timer?: number }>({ block: false })
   const isArchived = Boolean(node.archived)
+  const isShareMount = Boolean(node.isShareMount)
   const archiveMutation = useArchiveDocument()
   const unarchiveMutation = useUnarchiveDocument()
 
@@ -138,25 +139,29 @@ export const FileNode = memo(function FileNode({
   }, [])
 
   const handleStartRename = useCallback(() => {
-    if (isArchived) return
+    if (isArchived || isShareMount) return
     setIsEditing(true)
     setEditingTitle(node.title)
-  }, [node.title, isArchived])
+  }, [node.title, isArchived, isShareMount])
   const handleCancelRename = useCallback(() => {
     setIsEditing(false)
     setEditingTitle('')
     clearRenameTarget()
   }, [clearRenameTarget])
   const handleSaveRename = useCallback(() => {
-    if (isArchived) return
+    if (isArchived || isShareMount) return
     if (editingTitle.trim()) onRename(node.id, editingTitle.trim())
     setIsEditing(false)
     clearRenameTarget()
-  }, [editingTitle, node.id, onRename, clearRenameTarget, isArchived])
+  }, [editingTitle, node.id, onRename, clearRenameTarget, isArchived, isShareMount])
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => { if (e.key === 'Enter') handleSaveRename(); else if (e.key === 'Escape') handleCancelRename() }, [handleSaveRename, handleCancelRename])
-  const handleDelete = useCallback(() => { onDelete(node.id); setShowDeleteDialog(false) }, [node.id, onDelete])
-  const handleSelect = useCallback(() => { onSelect(node.id, node.type) }, [node.id, node.type, onSelect])
+  const handleDelete = useCallback(() => {
+    onDelete(node)
+    setShowDeleteDialog(false)
+  }, [node, onDelete])
+  const handleSelect = useCallback(() => { onSelect(node) }, [node, onSelect])
   const handleArchive = useCallback(async () => {
+    if (isShareMount) return
     try {
       await archiveMutation.mutateAsync(node.id)
       refreshDocuments()
@@ -330,30 +335,30 @@ export const FileNode = memo(function FileNode({
     >
       <div
         ref={rowRef}
-        draggable={!isEditing && !isArchived}
+        draggable={!isEditing && !isArchived && !isShareMount}
         onDragStart={(e) => {
-          if (isArchived) return
+          if (isArchived || isShareMount) return
           onDragStart(e, node.id)
         }}
         onDragEnd={(e) => {
-          if (isArchived) return
+          if (isArchived || isShareMount) return
           onDragEnd(e)
         }}
         onDragEnter={(e) => {
-          if (isArchived) return
+          if (isArchived || isShareMount) return
           onDragEnter(e, node.id, node.type)
         }}
         onDragLeave={(e) => {
-          if (isArchived) return
+          if (isArchived || isShareMount) return
           onDragLeave(e)
         }}
         onDrop={(e) => {
-          if (isArchived) return
+          if (isArchived || isShareMount) return
           e.stopPropagation()
           onDrop(e, node.id, node.type, parentId)
         }}
         onDragOver={(e) => {
-          if (isArchived) return
+          if (isArchived || isShareMount) return
           onDragOver(e, node.id, node.type)
         }}
         className="relative w-full rounded-2xl"
@@ -402,8 +407,9 @@ export const FileNode = memo(function FileNode({
               </span>
               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <span className="min-w-0 truncate" title={node.title}>{node.title}</span>
-                {(isArchived || publicDocIds.has(node.id) || sharedDocIds.has(node.id) || underSharedFolderDocIds.has(node.id)) && (
+                {(isArchived || isShareMount || publicDocIds.has(node.id) || sharedDocIds.has(node.id) || underSharedFolderDocIds.has(node.id)) && (
                   <span className="inline-flex shrink-0 items-center gap-1 text-muted-foreground">
+                    {isShareMount && <LinkIcon className="h-3 w-3" />}
                     {isArchived && <Archive className="h-3 w-3" />}
                     {publicDocIds.has(node.id) && <Globe className="h-3 w-3" />}
                     {underSharedFolderDocIds.has(node.id) && <LinkIcon className="h-3 w-3" />}
@@ -438,7 +444,7 @@ export const FileNode = memo(function FileNode({
                 collisionPadding={8}
                 className={overlayMenuClass}
               >
-                {!isArchived && (
+                {!isArchived && !isShareMount && (
                   <DropdownMenuItem
                     onSelect={(event) => guardMenuAction(event, handleStartRename)}
                   >
@@ -450,41 +456,45 @@ export const FileNode = memo(function FileNode({
                 >
                   <FileText className="h-4 w-4 mr-2" />Open in Secondary Viewer
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={(event) => guardMenuAction(event, async () => {
-                    try {
-                      const r = await ignoreDocument({ id: node.id })
-                      const added = (r as any).added ?? 0
-                      toast.success(`Ignored in Git (${added} pattern${added === 1 ? '' : 's'})`)
-                    } catch (e: any) {
-                      toast.error(`Failed to ignore: ${e?.message || e}`)
-                    }
-                  })}
-                >
-                  <Ban className="h-4 w-4 mr-2" />Ignore in Git
-                </DropdownMenuItem>
-                {!isArchived && (
-                  <DropdownMenuItem
-                    onSelect={(event) => guardMenuAction(event, handleArchive)}
-                    disabled={archiveMutation.isPending}
-                  >
-                    <Archive className="h-4 w-4 mr-2" />Archive
-                  </DropdownMenuItem>
+                {!isShareMount && (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={(event) => guardMenuAction(event, async () => {
+                        try {
+                          const r = await ignoreDocument({ id: node.id })
+                          const added = (r as any).added ?? 0
+                          toast.success(`Ignored in Git (${added} pattern${added === 1 ? '' : 's'})`)
+                        } catch (e: any) {
+                          toast.error(`Failed to ignore: ${e?.message || e}`)
+                        }
+                      })}
+                    >
+                      <Ban className="h-4 w-4 mr-2" />Ignore in Git
+                    </DropdownMenuItem>
+                    {!isArchived && (
+                      <DropdownMenuItem
+                        onSelect={(event) => guardMenuAction(event, handleArchive)}
+                        disabled={archiveMutation.isPending}
+                      >
+                        <Archive className="h-4 w-4 mr-2" />Archive
+                      </DropdownMenuItem>
+                    )}
+                    {isArchived && (
+                      <DropdownMenuItem
+                        onSelect={(event) => guardMenuAction(event, handleUnarchive)}
+                        disabled={unarchiveMutation.isPending}
+                      >
+                        <ArchiveRestore className="h-4 w-4 mr-2" />Unarchive
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                  </>
                 )}
-                {isArchived && (
-                  <DropdownMenuItem
-                    onSelect={(event) => guardMenuAction(event, handleUnarchive)}
-                    disabled={unarchiveMutation.isPending}
-                  >
-                    <ArchiveRestore className="h-4 w-4 mr-2" />Unarchive
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={(event) => guardMenuAction(event, () => setShowDeleteDialog(true))}
                   className="text-red-600"
                 >
-                  <Trash2 className="h-4 w-4 mr-2" />Delete
+                  <Trash2 className="h-4 w-4 mr-2" />{isShareMount ? 'Remove from workspace' : 'Delete'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -496,7 +506,11 @@ export const FileNode = memo(function FileNode({
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
         title={node.title}
-        description={`The "${node.title}" document will be deleted permanently. This action cannot be undone.`}
+        description={
+          isShareMount
+            ? 'This removes the shared document from your workspace.'
+            : `The "${node.title}" document will be deleted permanently. This action cannot be undone.`
+        }
         onConfirm={handleDelete}
       />
     </SidebarMenuItem>

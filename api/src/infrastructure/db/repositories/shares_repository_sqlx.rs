@@ -3,7 +3,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::application::ports::share_access_port::ShareAccessPort;
-use crate::application::ports::shares_repository::{ShareRow, SharesRepository};
+use crate::application::ports::shares_repository::{ShareMountRow, ShareRow, SharesRepository};
 use crate::infrastructure::db::PgPool;
 
 pub struct SqlxSharesRepository {
@@ -148,6 +148,123 @@ impl SharesRepository for SqlxSharesRepository {
             "DELETE FROM shares s USING documents d WHERE s.token = $1 AND s.document_id = d.id AND d.workspace_id = $2",
         )
             .bind(token)
+            .bind(workspace_id)
+            .execute(&self.pool)
+            .await?;
+        let deleted = res.rows_affected() > 0;
+        if deleted {
+            // Remove any saved mounts referencing this share token across workspaces
+            sqlx::query("DELETE FROM share_mounts WHERE share_token = $1")
+                .bind(token)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(deleted)
+    }
+
+    async fn list_share_mounts(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareMountRow>> {
+        // Clean up mounts whose share token no longer exists or has expired
+        sqlx::query(
+            r#"
+            DELETE FROM share_mounts sm
+            WHERE sm.workspace_id = $1
+              AND NOT EXISTS (
+                SELECT 1
+                FROM shares s
+                WHERE s.token = sm.share_token
+                  AND (s.expires_at IS NULL OR s.expires_at > now())
+              )
+            "#,
+        )
+        .bind(workspace_id)
+        .execute(&self.pool)
+        .await?;
+
+        let rows = sqlx::query(
+            r#"SELECT id, share_token, target_document_id, target_document_type, target_title, permission, parent_folder_id, created_at
+               FROM share_mounts
+               WHERE workspace_id = $1
+               ORDER BY created_at DESC"#,
+        )
+        .bind(workspace_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows.into_iter() {
+            out.push(ShareMountRow {
+                id: r.get("id"),
+                token: r.get("share_token"),
+                target_document_id: r.get("target_document_id"),
+                target_document_type: r.get("target_document_type"),
+                target_title: r.get("target_title"),
+                permission: r.get("permission"),
+                parent_folder_id: r.try_get("parent_folder_id").ok(),
+                created_at: r.get("created_at"),
+            });
+        }
+        Ok(out)
+    }
+
+    async fn create_share_mount(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        token: &str,
+        target_document_id: Uuid,
+        target_document_type: &str,
+        target_title: &str,
+        permission: &str,
+        parent_folder_id: Option<Uuid>,
+    ) -> anyhow::Result<ShareMountRow> {
+        if let Some(parent_id) = parent_folder_id {
+            let exists = sqlx::query_scalar::<_, i64>(
+                "SELECT 1 FROM documents WHERE id = $1 AND workspace_id = $2 AND type = 'folder'",
+            )
+            .bind(parent_id)
+            .bind(workspace_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            if exists.is_none() {
+                anyhow::bail!("invalid_parent");
+            }
+        }
+        let row = sqlx::query(
+            r#"
+            INSERT INTO share_mounts (workspace_id, created_by, share_token, target_document_id, target_document_type, target_title, permission, parent_folder_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (workspace_id, share_token, target_document_id)
+            DO UPDATE SET target_title = EXCLUDED.target_title,
+                          permission = EXCLUDED.permission,
+                          parent_folder_id = EXCLUDED.parent_folder_id
+            RETURNING id, share_token, target_document_id, target_document_type, target_title, permission, parent_folder_id, created_at
+            "#,
+        )
+        .bind(workspace_id)
+        .bind(actor_id)
+        .bind(token)
+        .bind(target_document_id)
+        .bind(target_document_type)
+        .bind(target_title)
+        .bind(permission)
+        .bind(parent_folder_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(ShareMountRow {
+            id: row.get("id"),
+            token: row.get("share_token"),
+            target_document_id: row.get("target_document_id"),
+            target_document_type: row.get("target_document_type"),
+            target_title: row.get("target_title"),
+            permission: row.get("permission"),
+            parent_folder_id: row.try_get("parent_folder_id").ok(),
+            created_at: row.get("created_at"),
+        })
+    }
+
+    async fn delete_share_mount(&self, workspace_id: Uuid, mount_id: Uuid) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM share_mounts WHERE id = $1 AND workspace_id = $2")
+            .bind(mount_id)
             .bind(workspace_id)
             .execute(&self.pool)
             .await?;

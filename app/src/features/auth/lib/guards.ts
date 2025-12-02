@@ -182,29 +182,30 @@ export async function resolveAuthRedirect(ctx?: any): Promise<AuthResolution> {
   const middlewareAuth = getMiddlewareAuthContext(ctx)
   const shareToken = extractShareToken(ctx, search, tokenOverride)
 
+  let shareTokenValid = false
   if (shareToken) {
-    if (
-      middlewareAuth?.shareTokenValidated &&
-      middlewareAuth.shareToken === shareToken
-    ) {
-      return { redirect: null, authenticated: false }
-    }
-
-    try {
-      await validateShareToken(shareToken)
-      return { redirect: null, authenticated: false }
-    } catch {
-      // fall through to auth checks when validation fails
+    if (middlewareAuth?.shareTokenValidated && middlewareAuth.shareToken === shareToken) {
+      shareTokenValid = true
+    } else {
+      try {
+        await validateShareToken(shareToken)
+        shareTokenValid = true
+      } catch {
+        // fall through to auth checks when validation fails
+      }
     }
   }
 
   if (shouldDeferAuthDecision(ctx)) {
-    return { redirect: null, authenticated: false }
+    return { redirect: null, authenticated: !!middlewareAuth?.isAuthenticated }
   }
 
   const authenticated = await hasCurrentUser(ctx)
   if (!authenticated) {
     if (isAuthRoute(pathname)) {
+      return { redirect: null, authenticated: false }
+    }
+    if (shareTokenValid) {
       return { redirect: null, authenticated: false }
     }
     return { redirect: createAuthRedirect(pathname, search), authenticated: false }

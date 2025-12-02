@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, OauthLoginData, OauthLoginResponse, OauthStateData, OauthStateResponse, ListOauthProvidersResponse, RefreshSessionResponse, RegisterData, RegisterResponse, ListSessionsResponse, RevokeSessionData, RevokeSessionResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, PatchDocumentContentData, PatchDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, InitRepositoryResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListWorkspacePublicDocumentsData, ListWorkspacePublicDocumentsResponse, GetPublicByWorkspaceAndIdData, GetPublicByWorkspaceAndIdResponse, GetPublicContentByWorkspaceAndIdData, GetPublicContentByWorkspaceAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, ListTagsData, ListTagsResponse, AcceptInvitationData, AcceptInvitationResponse, ListWorkspacesResponse, CreateWorkspaceData, CreateWorkspaceResponse, GetWorkspaceDetailData, GetWorkspaceDetailResponse, UpdateWorkspaceData, UpdateWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, DownloadWorkspaceArchiveData, DownloadWorkspaceArchiveResponse, ListInvitationsData, ListInvitationsResponse, CreateInvitationData, CreateInvitationResponse, RevokeInvitationData, RevokeInvitationResponse, ListMembersData, ListMembersResponse, RemoveMemberData, RemoveMemberResponse, UpdateMemberRoleData, UpdateMemberRoleResponse, GetWorkspacePermissionsData, GetWorkspacePermissionsResponse, ListRolesData, ListRolesResponse, CreateRoleData, CreateRoleResponse, DeleteRoleData, DeleteRoleResponse, UpdateRoleData, UpdateRoleResponse, SwitchWorkspaceData, SwitchWorkspaceResponse2, AxumWsEntryData } from './types.gen';
+import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, OauthLoginData, OauthLoginResponse, OauthStateData, OauthStateResponse, ListOauthProvidersResponse, RefreshSessionResponse, RegisterData, RegisterResponse, ListSessionsResponse, RevokeSessionData, RevokeSessionResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, PatchDocumentContentData, PatchDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, InitRepositoryResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListWorkspacePublicDocumentsData, ListWorkspacePublicDocumentsResponse, GetPublicByWorkspaceAndIdData, GetPublicByWorkspaceAndIdResponse, GetPublicContentByWorkspaceAndIdData, GetPublicContentByWorkspaceAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ListShareMountsResponse, CreateShareMountData, CreateShareMountResponse, DeleteShareMountData, DeleteShareMountResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, ListTagsData, ListTagsResponse, AcceptInvitationData, AcceptInvitationResponse, ListWorkspacesResponse, CreateWorkspaceData, CreateWorkspaceResponse, GetWorkspaceDetailData, GetWorkspaceDetailResponse, UpdateWorkspaceData, UpdateWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, DownloadWorkspaceArchiveData, DownloadWorkspaceArchiveResponse, ListInvitationsData, ListInvitationsResponse, CreateInvitationData, CreateInvitationResponse, RevokeInvitationData, RevokeInvitationResponse, ListMembersData, ListMembersResponse, RemoveMemberData, RemoveMemberResponse, UpdateMemberRoleData, UpdateMemberRoleResponse, GetWorkspacePermissionsData, GetWorkspacePermissionsResponse, ListRolesData, ListRolesResponse, CreateRoleData, CreateRoleResponse, DeleteRoleData, DeleteRoleResponse, UpdateRoleData, UpdateRoleResponse, SwitchWorkspaceData, SwitchWorkspaceResponse2, AxumWsEntryData } from './types.gen';
 
 /**
  * @param data The data for the request.
@@ -1284,6 +1284,48 @@ export const materializeFolderShare = (data: MaterializeFolderShareData): Cancel
         url: '/api/shares/folders/{token}/materialize',
         path: {
             token: data.token
+        }
+    });
+};
+
+/**
+ * @returns ShareMountItem Share mounts
+ * @throws ApiError
+ */
+export const listShareMounts = (): CancelablePromise<ListShareMountsResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/shares/mounts'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ShareMountItem Saved share mount
+ * @throws ApiError
+ */
+export const createShareMount = (data: CreateShareMountData): CancelablePromise<CreateShareMountResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/shares/mounts',
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Share mount ID
+ * @returns void Share mount removed
+ * @throws ApiError
+ */
+export const deleteShareMount = (data: DeleteShareMountData): CancelablePromise<DeleteShareMountResponse> => {
+    return __request(OpenAPI, {
+        method: 'DELETE',
+        url: '/api/shares/mounts/{id}',
+        path: {
+            id: data.id
         }
     });
 };

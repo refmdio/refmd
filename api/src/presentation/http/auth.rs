@@ -9,7 +9,7 @@ use crate::presentation::context::AppContext;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, State, Extension},
+    extract::{Extension, Path, State},
     http::{HeaderMap, HeaderValue, Request, StatusCode, header},
     middleware::Next,
     response::IntoResponse,
@@ -488,12 +488,10 @@ pub async fn refresh_session(
     refreshed: Option<Extension<RefreshedSession>>,
 ) -> Result<axum::response::Response, StatusCode> {
     if let Some(Extension(bundle)) = refreshed {
-        return Ok(
-            Json(RefreshResponse {
-                access_token: bundle.0.access.token.clone(),
-            })
-            .into_response(),
-        );
+        return Ok(Json(RefreshResponse {
+            access_token: bundle.0.access.token.clone(),
+        })
+        .into_response());
     }
 
     let mut response_headers = HeaderMap::new();
@@ -585,15 +583,32 @@ fn unauthorized_token_expired(ctx: &AppContext) -> axum::response::Response {
 }
 
 fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
+    // Prefer the session cookie if present to avoid accidentally overriding it
+    // with other Bearer values (e.g. share tokens) that might be sent by the
+    // client.
+    if let Some(cookie) = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(token) = get_cookie(cookie, SESSION_COOKIE_NAME) {
+            if !token.trim().is_empty() {
+                return Some(token);
+            }
+        }
+    }
+
     if let Some(auth) = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
     {
         if let Some(t) = auth.strip_prefix("Bearer ") {
-            return Some(t.to_string());
+            let trimmed = t.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
         }
     }
-    extract_cookie_from_headers(headers, SESSION_COOKIE_NAME)
+    None
 }
 
 fn should_skip_refresh(path: &str) -> bool {
@@ -611,18 +626,7 @@ where
         if let Some(token) = parts.extensions.get::<AccessTokenOverride>() {
             return Ok(Bearer(token.0.clone()));
         }
-        // 1) Prefer Authorization header if present
-        if let Some(auth) = parts
-            .headers
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-        {
-            if let Some(t) = auth.strip_prefix("Bearer ") {
-                return Ok(Bearer(t.to_string()));
-            }
-        }
-
-        // 2) Fallback to HttpOnly cookie `access_token`
+        // 1) Prefer HttpOnly cookie `access_token`
         if let Some(cookie_hdr) = parts
             .headers
             .get(axum::http::header::COOKIE)
@@ -630,6 +634,17 @@ where
         {
             if let Some(token) = get_cookie(cookie_hdr, SESSION_COOKIE_NAME) {
                 return Ok(Bearer(token));
+            }
+        }
+
+        // 2) Fall back to Authorization header if provided
+        if let Some(auth) = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+        {
+            if let Some(t) = auth.strip_prefix("Bearer ") {
+                return Ok(Bearer(t.to_string()));
             }
         }
 
@@ -677,6 +692,14 @@ pub async fn resolve_actor_from_parts(
     bearer: Option<Bearer>,
     share_token: Option<&str>,
 ) -> Option<access::Actor> {
+    // Prefer explicit share token when provided so users with an active session
+    // can still open shared resources using the token (e.g., saved mounts).
+    if let Some(token) = share_token {
+        if let Some(actor) = resolve_actor_from_token_str(ctx, token).await {
+            return Some(actor);
+        }
+    }
+
     if let Some(b) = bearer {
         match validate_bearer(ctx, b.clone()).await {
             Ok(sub) => {
@@ -690,9 +713,6 @@ pub async fn resolve_actor_from_parts(
                 }
             }
         }
-    }
-    if let Some(token) = share_token {
-        return resolve_actor_from_token_str(ctx, token).await;
     }
     None
 }
@@ -1126,7 +1146,7 @@ pub async fn revoke_session(
         })?;
     let mut response_headers = HeaderMap::new();
     if current_session_id == Some(session_id) {
-        clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
+    clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
     }
     Ok((response_headers, StatusCode::NO_CONTENT))
 }

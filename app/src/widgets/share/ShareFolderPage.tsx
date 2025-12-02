@@ -1,5 +1,13 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { FileText } from 'lucide-react'
+import { FileText, Link2 } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { toast } from 'sonner'
+
+import { ApiError } from '@/shared/api'
+import { Button } from '@/shared/ui/button'
+
+import { createShareMount, shareMountsQuery } from '@/entities/share'
 
 type ShareFolderPageProps = {
   token: string
@@ -9,6 +17,8 @@ type ShareFolderPageProps = {
 
 export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const [saving, setSaving] = useState(false)
 
   const handleClick = (id: string) => {
     navigate({
@@ -18,6 +28,26 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
     })
   }
 
+  const handleSave = useCallback(async () => {
+    if (saving) return
+    setSaving(true)
+    try {
+      await createShareMount({ token })
+      qc.invalidateQueries({ queryKey: shareMountsQuery().queryKey })
+      toast.success('Saved to your workspace')
+    } catch (error) {
+      const status = error instanceof ApiError ? error.status : (error as any)?.status ?? (error as any)?.cause?.status
+      if (status === 401 || status === 403) {
+        toast.error('Could not save (auth required or expired). Reload and try again.')
+      } else {
+        const message = error instanceof Error ? error.message : 'Failed to save share'
+        toast.error(message)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }, [qc, saving, token])
+
   return (
     <div className="h-full bg-background">
       {/* Desktop */}
@@ -26,6 +56,12 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-4">{title}</h1>
             <p className="text-xl text-gray-600 dark:text-gray-300">Select a document from the list or from the sidebar.</p>
+            <div className="mt-4 flex justify-center">
+              <Button variant="outline" size="sm" onClick={handleSave} disabled={saving}>
+                <Link2 className="mr-2 h-4 w-4" />
+                Save to workspace
+              </Button>
+            </div>
           </div>
 
           {items.length > 0 ? (
@@ -71,6 +107,10 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
       <div className="lg:hidden p-4">
         <h1 className="text-2xl font-bold mb-4">{title}</h1>
         <p className="text-gray-600 dark:text-gray-300 mb-6">Select a document to view:</p>
+        <Button variant="outline" size="sm" className="mb-4" onClick={handleSave} disabled={saving}>
+          <Link2 className="mr-2 h-4 w-4" />
+          Save to workspace
+        </Button>
         <div className="border rounded-lg bg-card">
           <div className="p-4">
             {items.length > 0 ? (

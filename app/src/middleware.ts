@@ -40,7 +40,7 @@ const PUBLIC_PATHS = new Set([
   '/robots.txt',
 ])
 
-const PUBLIC_PREFIXES = ['/_', '/api', '/share', '/u/', '/w/', '/assets']
+const PUBLIC_PREFIXES = ['/_', '/api', '/u/', '/w/', '/assets']
 const AUTH_REQUEST_TIMEOUT_MS = 5000
 const AUTH_DEFER_WINDOW_MS = 30_000
 

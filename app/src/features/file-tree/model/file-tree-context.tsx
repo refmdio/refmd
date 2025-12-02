@@ -1,11 +1,12 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRouterState } from '@tanstack/react-router'
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 
 import { useShareToken } from '@/shared/contexts/share-token-context'
 
 import { listDocuments } from '@/entities/document'
 import { listWorkspacePublicDocuments } from '@/entities/public'
-import { browseShare, listActiveShares, shareKeys } from '@/entities/share'
+import { browseShare, listActiveShares, shareKeys, shareMountsQuery, useShareMounts } from '@/entities/share'
 import { meQuery } from '@/entities/user'
 
 import { useAuthContext } from '@/features/auth'
@@ -21,6 +22,7 @@ type CtxType = {
   publicDocIds: Set<string>
   underSharedFolderDocIds: Set<string>
   underSharedFolderFolderIds: Set<string>
+  isShare: boolean
   shareToken: string
   archivesExpanded: boolean
   setArchivesExpanded: React.Dispatch<React.SetStateAction<boolean>>
@@ -38,6 +40,7 @@ const FileTreeCtx = createContext<CtxType | null>(null)
 
 type DbDoc = {
   id: string
+  source_id?: string
   title: string
   parent_id?: string | null
   created_at: string
@@ -47,6 +50,9 @@ type DbDoc = {
   archived_parent_id?: string | null
   owner_id?: string | null
   workspace_id?: string | null
+  share_token?: string
+  is_share_mount?: boolean
+  share_mount_id?: string
 }
 
 type BuildTreeOptions = {
@@ -85,12 +91,16 @@ function buildTree(docs: DbDoc[], options?: BuildTreeOptions): DocumentNode[] {
     const type: DocumentNode['type'] = d.type === 'folder' ? 'folder' : 'file'
     nodeMap.set(d.id, {
       id: d.id,
+      sourceId: d.source_id,
       title: d.title,
       type,
       children: [],
       created_at: d.created_at,
       updated_at: d.updated_at,
       archived: Boolean(d.archived_at),
+      shareToken: d.share_token,
+      isShareMount: d.is_share_mount,
+      shareMountId: d.share_mount_id,
     })
     const parentId = (useArchivedParent ? d.archived_parent_id : d.parent_id) ?? undefined
     parentRef.set(d.id, parentId ?? undefined)
@@ -130,7 +140,20 @@ function buildTree(docs: DbDoc[], options?: BuildTreeOptions): DocumentNode[] {
 
 export function FileTreeProvider({ children }: { children: React.ReactNode }) {
   const shareToken = useShareToken() ?? ''
-  const isShare = shareToken.length > 0
+  const shareMountFlag = useRouterState({
+    select: (state) => {
+      const search = (state.location?.search ?? {}) as Record<string, unknown>
+      const raw = (search as any)?.shareMount ?? (search as any)?.share_mount
+      if (raw == null) return false
+      if (typeof raw === 'string') {
+        const normalized = raw.trim().toLowerCase()
+        return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+      }
+      if (typeof raw === 'number') return raw === 1
+      return Boolean(raw)
+    },
+  })
+  const isShare = shareToken.length > 0 && !shareMountFlag
 
   const qc = useQueryClient()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -221,11 +244,60 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       const res = await listDocuments({ state: 'active' })
       const items = (res.items ?? []) as unknown as DbDoc[]
-      return buildTree(filterByWorkspace(items))
+      return filterByWorkspace(items)
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   })
+
+  const { data: shareMounts = [] } = useShareMounts()
+  const shareMountTrees = useQueries({
+    queries: (shareMounts as any[]).map((mount) => ({
+      queryKey: ['share-mount-tree', mount.id, mount.token],
+      enabled: !!activeWorkspaceId && !isShare,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
+      queryFn: async () => await browseShare(mount.token),
+    })),
+  })
+
+  const shareMountDocuments = useMemo<DbDoc[]>(() => {
+    if (isShare || !activeWorkspaceId) return []
+    const list: DbDoc[] = []
+    shareMounts.forEach((mount: any, idx: number) => {
+      const tree = shareMountTrees[idx]?.data?.tree
+      if (!tree) return
+      const idMap = new Map<string, string>()
+      const makeId = (id: string) => `share:${mount.id}:${id}`
+      tree.forEach((item: any) => {
+        idMap.set(item.id, makeId(item.id))
+      })
+      tree.forEach((item: any) => {
+        const mappedId = idMap.get(item.id) || makeId(item.id)
+        const mappedParent =
+          item.parent_id && idMap.has(item.parent_id)
+            ? idMap.get(item.parent_id)!
+            : mount.parent_folder_id ?? null
+        list.push({
+          id: mappedId,
+          source_id: item.id,
+          title: item.title,
+          parent_id: mappedParent,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          type: item.type === 'folder' ? 'folder' : 'document',
+          share_token: mount.token,
+          is_share_mount: true,
+          share_mount_id: mount.id,
+          owner_id: activeWorkspaceId,
+          workspace_id: activeWorkspaceId,
+        })
+      })
+    })
+    return list
+  }, [activeWorkspaceId, isShare, shareMountTrees, shareMounts])
+
+  const documentsUserTree = useMemo(() => buildTree(documentsUser), [documentsUser])
 
   const activeDocumentInfo = useMemo(() => {
     if (isShare) return new Map<string, { id: string; title: string; type: DocumentNode['type']; parent_id?: string | null }>()
@@ -236,9 +308,9 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
         if (node.children && node.children.length) collect(node.children, node.id)
       }
     }
-    collect(documentsUser, null)
+    collect(documentsUserTree, null)
     return map
-  }, [documentsUser, isShare])
+  }, [documentsUserTree, isShare])
 
   const { data: archivedDocumentsRaw = [], isLoading: isLoadingArchived } = useQuery({
     queryKey: ['documents', userId, workspaceStorageKey, 'archived'],
@@ -276,9 +348,17 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
     gcTime: 10 * 60 * 1000,
   })
 
-  const docs = isShare ? documentsShare : documentsUser
+  const docsWorkspace = useMemo(
+    () => buildTree([...documentsUser, ...shareMountDocuments]),
+    [documentsUser, shareMountDocuments],
+  )
+
+  const docs = isShare ? documentsShare : docsWorkspace
   const archivedDocs = isShare ? [] : archivedDocumentsUser
-  const loading = isShare ? isLoadingShare : isLoadingUser || isLoadingArchived
+  const loading =
+    isShare
+      ? isLoadingShare
+      : isLoadingUser || isLoadingArchived || shareMountTrees.some((q) => q.isLoading)
 
   useEffect(() => {
     if (!archivesExpanded || !archivedDocs.length) return
@@ -430,6 +510,11 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
     } else if (activeWorkspaceId) {
       qc.invalidateQueries({ queryKey: ['documents', userId, activeWorkspaceId, 'active'] })
       qc.invalidateQueries({ queryKey: ['documents', userId, activeWorkspaceId, 'archived'] })
+      qc.invalidateQueries({ queryKey: shareMountsQuery().queryKey })
+      qc.invalidateQueries({ predicate: (query) => {
+        const key = query.queryKey
+        return Array.isArray(key) && key[0] === 'share-mount-tree'
+      } })
     }
   }, [qc, isShare, shareToken, userId, activeWorkspaceId])
 
@@ -455,6 +540,7 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
       publicDocIds,
       underSharedFolderDocIds,
       underSharedFolderFolderIds,
+      isShare,
       shareToken,
       archivesExpanded,
       setArchivesExpanded,
@@ -484,6 +570,8 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
       sharedFolderIds,
       underSharedFolderDocIds,
       underSharedFolderFolderIds,
+      isShare,
+      shareToken,
       setArchivesExpanded,
       toggleFolder,
       updateDocuments,

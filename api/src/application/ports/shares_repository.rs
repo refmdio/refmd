@@ -14,6 +14,18 @@ pub struct ShareRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ShareMountRow {
+    pub id: Uuid,
+    pub token: String,
+    pub target_document_id: Uuid,
+    pub target_document_type: String,
+    pub target_title: String,
+    pub permission: String,
+    pub parent_folder_id: Option<Uuid>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 #[async_trait]
 pub trait SharesRepository: Send + Sync {
     async fn create_share(
@@ -58,6 +70,22 @@ pub trait SharesRepository: Send + Sync {
             String,
         )>,
     >; // (share_id, permission, expires_at, shared_id, shared_type)
+
+    async fn list_share_mounts(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareMountRow>>;
+
+    async fn create_share_mount(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        token: &str,
+        target_document_id: Uuid,
+        target_document_type: &str,
+        target_title: &str,
+        permission: &str,
+        parent_folder_id: Option<Uuid>,
+    ) -> anyhow::Result<ShareMountRow>;
+
+    async fn delete_share_mount(&self, workspace_id: Uuid, mount_id: Uuid) -> anyhow::Result<bool>;
 
     async fn get_share_document_meta(
         &self,
