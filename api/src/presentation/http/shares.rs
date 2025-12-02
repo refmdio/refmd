@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::application::access;
 use crate::application::dto::shares::{
     ActiveShareItemDto, ApplicableShareDto, ShareBrowseResponseDto, ShareBrowseTreeItemDto,
-    ShareDocumentDto, ShareItemDto,
+    ShareDocumentDto, ShareItemDto, ShareMountDto,
 };
 use crate::application::services::errors::ServiceError;
 use crate::presentation::context::{AppContext, PresentationConfig};
@@ -133,6 +133,39 @@ pub struct ShareItem {
     pub scope: String,
     /// If present, this document share was materialized from a folder share
     pub parent_share_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateShareMountRequest {
+    pub token: String,
+    pub parent_folder_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ShareMountItem {
+    pub id: Uuid,
+    pub token: String,
+    pub target_document_id: Uuid,
+    pub target_document_type: String,
+    pub target_title: String,
+    pub permission: String,
+    pub parent_folder_id: Option<Uuid>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl From<ShareMountDto> for ShareMountItem {
+    fn from(d: ShareMountDto) -> Self {
+        ShareMountItem {
+            id: d.id,
+            token: d.token,
+            target_document_id: d.target_document_id,
+            target_document_type: d.target_document_type,
+            target_title: d.target_title,
+            permission: d.permission,
+            parent_folder_id: d.parent_folder_id,
+            created_at: d.created_at,
+        }
+    }
 }
 
 #[utoipa::path(
@@ -423,6 +456,113 @@ pub async fn list_active_shares(
     Ok(Json(out))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/shares/mounts",
+    tag = "Sharing",
+    request_body = CreateShareMountRequest,
+    responses((status = 200, description = "Saved share mount", body = ShareMountItem))
+)]
+pub async fn create_share_mount(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    Json(req): Json<CreateShareMountRequest>,
+) -> Result<Json<ShareMountItem>, StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer_public(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
+    let service = ctx.share_service();
+    let item = service
+        .save_share_mount(
+            workspace_id,
+            user_id,
+            &permissions,
+            &req.token,
+            req.parent_folder_id,
+        )
+        .await
+        .map_err(map_share_error)?;
+    Ok(Json(item.into()))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/shares/mounts",
+    tag = "Sharing",
+    responses((status = 200, description = "Share mounts", body = [ShareMountItem]))
+)]
+pub async fn list_share_mounts(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ShareMountItem>>, StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer_public(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
+    let service = ctx.share_service();
+    let items: Vec<ShareMountDto> = service
+        .list_share_mounts(workspace_id, &permissions)
+        .await
+        .map_err(map_share_error)?;
+    Ok(Json(items.into_iter().map(Into::into).collect()))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/shares/mounts/{id}",
+    tag = "Sharing",
+    params(("id" = Uuid, Path, description = "Share mount ID")),
+    responses((status = 204, description = "Share mount removed"))
+)]
+pub async fn delete_share_mount(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> Result<StatusCode, StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = auth::validate_bearer_public(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
+    let service = ctx.share_service();
+    let deleted = service
+        .delete_share_mount(workspace_id, &permissions, id)
+        .await
+        .map_err(map_share_error)?;
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ShareBrowseTreeItem {
     pub id: Uuid,
@@ -482,6 +622,10 @@ pub async fn browse_share(
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
         .route("/shares", post(create_share))
+        .route(
+            "/shares/mounts",
+            post(create_share_mount).get(list_share_mounts),
+        )
         .route("/shares/browse", get(browse_share))
         .route("/shares/validate", get(validate_share_token))
         .route("/shares/documents/:id", get(list_document_shares))
@@ -491,6 +635,7 @@ pub fn routes(ctx: AppContext) -> Router {
             post(materialize_folder_share),
         )
         .route("/shares/active", get(list_active_shares))
+        .route("/shares/mounts/:id", delete(delete_share_mount))
         .route("/shares/:token", delete(delete_share))
         .with_state(ctx)
 }

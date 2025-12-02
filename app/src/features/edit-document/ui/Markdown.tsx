@@ -85,6 +85,7 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
           flavor: 'doc',
           features: ['gfm', 'highlight'],
           sanitize: true,
+          hardbreaks: true as any,
           absolute_attachments: true as any,
           base_origin: apiOrigin as any,
           doc_id: override as any,

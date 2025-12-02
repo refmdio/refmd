@@ -1,12 +1,15 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { Download, History } from 'lucide-react'
+import { BookmarkPlus, Download, History } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
+import { ApiError } from '@/shared/api'
 import { useRealtime } from '@/shared/contexts/realtime-context'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 
 import { downloadDocumentFile, type DocumentDownloadFormat } from '@/entities/document'
+import { createShareMount, shareMountsQuery } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
@@ -81,11 +84,13 @@ function DocumentClient({
   secondaryViewerRenderer,
 }: DocumentPageProps) {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const { user } = useAuthContext()
   const [showSnapshots, setShowSnapshots] = useState(false)
   const openSnapshots = useCallback(() => setShowSnapshots(true), [])
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
   const [downloadPending, setDownloadPending] = useState(false)
+  const [savingShare, setSavingShare] = useState(false)
   const { secondaryDocumentId, secondaryDocumentType, showSecondaryViewer, closeSecondaryViewer, openSecondaryViewer } = useSecondaryViewer()
   const { showBacklinks, setShowBacklinks } = useViewContext()
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
@@ -144,6 +149,27 @@ function DocumentClient({
     [hasDoc, id, shareToken, resolvedTitle],
   )
 
+  const handleSaveShare = useCallback(async () => {
+    if (!shareToken) return
+    if (savingShare) return
+    setSavingShare(true)
+    try {
+      await createShareMount({ token: shareToken })
+      qc.invalidateQueries({ queryKey: shareMountsQuery().queryKey })
+      toast.success('Saved to your workspace')
+    } catch (error) {
+      const status = error instanceof ApiError ? error.status : (error as any)?.status ?? (error as any)?.cause?.status
+      if (status === 401 || status === 403) {
+        toast.error('Could not save (auth required or expired). Reload and try again.')
+      } else {
+        const message = error instanceof Error ? error.message : 'Failed to save share'
+        toast.error(message)
+      }
+    } finally {
+      setSavingShare(false)
+    }
+  }, [qc, savingShare, shareToken])
+
   useEffect(() => {
     const ensureAction = (
       list: DocumentHeaderAction[],
@@ -180,13 +206,24 @@ function DocumentClient({
       icon: <Download className="h-4 w-4" />,
       tooltip: 'Download document',
     }
+    const saveShareAction: DocumentHeaderAction = {
+      id: 'save-share',
+      label: 'Save to workspace',
+      onSelect: handleSaveShare,
+      disabled: !shareToken || !user || savingShare,
+      icon: <BookmarkPlus className="h-4 w-4" />,
+      tooltip: 'Add this shared document to your workspace file tree',
+    }
 
     let next = ensureAction(actions, snapshotAction)
     next = ensureAction(next, downloadAction)
+    if (shareToken) {
+      next = ensureAction(next, saveShareAction)
+    }
     if (next !== actions) {
       setDocumentActions(next)
     }
-  }, [documentActions, setDocumentActions, openSnapshots, hasDoc, openDownloadDialog])
+  }, [documentActions, setDocumentActions, openSnapshots, hasDoc, openDownloadDialog, handleSaveShare, shareToken, user, savingShare])
 
   useEffect(() => {
     if (showBacklinks && showSecondaryViewer) {

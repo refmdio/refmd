@@ -26,6 +26,18 @@ pub struct ShareItemDto {
 }
 
 #[derive(Debug, Clone)]
+pub struct ShareMountDto {
+    pub id: Uuid,
+    pub token: String,
+    pub target_document_id: Uuid,
+    pub target_document_type: String,
+    pub target_title: String,
+    pub permission: String,
+    pub parent_folder_id: Option<Uuid>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ApplicableShareDto {
     pub token: String,
     pub permission: String,
