@@ -399,6 +399,7 @@ export type RenderOptionsPayload = {
     doc_id?: (string) | null;
     features?: Array<string> | null;
     flavor?: (string) | null;
+    hardbreaks?: (boolean) | null;
     sanitize?: (boolean) | null;
     theme?: (string) | null;
     token?: (string) | null;

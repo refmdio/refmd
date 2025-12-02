@@ -10,6 +10,8 @@ pub struct RenderOptions {
     pub theme: Option<String>,
     pub features: Option<Vec<String>>,
     pub sanitize: Option<bool>,
+    /// If true, convert soft line breaks (single newlines) into <br> tags
+    pub hardbreaks: Option<bool>,
     /// If provided, rewrite attachment-relative links/images to absolute under /uploads/{doc_id}
     pub doc_id: Option<uuid::Uuid>,
     /// If provided, prefix absolute URLs with this origin (e.g., https://api.example.com)
@@ -100,6 +102,11 @@ pub fn render(
     }
     // Provide data-sourcepos for editor<->preview sync
     c_opts.render.sourcepos = true;
+    // Treat soft line breaks as <br>; default on for "doc" flavor unless explicitly disabled
+    let hardbreaks = opts
+        .hardbreaks
+        .unwrap_or_else(|| matches!(opts.flavor.as_deref(), Some(f) if f.eq_ignore_ascii_case("doc")));
+    c_opts.render.hardbreaks = hardbreaks;
     // Allow HtmlBlock/HtmlInline to pass through; will be sanitized by ammonia afterwards
     c_opts.render.unsafe_ = true;
 
