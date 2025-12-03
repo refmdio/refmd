@@ -567,6 +567,18 @@ impl GitWorkspacePort for CliGitWorkspace {
     ) -> anyhow::Result<api::application::dto::git::GitSyncOutcome> {
         bail!("sync not supported in refmd CLI");
     }
+
+    async fn check_remote(
+        &self,
+        _workspace_id: Uuid,
+        _cfg: &api::application::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<api::application::dto::git::GitRemoteCheckDto> {
+        Ok(api::application::dto::git::GitRemoteCheckDto {
+            ok: false,
+            message: "remote check not supported in CLI".to_string(),
+            reason: Some("unsupported".to_string()),
+        })
+    }
 }
 
 fn row_to_commit_meta(row: sqlx::postgres::PgRow) -> anyhow::Result<api::application::ports::git_storage::CommitMeta> {

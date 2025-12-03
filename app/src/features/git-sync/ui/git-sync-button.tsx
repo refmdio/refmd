@@ -46,7 +46,15 @@ function useGitSyncController() {
       qc.invalidateQueries({ queryKey: ['git-status'] })
     },
     onError: (e: any) => {
-      toast.error(`Sync failed: ${e?.message || e}`)
+      const raw = e?.body?.message || e?.message || `${e}`
+      const lower = typeof raw === 'string' ? raw.toLowerCase() : ''
+      if (lower.includes('git_repo_not_found') || lower.includes('repo_not_found') || lower.includes('git_http_not_found')) {
+        toast.error('Git sync failed: repository URL or branch was not found. Please check the URL/branch and try again.')
+      } else if (lower.includes('git_auth_redirect') || lower.includes('too many redirects') || lower.includes('http (34)')) {
+        toast.error('Git sync failed: remote requires re-authentication. Please re-enter your token/SSH key and ensure SSO is approved.')
+      } else {
+        toast.error(`Sync failed: ${raw}`)
+      }
       qc.invalidateQueries({ queryKey: ['git-status'] })
     },
   })

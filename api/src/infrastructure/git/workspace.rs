@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use git2::{
-    CertificateCheckStatus, Commit, Cred, FetchOptions, FileMode, Indexer, ObjectType, PushOptions,
-    RemoteCallbacks, Repository, Signature, Sort, Time, TreeWalkMode, TreeWalkResult,
+    CertificateCheckStatus, Commit, Cred, ErrorClass, FetchOptions, FileMode, Indexer, ObjectType,
+    PushOptions, RemoteCallbacks, Repository, Signature, Sort, Time, TreeWalkMode, TreeWalkResult,
 };
 use sqlx::{Row, types::Json};
 use tempfile::{Builder as TempDirBuilder, TempDir};
@@ -19,7 +19,8 @@ use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem, GitCommitInfo, GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
+    GitChangeItem, GitCommitInfo, GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto,
+    GitWorkspaceStatus,
 };
 use crate::application::ports::git_repository::UserGitCfg;
 use crate::application::ports::git_storage::{
@@ -1892,6 +1893,63 @@ impl GitWorkspacePort for GitWorkspaceService {
             message: outcome_message,
         })
     }
+
+    async fn check_remote(
+        &self,
+        workspace_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<GitRemoteCheckDto> {
+        if cfg.repository_url.is_empty() {
+            return Ok(GitRemoteCheckDto {
+                ok: true,
+                message: "remote not configured".to_string(),
+                reason: Some("no_remote".to_string()),
+            });
+        }
+        let branch = cfg.branch_name.clone();
+        let temp_dir = TempDirBuilder::new()
+            .prefix("git-check-")
+            .tempdir()
+            .map_err(|e| anyhow!(e))?;
+        let repo = Repository::init_bare(temp_dir.path())?;
+        let result = match fetch_remote_head(&repo, cfg, &branch) {
+            Ok(Some(_)) => GitRemoteCheckDto {
+                ok: true,
+                message: "remote reachable".to_string(),
+                reason: None,
+            },
+            Ok(None) => GitRemoteCheckDto {
+                ok: false,
+                message: format!("branch '{branch}' not found on remote"),
+                reason: Some("branch_missing".to_string()),
+            },
+            Err(err) => {
+                let lower = err.to_string().to_lowercase();
+                let (reason, msg) = if lower.contains("git_http_auth_redirect") {
+                    (
+                        Some("auth_required".to_string()),
+                        "remote requires authentication or SSO approval".to_string(),
+                    )
+                } else if lower.contains("git_http_not_found") || lower.contains("status code: 404") {
+                    (
+                        Some("repo_not_found".to_string()),
+                        "repository URL or branch not found".to_string(),
+                    )
+                } else {
+                    (None, err.to_string())
+                };
+                GitRemoteCheckDto {
+                    ok: false,
+                    message: msg,
+                    reason,
+                }
+            }
+        };
+        drop(repo);
+        let _ = temp_dir.close();
+        info!(workspace_id = %workspace_id, ok = %result.ok, reason = ?result.reason, "git_remote_check_completed");
+        Ok(result)
+    }
 }
 
 impl GitWorkspaceService {
@@ -2225,7 +2283,9 @@ fn fetch_remote_head(
     let mut fetch_options = FetchOptions::new();
     fetch_options.remote_callbacks(callbacks);
     let refspec = format!("refs/heads/{branch}:refs/remotes/origin/{branch}");
-    remote.fetch(&[&refspec], Some(&mut fetch_options), None)?;
+    remote
+        .fetch(&[&refspec], Some(&mut fetch_options), None)
+        .map_err(map_git_http_error)?;
     let reference_name = format!("refs/remotes/origin/{branch}");
     match repo.find_reference(&reference_name) {
         Ok(reference) => Ok(reference.target()),
@@ -2277,8 +2337,27 @@ fn perform_push(
     } else {
         format!("refs/heads/{0}:refs/heads/{0}", branch)
     };
-    remote.push(&[&refspec], Some(&mut push_options))?;
+    remote
+        .push(&[&refspec], Some(&mut push_options))
+        .map_err(map_git_http_error)?;
     Ok(true)
+}
+
+fn map_git_http_error(err: git2::Error) -> anyhow::Error {
+    if err.class() == ErrorClass::Http {
+        let msg = err.to_string().to_lowercase();
+        if msg.contains("status code: 401")
+            || msg.contains("status code: 407")
+            || msg.contains("redirect")
+        {
+            // Avoid leaking raw libgit2 error strings to the user; normalize to a short tag.
+            return anyhow!("git_http_auth_redirect");
+        }
+        if msg.contains("status code: 403") || msg.contains("status code: 404") {
+            return anyhow!("git_http_not_found");
+        }
+    }
+    err.into()
 }
 
 fn build_tree_from_entries(

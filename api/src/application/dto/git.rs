@@ -10,6 +10,13 @@ pub struct GitConfigDto {
 }
 
 #[derive(Debug, Clone)]
+pub struct GitRemoteCheckDto {
+    pub ok: bool,
+    pub message: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct GitStatusDto {
     pub repository_initialized: bool,
     pub has_remote: bool,

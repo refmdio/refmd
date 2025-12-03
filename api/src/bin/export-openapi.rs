@@ -173,6 +173,7 @@ use utoipa::OpenApi;
         public::PublishResponse,
         public::PublicDocumentSummary,
         git::GitConfigResponse,
+        git::GitRemoteCheckResponse,
         git::CreateGitConfigRequest,
         git::UpdateGitConfigRequest,
         git::GitStatus,

@@ -3,7 +3,8 @@ use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem, GitCommitInfo, GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
+    GitChangeItem, GitCommitInfo, GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto,
+    GitWorkspaceStatus,
 };
 use crate::application::ports::git_repository::UserGitCfg;
 
@@ -31,4 +32,10 @@ pub trait GitWorkspacePort: Send + Sync {
         req: &GitSyncRequestDto,
         cfg: Option<&UserGitCfg>,
     ) -> anyhow::Result<GitSyncOutcome>;
+
+    async fn check_remote(
+        &self,
+        workspace_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<GitRemoteCheckDto>;
 }

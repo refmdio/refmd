@@ -1,0 +1,13 @@
+[2025-12-03T07:48:02.834Z] Error: Missing $ref pointer "#/components/schemas/GitRemoteCheckResponse". Token "GitRemoteCheckResponse" does not exist.
+Stack:
+MissingPointerError: Missing $ref pointer "#/components/schemas/GitRemoteCheckResponse". Token "GitRemoteCheckResponse" does not exist.
+    at Pointer.resolve (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/pointer.js:113:23)
+    at $Ref.resolve (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/ref.js:79:24)
+    at $Refs._resolve (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/refs.js:168:21)
+    at inventory$Ref (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/bundle.js:136:25)
+    at crawl (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/bundle.js:266:21)
+    at crawl (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/bundle.js:281:21)
+    at crawl (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/bundle.js:281:21)
+    at crawl (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/bundle.js:281:21)
+    at inventory$Ref (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/bundle.js:194:9)
+    at crawl (/home/munenick/workspace/refmdio/refmd/app/node_modules/@hey-api/json-schema-ref-parser/dist/lib/bundle.js:266:21)

@@ -87,7 +87,26 @@ pub struct GitConfigResponse {
     pub auto_sync: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub remote_check: Option<GitRemoteCheckResponse>,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct GitRemoteCheckResponse {
+    pub ok: bool,
+    pub message: String,
+    pub reason: Option<String>,
+}
+
+impl From<crate::application::dto::git::GitRemoteCheckDto> for GitRemoteCheckResponse {
+    fn from(value: crate::application::dto::git::GitRemoteCheckDto) -> Self {
+        Self {
+            ok: value.ok,
+            message: value.message,
+            reason: value.reason,
+        }
+    }
+}
+
 impl From<GitConfigDto> for GitConfigResponse {
     fn from(d: GitConfigDto) -> Self {
         GitConfigResponse {
@@ -98,6 +117,7 @@ impl From<GitConfigDto> for GitConfigResponse {
             auto_sync: d.auto_sync,
             created_at: d.created_at,
             updated_at: d.updated_at,
+            remote_check: None,
         }
     }
 }
@@ -164,11 +184,17 @@ pub async fn get_config(
     workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
         .await?;
     let service = ctx.git_service();
-    let resp: Option<GitConfigDto> = service
-        .get_config(workspace_id)
-        .await
-        .map_err(map_git_error)?;
-    let out = resp.map(Into::into);
+    let resp: Option<GitConfigDto> = service.get_config(workspace_id).await.map_err(map_git_error)?;
+    let mut out: Option<GitConfigResponse> = resp.map(Into::into);
+    if let Some(ref mut cfg) = out {
+        if let Some(check) = service
+            .check_remote(workspace_id)
+            .await
+            .map_err(map_git_error)?
+        {
+            cfg.remote_check = Some(check.into());
+        }
+    }
     Ok(Json(out))
 }
 
@@ -212,7 +238,14 @@ pub async fn create_or_update_config(
             ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
             other => map_git_error(other),
         })?;
-    let out: GitConfigResponse = resp.into();
+    let mut out: GitConfigResponse = resp.into();
+    if let Some(check) = service
+        .check_remote(workspace_id)
+        .await
+        .map_err(map_git_error)?
+    {
+        out.remote_check = Some(check.into());
+    }
     Ok(Json(out))
 }
 

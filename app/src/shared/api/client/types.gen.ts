@@ -230,12 +230,19 @@ export type GitConfigResponse = {
     branch_name: string;
     created_at: string;
     id: string;
+    remote_check?: ((GitRemoteCheckResponse) | null);
     repository_url: string;
     updated_at: string;
 };
 
 export type GitHistoryResponse = {
     commits: Array<GitCommitItem>;
+};
+
+export type GitRemoteCheckResponse = {
+    message: string;
+    ok: boolean;
+    reason?: (string) | null;
 };
 
 export type GitStatus = {

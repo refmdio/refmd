@@ -36,6 +36,7 @@ export default function GitConfigDialog({ open, onOpenChange }: Props) {
   const [token, setToken] = React.useState('')
   const [privateKey, setPrivateKey] = React.useState('')
   const [autoSync, setAutoSync] = React.useState(true)
+  const [lastCheck, setLastCheck] = React.useState<{ ok: boolean; message: string; reason?: string | null } | null>(null)
 
   React.useEffect(() => {
     if (existingConfig) {
@@ -45,6 +46,7 @@ export default function GitConfigDialog({ open, onOpenChange }: Props) {
       setToken('')
       setPrivateKey('')
       setAutoSync(existingConfig.auto_sync ?? true)
+      setLastCheck(existingConfig.remote_check ?? null)
     }
   }, [existingConfig])
 
@@ -54,7 +56,13 @@ export default function GitConfigDialog({ open, onOpenChange }: Props) {
       const auth_data = authType === 'token' ? { token } : { private_key: privateKey }
       return createOrUpdateConfig({ requestBody: { repository_url: repositoryUrl.trim(), branch_name: branchName.trim() || 'main', auth_type: authType, auth_data, auto_sync: autoSync } })
     },
-    onSuccess: () => { toast.success('Git settings saved'); qc.invalidateQueries({ queryKey: ['git-config'] }); qc.invalidateQueries({ queryKey: ['git-status'] }); onOpenChange(false) },
+    onSuccess: (data: any) => {
+      toast.success('Git settings saved')
+      if (data?.remote_check) setLastCheck(data.remote_check)
+      qc.invalidateQueries({ queryKey: ['git-config'] })
+      qc.invalidateQueries({ queryKey: ['git-status'] })
+      onOpenChange(false)
+    },
     onError: (e: any) => { toast.error(`Failed to save settings: ${e?.message || e}`) }
   })
 
@@ -63,6 +71,19 @@ export default function GitConfigDialog({ open, onOpenChange }: Props) {
     onSuccess: () => { toast.success('Stopped using Git'); qc.invalidateQueries({ queryKey: ['git-status'] }) },
     onError: (e: any) => { toast.error(`Failed to stop: ${e?.message || e}`) }
   })
+
+  const renderCheckMessage = () => {
+    if (!lastCheck) return null
+    if (lastCheck.reason === 'repo_not_found') {
+      return 'Repository URL or branch was not found. Please check the URL/branch.'
+    }
+    if (lastCheck.reason === 'auth_required') {
+      return 'Remote requires authentication/SSO approval. Please re-enter your token/SSH key and approve SSO if needed.'
+    }
+    return lastCheck.message
+  }
+
+  const checkMessage = renderCheckMessage()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -112,6 +133,11 @@ export default function GitConfigDialog({ open, onOpenChange }: Props) {
                 Private key is encrypted at rest and never returned by the API. Leave blank to keep the existing key.
               </AlertDescription></Alert>
             </div>
+          )}
+          {lastCheck && (
+            <Alert variant={lastCheck.ok ? 'default' : 'destructive'}>
+              <AlertDescription>{checkMessage}</AlertDescription>
+            </Alert>
           )}
         </div>
         <DialogFooter className="gap-2">
