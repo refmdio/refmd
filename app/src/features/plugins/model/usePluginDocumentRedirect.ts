@@ -17,57 +17,19 @@ type Options = {
 
 export function usePluginDocumentRedirect(docId: string, options: Options = {}) {
   const { enabled = true, navigate: externalNavigate } = options
-  const [status, setStatus] = useState<'idle' | 'checking' | 'redirecting'>('idle')
+  const [redirecting, setRedirecting] = useState(false)
 
   useEffect(() => {
     if (!enabled || !docId) {
-      setStatus('idle')
+      setRedirecting(false)
       return
     }
     if (typeof window === 'undefined') {
-      setStatus('idle')
+      setRedirecting(false)
       return
     }
 
     let cancelled = false
-    setStatus('checking')
-
-    const normalizeRoute = (value: string | null | undefined) => {
-      if (!value) return null
-      try {
-        const url = new URL(value, window.location.origin)
-        return url.pathname + url.search + url.hash
-      } catch {
-        return value
-      }
-    }
-
-    const navigateTo = async (target: string) => {
-      if (!target) return false
-      if (externalNavigate) {
-        try {
-          await Promise.resolve(externalNavigate(target))
-          return true
-        } catch {
-          /* fall back */
-        }
-      }
-      const nav = (window as any).router?.navigate
-      if (typeof nav === 'function') {
-        try {
-          await Promise.resolve(nav({ to: target }))
-          return true
-        } catch {
-          /* fall back */
-        }
-      }
-      try {
-        window.location.href = target
-        return true
-      } catch {
-        return false
-      }
-    }
 
     const run = async () => {
       try {
@@ -78,11 +40,10 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
         })()
         const manifest = await getPluginManifest(shareToken)
         if (!Array.isArray(manifest) || manifest.length === 0) {
-          if (!cancelled) setStatus('idle')
+          if (!cancelled) setRedirecting(false)
           return
         }
         const currentRoute = window.location.pathname + window.location.search + window.location.hash
-        const currentNormalized = normalizeRoute(currentRoute)
 
         const candidates = (manifest as PluginManifestItem[])
           .map((plugin) => {
@@ -98,11 +59,37 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
           .filter((value): value is { plugin: PluginManifestItem; loader: Promise<any> } => value !== null)
 
         if (candidates.length === 0) {
-          if (!cancelled) setStatus('idle')
+          if (!cancelled) setRedirecting(false)
           return
         }
 
         const modules = await Promise.allSettled(candidates.map((c) => c.loader))
+
+        const navigateTo = (target: string) => {
+          if (!target) return
+          if (externalNavigate) {
+            try {
+              const result = externalNavigate(target)
+              if (result && typeof (result as Promise<void>).catch === 'function') {
+                ;(result as Promise<void>).catch(() => {
+                  window.location.href = target
+                })
+              }
+              return
+            } catch {
+              window.location.href = target
+              return
+            }
+          }
+          const nav = (window as any).router?.navigate
+          if (typeof nav === 'function') {
+            try {
+              nav({ to: target })
+              return
+            } catch {}
+          }
+          window.location.href = target
+        }
 
         for (let index = 0; index < candidates.length; index += 1) {
           const candidate = candidates[index]
@@ -126,29 +113,20 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
             const origin = (host as any)?.origin || ''
             const canOpen = await mod.canOpen(docId, { token: shareToken, origin, host })
             if (!canOpen || typeof mod.getRoute !== 'function') continue
-            if (!cancelled) setStatus('redirecting')
+            if (!cancelled) setRedirecting(true)
             const to = await mod.getRoute(docId, { token: shareToken, origin, host })
             if (typeof to === 'string' && to) {
-              const normalizedTarget = normalizeRoute(to)
-              const isSameRoute = normalizedTarget && currentNormalized && normalizedTarget === currentNormalized
-              if (isSameRoute) {
-                if (!cancelled) setStatus('idle')
-                continue
-              }
-              const navigated = await navigateTo(to)
-              if (!navigated && !cancelled) {
-                setStatus('idle')
-              }
+              navigateTo(to)
               return
             }
           } catch (error) {
             console.error('[plugins] redirect resolution failed', candidate?.plugin?.id ?? 'unknown', error)
           }
         }
-        if (!cancelled) setStatus('idle')
+        if (!cancelled) setRedirecting(false)
       } catch (error) {
         console.error('[plugins] redirect orchestration failed', error)
-        if (!cancelled) setStatus('idle')
+        if (!cancelled) setRedirecting(false)
       }
     }
 
@@ -158,8 +136,5 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
     }
   }, [docId, enabled, externalNavigate])
 
-  return {
-    redirecting: status === 'redirecting',
-    resolving: status !== 'idle',
-  }
+  return redirecting
 }

@@ -96,7 +96,7 @@ function DocumentClient({
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
-  const { redirecting } = usePluginDocumentRedirect(id, {
+  const redirecting = usePluginDocumentRedirect(id, {
     navigate: (to) => navigate({ to }),
   })
   const anonIdentity = useMemo(() => {
@@ -237,9 +237,11 @@ function DocumentClient({
 
   const overlayLabel = realtimeError
     ? realtimeError
-    : status === 'connecting'
-      ? 'Connecting…'
-      : 'Loading…'
+    : redirecting
+      ? 'Loading…'
+      : status === 'connecting'
+        ? 'Connecting…'
+        : 'Loading…'
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -310,7 +312,7 @@ function DocumentClient({
           userId={user?.id || anonIdentity?.id}
           userName={user?.name || anonIdentity?.name}
           documentId={id}
-          readOnly={isReadOnly || redirecting}
+          readOnly={isReadOnly}
           extraRight={
             showBacklinks ? (
               <BacklinksPanel documentId={id} className="h-full" onClose={() => setShowBacklinks(false)} />
