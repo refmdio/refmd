@@ -96,7 +96,7 @@ function DocumentClient({
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
-  const redirecting = usePluginDocumentRedirect(id, {
+  const { redirecting, resolving: pluginResolving } = usePluginDocumentRedirect(id, {
     navigate: useCallback((to: string) => navigate({ to }), [navigate]),
   })
   const anonIdentity = useMemo(() => {
@@ -233,15 +233,17 @@ function DocumentClient({
 
   const hasCollaborativeState = Boolean(doc && awareness)
 
-  const shouldShowOverlay = redirecting || Boolean(realtimeError) || !hasCollaborativeState
+  const shouldShowOverlay = pluginResolving || redirecting || Boolean(realtimeError) || !hasCollaborativeState
 
   const overlayLabel = realtimeError
     ? realtimeError
-    : redirecting
-      ? 'Loading…'
-      : status === 'connecting'
-        ? 'Connecting…'
-        : 'Loading…'
+    : pluginResolving
+      ? 'Preparing plugin…'
+      : redirecting
+        ? 'Opening plugin…'
+        : status === 'connecting'
+          ? 'Connecting…'
+          : 'Loading…'
 
   useEffect(() => {
     if (typeof document === 'undefined') return

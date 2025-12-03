@@ -14,7 +14,7 @@ import { useAuthContext } from '@/features/auth'
 export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
 
 export function useCollaborativeDocument(id: string, shareToken?: string) {
-  const { permissions } = useAuthContext()
+  const { permissions, loading: authLoading } = useAuthContext()
   const {
     setDocumentId: setRealtimeDocumentId,
     setDocumentTitle,
@@ -56,9 +56,10 @@ export function useCollaborativeDocument(id: string, shareToken?: string) {
   }, [id, shareToken])
 
   React.useEffect(() => {
+    if (authLoading) return
     const hasEditPermission = permissions.includes('doc:edit')
     setIsReadOnly(shareReadOnly || archived || !hasEditPermission)
-  }, [shareReadOnly, archived, permissions])
+  }, [authLoading, shareReadOnly, archived, permissions])
 
   const loadMeta = React.useCallback(async () => {
     try {

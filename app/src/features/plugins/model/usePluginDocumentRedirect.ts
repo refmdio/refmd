@@ -18,7 +18,7 @@ type Options = {
 
 export function usePluginDocumentRedirect(docId: string, options: Options = {}) {
   const { enabled = true, navigate: externalNavigate } = options
-  const [redirecting, setRedirecting] = useState(false)
+  const [status, setStatus] = useState<'idle' | 'checking' | 'redirecting'>('idle')
   const navigateRef = useRef<typeof externalNavigate>(externalNavigate)
 
   useEffect(() => {
@@ -27,21 +27,16 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
 
   useEffect(() => {
     if (!enabled || !docId) {
-      setRedirecting(false)
+      setStatus('idle')
       return
     }
     if (typeof window === 'undefined') {
-      setRedirecting(false)
+      setStatus('idle')
       return
     }
 
     let cancelled = false
-    // Block edits while we decide if a plugin wants to take over this document.
-    setRedirecting(true)
-    // Failsafe: never leave the overlay stuck if something inside `run` hangs.
-    const timeoutId = window.setTimeout(() => {
-      if (!cancelled) setRedirecting(false)
-    }, 5000)
+    setStatus('checking')
 
     const run = async () => {
       try {
@@ -124,7 +119,7 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
             const origin = (host as any)?.origin || ''
             const canOpen = await mod.canOpen(docId, { token: shareToken, origin, host })
             if (!canOpen || typeof mod.getRoute !== 'function') continue
-            if (!cancelled) setRedirecting(true)
+            if (!cancelled) setStatus('redirecting')
             const to = await mod.getRoute(docId, { token: shareToken, origin, host })
             if (typeof to === 'string' && to) {
               navigateTo(to)
@@ -137,17 +132,20 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
       } catch (error) {
         console.error('[plugins] redirect orchestration failed', error)
       } finally {
-        clearTimeout(timeoutId)
-        if (!cancelled) setRedirecting(false)
+        if (!cancelled) {
+          setStatus((prev) => (prev === 'redirecting' ? prev : 'idle'))
+        }
       }
     }
 
     void run()
     return () => {
       cancelled = true
-      clearTimeout(timeoutId)
     }
   }, [docId, enabled])
 
-  return redirecting
+  return {
+    redirecting: status === 'redirecting',
+    resolving: status === 'checking',
+  }
 }
