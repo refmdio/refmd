@@ -7,8 +7,8 @@ import {
   updateDocumentParent,
   updateDocumentTitle,
 } from '@/entities/document'
-import { deleteShareMount } from '@/entities/share'
 import { usePluginExecutor, usePluginManifest, type PluginCommand } from '@/entities/plugin'
+import { deleteShareMount } from '@/entities/share'
 
 import type { DocumentNode } from '@/features/file-tree/model/types'
 
