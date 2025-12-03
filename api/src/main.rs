@@ -1009,6 +1009,16 @@ async fn main() -> anyhow::Result<()> {
     };
     let ctx = AppContext::new(presentation_cfg, services, metrics.clone());
 
+    let frontend_origin = if let Some(origin) = cfg.frontend_url.clone() {
+        Some(HeaderValue::from_str(&origin).map_err(|_| {
+            anyhow::anyhow!(
+                "FRONTEND_URL must be a valid origin (e.g., https://app.example.com)"
+            )
+        })?)
+    } else {
+        None
+    };
+
     // Build CORS
     let cors_allow_headers = [
         http::header::CONTENT_TYPE,
@@ -1016,35 +1026,20 @@ async fn main() -> anyhow::Result<()> {
         http::header::HeaderName::from_static("x-workspace-id"),
     ];
     let cors_expose_headers = [http::header::WWW_AUTHENTICATE];
-    let cors = if let Some(origin) = cfg.frontend_url.clone() {
-        match HeaderValue::from_str(&origin) {
-            Ok(v) => CorsLayer::new()
-                .allow_origin(v)
-                .allow_methods([
-                    http::Method::GET,
-                    http::Method::POST,
-                    http::Method::PUT,
-                    http::Method::DELETE,
-                    http::Method::PATCH,
-                    http::Method::OPTIONS,
-                ])
-                .allow_headers(cors_allow_headers.clone())
-                .expose_headers(cors_expose_headers.clone())
-                .allow_credentials(true),
-            Err(_) => CorsLayer::new()
-                .allow_origin(AllowOrigin::mirror_request())
-                .allow_methods([
-                    http::Method::GET,
-                    http::Method::POST,
-                    http::Method::PUT,
-                    http::Method::DELETE,
-                    http::Method::PATCH,
-                    http::Method::OPTIONS,
-                ])
-                .allow_headers(cors_allow_headers.clone())
-                .expose_headers(cors_expose_headers.clone())
-                .allow_credentials(true),
-        }
+    let cors = if let Some(origin) = frontend_origin.clone() {
+        CorsLayer::new()
+            .allow_origin(origin)
+            .allow_methods([
+                http::Method::GET,
+                http::Method::POST,
+                http::Method::PUT,
+                http::Method::DELETE,
+                http::Method::PATCH,
+                http::Method::OPTIONS,
+            ])
+            .allow_headers(cors_allow_headers.clone())
+            .expose_headers(cors_expose_headers.clone())
+            .allow_credentials(true)
     } else {
         if cfg.is_production {
             // In production, FRONTEND_URL is mandatory (enforced earlier), but fallback defensively to deny all
