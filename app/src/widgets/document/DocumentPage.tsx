@@ -97,7 +97,7 @@ function DocumentClient({
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
   const redirecting = usePluginDocumentRedirect(id, {
-    navigate: (to) => navigate({ to }),
+    navigate: useCallback((to: string) => navigate({ to }), [navigate]),
   })
   const anonIdentity = useMemo(() => {
     if (user) return null
@@ -312,7 +312,7 @@ function DocumentClient({
           userId={user?.id || anonIdentity?.id}
           userName={user?.name || anonIdentity?.name}
           documentId={id}
-          readOnly={isReadOnly}
+          readOnly={isReadOnly || redirecting}
           extraRight={
             showBacklinks ? (
               <BacklinksPanel documentId={id} className="h-full" onClose={() => setShowBacklinks(false)} />

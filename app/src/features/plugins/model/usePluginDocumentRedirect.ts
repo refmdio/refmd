@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useRef } from 'react'
 
 
 import type { PluginManifestItem } from '@/entities/plugin'
@@ -18,6 +19,11 @@ type Options = {
 export function usePluginDocumentRedirect(docId: string, options: Options = {}) {
   const { enabled = true, navigate: externalNavigate } = options
   const [redirecting, setRedirecting] = useState(false)
+  const navigateRef = useRef<typeof externalNavigate>(externalNavigate)
+
+  useEffect(() => {
+    navigateRef.current = externalNavigate
+  }, [externalNavigate])
 
   useEffect(() => {
     if (!enabled || !docId) {
@@ -30,6 +36,12 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
     }
 
     let cancelled = false
+    // Block edits while we decide if a plugin wants to take over this document.
+    setRedirecting(true)
+    // Failsafe: never leave the overlay stuck if something inside `run` hangs.
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled) setRedirecting(false)
+    }, 5000)
 
     const run = async () => {
       try {
@@ -40,7 +52,6 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
         })()
         const manifest = await getPluginManifest(shareToken)
         if (!Array.isArray(manifest) || manifest.length === 0) {
-          if (!cancelled) setRedirecting(false)
           return
         }
         const currentRoute = window.location.pathname + window.location.search + window.location.hash
@@ -59,7 +70,6 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
           .filter((value): value is { plugin: PluginManifestItem; loader: Promise<any> } => value !== null)
 
         if (candidates.length === 0) {
-          if (!cancelled) setRedirecting(false)
           return
         }
 
@@ -67,6 +77,7 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
 
         const navigateTo = (target: string) => {
           if (!target) return
+          const externalNavigate = navigateRef.current
           if (externalNavigate) {
             try {
               const result = externalNavigate(target)
@@ -123,9 +134,10 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
             console.error('[plugins] redirect resolution failed', candidate?.plugin?.id ?? 'unknown', error)
           }
         }
-        if (!cancelled) setRedirecting(false)
       } catch (error) {
         console.error('[plugins] redirect orchestration failed', error)
+      } finally {
+        clearTimeout(timeoutId)
         if (!cancelled) setRedirecting(false)
       }
     }
@@ -133,8 +145,9 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
     void run()
     return () => {
       cancelled = true
+      clearTimeout(timeoutId)
     }
-  }, [docId, enabled, externalNavigate])
+  }, [docId, enabled])
 
   return redirecting
 }
