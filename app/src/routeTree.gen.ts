@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as OgVariantDotpngRouteImport } from './routes/og/$variant[.]png'
 import { Route as appWorkspacesRouteImport } from './routes/(app)/workspaces'
 import { Route as appTemporaryRouteImport } from './routes/(app)/temporary'
+import { Route as appShortcutsRouteImport } from './routes/(app)/shortcuts'
 import { Route as appSettingsRouteImport } from './routes/(app)/settings'
 import { Route as appProfileRouteImport } from './routes/(app)/profile'
 import { Route as appPluginsRouteImport } from './routes/(app)/plugins'
@@ -46,6 +47,11 @@ const appWorkspacesRoute = appWorkspacesRouteImport.update({
 const appTemporaryRoute = appTemporaryRouteImport.update({
   id: '/(app)/temporary',
   path: '/temporary',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appShortcutsRoute = appShortcutsRouteImport.update({
+  id: '/(app)/shortcuts',
+  path: '/shortcuts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const appSettingsRoute = appSettingsRouteImport.update({
@@ -125,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsRoute
+  '/shortcuts': typeof appShortcutsRoute
   '/temporary': typeof appTemporaryRouteWithChildren
   '/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
@@ -145,6 +152,7 @@ export interface FileRoutesByTo {
   '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsRoute
+  '/shortcuts': typeof appShortcutsRoute
   '/temporary': typeof appTemporaryRouteWithChildren
   '/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
@@ -166,6 +174,7 @@ export interface FileRoutesById {
   '/(app)/plugins': typeof appPluginsRoute
   '/(app)/profile': typeof appProfileRoute
   '/(app)/settings': typeof appSettingsRoute
+  '/(app)/shortcuts': typeof appShortcutsRoute
   '/(app)/temporary': typeof appTemporaryRouteWithChildren
   '/(app)/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
@@ -188,6 +197,7 @@ export interface FileRouteTypes {
     | '/plugins'
     | '/profile'
     | '/settings'
+    | '/shortcuts'
     | '/temporary'
     | '/workspaces'
     | '/og/$variant.png'
@@ -208,6 +218,7 @@ export interface FileRouteTypes {
     | '/plugins'
     | '/profile'
     | '/settings'
+    | '/shortcuts'
     | '/temporary'
     | '/workspaces'
     | '/og/$variant.png'
@@ -228,6 +239,7 @@ export interface FileRouteTypes {
     | '/(app)/plugins'
     | '/(app)/profile'
     | '/(app)/settings'
+    | '/(app)/shortcuts'
     | '/(app)/temporary'
     | '/(app)/workspaces'
     | '/og/$variant.png'
@@ -249,6 +261,7 @@ export interface RootRouteChildren {
   appPluginsRoute: typeof appPluginsRoute
   appProfileRoute: typeof appProfileRoute
   appSettingsRoute: typeof appSettingsRoute
+  appShortcutsRoute: typeof appShortcutsRoute
   appTemporaryRoute: typeof appTemporaryRouteWithChildren
   appWorkspacesRoute: typeof appWorkspacesRoute
   OgVariantDotpngRoute: typeof OgVariantDotpngRoute
@@ -291,6 +304,13 @@ declare module '@tanstack/react-router' {
       path: '/temporary'
       fullPath: '/temporary'
       preLoaderRoute: typeof appTemporaryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/shortcuts': {
+      id: '/(app)/shortcuts'
+      path: '/shortcuts'
+      fullPath: '/shortcuts'
+      preLoaderRoute: typeof appShortcutsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(app)/settings': {
@@ -412,6 +432,7 @@ const rootRouteChildren: RootRouteChildren = {
   appPluginsRoute: appPluginsRoute,
   appProfileRoute: appProfileRoute,
   appSettingsRoute: appSettingsRoute,
+  appShortcutsRoute: appShortcutsRoute,
   appTemporaryRoute: appTemporaryRouteWithChildren,
   appWorkspacesRoute: appWorkspacesRoute,
   OgVariantDotpngRoute: OgVariantDotpngRoute,

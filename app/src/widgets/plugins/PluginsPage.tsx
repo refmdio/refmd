@@ -1,4 +1,4 @@
-import { Download, PackagePlus, Plug, RefreshCcw, Shield, Terminal } from 'lucide-react'
+import { Download, PackagePlus, Plug, Shield, Terminal } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -7,6 +7,7 @@ import { Button } from '@/shared/ui/button'
 import { Card, CardFooter } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
+import { SettingsShell } from '@/widgets/settings/SettingsShell'
 
 import { installPluginFromUrl, uninstallPlugin, usePluginManifest } from '@/entities/plugin'
 
@@ -15,7 +16,7 @@ type PluginLike = (ReturnType<typeof usePluginManifest>['plugins'])[number]
 type CommandLike = (ReturnType<typeof usePluginManifest>['commands'])[number]
 
 export default function PluginsPage() {
-  const { plugins, commands, loading, refresh } = usePluginManifest()
+  const { plugins, commands, refresh } = usePluginManifest()
   const [installUrl, setInstallUrl] = useState('')
   const [installToken, setInstallToken] = useState('')
   const [installing, setInstalling] = useState(false)
@@ -212,55 +213,35 @@ export default function PluginsPage() {
   )
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 pb-20 pt-10 sm:px-6 md:px-8">
-        <section className="rounded-3xl border border-border/60 p-6 shadow-lg backdrop-blur md:p-8">
-          <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-2">
-              <Badge variant="secondary" className="w-fit rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide">
-                Plugins
-              </Badge>
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                Plugin dashboard
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Quick status of your bundles, global installs, and exposed commands.
-              </p>
-            </div>
-            <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-              <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
-                <PackagePlus className="h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground/80">User plugins</p>
-                  <p className="text-lg font-semibold text-foreground">{userPlugins.length}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
-                <Shield className="h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground/80">Global plugins</p>
-                  <p className="text-lg font-semibold text-foreground">{globalPlugins.length}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
-                <Terminal className="h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground/80">Commands</p>
-                  <p className="text-lg font-semibold text-foreground">{totalCommands}</p>
-                </div>
-              </div>
+    <SettingsShell
+      header={{
+        eyebrow: 'Plugins',
+        title: 'Plugin dashboard',
+        description: 'Quick status of your bundles, global installs, and exposed commands.',
+      }}
+    >
+      <div className="space-y-10">
+        <section className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
+          <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
+            <PackagePlus className="h-4 w-4 text-primary" />
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground/80">User plugins</p>
+              <p className="text-lg font-semibold text-foreground">{userPlugins.length}</p>
             </div>
           </div>
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <Button
-              variant="outline"
-              onClick={() => refresh()}
-              disabled={loading}
-              className="rounded-full px-4"
-            >
-              <RefreshCcw className="h-4 w-4" />
-              <span className="ml-2 text-sm">{loading ? 'Refreshing…' : 'Refresh'}</span>
-            </Button>
+          <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
+            <Shield className="h-4 w-4 text-primary" />
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground/80">Global plugins</p>
+              <p className="text-lg font-semibold text-foreground">{globalPlugins.length}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
+            <Terminal className="h-4 w-4 text-primary" />
+            <div>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground/80">Commands</p>
+              <p className="text-lg font-semibold text-foreground">{totalCommands}</p>
+            </div>
           </div>
         </section>
 
@@ -306,6 +287,6 @@ export default function PluginsPage() {
         {renderPluginSection('User plugins', userPlugins, 'No user plugins installed yet.', true)}
         {renderPluginSection('Global plugins', globalPlugins, 'No global plugins available.')}
       </div>
-    </div>
+    </SettingsShell>
   )
 }
