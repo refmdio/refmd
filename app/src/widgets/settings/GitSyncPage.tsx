@@ -309,7 +309,7 @@ export default function GitSyncPage() {
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || !repositoryInitialized || !repositoryUrl.trim()}
+                disabled={saveMutation.isPending || !repositoryUrl.trim()}
                 className="rounded-full"
               >
                 {saveMutation.isPending ? 'Saving…' : 'Save settings'}
