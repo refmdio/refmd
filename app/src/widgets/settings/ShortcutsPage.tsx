@@ -1,7 +1,7 @@
 import { settingsNavItems } from '@/features/settings/nav'
+import { ShortcutSettingsCard } from '@/features/settings/shortcut-settings/ui/ShortcutSettingsCard'
 
 import { SettingsShell } from './SettingsShell'
-import { ShortcutSettingsCard } from '@/features/settings/shortcut-settings/ui/ShortcutSettingsCard'
 
 export default function ShortcutsPage() {
   return (

@@ -6,15 +6,17 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
-import { settingsNavItems } from '@/features/settings/nav'
-import { SettingsShell } from '@/widgets/settings/SettingsShell'
+
 
 import { useWorkspacePublicDocuments, unpublishDocument } from '@/entities/public'
 import { activeSharesQuery, deleteShare } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
+import { settingsNavItems } from '@/features/settings/nav'
 import { DocumentShareCard, FolderShareTree } from '@/features/sharing'
 import type { ActiveShareItem } from '@/features/sharing'
+
+import { SettingsShell } from '@/widgets/settings/SettingsShell'
 
 export type PublicDoc = { id: string; title: string; updated_at: string; published_at: string }
 

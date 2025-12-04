@@ -7,11 +7,13 @@ import { Button } from '@/shared/ui/button'
 import { Card, CardFooter } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
+
+import { installPluginFromUrl, uninstallPlugin, usePluginManifest } from '@/entities/plugin'
+
 import { settingsNavItems } from '@/features/settings/nav'
 
 import { SettingsShell } from '@/widgets/settings/SettingsShell'
 
-import { installPluginFromUrl, uninstallPlugin, usePluginManifest } from '@/entities/plugin'
 
 type PluginLike = (ReturnType<typeof usePluginManifest>['plugins'])[number]
 

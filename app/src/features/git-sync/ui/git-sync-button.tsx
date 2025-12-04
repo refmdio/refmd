@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { AlertCircle, CheckCircle, Eye, FileX, GitCommit, History, Loader2, Settings } from 'lucide-react'
 import { useMemo, useState, useCallback } from 'react'
 import { toast } from 'sonner'
@@ -13,7 +14,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 import { getStatus, getConfig, syncNow, initRepository } from '@/entities/git'
 
 import GitChangesDialog from './git-changes-dialog'
-import GitConfigDialog from './git-config-dialog'
 import GitHistoryDialog from './git-history-dialog'
 
 type Props = { className?: string; compact?: boolean }
@@ -24,7 +24,6 @@ type GitConfig = Awaited<ReturnType<typeof getConfig>>
 function useGitSyncController() {
   const qc = useQueryClient()
   const isMobile = useIsMobile()
-  const [showConfig, setShowConfig] = useState(false)
   const [showChanges, setShowChanges] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
@@ -73,18 +72,17 @@ function useGitSyncController() {
   const isConfigured = Boolean(config) && Boolean(status?.repository_initialized)
 
   const handleSync = useCallback(() => {
-    if (statusError || !config || !status?.repository_initialized) setShowConfig(true)
-    else syncMutation.mutate()
-  }, [statusError, config, status, syncMutation])
+    if (!config || !status?.repository_initialized) return
+    syncMutation.mutate()
+  }, [config, status, syncMutation])
 
-  const openConfig = useCallback(() => setShowConfig(true), [])
   const openChanges = useCallback(() => {
-    if (!status?.repository_initialized) setShowConfig(true)
-    else setShowChanges(true)
+    if (!status?.repository_initialized) return
+    setShowChanges(true)
   }, [status])
   const openHistory = useCallback(() => {
-    if (!status?.repository_initialized) setShowConfig(true)
-    else setShowHistory(true)
+    if (!status?.repository_initialized) return
+    setShowHistory(true)
   }, [status])
 
   const statusText = useMemo(() => {
@@ -120,11 +118,8 @@ function useGitSyncController() {
     statusText,
     tooltipText,
     handleSync,
-    openConfig,
     openChanges,
     openHistory,
-    showConfig,
-    setShowConfig,
     showChanges,
     setShowChanges,
     showHistory,
@@ -142,11 +137,8 @@ export default function GitSyncButton({ className, compact = false }: Props) {
     statusText,
     tooltipText,
     handleSync,
-    openConfig,
     openChanges,
     openHistory,
-    showConfig,
-    setShowConfig,
     showChanges,
     setShowChanges,
     showHistory,
@@ -233,19 +225,15 @@ export default function GitSyncButton({ className, compact = false }: Props) {
             Git Ignore
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => {
-              openConfig()
-              setMenuOpen(false)
-            }}
-          >
-            <Settings className="mr-2 h-4 w-4" />
-            Settings
+          <DropdownMenuItem asChild onSelect={() => setMenuOpen(false)}>
+            <Link to="/settings/git-sync">
+              <Settings className="mr-2 h-4 w-4" />
+              Open Settings
+            </Link>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <GitConfigDialog open={showConfig} onOpenChange={setShowConfig} />
       <GitChangesDialog open={showChanges} onOpenChange={setShowChanges} />
       <GitHistoryDialog open={showHistory} onOpenChange={setShowHistory} />
     </>

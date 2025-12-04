@@ -17,6 +17,7 @@ import { Route as appSettingsIndexRouteImport } from './routes/(app)/settings/in
 import { Route as appSettingsShortcutsRouteImport } from './routes/(app)/settings/shortcuts'
 import { Route as appSettingsPluginsRouteImport } from './routes/(app)/settings/plugins'
 import { Route as appSettingsVisibilityRouteImport } from './routes/(app)/settings/visibility'
+import { Route as appSettingsGitSyncRouteImport } from './routes/(app)/settings/git-sync'
 import { Route as appProfileRouteImport } from './routes/(app)/profile'
 import { Route as appDashboardRouteImport } from './routes/(app)/dashboard'
 import { Route as shareShareTokenRouteImport } from './routes/(share)/share/$token'
@@ -67,6 +68,11 @@ const appSettingsPluginsRoute = appSettingsPluginsRouteImport.update({
 const appSettingsVisibilityRoute = appSettingsVisibilityRouteImport.update({
   id: '/(app)/settings/visibility',
   path: '/settings/visibility',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appSettingsGitSyncRoute = appSettingsGitSyncRouteImport.update({
+  id: '/(app)/settings/git-sync',
+  path: '/settings/git-sync',
   getParentRoute: () => rootRouteImport,
 } as any)
 const appProfileRoute = appProfileRouteImport.update({
@@ -130,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof appDashboardRoute
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsIndexRoute
+  '/settings/git-sync': typeof appSettingsGitSyncRoute
   '/settings/plugins': typeof appSettingsPluginsRoute
   '/settings/shortcuts': typeof appSettingsShortcutsRoute
   '/settings/visibility': typeof appSettingsVisibilityRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof appDashboardRoute
   '/profile': typeof appProfileRoute
   '/settings': typeof appSettingsIndexRoute
+  '/settings/git-sync': typeof appSettingsGitSyncRoute
   '/settings/plugins': typeof appSettingsPluginsRoute
   '/settings/shortcuts': typeof appSettingsShortcutsRoute
   '/settings/visibility': typeof appSettingsVisibilityRoute
@@ -173,6 +181,7 @@ export interface FileRoutesById {
   '/(app)/dashboard': typeof appDashboardRoute
   '/(app)/profile': typeof appProfileRoute
   '/(app)/settings': typeof appSettingsIndexRoute
+  '/(app)/settings/git-sync': typeof appSettingsGitSyncRoute
   '/(app)/settings/plugins': typeof appSettingsPluginsRoute
   '/(app)/settings/shortcuts': typeof appSettingsShortcutsRoute
   '/(app)/settings/visibility': typeof appSettingsVisibilityRoute
@@ -196,6 +205,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/profile'
     | '/settings'
+    | '/settings/git-sync'
     | '/settings/plugins'
     | '/settings/shortcuts'
     | '/settings/visibility'
@@ -217,6 +227,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/profile'
     | '/settings'
+    | '/settings/git-sync'
     | '/settings/plugins'
     | '/settings/shortcuts'
     | '/settings/visibility'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
     | '/(app)/dashboard'
     | '/(app)/profile'
     | '/(app)/settings'
+    | '/(app)/settings/git-sync'
     | '/(app)/settings/plugins'
     | '/(app)/settings/shortcuts'
     | '/(app)/settings/visibility'
@@ -260,6 +272,7 @@ export interface RootRouteChildren {
   appDashboardRoute: typeof appDashboardRoute
   appProfileRoute: typeof appProfileRoute
   appSettingsIndexRoute: typeof appSettingsIndexRoute
+  appSettingsGitSyncRoute: typeof appSettingsGitSyncRoute
   appSettingsPluginsRoute: typeof appSettingsPluginsRoute
   appSettingsShortcutsRoute: typeof appSettingsShortcutsRoute
   appSettingsVisibilityRoute: typeof appSettingsVisibilityRoute
@@ -311,6 +324,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof appSettingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/settings/git-sync': {
+      id: '/(app)/settings/git-sync'
+      path: '/settings/git-sync'
+      fullPath: '/settings/git-sync'
+      preLoaderRoute: typeof appSettingsGitSyncRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(app)/settings/plugins': {
@@ -431,6 +451,7 @@ const rootRouteChildren: RootRouteChildren = {
   appDashboardRoute: appDashboardRoute,
   appProfileRoute: appProfileRoute,
   appSettingsIndexRoute: appSettingsIndexRoute,
+  appSettingsGitSyncRoute: appSettingsGitSyncRoute,
   appSettingsPluginsRoute: appSettingsPluginsRoute,
   appSettingsShortcutsRoute: appSettingsShortcutsRoute,
   appSettingsVisibilityRoute: appSettingsVisibilityRoute,

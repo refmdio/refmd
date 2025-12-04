@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Command, Info, Sparkles, Users } from 'lucide-react'
+import { Command, GitCommit, Info, Sparkles, Users } from 'lucide-react'
 
 export type SettingsNavItem = {
   id: string
@@ -37,5 +37,12 @@ export const settingsNavItems: SettingsNavItem[] = [
     description: 'Install and manage plugins.',
     icon: Sparkles,
     to: '/settings/plugins',
+  },
+  {
+    id: 'git-sync',
+    label: 'Git Sync',
+    description: 'Repo sync & history.',
+    icon: GitCommit,
+    to: '/settings/git-sync',
   },
 ]
