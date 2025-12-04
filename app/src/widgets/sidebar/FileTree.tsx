@@ -1,6 +1,6 @@
 import { Link, useRouter, useRouterState } from '@tanstack/react-router'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Archive, Blocks, Eye, FileText, Github, LogOut, Settings, Users, ChevronDown, ChevronRight, Check, Loader2, Building2 } from 'lucide-react'
+import { Archive, Building2, Check, ChevronDown, ChevronRight, FileText, Github, Loader2, LogOut, Settings, Users } from 'lucide-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -86,27 +86,15 @@ function SidebarUserMenu() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
+          <Link to="/workspaces">
+            <Building2 className={cn('mr-2', userMenuIconClass)} />
+            <span>Workspace</span>
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
           <Link to="/settings">
             <Settings className={cn('mr-2', userMenuIconClass)} />
             <span>Settings</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/visibility">
-            <Eye className={cn('mr-2', userMenuIconClass)} />
-            <span>Visibility</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/plugins">
-            <Blocks className={cn('mr-2', userMenuIconClass)} />
-            <span>Plugins</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/workspaces">
-            <Building2 className={cn('mr-2', userMenuIconClass)} />
-            <span>Workspaces</span>
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
@@ -721,6 +709,7 @@ function FileTreeInner() {
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
           renderChildren={undefined}
           onShareFolder={(folder) => setShareFolderId(folder.id)}
+          gitEnabled
         />
       )
     }
@@ -746,6 +735,7 @@ function FileTreeInner() {
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parent) }}
         pluginRules={fileTreeRules}
         onOpenSecondaryViewer={openSecondaryViewer}
+        gitEnabled
       />
     )
   }, [createDocument, createFolder, deleteDocument, drag, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
@@ -779,6 +769,7 @@ function FileTreeInner() {
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
           renderChildren={() => node.children?.map((c) => renderNestedNode(c, node.id, depth + 1))}
           onShareFolder={(folder) => setShareFolderId(folder.id)}
+          gitEnabled
         />
       )
     }
@@ -802,6 +793,7 @@ function FileTreeInner() {
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parentId) }}
         pluginRules={fileTreeRules}
         onOpenSecondaryViewer={openSecondaryViewer}
+        gitEnabled
       />
     )
   }, [createDocument, createFolder, deleteDocument, drag, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])

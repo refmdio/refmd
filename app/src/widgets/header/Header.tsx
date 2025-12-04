@@ -121,7 +121,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   useShortcut(
     'global.plugins.open',
     useCallback(() => {
-      navigate({ to: '/plugins' })
+      navigate({ to: '/settings/plugins' })
     }, [navigate]),
   )
   const creatingDocumentRef = useRef(false)

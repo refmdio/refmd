@@ -43,6 +43,7 @@ type FolderNodeProps = {
   onDragOver: (e: React.DragEvent, nodeId?: string, nodeType?: 'file' | 'folder') => void
   renderChildren?: () => React.ReactNode
   onShareFolder?: (node: DocumentNode) => void
+  gitEnabled?: boolean
 }
 
 export const FolderNode = memo(function FolderNode({
@@ -67,6 +68,7 @@ export const FolderNode = memo(function FolderNode({
   onDragOver,
   renderChildren,
   onShareFolder,
+  gitEnabled = false,
 }: FolderNodeProps) {
   const {
     sharedFolderIds,
@@ -346,7 +348,7 @@ export const FolderNode = memo(function FolderNode({
                   >
                     <Download className="h-4 w-4 mr-2" />Download Folder
                   </DropdownMenuItem>
-                  {!isShareMount && (
+                  {!isShareMount && gitEnabled && (
                     <DropdownMenuItem onSelect={(event) => guardMenuAction(event, async () => {
                       try {
                         const r = await ignoreFolder({ id: node.id })

@@ -64,6 +64,7 @@ type FileNodeProps = {
   onDragOver: (e: React.DragEvent, nodeId?: string, nodeType?: 'file' | 'folder') => void
   pluginRules?: FileTreeRule[]
   onOpenSecondaryViewer?: (id: string, type?: 'document' | 'scrap') => void
+  gitEnabled?: boolean
 }
 
 export const FileNode = memo(function FileNode({
@@ -85,6 +86,7 @@ export const FileNode = memo(function FileNode({
   onDragOver,
   pluginRules,
   onOpenSecondaryViewer,
+  gitEnabled = false,
 }: FileNodeProps) {
   const {
     sharedDocIds,
@@ -458,19 +460,21 @@ export const FileNode = memo(function FileNode({
                 </DropdownMenuItem>
                 {!isShareMount && (
                   <>
-                    <DropdownMenuItem
-                      onSelect={(event) => guardMenuAction(event, async () => {
-                        try {
-                          const r = await ignoreDocument({ id: node.id })
-                          const added = (r as any).added ?? 0
-                          toast.success(`Ignored in Git (${added} pattern${added === 1 ? '' : 's'})`)
-                        } catch (e: any) {
-                          toast.error(`Failed to ignore: ${e?.message || e}`)
-                        }
-                      })}
-                    >
-                      <Ban className="h-4 w-4 mr-2" />Ignore in Git
-                    </DropdownMenuItem>
+                    {gitEnabled && (
+                      <DropdownMenuItem
+                        onSelect={(event) => guardMenuAction(event, async () => {
+                          try {
+                            const r = await ignoreDocument({ id: node.id })
+                            const added = (r as any).added ?? 0
+                            toast.success(`Ignored in Git (${added} pattern${added === 1 ? '' : 's'})`)
+                          } catch (e: any) {
+                            toast.error(`Failed to ignore: ${e?.message || e}`)
+                          }
+                        })}
+                      >
+                        <Ban className="h-4 w-4 mr-2" />Ignore in Git
+                      </DropdownMenuItem>
+                    )}
                     {!isArchived && (
                       <DropdownMenuItem
                         onSelect={(event) => guardMenuAction(event, handleArchive)}
@@ -520,7 +524,8 @@ export const FileNode = memo(function FileNode({
   prev.node.title === next.node.title &&
   prev.isSelected === next.isSelected &&
   prev.isDragging === next.isDragging &&
-  prev.isDropTarget === next.isDropTarget
+  prev.isDropTarget === next.isDropTarget &&
+  prev.gitEnabled === next.gitEnabled
 ))
 
 export default FileNode

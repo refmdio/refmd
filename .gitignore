@@ -1,3 +1,4 @@
 /plugins/
 /uploads/
 deploy/dev/
+app/openapi-ts-error-*.log
