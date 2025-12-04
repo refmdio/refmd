@@ -207,7 +207,7 @@ export default function ProfilePage() {
                   Configure which documents appear at your public URL and keep your published work up to date.
                 </p>
                 <Button asChild size="sm" className="rounded-full px-4">
-                  <Link to="/visibility" className="inline-flex items-center gap-2">
+                  <Link to="/settings/visibility" className="inline-flex items-center gap-2">
                     Manage visibility
                     <ArrowRight className="h-4 w-4" />
                   </Link>

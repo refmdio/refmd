@@ -88,7 +88,7 @@ export function MobileHeaderMenu({
               </Link>
             </Button>
             <Button asChild variant="ghost" className="justify-start">
-              <Link to="/plugins">
+              <Link to="/settings/plugins">
                 <Blocks className="h-4 w-4 mr-2" /> Plugins
               </Link>
             </Button>

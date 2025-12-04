@@ -1,5 +1,8 @@
 import { Badge } from '@/shared/ui/badge'
 import { Card } from '@/shared/ui/card'
+import { Separator } from '@/shared/ui/separator'
+
+import { settingsNavItems } from '@/features/settings/nav'
 
 import { SettingsShell } from './SettingsShell'
 
@@ -11,19 +14,56 @@ export default function SettingsView() {
         title: 'About RefMD',
         description: 'Learn what is new and how to get the most out of RefMD.',
       }}
+      navItems={settingsNavItems}
     >
-      <div className="space-y-4">
+      <div className="space-y-6">
+        <Card className="border-border/60 p-6 shadow-sm">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px]">Overview</Badge>
+              <span>RefMD workspace</span>
+            </div>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>RefMD keeps documents, plugins, and sharing controls in one place so teams stay aligned.</p>
+              <p>Use the navigation on the left to fine-tune shortcuts, manage public pages, and install plugins without leaving Settings.</p>
+            </div>
+          </div>
+        </Card>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="border-border/60 p-6 shadow-sm">
+            <div className="space-y-3">
+              <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-wide">What&apos;s new</Badge>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li>- Plugins, visibility, and shortcuts now live under unified <span className="font-medium text-foreground">/settings</span>.</li>
+                <li>- Plugin dashboard has a manual refresh and consistent navigation.</li>
+                <li>- Visibility overview keeps public docs and share links in one place.</li>
+              </ul>
+            </div>
+          </Card>
+
+          <Card className="border-border/60 p-6 shadow-sm">
+            <div className="space-y-3">
+              <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-wide">Core benefits</Badge>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">Faster collaboration</p>
+                <p>Share securely with visibility controls and shortcut profiles that travel with you.</p>
+                <Separator className="my-2" />
+                <p className="font-medium text-foreground">Extensible by design</p>
+                <p>Plugin bundles add UI, commands, and file-tree icons tailored to your workflows.</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
         <Card className="border-border/60 p-6 shadow-sm">
           <div className="space-y-3">
-            <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs uppercase tracking-wide">
-              Overview
-            </Badge>
-            <p className="text-sm text-muted-foreground">
-              RefMD keeps your documents, plugins, and sharing settings in one place. Use the navigation on the left to jump to keyboard shortcuts, public pages, or plugins without leaving the Settings area.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              This page will highlight release notes and platform updates so your team can stay aligned.
-            </p>
+            <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-wide">Quick tips</Badge>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              <li>- Keyboard shortcuts are per-user and sync across devices.</li>
+              <li>- Publish public docs from the document menu; revoke them in Visibility.</li>
+              <li>- Install plugins from URLs or tokens; refresh to pick up new manifests.</li>
+            </ul>
           </div>
         </Card>
       </div>

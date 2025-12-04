@@ -1,57 +1,19 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import type { LucideIcon } from 'lucide-react'
-import { Command, Info, Sparkles, Users } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { cn } from '@/shared/lib/utils'
 
-type SettingsNavItem = {
-  id: string
-  label: string
-  description: string
-  icon: LucideIcon
-  to: string
-}
+import type { SettingsNavItem } from '@/features/settings/nav'
 
 const normalizePath = (value: string) => value.replace(/\/+$/, '') || '/'
 
-export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
-  {
-    id: 'about',
-    label: 'About RefMD',
-    description: 'Platform overview and release highlights.',
-    icon: Info,
-    to: '/settings',
-  },
-  {
-    id: 'shortcuts',
-    label: 'Keyboard shortcuts',
-    description: 'Customize editor key chords.',
-    icon: Command,
-    to: '/shortcuts',
-  },
-  {
-    id: 'visibility',
-    label: 'Public pages',
-    description: 'Manage workspace visibility and sharing.',
-    icon: Users,
-    to: '/visibility',
-  },
-  {
-    id: 'plugins',
-    label: 'Plugins',
-    description: 'Install and manage plugins.',
-    icon: Sparkles,
-    to: '/plugins',
-  },
-]
-
 type SettingsShellProps = {
   header: { eyebrow?: string; title: string; description: string }
+  navItems: SettingsNavItem[]
   children: ReactNode
 }
 
-export function SettingsShell({ header, children }: SettingsShellProps) {
+export function SettingsShell({ header, navItems, children }: SettingsShellProps) {
   const pathname = useRouterState({ select: (s) => normalizePath(s.location.pathname) })
 
   return (
@@ -60,7 +22,7 @@ export function SettingsShell({ header, children }: SettingsShellProps) {
         <div className="flex w-full flex-col gap-6 lg:flex-row lg:gap-12">
           <nav className="w-full shrink-0 self-start lg:w-64" aria-label="Settings sections">
             <ul className="flex flex-col gap-2 text-sm lg:gap-1">
-              {SETTINGS_NAV_ITEMS.map((item) => {
+              {navItems.map((item) => {
                 const Icon = item.icon
                 const target = normalizePath(item.to)
                 const isActive = pathname === target || pathname.startsWith(`${target}/`)

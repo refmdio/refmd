@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
+import { settingsNavItems } from '@/features/settings/nav'
 import { SettingsShell } from '@/widgets/settings/SettingsShell'
 
 import { useWorkspacePublicDocuments, unpublishDocument } from '@/entities/public'
@@ -96,6 +97,7 @@ export default function VisibilityPage() {
         title: 'Public exposure overview',
         description: 'Keep an eye on what is currently shared outside the workspace.',
       }}
+      navItems={settingsNavItems}
     >
       <div className="space-y-10">
         <section className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">

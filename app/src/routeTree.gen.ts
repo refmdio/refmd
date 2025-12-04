@@ -13,12 +13,12 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as OgVariantDotpngRouteImport } from './routes/og/$variant[.]png'
 import { Route as appWorkspacesRouteImport } from './routes/(app)/workspaces'
 import { Route as appTemporaryRouteImport } from './routes/(app)/temporary'
-import { Route as appShortcutsRouteImport } from './routes/(app)/shortcuts'
-import { Route as appSettingsRouteImport } from './routes/(app)/settings'
+import { Route as appSettingsIndexRouteImport } from './routes/(app)/settings/index'
+import { Route as appSettingsShortcutsRouteImport } from './routes/(app)/settings/shortcuts'
+import { Route as appSettingsPluginsRouteImport } from './routes/(app)/settings/plugins'
+import { Route as appSettingsVisibilityRouteImport } from './routes/(app)/settings/visibility'
 import { Route as appProfileRouteImport } from './routes/(app)/profile'
-import { Route as appPluginsRouteImport } from './routes/(app)/plugins'
 import { Route as appDashboardRouteImport } from './routes/(app)/dashboard'
-import { Route as appVisibilityIndexRouteImport } from './routes/(app)/visibility/index'
 import { Route as shareShareTokenRouteImport } from './routes/(share)/share/$token'
 import { Route as authAuthSignupRouteImport } from './routes/(auth)/auth/signup'
 import { Route as authAuthSigninRouteImport } from './routes/(auth)/auth/signin'
@@ -49,14 +49,24 @@ const appTemporaryRoute = appTemporaryRouteImport.update({
   path: '/temporary',
   getParentRoute: () => rootRouteImport,
 } as any)
-const appShortcutsRoute = appShortcutsRouteImport.update({
-  id: '/(app)/shortcuts',
-  path: '/shortcuts',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const appSettingsRoute = appSettingsRouteImport.update({
+const appSettingsIndexRoute = appSettingsIndexRouteImport.update({
   id: '/(app)/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appSettingsShortcutsRoute = appSettingsShortcutsRouteImport.update({
+  id: '/(app)/settings/shortcuts',
+  path: '/settings/shortcuts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appSettingsPluginsRoute = appSettingsPluginsRouteImport.update({
+  id: '/(app)/settings/plugins',
+  path: '/settings/plugins',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appSettingsVisibilityRoute = appSettingsVisibilityRouteImport.update({
+  id: '/(app)/settings/visibility',
+  path: '/settings/visibility',
   getParentRoute: () => rootRouteImport,
 } as any)
 const appProfileRoute = appProfileRouteImport.update({
@@ -64,19 +74,9 @@ const appProfileRoute = appProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
-const appPluginsRoute = appPluginsRouteImport.update({
-  id: '/(app)/plugins',
-  path: '/plugins',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const appDashboardRoute = appDashboardRouteImport.update({
   id: '/(app)/dashboard',
   path: '/dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const appVisibilityIndexRoute = appVisibilityIndexRouteImport.update({
-  id: '/(app)/visibility/',
-  path: '/visibility/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const shareShareTokenRoute = shareShareTokenRouteImport.update({
@@ -128,10 +128,11 @@ const publicUNameIdRoute = publicUNameIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof appDashboardRoute
-  '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
-  '/settings': typeof appSettingsRoute
-  '/shortcuts': typeof appShortcutsRoute
+  '/settings': typeof appSettingsIndexRoute
+  '/settings/plugins': typeof appSettingsPluginsRoute
+  '/settings/shortcuts': typeof appSettingsShortcutsRoute
+  '/settings/visibility': typeof appSettingsVisibilityRoute
   '/temporary': typeof appTemporaryRouteWithChildren
   '/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
@@ -140,7 +141,6 @@ export interface FileRoutesByFullPath {
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
   '/share/$token': typeof shareShareTokenRoute
-  '/visibility': typeof appVisibilityIndexRoute
   '/u/$name/$id': typeof publicUNameIdRoute
   '/w/$slug/$id': typeof publicWSlugIdRoute
   '/u/$name': typeof publicUNameIndexRoute
@@ -149,10 +149,11 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof appDashboardRoute
-  '/plugins': typeof appPluginsRoute
   '/profile': typeof appProfileRoute
-  '/settings': typeof appSettingsRoute
-  '/shortcuts': typeof appShortcutsRoute
+  '/settings': typeof appSettingsIndexRoute
+  '/settings/plugins': typeof appSettingsPluginsRoute
+  '/settings/shortcuts': typeof appSettingsShortcutsRoute
+  '/settings/visibility': typeof appSettingsVisibilityRoute
   '/temporary': typeof appTemporaryRouteWithChildren
   '/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
@@ -161,7 +162,6 @@ export interface FileRoutesByTo {
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
   '/share/$token': typeof shareShareTokenRoute
-  '/visibility': typeof appVisibilityIndexRoute
   '/u/$name/$id': typeof publicUNameIdRoute
   '/w/$slug/$id': typeof publicWSlugIdRoute
   '/u/$name': typeof publicUNameIndexRoute
@@ -171,10 +171,11 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/(app)/dashboard': typeof appDashboardRoute
-  '/(app)/plugins': typeof appPluginsRoute
   '/(app)/profile': typeof appProfileRoute
-  '/(app)/settings': typeof appSettingsRoute
-  '/(app)/shortcuts': typeof appShortcutsRoute
+  '/(app)/settings': typeof appSettingsIndexRoute
+  '/(app)/settings/plugins': typeof appSettingsPluginsRoute
+  '/(app)/settings/shortcuts': typeof appSettingsShortcutsRoute
+  '/(app)/settings/visibility': typeof appSettingsVisibilityRoute
   '/(app)/temporary': typeof appTemporaryRouteWithChildren
   '/(app)/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
@@ -183,7 +184,6 @@ export interface FileRoutesById {
   '/(auth)/auth/signin': typeof authAuthSigninRoute
   '/(auth)/auth/signup': typeof authAuthSignupRoute
   '/(share)/share/$token': typeof shareShareTokenRoute
-  '/(app)/visibility/': typeof appVisibilityIndexRoute
   '/(public)/u/$name/$id': typeof publicUNameIdRoute
   '/(public)/w/$slug/$id': typeof publicWSlugIdRoute
   '/(public)/u/$name/': typeof publicUNameIndexRoute
@@ -194,10 +194,11 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
-    | '/plugins'
     | '/profile'
     | '/settings'
-    | '/shortcuts'
+    | '/settings/plugins'
+    | '/settings/shortcuts'
+    | '/settings/visibility'
     | '/temporary'
     | '/workspaces'
     | '/og/$variant.png'
@@ -206,7 +207,6 @@ export interface FileRouteTypes {
     | '/auth/signin'
     | '/auth/signup'
     | '/share/$token'
-    | '/visibility'
     | '/u/$name/$id'
     | '/w/$slug/$id'
     | '/u/$name'
@@ -215,10 +215,11 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/dashboard'
-    | '/plugins'
     | '/profile'
     | '/settings'
-    | '/shortcuts'
+    | '/settings/plugins'
+    | '/settings/shortcuts'
+    | '/settings/visibility'
     | '/temporary'
     | '/workspaces'
     | '/og/$variant.png'
@@ -227,7 +228,6 @@ export interface FileRouteTypes {
     | '/auth/signin'
     | '/auth/signup'
     | '/share/$token'
-    | '/visibility'
     | '/u/$name/$id'
     | '/w/$slug/$id'
     | '/u/$name'
@@ -236,10 +236,11 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/(app)/dashboard'
-    | '/(app)/plugins'
     | '/(app)/profile'
     | '/(app)/settings'
-    | '/(app)/shortcuts'
+    | '/(app)/settings/plugins'
+    | '/(app)/settings/shortcuts'
+    | '/(app)/settings/visibility'
     | '/(app)/temporary'
     | '/(app)/workspaces'
     | '/og/$variant.png'
@@ -248,7 +249,6 @@ export interface FileRouteTypes {
     | '/(auth)/auth/signin'
     | '/(auth)/auth/signup'
     | '/(share)/share/$token'
-    | '/(app)/visibility/'
     | '/(public)/u/$name/$id'
     | '/(public)/w/$slug/$id'
     | '/(public)/u/$name/'
@@ -258,10 +258,11 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   appDashboardRoute: typeof appDashboardRoute
-  appPluginsRoute: typeof appPluginsRoute
   appProfileRoute: typeof appProfileRoute
-  appSettingsRoute: typeof appSettingsRoute
-  appShortcutsRoute: typeof appShortcutsRoute
+  appSettingsIndexRoute: typeof appSettingsIndexRoute
+  appSettingsPluginsRoute: typeof appSettingsPluginsRoute
+  appSettingsShortcutsRoute: typeof appSettingsShortcutsRoute
+  appSettingsVisibilityRoute: typeof appSettingsVisibilityRoute
   appTemporaryRoute: typeof appTemporaryRouteWithChildren
   appWorkspacesRoute: typeof appWorkspacesRoute
   OgVariantDotpngRoute: typeof OgVariantDotpngRoute
@@ -269,7 +270,6 @@ export interface RootRouteChildren {
   authAuthSigninRoute: typeof authAuthSigninRoute
   authAuthSignupRoute: typeof authAuthSignupRoute
   shareShareTokenRoute: typeof shareShareTokenRoute
-  appVisibilityIndexRoute: typeof appVisibilityIndexRoute
   publicUNameIdRoute: typeof publicUNameIdRoute
   publicWSlugIdRoute: typeof publicWSlugIdRoute
   publicUNameIndexRoute: typeof publicUNameIndexRoute
@@ -306,18 +306,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof appTemporaryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/(app)/shortcuts': {
-      id: '/(app)/shortcuts'
-      path: '/shortcuts'
-      fullPath: '/shortcuts'
-      preLoaderRoute: typeof appShortcutsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/(app)/settings': {
       id: '/(app)/settings'
       path: '/settings'
       fullPath: '/settings'
-      preLoaderRoute: typeof appSettingsRouteImport
+      preLoaderRoute: typeof appSettingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/settings/plugins': {
+      id: '/(app)/settings/plugins'
+      path: '/settings/plugins'
+      fullPath: '/settings/plugins'
+      preLoaderRoute: typeof appSettingsPluginsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/settings/shortcuts': {
+      id: '/(app)/settings/shortcuts'
+      path: '/settings/shortcuts'
+      fullPath: '/settings/shortcuts'
+      preLoaderRoute: typeof appSettingsShortcutsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/settings/visibility': {
+      id: '/(app)/settings/visibility'
+      path: '/settings/visibility'
+      fullPath: '/settings/visibility'
+      preLoaderRoute: typeof appSettingsVisibilityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(app)/profile': {
@@ -327,25 +341,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof appProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/(app)/plugins': {
-      id: '/(app)/plugins'
-      path: '/plugins'
-      fullPath: '/plugins'
-      preLoaderRoute: typeof appPluginsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/(app)/dashboard': {
       id: '/(app)/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof appDashboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(app)/visibility/': {
-      id: '/(app)/visibility/'
-      path: '/visibility'
-      fullPath: '/visibility'
-      preLoaderRoute: typeof appVisibilityIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(share)/share/$token': {
@@ -429,10 +429,11 @@ const appTemporaryRouteWithChildren = appTemporaryRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   appDashboardRoute: appDashboardRoute,
-  appPluginsRoute: appPluginsRoute,
   appProfileRoute: appProfileRoute,
-  appSettingsRoute: appSettingsRoute,
-  appShortcutsRoute: appShortcutsRoute,
+  appSettingsIndexRoute: appSettingsIndexRoute,
+  appSettingsPluginsRoute: appSettingsPluginsRoute,
+  appSettingsShortcutsRoute: appSettingsShortcutsRoute,
+  appSettingsVisibilityRoute: appSettingsVisibilityRoute,
   appTemporaryRoute: appTemporaryRouteWithChildren,
   appWorkspacesRoute: appWorkspacesRoute,
   OgVariantDotpngRoute: OgVariantDotpngRoute,
@@ -440,7 +441,6 @@ const rootRouteChildren: RootRouteChildren = {
   authAuthSigninRoute: authAuthSigninRoute,
   authAuthSignupRoute: authAuthSignupRoute,
   shareShareTokenRoute: shareShareTokenRoute,
-  appVisibilityIndexRoute: appVisibilityIndexRoute,
   publicUNameIdRoute: publicUNameIdRoute,
   publicWSlugIdRoute: publicWSlugIdRoute,
   publicUNameIndexRoute: publicUNameIndexRoute,

@@ -1,4 +1,4 @@
-import { Download, PackagePlus, Plug, Shield, Terminal } from 'lucide-react'
+import { Download, PackagePlus, Plug, RefreshCcw, Shield, Terminal } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -7,6 +7,8 @@ import { Button } from '@/shared/ui/button'
 import { Card, CardFooter } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
+import { settingsNavItems } from '@/features/settings/nav'
+
 import { SettingsShell } from '@/widgets/settings/SettingsShell'
 
 import { installPluginFromUrl, uninstallPlugin, usePluginManifest } from '@/entities/plugin'
@@ -16,7 +18,7 @@ type PluginLike = (ReturnType<typeof usePluginManifest>['plugins'])[number]
 type CommandLike = (ReturnType<typeof usePluginManifest>['commands'])[number]
 
 export default function PluginsPage() {
-  const { plugins, commands, refresh } = usePluginManifest()
+  const { plugins, commands, loading, refresh } = usePluginManifest()
   const [installUrl, setInstallUrl] = useState('')
   const [installToken, setInstallToken] = useState('')
   const [installing, setInstalling] = useState(false)
@@ -219,6 +221,7 @@ export default function PluginsPage() {
         title: 'Plugin dashboard',
         description: 'Quick status of your bundles, global installs, and exposed commands.',
       }}
+      navItems={settingsNavItems}
     >
       <div className="space-y-10">
         <section className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
@@ -244,6 +247,18 @@ export default function PluginsPage() {
             </div>
           </div>
         </section>
+
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            onClick={() => refresh()}
+            disabled={loading}
+            className="rounded-full px-4"
+          >
+            <RefreshCcw className="h-4 w-4" />
+            <span className="ml-2 text-sm">{loading ? 'Refreshing…' : 'Refresh'}</span>
+          </Button>
+        </div>
 
         <section className="rounded-3xl border border-border/60 p-6 shadow-sm backdrop-blur md:p-8">
           <div className="flex flex-col gap-4">
