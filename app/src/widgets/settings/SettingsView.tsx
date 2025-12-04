@@ -12,7 +12,7 @@ export default function SettingsView() {
       header={{
         eyebrow: 'RefMD',
         title: 'About RefMD',
-        description: 'Learn what is new and how to get the most out of RefMD.',
+        description: 'See what is new, and where to file bugs or ask for help.',
       }}
       navItems={settingsNavItems}
     >
@@ -58,11 +58,22 @@ export default function SettingsView() {
 
         <Card className="border-border/60 p-6 shadow-sm">
           <div className="space-y-3">
-            <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-wide">Quick tips</Badge>
+            <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-wide">Feedback & support</Badge>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li>- Keyboard shortcuts are per-user and sync across devices.</li>
-              <li>- Publish public docs from the document menu; revoke them in Visibility.</li>
-              <li>- Install plugins from URLs or tokens; refresh to pick up new manifests.</li>
+              <li>
+                - Found a bug? Open an issue with steps to reproduce, the expected result, and what actually happened on{' '}
+                <a
+                  href="https://github.com/refmdio/refmd/issues"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-foreground"
+                >
+                  GitHub Issues
+                </a>
+                .
+              </li>
+              <li>- Feature requests are welcome there too—clear titles and labels help us triage faster.</li>
+              <li>- For security or workspace-specific questions, reach out to your admins or team leads.</li>
             </ul>
           </div>
         </Card>

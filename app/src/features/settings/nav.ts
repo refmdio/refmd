@@ -13,7 +13,7 @@ export const settingsNavItems: SettingsNavItem[] = [
   {
     id: 'about',
     label: 'About RefMD',
-    description: 'Platform overview and release highlights.',
+    description: 'Overview, release highlights, and support links.',
     icon: Info,
     to: '/settings',
   },
