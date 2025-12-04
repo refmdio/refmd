@@ -70,6 +70,7 @@ function useGitSyncController() {
   const syncPending = syncMutation.isPending || initMutation.isPending
   const hasChanges = ((status?.uncommitted_changes || 0) + (status?.untracked_files || 0)) > 0
   const isConfigured = Boolean(config) && Boolean(status?.repository_initialized)
+  const showButton = statusLoading || Boolean(status?.repository_initialized)
 
   const handleSync = useCallback(() => {
     if (!config || !status?.repository_initialized) return
@@ -125,6 +126,7 @@ function useGitSyncController() {
     showHistory,
     setShowHistory,
     isConfigured,
+    showButton,
   }
 }
 
@@ -144,9 +146,11 @@ export default function GitSyncButton({ className, compact = false }: Props) {
     showHistory,
     setShowHistory,
     isConfigured,
+    showButton,
   } = controller
 
   const [menuOpen, setMenuOpen] = useState(false)
+  if (!showButton) return null
   const tooltipSide = isMobile ? 'bottom' : 'right'
   const triggerClasses = cn(
     'h-9 w-9 rounded-full border border-border/40 bg-background/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground',

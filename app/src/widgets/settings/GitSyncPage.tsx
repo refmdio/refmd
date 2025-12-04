@@ -40,6 +40,7 @@ export default function GitSyncPage() {
   const [privateKey, setPrivateKey] = React.useState('')
   const [autoSync, setAutoSync] = React.useState(true)
   const [lastCheck, setLastCheck] = React.useState<RemoteCheck>(null)
+  const lastSecretRef = React.useRef<{ token?: string; private_key?: string }>({})
 
   React.useEffect(() => {
     if (config) {
@@ -53,10 +54,27 @@ export default function GitSyncPage() {
     }
   }, [config])
 
+  const resolveAuthData = React.useCallback(() => {
+    if (authType === 'token') {
+      const resolved = token.trim() || lastSecretRef.current.token
+      if (!resolved) {
+        throw new Error('Personal access token is required to save.')
+      }
+      lastSecretRef.current = { token: resolved }
+      return { token: resolved }
+    }
+    const resolved = privateKey.trim() || lastSecretRef.current.private_key
+    if (!resolved) {
+      throw new Error('SSH private key is required to save.')
+    }
+    lastSecretRef.current = { private_key: resolved }
+    return { private_key: resolved }
+  }, [authType, privateKey, token])
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!repositoryUrl.trim()) throw new Error('Repository URL is required')
-      const auth_data = authType === 'token' ? { token } : { private_key: privateKey }
+      const auth_data = resolveAuthData()
       return createOrUpdateConfig({
         requestBody: {
           repository_url: repositoryUrl.trim(),
@@ -267,7 +285,9 @@ export default function GitSyncPage() {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">Stored encrypted; leave blank to keep the existing token.</p>
+                <p className="text-xs text-muted-foreground">
+                  Reuses the last token you entered on this page. After a reload, enter it again before saving.
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -278,7 +298,9 @@ export default function GitSyncPage() {
                   value={privateKey}
                   onChange={(e) => setPrivateKey(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">Stored encrypted; leave blank to keep the existing key.</p>
+                <p className="text-xs text-muted-foreground">
+                  Reuses the last key you entered on this page. After a reload, enter it again before saving.
+                </p>
               </div>
             )}
 

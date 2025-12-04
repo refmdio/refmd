@@ -25,7 +25,9 @@ export function SettingsShell({ header, navItems, children }: SettingsShellProps
               {navItems.map((item) => {
                 const Icon = item.icon
                 const target = normalizePath(item.to)
-                const isActive = pathname === target || pathname.startsWith(`${target}/`)
+                const isActive =
+                  pathname === target ||
+                  (target !== '/settings' && pathname.startsWith(`${target}/`))
                 return (
                   <li key={item.id} className="w-full">
                     <Link

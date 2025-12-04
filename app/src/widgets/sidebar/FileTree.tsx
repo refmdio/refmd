@@ -709,6 +709,7 @@ function FileTreeInner() {
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
           renderChildren={undefined}
           onShareFolder={(folder) => setShareFolderId(folder.id)}
+          gitEnabled
         />
       )
     }
@@ -734,6 +735,7 @@ function FileTreeInner() {
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parent) }}
         pluginRules={fileTreeRules}
         onOpenSecondaryViewer={openSecondaryViewer}
+        gitEnabled
       />
     )
   }, [createDocument, createFolder, deleteDocument, drag, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
@@ -767,6 +769,7 @@ function FileTreeInner() {
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
           renderChildren={() => node.children?.map((c) => renderNestedNode(c, node.id, depth + 1))}
           onShareFolder={(folder) => setShareFolderId(folder.id)}
+          gitEnabled
         />
       )
     }
@@ -790,6 +793,7 @@ function FileTreeInner() {
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parentId) }}
         pluginRules={fileTreeRules}
         onOpenSecondaryViewer={openSecondaryViewer}
+        gitEnabled
       />
     )
   }, [createDocument, createFolder, deleteDocument, drag, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
