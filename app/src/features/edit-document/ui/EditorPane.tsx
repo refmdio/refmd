@@ -5,6 +5,7 @@ import { useRef, useState, type MutableRefObject } from 'react'
 
 type Props = {
   theme: string
+  onBeforeMount?: (monaco: typeof import('monaco-editor')) => void
   readOnly?: boolean
   onMount: OnMount
   onDropFiles?: (files: File[]) => Promise<void> | void
@@ -13,7 +14,7 @@ type Props = {
   showVimStatusBar?: boolean
 }
 
-export default function EditorPane({ theme, readOnly, onMount, onDropFiles, isMobile = false, vimStatusBarRef, showVimStatusBar = false }: Props) {
+export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, onDropFiles, isMobile = false, vimStatusBarRef, showVimStatusBar = false }: Props) {
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
 
@@ -35,7 +36,10 @@ export default function EditorPane({ theme, readOnly, onMount, onDropFiles, isMo
         theme={theme as any}
         height="100%"
         defaultLanguage="markdown"
+        beforeMount={onBeforeMount as any}
         options={{
+          // Disable bracket pair colorization; semantic highlighting option is not available in this Monaco version
+          bracketPairColorization: { enabled: false },
           automaticLayout: true,
           minimap: { enabled: false },
           wordWrap: 'on',

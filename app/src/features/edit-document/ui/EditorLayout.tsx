@@ -20,6 +20,7 @@ export type EditorLayoutProps = {
   toolbarOpen: boolean
   onToolbarOpenChange: (open: boolean) => void
   monacoTheme: string
+  onEditorBeforeMount?: (monaco: typeof import('monaco-editor')) => void
   readOnly: boolean
   onEditorDropFiles: (files: File[]) => Promise<void>
   onEditorMount: (editor: monacoNs.editor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => void
@@ -47,6 +48,7 @@ export function EditorLayout({
   toolbarOpen,
   onToolbarOpenChange,
   monacoTheme,
+  onEditorBeforeMount,
   readOnly,
   onEditorDropFiles,
   onEditorMount,
@@ -228,6 +230,7 @@ export function EditorLayout({
               <div className="flex flex-1 min-h-0">
                 <EditorPane
                   theme={monacoTheme}
+                  onBeforeMount={onEditorBeforeMount}
                   readOnly={readOnly}
                   onDropFiles={async (files) => {
                     if (!readOnly) await onEditorDropFiles(files)

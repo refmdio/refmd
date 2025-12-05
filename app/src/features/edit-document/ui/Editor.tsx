@@ -46,38 +46,6 @@ const safeExecute = (scope: string, fn: () => void) => {
   }
 }
 
-const CODE_BLOCK_FENCE_CLASS = 'refmd-code-block-fence'
-
-type CodeFenceBlock = { startLine: number; endLine: number }
-
-const collectCodeFenceBlocks = (model: monacoNs.editor.ITextModel): CodeFenceBlock[] => {
-  const blocks: CodeFenceBlock[] = []
-  const lineCount = model.getLineCount()
-  type FenceState = { startLine: number; fenceChar: '`' | '~' }
-  let activeFence: FenceState | null = null
-
-  for (let line = 1; line <= lineCount; line += 1) {
-    const content = model.getLineContent(line)
-    const match = content.match(/^\s*([`~]{3,})/)
-    if (!match) continue
-    const fenceChar = match[1][0] as '`' | '~'
-    if (!activeFence) {
-      activeFence = { startLine: line, fenceChar }
-      continue
-    }
-    if (activeFence.fenceChar === fenceChar) {
-      blocks.push({ startLine: activeFence.startLine, endLine: line })
-      activeFence = null
-    }
-  }
-
-  if (activeFence) {
-    blocks.push({ startLine: activeFence.startLine, endLine: lineCount })
-  }
-
-  return blocks
-}
-
 export type MarkdownEditorProps = {
   doc: Y.Doc
   awareness: Awareness
@@ -99,8 +67,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const { setEditor } = useEditorContext()
   const { viewMode, setViewMode, viewModeHydrated, hasPersistentViewMode } = useViewContext()
   const navigate = useNavigate()
-  const monacoTheme = isDarkMode ? 'vs-dark' : 'vs'
   const brandedMonacoTheme = isDarkMode ? REFMD_DARK_THEME : REFMD_LIGHT_THEME
+  const monacoTheme = brandedMonacoTheme
   const view = viewMode
   const [isVimMode, setIsVimMode] = useState<boolean>(() => typeof window !== 'undefined' && localStorage.getItem('editorVimMode') === 'true')
   const [syncScroll, setSyncScroll] = useState<boolean>(true)
@@ -174,7 +142,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
 
   const { uploadFiles, uploadStatus } = useEditorUploads(documentId, readOnly, emitReadOnlyWarning)
   const uploadFilesRef = useRef(uploadFiles)
-  const codeBlockDecorationsRef = useRef<string[]>([])
   useEffect(() => {
     uploadFilesRef.current = uploadFiles
   }, [uploadFiles])
@@ -245,75 +212,16 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     })
   }, [doc, readOnly, emitReadOnlyWarning])
 
+  const handleBeforeMount = useCallback((monaco: Parameters<OnMount>[1]) => {
+    ensureRefmdThemes(monaco as any)
+    monaco.editor.setTheme(brandedMonacoTheme)
+  }, [brandedMonacoTheme])
+
   const handleMount: OnMount = useCallback((editor, monaco) => {
     // First, bind Monaco to Yjs via hook
     onMonacoMount(editor, monaco)
     ;(editor as any).__monaco = monaco
-    ensureRefmdThemes(monaco as any)
-    monaco.editor.setTheme(brandedMonacoTheme)
     setReadOnlyOverlay(editor as any, monaco as any, readOnly)
-    const refreshCodeBlockDecorations = () => {
-      const model = editor.getModel()
-      if (!model) return
-      const blocks = collectCodeFenceBlocks(model)
-      const decorations = blocks.flatMap((block) => {
-        const startLineMax = model.getLineMaxColumn(block.startLine) || 1
-        const endLineMax = model.getLineMaxColumn(block.endLine) || 1
-        const startFenceRange: monacoNs.IRange = {
-          startLineNumber: block.startLine,
-          startColumn: 1,
-          endLineNumber: block.startLine,
-          endColumn: startLineMax,
-        }
-        const endFenceRange: monacoNs.IRange = {
-          startLineNumber: block.endLine,
-          startColumn: 1,
-          endLineNumber: block.endLine,
-          endColumn: endLineMax,
-        }
-        const blockDecorations: monacoNs.editor.IModelDeltaDecoration[] = [
-          {
-            range: startFenceRange,
-            options: {
-              isWholeLine: true,
-              inlineClassName: CODE_BLOCK_FENCE_CLASS,
-            },
-          },
-        ]
-        if (block.endLine !== block.startLine) {
-          blockDecorations.push({
-            range: endFenceRange,
-            options: {
-              isWholeLine: true,
-              inlineClassName: CODE_BLOCK_FENCE_CLASS,
-            },
-          })
-        }
-        return blockDecorations
-      })
-      try {
-        codeBlockDecorationsRef.current = editor.deltaDecorations(codeBlockDecorationsRef.current, decorations)
-      } catch (error) {
-        logEditorError('update code block decorations', error)
-      }
-    }
-    const model = editor.getModel()
-    let codeBlockDispose: monacoNs.IDisposable | null = null
-    if (model) {
-      refreshCodeBlockDecorations()
-      codeBlockDispose = model.onDidChangeContent(() => refreshCodeBlockDecorations())
-    }
-    ;(editor as any).__disposeCodeBlockDecorations = () => {
-      safeExecute('dispose code block decoration listener', () => codeBlockDispose?.dispose())
-      try {
-        if (codeBlockDecorationsRef.current.length > 0) {
-          editor.deltaDecorations(codeBlockDecorationsRef.current, [])
-          codeBlockDecorationsRef.current = []
-        }
-      } catch (error) {
-        logEditorError('clear code block decorations', error)
-      }
-    }
     // Register wiki-link completion provider
     try {
       const disp = registerWikiLinkCompletion(monaco as any)
@@ -457,7 +365,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     safeExecute('dispose cursor handler', () => (anyEditor as any)?.__disposeCursor?.())
     safeExecute('dispose monaco markdown handler', () => (anyEditor as any)?.__disposeMonacoMd?.())
     safeExecute('dispose keydown handler', () => (anyEditor as any)?.__disposeKeydown?.())
-    safeExecute('dispose code block decorations', () => (anyEditor as any)?.__disposeCodeBlockDecorations?.())
     safeExecute('dispose read-only overlay', () => {
       if (anyEditor?.__readOnlyOverlay) {
         try { anyEditor.removeOverlayWidget(anyEditor.__readOnlyOverlay.widget) } catch {}
@@ -616,6 +523,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         toolbarOpen={toolbarOpen}
         onToolbarOpenChange={setToolbarOpen}
         monacoTheme={monacoTheme}
+        onEditorBeforeMount={handleBeforeMount}
         readOnly={readOnly}
         onEditorDropFiles={handleEditorDropFiles}
         onEditorMount={handleEditorMount}
