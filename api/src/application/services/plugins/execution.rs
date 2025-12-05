@@ -59,7 +59,7 @@ impl PluginExecutionService {
             allowed_doc_id,
             actor,
         )
-            .await
-            .map_err(ServiceError::from)
+        .await
+        .map_err(ServiceError::from)
     }
 }

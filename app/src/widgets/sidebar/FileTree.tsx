@@ -347,6 +347,7 @@ function FileTreeInner() {
     createDocument,
     createFolder,
     renameDocument,
+    duplicateDocument,
     deleteDocument,
     navigateToDocument,
     moveDocument,
@@ -726,6 +727,7 @@ function FileTreeInner() {
         isDropTarget={isDropTarget}
         onSelect={onSelect}
         onRename={renameDocument}
+        onDuplicate={duplicateDocument}
         onDelete={deleteDocument}
         onDragStart={drag.handleDragStart}
         onDragEnd={drag.handleDragEnd}
@@ -738,7 +740,7 @@ function FileTreeInner() {
         gitEnabled
       />
     )
-  }, [createDocument, createFolder, deleteDocument, drag, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+  }, [createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   const renderNestedNode = useCallback((node: DocumentNode, parentId?: string, depth = 1): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.id)
@@ -784,6 +786,7 @@ function FileTreeInner() {
         isDropTarget={isDropTarget}
         onSelect={onSelect}
         onRename={renameDocument}
+        onDuplicate={duplicateDocument}
         onDelete={deleteDocument}
         onDragStart={drag.handleDragStart}
         onDragEnd={drag.handleDragEnd}
@@ -796,7 +799,7 @@ function FileTreeInner() {
         gitEnabled
       />
     )
-  }, [createDocument, createFolder, deleteDocument, drag, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+  }, [createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   return (
     <div className="flex h-full flex-1 flex-col">

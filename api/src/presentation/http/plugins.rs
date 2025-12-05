@@ -56,13 +56,10 @@ async fn resolve_plugin_user_context(
                 )
                 .await
                 .map_err(|_| StatusCode::FORBIDDEN)?;
-                let permissions = workspace_scope::resolve_workspace_permissions(
-                    ctx,
-                    workspace_id,
-                    user_id,
-                )
-                .await
-                .map_err(|_| StatusCode::FORBIDDEN)?;
+                let permissions =
+                    workspace_scope::resolve_workspace_permissions(ctx, workspace_id, user_id)
+                        .await
+                        .map_err(|_| StatusCode::FORBIDDEN)?;
                 if let Some(permission) = required_permission {
                     if !permissions.allows(permission) {
                         return Err(StatusCode::FORBIDDEN);
@@ -227,13 +224,9 @@ pub async fn list_records(
 ) -> Result<Json<RecordsResponse>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
-    let plugin_ctx = resolve_plugin_user_context(
-        &ctx,
-        &headers,
-        bearer_token.as_str(),
-        Some(PERM_PLUGIN_RUN),
-    )
-    .await?;
+    let plugin_ctx =
+        resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), Some(PERM_PLUGIN_RUN))
+            .await?;
     let actor = plugin_ctx.actor;
     ctx.authorization()
         .require_view(&actor, p.doc_id)
@@ -307,13 +300,9 @@ pub async fn create_record(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
-    let plugin_ctx = resolve_plugin_user_context(
-        &ctx,
-        &headers,
-        bearer_token.as_str(),
-        Some(PERM_PLUGIN_RUN),
-    )
-    .await?;
+    let plugin_ctx =
+        resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), Some(PERM_PLUGIN_RUN))
+            .await?;
     let actor = plugin_ctx.actor.clone();
     ctx.authorization()
         .require_edit(&actor, p.doc_id)
@@ -437,13 +426,13 @@ pub async fn delete_record(
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<UpdateRecordPath>,
-    ) -> Result<StatusCode, StatusCode> {
-        ensure_valid_plugin_id(&p.plugin)?;
-        let bearer_token_raw = bearer.0;
-        let plugin_ctx = resolve_plugin_user_context(
-            &ctx,
-            &headers,
-            bearer_token_raw.as_str(),
+) -> Result<StatusCode, StatusCode> {
+    ensure_valid_plugin_id(&p.plugin)?;
+    let bearer_token_raw = bearer.0;
+    let plugin_ctx = resolve_plugin_user_context(
+        &ctx,
+        &headers,
+        bearer_token_raw.as_str(),
         Some(PERM_PLUGIN_RUN),
     )
     .await?;
@@ -517,13 +506,9 @@ pub async fn get_kv_value(
 ) -> Result<Json<KvValueResponse>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
-    let plugin_ctx = resolve_plugin_user_context(
-        &ctx,
-        &headers,
-        bearer_token.as_str(),
-        Some(PERM_PLUGIN_RUN),
-    )
-    .await?;
+    let plugin_ctx =
+        resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), Some(PERM_PLUGIN_RUN))
+            .await?;
     let actor = plugin_ctx.actor.clone();
     ctx.authorization()
         .require_view(&actor, p.doc_id)
@@ -566,13 +551,9 @@ pub async fn put_kv_value(
 ) -> Result<StatusCode, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
-    let plugin_ctx = resolve_plugin_user_context(
-        &ctx,
-        &headers,
-        bearer_token.as_str(),
-        Some(PERM_PLUGIN_RUN),
-    )
-    .await?;
+    let plugin_ctx =
+        resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), Some(PERM_PLUGIN_RUN))
+            .await?;
     let actor = plugin_ctx.actor.clone();
     ctx.authorization()
         .require_edit(&actor, p.doc_id)
@@ -677,13 +658,9 @@ pub async fn exec_action(
 ) -> Result<Json<ExecResultResponse>, StatusCode> {
     ensure_valid_plugin_id(&plugin)?;
     let bearer_token = bearer.0;
-    let plugin_ctx = resolve_plugin_user_context(
-        &ctx,
-        &headers,
-        bearer_token.as_str(),
-        Some(PERM_PLUGIN_RUN),
-    )
-    .await?;
+    let plugin_ctx =
+        resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), Some(PERM_PLUGIN_RUN))
+            .await?;
     let actor = plugin_ctx.actor.clone();
     let doc_id_from_payload = body.payload.as_ref().and_then(extract_doc_id);
     let doc_id_from_share = if doc_id_from_payload.is_none() {

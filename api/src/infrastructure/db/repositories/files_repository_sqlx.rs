@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::application::ports::files_repository::FilesRepository;
+use crate::application::ports::files_repository::{FileRecord, FilesRepository};
 use crate::infrastructure::db::PgPool;
 
 pub struct SqlxFilesRepository {
@@ -116,6 +116,28 @@ impl FilesRepository for SqlxFilesRepository {
         Ok(rows
             .into_iter()
             .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
+            .collect())
+    }
+
+    async fn list_files_for_document(&self, doc_id: Uuid) -> anyhow::Result<Vec<FileRecord>> {
+        let rows = sqlx::query(
+            r#"SELECT id, filename, content_type, size, storage_path, content_hash
+               FROM files
+               WHERE document_id = $1"#,
+        )
+        .bind(doc_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| FileRecord {
+                id: r.get("id"),
+                filename: r.get("filename"),
+                content_type: r.try_get("content_type").ok(),
+                size: r.get("size"),
+                storage_path: r.get("storage_path"),
+                content_hash: r.get("content_hash"),
+            })
             .collect())
     }
 

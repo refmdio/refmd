@@ -197,6 +197,11 @@ export type DownloadWorkspaceQuery = {
     format?: DownloadFormat;
 };
 
+export type DuplicateDocumentRequest = {
+    parent_id?: (string) | null;
+    title?: (string) | null;
+};
+
 export type ExecBody = {
     payload?: unknown;
 };
@@ -896,6 +901,16 @@ export type DownloadDocumentData = {
 };
 
 export type DownloadDocumentResponse = (DocumentDownloadBinary);
+
+export type DuplicateDocumentData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: DuplicateDocumentRequest;
+};
+
+export type DuplicateDocumentResponse = (Document);
 
 export type GetOutgoingLinksData = {
     /**

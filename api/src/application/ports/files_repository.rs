@@ -24,12 +24,16 @@ pub trait FilesRepository: Send + Sync {
         doc_id: Uuid,
         filename: &str,
     ) -> anyhow::Result<Option<(String, Option<String>)>>;
+
     async fn list_storage_paths_for_document(&self, doc_id: Uuid) -> anyhow::Result<Vec<String>>;
     async fn list_storage_paths_for_document_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         doc_id: Uuid,
     ) -> anyhow::Result<Vec<String>>;
+
+    async fn list_files_for_document(&self, doc_id: Uuid) -> anyhow::Result<Vec<FileRecord>>;
+
     async fn list_storage_paths_for_workspace(
         &self,
         workspace_id: Uuid,
@@ -50,4 +54,14 @@ pub trait FilesRepository: Send + Sync {
     ) -> anyhow::Result<()>;
 
     async fn delete_by_id(&self, file_id: Uuid) -> anyhow::Result<()>;
+}
+
+#[derive(Debug, Clone)]
+pub struct FileRecord {
+    pub id: Uuid,
+    pub filename: String,
+    pub content_type: Option<String>,
+    pub size: i64,
+    pub storage_path: String,
+    pub content_hash: String,
 }

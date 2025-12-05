@@ -189,15 +189,15 @@ where
                             workspace_id,
                             effect
                                 .get("docId")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| Uuid::parse_str(s).ok())
-                        .or(doc_id_created),
-                    allowed_doc_id,
-                    doc_id_created,
-                    actor,
-                    true,
-                )
-                .await?;
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| Uuid::parse_str(s).ok())
+                                .or(doc_id_created),
+                            allowed_doc_id,
+                            doc_id_created,
+                            actor,
+                            true,
+                        )
+                        .await?;
                     if let Some(did) = doc_id {
                         self.plugin_repo
                             .kv_set(plugin, "doc", Some(did), key, &value)
@@ -224,15 +224,15 @@ where
                             workspace_id,
                             effect
                                 .get("docId")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| Uuid::parse_str(s).ok())
-                        .or(doc_id_created),
-                    allowed_doc_id,
-                    doc_id_created,
-                    actor,
-                    true,
-                )
-                .await?;
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| Uuid::parse_str(s).ok())
+                                .or(doc_id_created),
+                            allowed_doc_id,
+                            doc_id_created,
+                            actor,
+                            true,
+                        )
+                        .await?;
                     if let Some(did) = doc_id {
                         let _ = self
                             .plugin_repo

@@ -207,6 +207,23 @@ impl Default for UpdateDocumentRequest {
     }
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DuplicateDocumentRequest {
+    pub title: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    #[schema(value_type = Option<String>)]
+    pub parent_id: DoubleOption<Uuid>,
+}
+
+impl Default for DuplicateDocumentRequest {
+    fn default() -> Self {
+        Self {
+            title: None,
+            parent_id: DoubleOption::NotProvided,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum DoubleOption<T> {
     NotProvided,
@@ -800,6 +817,53 @@ pub async fn update_document(
 
 #[utoipa::path(
     post,
+    path = "/api/documents/{id}/duplicate",
+    tag = "Documents",
+    request_body = DuplicateDocumentRequest,
+    params(("id" = Uuid, Path, description = "Document ID"),),
+    responses((status = 200, body = Document))
+)]
+pub async fn duplicate_document(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(req): Json<DuplicateDocumentRequest>,
+) -> Result<Json<Document>, StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = crate::presentation::http::auth::validate_bearer_public(&ctx, bearer).await?;
+    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    let permissions =
+        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
+    let parent_opt = match req.parent_id.clone() {
+        DoubleOption::NotProvided => None,
+        DoubleOption::Null => Some(None),
+        DoubleOption::Some(v) => Some(Some(v)),
+    };
+    let doc = ctx
+        .document_service()
+        .duplicate_document(
+            workspace_id,
+            id,
+            user_id,
+            &permissions,
+            req.title.clone(),
+            parent_opt,
+        )
+        .await
+        .map_err(map_service_error)?;
+    Ok(Json(to_http_document(doc)))
+}
+
+#[utoipa::path(
+    post,
     path = "/api/documents/{id}/archive",
     tag = "Documents",
     params(("id" = Uuid, Path, description = "Document ID")),
@@ -1047,6 +1111,7 @@ pub fn routes(ctx: AppContext) -> Router {
                 .put(update_document_content)
                 .patch(patch_document_content),
         )
+        .route("/documents/:id/duplicate", post(duplicate_document))
         .route("/documents/:id/archive", post(archive_document))
         .route("/documents/:id/unarchive", post(unarchive_document))
         .route("/documents/:id/snapshots", get(list_document_snapshots))

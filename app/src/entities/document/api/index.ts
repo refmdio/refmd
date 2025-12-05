@@ -7,6 +7,7 @@ import {
   downloadDocument as apiDownloadDocument,
   downloadDocumentSnapshot as apiDownloadDocumentSnapshot,
   downloadWorkspaceArchive as apiDownloadWorkspaceArchive,
+  duplicateDocument as apiDuplicateDocument,
   getBacklinks as apiGetBacklinks,
   getDocument as apiGetDocument,
   getDocumentContent as apiGetDocumentContent,
@@ -190,6 +191,27 @@ export function useCreateDocument() {
   })
 }
 
+export function useDuplicateDocument(options?: { onSuccess?: (document: ApiDocument) => void }) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { id: string; title?: string; parent_id?: string | null }) => {
+      const body: Record<string, unknown> = {}
+      if (input.title !== undefined) body.title = input.title
+      if (Object.prototype.hasOwnProperty.call(input, 'parent_id')) {
+        body.parent_id = input.parent_id ?? null
+      }
+      return apiDuplicateDocument({
+        id: input.id,
+        requestBody: (body as any) || {},
+      }) as Promise<ApiDocument>
+    },
+    onSuccess: (doc) => {
+      qc.invalidateQueries({ queryKey: documentKeys.all })
+      options?.onSuccess?.(doc as ApiDocument)
+    },
+  })
+}
+
 export function useArchiveDocument(options?: { onSuccess?: (document: ApiDocument, id: string) => void }) {
   const qc = useQueryClient()
   return useMutation({
@@ -233,6 +255,18 @@ export async function listDocuments(params?: { query?: string | null; tag?: stri
 
 export async function createDocument(input: { title?: string; parent_id?: string | null; type?: 'folder' | 'document' }) {
   return apiCreateDocument({ requestBody: input as any })
+}
+
+export async function duplicateDocument(params: { id: string; title?: string; parent_id?: string | null }) {
+  const body: Record<string, unknown> = {}
+  if (params.title !== undefined) body.title = params.title
+  if (Object.prototype.hasOwnProperty.call(params, 'parent_id')) {
+    body.parent_id = params.parent_id ?? null
+  }
+  return apiDuplicateDocument({
+    id: params.id,
+    requestBody: (body as any) || {},
+  })
 }
 
 export async function updateDocumentTitle(id: string, title: string) {
