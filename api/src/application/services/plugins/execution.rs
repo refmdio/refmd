@@ -14,6 +14,7 @@ pub struct PluginExecutionService {
     plugin_repo: Arc<dyn PluginRepository>,
     document_repo: Arc<dyn DocumentRepository>,
     runtime: Arc<dyn PluginRuntime>,
+    authorization: Arc<crate::application::services::authorization::AuthorizationService>,
 }
 
 impl PluginExecutionService {
@@ -21,11 +22,13 @@ impl PluginExecutionService {
         plugin_repo: Arc<dyn PluginRepository>,
         document_repo: Arc<dyn DocumentRepository>,
         runtime: Arc<dyn PluginRuntime>,
+        authorization: Arc<crate::application::services::authorization::AuthorizationService>,
     ) -> Self {
         Self {
             plugin_repo,
             document_repo,
             runtime,
+            authorization,
         }
     }
 
@@ -37,13 +40,25 @@ impl PluginExecutionService {
         plugin: &str,
         action: &str,
         payload: Option<serde_json::Value>,
+        allowed_doc_id: Option<Uuid>,
+        actor: &crate::application::access::Actor,
     ) -> Result<Option<ExecResult>, ServiceError> {
         let uc = ExecutePluginAction {
             runtime: self.runtime.as_ref(),
             plugin_repo: self.plugin_repo.as_ref(),
             document_repo: self.document_repo.as_ref(),
+            authorization: self.authorization.as_ref(),
         };
-        uc.execute(workspace_id, user_id, permissions, plugin, action, payload)
+        uc.execute(
+            workspace_id,
+            user_id,
+            permissions,
+            plugin,
+            action,
+            payload,
+            allowed_doc_id,
+            actor,
+        )
             .await
             .map_err(ServiceError::from)
     }

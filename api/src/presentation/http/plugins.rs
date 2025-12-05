@@ -685,14 +685,43 @@ pub async fn exec_action(
     )
     .await?;
     let actor = plugin_ctx.actor.clone();
-    if let Some(payload) = body.payload.as_ref() {
-        if let Some(doc_id) = extract_doc_id(payload) {
-            ctx.authorization()
-                .require_edit(&actor, doc_id)
+    let doc_id_from_payload = body.payload.as_ref().and_then(extract_doc_id);
+    let doc_id_from_share = if doc_id_from_payload.is_none() {
+        if let access::Actor::ShareToken(token) = &actor {
+            ctx.share_service()
+                .resolve_share_context(token)
+                .await
+                .map_err(map_plugin_service_error)?
+                .and_then(|(_, _, _, shared_id, shared_type, _)| {
+                    if shared_type == "document" {
+                        Some(shared_id)
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let effective_doc_id = doc_id_from_payload.or(doc_id_from_share);
+    if let Some(doc_id) = effective_doc_id {
+        let auth = ctx.authorization();
+        if let access::Actor::ShareToken(_) = &actor {
+            auth.require_view(&actor, doc_id)
+                .await
+                .map_err(|_| StatusCode::FORBIDDEN)?;
+        } else {
+            auth.require_edit(&actor, doc_id)
                 .await
                 .map_err(|_| StatusCode::FORBIDDEN)?;
         }
     }
+    let allowed_doc_id = match &actor {
+        access::Actor::ShareToken(_) => effective_doc_id,
+        _ => None,
+    };
     let exec_service = ctx.plugin_execution_service();
     match exec_service
         .execute_action(
@@ -702,6 +731,8 @@ pub async fn exec_action(
             &plugin,
             &action,
             body.payload.clone(),
+            allowed_doc_id,
+            &actor,
         )
         .await
         .map_err(map_plugin_service_error)?

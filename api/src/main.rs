@@ -815,6 +815,7 @@ async fn main() -> anyhow::Result<()> {
         plugin_repo.clone(),
         document_repo.clone(),
         plugin_runtime.clone(),
+        authorization_service.clone(),
     ));
     let account_service = Arc::new(AccountService::new(
         user_repo.clone(),

@@ -98,11 +98,7 @@ function DocumentClient({
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
   const pluginRedirectEnabled =
-    loaderData?.createdByPlugin === undefined
-      ? true
-      : loaderData?.createdByPlugin === null
-        ? true
-        : Boolean(loaderData?.createdByPlugin)
+    loaderData?.createdByPlugin == null ? true : Boolean(loaderData?.createdByPlugin)
   const { redirecting, resolving: pluginResolving } = usePluginDocumentRedirect(id, {
     enabled: pluginRedirectEnabled,
     navigate: useCallback((to: string) => navigate({ to }), [navigate]),

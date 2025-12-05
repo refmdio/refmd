@@ -7,6 +7,7 @@ use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::plugin_repository::PluginRepository;
 use crate::application::ports::plugin_runtime::PluginRuntime;
 use crate::domain::workspaces::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet};
+use crate::{application::access, application::services::authorization::AuthorizationService};
 
 const PERMISSION_DOC_WRITE: &str = "doc.write";
 
@@ -30,6 +31,7 @@ where
     pub runtime: &'a RT,
     pub plugin_repo: &'a PR,
     pub document_repo: &'a DR,
+    pub authorization: &'a AuthorizationService,
 }
 
 impl<'a, RT, PR, DR> ExecutePluginAction<'a, RT, PR, DR>
@@ -46,6 +48,8 @@ where
         plugin: &str,
         action: &str,
         payload: Option<serde_json::Value>,
+        allowed_doc_id: Option<Uuid>,
+        actor: &access::Actor,
     ) -> anyhow::Result<Option<ExecResult>> {
         let payload = payload.unwrap_or(serde_json::Value::Null);
         let runtime_scope = Some(workspace_id);
@@ -73,6 +77,8 @@ where
                     &res.effects,
                     &permissions,
                     workspace_permissions,
+                    allowed_doc_id,
+                    actor,
                 )
                 .await
             {
@@ -115,6 +121,8 @@ where
         effects: &[serde_json::Value],
         permissions: &HashSet<String>,
         workspace_permissions: &PermissionSet,
+        allowed_doc_id: Option<Uuid>,
+        actor: &access::Actor,
     ) -> Result<Vec<serde_json::Value>, PluginEffectError> {
         let mut doc_id_created: Option<Uuid> = None;
         let mut passthrough: Vec<serde_json::Value> = Vec::new();
@@ -176,11 +184,20 @@ where
                         .get("value")
                         .cloned()
                         .unwrap_or(serde_json::Value::Null);
-                    let doc_id = effect
-                        .get("docId")
+                    let doc_id = self
+                        .validate_doc_scope(
+                            workspace_id,
+                            effect
+                                .get("docId")
                         .and_then(|v| v.as_str())
                         .and_then(|s| Uuid::parse_str(s).ok())
-                        .or(doc_id_created);
+                        .or(doc_id_created),
+                    allowed_doc_id,
+                    doc_id_created,
+                    actor,
+                    true,
+                )
+                .await?;
                     if let Some(did) = doc_id {
                         self.plugin_repo
                             .kv_set(plugin, "doc", Some(did), key, &value)
@@ -202,11 +219,20 @@ where
                         .get("data")
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!({}));
-                    let doc_id = effect
-                        .get("docId")
+                    let doc_id = self
+                        .validate_doc_scope(
+                            workspace_id,
+                            effect
+                                .get("docId")
                         .and_then(|v| v.as_str())
                         .and_then(|s| Uuid::parse_str(s).ok())
-                        .or(doc_id_created);
+                        .or(doc_id_created),
+                    allowed_doc_id,
+                    doc_id_created,
+                    actor,
+                    true,
+                )
+                .await?;
                     if let Some(did) = doc_id {
                         let _ = self
                             .plugin_repo
@@ -227,6 +253,27 @@ where
                         .and_then(|v| v.as_str())
                         .and_then(|s| Uuid::parse_str(s).ok())
                     {
+                        if let Some(rec) = self
+                            .plugin_repo
+                            .get_record(record_id)
+                            .await
+                            .map_err(PluginEffectError::from)?
+                        {
+                            if rec.plugin != plugin {
+                                return Err(PluginEffectError::PermissionDenied {
+                                    permission: PERM_DOC_EDIT.to_string(),
+                                });
+                            }
+                            self.validate_doc_scope(
+                                workspace_id,
+                                Some(rec.scope_id),
+                                allowed_doc_id,
+                                doc_id_created,
+                                actor,
+                                true,
+                            )
+                            .await?;
+                        }
                         let patch = effect
                             .get("patch")
                             .cloned()
@@ -250,6 +297,27 @@ where
                         .and_then(|v| v.as_str())
                         .and_then(|s| Uuid::parse_str(s).ok())
                     {
+                        if let Some(rec) = self
+                            .plugin_repo
+                            .get_record(record_id)
+                            .await
+                            .map_err(PluginEffectError::from)?
+                        {
+                            if rec.plugin != plugin {
+                                return Err(PluginEffectError::PermissionDenied {
+                                    permission: PERM_DOC_EDIT.to_string(),
+                                });
+                            }
+                            self.validate_doc_scope(
+                                workspace_id,
+                                Some(rec.scope_id),
+                                allowed_doc_id,
+                                doc_id_created,
+                                actor,
+                                true,
+                            )
+                            .await?;
+                        }
                         let _ = self
                             .plugin_repo
                             .delete_record(record_id)
@@ -284,6 +352,46 @@ where
         }
 
         Ok(passthrough)
+    }
+
+    async fn validate_doc_scope(
+        &self,
+        _workspace_id: Uuid,
+        mut doc_id: Option<Uuid>,
+        allowed_doc_id: Option<Uuid>,
+        doc_id_created: Option<Uuid>,
+        actor: &access::Actor,
+        require_edit: bool,
+    ) -> Result<Option<Uuid>, PluginEffectError> {
+        // When doc_id is omitted, fall back to the explicitly allowed doc for share tokens.
+        doc_id = doc_id.or(allowed_doc_id);
+
+        let Some(doc_id) = doc_id else {
+            return Ok(None);
+        };
+        if let Some(allowed) = allowed_doc_id {
+            if doc_id != allowed {
+                return Err(PluginEffectError::PermissionDenied {
+                    permission: PERM_DOC_EDIT.to_string(),
+                });
+            }
+        }
+        if Some(doc_id) == doc_id_created {
+            return Ok(Some(doc_id));
+        }
+        let capability = self.authorization.resolve_document(actor, doc_id).await;
+        let has_access = if require_edit {
+            capability >= access::Capability::Edit
+        } else {
+            capability >= access::Capability::View
+        };
+        if has_access {
+            Ok(Some(doc_id))
+        } else {
+            Err(PluginEffectError::PermissionDenied {
+                permission: PERM_DOC_EDIT.to_string(),
+            })
+        }
     }
 
     fn ensure_permission(

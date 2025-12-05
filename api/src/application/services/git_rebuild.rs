@@ -340,6 +340,18 @@ mod tests {
                 })
             }
         }
+
+        async fn check_remote(
+            &self,
+            _workspace_id: Uuid,
+            _cfg: &crate::application::ports::git_repository::UserGitCfg,
+        ) -> anyhow::Result<crate::application::dto::git::GitRemoteCheckDto> {
+            Ok(crate::application::dto::git::GitRemoteCheckDto {
+                ok: true,
+                message: "ok".into(),
+                reason: None,
+            })
+        }
     }
 
     struct RecordingJobQueue {
