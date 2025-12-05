@@ -249,17 +249,31 @@ async fn resolve_user_scope_from_inputs(
         }
     }
     if let Some(token) = share_token {
+        // Share token: resolve its workspace for renderer so plugin manifests can be loaded.
         if let Some(actor) = auth::resolve_actor_from_token_str(ctx, token).await {
-            if let access::Actor::User(uid) = actor {
-                if let Ok(workspaces) = ctx.workspace_service().list_for_user(uid).await {
-                    if workspaces.is_empty() {
-                        return None;
+            match actor {
+                access::Actor::User(uid) => {
+                    if let Ok(workspaces) = ctx.workspace_service().list_for_user(uid).await {
+                        if workspaces.is_empty() {
+                            return None;
+                        }
+                        if let Some(default_ws) = workspaces.iter().find(|ws| ws.is_default) {
+                            return Some(default_ws.id);
+                        }
+                        return Some(workspaces[0].id);
                     }
-                    if let Some(default_ws) = workspaces.iter().find(|ws| ws.is_default) {
-                        return Some(default_ws.id);
-                    }
-                    return Some(workspaces[0].id);
                 }
+                access::Actor::ShareToken(t) => {
+                    if let Ok(Some((_share_id, _perm, exp, _doc_id, _typ, workspace_id))) =
+                        ctx.share_service().resolve_share_context(&t).await
+                    {
+                        if exp.map(|e| e < chrono::Utc::now()).unwrap_or(false) {
+                            return None;
+                        }
+                        return Some(workspace_id);
+                    }
+                }
+                _ => {}
             }
         }
     }

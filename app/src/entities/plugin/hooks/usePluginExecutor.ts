@@ -107,6 +107,30 @@ export function usePluginExecutor({
     [apiOrigin, plugins],
   )
 
+  const withShareToken = useCallback(
+    (target: string) => {
+      const token = typeof shareToken === 'string' && shareToken.trim().length > 0 ? shareToken.trim() : null
+      if (!target || !token) return target
+      try {
+        const isAbsolute = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(target)
+        const base = typeof window !== 'undefined' ? window.location.origin : undefined
+        const url = isAbsolute ? new URL(target) : new URL(target, base ?? 'http://localhost')
+        if (isAbsolute && (!base || url.origin !== base)) {
+          return target
+        }
+        if (!url.searchParams.get('token')) {
+          url.searchParams.set('token', token)
+        }
+        return isAbsolute
+          ? (base && url.origin === base ? `${url.pathname}${url.search}${url.hash}` : url.toString())
+          : `${url.pathname}${url.search}${url.hash}`
+      } catch {
+        return target
+      }
+    },
+    [shareToken],
+  )
+
   const resolveDocRoute = useCallback(
     async (docId: string) => {
       const ordered = [
@@ -128,7 +152,7 @@ export function usePluginExecutor({
             if (canOpen && typeof mod.getRoute === 'function') {
               const route = await mod.getRoute(docId, { token: shareToken, origin: apiOrigin, host })
               if (typeof route === 'string' && route) {
-                return route
+                return withShareToken(route)
               }
             }
           }
@@ -137,9 +161,9 @@ export function usePluginExecutor({
         }
       }
       const suffix = shareToken ? `?token=${encodeURIComponent(shareToken)}` : ''
-      return `/document/${docId}${suffix}`
+      return withShareToken(`/document/${docId}${suffix}`)
     },
-    [apiOrigin, importPluginModule, plugins, shareToken],
+    [apiOrigin, importPluginModule, plugins, shareToken, withShareToken],
   )
 
   const runPluginCommand = useCallback(

@@ -50,7 +50,7 @@ where
         }
         Actor::ShareToken(t) => {
             // Resolve token target and then decide access when document matches token scope
-            if let Ok(Some((share_id, perm, expires_at, shared_id, shared_type))) =
+            if let Ok(Some((share_id, perm, expires_at, shared_id, shared_type, _workspace_id))) =
                 shares_repo.resolve_share_by_token(t).await
             {
                 if access_repo

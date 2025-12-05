@@ -97,8 +97,14 @@ function DocumentClient({
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
+  const pluginRedirectEnabled =
+    loaderData?.createdByPlugin === undefined
+      ? true
+      : loaderData?.createdByPlugin === null
+        ? true
+        : Boolean(loaderData?.createdByPlugin)
   const { redirecting, resolving: pluginResolving } = usePluginDocumentRedirect(id, {
-    enabled: Boolean(loaderData?.createdByPlugin),
+    enabled: pluginRedirectEnabled,
     navigate: useCallback((to: string) => navigate({ to }), [navigate]),
   })
   const anonIdentity = useMemo(() => {

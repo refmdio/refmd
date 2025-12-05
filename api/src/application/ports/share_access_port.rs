@@ -13,6 +13,7 @@ pub trait ShareAccessPort: Send + Sync {
             Option<chrono::DateTime<chrono::Utc>>,
             Uuid,
             String,
+            Uuid,
         )>,
     >;
 

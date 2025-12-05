@@ -22,7 +22,8 @@ use crate::application::services::plugins::management::{
 };
 use crate::application::use_cases::plugins::install_from_url::InstallPluginError;
 use crate::domain::workspaces::permissions::{
-    PERM_PLUGIN_INSTALL, PERM_PLUGIN_RUN, PERM_PLUGIN_UNINSTALL, PermissionSet,
+    PERM_DOC_EDIT, PERM_DOC_VIEW, PERM_PLUGIN_INSTALL, PERM_PLUGIN_RUN, PERM_PLUGIN_UNINSTALL,
+    PermissionSet,
 };
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{self, Bearer};
@@ -35,32 +36,80 @@ struct PluginUserContext {
     workspace_id: Uuid,
     user_id: Uuid,
     permissions: PermissionSet,
+    actor: access::Actor,
 }
 
 async fn resolve_plugin_user_context(
     ctx: &AppContext,
     headers: &HeaderMap,
     bearer_token: &str,
-    user_id: Uuid,
     required_permission: Option<&str>,
 ) -> Result<PluginUserContext, StatusCode> {
-    let workspace_id =
-        workspace_scope::resolve_active_workspace_id(ctx, headers, Some(bearer_token), user_id)
-            .await
-            .map_err(|_| StatusCode::FORBIDDEN)?;
-    let permissions = workspace_scope::resolve_workspace_permissions(ctx, workspace_id, user_id)
-        .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
-    if let Some(permission) = required_permission {
-        if !permissions.allows(permission) {
-            return Err(StatusCode::FORBIDDEN);
+    if let Some(actor) = auth::resolve_actor_from_token_str(ctx, bearer_token).await {
+        match actor {
+            access::Actor::User(user_id) => {
+                let workspace_id = workspace_scope::resolve_active_workspace_id(
+                    ctx,
+                    headers,
+                    Some(bearer_token),
+                    user_id,
+                )
+                .await
+                .map_err(|_| StatusCode::FORBIDDEN)?;
+                let permissions = workspace_scope::resolve_workspace_permissions(
+                    ctx,
+                    workspace_id,
+                    user_id,
+                )
+                .await
+                .map_err(|_| StatusCode::FORBIDDEN)?;
+                if let Some(permission) = required_permission {
+                    if !permissions.allows(permission) {
+                        return Err(StatusCode::FORBIDDEN);
+                    }
+                }
+                return Ok(PluginUserContext {
+                    workspace_id,
+                    user_id,
+                    permissions,
+                    actor: access::Actor::User(user_id),
+                });
+            }
+            access::Actor::ShareToken(token) => {
+                let share = ctx
+                    .share_service()
+                    .resolve_share_context(&token)
+                    .await
+                    .map_err(|_| StatusCode::UNAUTHORIZED)?
+                    .ok_or(StatusCode::UNAUTHORIZED)?;
+                let (_share_id, perm, expires_at, _shared_id, _shared_type, workspace_id) = share;
+                if let Some(exp) = expires_at {
+                    if exp < chrono::Utc::now() {
+                        return Err(StatusCode::UNAUTHORIZED);
+                    }
+                }
+                let mut permissions = PermissionSet::from_slice(&[PERM_PLUGIN_RUN, PERM_DOC_VIEW]);
+                if perm == "edit" {
+                    permissions.insert(PERM_DOC_EDIT);
+                }
+                if let Some(permission) = required_permission {
+                    if !permissions.allows(permission) {
+                        return Err(StatusCode::FORBIDDEN);
+                    }
+                }
+                return Ok(PluginUserContext {
+                    workspace_id,
+                    // Share tokens do not map to a user; use workspace_id as a stable placeholder
+                    user_id: workspace_id,
+                    permissions,
+                    actor: access::Actor::ShareToken(token),
+                });
+            }
+            _ => {}
         }
     }
-    Ok(PluginUserContext {
-        workspace_id,
-        user_id,
-        permissions,
-    })
+
+    Err(StatusCode::UNAUTHORIZED)
 }
 
 pub fn routes(ctx: AppContext) -> Router {
@@ -178,17 +227,14 @@ pub async fn list_records(
 ) -> Result<Json<RecordsResponse>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
-    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
         &headers,
         bearer_token.as_str(),
-        user_id,
         Some(PERM_PLUGIN_RUN),
     )
     .await?;
-    let actor = access::Actor::User(plugin_ctx.user_id);
+    let actor = plugin_ctx.actor;
     ctx.authorization()
         .require_view(&actor, p.doc_id)
         .await
@@ -261,17 +307,14 @@ pub async fn create_record(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
-    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
         &headers,
         bearer_token.as_str(),
-        user_id,
         Some(PERM_PLUGIN_RUN),
     )
     .await?;
-    let actor = access::Actor::User(plugin_ctx.user_id);
+    let actor = plugin_ctx.actor.clone();
     ctx.authorization()
         .require_edit(&actor, p.doc_id)
         .await
@@ -332,21 +375,14 @@ pub async fn update_record(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token_raw = bearer.0;
-    let sub = crate::presentation::http::auth::validate_bearer_public(
-        &ctx,
-        Bearer(bearer_token_raw.clone()),
-    )
-    .await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
         &headers,
         bearer_token_raw.as_str(),
-        user_id,
         Some(PERM_PLUGIN_RUN),
     )
     .await?;
-    let actor = access::Actor::User(plugin_ctx.user_id);
+    let actor = plugin_ctx.actor.clone();
 
     let plugin_data = ctx.plugin_data_service();
     // Get record for scope info and docId to enforce edit permission
@@ -401,24 +437,17 @@ pub async fn delete_record(
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<UpdateRecordPath>,
-) -> Result<StatusCode, StatusCode> {
-    ensure_valid_plugin_id(&p.plugin)?;
-    let bearer_token_raw = bearer.0;
-    let sub = crate::presentation::http::auth::validate_bearer_public(
-        &ctx,
-        Bearer(bearer_token_raw.clone()),
-    )
-    .await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let plugin_ctx = resolve_plugin_user_context(
-        &ctx,
-        &headers,
-        bearer_token_raw.as_str(),
-        user_id,
+    ) -> Result<StatusCode, StatusCode> {
+        ensure_valid_plugin_id(&p.plugin)?;
+        let bearer_token_raw = bearer.0;
+        let plugin_ctx = resolve_plugin_user_context(
+            &ctx,
+            &headers,
+            bearer_token_raw.as_str(),
         Some(PERM_PLUGIN_RUN),
     )
     .await?;
-    let actor = access::Actor::User(plugin_ctx.user_id);
+    let actor = plugin_ctx.actor.clone();
     let plugin_data = ctx.plugin_data_service();
     // Get record to authorize
     let rec = plugin_data
@@ -488,17 +517,14 @@ pub async fn get_kv_value(
 ) -> Result<Json<KvValueResponse>, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
-    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
         &headers,
         bearer_token.as_str(),
-        user_id,
         Some(PERM_PLUGIN_RUN),
     )
     .await?;
-    let actor = access::Actor::User(plugin_ctx.user_id);
+    let actor = plugin_ctx.actor.clone();
     ctx.authorization()
         .require_view(&actor, p.doc_id)
         .await
@@ -540,17 +566,14 @@ pub async fn put_kv_value(
 ) -> Result<StatusCode, StatusCode> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
-    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
         &headers,
         bearer_token.as_str(),
-        user_id,
         Some(PERM_PLUGIN_RUN),
     )
     .await?;
-    let actor = access::Actor::User(plugin_ctx.user_id);
+    let actor = plugin_ctx.actor.clone();
     ctx.authorization()
         .require_edit(&actor, p.doc_id)
         .await
@@ -615,10 +638,8 @@ pub async fn get_manifest(
     headers: HeaderMap,
 ) -> Result<Json<Vec<ManifestItem>>, StatusCode> {
     let bearer_token = bearer.0;
-    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx =
-        resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), user_id, None).await?;
+        resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), None).await?;
     let manifests = ctx
         .plugin_management()
         .manifests_for_workspace(plugin_ctx.workspace_id, plugin_ctx.user_id)
@@ -656,17 +677,14 @@ pub async fn exec_action(
 ) -> Result<Json<ExecResultResponse>, StatusCode> {
     ensure_valid_plugin_id(&plugin)?;
     let bearer_token = bearer.0;
-    let sub = auth::validate_bearer_public(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
         &headers,
         bearer_token.as_str(),
-        user_id,
         Some(PERM_PLUGIN_RUN),
     )
     .await?;
-    let actor = access::Actor::User(plugin_ctx.user_id);
+    let actor = plugin_ctx.actor.clone();
     if let Some(payload) = body.payload.as_ref() {
         if let Some(doc_id) = extract_doc_id(payload) {
             ctx.authorization()
@@ -761,17 +779,10 @@ pub async fn install_from_url(
     Json(body): Json<InstallFromUrlBody>,
 ) -> Result<Json<InstallResponse>, StatusCode> {
     let bearer_token_raw = bearer.0;
-    let sub = crate::presentation::http::auth::validate_bearer_public(
-        &ctx,
-        Bearer(bearer_token_raw.clone()),
-    )
-    .await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
         &headers,
         bearer_token_raw.as_str(),
-        user_id,
         Some(PERM_PLUGIN_INSTALL),
     )
     .await?;
@@ -831,17 +842,10 @@ pub async fn uninstall(
     Json(body): Json<UninstallBody>,
 ) -> Result<StatusCode, StatusCode> {
     let bearer_token_raw = bearer.0;
-    let sub = crate::presentation::http::auth::validate_bearer_public(
-        &ctx,
-        Bearer(bearer_token_raw.clone()),
-    )
-    .await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
         &headers,
         bearer_token_raw.as_str(),
-        user_id,
         Some(PERM_PLUGIN_UNINSTALL),
     )
     .await?;
