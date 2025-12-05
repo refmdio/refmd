@@ -199,7 +199,12 @@ export const FileNode = memo(function FileNode({
     }
   }, [renameTarget, node.id, node.title, isEditing, isArchived])
 
-  const kvRules = (pluginRules || []).filter(r => r.identify && r.identify.type === 'kvFlag' && !!r.identify.key)
+  const pluginOwner = (node.createdByPlugin || '').trim()
+
+  const kvRules = pluginOwner
+    ? [] // Skip KV fetch when plugin owner is already known
+    : (pluginRules || []).filter((r) => r.identify && r.identify.type === 'kvFlag' && !!r.identify.key)
+
   const shouldFetchPluginFlags = node.type === 'file' && kvRules.length > 0 && (isRowInView || hasBeenVisible)
 
   const kvResults = useQueries({
@@ -243,6 +248,12 @@ export const FileNode = memo(function FileNode({
   }
 
   let chosenIcon: string | null = null
+  if (pluginOwner) {
+    const match = (pluginRules || []).find((rule) => rule.pluginId === pluginOwner && typeof rule.icon === 'string')
+    if (match?.icon) {
+      chosenIcon = match.icon
+    }
+  }
   for (let i = 0; i < kvRules.length; i++) {
     const rule = kvRules[i]
     let value: any = kvResults[i]?.data

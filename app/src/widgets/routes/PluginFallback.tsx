@@ -4,6 +4,8 @@ import React from 'react'
 import { useRealtime } from '@/shared/contexts/realtime-context'
 import { useShareToken } from '@/shared/contexts/share-token-context'
 
+import { fetchDocumentMeta } from '@/entities/document'
+
 import { useAuthContext } from '@/features/auth'
 import {
   mountRoutePlugin,
@@ -94,6 +96,25 @@ export default function PluginFallback() {
 
     ;(async () => {
       try {
+        // If the path looks like a document route and has no plugin owner hint,
+        // skip plugin resolution to avoid unnecessary work.
+        const docIdMatch = path.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/)
+        if (docIdMatch) {
+          try {
+            const meta = await fetchDocumentMeta(docIdMatch[0], shareToken ?? undefined)
+            const createdByPlugin = (meta as any)?.created_by_plugin ?? (meta as any)?.createdByPlugin
+            if (!createdByPlugin) {
+              if (!cancelled) {
+                setError('Not Found')
+                setManifestLoading(false)
+              }
+              return
+            }
+          } catch {
+            /* ignore meta failures and continue to plugin resolution */
+          }
+        }
+
         const match = await resolvePluginForRoute(path, { token: shareToken ?? undefined })
         if (cancelled) return
         if (!match) {

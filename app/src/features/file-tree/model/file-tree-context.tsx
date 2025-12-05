@@ -53,6 +53,7 @@ type DbDoc = {
   share_token?: string
   is_share_mount?: boolean
   share_mount_id?: string
+  created_by_plugin?: string | null
 }
 
 type BuildTreeOptions = {
@@ -101,6 +102,7 @@ function buildTree(docs: DbDoc[], options?: BuildTreeOptions): DocumentNode[] {
       shareToken: d.share_token,
       isShareMount: d.is_share_mount,
       shareMountId: d.share_mount_id,
+      createdByPlugin: d.created_by_plugin ?? null,
     })
     const parentId = (useArchivedParent ? d.archived_parent_id : d.parent_id) ?? undefined
     parentRef.set(d.id, parentId ?? undefined)

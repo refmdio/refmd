@@ -1,30 +1,34 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
-use argon2::{password_hash::{PasswordHasher, SaltString}, Argon2};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use argon2::{
+    Argon2,
+    password_hash::{PasswordHasher, SaltString},
+};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand, ValueEnum};
 use password_hash::rand_core::OsRng;
 use sqlx::{Row, types::Json};
 use uuid::Uuid;
 
+use api::application::ports::api_token_repository::ApiTokenRepository;
 use api::application::ports::git_rebuild_job_queue::GitRebuildJobQueue;
+use api::application::ports::git_storage::GitStorage;
+use api::application::ports::git_workspace::GitWorkspacePort;
+use api::application::ports::plugin_asset_store::PluginAssetStore;
+use api::application::ports::shares_repository::SharesRepository;
 use api::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
 use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
 use api::application::ports::user_session_repository::UserSessionRepository;
-use api::application::ports::plugin_asset_store::PluginAssetStore;
-use api::application::ports::git_workspace::GitWorkspacePort;
-use api::application::ports::git_storage::GitStorage;
 use api::application::services::api_tokens::generate_api_token;
-use api::application::ports::api_token_repository::ApiTokenRepository;
-use api::application::ports::shares_repository::SharesRepository;
 use api::application::services::workspaces::WorkspaceService;
-use api::application::use_cases::auth::register::{Register, RegisterRequest};
 use api::application::use_cases::auth::delete_account::DeleteAccount;
+use api::application::use_cases::auth::register::{Register, RegisterRequest};
 use api::bootstrap::config::Config;
 use api::domain::workspaces::permissions::PermissionSet;
 use api::infrastructure::db;
+use api::infrastructure::db::PgPool;
 use api::infrastructure::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository;
 use api::infrastructure::db::repositories::document_repository_sqlx::SqlxDocumentRepository;
 use api::infrastructure::db::repositories::files_repository_sqlx::SqlxFilesRepository;
@@ -34,10 +38,11 @@ use api::infrastructure::db::repositories::shares_repository_sqlx::SqlxSharesRep
 use api::infrastructure::db::repositories::user_repository_sqlx::SqlxUserRepository;
 use api::infrastructure::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository;
 use api::infrastructure::db::repositories::workspace_repository_sqlx::SqlxWorkspaceRepository;
-use api::infrastructure::db::PgPool;
 use api::infrastructure::git::PgGitRebuildJobQueue;
 use api::infrastructure::git::storage::{GitStorageDriverConfig, build_git_storage};
-use api::infrastructure::plugins::filesystem_store::{FilesystemPluginStore, PluginExecutionLimits};
+use api::infrastructure::plugins::filesystem_store::{
+    FilesystemPluginStore, PluginExecutionLimits,
+};
 use api::infrastructure::plugins::s3_store::{S3BackedPluginStore, S3PluginStoreConfig};
 use api::infrastructure::storage::PgStorageIngestQueue;
 use api::infrastructure::storage::PgStorageProjectionQueue;
@@ -373,7 +378,10 @@ impl CliGitWorkspace {
         Ok(row.map(|r| (r.get("initialized"), r.get("default_branch"))))
     }
 
-    async fn latest_commit_meta(&self, workspace_id: Uuid) -> anyhow::Result<Option<api::application::ports::git_storage::CommitMeta>> {
+    async fn latest_commit_meta(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Option<api::application::ports::git_storage::CommitMeta>> {
         let row = sqlx::query(
             r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
                       committed_at, pack_key, file_hash_index
@@ -423,7 +431,11 @@ struct DirtyRow {
 
 #[async_trait::async_trait]
 impl GitWorkspacePort for CliGitWorkspace {
-    async fn ensure_repository(&self, _workspace_id: Uuid, _default_branch: &str) -> anyhow::Result<()> {
+    async fn ensure_repository(
+        &self,
+        _workspace_id: Uuid,
+        _default_branch: &str,
+    ) -> anyhow::Result<()> {
         bail!("ensure_repository not supported in refmd CLI");
     }
 
@@ -448,7 +460,10 @@ impl GitWorkspacePort for CliGitWorkspace {
         Ok(())
     }
 
-    async fn status(&self, workspace_id: Uuid) -> anyhow::Result<api::application::dto::git::GitWorkspaceStatus> {
+    async fn status(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<api::application::dto::git::GitWorkspaceStatus> {
         let state = self.load_repository_state(workspace_id).await?;
         let Some((initialized, branch)) = state else {
             return Ok(api::application::dto::git::GitWorkspaceStatus {
@@ -505,7 +520,10 @@ impl GitWorkspacePort for CliGitWorkspace {
         })
     }
 
-    async fn list_changes(&self, workspace_id: Uuid) -> anyhow::Result<Vec<api::application::dto::git::GitChangeItem>> {
+    async fn list_changes(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<api::application::dto::git::GitChangeItem>> {
         if let Some((initialized, _)) = self.load_repository_state(workspace_id).await? {
             if !initialized {
                 return Ok(Vec::new());
@@ -542,7 +560,10 @@ impl GitWorkspacePort for CliGitWorkspace {
         Ok(out)
     }
 
-    async fn working_diff(&self, _workspace_id: Uuid) -> anyhow::Result<Vec<api::application::dto::diff::TextDiffResult>> {
+    async fn working_diff(
+        &self,
+        _workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<api::application::dto::diff::TextDiffResult>> {
         bail!("working_diff not supported in refmd CLI");
     }
 
@@ -555,7 +576,10 @@ impl GitWorkspacePort for CliGitWorkspace {
         bail!("commit_diff not supported in refmd CLI");
     }
 
-    async fn history(&self, _workspace_id: Uuid) -> anyhow::Result<Vec<api::application::dto::git::GitCommitInfo>> {
+    async fn history(
+        &self,
+        _workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<api::application::dto::git::GitCommitInfo>> {
         bail!("history not supported in refmd CLI");
     }
 
@@ -581,7 +605,9 @@ impl GitWorkspacePort for CliGitWorkspace {
     }
 }
 
-fn row_to_commit_meta(row: sqlx::postgres::PgRow) -> anyhow::Result<api::application::ports::git_storage::CommitMeta> {
+fn row_to_commit_meta(
+    row: sqlx::postgres::PgRow,
+) -> anyhow::Result<api::application::ports::git_storage::CommitMeta> {
     let commit_id: Vec<u8> = row.get("commit_id");
     let parent_commit_id: Option<Vec<u8>> = row.try_get("parent_commit_id").ok();
     let message: Option<String> = row.try_get("message").ok();
@@ -589,7 +615,8 @@ fn row_to_commit_meta(row: sqlx::postgres::PgRow) -> anyhow::Result<api::applica
     let author_email: Option<String> = row.try_get("author_email").ok();
     let committed_at: DateTime<Utc> = row.get("committed_at");
     let pack_key: String = row.get("pack_key");
-    let file_hash_index: Json<std::collections::HashMap<String, String>> = row.get("file_hash_index");
+    let file_hash_index: Json<std::collections::HashMap<String, String>> =
+        row.get("file_hash_index");
 
     Ok(api::application::ports::git_storage::CommitMeta {
         commit_id,
@@ -672,11 +699,9 @@ async fn main() -> Result<()> {
             cfg.encryption_key.clone(),
         );
     let git_storage_cfg = match cfg.storage_backend {
-        api::bootstrap::config::StorageBackend::Filesystem => {
-            GitStorageDriverConfig::Filesystem {
-                root: PathBuf::from(cfg.storage_root.clone()),
-            }
-        }
+        api::bootstrap::config::StorageBackend::Filesystem => GitStorageDriverConfig::Filesystem {
+            root: PathBuf::from(cfg.storage_root.clone()),
+        },
         api::bootstrap::config::StorageBackend::S3 => {
             let s3_settings = api::infrastructure::git::storage::S3GitStorageConfig {
                 storage_root_prefix: cfg.storage_root.clone(),
@@ -737,27 +762,31 @@ async fn handle_users(deps: &Deps, cmd: UserCommand) -> Result<()> {
             name,
             password,
             user_id,
-        } => create_user(
-            &deps.user_repo,
-            deps.workspace_service.as_ref(),
-            email,
-            name,
-            password,
-            user_id,
-        )
-        .await,
+        } => {
+            create_user(
+                &deps.user_repo,
+                deps.workspace_service.as_ref(),
+                email,
+                name,
+                password,
+                user_id,
+            )
+            .await
+        }
         UserCommand::SetPassword {
             user_id,
             password,
             revoke_sessions,
-        } => set_password(
-            &deps.pool,
-            &deps.session_repo,
-            user_id,
-            password,
-            revoke_sessions,
-        )
-        .await,
+        } => {
+            set_password(
+                &deps.pool,
+                &deps.session_repo,
+                user_id,
+                password,
+                revoke_sessions,
+            )
+            .await
+        }
         UserCommand::Delete { user_id } => delete_user(deps, user_id).await,
         UserCommand::Sessions { user_id } => list_sessions(&deps.session_repo, user_id).await,
         UserCommand::RevokeSessions { user_id } => {
@@ -780,17 +809,19 @@ async fn handle_jobs(deps: &Deps, cmd: JobsCommand) -> Result<()> {
                 kind,
                 content_hash,
                 actor_id,
-            } => enqueue_ingest(
-                &deps.ingest_queue,
-                workspace_id,
-                user_id,
-                actor_id,
-                repo_path,
-                backend,
-                kind,
-                content_hash,
-            )
-            .await,
+            } => {
+                enqueue_ingest(
+                    &deps.ingest_queue,
+                    workspace_id,
+                    user_id,
+                    actor_id,
+                    repo_path,
+                    backend,
+                    kind,
+                    content_hash,
+                )
+                .await
+            }
         },
         JobsCommand::Projection { command } => match command {
             ProjectionCommand::Stats => print_projection_stats(&deps.pool).await,
@@ -801,8 +832,13 @@ async fn handle_jobs(deps: &Deps, cmd: JobsCommand) -> Result<()> {
                 workspace_id,
                 scope,
             } => {
-                deps.reconcile_jobs.enqueue(workspace_id, scope.trim()).await?;
-                println!("enqueued reconcile job workspace={workspace_id} scope={}", scope.trim());
+                deps.reconcile_jobs
+                    .enqueue(workspace_id, scope.trim())
+                    .await?;
+                println!(
+                    "enqueued reconcile job workspace={workspace_id} scope={}",
+                    scope.trim()
+                );
                 Ok(())
             }
         },
@@ -813,8 +849,7 @@ async fn handle_jobs(deps: &Deps, cmd: JobsCommand) -> Result<()> {
                 actor_id,
             } => {
                 let permissions = PermissionSet::all().to_vec();
-                deps
-                    .git_rebuild_jobs
+                deps.git_rebuild_jobs
                     .enqueue(workspace_id, actor_id, &permissions)
                     .await?;
                 println!(
@@ -834,7 +869,11 @@ async fn handle_workspaces(deps: &Deps, cmd: WorkspaceCommand) -> Result<()> {
             list_workspace_members(&deps.pool, workspace_id).await
         }
         WorkspaceCommand::Delete { workspace_id } => {
-            match deps.workspace_service.delete_workspace(workspace_id).await? {
+            match deps
+                .workspace_service
+                .delete_workspace(workspace_id)
+                .await?
+            {
                 true => println!("deleted workspace {}", workspace_id),
                 false => println!("workspace {} not found", workspace_id),
             }
@@ -872,8 +911,14 @@ async fn handle_shares(deps: &Deps, cmd: ShareCommand) -> Result<()> {
             workspace_id,
             document_id,
         } => list_shares(&deps.shares_repo, workspace_id, document_id).await,
-        ShareCommand::Revoke { workspace_id, token } => {
-            let removed = deps.shares_repo.delete_share(workspace_id, token.trim()).await?;
+        ShareCommand::Revoke {
+            workspace_id,
+            token,
+        } => {
+            let removed = deps
+                .shares_repo
+                .delete_share(workspace_id, token.trim())
+                .await?;
             if removed {
                 println!("revoked share token {}", token.trim());
             } else {
@@ -946,7 +991,10 @@ async fn handle_plugins(deps: &Deps, cmd: PluginCommand) -> Result<()> {
                         serde_json::to_string_pretty(&manifest)?
                     );
                 }
-                None => println!("manifest not found for plugin={} user={} version={}", plugin_id, user_id, version),
+                None => println!(
+                    "manifest not found for plugin={} user={} version={}",
+                    plugin_id, user_id, version
+                ),
             }
             Ok(())
         }
@@ -954,7 +1002,10 @@ async fn handle_plugins(deps: &Deps, cmd: PluginCommand) -> Result<()> {
             deps.plugin_assets
                 .remove_user_plugin_dir(&user_id, &plugin_id)
                 .await?;
-            println!("removed plugin data for user {} plugin {}", user_id, plugin_id);
+            println!(
+                "removed plugin data for user {} plugin {}",
+                user_id, plugin_id
+            );
             Ok(())
         }
     }
@@ -1012,10 +1063,7 @@ async fn create_user(
     explicit_user_id: Option<Uuid>,
 ) -> Result<()> {
     let normalized_email = email.trim();
-    ensure!(
-        !normalized_email.is_empty(),
-        "email must not be empty"
-    );
+    ensure!(!normalized_email.is_empty(), "email must not be empty");
     ensure!(!password.trim().is_empty(), "password must not be empty");
 
     let user_id = explicit_user_id.unwrap_or_else(Uuid::new_v4);

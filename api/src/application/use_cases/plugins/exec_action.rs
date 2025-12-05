@@ -150,7 +150,14 @@ where
                         .and_then(|s| Uuid::parse_str(s).ok());
                     let doc = self
                         .document_repo
-                        .create_for_user(workspace_id, user_id, title, parent_id, doc_type)
+                        .create_for_user(
+                            workspace_id,
+                            user_id,
+                            title,
+                            parent_id,
+                            doc_type,
+                            Some(plugin),
+                        )
                         .await
                         .map_err(PluginEffectError::from)?;
                     doc_id_created = Some(doc.id);

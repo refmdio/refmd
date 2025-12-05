@@ -1930,7 +1930,8 @@ impl GitWorkspacePort for GitWorkspaceService {
                         Some("auth_required".to_string()),
                         "remote requires authentication or SSO approval".to_string(),
                     )
-                } else if lower.contains("git_http_not_found") || lower.contains("status code: 404") {
+                } else if lower.contains("git_http_not_found") || lower.contains("status code: 404")
+                {
                     (
                         Some("repo_not_found".to_string()),
                         "repository URL or branch not found".to_string(),

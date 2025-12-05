@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem, GitCommitInfo, GitConfigDto, GitRemoteCheckDto, GitStatusDto,
-    GitSyncRequestDto, GitSyncResponseDto, GitignoreUpdateDto, UpsertGitConfigInput,
+    GitChangeItem, GitCommitInfo, GitConfigDto, GitRemoteCheckDto, GitStatusDto, GitSyncRequestDto,
+    GitSyncResponseDto, GitignoreUpdateDto, UpsertGitConfigInput,
 };
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
@@ -132,23 +132,21 @@ impl GitService {
             workspace: self.workspace.as_ref(),
             repo: self.repo.as_ref(),
         };
-        uc.execute(workspace_id, payload)
-            .await
-            .map_err(|err| {
-                let msg_lower = err.to_string().to_lowercase();
-                if msg_lower.contains("git_http_auth_redirect")
-                    || msg_lower.contains("too many redirects")
-                    || msg_lower.contains("http (34)")
-                {
-                    ServiceError::BadRequest("git_auth_redirect")
-                } else if msg_lower.contains("git_http_not_found")
-                    || msg_lower.contains("status code: 404")
-                {
-                    ServiceError::BadRequest("git_repo_not_found")
-                } else {
-                    ServiceError::from(err)
-                }
-            })
+        uc.execute(workspace_id, payload).await.map_err(|err| {
+            let msg_lower = err.to_string().to_lowercase();
+            if msg_lower.contains("git_http_auth_redirect")
+                || msg_lower.contains("too many redirects")
+                || msg_lower.contains("http (34)")
+            {
+                ServiceError::BadRequest("git_auth_redirect")
+            } else if msg_lower.contains("git_http_not_found")
+                || msg_lower.contains("status code: 404")
+            {
+                ServiceError::BadRequest("git_repo_not_found")
+            } else {
+                ServiceError::from(err)
+            }
+        })
     }
 
     pub async fn get_changes(

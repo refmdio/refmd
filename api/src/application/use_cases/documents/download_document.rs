@@ -206,6 +206,7 @@ where
             doc_type: "folder".to_string(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            created_by_plugin: None,
             slug: sanitize_filename(workspace_name),
             desired_path: String::new(),
             path: None,

@@ -103,9 +103,9 @@ pub fn render(
     // Provide data-sourcepos for editor<->preview sync
     c_opts.render.sourcepos = true;
     // Treat soft line breaks as <br>; default on for "doc" flavor unless explicitly disabled
-    let hardbreaks = opts
-        .hardbreaks
-        .unwrap_or_else(|| matches!(opts.flavor.as_deref(), Some(f) if f.eq_ignore_ascii_case("doc")));
+    let hardbreaks = opts.hardbreaks.unwrap_or_else(
+        || matches!(opts.flavor.as_deref(), Some(f) if f.eq_ignore_ascii_case("doc")),
+    );
     c_opts.render.hardbreaks = hardbreaks;
     // Allow HtmlBlock/HtmlInline to pass through; will be sanitized by ammonia afterwards
     c_opts.render.unsafe_ = true;

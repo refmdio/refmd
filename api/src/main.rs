@@ -1011,9 +1011,7 @@ async fn main() -> anyhow::Result<()> {
 
     let frontend_origin = if let Some(origin) = cfg.frontend_url.clone() {
         Some(HeaderValue::from_str(&origin).map_err(|_| {
-            anyhow::anyhow!(
-                "FRONTEND_URL must be a valid origin (e.g., https://app.example.com)"
-            )
+            anyhow::anyhow!("FRONTEND_URL must be a valid origin (e.g., https://app.example.com)")
         })?)
     } else {
         None

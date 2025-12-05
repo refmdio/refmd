@@ -11,4 +11,5 @@ export type DocumentNode = {
   shareToken?: string
   isShareMount?: boolean
   shareMountId?: string
+  createdByPlugin?: string | null
 }

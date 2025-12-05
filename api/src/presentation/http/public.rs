@@ -211,6 +211,7 @@ pub async fn get_public_by_workspace_and_id(
         r#type: d.doc_type,
         created_at: d.created_at,
         updated_at: d.updated_at,
+        created_by_plugin: d.created_by_plugin,
         slug: d.slug,
         desired_path: d.desired_path,
         path: d.path,

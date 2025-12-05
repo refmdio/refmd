@@ -47,6 +47,7 @@ impl SqlxDocumentRepository {
             doc_type: row.get("type"),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
+            created_by_plugin: row.try_get("created_by_plugin").ok(),
             slug: row.get("slug"),
             desired_path: row.get("desired_path"),
             path: row.try_get("path").ok(),
@@ -437,6 +438,7 @@ impl DocumentRepository for SqlxDocumentRepository {
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
+        created_by_plugin: Option<&str>,
     ) -> anyhow::Result<DomainDocument> {
         let mut tx = self.pool.begin().await?;
         let doc = self
@@ -447,6 +449,7 @@ impl DocumentRepository for SqlxDocumentRepository {
                 title,
                 parent_id,
                 doc_type,
+                created_by_plugin,
             )
             .await?;
         tx.commit().await?;
@@ -461,6 +464,7 @@ impl DocumentRepository for SqlxDocumentRepository {
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
+        created_by_plugin: Option<&str>,
     ) -> anyhow::Result<DomainDocument> {
         sqlx::query("SAVEPOINT document_create")
             .execute(tx.as_mut())
@@ -473,8 +477,8 @@ impl DocumentRepository for SqlxDocumentRepository {
             let repo_path = Self::owner_relative_path(workspace_id, &desired_path);
             let path_digest = Self::hash_path(&desired_path);
             let row = sqlx::query(
-                r#"INSERT INTO documents (title, owner_id, owner_user_id, workspace_id, created_by, parent_id, type, slug, desired_path, path, path_digest)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                r#"INSERT INTO documents (title, owner_id, owner_user_id, workspace_id, created_by, created_by_plugin, parent_id, type, slug, desired_path, path, path_digest)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                    RETURNING *"#,
             )
             .bind(title)
@@ -482,6 +486,7 @@ impl DocumentRepository for SqlxDocumentRepository {
             .bind(created_by)
             .bind(workspace_id)
             .bind(created_by)
+            .bind(created_by_plugin)
             .bind(parent_id)
             .bind(doc_type)
             .bind(&slug)

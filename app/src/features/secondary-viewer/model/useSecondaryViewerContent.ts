@@ -70,13 +70,34 @@ const cleanupConnection = useCallback(() => {
 
     ;(async () => {
       try {
-        const plugin = await resolvePluginForDocument(documentId, shareToken, { source: 'secondary' })
+        const meta = await fetchDocumentMeta(documentId, shareToken ?? undefined).catch(() => null)
         if (disposed) return
-        if (plugin) {
-          setPluginMatch(plugin)
-          setCurrentType('plugin')
-          setIsInitialLoading(false)
-          return
+
+        const createdByPlugin =
+          (meta as any)?.created_by_plugin ?? (meta as any)?.createdByPlugin ?? null
+        if (createdByPlugin) {
+          const plugin = await resolvePluginForDocument(documentId, shareToken, {
+            source: 'secondary',
+          })
+          if (disposed) return
+          if (plugin) {
+            setPluginMatch(plugin)
+            setCurrentType('plugin')
+            setIsInitialLoading(false)
+            return
+          }
+        } else {
+          // Try resolve only if no explicit plugin owner to avoid unnecessary work
+          const plugin = await resolvePluginForDocument(documentId, shareToken, {
+            source: 'secondary',
+          })
+          if (disposed) return
+          if (plugin) {
+            setPluginMatch(plugin)
+            setCurrentType('plugin')
+            setIsInitialLoading(false)
+            return
+          }
         }
 
         if (documentType === 'scrap') {
@@ -84,12 +105,6 @@ const cleanupConnection = useCallback(() => {
           setContent('# Scrap preview is not supported yet.')
           setIsInitialLoading(false)
           return
-        }
-
-        try {
-          await fetchDocumentMeta(documentId, shareToken ?? undefined)
-        } catch {
-          /* ignore meta fetch failure */
         }
 
         const connection = await createYjsConnection(documentId, { token: shareToken ?? undefined })

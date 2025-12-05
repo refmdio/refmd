@@ -140,7 +140,7 @@ impl PublicRepository for SqlxPublicRepository {
     ) -> anyhow::Result<Option<Document>> {
         let row = sqlx::query(
             r#"SELECT d.id, d.owner_id, d.owner_user_id, d.workspace_id, d.title, d.parent_id, d.type, d.created_at, d.updated_at,
-                      d.slug, d.desired_path, d.path, d.created_by,
+                      d.slug, d.desired_path, d.path, d.created_by, d.created_by_plugin,
                       d.archived_at, d.archived_by, d.archived_parent_id
                FROM public_documents p
                JOIN documents d ON p.document_id = d.id
@@ -171,6 +171,7 @@ impl PublicRepository for SqlxPublicRepository {
             desired_path: r.get("desired_path"),
             path: r.try_get("path").ok(),
             created_by: r.try_get("created_by").ok(),
+            created_by_plugin: r.try_get("created_by_plugin").ok(),
             archived_at: r.try_get("archived_at").ok(),
             archived_by: r.try_get("archived_by").ok(),
             archived_parent_id: r.try_get("archived_parent_id").ok(),
