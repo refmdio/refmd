@@ -47,7 +47,7 @@ export const Route = createFileRoute('/(app)/document/$id')({
     try {
       const meta = await fetchDocumentMeta(params.id, token)
       const title = typeof meta?.title === 'string' ? meta.title.trim() : ''
-      const createdByPlugin = meta?.created_by_plugin ?? undefined
+      const createdByPlugin = meta?.created_by_plugin ?? null
       return { title, token, createdByPlugin } satisfies LoaderData
     } catch {
       return { title: '', token, createdByPlugin: undefined } satisfies LoaderData
