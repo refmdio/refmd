@@ -246,14 +246,40 @@ impl DocumentService {
             )
             .await?;
 
-        let updated_doc = self
-            .update_content(&actor, new_doc.id, &source_content)
-            .await?;
+        let result = async {
+            let updated_doc = self
+                .update_content(&actor, new_doc.id, &source_content)
+                .await?;
 
-        self.copy_attachments(&updated_doc, &attachments, actor_id)
-            .await?;
+            self.copy_attachments(&updated_doc, &attachments, actor_id)
+                .await?;
 
-        Ok(updated_doc)
+            Ok::<_, ServiceError>(updated_doc)
+        }
+        .await;
+
+        match result {
+            Ok(doc) => Ok(doc),
+            Err(err) => {
+                if let Err(clean_err) = self
+                    .delete_for_user_internal(
+                        workspace_id,
+                        new_doc.id,
+                        Some(actor_id),
+                        permissions,
+                        false,
+                    )
+                    .await
+                {
+                    warn!(
+                        document_id = %new_doc.id,
+                        error = ?clean_err,
+                        "duplicate_cleanup_failed"
+                    );
+                }
+                Err(err)
+            }
+        }
     }
 
     pub async fn get_for_actor(
@@ -279,6 +305,18 @@ impl DocumentService {
         actor_id: Option<Uuid>,
         permissions: &PermissionSet,
     ) -> Result<bool, ServiceError> {
+        self.delete_for_user_internal(workspace_id, doc_id, actor_id, permissions, true)
+            .await
+    }
+
+    async fn delete_for_user_internal(
+        &self,
+        workspace_id: Uuid,
+        doc_id: Uuid,
+        actor_id: Option<Uuid>,
+        permissions: &PermissionSet,
+        enforce_permissions: bool,
+    ) -> Result<bool, ServiceError> {
         let mut tx = self.begin_transaction().await?;
         let root_meta = self
             .document_repo
@@ -286,7 +324,9 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
-        ensure_can_delete(permissions, &root_meta.doc_type)?;
+        if enforce_permissions {
+            ensure_can_delete(permissions, &root_meta.doc_type)?;
+        }
         let delete_plan = self
             .build_delete_plan(&mut tx, doc_id, workspace_id, root_meta.clone())
             .await?;
@@ -294,7 +334,13 @@ impl DocumentService {
             tx.rollback().await.map_err(map_sqlx_error)?;
             return Ok(false);
         }
-        let permission_snapshot = permissions.to_vec();
+        let permission_snapshot = if enforce_permissions {
+            permissions.to_vec()
+        } else {
+            // Cleanup flows (e.g., duplicate rollback) bypass user permissions so storage delete
+            // jobs always have authority to remove docs and attachments.
+            PermissionSet::all().to_vec()
+        };
         let uc = DeleteDocument {
             repo: self.document_repo.as_ref(),
         };
