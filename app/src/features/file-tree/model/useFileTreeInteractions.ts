@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import {
   createDocument as createDocumentApi,
   deleteDocument as deleteDocumentApi,
+  duplicateDocument as duplicateDocumentApi,
   updateDocumentParent,
   updateDocumentTitle,
 } from '@/entities/document'
@@ -233,6 +234,27 @@ export function useFileTreeInteractions({
     [documents, refreshDocuments, updateDocuments],
   )
 
+  const duplicateDocument = useCallback(
+    async (node: DocumentNode): Promise<void> => {
+      if (isShareView) {
+        toast.error('Cannot duplicate documents in shared view')
+        return
+      }
+      if (node.type === 'folder') return
+      try {
+        const duplicated = await duplicateDocumentApi({ id: node.id })
+        refreshDocuments()
+        setSelectedDocumentId(duplicated.id)
+        navigate({ to: '/document/$id', params: { id: duplicated.id } })
+        toast.success('Document duplicated')
+      } catch (error) {
+        console.error('[file-tree] duplicate failed', error)
+        toast.error('Failed to duplicate document')
+      }
+    },
+    [isShareView, navigate, refreshDocuments, setSelectedDocumentId],
+  )
+
   const deleteNode = useCallback(
     async (node: DocumentNode) => {
       const { id } = node
@@ -367,6 +389,7 @@ export function useFileTreeInteractions({
     createDocument,
     createFolder,
     renameDocument,
+    duplicateDocument,
     deleteDocument: deleteNode,
     navigateToDocument,
     moveDocument,

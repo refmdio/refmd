@@ -7,6 +7,7 @@ import {
   Trash2,
   MoreHorizontal,
   Share2,
+  Copy,
   Globe,
   Link as LinkIcon,
   Ban,
@@ -55,6 +56,7 @@ type FileNodeProps = {
   isDropTarget: boolean
   onSelect: (node: DocumentNode) => void
   onRename: (id: string, newTitle: string) => void
+  onDuplicate: (node: DocumentNode) => void | Promise<void>
   onDelete: (node: DocumentNode) => void
   onDragStart: (e: React.DragEvent, id: string) => void
   onDragEnd: (e: React.DragEvent) => void
@@ -77,6 +79,7 @@ export const FileNode = memo(function FileNode({
   isDropTarget,
   onSelect,
   onRename,
+  onDuplicate,
   onDelete,
   onDragStart,
   onDragEnd,
@@ -103,6 +106,7 @@ export const FileNode = memo(function FileNode({
   const [isEditing, setIsEditing] = useState(false)
   const [editingTitle, setEditingTitle] = useState(node.title)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [duplicatePending, setDuplicatePending] = useState(false)
   const menuGuardRef = useRef<{ block: boolean; timer?: number }>({ block: false })
   const isArchived = Boolean(node.archived)
   const isShareMount = Boolean(node.isShareMount)
@@ -161,6 +165,17 @@ export const FileNode = memo(function FileNode({
     onDelete(node)
     setShowDeleteDialog(false)
   }, [node, onDelete])
+  const handleDuplicate = useCallback(async () => {
+    if (isShareMount) return
+    setDuplicatePending(true)
+    try {
+      await onDuplicate(node)
+    } catch (error) {
+      console.error('[file-tree] duplicate document failed', error)
+    } finally {
+      setDuplicatePending(false)
+    }
+  }, [isShareMount, node, onDuplicate])
   const handleSelect = useCallback(() => { onSelect(node) }, [node, onSelect])
   const handleArchive = useCallback(async () => {
     if (isShareMount) return
@@ -462,6 +477,14 @@ export const FileNode = memo(function FileNode({
                     onSelect={(event) => guardMenuAction(event, handleStartRename)}
                   >
                     <Edit className="h-4 w-4 mr-2" />Rename
+                  </DropdownMenuItem>
+                )}
+                {!isShareMount && (
+                  <DropdownMenuItem
+                    onSelect={(event) => guardMenuAction(event, handleDuplicate)}
+                    disabled={duplicatePending}
+                  >
+                    <Copy className="h-4 w-4 mr-2" />Duplicate
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
