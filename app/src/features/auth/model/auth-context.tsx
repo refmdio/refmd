@@ -381,7 +381,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setClientWorkspaceId(workspaceId)
       try {
         await switchWorkspaceApi(workspaceId)
-        queryClient.clear()
+        await queryClient.cancelQueries({
+          predicate: (query) => query.queryKey?.[0] !== userKeys.me()[0],
+        })
+        queryClient.removeQueries({
+          predicate: (query) => query.queryKey?.[0] !== userKeys.me()[0],
+          type: 'inactive',
+        })
+        void queryClient.invalidateQueries({
+          // Refresh everything except the user record we are about to overwrite
+          predicate: (query) => query.queryKey?.[0] !== userKeys.me()[0],
+          type: 'active',
+          refetchType: 'active',
+        })
         const updated = await meApi()
         queryClient.setQueryData(userKeys.me(), updated)
         setUser(updated)
