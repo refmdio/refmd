@@ -66,6 +66,7 @@ pub trait DocumentRepository: Send + Sync {
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
+        created_by_plugin: Option<&str>,
     ) -> anyhow::Result<DomainDocument>;
 
     async fn create_for_user_tx(
@@ -76,6 +77,7 @@ pub trait DocumentRepository: Send + Sync {
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
+        created_by_plugin: Option<&str>,
     ) -> anyhow::Result<DomainDocument>;
 
     // parent_id: None => not provided; Some(None) => set NULL; Some(Some(uuid)) => set to value

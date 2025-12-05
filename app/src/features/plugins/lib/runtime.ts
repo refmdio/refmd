@@ -63,6 +63,46 @@ export function getApiOrigin() {
   return ''
 }
 
+export function applyShareTokenToRoute(
+  route: string,
+  token?: string | null,
+): { route: string; token: string | null } {
+  const shareToken = typeof token === 'string' && token.trim().length > 0 ? token.trim() : null
+  if (!route || !shareToken) return { route, token: shareToken }
+
+  try {
+    const isAbsolute = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(route)
+    const baseOrigin = typeof window !== 'undefined' ? window.location.origin : undefined
+    const url = isAbsolute
+      ? new URL(route)
+      : new URL(route, baseOrigin ?? 'http://localhost')
+
+    if (isAbsolute && (!baseOrigin || url.origin !== baseOrigin)) {
+      const existingExternalToken = url.searchParams.get('token')
+      const effectiveExternalToken = existingExternalToken && existingExternalToken.trim().length > 0
+        ? existingExternalToken.trim()
+        : shareToken
+      return { route, token: effectiveExternalToken }
+    }
+
+    const existingToken = url.searchParams.get('token')
+    const effectiveToken = existingToken && existingToken.trim().length > 0
+      ? existingToken.trim()
+      : shareToken
+    if (!existingToken) {
+      url.searchParams.set('token', effectiveToken)
+    }
+
+    const normalized = isAbsolute
+      ? (baseOrigin && url.origin === baseOrigin ? `${url.pathname}${url.search}${url.hash}` : url.toString())
+      : `${url.pathname}${url.search}${url.hash}`
+
+    return { route: normalized, token: effectiveToken }
+  } catch {
+    return { route, token: shareToken }
+  }
+}
+
 export function extractDocIdFromRoute(route?: string | null) {
   if (!route) return null
   const noHash = route.split('#')[0] || ''
@@ -93,32 +133,35 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
   const resolvedDocId = ctx.docId ?? (fallbackRoute ? extractDocIdFromRoute(fallbackRoute) : null)
   const resolvedToken = ctx.token ?? (fallbackRoute ? extractQueryParam(fallbackRoute, 'token') : null)
   const apiOrigin = getApiOrigin()
+  const withShareToken = (to: string) => applyShareTokenToRoute(to, resolvedToken).route
   const fallbackNavigate = (to: string) => {
     if (!to) return
+    const target = withShareToken(to)
     const nav = (window as any).router?.navigate
     if (typeof nav === 'function') {
       try {
-        nav({ to })
+        nav({ to: target })
         return
       } catch {}
     }
-    window.location.href = to
+    window.location.href = target
   }
   const performNavigate = (to: string) => {
     if (!to) return
+    const target = withShareToken(to)
     if (ctx.navigate) {
       try {
-        const result = ctx.navigate(to)
+        const result = ctx.navigate(target)
         if (result && typeof (result as Promise<void>).catch === 'function') {
-          ;(result as Promise<void>).catch(() => fallbackNavigate(to))
+          ;(result as Promise<void>).catch(() => fallbackNavigate(target))
         }
         return
       } catch {
-        fallbackNavigate(to)
+        fallbackNavigate(target)
         return
       }
     }
-    fallbackNavigate(to)
+    fallbackNavigate(target)
   }
   const host = {
     exec: async (action: string, args: any = {}) => {

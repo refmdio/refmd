@@ -13,17 +13,17 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as OgVariantDotpngRouteImport } from './routes/og/$variant[.]png'
 import { Route as appWorkspacesRouteImport } from './routes/(app)/workspaces'
 import { Route as appTemporaryRouteImport } from './routes/(app)/temporary'
-import { Route as appSettingsIndexRouteImport } from './routes/(app)/settings/index'
-import { Route as appSettingsShortcutsRouteImport } from './routes/(app)/settings/shortcuts'
-import { Route as appSettingsPluginsRouteImport } from './routes/(app)/settings/plugins'
-import { Route as appSettingsVisibilityRouteImport } from './routes/(app)/settings/visibility'
-import { Route as appSettingsGitSyncRouteImport } from './routes/(app)/settings/git-sync'
 import { Route as appProfileRouteImport } from './routes/(app)/profile'
 import { Route as appDashboardRouteImport } from './routes/(app)/dashboard'
+import { Route as appSettingsIndexRouteImport } from './routes/(app)/settings/index'
 import { Route as shareShareTokenRouteImport } from './routes/(share)/share/$token'
 import { Route as authAuthSignupRouteImport } from './routes/(auth)/auth/signup'
 import { Route as authAuthSigninRouteImport } from './routes/(auth)/auth/signin'
 import { Route as appTemporaryIdRouteImport } from './routes/(app)/temporary/$id'
+import { Route as appSettingsVisibilityRouteImport } from './routes/(app)/settings/visibility'
+import { Route as appSettingsShortcutsRouteImport } from './routes/(app)/settings/shortcuts'
+import { Route as appSettingsPluginsRouteImport } from './routes/(app)/settings/plugins'
+import { Route as appSettingsGitSyncRouteImport } from './routes/(app)/settings/git-sync'
 import { Route as appDocumentIdRouteImport } from './routes/(app)/document/$id'
 import { Route as publicWSlugIndexRouteImport } from './routes/(public)/w/$slug/index'
 import { Route as publicUNameIndexRouteImport } from './routes/(public)/u/$name/index'
@@ -50,31 +50,6 @@ const appTemporaryRoute = appTemporaryRouteImport.update({
   path: '/temporary',
   getParentRoute: () => rootRouteImport,
 } as any)
-const appSettingsIndexRoute = appSettingsIndexRouteImport.update({
-  id: '/(app)/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const appSettingsShortcutsRoute = appSettingsShortcutsRouteImport.update({
-  id: '/(app)/settings/shortcuts',
-  path: '/settings/shortcuts',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const appSettingsPluginsRoute = appSettingsPluginsRouteImport.update({
-  id: '/(app)/settings/plugins',
-  path: '/settings/plugins',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const appSettingsVisibilityRoute = appSettingsVisibilityRouteImport.update({
-  id: '/(app)/settings/visibility',
-  path: '/settings/visibility',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const appSettingsGitSyncRoute = appSettingsGitSyncRouteImport.update({
-  id: '/(app)/settings/git-sync',
-  path: '/settings/git-sync',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const appProfileRoute = appProfileRouteImport.update({
   id: '/(app)/profile',
   path: '/profile',
@@ -83,6 +58,11 @@ const appProfileRoute = appProfileRouteImport.update({
 const appDashboardRoute = appDashboardRouteImport.update({
   id: '/(app)/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appSettingsIndexRoute = appSettingsIndexRouteImport.update({
+  id: '/(app)/settings/',
+  path: '/settings/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const shareShareTokenRoute = shareShareTokenRouteImport.update({
@@ -104,6 +84,26 @@ const appTemporaryIdRoute = appTemporaryIdRouteImport.update({
   id: '/$id',
   path: '/$id',
   getParentRoute: () => appTemporaryRoute,
+} as any)
+const appSettingsVisibilityRoute = appSettingsVisibilityRouteImport.update({
+  id: '/(app)/settings/visibility',
+  path: '/settings/visibility',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appSettingsShortcutsRoute = appSettingsShortcutsRouteImport.update({
+  id: '/(app)/settings/shortcuts',
+  path: '/settings/shortcuts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appSettingsPluginsRoute = appSettingsPluginsRouteImport.update({
+  id: '/(app)/settings/plugins',
+  path: '/settings/plugins',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const appSettingsGitSyncRoute = appSettingsGitSyncRouteImport.update({
+  id: '/(app)/settings/git-sync',
+  path: '/settings/git-sync',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const appDocumentIdRoute = appDocumentIdRouteImport.update({
   id: '/(app)/document/$id',
@@ -135,19 +135,19 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof appDashboardRoute
   '/profile': typeof appProfileRoute
-  '/settings': typeof appSettingsIndexRoute
-  '/settings/git-sync': typeof appSettingsGitSyncRoute
-  '/settings/plugins': typeof appSettingsPluginsRoute
-  '/settings/shortcuts': typeof appSettingsShortcutsRoute
-  '/settings/visibility': typeof appSettingsVisibilityRoute
   '/temporary': typeof appTemporaryRouteWithChildren
   '/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/document/$id': typeof appDocumentIdRoute
+  '/settings/git-sync': typeof appSettingsGitSyncRoute
+  '/settings/plugins': typeof appSettingsPluginsRoute
+  '/settings/shortcuts': typeof appSettingsShortcutsRoute
+  '/settings/visibility': typeof appSettingsVisibilityRoute
   '/temporary/$id': typeof appTemporaryIdRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
   '/share/$token': typeof shareShareTokenRoute
+  '/settings': typeof appSettingsIndexRoute
   '/u/$name/$id': typeof publicUNameIdRoute
   '/w/$slug/$id': typeof publicWSlugIdRoute
   '/u/$name': typeof publicUNameIndexRoute
@@ -157,19 +157,19 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof appDashboardRoute
   '/profile': typeof appProfileRoute
-  '/settings': typeof appSettingsIndexRoute
-  '/settings/git-sync': typeof appSettingsGitSyncRoute
-  '/settings/plugins': typeof appSettingsPluginsRoute
-  '/settings/shortcuts': typeof appSettingsShortcutsRoute
-  '/settings/visibility': typeof appSettingsVisibilityRoute
   '/temporary': typeof appTemporaryRouteWithChildren
   '/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/document/$id': typeof appDocumentIdRoute
+  '/settings/git-sync': typeof appSettingsGitSyncRoute
+  '/settings/plugins': typeof appSettingsPluginsRoute
+  '/settings/shortcuts': typeof appSettingsShortcutsRoute
+  '/settings/visibility': typeof appSettingsVisibilityRoute
   '/temporary/$id': typeof appTemporaryIdRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
   '/share/$token': typeof shareShareTokenRoute
+  '/settings': typeof appSettingsIndexRoute
   '/u/$name/$id': typeof publicUNameIdRoute
   '/w/$slug/$id': typeof publicWSlugIdRoute
   '/u/$name': typeof publicUNameIndexRoute
@@ -180,19 +180,19 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/(app)/dashboard': typeof appDashboardRoute
   '/(app)/profile': typeof appProfileRoute
-  '/(app)/settings': typeof appSettingsIndexRoute
-  '/(app)/settings/git-sync': typeof appSettingsGitSyncRoute
-  '/(app)/settings/plugins': typeof appSettingsPluginsRoute
-  '/(app)/settings/shortcuts': typeof appSettingsShortcutsRoute
-  '/(app)/settings/visibility': typeof appSettingsVisibilityRoute
   '/(app)/temporary': typeof appTemporaryRouteWithChildren
   '/(app)/workspaces': typeof appWorkspacesRoute
   '/og/$variant.png': typeof OgVariantDotpngRoute
   '/(app)/document/$id': typeof appDocumentIdRoute
+  '/(app)/settings/git-sync': typeof appSettingsGitSyncRoute
+  '/(app)/settings/plugins': typeof appSettingsPluginsRoute
+  '/(app)/settings/shortcuts': typeof appSettingsShortcutsRoute
+  '/(app)/settings/visibility': typeof appSettingsVisibilityRoute
   '/(app)/temporary/$id': typeof appTemporaryIdRoute
   '/(auth)/auth/signin': typeof authAuthSigninRoute
   '/(auth)/auth/signup': typeof authAuthSignupRoute
   '/(share)/share/$token': typeof shareShareTokenRoute
+  '/(app)/settings/': typeof appSettingsIndexRoute
   '/(public)/u/$name/$id': typeof publicUNameIdRoute
   '/(public)/w/$slug/$id': typeof publicWSlugIdRoute
   '/(public)/u/$name/': typeof publicUNameIndexRoute
@@ -204,19 +204,19 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/profile'
-    | '/settings'
-    | '/settings/git-sync'
-    | '/settings/plugins'
-    | '/settings/shortcuts'
-    | '/settings/visibility'
     | '/temporary'
     | '/workspaces'
     | '/og/$variant.png'
     | '/document/$id'
+    | '/settings/git-sync'
+    | '/settings/plugins'
+    | '/settings/shortcuts'
+    | '/settings/visibility'
     | '/temporary/$id'
     | '/auth/signin'
     | '/auth/signup'
     | '/share/$token'
+    | '/settings'
     | '/u/$name/$id'
     | '/w/$slug/$id'
     | '/u/$name'
@@ -226,19 +226,19 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/profile'
-    | '/settings'
-    | '/settings/git-sync'
-    | '/settings/plugins'
-    | '/settings/shortcuts'
-    | '/settings/visibility'
     | '/temporary'
     | '/workspaces'
     | '/og/$variant.png'
     | '/document/$id'
+    | '/settings/git-sync'
+    | '/settings/plugins'
+    | '/settings/shortcuts'
+    | '/settings/visibility'
     | '/temporary/$id'
     | '/auth/signin'
     | '/auth/signup'
     | '/share/$token'
+    | '/settings'
     | '/u/$name/$id'
     | '/w/$slug/$id'
     | '/u/$name'
@@ -248,19 +248,19 @@ export interface FileRouteTypes {
     | '/'
     | '/(app)/dashboard'
     | '/(app)/profile'
-    | '/(app)/settings'
-    | '/(app)/settings/git-sync'
-    | '/(app)/settings/plugins'
-    | '/(app)/settings/shortcuts'
-    | '/(app)/settings/visibility'
     | '/(app)/temporary'
     | '/(app)/workspaces'
     | '/og/$variant.png'
     | '/(app)/document/$id'
+    | '/(app)/settings/git-sync'
+    | '/(app)/settings/plugins'
+    | '/(app)/settings/shortcuts'
+    | '/(app)/settings/visibility'
     | '/(app)/temporary/$id'
     | '/(auth)/auth/signin'
     | '/(auth)/auth/signup'
     | '/(share)/share/$token'
+    | '/(app)/settings/'
     | '/(public)/u/$name/$id'
     | '/(public)/w/$slug/$id'
     | '/(public)/u/$name/'
@@ -271,18 +271,18 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   appDashboardRoute: typeof appDashboardRoute
   appProfileRoute: typeof appProfileRoute
-  appSettingsIndexRoute: typeof appSettingsIndexRoute
-  appSettingsGitSyncRoute: typeof appSettingsGitSyncRoute
-  appSettingsPluginsRoute: typeof appSettingsPluginsRoute
-  appSettingsShortcutsRoute: typeof appSettingsShortcutsRoute
-  appSettingsVisibilityRoute: typeof appSettingsVisibilityRoute
   appTemporaryRoute: typeof appTemporaryRouteWithChildren
   appWorkspacesRoute: typeof appWorkspacesRoute
   OgVariantDotpngRoute: typeof OgVariantDotpngRoute
   appDocumentIdRoute: typeof appDocumentIdRoute
+  appSettingsGitSyncRoute: typeof appSettingsGitSyncRoute
+  appSettingsPluginsRoute: typeof appSettingsPluginsRoute
+  appSettingsShortcutsRoute: typeof appSettingsShortcutsRoute
+  appSettingsVisibilityRoute: typeof appSettingsVisibilityRoute
   authAuthSigninRoute: typeof authAuthSigninRoute
   authAuthSignupRoute: typeof authAuthSignupRoute
   shareShareTokenRoute: typeof shareShareTokenRoute
+  appSettingsIndexRoute: typeof appSettingsIndexRoute
   publicUNameIdRoute: typeof publicUNameIdRoute
   publicWSlugIdRoute: typeof publicWSlugIdRoute
   publicUNameIndexRoute: typeof publicUNameIndexRoute
@@ -319,41 +319,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof appTemporaryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/(app)/settings': {
-      id: '/(app)/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof appSettingsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(app)/settings/git-sync': {
-      id: '/(app)/settings/git-sync'
-      path: '/settings/git-sync'
-      fullPath: '/settings/git-sync'
-      preLoaderRoute: typeof appSettingsGitSyncRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(app)/settings/plugins': {
-      id: '/(app)/settings/plugins'
-      path: '/settings/plugins'
-      fullPath: '/settings/plugins'
-      preLoaderRoute: typeof appSettingsPluginsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(app)/settings/shortcuts': {
-      id: '/(app)/settings/shortcuts'
-      path: '/settings/shortcuts'
-      fullPath: '/settings/shortcuts'
-      preLoaderRoute: typeof appSettingsShortcutsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/(app)/settings/visibility': {
-      id: '/(app)/settings/visibility'
-      path: '/settings/visibility'
-      fullPath: '/settings/visibility'
-      preLoaderRoute: typeof appSettingsVisibilityRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/(app)/profile': {
       id: '/(app)/profile'
       path: '/profile'
@@ -366,6 +331,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof appDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/settings/': {
+      id: '/(app)/settings/'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof appSettingsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(share)/share/$token': {
@@ -395,6 +367,34 @@ declare module '@tanstack/react-router' {
       fullPath: '/temporary/$id'
       preLoaderRoute: typeof appTemporaryIdRouteImport
       parentRoute: typeof appTemporaryRoute
+    }
+    '/(app)/settings/visibility': {
+      id: '/(app)/settings/visibility'
+      path: '/settings/visibility'
+      fullPath: '/settings/visibility'
+      preLoaderRoute: typeof appSettingsVisibilityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/settings/shortcuts': {
+      id: '/(app)/settings/shortcuts'
+      path: '/settings/shortcuts'
+      fullPath: '/settings/shortcuts'
+      preLoaderRoute: typeof appSettingsShortcutsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/settings/plugins': {
+      id: '/(app)/settings/plugins'
+      path: '/settings/plugins'
+      fullPath: '/settings/plugins'
+      preLoaderRoute: typeof appSettingsPluginsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(app)/settings/git-sync': {
+      id: '/(app)/settings/git-sync'
+      path: '/settings/git-sync'
+      fullPath: '/settings/git-sync'
+      preLoaderRoute: typeof appSettingsGitSyncRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/(app)/document/$id': {
       id: '/(app)/document/$id'
@@ -450,18 +450,18 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   appDashboardRoute: appDashboardRoute,
   appProfileRoute: appProfileRoute,
-  appSettingsIndexRoute: appSettingsIndexRoute,
-  appSettingsGitSyncRoute: appSettingsGitSyncRoute,
-  appSettingsPluginsRoute: appSettingsPluginsRoute,
-  appSettingsShortcutsRoute: appSettingsShortcutsRoute,
-  appSettingsVisibilityRoute: appSettingsVisibilityRoute,
   appTemporaryRoute: appTemporaryRouteWithChildren,
   appWorkspacesRoute: appWorkspacesRoute,
   OgVariantDotpngRoute: OgVariantDotpngRoute,
   appDocumentIdRoute: appDocumentIdRoute,
+  appSettingsGitSyncRoute: appSettingsGitSyncRoute,
+  appSettingsPluginsRoute: appSettingsPluginsRoute,
+  appSettingsShortcutsRoute: appSettingsShortcutsRoute,
+  appSettingsVisibilityRoute: appSettingsVisibilityRoute,
   authAuthSigninRoute: authAuthSigninRoute,
   authAuthSignupRoute: authAuthSignupRoute,
   shareShareTokenRoute: shareShareTokenRoute,
+  appSettingsIndexRoute: appSettingsIndexRoute,
   publicUNameIdRoute: publicUNameIdRoute,
   publicWSlugIdRoute: publicWSlugIdRoute,
   publicUNameIndexRoute: publicUNameIndexRoute,

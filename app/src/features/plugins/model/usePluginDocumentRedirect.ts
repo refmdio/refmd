@@ -6,6 +6,7 @@ import type { PluginManifestItem } from '@/entities/plugin'
 import { getPluginManifest } from '@/entities/plugin'
 
 import {
+  applyShareTokenToRoute,
   createPluginHost,
   loadPluginModule,
 } from '@/features/plugins/lib/runtime'
@@ -51,6 +52,8 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
         }
         const currentRoute = window.location.pathname + window.location.search + window.location.hash
 
+        const withShareToken = (target: string) => applyShareTokenToRoute(target, shareToken).route
+
         const candidates = (manifest as PluginManifestItem[])
           .map((plugin) => {
             const entry = (plugin as any)?.frontend?.entry?.trim?.()
@@ -71,30 +74,31 @@ export function usePluginDocumentRedirect(docId: string, options: Options = {}) 
         const modules = await Promise.allSettled(candidates.map((c) => c.loader))
 
         const navigateTo = (target: string) => {
+          const nextTarget = withShareToken(target)
           if (!target) return
           const externalNavigate = navigateRef.current
           if (externalNavigate) {
             try {
-              const result = externalNavigate(target)
+              const result = externalNavigate(nextTarget)
               if (result && typeof (result as Promise<void>).catch === 'function') {
                 ;(result as Promise<void>).catch(() => {
-                  window.location.href = target
+                  window.location.href = nextTarget
                 })
               }
               return
             } catch {
-              window.location.href = target
+              window.location.href = nextTarget
               return
             }
           }
           const nav = (window as any).router?.navigate
           if (typeof nav === 'function') {
             try {
-              nav({ to: target })
+              nav({ to: nextTarget })
               return
             } catch {}
           }
-          window.location.href = target
+          window.location.href = nextTarget
         }
 
         for (let index = 0; index < candidates.length; index += 1) {

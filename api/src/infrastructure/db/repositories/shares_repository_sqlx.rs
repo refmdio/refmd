@@ -25,10 +25,11 @@ impl SqlxSharesRepository {
             Option<chrono::DateTime<chrono::Utc>>,
             Uuid,
             String,
+            Uuid,
         )>,
     > {
         let row = sqlx::query(
-            r#"SELECT s.id as share_id, s.permission, s.expires_at, d.id as shared_id, d.type as shared_type
+            r#"SELECT s.id as share_id, s.permission, s.expires_at, d.id as shared_id, d.type as shared_type, d.workspace_id
                FROM shares s
                JOIN documents d ON s.document_id = d.id
                WHERE s.token = $1"#,
@@ -43,6 +44,7 @@ impl SqlxSharesRepository {
                 r.try_get("expires_at").ok(),
                 r.get("shared_id"),
                 r.get("shared_type"),
+                r.get("workspace_id"),
             )
         }))
     }
@@ -364,6 +366,7 @@ impl SharesRepository for SqlxSharesRepository {
             Option<chrono::DateTime<chrono::Utc>>,
             Uuid,
             String,
+            Uuid,
         )>,
     > {
         self.fetch_share_resolution(token).await
@@ -554,6 +557,7 @@ impl ShareAccessPort for SqlxSharesRepository {
             Option<chrono::DateTime<chrono::Utc>>,
             Uuid,
             String,
+            Uuid,
         )>,
     > {
         self.fetch_share_resolution(token).await

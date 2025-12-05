@@ -128,6 +128,7 @@ impl DocumentService {
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
+        created_by_plugin: Option<&str>,
     ) -> Result<DomainDocument, ServiceError> {
         ensure_can_create(permissions, doc_type)?;
         if let Some(parent_id) = parent_id {
@@ -138,7 +139,15 @@ impl DocumentService {
         };
         let mut tx = self.begin_transaction().await?;
         let doc = match uc
-            .execute_tx(&mut tx, workspace_id, actor_id, title, parent_id, doc_type)
+            .execute_tx(
+                &mut tx,
+                workspace_id,
+                actor_id,
+                title,
+                parent_id,
+                doc_type,
+                created_by_plugin,
+            )
             .await
         {
             Ok(doc) => doc,

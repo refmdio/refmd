@@ -1146,7 +1146,7 @@ pub async fn revoke_session(
         })?;
     let mut response_headers = HeaderMap::new();
     if current_session_id == Some(session_id) {
-    clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
+        clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);
     }
     Ok((response_headers, StatusCode::NO_CONTENT))
 }

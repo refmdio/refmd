@@ -112,6 +112,26 @@ impl ShareService {
         uc.execute(token).await.map_err(ServiceError::from)
     }
 
+    pub async fn resolve_share_context(
+        &self,
+        token: &str,
+    ) -> Result<
+        Option<(
+            Uuid,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Uuid,
+            String,
+            Uuid,
+        )>,
+        ServiceError,
+    > {
+        self.repo
+            .resolve_share_by_token(token)
+            .await
+            .map_err(ServiceError::from)
+    }
+
     pub async fn list_active(
         &self,
         workspace_id: Uuid,
@@ -168,8 +188,14 @@ impl ShareService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
-        let (_share_id, permission, expires_at, target_document_id, target_document_type) =
-            resolved;
+        let (
+            _share_id,
+            permission,
+            expires_at,
+            target_document_id,
+            target_document_type,
+            _workspace_id,
+        ) = resolved;
         if let Some(exp) = expires_at {
             if exp < chrono::Utc::now() {
                 return Err(ServiceError::NotFound);

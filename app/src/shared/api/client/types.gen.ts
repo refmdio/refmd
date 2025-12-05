@@ -144,6 +144,7 @@ export type Document = {
     archived_parent_id?: (string) | null;
     created_at: string;
     created_by?: (string) | null;
+    created_by_plugin?: (string) | null;
     desired_path: string;
     id: string;
     owner_id: string;

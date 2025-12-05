@@ -5,6 +5,7 @@ import { getPluginManifest, getPluginKv } from '@/entities/plugin'
 
 import {
   createPluginHost,
+  applyShareTokenToRoute,
   getApiOrigin,
   loadPluginModule,
 } from './runtime'
@@ -125,6 +126,9 @@ export async function resolvePluginForDocument(
       }
     }
 
+    const routeWithToken = applyShareTokenToRoute(route, token)
+    route = routeWithToken.route
+
     let canOpen = true
     if (typeof mod.canOpen === 'function') {
       try {
@@ -145,10 +149,10 @@ export async function resolvePluginForDocument(
 
     if (!canOpen && !locationMatches) continue
 
-    let routeToken: string | null = null
+    let routeToken: string | null = routeWithToken.token
     try {
       const url = new URL(route, window.location.origin)
-      routeToken = url.searchParams.get('token')
+      routeToken = routeToken ?? url.searchParams.get('token')
     } catch {
       /* noop */
     }

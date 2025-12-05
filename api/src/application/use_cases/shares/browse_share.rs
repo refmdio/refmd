@@ -8,7 +8,7 @@ pub struct BrowseShare<'a, R: SharesRepository + ?Sized> {
 impl<'a, R: SharesRepository + ?Sized> BrowseShare<'a, R> {
     pub async fn execute(&self, token: &str) -> anyhow::Result<Option<ShareBrowseResponseDto>> {
         let row = self.repo.resolve_share_by_token(token).await?;
-        let (share_id, _perm, expires_at, shared_id, shared_type) = match row {
+        let (share_id, _perm, expires_at, shared_id, shared_type, _workspace_id) = match row {
             Some(r) => r,
             None => return Ok(None),
         };

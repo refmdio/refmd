@@ -16,9 +16,17 @@ impl<'a, R: DocumentRepository + ?Sized> CreateDocument<'a, R> {
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
+        created_by_plugin: Option<&str>,
     ) -> anyhow::Result<DomainDocument> {
         self.repo
-            .create_for_user(workspace_id, created_by, title, parent_id, doc_type)
+            .create_for_user(
+                workspace_id,
+                created_by,
+                title,
+                parent_id,
+                doc_type,
+                created_by_plugin,
+            )
             .await
     }
 
@@ -30,9 +38,18 @@ impl<'a, R: DocumentRepository + ?Sized> CreateDocument<'a, R> {
         title: &str,
         parent_id: Option<Uuid>,
         doc_type: &str,
+        created_by_plugin: Option<&str>,
     ) -> anyhow::Result<DomainDocument> {
         self.repo
-            .create_for_user_tx(tx, workspace_id, created_by, title, parent_id, doc_type)
+            .create_for_user_tx(
+                tx,
+                workspace_id,
+                created_by,
+                title,
+                parent_id,
+                doc_type,
+                created_by_plugin,
+            )
             .await
     }
 }

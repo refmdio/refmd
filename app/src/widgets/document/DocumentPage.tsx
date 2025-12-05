@@ -29,6 +29,7 @@ type SecondaryViewerType = ReturnType<typeof useSecondaryViewer>['secondaryDocum
 export type DocumentLoaderData = {
   title: string
   token?: string
+  createdByPlugin?: string | null
 }
 
 export type SecondaryViewerRendererProps = {
@@ -96,7 +97,10 @@ function DocumentClient({
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
+  const pluginRedirectEnabled =
+    loaderData?.createdByPlugin == null ? true : Boolean(loaderData?.createdByPlugin)
   const { redirecting, resolving: pluginResolving } = usePluginDocumentRedirect(id, {
+    enabled: pluginRedirectEnabled,
     navigate: useCallback((to: string) => navigate({ to }), [navigate]),
   })
   const anonIdentity = useMemo(() => {

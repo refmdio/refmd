@@ -68,8 +68,9 @@ pub trait SharesRepository: Send + Sync {
             Option<chrono::DateTime<chrono::Utc>>,
             Uuid,
             String,
+            Uuid,
         )>,
-    >; // (share_id, permission, expires_at, shared_id, shared_type)
+    >; // (share_id, permission, expires_at, shared_id, shared_type, workspace_id)
 
     async fn list_share_mounts(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareMountRow>>;
 

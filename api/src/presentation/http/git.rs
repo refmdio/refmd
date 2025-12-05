@@ -184,7 +184,10 @@ pub async fn get_config(
     workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
         .await?;
     let service = ctx.git_service();
-    let resp: Option<GitConfigDto> = service.get_config(workspace_id).await.map_err(map_git_error)?;
+    let resp: Option<GitConfigDto> = service
+        .get_config(workspace_id)
+        .await
+        .map_err(map_git_error)?;
     let mut out: Option<GitConfigResponse> = resp.map(Into::into);
     if let Some(ref mut cfg) = out {
         if let Some(check) = service

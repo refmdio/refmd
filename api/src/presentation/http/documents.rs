@@ -35,6 +35,8 @@ pub struct Document {
     pub r#type: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_plugin: Option<String>,
     pub slug: String,
     pub desired_path: String,
     pub path: Option<String>,
@@ -54,6 +56,7 @@ fn to_http_document(doc: domain::Document) -> Document {
         r#type: doc.doc_type,
         created_at: doc.created_at,
         updated_at: doc.updated_at,
+        created_by_plugin: doc.created_by_plugin,
         slug: doc.slug,
         desired_path: doc.desired_path,
         path: doc.path,
@@ -328,6 +331,7 @@ pub async fn create_document(
             &title,
             req.parent_id,
             &dtype,
+            None,
         )
         .await
         .map_err(map_service_error)?;
