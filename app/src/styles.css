@@ -381,3 +381,10 @@
     transform: translateY(-6px); /* slight lift to clear editor padding */
   }
 }
+
+/* Remove focus outlines inside conflict diff viewer (Monaco defaults to a blue outline) */
+.conflict-diff .monaco-diff-editor *:focus,
+.conflict-diff .monaco-diff-editor .synthetic-focus,
+.conflict-diff .monaco-editor {
+  outline: none !important;
+}

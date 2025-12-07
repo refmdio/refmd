@@ -9,6 +9,7 @@ import type { ViewMode } from '@/shared/types/view-mode'
 import { Button } from '@/shared/ui/button'
 
 import type { UploadStatus } from '@/features/edit-document/hooks/useEditorUploads'
+import { ensureRefmdThemes } from '@/features/edit-document/lib/monaco/theme'
 
 import EditorPane from './EditorPane'
 import PreviewPane, { type PreviewPaneProps } from './PreviewPane'
@@ -254,52 +255,31 @@ export function EditorLayout({
               </div>
               <div className="flex flex-1 min-h-0">
                 {conflictView && conflictView.kind === 'text' ? (
-                  <div className="flex-1 overflow-hidden rounded-2xl border border-border/50 bg-card/70 shadow-inner">
-                    <div className="flex items-center justify-end gap-2 border-b border-border/60 px-3 py-2 text-xs text-muted-foreground">
-                      {conflictView.actions?.onKeepMine ? (
-                        <button
-                          className="rounded-md border border-border/60 bg-muted px-2 py-1 text-foreground hover:border-foreground/60"
-                          onClick={conflictView.actions.onKeepMine}
-                          disabled={conflictView.readOnly}
-                        >
-                          Keep mine
-                        </button>
-                      ) : null}
-                      {conflictView.actions?.onTakeTheirs ? (
-                        <button
-                          className="rounded-md border border-border/60 bg-muted px-2 py-1 text-foreground hover:border-foreground/60"
-                          onClick={conflictView.actions.onTakeTheirs}
-                          disabled={conflictView.readOnly}
-                        >
-                          Take remote
-                        </button>
-                      ) : null}
-                      {conflictView.actions?.onApplyMerged ? (
-                        <button
-                          className="rounded-md border border-border/60 bg-primary/10 px-2 py-1 text-primary hover:border-primary/60"
-                          onClick={conflictView.actions.onApplyMerged}
-                          disabled={conflictView.readOnly}
-                        >
-                          Apply merged
-                        </button>
-                      ) : null}
-                    </div>
+                  <div className="conflict-diff flex-1 overflow-hidden">
                     <div className="h-full">
                       <DiffEditor
                         original={conflictView.original ?? ''}
                         modified={conflictView.modified ?? ''}
                         beforeMount={(monacoInstance) => {
-                          monacoInstance.editor.defineTheme(conflictView.theme ?? monacoTheme, {
-                            base: monacoTheme.includes('dark') ? 'vs-dark' : 'vs',
-                            inherit: true,
-                            rules: [],
-                            colors: {},
-                          })
+                          ensureRefmdThemes(monacoInstance)
                         }}
                         onMount={(editor, monacoInstance) => {
                           monacoInstance.editor.setTheme(conflictView.theme ?? monacoTheme)
                           const modified = editor.getModifiedEditor()
-                          modified.updateOptions({ readOnly: conflictView.readOnly })
+                          const original = editor.getOriginalEditor()
+                          // Align gutters; show line numbers only on original
+                          original.updateOptions({
+                            glyphMargin: false,
+                            lineDecorationsWidth: 24,
+                            lineNumbersMinChars: 1, // Monaco enforces >=1
+                            lineNumbers: 'on' as const,
+                          })
+                          modified.updateOptions({
+                            glyphMargin: false,
+                            lineDecorationsWidth: 24,
+                            lineNumbersMinChars: 1, // Monaco enforces >=1
+                            lineNumbers: 'off' as const,
+                          })
                           if (conflictView.onChange) {
                             modified.onDidChangeModelContent(() => {
                               conflictView.onChange?.(modified.getValue())
@@ -311,7 +291,15 @@ export function EditorLayout({
                         options={{
                           readOnly: conflictView.readOnly,
                           renderSideBySide: false,
+                          renderMarginRevertIcon: false,
+                          renderOverviewRuler: false,
+                          renderIndicators: false,
                           minimap: { enabled: false },
+                          automaticLayout: true,
+                          wordWrap: 'on',
+                          scrollBeyondLastLine: true,
+                          fontSize: isMobile ? 17 : 14,
+                          lineHeight: isMobile ? 26 : 22,
                         }}
                       />
                     </div>

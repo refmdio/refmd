@@ -120,6 +120,9 @@ const buildTheme = (name: string, palette: Palette, isDark: boolean): ThemeDefin
         'editorIndentGuide.activeBackground': hexWithAlpha(palette.primary, isDark ? 0.3 : 0.24),
         'editor.lineHighlightBackground': hexWithAlpha(palette.primary, isDark ? 0.08 : 0.06),
         'editor.selectionHighlightBorder': hexWithAlpha(palette.foreground, 0.16),
+        // Diff: align with Git History/Changes/Snapshot viewer colors
+        'diffEditor.insertedTextBackground': isDark ? hexWithAlpha('#052e16', 0.4) : '#f0fdf4',
+        'diffEditor.removedTextBackground': isDark ? hexWithAlpha('#450a0a', 0.4) : '#fef2f2',
       },
     },
   }
