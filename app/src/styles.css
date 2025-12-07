@@ -372,3 +372,12 @@
 .collapsible-toc .toc-list.toc-collapsed { @apply max-h-0 opacity-0 scale-y-0; }
 .collapsible-toc .toc-list.toc-expanded { @apply max-h-96 opacity-100 scale-y-100; }
 .toc-expand-icon { @apply inline-flex items-center text-muted-foreground; }
+
+/* Prevent Monaco's iPad keyboard toggle from overlapping our editor tooltip on mobile */
+@media (pointer: coarse) {
+  .monaco-editor .iPadShowKeyboard {
+    left: 28px !important;   /* nudge right slightly to balance spacing */
+    right: auto !important;
+    transform: translateY(-6px); /* slight lift to clear editor padding */
+  }
+}
