@@ -1,15 +1,16 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { BookmarkPlus, Download, History } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
-import { ApiError } from '@/shared/api'
+import { ApiError, type GitPullConflictItem, type GitPullResolution } from '@/shared/api'
 import { useRealtime } from '@/shared/contexts/realtime-context'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 
 import { downloadDocumentFile, type DocumentDownloadFormat } from '@/entities/document'
 import { createShareMount, shareMountsQuery } from '@/entities/share'
+import { pullRepository } from '@/entities/git'
 
 import { useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
@@ -21,8 +22,8 @@ import {
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument, useViewContext } from '@/features/edit-document'
 import { usePluginDocumentRedirect } from '@/features/plugins'
+import { setConflicts as setGlobalConflicts } from '@/features/git-sync/lib/git-conflict-store'
 import { useSecondaryViewer } from '@/features/secondary-viewer'
-
 
 type SecondaryViewerType = ReturnType<typeof useSecondaryViewer>['secondaryDocumentType']
 
@@ -30,6 +31,8 @@ export type DocumentLoaderData = {
   title: string
   token?: string
   createdByPlugin?: string | null
+  path?: string | null
+  desired_path?: string | null
 }
 
 export type SecondaryViewerRendererProps = {
@@ -45,9 +48,31 @@ export type DocumentPageProps = {
   loaderData?: DocumentLoaderData
   shareToken?: string
   secondaryViewerRenderer?: (props: SecondaryViewerRendererProps) => ReactNode
+  conflictMode?: boolean
 }
 
-export function DocumentPage({ id, loaderData, shareToken, secondaryViewerRenderer }: DocumentPageProps) {
+const normalizeConflictPath = (path?: string | null) => (path || '').replace(/^[./]+/, '').trim().toLowerCase()
+
+const matchConflictToDoc = (
+  conflicts: GitPullConflictItem[],
+  docPaths: Array<string | null | undefined>,
+): GitPullConflictItem | null => {
+  const targets = docPaths
+    .map((p) => normalizeConflictPath(p))
+    .filter((p) => p.length > 0)
+  if (conflicts.length === 0) return null
+  for (const conflict of conflicts) {
+    const candidate = normalizeConflictPath(conflict.path)
+    if (!candidate) continue
+    if (targets.some((t) => candidate === t || candidate.endsWith(`/${t}`))) {
+      return conflict
+    }
+  }
+  if (conflicts.length === 1) return conflicts[0]
+  return null
+}
+
+export function DocumentPage({ id, loaderData, shareToken, secondaryViewerRenderer, conflictMode = false }: DocumentPageProps) {
   const [isClient, setIsClient] = useState(typeof window !== 'undefined')
 
   useEffect(() => {
@@ -64,6 +89,7 @@ export function DocumentPage({ id, loaderData, shareToken, secondaryViewerRender
       loaderData={loaderData}
       shareToken={shareToken}
       secondaryViewerRenderer={secondaryViewerRenderer}
+      conflictMode={conflictMode}
     />
   )
 }
@@ -83,6 +109,7 @@ function DocumentClient({
   loaderData,
   shareToken,
   secondaryViewerRenderer,
+  conflictMode = false,
 }: DocumentPageProps) {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -92,6 +119,8 @@ function DocumentClient({
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
   const [downloadPending, setDownloadPending] = useState(false)
   const [savingShare, setSavingShare] = useState(false)
+  const [activeConflict, setActiveConflict] = useState<GitPullConflictItem | null>(null)
+  const [modifiedText, setModifiedText] = useState<string>('')
   const { secondaryDocumentId, secondaryDocumentType, showSecondaryViewer, closeSecondaryViewer, openSecondaryViewer } = useSecondaryViewer()
   const { showBacklinks, setShowBacklinks } = useViewContext()
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
@@ -125,6 +154,33 @@ function DocumentClient({
 
   const loaderTitle = loaderData?.title
   const resolvedTitle = (realtimeTitle && realtimeTitle.trim()) || loaderTitle
+
+  const setConflictsForDoc = useCallback(
+    (list: GitPullConflictItem[]) => {
+      const safeList = Array.isArray(list) ? list : []
+      setGlobalConflicts(safeList)
+      const matched = matchConflictToDoc(safeList, [loaderData?.path, loaderData?.desired_path])
+      setActiveConflict(matched)
+      setModifiedText(matched?.theirs ?? matched?.ours ?? '')
+    },
+    [loaderData?.desired_path, loaderData?.path],
+  )
+
+  useEffect(() => {
+    if (!conflictMode) return
+    const fetchConflicts = async () => {
+      try {
+        const res = await pullRepository({ requestBody: { resolutions: [] } })
+        setConflictsForDoc(res.conflicts ?? [])
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409) {
+          const list = ((error.body as any)?.conflicts ?? []) as GitPullConflictItem[]
+          setConflictsForDoc(list)
+        }
+      }
+    }
+    void fetchConflicts()
+  }, [conflictMode, setConflictsForDoc])
 
   const openDownloadDialog = useCallback(() => {
     if (!hasDoc) return
@@ -173,6 +229,65 @@ function DocumentClient({
       setSavingShare(false)
     }
   }, [qc, savingShare, shareToken])
+
+  const handleConflictResolved = useCallback(() => {
+    navigate({
+      to: '/(app)/document/$id',
+      params: { id },
+      search: (prev: Record<string, unknown>) => {
+        const next = { ...prev }
+        if (next && Object.prototype.hasOwnProperty.call(next, 'conflict')) {
+          delete (next as any).conflict
+        }
+        return next
+      },
+      replace: true,
+    })
+    qc.invalidateQueries({ queryKey: ['git-status'] })
+  }, [id, navigate, qc])
+
+  const pullMutation = useMutation({
+    mutationFn: async (resolution: GitPullResolution) =>
+      pullRepository({ requestBody: { resolutions: [resolution] } }),
+    onSuccess: (res) => {
+      const remaining = res.conflicts ?? []
+      setConflictsForDoc(remaining)
+      const stillPending = matchConflictToDoc(remaining, [loaderData?.path, loaderData?.desired_path])
+      if (stillPending) {
+        toast.success(res.message || 'Resolution applied. Another conflict remains for this document.')
+      } else {
+        toast.success(res.message || 'Conflict resolved')
+        handleConflictResolved()
+      }
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        const next = ((err.body as any)?.conflicts ?? []) as GitPullConflictItem[]
+        setConflictsForDoc(next)
+        toast.error((err.body as any)?.message || 'Conflicts remain. Please resolve and try again.')
+        return
+      }
+      const msg = (err as any)?.body?.message || (err as any)?.message || 'Failed to apply resolution'
+      toast.error(msg)
+    },
+  })
+
+  const handleApplyResolution = useCallback(
+    (choice: GitPullResolution['choice']) => {
+      if (!activeConflict) return
+      if (choice === 'custom_text' && !modifiedText.trim()) {
+        toast.error('Add your merged content before applying.')
+        return
+      }
+      const resolution: GitPullResolution = {
+        path: activeConflict.path,
+        choice,
+        content: choice === 'custom_text' ? modifiedText : undefined,
+      }
+      pullMutation.mutate(resolution)
+    },
+    [activeConflict, modifiedText, pullMutation],
+  )
 
   useEffect(() => {
     const ensureAction = (
@@ -248,6 +363,8 @@ function DocumentClient({
         : status === 'connecting'
           ? 'Connecting…'
           : 'Loading…'
+  const showEditor = Boolean(doc && awareness && !realtimeError)
+  const showOverlay = shouldShowOverlay
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -305,20 +422,61 @@ function DocumentClient({
 
   const renderSecondaryViewer = secondaryViewerRenderer
 
+  const oursText = activeConflict?.ours ?? ''
+  const theirsText = activeConflict?.theirs ?? ''
+  const isBinaryConflict = activeConflict?.is_binary ?? false
+
+  const showConflictUI = Boolean(conflictMode)
+
+  const conflictView = showConflictUI
+    ? activeConflict
+      ? {
+          kind: isBinaryConflict ? 'binary' as const : 'text' as const,
+          original: oursText,
+          modified: modifiedText,
+          onChange: setModifiedText,
+          readOnly: pullMutation.isPending,
+          actions: {
+            onKeepMine: () => {
+              setModifiedText(oursText)
+              handleApplyResolution('ours')
+            },
+            onTakeTheirs: () => {
+              setModifiedText(theirsText)
+              handleApplyResolution('theirs')
+            },
+            onApplyMerged: !isBinaryConflict
+              ? () => {
+                  handleApplyResolution('custom_text')
+                }
+              : undefined,
+          },
+        }
+      : {
+          kind: 'binary' as const,
+          original: '',
+          modified: '',
+          onChange: () => {},
+          readOnly: true,
+          actions: undefined,
+        }
+    : undefined
+
   return (
     <div className="relative flex h-full flex-1 min-h-0 flex-col">
-      {shouldShowOverlay && <EditorOverlay label={overlayLabel} />}
-      {doc && awareness && !realtimeError && (
+      {showOverlay && <EditorOverlay label={overlayLabel} />}
+      {showEditor ? (
         <MarkdownEditor
           key={id}
-          doc={doc}
-          awareness={awareness}
+          doc={doc!}
+          awareness={awareness!}
           connected={status === 'connected'}
           initialView="split"
           userId={user?.id || anonIdentity?.id}
           userName={user?.name || anonIdentity?.name}
           documentId={id}
           readOnly={isReadOnly || redirecting}
+          conflictView={conflictView}
           extraRight={
             showBacklinks ? (
               <BacklinksPanel documentId={id} className="h-full" onClose={() => setShowBacklinks(false)} />
@@ -333,7 +491,7 @@ function DocumentClient({
             ) : undefined
           }
         />
-      )}
+      ) : null}
       <SnapshotHistoryDialog
         documentId={id}
         open={showSnapshots}

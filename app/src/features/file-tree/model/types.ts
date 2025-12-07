@@ -5,6 +5,8 @@ export type DocumentNode = {
   type: 'file' | 'folder'
   // Follows source structure for mounted shares
   children?: DocumentNode[]
+  path?: string | null
+  desiredPath?: string | null
   created_at?: string
   updated_at?: string
   archived?: boolean

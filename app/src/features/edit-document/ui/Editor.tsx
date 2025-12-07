@@ -56,12 +56,36 @@ export type MarkdownEditorProps = {
   documentId: string
   readOnly?: boolean
   extraRight?: React.ReactNode
+  conflictView?: {
+    kind: 'text' | 'binary'
+    original?: string
+    modified?: string
+    onChange?: (value: string) => void
+    readOnly?: boolean
+    actions?: {
+      onKeepMine?: () => void
+      onTakeTheirs?: () => void
+      onApplyMerged?: () => void
+    }
+    theme?: string
+  }
   renderPreview?: (props: PreviewPaneProps) => React.ReactNode
 }
 
 
 export function MarkdownEditor(props: MarkdownEditorProps) {
-  const { doc, awareness, initialView: initialViewProp = 'split', userId, userName, documentId, readOnly = false, extraRight, renderPreview } = props
+  const {
+    doc,
+    awareness,
+    initialView: initialViewProp = 'split',
+    userId,
+    userName,
+    documentId,
+    readOnly = false,
+    extraRight,
+    conflictView,
+    renderPreview,
+  } = props
   const { isDarkMode } = useTheme()
   const isMobile = useIsMobile()
   const { setEditor } = useEditorContext()
@@ -541,6 +565,14 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         showVimStatusBar={isVimMode}
         uploadStatus={uploadStatus}
         renderPreview={renderPreview}
+        conflictView={
+          conflictView
+            ? {
+                ...conflictView,
+                theme: monacoTheme,
+              }
+            : undefined
+        }
       />
 
       <CursorDisplay awareness={awareness} />

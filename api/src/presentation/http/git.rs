@@ -11,8 +11,8 @@ use crate::presentation::http::auth::{Bearer, validate_bearer};
 // Config is no longer needed directly here
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitStatusDto, GitSyncRequestDto,
-    GitignoreUpdateDto, UpsertGitConfigInput,
+    GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitPullRequestDto,
+    GitPullResolutionDto, GitStatusDto, GitSyncRequestDto, GitignoreUpdateDto, UpsertGitConfigInput,
 };
 use crate::application::services::errors::ServiceError;
 use crate::domain::workspaces::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
@@ -37,6 +37,7 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/git/diff/working", get(get_working_diff))
         .route("/git/diff/commits/:from/:to", get(get_commit_diff))
         .route("/git/sync", post(sync_now))
+        .route("/git/pull", post(pull_repository))
         .route("/git/init", post(init_repository))
         .route("/git/deinit", post(deinit_repository))
         .route("/git/ignore/doc/:id", post(ignore_document))
@@ -149,6 +150,48 @@ pub struct UpdateGitConfigRequest {
     pub auth_type: Option<String>,
     pub auth_data: Option<serde_json::Value>,
     pub auto_sync: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GitPullResolution {
+    pub path: String,
+    pub choice: String,
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GitPullRequest {
+    pub resolutions: Option<Vec<GitPullResolution>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct GitPullConflictItem {
+    pub path: String,
+    pub is_binary: bool,
+    pub ours: Option<String>,
+    pub theirs: Option<String>,
+    pub base: Option<String>,
+}
+
+impl From<crate::application::dto::git::GitPullConflictItemDto> for GitPullConflictItem {
+    fn from(value: crate::application::dto::git::GitPullConflictItemDto) -> Self {
+        Self {
+            path: value.path,
+            is_binary: value.is_binary,
+            ours: value.ours,
+            theirs: value.theirs,
+            base: value.base,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct GitPullResponse {
+    pub success: bool,
+    pub message: String,
+    pub files_changed: i32,
+    pub commit_hash: Option<String>,
+    pub conflicts: Option<Vec<GitPullConflictItem>>,
 }
 
 #[utoipa::path(get, path = "/api/git/config", tag = "Git", responses((status = 200, body = Option<GitConfigResponse>)))]
@@ -540,6 +583,92 @@ pub async fn sync_now(
         commit_hash: out.commit_hash,
         files_changed: out.files_changed,
     }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/git/pull",
+    tag = "Git",
+    request_body = GitPullRequest,
+    responses(
+        (status = 200, body = GitPullResponse),
+        (status = 409, body = GitPullResponse, description = "Conflicts detected")
+    )
+)]
+pub async fn pull_repository(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    Json(req): Json<GitPullRequest>,
+) -> Result<(StatusCode, Json<GitPullResponse>), StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = validate_bearer(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+    let service = ctx.git_service();
+    let dto = service
+        .pull_repository(
+            workspace_id,
+            GitPullRequestDto {
+                resolutions: req
+                    .resolutions
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|r| GitPullResolutionDto {
+                        path: r.path,
+                        choice: r.choice,
+                        content: r.content,
+                    })
+                    .collect(),
+            },
+        )
+        .await
+        .map_err(|err| {
+            let message = match &err {
+                ServiceError::BadRequest("workspace_has_pending_changes") => {
+                    "Workspace has pending changes. Commit, sync, or discard them before pulling."
+                        .to_string()
+                }
+                _ => err.to_string(),
+            };
+            let status = map_git_error(err);
+            let body = GitPullResponse {
+                success: false,
+                message,
+                files_changed: 0,
+                commit_hash: None,
+                conflicts: None,
+            };
+            (status, body)
+        });
+    let dto = match dto {
+        Ok(v) => v,
+        Err((status, body)) => return Ok((status, Json(body))),
+    };
+    let conflicts = dto
+        .conflicts
+        .map(|items| items.into_iter().map(Into::into).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let has_conflicts = !conflicts.is_empty();
+    let status = if has_conflicts { StatusCode::CONFLICT } else { StatusCode::OK };
+    Ok((
+        status,
+        Json(GitPullResponse {
+            success: dto.success,
+            message: dto.message,
+            files_changed: dto.files_changed as i32,
+            commit_hash: dto.commit_hash,
+            conflicts: if has_conflicts { Some(conflicts) } else { None },
+        }),
+    ))
 }
 
 #[derive(Debug, Serialize, ToSchema)]

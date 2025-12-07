@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, Loader2, SlidersHorizontal, X } from 'lucide-react'
 import type * as monacoNs from 'monaco-editor'
+import { DiffEditor } from '@monaco-editor/react'
 import { useCallback, useMemo, type CSSProperties, type ReactNode, type MutableRefObject } from 'react'
 
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
@@ -38,6 +39,21 @@ export type EditorLayoutProps = {
   showVimStatusBar: boolean
   uploadStatus: UploadStatus
   renderPreview?: (props: PreviewPaneProps) => ReactNode
+  editorOverlay?: ReactNode
+  editorBanner?: ReactNode
+  conflictView?: {
+    kind: 'text' | 'binary'
+    original?: string
+    modified?: string
+    onChange?: (val: string) => void
+    readOnly?: boolean
+    theme?: string
+    actions?: {
+      onKeepMine?: () => void
+      onTakeTheirs?: () => void
+      onApplyMerged?: () => void
+    }
+  }
 }
 
 export function EditorLayout({
@@ -66,6 +82,9 @@ export function EditorLayout({
   showVimStatusBar,
   uploadStatus,
   renderPreview,
+  editorOverlay,
+  editorBanner,
+  conflictView,
 }: EditorLayoutProps) {
   const uploadStatusNode = (() => {
     if (uploadStatus.state === 'idle') return null
@@ -193,11 +212,17 @@ export function EditorLayout({
         >
           <div
             className={cn(
-              'flex flex-1 min-h-0 flex-col',
-              !isMobile && 'px-4 pb-6 pt-6 sm:px-6 sm:pb-8 sm:pt-8',
-            )}
-          >
+                'flex flex-1 min-h-0 flex-col',
+                !isMobile && 'px-4 pb-6 pt-6 sm:px-6 sm:pb-8 sm:pt-8',
+              )}
+            >
+              {editorBanner ? <div className="mb-3">{editorBanner}</div> : null}
             <div className="relative flex flex-1 min-h-0">
+              {editorOverlay ? (
+                <div className="pointer-events-auto absolute left-3 right-3 top-3 z-40">
+                  {editorOverlay}
+                </div>
+              ) : null}
               <div className="pointer-events-none absolute bottom-6 right-6 z-40 flex flex-col items-end gap-3">
                 {uploadStatusNode}
                 {toolbarOpen ? (
@@ -228,18 +253,87 @@ export function EditorLayout({
                 )}
               </div>
               <div className="flex flex-1 min-h-0">
-                <EditorPane
-                  theme={monacoTheme}
-                  onBeforeMount={onEditorBeforeMount}
-                  readOnly={readOnly}
-                  onDropFiles={async (files) => {
-                    if (!readOnly) await onEditorDropFiles(files)
-                  }}
-                  isMobile={isMobile}
-                  onMount={onEditorMount}
-                  vimStatusBarRef={vimStatusBarRef}
-                  showVimStatusBar={showVimStatusBar}
-                />
+                {conflictView && conflictView.kind === 'text' ? (
+                  <div className="flex-1 overflow-hidden rounded-2xl border border-border/50 bg-card/70 shadow-inner">
+                    <div className="flex items-center justify-end gap-2 border-b border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                      {conflictView.actions?.onKeepMine ? (
+                        <button
+                          className="rounded-md border border-border/60 bg-muted px-2 py-1 text-foreground hover:border-foreground/60"
+                          onClick={conflictView.actions.onKeepMine}
+                          disabled={conflictView.readOnly}
+                        >
+                          Keep mine
+                        </button>
+                      ) : null}
+                      {conflictView.actions?.onTakeTheirs ? (
+                        <button
+                          className="rounded-md border border-border/60 bg-muted px-2 py-1 text-foreground hover:border-foreground/60"
+                          onClick={conflictView.actions.onTakeTheirs}
+                          disabled={conflictView.readOnly}
+                        >
+                          Take remote
+                        </button>
+                      ) : null}
+                      {conflictView.actions?.onApplyMerged ? (
+                        <button
+                          className="rounded-md border border-border/60 bg-primary/10 px-2 py-1 text-primary hover:border-primary/60"
+                          onClick={conflictView.actions.onApplyMerged}
+                          disabled={conflictView.readOnly}
+                        >
+                          Apply merged
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="h-full">
+                      <DiffEditor
+                        original={conflictView.original ?? ''}
+                        modified={conflictView.modified ?? ''}
+                        beforeMount={(monacoInstance) => {
+                          monacoInstance.editor.defineTheme(conflictView.theme ?? monacoTheme, {
+                            base: monacoTheme.includes('dark') ? 'vs-dark' : 'vs',
+                            inherit: true,
+                            rules: [],
+                            colors: {},
+                          })
+                        }}
+                        onMount={(editor, monacoInstance) => {
+                          monacoInstance.editor.setTheme(conflictView.theme ?? monacoTheme)
+                          const modified = editor.getModifiedEditor()
+                          modified.updateOptions({ readOnly: conflictView.readOnly })
+                          if (conflictView.onChange) {
+                            modified.onDidChangeModelContent(() => {
+                              conflictView.onChange?.(modified.getValue())
+                            })
+                          }
+                        }}
+                        language="markdown"
+                        theme={conflictView.theme ?? monacoTheme}
+                        options={{
+                          readOnly: conflictView.readOnly,
+                          renderSideBySide: false,
+                          minimap: { enabled: false },
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : conflictView && conflictView.kind === 'binary' ? (
+                  <div className="flex flex-1 items-center justify-center rounded-2xl border border-border/50 bg-muted/30 px-4 py-6 text-sm text-muted-foreground">
+                    Binary conflict. Choose a side to continue.
+                  </div>
+                ) : (
+                  <EditorPane
+                    theme={monacoTheme}
+                    onBeforeMount={onEditorBeforeMount}
+                    readOnly={readOnly}
+                    onDropFiles={async (files) => {
+                      if (!readOnly) await onEditorDropFiles(files)
+                    }}
+                    isMobile={isMobile}
+                    onMount={onEditorMount}
+                    vimStatusBarRef={vimStatusBarRef}
+                    showVimStatusBar={showVimStatusBar}
+                  />
+                )}
               </div>
             </div>
           </div>

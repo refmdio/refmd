@@ -54,6 +54,8 @@ type DbDoc = {
   is_share_mount?: boolean
   share_mount_id?: string
   created_by_plugin?: string | null
+  path?: string | null
+  desired_path?: string | null
 }
 
 type BuildTreeOptions = {
@@ -95,6 +97,8 @@ function buildTree(docs: DbDoc[], options?: BuildTreeOptions): DocumentNode[] {
       sourceId: d.source_id,
       title: d.title,
       type,
+      path: d.path ?? null,
+      desiredPath: d.desired_path ?? null,
       children: [],
       created_at: d.created_at,
       updated_at: d.updated_at,

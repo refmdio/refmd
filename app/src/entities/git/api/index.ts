@@ -10,9 +10,17 @@ import {
   ignoreDocument as apiIgnoreDocument,
   ignoreFolder as apiIgnoreFolder,
   initRepository as apiInitRepository,
+  pullRepository as apiPullRepository,
   syncNow as apiSyncNow,
 } from '@/shared/api'
-import type { GitChangesResponse, GitHistoryResponse, GitStatus, TextDiffResult } from '@/shared/api'
+import type {
+  GitChangesResponse,
+  GitHistoryResponse,
+  GitPullResponse,
+  GitStatus,
+  PullRepositoryData,
+  TextDiffResult,
+} from '@/shared/api'
 
 export const gitKeys = {
   all: ['git'] as const,
@@ -51,7 +59,10 @@ export {
   apiCreateOrUpdateConfig as createOrUpdateConfig,
   apiDeinitRepository as deinitRepository,
   apiInitRepository as initRepository,
+  apiPullRepository as pullRepository,
   apiSyncNow as syncNow,
   apiIgnoreDocument as ignoreDocument,
   apiIgnoreFolder as ignoreFolder,
 }
+
+export type { GitPullResponse, PullRepositoryData }

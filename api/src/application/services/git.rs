@@ -5,7 +5,8 @@ use uuid::Uuid;
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
     GitChangeItem, GitCommitInfo, GitConfigDto, GitRemoteCheckDto, GitStatusDto, GitSyncRequestDto,
-    GitSyncResponseDto, GitignoreUpdateDto, UpsertGitConfigInput,
+    GitSyncResponseDto, GitignoreUpdateDto, GitPullRequestDto, GitPullResultDto,
+    UpsertGitConfigInput,
 };
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
@@ -27,6 +28,7 @@ use crate::application::use_cases::git::gitignore_patterns::{
 use crate::application::use_cases::git::ignore_document::IgnoreDocument;
 use crate::application::use_cases::git::ignore_folder::IgnoreFolder;
 use crate::application::use_cases::git::init_repo::{DeinitRepo, InitRepo};
+use crate::application::use_cases::git::pull::PullRepository;
 use crate::application::use_cases::git::sync_now::SyncNow;
 use crate::application::use_cases::git::upsert_config::UpsertGitConfig;
 
@@ -143,6 +145,16 @@ impl GitService {
                 || msg_lower.contains("status code: 404")
             {
                 ServiceError::BadRequest("git_repo_not_found")
+            } else if msg_lower.contains("notfastforward")
+                || msg_lower.contains("not fast forward")
+                || msg_lower.contains("non-fast-forward")
+                || msg_lower.contains("non fast forward")
+                || msg_lower.contains("cannot push because a reference")
+                || msg_lower.contains("failed to push some refs")
+                || msg_lower.contains("updates were rejected")
+                || msg_lower.contains("rejected")
+            {
+                ServiceError::Conflict
             } else {
                 ServiceError::from(err)
             }
@@ -304,5 +316,28 @@ impl GitService {
         uc.execute(workspace_id, path)
             .await
             .map_err(ServiceError::from)
+    }
+
+    pub async fn pull_repository(
+        &self,
+        workspace_id: Uuid,
+        req: GitPullRequestDto,
+    ) -> Result<GitPullResultDto, ServiceError> {
+        let uc = PullRepository {
+            workspace: self.workspace.as_ref(),
+            repo: self.repo.as_ref(),
+        };
+        uc.execute(workspace_id, req).await.map_err(|err| {
+            let msg = err.to_string();
+            if msg.contains("pending changes") {
+                ServiceError::BadRequest("workspace_has_pending_changes")
+            } else if msg.contains("not initialized") {
+                ServiceError::BadRequest("repository_not_initialized")
+            } else if msg.contains("remote not configured") {
+                ServiceError::BadRequest("remote_not_configured")
+            } else {
+                ServiceError::from(err)
+            }
+        })
     }
 }

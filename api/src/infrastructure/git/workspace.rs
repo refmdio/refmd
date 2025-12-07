@@ -19,8 +19,8 @@ use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem, GitCommitInfo, GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto,
-    GitWorkspaceStatus,
+    GitChangeItem, GitCommitInfo, GitPullConflictItemDto, GitPullRequestDto, GitPullResultDto,
+    GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
 };
 use crate::application::ports::git_repository::UserGitCfg;
 use crate::application::ports::git_storage::{
@@ -31,6 +31,7 @@ use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::diff::text_diff::compute_text_diff;
 use crate::application::services::realtime::snapshot::SnapshotService;
 use crate::infrastructure::db::PgPool;
+use tokio::fs as async_fs;
 
 pub struct GitWorkspaceService {
     pool: PgPool,
@@ -918,6 +919,66 @@ impl GitWorkspaceService {
                 Err(err)
             }
         }
+    }
+
+    #[allow(dead_code)]
+    async fn state_from_commit_meta(
+        &self,
+        workspace_id: Uuid,
+        meta: &CommitMeta,
+    ) -> anyhow::Result<HashMap<String, FileSnapshot>> {
+        let mut state: HashMap<String, FileSnapshot> = HashMap::new();
+        for path in meta.file_hash_index.keys() {
+            let Some(bytes) = self
+                .load_file_snapshot(workspace_id, &meta.commit_id, path)
+                .await?
+            else {
+                continue;
+            };
+            let hash = sha256_hex(&bytes);
+            let is_text = std::str::from_utf8(&bytes).is_ok();
+            state.insert(
+                path.clone(),
+                FileSnapshot {
+                    hash,
+                    data: FileSnapshotData::Inline(bytes),
+                    is_text,
+                },
+            );
+        }
+        Ok(state)
+    }
+
+    async fn apply_state_to_workspace(
+        &self,
+        workspace_id: Uuid,
+        state: &HashMap<String, FileSnapshot>,
+        previous_index: &HashMap<String, String>,
+    ) -> anyhow::Result<u32> {
+        let mut changed: u32 = 0;
+        // write/update files
+        for (path, snapshot) in state.iter() {
+            let rel = format!("{}/{}", workspace_id, path.trim_start_matches('/'));
+            let abs = self.storage.absolute_from_relative(&rel);
+            if let Some(parent) = abs.parent() {
+                async_fs::create_dir_all(parent).await?;
+            }
+            let bytes = self.snapshot_bytes(snapshot).await?;
+            self.storage.write_bytes(abs.as_path(), &bytes).await?;
+            changed += 1;
+        }
+        // remove files missing in next state
+        for path in previous_index.keys() {
+            if state.contains_key(path) {
+                continue;
+            }
+            let rel = format!("{}/{}", workspace_id, path.trim_start_matches('/'));
+            let abs = self.storage.absolute_from_relative(&rel);
+            if async_fs::remove_file(&abs).await.is_ok() {
+                changed += 1;
+            }
+        }
+        Ok(changed)
     }
 
     fn build_diff_result(
@@ -1894,6 +1955,490 @@ impl GitWorkspacePort for GitWorkspaceService {
         })
     }
 
+    async fn pull(
+        &self,
+        workspace_id: Uuid,
+        req: &GitPullRequestDto,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<GitPullResultDto> {
+        let state = self.load_repository_state(workspace_id).await?;
+        let Some((initialized, branch_default)) = state else {
+            anyhow::bail!("repository not initialized");
+        };
+        if !initialized {
+            anyhow::bail!("repository not initialized");
+        }
+        if cfg.repository_url.is_empty() {
+            anyhow::bail!("remote not configured");
+        }
+
+        let branch = if cfg.branch_name.is_empty() {
+            branch_default
+        } else {
+            cfg.branch_name.clone()
+        };
+
+        // Ensure remote history exists locally (best effort).
+        let _ = self
+            .bootstrap_remote_history(workspace_id, cfg, &branch)
+            .await;
+
+        let latest_meta = self.latest_commit_meta(workspace_id).await?;
+        let base_index: HashMap<String, String> = latest_meta
+            .as_ref()
+            .map(|m| m.file_hash_index.clone())
+            .unwrap_or_default();
+        let previous_index = base_index.clone();
+
+        let temp_dir = TempDirBuilder::new()
+            .prefix("git-pull-")
+            .tempdir()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let repo = Repository::init_bare(temp_dir.path())?;
+        if let Some((_, pack_paths)) = self
+            .persist_pack_chain(
+                workspace_id,
+                latest_meta
+                    .as_ref()
+                    .map(|m| m.commit_id.as_slice()),
+            )
+            .await?
+        {
+            apply_pack_files(&repo, &pack_paths)?;
+        }
+
+        let remote_oid = {
+            let Some(head) = fetch_remote_head(&repo, cfg, &branch)? else {
+                return Ok(GitPullResultDto {
+                    success: false,
+                    message: format!("branch '{branch}' not found on remote"),
+                    files_changed: 0,
+                    commit_hash: None,
+                    conflicts: None,
+                });
+            };
+            head
+        };
+
+        let local_oid = latest_meta
+            .as_ref()
+            .and_then(|m| git2::Oid::from_bytes(&m.commit_id).ok());
+        // Detect drift between latest commit and current workspace (dirty rows or actual state diff)
+        let dirty_rows = self.fetch_dirty(workspace_id).await?;
+        let mut drift_detected = !dirty_rows.is_empty();
+        let current_state = self.collect_current_state(workspace_id).await?;
+        let mut current_index: HashMap<String, String> = HashMap::new();
+        for (path, snapshot) in current_state.iter() {
+            current_index.insert(path.clone(), snapshot.hash.clone());
+            if base_index.get(path) != Some(&snapshot.hash) {
+                drift_detected = true;
+            }
+        }
+        if !drift_detected {
+            for path in base_index.keys() {
+                if !current_index.contains_key(path) {
+                    drift_detected = true;
+                    break;
+                }
+            }
+        }
+
+        // Build remote state directly from fetched pack (git2 tree), independent of DB meta.
+        fn collect_remote_state(
+            repo: &Repository,
+            oid: git2::Oid,
+        ) -> anyhow::Result<HashMap<String, FileSnapshot>> {
+            let commit = repo.find_commit(oid)?;
+            let tree = commit.tree()?;
+            let mut out: HashMap<String, FileSnapshot> = HashMap::new();
+
+            fn walk(
+                repo: &Repository,
+                tree: &git2::Tree,
+                prefix: &str,
+                out: &mut HashMap<String, FileSnapshot>,
+            ) -> anyhow::Result<()> {
+                for entry in tree.iter() {
+                    let name = entry.name().unwrap_or_default();
+                    let path = if prefix.is_empty() {
+                        name.to_string()
+                    } else {
+                        format!("{prefix}{name}")
+                    };
+                    match entry.kind() {
+                        Some(git2::ObjectType::Tree) => {
+                            if let Some(sub) = entry.to_object(repo)?.as_tree() {
+                                walk(repo, sub, &(path.clone() + "/"), out)?;
+                            }
+                        }
+                        Some(git2::ObjectType::Blob) => {
+                            let blob = repo.find_blob(entry.id())?;
+                            let bytes = blob.content().to_vec();
+                            let hash = sha256_hex(&bytes);
+                            let is_text = std::str::from_utf8(&bytes).is_ok();
+                            out.insert(
+                                path,
+                                FileSnapshot {
+                                    hash,
+                                    data: FileSnapshotData::Inline(bytes),
+                                    is_text,
+                                },
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(())
+            }
+
+            walk(repo, &tree, "", &mut out)?;
+            Ok(out)
+        }
+
+        let remote_state = collect_remote_state(&repo, remote_oid)?;
+        let mut remote_conflicts: Vec<GitPullConflictItemDto> = Vec::new();
+        let mut remote_changed_paths: HashSet<String> = HashSet::new();
+        for (path, snap) in remote_state.iter() {
+            if base_index.get(path) != Some(&snap.hash) {
+                remote_changed_paths.insert(path.clone());
+            }
+        }
+        for path in base_index.keys() {
+            if !remote_state.contains_key(path) {
+                remote_changed_paths.insert(path.clone());
+            }
+        }
+        for path in remote_changed_paths.into_iter() {
+            let ours_bytes = if let Some(snap) = current_state.get(&path) {
+                Some(self.snapshot_bytes(snap).await?)
+            } else {
+                None
+            };
+            let theirs_bytes = if let Some(snap) = remote_state.get(&path) {
+                Some(self.snapshot_bytes(snap).await?)
+            } else {
+                Some(Vec::new())
+            };
+            let base_bytes = if let Some(meta) = latest_meta.as_ref() {
+                self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), &path)
+                    .await?
+            } else {
+                None
+            };
+
+            let (ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
+            let (theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
+            let (base, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
+            let is_binary = ours_bin || theirs_bin || base_bin;
+
+            remote_conflicts.push(GitPullConflictItemDto {
+                path: path.clone(),
+                is_binary,
+                ours,
+                theirs,
+                base,
+            });
+        }
+        // If commit IDs differ but no file-level diff was detected (should be rare),
+        // still treat as remote changes to avoid silent application.
+        if remote_conflicts.is_empty() {
+            if let Some(local_oid_val) = local_oid {
+                if remote_oid != local_oid_val {
+                    remote_conflicts.push(GitPullConflictItemDto {
+                        path: "<remote_changes>".to_string(),
+                        is_binary: false,
+                        ours: None,
+                        theirs: None,
+                        base: None,
+                    });
+                }
+            } else {
+                // No local commit but remote exists.
+                remote_conflicts.push(GitPullConflictItemDto {
+                    path: "<remote_changes>".to_string(),
+                    is_binary: false,
+                    ours: None,
+                    theirs: None,
+                    base: None,
+                });
+            }
+        }
+        let remote_changes = !remote_conflicts.is_empty();
+
+        // If remote has changes and no resolutions are provided, return conflicts and do not apply.
+        if remote_changes && req.resolutions.is_empty() {
+            return Ok(GitPullResultDto {
+                success: false,
+                message: "conflicts detected".to_string(),
+                files_changed: 0,
+                commit_hash: None,
+                conflicts: Some(remote_conflicts),
+            });
+        }
+
+        // If local state drifted and remote has changes, do not apply; surface conflicts only.
+        if drift_detected && remote_changes {
+            return Ok(GitPullResultDto {
+                success: false,
+                message: "conflicts detected".to_string(),
+                files_changed: 0,
+                commit_hash: None,
+                conflicts: Some(remote_conflicts),
+            });
+        }
+        // If remote contains local, treat as fast-forward.
+        // If remote contains local and remote has changes, return conflicts (no auto-apply).
+        if let Some(local_oid_val) = local_oid {
+            if repo.graph_descendant_of(remote_oid, local_oid_val)? && remote_changes {
+                return Ok(GitPullResultDto {
+                    success: false,
+                    message: "conflicts detected".to_string(),
+                    files_changed: 0,
+                    commit_hash: None,
+                    conflicts: Some(remote_conflicts),
+                });
+            }
+        }
+
+        // Diverged: merge local into remote (linear, parent = remote)
+        let Some(local_oid_val) = local_oid else {
+            anyhow::bail!("no local commit to merge");
+        };
+
+        let (meta, pack_bytes, merged_snapshots, commit_hex) = {
+            let local_commit = repo.find_commit(local_oid_val)?;
+            let remote_commit = repo.find_commit(remote_oid)?;
+            let index = repo.merge_commits(&local_commit, &remote_commit, None)?;
+
+            let conflict_items = collect_conflicts(&repo, &index)?;
+            if !conflict_items.is_empty() && req.resolutions.is_empty() {
+                return Ok(GitPullResultDto {
+                    success: false,
+                    message: "conflicts detected".to_string(),
+                    files_changed: 0,
+                    commit_hash: None,
+                    conflicts: Some(conflict_items),
+                });
+            }
+
+            // Collect conflict entries for resolution application
+            let mut conflict_entries: Vec<(String, Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>)> =
+                Vec::new();
+            {
+                let mut conflicts_iter = index.conflicts()?;
+                while let Some(conflict) = conflicts_iter.next() {
+                    let conflict = conflict?;
+                    let path = conflict
+                        .our
+                        .as_ref()
+                        .or(conflict.their.as_ref())
+                        .or(conflict.ancestor.as_ref())
+                        .and_then(|e| std::str::from_utf8(&e.path).ok())
+                        .ok_or_else(|| anyhow!("missing conflict path"))?
+                        .to_string();
+
+                    let to_bytes =
+                        |entry: Option<&git2::IndexEntry>| -> anyhow::Result<Option<Vec<u8>>> {
+                            if let Some(e) = entry {
+                                let blob = repo.find_blob(e.id)?;
+                                Ok(Some(blob.content().to_vec()))
+                            } else {
+                                Ok(None)
+                            }
+                        };
+
+                    conflict_entries.push((
+                        path,
+                        to_bytes(conflict.our.as_ref())?,
+                        to_bytes(conflict.their.as_ref())?,
+                        to_bytes(conflict.ancestor.as_ref())?,
+                    ));
+                }
+            }
+
+            let resolution_map: std::collections::HashMap<
+                String,
+                &crate::application::dto::git::GitPullResolutionDto,
+            > = req.resolutions.iter().map(|r| (r.path.clone(), r)).collect();
+
+            // Build merged state from resolved index (stage 0) plus user resolutions.
+            let mut merged_snapshots: HashMap<String, FileSnapshot> = HashMap::new();
+            for entry in index.iter() {
+                if index_entry_stage(&entry) != 0 {
+                    continue;
+                }
+                let path = index_entry_path(&entry)?;
+                let blob = repo.find_blob(entry.id)?;
+                let bytes = blob.content().to_vec();
+                let hash = sha256_hex(&bytes);
+                let is_text = std::str::from_utf8(&bytes).is_ok();
+                merged_snapshots.insert(
+                    path,
+                    FileSnapshot {
+                        hash,
+                        data: FileSnapshotData::Inline(bytes),
+                        is_text,
+                    },
+                );
+            }
+
+            for (path, ours_bytes, theirs_bytes, _base) in conflict_entries {
+                let Some(resolution) = resolution_map.get(&path) else {
+                    return Ok(GitPullResultDto {
+                        success: false,
+                        message: "conflicts detected".to_string(),
+                        files_changed: 0,
+                        commit_hash: None,
+                        conflicts: Some(collect_conflicts(&repo, &index)?),
+                    });
+                };
+                let selected_bytes = match resolution.choice.as_str() {
+                    "ours" => ours_bytes.clone(),
+                    "theirs" => theirs_bytes.clone(),
+                    "custom_text" => {
+                        Some(resolution.content.clone().unwrap_or_default().into_bytes())
+                    }
+                    other => anyhow::bail!("unsupported resolution choice {other}"),
+                }
+                .unwrap_or_default();
+                let hash = sha256_hex(&selected_bytes);
+                let is_text = std::str::from_utf8(&selected_bytes).is_ok();
+                merged_snapshots.insert(
+                    path.clone(),
+                    FileSnapshot {
+                        hash,
+                        data: FileSnapshotData::Inline(selected_bytes),
+                        is_text,
+                    },
+                );
+            }
+
+            // Build tree from merged snapshots without async work
+            let mut entry_map: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+            for (path, snap) in merged_snapshots.iter() {
+                let bytes = match &snap.data {
+                    FileSnapshotData::Inline(b) => b.clone(),
+                    FileSnapshotData::StoragePath(_) => {
+                        anyhow::bail!("unexpected storage-backed snapshot during pull merge")
+                    }
+                };
+                entry_map.insert(path.clone(), bytes);
+            }
+            let tree_oid = build_tree_from_entries(&repo, &entry_map)?;
+            let tree = repo.find_tree(tree_oid)?;
+            let sig = signature_from_parts("RefMD", "refmd@example.com", chrono::Utc::now())?;
+            let commit_oid = repo.commit(
+                None,
+                &sig,
+                &sig,
+                "Merge remote changes",
+                &tree,
+                &[&remote_commit],
+            )?;
+
+            let mut file_hash_index: HashMap<String, String> = HashMap::new();
+            for (path, snap) in merged_snapshots.iter() {
+                file_hash_index.insert(path.clone(), snap.hash.clone());
+            }
+
+            let mut pack_builder = repo.packbuilder()?;
+            pack_builder.insert_commit(commit_oid)?;
+            let mut pack_buf = git2::Buf::new();
+            pack_builder.write_buf(&mut pack_buf)?;
+            let pack_bytes = pack_buf.to_vec();
+
+            let commit_hex = encode_commit_id(commit_oid.as_bytes());
+            let meta = CommitMeta {
+                commit_id: commit_oid.as_bytes().to_vec(),
+                parent_commit_id: Some(remote_oid.as_bytes().to_vec()),
+                message: Some("Merge remote changes".to_string()),
+                author_name: Some("RefMD".to_string()),
+                author_email: Some("refmd@example.com".to_string()),
+                committed_at: chrono::Utc::now(),
+                pack_key: format!("git/packs/{}/{}.pack", workspace_id, commit_hex),
+                file_hash_index,
+            };
+
+            (meta, pack_bytes, merged_snapshots, commit_hex)
+        };
+
+        let snapshot_keys = self
+            .store_commit_snapshots(workspace_id, &meta.commit_id, &merged_snapshots)
+            .await?;
+
+        if let Err(err) = self
+            .git_storage
+            .store_pack(workspace_id, &pack_bytes, &meta)
+            .await
+        {
+            for key in snapshot_keys.iter().rev() {
+                let _ = self.git_storage.delete_blob(key).await;
+            }
+            return Err(err);
+        }
+
+        if let Err(err) = self
+            .git_storage
+            .set_latest_commit(workspace_id, Some(&meta))
+            .await
+        {
+            let _ = self
+                .git_storage
+                .delete_pack(workspace_id, &meta.commit_id)
+                .await;
+            for key in snapshot_keys.iter().rev() {
+                let _ = self.git_storage.delete_blob(key).await;
+            }
+            return Err(err);
+        }
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            r#"INSERT INTO git_commits (
+                    commit_id,
+                    parent_commit_id,
+                    workspace_id,
+                    message,
+                    author_name,
+                    author_email,
+                    committed_at,
+                    pack_key,
+                    file_hash_index
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)"#,
+        )
+        .bind(meta.commit_id.clone())
+        .bind(meta.parent_commit_id.clone())
+        .bind(workspace_id)
+        .bind(meta.message.clone())
+        .bind(meta.author_name.clone())
+        .bind(meta.author_email.clone())
+        .bind(meta.committed_at)
+        .bind(meta.pack_key.clone())
+        .bind(Json(&meta.file_hash_index))
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query("UPDATE git_repository_state SET updated_at = now() WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+
+        let files_changed = self
+            .apply_state_to_workspace(workspace_id, &merged_snapshots, &previous_index)
+            .await?;
+
+        self.clear_dirty(workspace_id).await.ok();
+
+        Ok(GitPullResultDto {
+            success: true,
+            message: "remote changes merged".to_string(),
+            files_changed,
+            commit_hash: Some(commit_hex),
+            conflicts: None,
+        })
+    }
+
     async fn check_remote(
         &self,
         workspace_id: Uuid,
@@ -2194,6 +2739,96 @@ fn apply_pack_files(repo: &Repository, pack_paths: &[PathBuf]) -> anyhow::Result
     }
     Ok(())
 }
+
+fn collect_conflicts(
+    repo: &Repository,
+    index: &git2::Index,
+) -> anyhow::Result<Vec<GitPullConflictItemDto>> {
+    let mut out = Vec::new();
+    let mut conflicts = index.conflicts()?;
+    while let Some(conflict) = conflicts.next() {
+        let conflict = conflict?;
+        let path = conflict
+            .our
+            .as_ref()
+            .or(conflict.their.as_ref())
+            .or(conflict.ancestor.as_ref())
+            .and_then(|e| std::str::from_utf8(&e.path).ok())
+            .unwrap_or("")
+            .to_string();
+
+        let to_bytes = |entry: Option<&git2::IndexEntry>| -> anyhow::Result<Option<Vec<u8>>> {
+            if let Some(e) = entry {
+                let blob = repo.find_blob(e.id)?;
+                Ok(Some(blob.content().to_vec()))
+            } else {
+                Ok(None)
+            }
+        };
+
+        let ours_bytes = to_bytes(conflict.our.as_ref())?;
+        let theirs_bytes = to_bytes(conflict.their.as_ref())?;
+        let base_bytes = to_bytes(conflict.ancestor.as_ref())?;
+
+        let (ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
+        let (theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
+        let (base, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
+        let is_binary = ours_bin || theirs_bin || base_bin;
+
+        out.push(GitPullConflictItemDto {
+            path,
+            is_binary,
+            ours,
+            theirs,
+            base,
+        });
+    }
+    Ok(out)
+}
+
+fn index_entry_path(entry: &git2::IndexEntry) -> anyhow::Result<String> {
+    let raw = &entry.path;
+    if raw.is_empty() {
+        anyhow::bail!("empty index entry path");
+    }
+    if let Ok(cstr) = std::ffi::CStr::from_bytes_with_nul(raw) {
+        Ok(cstr
+            .to_str()
+            .unwrap_or_default()
+            .trim_end_matches('\0')
+            .to_string())
+    } else {
+        Ok(String::from_utf8_lossy(raw).trim_end_matches('\0').to_string())
+    }
+}
+
+fn index_entry_stage(entry: &git2::IndexEntry) -> i32 {
+    ((entry.flags as u32 >> 12) & 0b11) as i32
+}
+
+fn as_text_or_binary(path: &str, data: Option<&Vec<u8>>) -> (Option<String>, bool) {
+    let Some(bytes) = data else { return (None, false) };
+    match std::str::from_utf8(bytes) {
+        Ok(s) => (Some(s.to_string()), false),
+        Err(_) => {
+            let lower = path.to_ascii_lowercase();
+            let looks_text = lower.ends_with(".md")
+                || lower.ends_with(".markdown")
+                || lower.ends_with(".txt")
+                || lower.ends_with(".json")
+                || lower.ends_with(".yaml")
+                || lower.ends_with(".yml")
+                || lower.ends_with(".toml")
+                || lower.ends_with(".ini");
+            if looks_text {
+                let lossy = String::from_utf8_lossy(bytes).to_string();
+                return (Some(lossy), false);
+            }
+            (None, true)
+        }
+    }
+}
+
 
 fn extract_host(url: &str) -> Option<String> {
     let s = url.trim();

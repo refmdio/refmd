@@ -91,3 +91,34 @@ pub struct GitignoreUpdateDto {
     pub added: usize,
     pub patterns: Vec<String>,
 }
+
+#[derive(Debug, Clone)]
+pub struct GitPullResolutionDto {
+    pub path: String,
+    /// one of: ours, theirs, custom_text
+    pub choice: String,
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GitPullRequestDto {
+    pub resolutions: Vec<GitPullResolutionDto>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GitPullConflictItemDto {
+    pub path: String,
+    pub is_binary: bool,
+    pub ours: Option<String>,
+    pub theirs: Option<String>,
+    pub base: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GitPullResultDto {
+    pub success: bool,
+    pub message: String,
+    pub files_changed: u32,
+    pub commit_hash: Option<String>,
+    pub conflicts: Option<Vec<GitPullConflictItemDto>>,
+}

@@ -245,6 +245,32 @@ export type GitHistoryResponse = {
     commits: Array<GitCommitItem>;
 };
 
+export type GitPullConflictItem = {
+    base?: (string) | null;
+    is_binary: boolean;
+    ours?: (string) | null;
+    path: string;
+    theirs?: (string) | null;
+};
+
+export type GitPullRequest = {
+    resolutions?: Array<GitPullResolution> | null;
+};
+
+export type GitPullResolution = {
+    choice: string;
+    content?: (string) | null;
+    path: string;
+};
+
+export type GitPullResponse = {
+    commit_hash?: (string) | null;
+    conflicts?: Array<GitPullConflictItem> | null;
+    files_changed: number;
+    message: string;
+    success: boolean;
+};
+
 export type GitRemoteCheckResponse = {
     message: string;
     ok: boolean;
@@ -1102,6 +1128,12 @@ export type IgnoreFolderData = {
 export type IgnoreFolderResponse = (unknown);
 
 export type InitRepositoryResponse = (unknown);
+
+export type PullRepositoryData = {
+    requestBody: GitPullRequest;
+};
+
+export type PullRepositoryResponse = (GitPullResponse);
 
 export type GetStatusResponse = (GitStatus);
 

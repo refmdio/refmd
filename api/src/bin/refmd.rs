@@ -592,6 +592,15 @@ impl GitWorkspacePort for CliGitWorkspace {
         bail!("sync not supported in refmd CLI");
     }
 
+    async fn pull(
+        &self,
+        _workspace_id: Uuid,
+        _req: &api::application::dto::git::GitPullRequestDto,
+        _cfg: &api::application::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<api::application::dto::git::GitPullResultDto> {
+        bail!("pull not supported in refmd CLI");
+    }
+
     async fn check_remote(
         &self,
         _workspace_id: Uuid,
