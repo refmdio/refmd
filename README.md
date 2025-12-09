@@ -2,7 +2,11 @@
 
 RefMD is a real-time Markdown collaboration platform that lets teams co-author documents, publish anonymous share links, sync changes to Git, and extend the workspace through Extism-powered ESM plugins.
 
-[refmd-demo.webm](https://github.com/user-attachments/assets/493ade04-109d-4551-be81-c23c49c23167)
+
+
+https://github.com/user-attachments/assets/723b9494-171c-49af-b019-bad379f76e0d
+
+
 
 > [!WARNING]
 > **RefMD is currently in beta.**
@@ -35,6 +39,12 @@ Looking for guides and API docs? Head over to https://refmdio.github.io/docs/ fo
 - **Frontend:** React (Vite), TanStack Router/Query, Monaco editor, Tailwind CSS
 - **Realtime:** Yjs collaborative engine with WebSocket bridge
 - **Plugins:** RefMD Plugin SDK atop Extism runtimes with ESM-compatible plugin bundles
+
+## Contributing
+
+Issues and Pull Requests are welcome.  
+Please use Issues for bug reports and feature requests, and keep PRs focused and reviewable.  
+For larger changes or new features, open an Issue first to discuss direction before submitting a PR.
 
 ## License
 Distributed under the GPL-3.0 License. See `LICENSE` for details.
