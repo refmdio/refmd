@@ -19,6 +19,7 @@ https://github.com/user-attachments/assets/723b9494-171c-49af-b019-bad379f76e0d
 - **Anonymous sharing** through one-off links and public publish flows.
 - **Git Sync** so documents stay in step with your repositories.
 - **Plugin extensibility** powered by the RefMD Plugin SDK, enabling community-built integrations that can be toggled per user.
+- **Workspace management** for organizing multiple members, with individually assignable permissions.
 - **API tokens** generated from the profile page for automations and external integrations.
 
 ## Quick Start
