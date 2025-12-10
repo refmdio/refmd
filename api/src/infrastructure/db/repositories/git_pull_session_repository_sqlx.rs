@@ -3,7 +3,9 @@ use sqlx::types::Json;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use crate::application::dto::git::{GitPullConflictItemDto, GitPullResolutionDto, GitPullSessionDto};
+use crate::application::dto::git::{
+    GitPullConflictItemDto, GitPullResolutionDto, GitPullSessionDto,
+};
 use crate::application::ports::git_pull_session_repository::GitPullSessionRepository;
 
 pub struct GitPullSessionRepositorySqlx {
@@ -54,7 +56,9 @@ impl GitPullSessionRepository for GitPullSessionRepositorySqlx {
         .fetch_optional(&self.pool)
         .await?;
 
-        let Some(row) = row else { return Ok(None); };
+        let Some(row) = row else {
+            return Ok(None);
+        };
         let conflicts: Vec<GitPullConflictItemDto> = row
             .get::<Json<Vec<GitPullConflictItemDto>>, _>("conflicts")
             .0;

@@ -425,7 +425,7 @@ function DocumentClient({
 
   const handleConflictResolved = useCallback(() => {
     navigate({
-      to: '/(app)/document/$id',
+      to: '/document/$id',
       params: { id },
       search: (prev: Record<string, unknown>) => {
         const next = { ...prev }

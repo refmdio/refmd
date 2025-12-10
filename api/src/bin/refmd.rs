@@ -644,7 +644,7 @@ impl GitWorkspacePort for CliGitWorkspace {
         &self,
         _workspace_id: Uuid,
         _repo: &git2::Repository,
-        _remote_oid: git2::Oid,
+        _base_oid: git2::Oid,
     ) -> anyhow::Result<git2::Oid> {
         anyhow::bail!("not supported in CLI")
     }

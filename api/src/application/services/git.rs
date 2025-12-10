@@ -4,9 +4,9 @@ use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem, GitCommitInfo, GitConfigDto, GitPullConflictItemDto, GitRemoteCheckDto,
-    GitStatusDto, GitSyncRequestDto, GitSyncResponseDto, GitignoreUpdateDto, GitPullRequestDto,
-    GitPullResultDto, GitPullSessionDto, UpsertGitConfigInput,
+    GitChangeItem, GitCommitInfo, GitConfigDto, GitPullConflictItemDto, GitPullRequestDto,
+    GitPullResultDto, GitPullSessionDto, GitRemoteCheckDto, GitStatusDto, GitSyncRequestDto,
+    GitSyncResponseDto, GitignoreUpdateDto, UpsertGitConfigInput,
 };
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
@@ -345,7 +345,10 @@ impl GitService {
         })?;
 
         if let Some(conflicts) = dto.conflicts.take() {
-            dto.conflicts = Some(self.attach_conflict_documents(workspace_id, conflicts).await?);
+            dto.conflicts = Some(
+                self.attach_conflict_documents(workspace_id, conflicts)
+                    .await?,
+            );
         }
 
         Ok(dto)
@@ -357,9 +360,17 @@ impl GitService {
         conflicts: Vec<GitPullConflictItemDto>,
     ) -> Result<Vec<GitPullConflictItemDto>, ServiceError> {
         let mut out = Vec::with_capacity(conflicts.len());
-        let docs = self.docs.list_workspace_documents(workspace_id).await.map_err(ServiceError::from)?;
+        let docs = self
+            .docs
+            .list_workspace_documents(workspace_id)
+            .await
+            .map_err(ServiceError::from)?;
 
-        let normalize = |path: &str| path.trim_start_matches("./").trim_start_matches('/').to_string();
+        let normalize = |path: &str| {
+            path.trim_start_matches("./")
+                .trim_start_matches('/')
+                .to_string()
+        };
 
         for mut conflict in conflicts {
             if conflict.document_id.is_some() {
@@ -382,7 +393,11 @@ impl GitService {
                     paths.push(desired);
                 }
 
-                if paths.iter().any(|p| candidate == *p || candidate.ends_with(&format!("/{p}")) || p.ends_with(&candidate)) {
+                if paths.iter().any(|p| {
+                    candidate == *p
+                        || candidate.ends_with(&format!("/{p}"))
+                        || p.ends_with(&candidate)
+                }) {
                     matched = Some(doc.id);
                     break;
                 }
@@ -404,13 +419,20 @@ impl GitService {
         &self,
         workspace_id: Uuid,
     ) -> Result<GitPullResultDto, ServiceError> {
-        self
-            .pull_repository(workspace_id, GitPullRequestDto { resolutions: Vec::new() })
-            .await
+        self.pull_repository(
+            workspace_id,
+            GitPullRequestDto {
+                resolutions: Vec::new(),
+            },
+        )
+        .await
     }
 
     pub async fn save_pull_session(&self, session: GitPullSessionDto) -> Result<(), ServiceError> {
-        self.pull_sessions.upsert(session).await.map_err(ServiceError::from)
+        self.pull_sessions
+            .upsert(session)
+            .await
+            .map_err(ServiceError::from)
     }
 
     pub async fn load_pull_session(
@@ -418,7 +440,10 @@ impl GitService {
         workspace_id: Uuid,
         id: Uuid,
     ) -> Result<Option<GitPullSessionDto>, ServiceError> {
-        self.pull_sessions.get(workspace_id, id).await.map_err(ServiceError::from)
+        self.pull_sessions
+            .get(workspace_id, id)
+            .await
+            .map_err(ServiceError::from)
     }
 
     pub async fn pull_session_is_stale(

@@ -12,8 +12,8 @@ use crate::presentation::http::auth::{Bearer, validate_bearer};
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
     GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitPullRequestDto,
-    GitPullResolutionDto, GitStatusDto, GitSyncRequestDto, GitignoreUpdateDto, UpsertGitConfigInput,
-    GitPullSessionDto,
+    GitPullResolutionDto, GitPullSessionDto, GitStatusDto, GitSyncRequestDto, GitignoreUpdateDto,
+    UpsertGitConfigInput,
 };
 use crate::application::services::errors::ServiceError;
 use crate::domain::workspaces::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
@@ -21,7 +21,6 @@ use crate::presentation::context::AppContext;
 use crate::presentation::http::workspace_scope;
 use tracing::error;
 use uuid::Uuid;
-
 
 // Uses AppContext as router state
 
@@ -43,7 +42,10 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/git/pull/start", post(start_pull_session))
         .route("/git/pull/session/:id", get(get_pull_session))
         .route("/git/pull/session/:id/resolve", post(resolve_pull_session))
-        .route("/git/pull/session/:id/finalize", post(finalize_pull_session))
+        .route(
+            "/git/pull/session/:id/finalize",
+            post(finalize_pull_session),
+        )
         .route("/git/init", post(init_repository))
         .route("/git/deinit", post(deinit_repository))
         .route("/git/ignore/doc/:id", post(ignore_document))
@@ -217,11 +219,7 @@ impl From<GitPullSessionDto> for GitPullSessionResponse {
         Self {
             session_id: value.id,
             status: value.status,
-            conflicts: value
-                .conflicts
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            conflicts: value.conflicts.into_iter().map(Into::into).collect(),
             resolutions: value
                 .resolutions
                 .into_iter()
@@ -701,7 +699,11 @@ pub async fn pull_repository(
         .map(|items| items.into_iter().map(Into::into).collect::<Vec<_>>())
         .unwrap_or_default();
     let has_conflicts = !conflicts.is_empty();
-    let status = if has_conflicts { StatusCode::CONFLICT } else { StatusCode::OK };
+    let status = if has_conflicts {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::OK
+    };
     Ok((
         status,
         Json(GitPullResponse {
@@ -747,8 +749,10 @@ pub async fn start_pull_session(
         Ok(v) => v,
         Err(err) => {
             let message = match &err {
-                ServiceError::BadRequest("workspace_has_pending_changes") =>
-                    "Workspace has pending changes. Commit, sync, or discard them before pulling.".to_string(),
+                ServiceError::BadRequest("workspace_has_pending_changes") => {
+                    "Workspace has pending changes. Commit, sync, or discard them before pulling."
+                        .to_string()
+                }
                 other => other.to_string(),
             };
             let status = map_git_error(err);
@@ -778,19 +782,31 @@ pub async fn start_pull_session(
         .save_pull_session(GitPullSessionDto {
             id: session_id,
             workspace_id,
-            status: if has_conflicts { "pending".to_string() } else { "merged".to_string() },
+            status: if has_conflicts {
+                "pending".to_string()
+            } else {
+                "merged".to_string()
+            },
             conflicts: dto.conflicts.unwrap_or_default(),
             resolutions: Vec::new(),
             base_commit: dto.base_commit.clone(),
             remote_commit: dto.remote_commit.clone(),
         })
         .await;
-    let status = if has_conflicts { StatusCode::CONFLICT } else { StatusCode::OK };
+    let status = if has_conflicts {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::OK
+    };
     Ok((
         status,
         Json(GitPullSessionResponse {
             session_id,
-            status: if has_conflicts { "pending".to_string() } else { "merged".to_string() },
+            status: if has_conflicts {
+                "pending".to_string()
+            } else {
+                "merged".to_string()
+            },
             conflicts,
             resolutions: Vec::new(),
             message: None,
@@ -945,8 +961,10 @@ pub async fn resolve_pull_session(
         Ok(v) => v,
         Err(err) => {
             let message = match &err {
-                ServiceError::BadRequest("workspace_has_pending_changes") =>
-                    "Workspace has pending changes. Commit, sync, or discard them before pulling.".to_string(),
+                ServiceError::BadRequest("workspace_has_pending_changes") => {
+                    "Workspace has pending changes. Commit, sync, or discard them before pulling."
+                        .to_string()
+                }
                 other => other.to_string(),
             };
             let status = map_git_error(err);
@@ -992,7 +1010,11 @@ pub async fn resolve_pull_session(
         .save_pull_session(GitPullSessionDto {
             id,
             workspace_id,
-            status: if conflicts.is_empty() { "merged".to_string() } else { "resolving".to_string() },
+            status: if conflicts.is_empty() {
+                "merged".to_string()
+            } else {
+                "resolving".to_string()
+            },
             conflicts: dto.conflicts.unwrap_or_default(),
             resolutions: resolutions
                 .iter()
@@ -1012,7 +1034,11 @@ pub async fn resolve_pull_session(
         status_code,
         Json(GitPullSessionResponse {
             session_id: id,
-            status: if conflicts.is_empty() { "merged".to_string() } else { "resolving".to_string() },
+            status: if conflicts.is_empty() {
+                "merged".to_string()
+            } else {
+                "resolving".to_string()
+            },
             conflicts,
             resolutions,
             message: None,
@@ -1078,7 +1104,10 @@ pub async fn finalize_pull_session(
             git_status: None,
         }));
     }
-    let git_status = service.get_status(workspace_id).await.map_err(map_git_error)?;
+    let git_status = service
+        .get_status(workspace_id)
+        .await
+        .map_err(map_git_error)?;
     let _ = service
         .save_pull_session(GitPullSessionDto {
             id,

@@ -56,7 +56,7 @@ pub trait GitWorkspacePort: Send + Sync {
         &self,
         workspace_id: Uuid,
         repo: &git2::Repository,
-        remote_oid: git2::Oid,
+        base_oid: git2::Oid,
     ) -> anyhow::Result<git2::Oid>;
 
     async fn check_remote(

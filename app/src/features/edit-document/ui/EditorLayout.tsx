@@ -1,6 +1,6 @@
 import { DiffEditor } from '@monaco-editor/react'
 import { AlertTriangle, Check, Loader2, SlidersHorizontal, X } from 'lucide-react'
-import type * as monacoNs from 'monaco-editor'
+import * as monacoNs from 'monaco-editor'
 import { useCallback, useMemo, useEffect, useRef, useState, type CSSProperties, type ReactNode, type MutableRefObject } from 'react'
 
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
@@ -100,13 +100,25 @@ export function EditorLayout({
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null)
   const [diffReady, setDiffReady] = useState(false)
   const overlayNodesRef = useRef<Record<string, HTMLDivElement>>({})
+  const overlayWidgetsRef = useRef<Record<string, monacoNs.editor.IContentWidget>>({})
   const overlayDisposablesRef = useRef<monacoNs.IDisposable[]>([])
 
   useEffect(() => {
     // cleanup helper
     const cleanup = () => {
+      if (diffEditorRef.current && monacoRef.current) {
+        const modified = diffEditorRef.current.getModifiedEditor()
+        Object.values(overlayWidgetsRef.current).forEach((widget) => {
+          try {
+            modified.removeContentWidget(widget)
+          } catch {
+            /* ignore */
+          }
+        })
+      }
       Object.values(overlayNodesRef.current).forEach((node) => node.remove())
       overlayNodesRef.current = {}
+      overlayWidgetsRef.current = {}
       overlayDisposablesRef.current.forEach((d) => d.dispose())
       overlayDisposablesRef.current = []
     }
@@ -166,6 +178,7 @@ export function EditorLayout({
       node.style.pointerEvents = 'auto'
       node.style.whiteSpace = 'nowrap'
       node.style.zIndex = '50'
+      node.style.marginLeft = '8px'
 
       const makeBtn = (label: string, side: 'ours' | 'theirs') => {
         const btn = document.createElement('button')
@@ -203,32 +216,40 @@ export function EditorLayout({
     conflictHunkWidgets.forEach((hunk) => {
       const node = createNode(hunk)
       overlayNodesRef.current[hunk.id] = node
-      host.appendChild(node)
+      const widget: monacoNs.editor.IContentWidget = {
+        getId: () => `conflict-hunk-${hunk.id}`,
+        getDomNode: () => node,
+        getPosition: () => ({
+          position: {
+            lineNumber: Math.max(hunk.line, 1),
+            // Place at line end so it follows text instead of gutter.
+            column:
+              (modified.getModel()?.getLineMaxColumn(Math.max(hunk.line, 1)) ?? 1) +
+              1,
+          },
+          preference: [monacoNs.editor.ContentWidgetPositionPreference.EXACT],
+        }),
+      }
+      overlayWidgetsRef.current[hunk.id] = widget
+      modified.addContentWidget(widget)
     })
 
-    const updatePositions = () => {
-      const layout = modified.getLayoutInfo()
-      const lineHeight = modified.getOption(monacoInstance.editor.EditorOption.lineHeight)
-      const rightInset =
-        (layout.minimap?.renderMinimap ? layout.minimap.minimapWidth : 0) +
-        layout.verticalScrollbarWidth +
-        layout.glyphMarginWidth +
-        12
-      conflictHunkWidgets.forEach((hunk) => {
-        const node = overlayNodesRef.current[hunk.id]
-        if (!node) return
-        const top = modified.getTopForLineNumber(Math.max(hunk.line, 1)) + lineHeight - 2
-        node.style.top = `${top}px`
-        node.style.right = `${rightInset}px`
+    const relayout = () => {
+      Object.values(overlayWidgetsRef.current).forEach((widget) => {
+        try {
+          modified.layoutContentWidget(widget)
+        } catch {
+          /* ignore */
+        }
       })
     }
 
-    updatePositions()
+    relayout()
 
     overlayDisposablesRef.current.push(
-      modified.onDidScrollChange(() => updatePositions()),
-      modified.onDidLayoutChange(() => updatePositions()),
-      modified.onDidChangeConfiguration(() => updatePositions()),
+      modified.onDidScrollChange(() => relayout()),
+      modified.onDidLayoutChange(() => relayout()),
+      modified.onDidChangeConfiguration(() => relayout()),
     )
 
     return cleanup
