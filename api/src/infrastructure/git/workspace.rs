@@ -1597,14 +1597,13 @@ impl GitWorkspacePort for GitWorkspaceService {
         self.ensure_storage_commit_integrity(workspace_id).await?;
         latest_meta = self.latest_commit_meta(workspace_id).await?;
 
-        let previous_index = latest_meta
+        let mut use_full_scan = force_full_scan || latest_meta.is_none();
+
+        let mut previous_index = latest_meta
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
         let dirty_rows = self.fetch_dirty(workspace_id).await?;
-
-        // Determine strategy: forced full scan or initial commit uses full state rebuild.
-        let use_full_scan = force_full_scan || latest_meta.is_none();
 
         // Build change sets from dirty rows
         let mut upserts: BTreeMap<String, DirtyUpsert> = BTreeMap::new();
@@ -1668,7 +1667,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         let mut precomputed_upsert_bytes: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         let mut changed_text_snapshots: HashMap<String, FileSnapshot> = HashMap::new();
         let mut next_file_hash_index: HashMap<String, String> = previous_index.clone();
-        let files_changed_for_response: u32;
+        let mut files_changed_for_response: u32 = 0;
 
         if use_full_scan {
             let current = self.collect_current_state(workspace_id).await?;
@@ -1749,20 +1748,28 @@ impl GitWorkspacePort for GitWorkspaceService {
             files_changed_for_response = (upserts.len() + deletes.len()) as u32;
         }
 
-        let previous_pack = if let Some(prev_meta) = latest_meta.as_ref() {
-            Some(
-                self.persist_pack_chain(workspace_id, Some(prev_meta.commit_id.as_slice()))
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "missing pack data for commit {}",
-                            encode_commit_id(&prev_meta.commit_id)
-                        )
-                    })?,
-            )
-        } else {
-            None
-        };
+        let mut previous_pack = None;
+        if let Some(prev_meta) = latest_meta.as_ref() {
+            match self
+                .persist_pack_chain(workspace_id, Some(prev_meta.commit_id.as_slice()))
+                .await?
+            {
+                Some(chain) => {
+                    previous_pack = Some(chain);
+                }
+                None => {
+                    // Pack chain missing or reset: fall back to full scan.
+                    warn!(
+                        workspace_id = %workspace_id,
+                        commit = %encode_commit_id(&prev_meta.commit_id),
+                        "git_sync_missing_pack_chain_fallback_full_scan"
+                    );
+                    latest_meta = None;
+                    previous_index.clear();
+                    use_full_scan = true;
+                }
+            }
+        }
 
         let (meta, pack_bytes, commit_hex, pushed, files_changed_for_response) = {
             let temp_dir = TempDirBuilder::new()
@@ -1773,7 +1780,33 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             if let Some((_, ref pack_paths)) = previous_pack {
                 // Apply full chain to ensure delta bases are present
-                apply_pack_files(&repo, pack_paths)?;
+                if let Err(err) = apply_pack_files(&repo, pack_paths) {
+                    let lower = err.to_string().to_lowercase();
+                    let missing_obj = lower.contains("missing") && lower.contains("object");
+                    if missing_obj {
+                        warn!(
+                            workspace_id = %workspace_id,
+                            error = %err,
+                            "git_sync_pack_missing_objects_fallback_full_scan"
+                        );
+                        // Fallback: switch to full scan and rebuild tree from current state
+                        let current = self.collect_current_state(workspace_id).await?;
+                        let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+                        next_file_hash_index.clear();
+                        for (path, snapshot) in current.iter() {
+                            let bytes = self.snapshot_bytes(snapshot).await?;
+                            entries.insert(path.clone(), bytes);
+                            next_file_hash_index.insert(path.clone(), snapshot.hash.clone());
+                        }
+                        precomputed_full_entries = Some(entries);
+                        files_changed_for_response = next_file_hash_index.len() as u32;
+                        use_full_scan = true;
+                        latest_meta = None;
+                        previous_index.clear();
+                    } else {
+                        return Err(err);
+                    }
+                }
             }
 
             // Skip pre-fetch/verify to avoid remote redirect/auth loops; rely on push outcome.
@@ -1822,6 +1855,10 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             let mut pack_builder = repo.packbuilder()?;
             pack_builder.insert_commit(commit_oid)?;
+            // Include parent commit objects to avoid missing bases when applying packs later.
+            for parent in parent_commits.iter() {
+                pack_builder.insert_commit(parent.id())?;
+            }
             let mut pack_buf = git2::Buf::new();
             pack_builder.write_buf(&mut pack_buf)?;
             let pack_bytes = pack_buf.to_vec();
@@ -2035,18 +2072,14 @@ impl GitWorkspacePort for GitWorkspaceService {
             cfg.branch_name.clone()
         };
 
-        // Ensure remote history exists locally (best effort).
-        let _ = self
-            .bootstrap_remote_history(workspace_id, cfg, &branch)
-            .await;
-
-        let latest_meta = self.latest_commit_meta(workspace_id).await?;
-        let base_index: HashMap<String, String> = latest_meta
+        // Capture current workspace head before touching remote history.
+        let local_meta = self.latest_commit_meta(workspace_id).await?;
+        let base_index: HashMap<String, String> = local_meta
             .as_ref()
             .map(|m| m.file_hash_index.clone())
             .unwrap_or_default();
         let previous_index = base_index.clone();
-        let base_commit = latest_meta.as_ref().map(|m| m.commit_id.clone());
+        let base_commit = local_meta.as_ref().map(|m| m.commit_id.clone());
 
         let temp_dir = TempDirBuilder::new()
             .prefix("git-pull-")
@@ -2056,7 +2089,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         if let Some((_, pack_paths)) = self
             .persist_pack_chain(
                 workspace_id,
-                latest_meta.as_ref().map(|m| m.commit_id.as_slice()),
+                local_meta.as_ref().map(|m| m.commit_id.as_slice()),
             )
             .await?
         {
@@ -2079,9 +2112,16 @@ impl GitWorkspacePort for GitWorkspaceService {
         };
         let remote_commit = Some(remote_oid.as_bytes().to_vec());
 
-        let local_oid = latest_meta
+        let mut local_oid = local_meta
             .as_ref()
             .and_then(|m| git2::Oid::from_bytes(&m.commit_id).ok());
+        // If workspace has no local commit recorded (fresh pull), fall back to latest known meta after bootstrap.
+        if local_oid.is_none() {
+            local_oid = self
+                .latest_commit_meta(workspace_id)
+                .await?
+                .and_then(|m| git2::Oid::from_bytes(&m.commit_id).ok());
+        }
         // Detect drift between latest commit and current workspace using the same dirty set as Git Changes/Status.
         let dirty_rows = self.fetch_dirty(workspace_id).await?;
         // Track paths that are dirty or differ from base to scope conflicts to overlapping files.
@@ -2189,7 +2229,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             } else {
                 Some(Vec::new())
             };
-            let base_bytes = if let Some(meta) = latest_meta.as_ref() {
+            let base_bytes = if let Some(meta) = local_meta.as_ref() {
                 self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), &path)
                     .await?
             } else {
@@ -2209,6 +2249,11 @@ impl GitWorkspacePort for GitWorkspaceService {
                 base,
                 document_id: None,
             });
+        }
+
+        // First-time pull with no local history and no dirty changes: allow fast-forward without forcing conflicts.
+        if local_meta.is_none() && dirty_rows.is_empty() {
+            remote_conflicts.clear();
         }
 
         // If commits differ but no conflict paths were detected above, fallback to diff of current vs remote trees.
@@ -2239,12 +2284,12 @@ impl GitWorkspacePort for GitWorkspaceService {
                     } else {
                         Some(Vec::new())
                     };
-                    let base_bytes = if let Some(meta) = latest_meta.as_ref() {
-                        self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), &path)
-                            .await?
-                    } else {
-                        None
-                    };
+            let base_bytes = if let Some(meta) = local_meta.as_ref() {
+                self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), &path)
+                    .await?
+            } else {
+                None
+            };
 
                     let (ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
                     let (theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
@@ -2309,6 +2354,56 @@ impl GitWorkspacePort for GitWorkspaceService {
                 base_commit: base_commit.clone(),
                 remote_commit: remote_commit.clone(),
             });
+        }
+
+        // Ensure remote head commit metadata/pack exists locally for merge parent and future syncs.
+        let mut remote_pack: Option<(CommitMeta, Vec<u8>)> = None;
+        if self
+            .commit_meta_by_id(workspace_id, remote_oid.as_bytes())
+            .await?
+            .is_none()
+        {
+            let remote_index: HashMap<String, String> = remote_state
+                .iter()
+                .map(|(path, snap)| (path.clone(), snap.hash.clone()))
+                .collect();
+            let (remote_meta, remote_pack_bytes) = {
+                let remote_commit_obj = repo.find_commit(remote_oid)?;
+                let committed_at = git_time_to_datetime(remote_commit_obj.time())?;
+                let message = remote_commit_obj
+                    .message()
+                    .map(|m| m.trim_end_matches('\n').to_string())
+                    .filter(|m| !m.trim().is_empty());
+                let author = remote_commit_obj.author();
+                let author_name = author.name().map(|s| s.to_string());
+                let author_email = author.email().map(|s| s.to_string());
+                let parent_commit_id = if remote_commit_obj.parent_count() > 0 {
+                    let parent = remote_commit_obj.parent_id(0)?;
+                    Some(parent.as_bytes().to_vec())
+                } else {
+                    None
+                };
+
+                let mut pack_builder = repo.packbuilder()?;
+                pack_builder.insert_commit(remote_oid)?;
+                let mut pack_buf = git2::Buf::new();
+                pack_builder.write_buf(&mut pack_buf)?;
+                let pack_bytes = pack_buf.to_vec();
+
+                let commit_hex = encode_commit_id(remote_oid.as_bytes());
+                let remote_meta = CommitMeta {
+                    commit_id: remote_oid.as_bytes().to_vec(),
+                    parent_commit_id,
+                    message,
+                    author_name,
+                    author_email,
+                    committed_at,
+                    pack_key: format!("git/packs/{}/{}.pack", workspace_id, commit_hex),
+                    file_hash_index: remote_index,
+                };
+                (remote_meta, pack_bytes)
+            };
+            remote_pack = Some((remote_meta, remote_pack_bytes));
         }
 
         // Diverged: merge local into remote (linear, parent = remote)
@@ -2474,13 +2569,16 @@ impl GitWorkspacePort for GitWorkspaceService {
             let tree_oid = build_tree_from_entries(&repo, &entry_map)?;
             let tree = repo.find_tree(tree_oid)?;
             let sig = signature_from_parts("RefMD", "refmd@example.com", chrono::Utc::now())?;
+            let base_parent = repo.find_commit(local_oid_val)?;
+            let remote_parent = repo.find_commit(remote_oid)?;
+            let parent_refs: [&git2::Commit; 2] = [&base_parent, &remote_parent];
             let commit_oid = repo.commit(
                 None,
                 &sig,
                 &sig,
                 "Merge remote changes",
                 &tree,
-                &[&remote_commit_obj],
+                &parent_refs,
             )?;
 
             let mut file_hash_index: HashMap<String, String> = HashMap::new();
@@ -2490,6 +2588,9 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             let mut pack_builder = repo.packbuilder()?;
             pack_builder.insert_commit(commit_oid)?;
+            // Include both parents to avoid missing bases when applying packs later.
+            pack_builder.insert_commit(base_parent.id())?;
+            pack_builder.insert_commit(remote_parent.id())?;
             let mut pack_buf = git2::Buf::new();
             pack_builder.write_buf(&mut pack_buf)?;
             let pack_bytes = pack_buf.to_vec();
@@ -2497,7 +2598,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             let commit_hex = encode_commit_id(commit_oid.as_bytes());
             let meta = CommitMeta {
                 commit_id: commit_oid.as_bytes().to_vec(),
-                parent_commit_id: Some(remote_oid.as_bytes().to_vec()),
+                // Keep workspace history linear: parent is previous workspace head.
+                parent_commit_id: base_commit.clone(),
                 message: Some("Merge remote changes".to_string()),
                 author_name: Some("RefMD".to_string()),
                 author_email: Some("refmd@example.com".to_string()),
@@ -2508,6 +2610,14 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             (meta, pack_bytes, merged_snapshots, commit_hex)
         };
+
+        // Persist remote parent if we created it above.
+        if let Some((remote_meta, remote_pack_bytes)) = remote_pack.take() {
+            self.git_storage
+                .store_pack(workspace_id, &remote_pack_bytes, &remote_meta)
+                .await?;
+            self.upsert_commit_record(workspace_id, &remote_meta).await?;
+        }
 
         let snapshot_keys = self
             .store_commit_snapshots(workspace_id, &meta.commit_id, &merged_snapshots)
@@ -2800,6 +2910,8 @@ impl GitWorkspaceService {
                     }
                 }
                 Err(err) => {
+                    let err_str = err.to_string();
+                    let is_missing_objects = err_str.to_lowercase().contains("missing") && err_str.to_lowercase().contains("object");
                     if attempts == 0 {
                         if let Some(commit_hex) = missing_metadata_commit(&err) {
                             match self
@@ -2819,6 +2931,24 @@ impl GitWorkspaceService {
                                     );
                                 }
                             }
+                        }
+                        // If pack is missing objects, fall back by resetting git storage pointer and DB history.
+                        if is_missing_objects {
+                            warn!(
+                                workspace_id = %workspace_id,
+                                error = %err,
+                                "git_pack_missing_objects_detected_resetting_history"
+                            );
+                            // Drop storage latest pointer and DB commits for this workspace.
+                            let _ = self
+                                .git_storage
+                                .set_latest_commit(workspace_id, None)
+                                .await;
+                            let _ = sqlx::query("DELETE FROM git_commits WHERE workspace_id = $1")
+                                .bind(workspace_id)
+                                .execute(&self.pool)
+                                .await;
+                            return Ok(None);
                         }
                     }
                     return Err(err);
