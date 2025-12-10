@@ -18,6 +18,7 @@ import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGrou
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { downloadWorkspaceArchive } from '@/entities/document'
+import { getPullSession } from '@/entities/git'
 
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext } from '@/features/edit-document'
@@ -31,7 +32,7 @@ import { useFileTreeDrag } from '@/features/file-tree/lib/useFileTreeDrag'
 import FileNode from '@/features/file-tree/ui/FileNode'
 import FolderNode from '@/features/file-tree/ui/FolderNode'
 import { GitSyncButton } from '@/features/git-sync'
-import { GIT_CONFLICT_EVENT, readConflicts } from '@/features/git-sync/lib/git-conflict-store'
+import { GIT_CONFLICT_EVENT, readConflicts, readSessionId, setConflicts as setGlobalConflicts, setSessionId, clearSession, clearResolutions } from '@/features/git-sync/lib/git-conflict-store'
 import { useSecondaryViewer } from '@/features/secondary-viewer'
 import { ShareDialog } from '@/features/sharing'
 import {
@@ -267,6 +268,7 @@ function FileTreeInner() {
   const [shareFolderId, setShareFolderId] = useState<string | null>(null)
   const [workspaceDownloadPending, setWorkspaceDownloadPending] = useState(false)
   const [gitConflicts, setGitConflicts] = useState<GitPullConflictItem[]>(() => readConflicts())
+  const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
   const openTemporaryDocument = useCallback(() => {
     if (typeof window === 'undefined') return
     const entry = createTemporaryDocumentEntry()
@@ -278,7 +280,7 @@ function FileTreeInner() {
   const refreshTempEntries = useCallback(() => {
     if (typeof window === 'undefined') return [] as TemporaryDocumentMeta[]
     return listTemporaryDocuments()
-  }, [])
+  }, [sessionId])
   const clearAllTemporaries = useCallback(() => {
     const list = refreshTempEntries()
     list.forEach((entry) => deleteTemporaryDocumentEntry(entry.id))
@@ -343,12 +345,56 @@ function FileTreeInner() {
   }, [])
 
   useEffect(() => {
-    const handler = () => setGitConflicts(readConflicts())
-    window.addEventListener(GIT_CONFLICT_EVENT, handler)
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail
+      if (Array.isArray(detail)) {
+        setGitConflicts(detail as GitPullConflictItem[])
+      } else {
+        setGitConflicts(readConflicts())
+      }
+    }
+    const sessionHandler = () => setSessionIdState(readSessionId())
+    window.addEventListener(GIT_CONFLICT_EVENT, handler as EventListener)
     window.addEventListener('storage', handler)
+    window.addEventListener('storage', sessionHandler)
     return () => {
-      window.removeEventListener(GIT_CONFLICT_EVENT, handler)
+      window.removeEventListener(GIT_CONFLICT_EVENT, handler as EventListener)
       window.removeEventListener('storage', handler)
+      window.removeEventListener('storage', sessionHandler)
+    }
+  }, [])
+
+  useEffect(() => {
+    const sid = sessionId ?? readSessionId()
+    if (!sid) return
+    let cancelled = false
+    const syncSession = () => {
+      getPullSession({ id: sid })
+        .then((session) => {
+          if (cancelled) return
+          if ((session as any)?.status === 'stale') {
+            clearSession()
+            clearResolutions()
+            setGitConflicts([])
+            return
+          }
+          if ((session as any)?.status === 'merged' && (session.conflicts ?? []).length === 0) {
+            clearSession()
+            clearResolutions()
+            setGitConflicts([])
+            return
+          }
+          setSessionId(session.session_id)
+          setGlobalConflicts(session.conflicts ?? [])
+          setGitConflicts(session.conflicts ?? [])
+        })
+        .catch(() => {})
+    }
+    syncSession()
+    const timer = window.setInterval(syncSession, 10000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
     }
   }, [])
 
@@ -449,11 +495,25 @@ function FileTreeInner() {
     (node: DocumentNode): GitPullConflictItem | null => {
       if (node.type !== 'file') return null
       const targets = [normalizeConflictPath(node.path), normalizeConflictPath(node.desiredPath)].filter(Boolean)
-      if (!targets.length) return null
+      const names = new Set<string>()
+      const addName = (value?: string | null) => {
+        if (!value) return
+        const trimmed = value.trim().toLowerCase()
+        if (trimmed) names.add(trimmed)
+      }
+      addName(node.title)
+      targets.forEach((t) => {
+        addName(t.split('/').pop())
+      })
+      if (!targets.length && names.size === 0) return null
       for (const conflict of gitConflicts) {
+        if (conflict.document_id && conflict.document_id === node.id) {
+          return conflict
+        }
         const candidate = normalizeConflictPath(conflict.path)
         if (!candidate) continue
-        if (targets.some((t) => candidate === t || candidate.endsWith(`/${t}`))) {
+        const candidateBase = candidate.split('/').pop()
+        if (targets.some((t) => candidate === t || candidate.endsWith(`/${t}`)) || (candidateBase && names.has(candidateBase))) {
           return conflict
         }
       }

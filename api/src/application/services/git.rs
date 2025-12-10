@@ -4,12 +4,13 @@ use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem, GitCommitInfo, GitConfigDto, GitRemoteCheckDto, GitStatusDto, GitSyncRequestDto,
-    GitSyncResponseDto, GitignoreUpdateDto, GitPullRequestDto, GitPullResultDto,
-    UpsertGitConfigInput,
+    GitChangeItem, GitCommitInfo, GitConfigDto, GitPullConflictItemDto, GitRemoteCheckDto,
+    GitStatusDto, GitSyncRequestDto, GitSyncResponseDto, GitignoreUpdateDto, GitPullRequestDto,
+    GitPullResultDto, GitPullSessionDto, UpsertGitConfigInput,
 };
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
+use crate::application::ports::git_pull_session_repository::GitPullSessionRepository;
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::gitignore_port::GitignorePort;
@@ -39,6 +40,7 @@ pub struct GitService {
     docs: Arc<dyn DocumentRepository>,
     gitignore: Arc<dyn GitignorePort>,
     workspace: Arc<dyn GitWorkspacePort>,
+    pull_sessions: Arc<dyn GitPullSessionRepository>,
 }
 
 impl GitService {
@@ -50,6 +52,7 @@ impl GitService {
         docs: Arc<dyn DocumentRepository>,
         gitignore: Arc<dyn GitignorePort>,
         workspace: Arc<dyn GitWorkspacePort>,
+        pull_sessions: Arc<dyn GitPullSessionRepository>,
     ) -> Self {
         Self {
             repo,
@@ -58,6 +61,7 @@ impl GitService {
             docs,
             gitignore,
             workspace,
+            pull_sessions,
         }
     }
 
@@ -327,7 +331,7 @@ impl GitService {
             workspace: self.workspace.as_ref(),
             repo: self.repo.as_ref(),
         };
-        uc.execute(workspace_id, req).await.map_err(|err| {
+        let mut dto = uc.execute(workspace_id, req).await.map_err(|err| {
             let msg = err.to_string();
             if msg.contains("pending changes") {
                 ServiceError::BadRequest("workspace_has_pending_changes")
@@ -338,6 +342,126 @@ impl GitService {
             } else {
                 ServiceError::from(err)
             }
-        })
+        })?;
+
+        if let Some(conflicts) = dto.conflicts.take() {
+            dto.conflicts = Some(self.attach_conflict_documents(workspace_id, conflicts).await?);
+        }
+
+        Ok(dto)
+    }
+
+    async fn attach_conflict_documents(
+        &self,
+        workspace_id: Uuid,
+        conflicts: Vec<GitPullConflictItemDto>,
+    ) -> Result<Vec<GitPullConflictItemDto>, ServiceError> {
+        let mut out = Vec::with_capacity(conflicts.len());
+        let docs = self.docs.list_workspace_documents(workspace_id).await.map_err(ServiceError::from)?;
+
+        let normalize = |path: &str| path.trim_start_matches("./").trim_start_matches('/').to_string();
+
+        for mut conflict in conflicts {
+            if conflict.document_id.is_some() {
+                out.push(conflict);
+                continue;
+            }
+            let candidate = normalize(&conflict.path);
+
+            let mut matched = None;
+            for doc in docs.iter() {
+                let mut paths: Vec<String> = Vec::new();
+                if let Some(p) = doc.path.as_ref() {
+                    let norm = normalize(p);
+                    if !norm.is_empty() {
+                        paths.push(norm);
+                    }
+                }
+                let desired = normalize(&doc.desired_path);
+                if !desired.is_empty() {
+                    paths.push(desired);
+                }
+
+                if paths.iter().any(|p| candidate == *p || candidate.ends_with(&format!("/{p}")) || p.ends_with(&candidate)) {
+                    matched = Some(doc.id);
+                    break;
+                }
+            }
+
+            conflict.document_id = matched;
+            if let Some(doc_id) = matched {
+                if let Some(doc) = docs.iter().find(|d| d.id == doc_id) {
+                    conflict.path = doc.desired_path.clone();
+                }
+            }
+            out.push(conflict);
+        }
+
+        Ok(out)
+    }
+
+    pub async fn start_pull_session(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<GitPullResultDto, ServiceError> {
+        self
+            .pull_repository(workspace_id, GitPullRequestDto { resolutions: Vec::new() })
+            .await
+    }
+
+    pub async fn save_pull_session(&self, session: GitPullSessionDto) -> Result<(), ServiceError> {
+        self.pull_sessions.upsert(session).await.map_err(ServiceError::from)
+    }
+
+    pub async fn load_pull_session(
+        &self,
+        workspace_id: Uuid,
+        id: Uuid,
+    ) -> Result<Option<GitPullSessionDto>, ServiceError> {
+        self.pull_sessions.get(workspace_id, id).await.map_err(ServiceError::from)
+    }
+
+    pub async fn pull_session_is_stale(
+        &self,
+        workspace_id: Uuid,
+        session: &GitPullSessionDto,
+    ) -> Result<bool, ServiceError> {
+        let cfg = self
+            .repo
+            .load_user_git_cfg(workspace_id)
+            .await
+            .map_err(ServiceError::from)?;
+        let Some(cfg) = cfg else {
+            return Ok(true);
+        };
+
+        if let Some(saved_base) = session.base_commit.as_ref() {
+            if let Some(current_head) = self
+                .workspace
+                .head_commit(workspace_id)
+                .await
+                .map_err(ServiceError::from)?
+            {
+                // Only mark stale if the recorded base commit diverges from the latest committed head.
+                if saved_base != &current_head {
+                    return Ok(true);
+                }
+            }
+        }
+
+        if let Some(saved_remote) = session.remote_commit.as_ref() {
+            if let Some(current_remote) = self
+                .workspace
+                .remote_head(workspace_id, &cfg)
+                .await
+                .map_err(ServiceError::from)?
+            {
+                if saved_remote != &current_remote {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
     }
 }

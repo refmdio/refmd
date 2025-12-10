@@ -11,12 +11,17 @@ import {
   ignoreFolder as apiIgnoreFolder,
   initRepository as apiInitRepository,
   pullRepository as apiPullRepository,
+  startPullSession as apiStartPullSession,
+  getPullSession as apiGetPullSession,
+  resolvePullSession as apiResolvePullSession,
+  finalizePullSession as apiFinalizePullSession,
   syncNow as apiSyncNow,
 } from '@/shared/api'
 import type {
   GitChangesResponse,
   GitHistoryResponse,
   GitPullResponse,
+  GitPullSessionResponse,
   GitStatus,
   PullRepositoryData,
   TextDiffResult,
@@ -60,9 +65,13 @@ export {
   apiDeinitRepository as deinitRepository,
   apiInitRepository as initRepository,
   apiPullRepository as pullRepository,
+  apiStartPullSession as startPullSession,
+  apiGetPullSession as getPullSession,
+  apiResolvePullSession as resolvePullSession,
+  apiFinalizePullSession as finalizePullSession,
   apiSyncNow as syncNow,
   apiIgnoreDocument as ignoreDocument,
   apiIgnoreFolder as ignoreFolder,
 }
 
-export type { GitPullResponse, PullRepositoryData }
+export type { GitPullResponse, GitPullSessionResponse, PullRepositoryData }

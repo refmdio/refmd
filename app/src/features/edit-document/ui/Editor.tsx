@@ -56,6 +56,13 @@ export type MarkdownEditorProps = {
   documentId: string
   readOnly?: boolean
   extraRight?: React.ReactNode
+  conflictControls?: React.ReactNode
+  conflictHunkWidgets?: Array<{
+    id: string
+    line: number
+    choice?: 'ours' | 'theirs'
+    onChoose: (side: 'ours' | 'theirs') => void
+  }>
   conflictView?: {
     kind: 'text' | 'binary'
     original?: string
@@ -83,6 +90,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     documentId,
     readOnly = false,
     extraRight,
+    conflictControls,
+    conflictHunkWidgets,
     conflictView,
     renderPreview,
   } = props
@@ -565,6 +574,8 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         showVimStatusBar={isVimMode}
         uploadStatus={uploadStatus}
         renderPreview={renderPreview}
+        conflictControls={conflictControls}
+        conflictHunkWidgets={conflictHunkWidgets}
         conflictView={
           conflictView
             ? {

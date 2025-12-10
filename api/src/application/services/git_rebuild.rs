@@ -352,6 +352,39 @@ mod tests {
                 reason: None,
             })
         }
+
+        async fn head_commit(&self, _workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+
+        async fn remote_head(
+            &self,
+            _workspace_id: Uuid,
+            _cfg: &crate::application::ports::git_repository::UserGitCfg,
+        ) -> anyhow::Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+
+        async fn has_pending_changes(&self, _workspace_id: Uuid) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn drift_since_commit(
+            &self,
+            _workspace_id: Uuid,
+            _base_commit: &[u8],
+        ) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        fn build_synthetic_commit(
+            &self,
+            _workspace_id: Uuid,
+            _repo: &git2::Repository,
+            _remote_oid: git2::Oid,
+        ) -> anyhow::Result<git2::Oid> {
+            anyhow::bail!("not supported")
+        }
     }
 
     struct RecordingJobQueue {

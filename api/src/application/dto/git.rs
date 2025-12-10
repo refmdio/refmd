@@ -92,7 +92,7 @@ pub struct GitignoreUpdateDto {
     pub patterns: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GitPullResolutionDto {
     pub path: String,
     /// one of: ours, theirs, custom_text
@@ -105,13 +105,14 @@ pub struct GitPullRequestDto {
     pub resolutions: Vec<GitPullResolutionDto>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GitPullConflictItemDto {
     pub path: String,
     pub is_binary: bool,
     pub ours: Option<String>,
     pub theirs: Option<String>,
     pub base: Option<String>,
+    pub document_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,4 +122,17 @@ pub struct GitPullResultDto {
     pub files_changed: u32,
     pub commit_hash: Option<String>,
     pub conflicts: Option<Vec<GitPullConflictItemDto>>,
+    pub base_commit: Option<Vec<u8>>,
+    pub remote_commit: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GitPullSessionDto {
+    pub id: uuid::Uuid,
+    pub workspace_id: uuid::Uuid,
+    pub status: String,
+    pub conflicts: Vec<GitPullConflictItemDto>,
+    pub resolutions: Vec<GitPullResolutionDto>,
+    pub base_commit: Option<Vec<u8>>,
+    pub remote_commit: Option<Vec<u8>>,
 }

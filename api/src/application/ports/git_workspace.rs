@@ -38,6 +38,26 @@ pub trait GitWorkspacePort: Send + Sync {
         req: &GitPullRequestDto,
         cfg: &UserGitCfg,
     ) -> anyhow::Result<GitPullResultDto>;
+    async fn head_commit(&self, workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>>;
+    async fn remote_head(
+        &self,
+        workspace_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<Option<Vec<u8>>>;
+    async fn has_pending_changes(&self, workspace_id: Uuid) -> anyhow::Result<bool>;
+    async fn drift_since_commit(
+        &self,
+        workspace_id: Uuid,
+        base_commit: &[u8],
+    ) -> anyhow::Result<bool>;
+
+    /// Build a synthetic commit representing current workspace state (used for merges with dirty workspaces).
+    fn build_synthetic_commit(
+        &self,
+        workspace_id: Uuid,
+        repo: &git2::Repository,
+        remote_oid: git2::Oid,
+    ) -> anyhow::Result<git2::Oid>;
 
     async fn check_remote(
         &self,

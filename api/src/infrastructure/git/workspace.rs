@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{self, ErrorKind, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
@@ -1989,6 +1989,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             .map(|m| m.file_hash_index.clone())
             .unwrap_or_default();
         let previous_index = base_index.clone();
+        let base_commit = latest_meta.as_ref().map(|m| m.commit_id.clone());
 
         let temp_dir = TempDirBuilder::new()
             .prefix("git-pull-")
@@ -2015,10 +2016,13 @@ impl GitWorkspacePort for GitWorkspaceService {
                     files_changed: 0,
                     commit_hash: None,
                     conflicts: None,
+                    base_commit: base_commit.clone(),
+                    remote_commit: None,
                 });
             };
             head
         };
+        let remote_commit = Some(remote_oid.as_bytes().to_vec());
 
         let local_oid = latest_meta
             .as_ref()
@@ -2034,6 +2038,8 @@ impl GitWorkspacePort for GitWorkspaceService {
                 drift_detected = true;
             }
         }
+
+        // Do not bail on drift: we preserve workspace edits by synthesizing an "ours" commit below.
         if !drift_detected {
             for path in base_index.keys() {
                 if !current_index.contains_key(path) {
@@ -2137,6 +2143,7 @@ impl GitWorkspacePort for GitWorkspaceService {
                 ours,
                 theirs,
                 base,
+                document_id: None,
             });
         }
         // If commit IDs differ but no file-level diff was detected (should be rare),
@@ -2150,6 +2157,7 @@ impl GitWorkspacePort for GitWorkspaceService {
                         ours: None,
                         theirs: None,
                         base: None,
+                        document_id: None,
                     });
                 }
             } else {
@@ -2160,55 +2168,58 @@ impl GitWorkspacePort for GitWorkspaceService {
                     ours: None,
                     theirs: None,
                     base: None,
+                    document_id: None,
                 });
             }
         }
         let remote_changes = !remote_conflicts.is_empty();
+        let requires_resolution = remote_changes && drift_detected;
 
-        // If remote has changes and no resolutions are provided, return conflicts and do not apply.
-        if remote_changes && req.resolutions.is_empty() {
+        // If remote has changes conflicting with local drift and no resolutions are provided, ask client to resolve.
+        if requires_resolution && req.resolutions.is_empty() {
             return Ok(GitPullResultDto {
                 success: false,
                 message: "conflicts detected".to_string(),
                 files_changed: 0,
                 commit_hash: None,
                 conflicts: Some(remote_conflicts),
+                base_commit: base_commit.clone(),
+                remote_commit: remote_commit.clone(),
             });
         }
 
-        // If local state drifted and remote has changes, do not apply; surface conflicts only.
-        if drift_detected && remote_changes {
-            return Ok(GitPullResultDto {
-                success: false,
-                message: "conflicts detected".to_string(),
-                files_changed: 0,
-                commit_hash: None,
-                conflicts: Some(remote_conflicts),
-            });
-        }
+        // Allow pull even when dirty changes exist; the current workspace state is treated as "ours".
+        // Validation for concurrent edits is handled later by conflict resolution.
         // If remote contains local, treat as fast-forward.
         // If remote contains local and remote has changes, return conflicts (no auto-apply).
         if let Some(local_oid_val) = local_oid {
-            if repo.graph_descendant_of(remote_oid, local_oid_val)? && remote_changes {
+            if repo.graph_descendant_of(remote_oid, local_oid_val)?
+                && requires_resolution
+                && req.resolutions.is_empty()
+            {
                 return Ok(GitPullResultDto {
                     success: false,
                     message: "conflicts detected".to_string(),
                     files_changed: 0,
                     commit_hash: None,
                     conflicts: Some(remote_conflicts),
+                    base_commit: base_commit.clone(),
+                    remote_commit: remote_commit.clone(),
                 });
             }
         }
 
         // Diverged: merge local into remote (linear, parent = remote)
-        let Some(local_oid_val) = local_oid else {
+        let Some(_local_oid_val) = local_oid else {
             anyhow::bail!("no local commit to merge");
         };
 
         let (meta, pack_bytes, merged_snapshots, commit_hex) = {
-            let local_commit = repo.find_commit(local_oid_val)?;
-            let remote_commit = repo.find_commit(remote_oid)?;
-            let index = repo.merge_commits(&local_commit, &remote_commit, None)?;
+            // Build a synthetic "ours" commit from the current workspace state so dirty edits are preserved.
+            let synthetic_ours = self.build_synthetic_commit(workspace_id, &repo, remote_oid)?;
+            let ours_commit = repo.find_commit(synthetic_ours)?;
+            let remote_commit_obj = repo.find_commit(remote_oid)?;
+            let index = repo.merge_commits(&ours_commit, &remote_commit_obj, None)?;
 
             let conflict_items = collect_conflicts(&repo, &index)?;
             if !conflict_items.is_empty() && req.resolutions.is_empty() {
@@ -2218,6 +2229,8 @@ impl GitWorkspacePort for GitWorkspaceService {
                     files_changed: 0,
                     commit_hash: None,
                     conflicts: Some(conflict_items),
+                    base_commit: base_commit.clone(),
+                    remote_commit: remote_commit.clone(),
                 });
             }
 
@@ -2282,21 +2295,31 @@ impl GitWorkspacePort for GitWorkspaceService {
                 );
             }
 
-            for (path, ours_bytes, theirs_bytes, _base) in conflict_entries {
-                let Some(resolution) = resolution_map.get(&path) else {
-                    return Ok(GitPullResultDto {
-                        success: false,
-                        message: "conflicts detected".to_string(),
-                        files_changed: 0,
-                        commit_hash: None,
-                        conflicts: Some(collect_conflicts(&repo, &index)?),
+            let mut unresolved: Vec<GitPullConflictItemDto> = Vec::new();
+
+            for (path, ours_bytes, theirs_bytes, base_bytes) in conflict_entries {
+                let resolution = resolution_map.get(&path);
+                if resolution.is_none() {
+                    let (ours_txt, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
+                    let (theirs_txt, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
+                    let (base_txt, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
+                    unresolved.push(GitPullConflictItemDto {
+                        path: path.clone(),
+                        is_binary: ours_bin || theirs_bin || base_bin,
+                        ours: ours_txt,
+                        theirs: theirs_txt,
+                        base: base_txt,
+                        document_id: None,
                     });
-                };
-                let selected_bytes = match resolution.choice.as_str() {
+                    continue;
+                }
+
+                let res = *resolution.unwrap();
+                let selected_bytes = match res.choice.as_str() {
                     "ours" => ours_bytes.clone(),
                     "theirs" => theirs_bytes.clone(),
                     "custom_text" => {
-                        Some(resolution.content.clone().unwrap_or_default().into_bytes())
+                        Some(res.content.clone().unwrap_or_default().into_bytes())
                     }
                     other => anyhow::bail!("unsupported resolution choice {other}"),
                 }
@@ -2311,6 +2334,18 @@ impl GitWorkspacePort for GitWorkspaceService {
                         is_text,
                     },
                 );
+            }
+
+            if !unresolved.is_empty() {
+                return Ok(GitPullResultDto {
+                    success: false,
+                    message: "conflicts detected".to_string(),
+                    files_changed: 0,
+                    commit_hash: None,
+                    conflicts: Some(unresolved),
+                    base_commit: base_commit.clone(),
+                    remote_commit: remote_commit.clone(),
+                });
             }
 
             // Build tree from merged snapshots without async work
@@ -2333,7 +2368,7 @@ impl GitWorkspacePort for GitWorkspaceService {
                 &sig,
                 "Merge remote changes",
                 &tree,
-                &[&remote_commit],
+                &[&remote_commit_obj],
             )?;
 
             let mut file_hash_index: HashMap<String, String> = HashMap::new();
@@ -2436,7 +2471,108 @@ impl GitWorkspacePort for GitWorkspaceService {
             files_changed,
             commit_hash: Some(commit_hex),
             conflicts: None,
+            base_commit,
+            remote_commit,
         })
+    }
+
+    async fn head_commit(&self, workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self
+            .latest_commit_meta(workspace_id)
+            .await?
+            .map(|m| m.commit_id))
+    }
+
+    async fn remote_head(
+        &self,
+        workspace_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let state = self.load_repository_state(workspace_id).await?;
+        let Some((initialized, branch_default)) = state else {
+            anyhow::bail!("repository not initialized");
+        };
+        if !initialized {
+            anyhow::bail!("repository not initialized");
+        }
+        if cfg.repository_url.is_empty() {
+            anyhow::bail!("remote not configured");
+        }
+        let branch = if cfg.branch_name.is_empty() {
+            branch_default
+        } else {
+            cfg.branch_name.clone()
+        };
+        let temp_dir = TempDirBuilder::new()
+            .prefix("git-remote-head-")
+            .tempdir()
+            .map_err(|e| anyhow!(e))?;
+        let repo = Repository::init_bare(temp_dir.path())?;
+        let head = fetch_remote_head(&repo, cfg, &branch)?;
+        Ok(head.map(|oid| oid.as_bytes().to_vec()))
+    }
+
+    async fn has_pending_changes(&self, workspace_id: Uuid) -> anyhow::Result<bool> {
+        let dirty_rows = self.fetch_dirty(workspace_id).await?;
+        Ok(!dirty_rows.is_empty())
+    }
+
+    // Build a synthetic commit that represents the current workspace state, so dirty edits participate in merge.
+    fn build_synthetic_commit(
+        &self,
+        workspace_id: Uuid,
+        repo: &Repository,
+        remote_oid: git2::Oid,
+    ) -> anyhow::Result<git2::Oid> {
+        // Collect current workspace state into blobs and a tree.
+        let handle = tokio::runtime::Handle::current();
+        let current_state = handle.block_on(self.collect_current_state(workspace_id))?;
+
+        let mut tree_builder = repo.treebuilder(None)?;
+        for (path, snapshot) in current_state.iter() {
+            let bytes = handle.block_on(self.snapshot_bytes(snapshot))?;
+            let blob_oid = repo.blob(&bytes)?;
+            let mode = 0o100644;
+            tree_builder.insert(Path::new(path), blob_oid, mode)?;
+        }
+        let tree_oid = tree_builder.write()?;
+        let tree = repo.find_tree(tree_oid)?;
+
+        // Create a synthetic commit with remote as parent to anchor the merge base.
+        let sig = repo.signature()?;
+        let commit_oid = repo.commit(
+            Some("refs/heads/synthetic-workspace"),
+            &sig,
+            &sig,
+            "workspace-state",
+            &tree,
+            &[&repo.find_commit(remote_oid)?],
+        )?;
+        Ok(commit_oid)
+    }
+
+    async fn drift_since_commit(
+        &self,
+        workspace_id: Uuid,
+        base_commit: &[u8],
+    ) -> anyhow::Result<bool> {
+        let Some(meta) = self.commit_meta_by_id(workspace_id, base_commit).await? else {
+            return Ok(true);
+        };
+        let base_index = meta.file_hash_index;
+        let current_state = self.collect_current_state(workspace_id).await?;
+        if base_index.len() != current_state.len() {
+            return Ok(true);
+        }
+        for (path, snapshot) in current_state.into_iter() {
+            let Some(base_hash) = base_index.get(&path) else {
+                return Ok(true);
+            };
+            if base_hash != &snapshot.hash {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     async fn check_remote(
@@ -2781,6 +2917,7 @@ fn collect_conflicts(
             ours,
             theirs,
             base,
+            document_id: None,
         });
     }
     Ok(out)

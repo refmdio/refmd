@@ -148,6 +148,10 @@ const SESSION_CLEANUP_BATCH_SIZE: i64 = 500;
             api::presentation::http::git::get_working_diff,
             api::presentation::http::git::get_commit_diff,
             api::presentation::http::git::sync_now,
+            api::presentation::http::git::start_pull_session,
+            api::presentation::http::git::get_pull_session,
+            api::presentation::http::git::resolve_pull_session,
+            api::presentation::http::git::finalize_pull_session,
             api::presentation::http::git::init_repository,
             api::presentation::http::git::deinit_repository,
             api::presentation::http::git::ignore_document,
@@ -556,6 +560,11 @@ async fn main() -> anyhow::Result<()> {
             cfg.encryption_key.clone(),
         ),
     );
+    let git_pull_sessions = Arc::new(
+        api::infrastructure::db::repositories::git_pull_session_repository_sqlx::GitPullSessionRepositorySqlx::new(
+            pool.clone(),
+        ),
+    );
     let auto_archive_interval = Duration::from_secs(cfg.snapshot_archive_interval_secs);
     let mut local_hub: Option<api::infrastructure::realtime::Hub> = None;
     let (realtime_engine, snapshot_service_arc): (
@@ -707,6 +716,7 @@ async fn main() -> anyhow::Result<()> {
         document_repo.clone(),
         gitignore_port.clone(),
         git_workspace.clone(),
+        git_pull_sessions.clone(),
     ));
     if cfg.git_rebuild_enabled {
         let rebuild_service = Arc::new(GitRebuildService::new(

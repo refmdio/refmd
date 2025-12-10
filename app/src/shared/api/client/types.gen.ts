@@ -247,6 +247,7 @@ export type GitHistoryResponse = {
 
 export type GitPullConflictItem = {
     base?: (string) | null;
+    document_id?: (string) | null;
     is_binary: boolean;
     ours?: (string) | null;
     path: string;
@@ -267,8 +268,17 @@ export type GitPullResponse = {
     commit_hash?: (string) | null;
     conflicts?: Array<GitPullConflictItem> | null;
     files_changed: number;
+    git_status?: ((GitStatus) | null);
     message: string;
     success: boolean;
+};
+
+export type GitPullSessionResponse = {
+    conflicts: Array<GitPullConflictItem>;
+    message?: (string) | null;
+    resolutions: Array<GitPullResolution>;
+    session_id: string;
+    status: string;
 };
 
 export type GitRemoteCheckResponse = {
@@ -1134,6 +1144,27 @@ export type PullRepositoryData = {
 };
 
 export type PullRepositoryResponse = (GitPullResponse);
+
+export type GetPullSessionData = {
+    id: string;
+};
+
+export type GetPullSessionResponse = (GitPullSessionResponse);
+
+export type FinalizePullSessionData = {
+    id: string;
+};
+
+export type FinalizePullSessionResponse = (GitPullResponse);
+
+export type ResolvePullSessionData = {
+    id: string;
+    requestBody: GitPullRequest;
+};
+
+export type ResolvePullSessionResponse = (GitPullSessionResponse);
+
+export type StartPullSessionResponse = (GitPullSessionResponse);
 
 export type GetStatusResponse = (GitStatus);
 

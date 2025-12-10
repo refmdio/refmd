@@ -1,7 +1,7 @@
+import { DiffEditor } from '@monaco-editor/react'
 import { AlertTriangle, Check, Loader2, SlidersHorizontal, X } from 'lucide-react'
 import type * as monacoNs from 'monaco-editor'
-import { DiffEditor } from '@monaco-editor/react'
-import { useCallback, useMemo, type CSSProperties, type ReactNode, type MutableRefObject } from 'react'
+import { useCallback, useMemo, useEffect, useRef, useState, type CSSProperties, type ReactNode, type MutableRefObject } from 'react'
 
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -42,6 +42,13 @@ export type EditorLayoutProps = {
   renderPreview?: (props: PreviewPaneProps) => ReactNode
   editorOverlay?: ReactNode
   editorBanner?: ReactNode
+  conflictControls?: ReactNode
+  conflictHunkWidgets?: Array<{
+    id: string
+    line: number
+    choice?: 'ours' | 'theirs'
+    onChoose: (side: 'ours' | 'theirs') => void
+  }>
   conflictView?: {
     kind: 'text' | 'binary'
     original?: string
@@ -85,8 +92,148 @@ export function EditorLayout({
   renderPreview,
   editorOverlay,
   editorBanner,
+  conflictControls,
+  conflictHunkWidgets,
   conflictView,
 }: EditorLayoutProps) {
+  const diffEditorRef = useRef<monacoNs.editor.IStandaloneDiffEditor | null>(null)
+  const monacoRef = useRef<typeof import('monaco-editor') | null>(null)
+  const [diffReady, setDiffReady] = useState(false)
+  const overlayNodesRef = useRef<Record<string, HTMLDivElement>>({})
+  const overlayDisposablesRef = useRef<monacoNs.IDisposable[]>([])
+
+  useEffect(() => {
+    // cleanup helper
+    const cleanup = () => {
+      Object.values(overlayNodesRef.current).forEach((node) => node.remove())
+      overlayNodesRef.current = {}
+      overlayDisposablesRef.current.forEach((d) => d.dispose())
+      overlayDisposablesRef.current = []
+    }
+
+    const diff = diffEditorRef.current
+    const monacoInstance = monacoRef.current
+    if (!diff || !monacoInstance || !diffReady) {
+      cleanup()
+      return
+    }
+    const modified = diff.getModifiedEditor()
+    const model = modified?.getModel()
+    if (!modified || !model || !conflictHunkWidgets || conflictHunkWidgets.length === 0) {
+      cleanup()
+      return
+    }
+
+    const host =
+      modified.getDomNode()?.querySelector('.overflow-guard') ??
+      modified.getDomNode() ??
+      document.createElement('div')
+    if (!host) {
+      cleanup()
+      return
+    }
+    if (host instanceof HTMLElement) {
+      const style = host.style
+      if (!style.position || style.position === 'static') {
+        style.position = 'relative'
+      }
+    }
+
+    const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+    const palette = {
+      ours: {
+        bg: isDark ? 'rgba(127,29,29,0.30)' : '#fef2f2',
+        bgActive: isDark ? 'rgba(185,28,28,0.55)' : '#fee2e2',
+        color: isDark ? '#fecdd3' : '#b91c1c',
+      },
+      theirs: {
+        bg: isDark ? 'rgba(5,46,22,0.30)' : '#f0fdf4',
+        bgActive: isDark ? 'rgba(34,197,94,0.50)' : '#dcfce7',
+        color: isDark ? '#bbf7d0' : '#166534',
+      },
+    }
+
+    const createNode = (hunk: typeof conflictHunkWidgets[number]) => {
+      const node = document.createElement('div')
+      node.style.position = 'absolute'
+      node.style.display = 'inline-flex'
+      node.style.flexDirection = 'row'
+      node.style.alignItems = 'center'
+      node.style.gap = '8px'
+      node.style.padding = '2px 6px'
+      node.style.borderRadius = '10px'
+      node.style.background = 'transparent'
+      node.style.pointerEvents = 'auto'
+      node.style.whiteSpace = 'nowrap'
+      node.style.zIndex = '50'
+
+      const makeBtn = (label: string, side: 'ours' | 'theirs') => {
+        const btn = document.createElement('button')
+        btn.textContent = label
+        btn.style.fontSize = '11px'
+        btn.style.padding = '4px 10px'
+        btn.style.borderRadius = '8px'
+        btn.style.border = 'none'
+        btn.style.cursor = 'pointer'
+        btn.style.lineHeight = '1'
+        btn.style.fontWeight = hunk.choice === side ? '700' : '500'
+        btn.style.display = 'inline-flex'
+        btn.style.alignItems = 'center'
+        btn.style.justifyContent = 'center'
+        const colors = side === 'ours' ? palette.ours : palette.theirs
+        btn.style.background = hunk.choice === side ? colors.bgActive : colors.bg
+        btn.style.color = colors.color
+        btn.onmousedown = (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+        }
+        btn.onclick = (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          hunk.onChoose(side)
+        }
+        return btn
+      }
+
+      node.appendChild(makeBtn('Keep Mine', 'ours'))
+      node.appendChild(makeBtn('Take Remote', 'theirs'))
+      return node
+    }
+
+    conflictHunkWidgets.forEach((hunk) => {
+      const node = createNode(hunk)
+      overlayNodesRef.current[hunk.id] = node
+      host.appendChild(node)
+    })
+
+    const updatePositions = () => {
+      const layout = modified.getLayoutInfo()
+      const lineHeight = modified.getOption(monacoInstance.editor.EditorOption.lineHeight)
+      const rightInset =
+        (layout.minimap?.renderMinimap ? layout.minimap.minimapWidth : 0) +
+        layout.verticalScrollbarWidth +
+        layout.glyphMarginWidth +
+        12
+      conflictHunkWidgets.forEach((hunk) => {
+        const node = overlayNodesRef.current[hunk.id]
+        if (!node) return
+        const top = modified.getTopForLineNumber(Math.max(hunk.line, 1)) + lineHeight - 2
+        node.style.top = `${top}px`
+        node.style.right = `${rightInset}px`
+      })
+    }
+
+    updatePositions()
+
+    overlayDisposablesRef.current.push(
+      modified.onDidScrollChange(() => updatePositions()),
+      modified.onDidLayoutChange(() => updatePositions()),
+      modified.onDidChangeConfiguration(() => updatePositions()),
+    )
+
+    return cleanup
+  }, [conflictHunkWidgets, diffReady])
+
   const uploadStatusNode = (() => {
     if (uploadStatus.state === 'idle') return null
     let primary = ''
@@ -261,9 +408,13 @@ export function EditorLayout({
                         original={conflictView.original ?? ''}
                         modified={conflictView.modified ?? ''}
                         beforeMount={(monacoInstance) => {
+                          monacoRef.current = monacoInstance
                           ensureRefmdThemes(monacoInstance)
                         }}
                         onMount={(editor, monacoInstance) => {
+                          diffEditorRef.current = editor
+                          monacoRef.current = monacoInstance
+                          setDiffReady(true)
                           monacoInstance.editor.setTheme(conflictView.theme ?? monacoTheme)
                           const modified = editor.getModifiedEditor()
                           const original = editor.getOriginalEditor()
@@ -303,6 +454,7 @@ export function EditorLayout({
                         }}
                       />
                     </div>
+                    {conflictControls ? <div className="mt-3 px-1">{conflictControls}</div> : null}
                   </div>
                 ) : conflictView && conflictView.kind === 'binary' ? (
                   <div className="flex flex-1 items-center justify-center rounded-2xl border border-border/50 bg-muted/30 px-4 py-6 text-sm text-muted-foreground">

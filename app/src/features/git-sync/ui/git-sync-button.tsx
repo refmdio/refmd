@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { AlertCircle, CheckCircle, Eye, FileX, GitCommit, History, Loader2, RefreshCw, Settings } from 'lucide-react'
-import { useMemo, useState, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import type { GitPullConflictItem, GitPullResolution, GitPullSessionResponse } from '@/shared/api'
+import { ApiError } from '@/shared/api'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { overlayMenuClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -11,11 +13,10 @@ import { Button } from '@/shared/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/shared/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
-import { getStatus, getConfig, syncNow, initRepository, pullRepository } from '@/entities/git'
-import type { GitPullConflictItem, GitPullResolution } from '@/shared/api'
-import { ApiError } from '@/shared/api'
+import { getStatus, getConfig, syncNow, initRepository, startPullSession, resolvePullSession, finalizePullSession, getPullSession } from '@/entities/git'
 
-import { setConflicts as setGlobalConflicts, readConflicts } from '@/features/git-sync/lib/git-conflict-store'
+import { setConflicts as setGlobalConflicts, readConflicts, clearResolutions, setSessionId, readSessionId, clearSession, readResolutions } from '@/features/git-sync/lib/git-conflict-store'
+
 import GitChangesDialog from './git-changes-dialog'
 import GitHistoryDialog from './git-history-dialog'
 import GitPullDialog from './git-pull-dialog'
@@ -33,6 +34,18 @@ function useGitSyncController() {
   const [showPullDialog, setShowPullDialog] = useState(false)
   const [pullConflicts, setPullConflicts] = useState<GitPullConflictItem[]>(() => readConflicts())
   const [emptyConflictWarning, setEmptyConflictWarning] = useState(false)
+  const [polling, setPolling] = useState(false)
+  const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
+
+  useEffect(() => {
+    const handler = () => setSessionIdState(readSessionId())
+    window.addEventListener('storage', handler)
+    window.addEventListener('refmd:git-conflicts-updated', handler as any)
+    return () => {
+      window.removeEventListener('storage', handler)
+      window.removeEventListener('refmd:git-conflicts-updated', handler as any)
+    }
+  }, [])
 
   const extractConflicts = useCallback((value: unknown): GitPullConflictItem[] => {
     const fromArray = (arr: unknown): GitPullConflictItem[] => (Array.isArray(arr) ? (arr as GitPullConflictItem[]) : [])
@@ -54,6 +67,9 @@ function useGitSyncController() {
       }
       setPullConflicts(safeList)
       setGlobalConflicts(safeList)
+      if (safeList.length === 0) {
+        clearResolutions()
+      }
       if (safeList.length > 0) {
         setEmptyConflictWarning(false)
       }
@@ -112,51 +128,83 @@ function useGitSyncController() {
   })
 
   const pullMutation = useMutation({
-    mutationFn: (payload?: { resolutions?: GitPullResolution[] }) =>
-      pullRepository({ requestBody: { resolutions: payload?.resolutions ?? [] } }),
-    onSuccess: (res) => {
-      const extracted = extractConflicts(res)
-      const hasConflicts = extracted.length > 0
-      if (!res.success) {
-        updateConflicts(hasConflicts ? extracted : readConflicts())
-        setShowPullDialog(true)
-        if (!hasConflicts) {
-          setEmptyConflictWarning(true)
-          toast.error(res.message || 'Conflicts reported but list was empty.')
-        } else {
-          setEmptyConflictWarning(false)
-          toast.error(res.message || 'Pull reported conflicts')
-        }
+    mutationFn: async (payload?: { resolutions?: GitPullResolution[] }) => {
+      const sid = sessionId ?? readSessionId()
+      if (sid) {
+        const resolutions = payload?.resolutions ?? readResolutions()
+        const res = await resolvePullSession({ id: sid, requestBody: { resolutions } })
+        return { kind: 'resolve' as const, res }
+      }
+      const res = await startPullSession()
+      return { kind: 'start' as const, res }
+    },
+    onSuccess: (data) => {
+      const res = data.res as GitPullSessionResponse
+      if ((res as any)?.status === 'stale') {
+        clearSession()
+        clearResolutions()
+        setGlobalConflicts([])
+        setEmptyConflictWarning(true)
+        toast.error('Pull session expired. Please pull again.')
+        qc.invalidateQueries({ queryKey: ['git-status'] })
         return
       }
+      const conflicts = res.conflicts ?? []
+      const hasConflicts = conflicts.length > 0
+      setSessionId(res.session_id)
+      setSessionIdState(res.session_id)
       if (hasConflicts) {
-        updateConflicts(extracted)
+        clearResolutions()
+        updateConflicts(conflicts)
         setEmptyConflictWarning(false)
         setShowPullDialog(true)
         return
       }
+      // no conflicts
+      clearSession()
       updateConflicts([], { allowClear: true })
       setEmptyConflictWarning(false)
-      toast.success(res.message || 'Pull completed')
-      qc.invalidateQueries({ queryKey: ['git-status'] })
+      finalizePullSession({ id: res.session_id })
+        .catch(() => {
+          /* ignore finalize failure; user can retry */
+        })
+        .finally(() => {
+          toast.success('Pull completed')
+          qc.invalidateQueries({ queryKey: ['git-status'] })
+        })
     },
     onError: (e: any) => {
       const bodyConflicts = extractConflicts((e as any)?.body)
+      const statusField = (e as any)?.body?.status
+      const msg = (e as any)?.body?.message || ''
+      if (statusField === 'stale' || typeof msg === 'string' && msg.toLowerCase().includes('stale')) {
+        clearSession()
+        clearResolutions()
+        updateConflicts([], { allowClear: true })
+        setEmptyConflictWarning(true)
+        toast.error('Pull session expired. Please pull again.')
+        qc.invalidateQueries({ queryKey: ['git-status'] })
+        return
+      }
       if (e instanceof ApiError && e.status === 409 && bodyConflicts.length > 0) {
+        const sid = (e as any)?.body?.session_id || readSessionId()
+        setSessionId(sid)
+        setSessionIdState(sid)
+        clearResolutions()
         updateConflicts(bodyConflicts)
         setShowPullDialog(true)
         return
       }
       if (e instanceof ApiError && e.status === 409) {
-        // Fallback: open dialog and retry fetch inside to display conflicts
+        clearResolutions()
         updateConflicts(readConflicts())
         setEmptyConflictWarning(true)
         toast.error('Conflicts reported but server returned no list.')
         setShowPullDialog(true)
         return
       }
-      const msg = e?.body?.message || e?.message || `${e}`
-      toast.error(`Pull failed: ${msg}`)
+      const detail = e?.body?.message || e?.message || `${e}`
+      toast.error(`Pull failed: ${detail}`)
     },
   })
 
@@ -214,7 +262,35 @@ function useGitSyncController() {
     return <CheckCircle className="h-4 w-4 text-emerald-500" />
   }, [config, hasChanges, status, statusError, statusLoading, syncPending])
 
+  useEffect(() => {
+    const sid = sessionId ?? readSessionId()
+    if (!sid) return
+    setPolling(true)
+    const timer = window.setInterval(() => {
+      getPullSession({ id: sid })
+        .then((session) => {
+          if ((session as any)?.status === 'stale') {
+            clearSession()
+            clearResolutions()
+            setGlobalConflicts([])
+            setEmptyConflictWarning(true)
+            toast.error('Pull session expired. Please pull again.')
+            return
+          }
+          setSessionId(session.session_id)
+          updateConflicts(session.conflicts ?? [], { allowClear: true })
+        })
+        .catch(() => {})
+    }, 10000)
+    return () => {
+      window.clearInterval(timer)
+      setPolling(false)
+    }
+  }, [sessionId, updateConflicts])
+
   return {
+    sessionId,
+    polling,
     isMobile,
     syncPending,
     canSync,
@@ -242,6 +318,8 @@ function useGitSyncController() {
 export default function GitSyncButton({ className, compact = false }: Props) {
   const controller = useGitSyncController()
   const {
+    sessionId,
+    polling,
     isMobile,
     syncPending,
     canSync,
@@ -301,7 +379,9 @@ export default function GitSyncButton({ className, compact = false }: Props) {
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-background/70">{icon}</span>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-foreground">Git Sync</p>
-                  <p className="truncate text-xs text-muted-foreground/80">{statusText}</p>
+                  <p className="truncate text-xs text-muted-foreground/80">
+                    {polling ? 'Synchronizing conflicts…' : statusText}
+                  </p>
                 </div>
               </div>
           </div>
@@ -322,6 +402,7 @@ export default function GitSyncButton({ className, compact = false }: Props) {
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => {
+              clearResolutions()
               updateConflicts(readConflicts(), { allowClear: true })
               setShowPullDialog(true)
               pullMutation.mutate({ resolutions: [] })
@@ -378,6 +459,7 @@ export default function GitSyncButton({ className, compact = false }: Props) {
         conflicts={pullConflicts}
         isLoading={pullMutation.isPending}
         emptyWarning={emptyConflictWarning}
+        sessionId={sessionId}
         onResolve={(resolutions) => pullMutation.mutate({ resolutions })}
         onRetry={() => pullMutation.mutate({ resolutions: [] })}
       />

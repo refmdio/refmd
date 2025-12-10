@@ -1,10 +1,9 @@
-import React from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
-
-import { Button } from '@/shared/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
+import React from 'react'
 
 import type { GitPullConflictItem, GitPullResolution } from '@/shared/api'
+import { Button } from '@/shared/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
 
 type Props = {
   open: boolean
@@ -14,9 +13,10 @@ type Props = {
   onResolve: (resolutions: GitPullResolution[]) => void
   onRetry?: () => void
   emptyWarning?: boolean
+  sessionId?: string | null
 }
 
-export default function GitPullDialog({ open, onOpenChange, conflicts, isLoading, onResolve, onRetry, emptyWarning }: Props) {
+export default function GitPullDialog({ open, onOpenChange, conflicts, isLoading, onResolve, onRetry, emptyWarning, sessionId }: Props) {
   const [choices, setChoices] = React.useState<Record<string, GitPullResolution['choice']>>({})
 
   React.useEffect(() => {
@@ -53,6 +53,11 @@ export default function GitPullDialog({ open, onOpenChange, conflicts, isLoading
           <DialogDescription>
             Remote is ahead. Choose whether to keep your version or the remote version for each file, then apply.
           </DialogDescription>
+          {sessionId ? (
+            <div className="mt-2 text-xs text-muted-foreground">
+              Session ID: <span className="font-mono text-foreground">{sessionId}</span>
+            </div>
+          ) : null}
         </DialogHeader>
 
         <div className="max-h-[50vh] space-y-3 overflow-auto pr-1">

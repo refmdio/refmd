@@ -13,6 +13,7 @@ use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
     GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitPullRequestDto,
     GitPullResolutionDto, GitStatusDto, GitSyncRequestDto, GitignoreUpdateDto, UpsertGitConfigInput,
+    GitPullSessionDto,
 };
 use crate::application::services::errors::ServiceError;
 use crate::domain::workspaces::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
@@ -20,6 +21,7 @@ use crate::presentation::context::AppContext;
 use crate::presentation::http::workspace_scope;
 use tracing::error;
 use uuid::Uuid;
+
 
 // Uses AppContext as router state
 
@@ -38,6 +40,10 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/git/diff/commits/:from/:to", get(get_commit_diff))
         .route("/git/sync", post(sync_now))
         .route("/git/pull", post(pull_repository))
+        .route("/git/pull/start", post(start_pull_session))
+        .route("/git/pull/session/:id", get(get_pull_session))
+        .route("/git/pull/session/:id/resolve", post(resolve_pull_session))
+        .route("/git/pull/session/:id/finalize", post(finalize_pull_session))
         .route("/git/init", post(init_repository))
         .route("/git/deinit", post(deinit_repository))
         .route("/git/ignore/doc/:id", post(ignore_document))
@@ -152,7 +158,7 @@ pub struct UpdateGitConfigRequest {
     pub auto_sync: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct GitPullResolution {
     pub path: String,
     pub choice: String,
@@ -171,6 +177,7 @@ pub struct GitPullConflictItem {
     pub ours: Option<String>,
     pub theirs: Option<String>,
     pub base: Option<String>,
+    pub document_id: Option<uuid::Uuid>,
 }
 
 impl From<crate::application::dto::git::GitPullConflictItemDto> for GitPullConflictItem {
@@ -181,6 +188,7 @@ impl From<crate::application::dto::git::GitPullConflictItemDto> for GitPullConfl
             ours: value.ours,
             theirs: value.theirs,
             base: value.base,
+            document_id: value.document_id,
         }
     }
 }
@@ -192,6 +200,40 @@ pub struct GitPullResponse {
     pub files_changed: i32,
     pub commit_hash: Option<String>,
     pub conflicts: Option<Vec<GitPullConflictItem>>,
+    pub git_status: Option<GitStatus>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct GitPullSessionResponse {
+    pub session_id: uuid::Uuid,
+    pub status: String,
+    pub conflicts: Vec<GitPullConflictItem>,
+    pub resolutions: Vec<GitPullResolution>,
+    pub message: Option<String>,
+}
+
+impl From<GitPullSessionDto> for GitPullSessionResponse {
+    fn from(value: GitPullSessionDto) -> Self {
+        Self {
+            session_id: value.id,
+            status: value.status,
+            conflicts: value
+                .conflicts
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            resolutions: value
+                .resolutions
+                .into_iter()
+                .map(|r| GitPullResolution {
+                    path: r.path,
+                    choice: r.choice,
+                    content: r.content,
+                })
+                .collect(),
+            message: None,
+        }
+    }
 }
 
 #[utoipa::path(get, path = "/api/git/config", tag = "Git", responses((status = 200, body = Option<GitConfigResponse>)))]
@@ -325,7 +367,7 @@ pub async fn delete_config(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct GitStatus {
     pub repository_initialized: bool,
     pub has_remote: bool,
@@ -646,6 +688,7 @@ pub async fn pull_repository(
                 files_changed: 0,
                 commit_hash: None,
                 conflicts: None,
+                git_status: None,
             };
             (status, body)
         });
@@ -667,8 +710,395 @@ pub async fn pull_repository(
             files_changed: dto.files_changed as i32,
             commit_hash: dto.commit_hash,
             conflicts: if has_conflicts { Some(conflicts) } else { None },
+            git_status: None,
         }),
     ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/git/pull/start",
+    tag = "Git",
+    responses(
+        (status = 200, body = GitPullSessionResponse),
+        (status = 409, body = GitPullSessionResponse, description = "Conflicts detected")
+    )
+)]
+pub async fn start_pull_session(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<GitPullSessionResponse>), StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = validate_bearer(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+
+    let service = ctx.git_service();
+    let dto = match service.start_pull_session(workspace_id).await {
+        Ok(v) => v,
+        Err(err) => {
+            let message = match &err {
+                ServiceError::BadRequest("workspace_has_pending_changes") =>
+                    "Workspace has pending changes. Commit, sync, or discard them before pulling.".to_string(),
+                other => other.to_string(),
+            };
+            let status = map_git_error(err);
+            return Ok((
+                status,
+                Json(GitPullSessionResponse {
+                    session_id: Uuid::nil(),
+                    status: "error".to_string(),
+                    conflicts: Vec::new(),
+                    resolutions: Vec::new(),
+                    message: Some(message),
+                }),
+            ));
+        }
+    };
+    let conflicts = dto
+        .conflicts
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<GitPullConflictItem>>();
+    let has_conflicts = !conflicts.is_empty();
+
+    let session_id = Uuid::new_v4();
+    let _ = service
+        .save_pull_session(GitPullSessionDto {
+            id: session_id,
+            workspace_id,
+            status: if has_conflicts { "pending".to_string() } else { "merged".to_string() },
+            conflicts: dto.conflicts.unwrap_or_default(),
+            resolutions: Vec::new(),
+            base_commit: dto.base_commit.clone(),
+            remote_commit: dto.remote_commit.clone(),
+        })
+        .await;
+    let status = if has_conflicts { StatusCode::CONFLICT } else { StatusCode::OK };
+    Ok((
+        status,
+        Json(GitPullSessionResponse {
+            session_id,
+            status: if has_conflicts { "pending".to_string() } else { "merged".to_string() },
+            conflicts,
+            resolutions: Vec::new(),
+            message: None,
+        }),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/git/pull/session/{id}",
+    tag = "Git",
+    responses((status = 200, body = GitPullSessionResponse))
+)]
+pub async fn get_pull_session(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> Result<Json<GitPullSessionResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = validate_bearer(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+
+    let service = ctx.git_service();
+    let mut state = service
+        .load_pull_session(workspace_id, id)
+        .await
+        .map_err(|err| {
+            let status = map_git_error(err);
+            status
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if service
+        .pull_session_is_stale(workspace_id, &state)
+        .await
+        .map_err(map_git_error)?
+    {
+        state.status = "stale".to_string();
+        let _ = service.save_pull_session(state.clone()).await;
+    }
+    Ok(Json(GitPullSessionResponse {
+        session_id: state.id,
+        status: state.status,
+        conflicts: state.conflicts.into_iter().map(Into::into).collect(),
+        resolutions: state
+            .resolutions
+            .into_iter()
+            .map(|r| GitPullResolution {
+                path: r.path,
+                choice: r.choice,
+                content: r.content,
+            })
+            .collect(),
+        message: None,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/git/pull/session/{id}/resolve",
+    tag = "Git",
+    request_body = GitPullRequest,
+    responses(
+        (status = 200, body = GitPullSessionResponse),
+        (status = 409, body = GitPullSessionResponse)
+    )
+)]
+pub async fn resolve_pull_session(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+    Json(req): Json<GitPullRequest>,
+) -> Result<(StatusCode, Json<GitPullSessionResponse>), StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = validate_bearer(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+
+    let service = ctx.git_service();
+    let existing_session = service
+        .load_pull_session(workspace_id, id)
+        .await
+        .map_err(|err| {
+            let status = map_git_error(err);
+            status
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if service
+        .pull_session_is_stale(workspace_id, &existing_session)
+        .await
+        .map_err(map_git_error)?
+    {
+        let mut stale = existing_session.clone();
+        stale.status = "stale".to_string();
+        let _ = service.save_pull_session(stale.clone()).await;
+        return Ok((
+            StatusCode::CONFLICT,
+            Json(GitPullSessionResponse {
+                session_id: id,
+                status: "stale".to_string(),
+                conflicts: stale.conflicts.into_iter().map(Into::into).collect(),
+                resolutions: stale
+                    .resolutions
+                    .into_iter()
+                    .map(|r| GitPullResolution {
+                        path: r.path,
+                        choice: r.choice,
+                        content: r.content,
+                    })
+                    .collect(),
+                message: Some("Pull session is stale. Please start a new pull.".to_string()),
+            }),
+        ));
+    }
+
+    let resolutions = req.resolutions.unwrap_or_default();
+    let dto = match service
+        .pull_repository(
+            workspace_id,
+            GitPullRequestDto {
+                resolutions: resolutions
+                    .iter()
+                    .cloned()
+                    .map(|r| GitPullResolutionDto {
+                        path: r.path,
+                        choice: r.choice,
+                        content: r.content,
+                    })
+                    .collect(),
+            },
+        )
+        .await
+    {
+        Ok(v) => v,
+        Err(err) => {
+            let message = match &err {
+                ServiceError::BadRequest("workspace_has_pending_changes") =>
+                    "Workspace has pending changes. Commit, sync, or discard them before pulling.".to_string(),
+                other => other.to_string(),
+            };
+            let status = map_git_error(err);
+            return Ok((
+                status,
+                Json(GitPullSessionResponse {
+                    session_id: id,
+                    status: "error".to_string(),
+                    conflicts: existing_session
+                        .conflicts
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    resolutions: existing_session
+                        .resolutions
+                        .into_iter()
+                        .map(|r| GitPullResolution {
+                            path: r.path,
+                            choice: r.choice,
+                            content: r.content,
+                        })
+                        .collect(),
+                    message: Some(message),
+                }),
+            ));
+        }
+    };
+
+    let mut status_code = StatusCode::OK;
+
+    let conflicts: Vec<GitPullConflictItem> = dto
+        .conflicts
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    if !conflicts.is_empty() {
+        status_code = StatusCode::CONFLICT;
+    }
+
+    let _ = service
+        .save_pull_session(GitPullSessionDto {
+            id,
+            workspace_id,
+            status: if conflicts.is_empty() { "merged".to_string() } else { "resolving".to_string() },
+            conflicts: dto.conflicts.unwrap_or_default(),
+            resolutions: resolutions
+                .iter()
+                .cloned()
+                .map(|r| GitPullResolutionDto {
+                    path: r.path,
+                    choice: r.choice,
+                    content: r.content,
+                })
+                .collect(),
+            base_commit: dto.base_commit.clone(),
+            remote_commit: dto.remote_commit.clone(),
+        })
+        .await;
+
+    Ok((
+        status_code,
+        Json(GitPullSessionResponse {
+            session_id: id,
+            status: if conflicts.is_empty() { "merged".to_string() } else { "resolving".to_string() },
+            conflicts,
+            resolutions,
+            message: None,
+        }),
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/git/pull/session/{id}/finalize",
+    tag = "Git",
+    responses((status = 200, body = GitPullResponse))
+)]
+pub async fn finalize_pull_session(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> Result<Json<GitPullResponse>, StatusCode> {
+    let bearer_token = bearer.0.clone();
+    let sub = validate_bearer(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
+        .await?;
+
+    let service = ctx.git_service();
+    let state = service
+        .load_pull_session(workspace_id, id)
+        .await
+        .map_err(|err| map_git_error(err))?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if service
+        .pull_session_is_stale(workspace_id, &state)
+        .await
+        .map_err(map_git_error)?
+    {
+        let mut stale = state.clone();
+        stale.status = "stale".to_string();
+        let _ = service.save_pull_session(stale.clone()).await;
+        return Ok(Json(GitPullResponse {
+            success: false,
+            message: "pull session stale".to_string(),
+            files_changed: 0,
+            commit_hash: None,
+            conflicts: Some(stale.conflicts.into_iter().map(Into::into).collect()),
+            git_status: None,
+        }));
+    }
+    if !state.conflicts.is_empty() {
+        return Ok(Json(GitPullResponse {
+            success: false,
+            message: "conflicts remaining".to_string(),
+            files_changed: 0,
+            commit_hash: None,
+            conflicts: Some(state.conflicts.into_iter().map(Into::into).collect()),
+            git_status: None,
+        }));
+    }
+    let git_status = service.get_status(workspace_id).await.map_err(map_git_error)?;
+    let _ = service
+        .save_pull_session(GitPullSessionDto {
+            id,
+            workspace_id,
+            status: "merged".to_string(),
+            conflicts: Vec::new(),
+            resolutions: state.resolutions.clone(),
+            base_commit: state.base_commit.clone(),
+            remote_commit: state.remote_commit.clone(),
+        })
+        .await;
+
+    Ok(Json(GitPullResponse {
+        success: true,
+        message: "merge completed".to_string(),
+        files_changed: 0,
+        commit_hash: None,
+        conflicts: None,
+        git_status: Some(git_status.into()),
+    }))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
