@@ -36,6 +36,7 @@ export type EditorLayoutProps = {
   documentId: string
   onToggleTask?: (lineNumber: number, checked: boolean) => void
   content: string
+  previewContentOverride?: string
   vimStatusBarRef: MutableRefObject<HTMLDivElement | null>
   showVimStatusBar: boolean
   uploadStatus: UploadStatus
@@ -43,6 +44,7 @@ export type EditorLayoutProps = {
   editorOverlay?: ReactNode
   editorBanner?: ReactNode
   conflictControls?: ReactNode
+  conflictBadgeText?: string
   conflictHunkWidgets?: Array<{
     id: string
     line: number
@@ -86,6 +88,7 @@ export function EditorLayout({
   documentId,
   onToggleTask,
   content,
+  previewContentOverride,
   vimStatusBarRef,
   showVimStatusBar,
   uploadStatus,
@@ -93,6 +96,7 @@ export function EditorLayout({
   editorOverlay,
   editorBanner,
   conflictControls,
+  conflictBadgeText,
   conflictHunkWidgets,
   conflictView,
 }: EditorLayoutProps) {
@@ -423,7 +427,8 @@ export function EditorLayout({
               </div>
               <div className="flex flex-1 min-h-0">
                 {conflictView && conflictView.kind === 'text' ? (
-                  <div className="conflict-diff flex-1 overflow-hidden">
+                  <div className="conflict-diff relative flex-1 overflow-hidden">
+                    {conflictControls ? <div className="mb-3 px-1">{conflictControls}</div> : null}
                     <div className="h-full">
                       <DiffEditor
                         original={conflictView.original ?? ''}
@@ -475,7 +480,14 @@ export function EditorLayout({
                         }}
                       />
                     </div>
-                    {conflictControls ? <div className="mt-3 px-1">{conflictControls}</div> : null}
+                    {conflictHunkWidgets && conflictHunkWidgets.length ? (
+                      <div className="pointer-events-none absolute bottom-4 left-4 z-10">
+                        <div className="inline-flex items-center gap-2 rounded-full bg-background/90 px-3 py-1 text-xs font-semibold text-foreground shadow-lg">
+                          <span className="h-2 w-2 rounded-full bg-destructive" aria-hidden />
+                          {conflictBadgeText || `${conflictHunkWidgets.length} hunks`}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : conflictView && conflictView.kind === 'binary' ? (
                   <div className="flex flex-1 items-center justify-center rounded-2xl border border-border/50 bg-muted/30 px-4 py-6 text-sm text-muted-foreground">
@@ -523,7 +535,7 @@ export function EditorLayout({
           >
             {(() => {
               const previewProps: PreviewPaneProps = {
-                content,
+                content: previewContentOverride ?? content,
                 forceFloatingToc: layoutState.shouldForceFloatingToc,
                 viewMode: view === 'split' ? 'split' : 'preview',
                 onNavigate: onPreviewNavigate,

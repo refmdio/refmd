@@ -263,10 +263,11 @@ function DocumentClient({
   const [savingShare, setSavingShare] = useState(false)
   const [activeConflict, setActiveConflict] = useState<GitPullConflictItem | null>(null)
   const [modifiedText, setModifiedText] = useState<string>('')
+  const [previewContent, setPreviewContent] = useState<string>('')
   const [segments, setSegments] = useState<ConflictSegments>([])
   const [hunks, setHunks] = useState<ConflictHunk[]>([])
   const [hunkChoices, setHunkChoices] = useState<Record<string, 'ours' | 'theirs'>>({})
-  const [hunkDefaultSide, setHunkDefaultSide] = useState<'ours' | 'theirs'>('theirs')
+  const [hunkDefaultSide, setHunkDefaultSide] = useState<'ours' | 'theirs'>('ours')
   const [hunkAnchors, setHunkAnchors] = useState<Array<{ hunkId: string; line: number }>>([])
   const lastPayloadRef = useRef<GitPullResolution[]>([])
   const { secondaryDocumentId, secondaryDocumentType, showSecondaryViewer, closeSecondaryViewer, openSecondaryViewer } = useSecondaryViewer()
@@ -326,10 +327,11 @@ function DocumentClient({
         setSegments(segs)
         setHunks(nextHunks)
         setHunkChoices({})
-        setHunkDefaultSide('theirs')
-        // Show remote side by default so Monaco diff highlights per-hunk differences.
-        setModifiedText(theirsText || oursText)
-        setHunkAnchors(buildHunkAnchors(segs, {}, 'theirs'))
+        setHunkDefaultSide('ours')
+        // Show local content by default; users can flip hunks to remote.
+        setModifiedText(oursText || theirsText)
+        setHunkAnchors(buildHunkAnchors(segs, {}, 'ours'))
+        setPreviewContent(oursText)
       } else {
         setSegments([])
         setHunks([])
@@ -337,6 +339,7 @@ function DocumentClient({
         setHunkDefaultSide('ours')
         setModifiedText(matched?.theirs ?? matched?.ours ?? '')
         setHunkAnchors([])
+        setPreviewContent('')
       }
     },
     [loaderData?.desired_path, loaderData?.path],
@@ -373,6 +376,7 @@ function DocumentClient({
     if (!segments.length) return
     setModifiedText(buildMergedText(segments, hunkChoices, hunkDefaultSide))
     setHunkAnchors(buildHunkAnchors(segments, hunkChoices, hunkDefaultSide))
+    setPreviewContent(buildMergedText(segments, hunkChoices, hunkDefaultSide))
   }, [segments, hunkChoices, hunkDefaultSide])
 
   const openDownloadDialog = useCallback(() => {
@@ -683,6 +687,16 @@ function DocumentClient({
     [hunks],
   )
 
+  const applyGlobalChoice = useCallback(
+    (side: 'ours' | 'theirs') => {
+      setAllHunks(side)
+      const nextText = side === 'theirs' ? theirsText : oursText
+      setModifiedText(nextText)
+      setPreviewContent(nextText)
+    },
+    [oursText, setAllHunks, setModifiedText, setPreviewContent, theirsText],
+  )
+
   const handleApplyResolution = useCallback(
     (choice: GitPullResolution['choice'], customContent?: string) => {
       if (!activeConflict) return
@@ -711,17 +725,22 @@ function DocumentClient({
         kind: isBinaryConflict ? 'binary' as const : 'text' as const,
         original: oursText,
         modified: modifiedText,
-        onChange: setModifiedText,
+        onChange: (val: string) => {
+          setModifiedText(val)
+          setPreviewContent(val)
+        },
         readOnly: pullMutation.isPending,
         actions: !isBinaryConflict
           ? {
               onKeepMine: () => {
                 setAllHunks('ours')
                 setModifiedText(oursText)
+                setPreviewContent(oursText)
               },
               onTakeTheirs: () => {
                 setAllHunks('theirs')
                 setModifiedText(theirsText)
+                setPreviewContent(theirsText)
               },
               onApplyMerged: () => {
                 handleApplyResolution('custom_text', modifiedText)
@@ -730,6 +749,46 @@ function DocumentClient({
           : undefined,
       }
     : undefined
+
+  const conflictControls = showConflictUI
+    ? (
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:gap-3">
+        {!isBinaryConflict ? (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full px-3"
+              disabled={pullMutation.isPending}
+              onClick={() => applyGlobalChoice('ours')}
+            >
+              Keep mine
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full px-3"
+              disabled={pullMutation.isPending}
+              onClick={() => applyGlobalChoice('theirs')}
+            >
+              Take remote
+            </Button>
+            <Button
+              size="sm"
+              variant="default"
+              className="rounded-full px-3"
+              disabled={pullMutation.isPending || !allResolved}
+              onClick={() => handleApplyResolution('custom_text', modifiedText)}
+            >
+              Apply merge
+            </Button>
+          </>
+        ) : null}
+      </div>
+    )
+    : null
+
+  const conflictBadgeText = !isBinaryConflict ? `${resolvedHunks}/${hunkCount} decided` : undefined
 
   const conflictHunkWidgets =
     showConflictUI && activeConflict && !isBinaryConflict && hunks.length
@@ -743,24 +802,6 @@ function DocumentClient({
 
   return (
     <div className="relative flex h-full flex-1 min-h-0 flex-col">
-      {showConflictUI && activeConflict ? (
-        <div className="pointer-events-auto absolute right-4 top-4 z-20 flex items-center gap-3">
-          <span className="inline-flex items-center gap-2 rounded-full bg-background/90 px-3 py-1 text-xs font-semibold text-foreground shadow">
-            <span className="h-2 w-2 rounded-full bg-destructive" aria-hidden />
-            {isBinaryConflict ? 'Binary conflict' : `${hunkCount} hunks (${resolvedHunks} decided)`}
-          </span>
-          {!isBinaryConflict ? (
-            <Button
-              size="sm"
-              variant="default"
-              disabled={pullMutation.isPending || !allResolved}
-              onClick={() => handleApplyResolution('custom_text', modifiedText)}
-            >
-              Apply merge
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
       {showOverlay && <EditorOverlay label={overlayLabel} />}
       {showEditor ? (
         <MarkdownEditor
@@ -775,6 +816,9 @@ function DocumentClient({
           readOnly={isReadOnly || redirecting || Boolean(activeConflict)}
           conflictView={conflictView}
           conflictHunkWidgets={conflictHunkWidgets}
+          conflictBadgeText={conflictBadgeText}
+          conflictControls={conflictControls}
+          previewOverride={showConflictUI && !isBinaryConflict ? previewContent || oursText : undefined}
           extraRight={
             showBacklinks ? (
               <BacklinksPanel documentId={id} className="h-full" onClose={() => setShowBacklinks(false)} />

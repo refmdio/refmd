@@ -63,6 +63,7 @@ export type MarkdownEditorProps = {
     choice?: 'ours' | 'theirs'
     onChoose: (side: 'ours' | 'theirs') => void
   }>
+  conflictBadgeText?: string
   conflictView?: {
     kind: 'text' | 'binary'
     original?: string
@@ -76,6 +77,7 @@ export type MarkdownEditorProps = {
     }
     theme?: string
   }
+  previewOverride?: string
   renderPreview?: (props: PreviewPaneProps) => React.ReactNode
 }
 
@@ -92,7 +94,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     extraRight,
     conflictControls,
     conflictHunkWidgets,
+    conflictBadgeText,
     conflictView,
+    previewOverride,
     renderPreview,
   } = props
   const { isDarkMode } = useTheme()
@@ -569,12 +573,14 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         onPreviewNavigate={onPreviewNavigate}
         documentId={documentId}
         onToggleTask={handleTaskToggle}
+        previewContentOverride={previewOverride}
         content={boundText}
         vimStatusBarRef={vimStatusBarRef}
         showVimStatusBar={isVimMode}
         uploadStatus={uploadStatus}
         renderPreview={renderPreview}
         conflictControls={conflictControls}
+        conflictBadgeText={conflictBadgeText}
         conflictHunkWidgets={conflictHunkWidgets}
         conflictView={
           conflictView
