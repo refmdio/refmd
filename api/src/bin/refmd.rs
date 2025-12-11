@@ -601,6 +601,15 @@ impl GitWorkspacePort for CliGitWorkspace {
         bail!("pull not supported in refmd CLI");
     }
 
+    async fn import_repository(
+        &self,
+        _workspace_id: Uuid,
+        _actor_id: Uuid,
+        _cfg: &api::application::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<api::application::dto::git::GitImportOutcome> {
+        bail!("import not supported in refmd CLI");
+    }
+
     async fn head_commit(&self, workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
         Ok(self
             .latest_commit_meta(workspace_id)

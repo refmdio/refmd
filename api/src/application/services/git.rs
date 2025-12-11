@@ -239,6 +239,41 @@ impl GitService {
             .map_err(ServiceError::from)
     }
 
+    pub async fn import_repository(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        input: &UpsertGitConfigInput,
+    ) -> Result<crate::application::dto::git::GitImportOutcome, ServiceError> {
+        // Save configuration first
+        let _ = self.upsert_config(workspace_id, input).await?;
+        let cfg = self
+            .repo
+            .load_user_git_cfg(workspace_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::BadRequest("git_not_configured"))?;
+
+        self.workspace
+            .ensure_repository(workspace_id, &cfg.branch_name)
+            .await
+            .map_err(ServiceError::from)?;
+
+        self.workspace
+            .import_repository(workspace_id, actor_id, &cfg)
+            .await
+            .map_err(|err| {
+                let msg = err.to_string().to_lowercase();
+                if msg.contains("git_http_auth_redirect") || msg.contains("too many redirects") {
+                    ServiceError::BadRequest("git_auth_redirect")
+                } else if msg.contains("git_http_not_found") || msg.contains("status code: 404") {
+                    ServiceError::BadRequest("git_repo_not_found")
+                } else {
+                    ServiceError::from(err)
+                }
+            })
+    }
+
     pub async fn ignore_document(
         &self,
         workspace_id: Uuid,

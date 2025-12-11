@@ -341,6 +341,21 @@ mod tests {
             }
         }
 
+        async fn import_repository(
+            &self,
+            _workspace_id: Uuid,
+            _actor_id: Uuid,
+            _cfg: &crate::application::ports::git_repository::UserGitCfg,
+        ) -> anyhow::Result<crate::application::dto::git::GitImportOutcome> {
+            Ok(crate::application::dto::git::GitImportOutcome {
+                files_changed: 0,
+                commit_hash: None,
+                docs_created: 0,
+                attachments_created: 0,
+                message: "not implemented".to_string(),
+            })
+        }
+
         async fn check_remote(
             &self,
             _workspace_id: Uuid,

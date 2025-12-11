@@ -245,6 +245,15 @@ export type GitHistoryResponse = {
     commits: Array<GitCommitItem>;
 };
 
+export type GitImportResponse = {
+    attachments_created: number;
+    commit_hash?: (string) | null;
+    docs_created: number;
+    files_changed: number;
+    message: string;
+    success: boolean;
+};
+
 export type GitPullConflictItem = {
     base?: (string) | null;
     document_id?: (string) | null;
@@ -1136,6 +1145,12 @@ export type IgnoreFolderData = {
 };
 
 export type IgnoreFolderResponse = (unknown);
+
+export type ImportRepositoryData = {
+    requestBody: CreateGitConfigRequest;
+};
+
+export type ImportRepositoryResponse = (GitImportResponse);
 
 export type InitRepositoryResponse = (unknown);
 

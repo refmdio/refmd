@@ -436,11 +436,9 @@ function DocumentClient({
     navigate({
       to: '/document/$id',
       params: { id },
-      search: (prev: Record<string, unknown>) => {
-        const next = { ...prev }
-        if (next && Object.prototype.hasOwnProperty.call(next, 'conflict')) {
-          delete (next as any).conflict
-        }
+      search: (prev: Record<string, string | string[] | undefined>) => {
+        const next: Record<string, string | string[] | undefined> = { ...prev }
+        delete next.conflict
         return next
       },
       replace: true,

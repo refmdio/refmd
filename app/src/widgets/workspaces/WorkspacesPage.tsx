@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ApiError } from '@/shared/api'
+import { setClientWorkspaceId } from '@/shared/api/client.config'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Badge } from '@/shared/ui/badge'
@@ -16,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/shared/ui/switch'
 import { Textarea } from '@/shared/ui/textarea'
 
+import { importRepository } from '@/entities/git'
 import { me as meApi, userKeys } from '@/entities/user'
 import {
   listWorkspaceInvitations,
@@ -102,6 +104,13 @@ export default function WorkspacesPage() {
   const [createName, setCreateName] = useState('')
   const [createDescription, setCreateDescription] = useState('')
   const [creating, setCreating] = useState(false)
+  const [enableGitImport, setEnableGitImport] = useState(false)
+  const [importRepoUrl, setImportRepoUrl] = useState('')
+  const [importBranch, setImportBranch] = useState('main')
+  const [importAuthType, setImportAuthType] = useState<'token' | 'ssh'>('token')
+  const [importToken, setImportToken] = useState('')
+  const [importPrivateKey, setImportPrivateKey] = useState('')
+  const [importing, setImporting] = useState(false)
   const [switchingId, setSwitchingId] = useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -263,19 +272,54 @@ export default function WorkspacesPage() {
       return
     }
     setCreating(true)
+    setImporting(false)
     try {
-      await createWorkspaceAction({ name: createName, description: createDescription })
+      const workspace = await createWorkspaceAction({ name: createName, description: createDescription })
+      const workspaceId = workspace?.id
+      if (workspaceId) {
+        setClientWorkspaceId(workspaceId)
+      }
       const updated = await meApi()
       queryClient.setQueryData(userKeys.me(), updated)
-      toast.success('Workspace created')
+      if (enableGitImport && importRepoUrl.trim() && workspaceId) {
+        setImporting(true)
+        const auth_data =
+          importAuthType === 'ssh'
+            ? { private_key: importPrivateKey || undefined }
+            : { token: importToken || undefined }
+        try {
+          const res = await importRepository({
+            requestBody: {
+              repository_url: importRepoUrl.trim(),
+              branch_name: importBranch.trim() || undefined,
+              auth_type: importAuthType,
+              auth_data,
+              auto_sync: false,
+            },
+          })
+          toast.success(res?.message || 'Imported from Git')
+        } catch (err) {
+          console.error('[workspaces] git import failed', err)
+          const raw = (err as any)?.body?.message || (err as any)?.message || 'Git import failed'
+          toast.error(raw)
+        }
+      } else {
+        toast.success('Workspace created')
+      }
       setCreateName('')
       setCreateDescription('')
+      setEnableGitImport(false)
+      setImportRepoUrl('')
+      setImportBranch('main')
+      setImportToken('')
+      setImportPrivateKey('')
       setCreateOpen(false)
     } catch (error) {
       console.error('[workspaces] create failed', error)
       const message = error instanceof Error ? error.message : 'Failed to create workspace'
       toast.error(message)
     } finally {
+      setImporting(false)
       setCreating(false)
     }
   }
@@ -1081,13 +1125,83 @@ export default function WorkspacesPage() {
                 onChange={(event) => setCreateDescription(event.target.value)}
               />
             </div>
+            <div className="rounded-2xl border border-border/60 bg-muted/10 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Import from Git (optional)</p>
+                  <p className="text-xs text-muted-foreground">
+                    Clone documents and attachments from a Git repo into this new workspace. History is preserved.
+                  </p>
+                </div>
+                <Switch checked={enableGitImport} onCheckedChange={setEnableGitImport} />
+              </div>
+              {enableGitImport ? (
+                <div className="mt-4 space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="import-repo">Repository URL</Label>
+                    <Input
+                      id="import-repo"
+                      placeholder="https://github.com/org/repo.git"
+                      value={importRepoUrl}
+                      onChange={(event) => setImportRepoUrl(event.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="import-branch">Branch</Label>
+                      <Input
+                        id="import-branch"
+                        placeholder="main"
+                        value={importBranch}
+                        onChange={(event) => setImportBranch(event.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Auth type</Label>
+                      <Select value={importAuthType} onValueChange={(val) => setImportAuthType(val as 'token' | 'ssh')}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select auth" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="token">Access token (HTTPS)</SelectItem>
+                          <SelectItem value="ssh">SSH private key</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {importAuthType === 'token' ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="import-token">Access token</Label>
+                      <Input
+                        id="import-token"
+                        placeholder="ghp_..."
+                        type="password"
+                        value={importToken}
+                        onChange={(event) => setImportToken(event.target.value)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="import-key">SSH private key</Label>
+                      <Textarea
+                        id="import-key"
+                        rows={3}
+                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                        value={importPrivateKey}
+                        onChange={(event) => setImportPrivateKey(event.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="ghost" onClick={() => setCreateOpen(false)} type="button">
               Cancel
             </Button>
-            <Button onClick={handleCreateWorkspace} disabled={creating || !createName.trim()}>
-              {creating ? 'Creating...' : 'Create workspace'}
+            <Button onClick={handleCreateWorkspace} disabled={creating || !createName.trim() || (enableGitImport && !importRepoUrl.trim())}>
+              {creating || importing ? 'Working...' : 'Create workspace'}
             </Button>
           </DialogFooter>
         </DialogContent>

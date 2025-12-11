@@ -87,6 +87,15 @@ pub struct GitSyncOutcome {
 }
 
 #[derive(Debug, Clone)]
+pub struct GitImportOutcome {
+    pub files_changed: u32,
+    pub commit_hash: Option<String>,
+    pub docs_created: u32,
+    pub attachments_created: u32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct GitignoreUpdateDto {
     pub added: usize,
     pub patterns: Vec<String>,

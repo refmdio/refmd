@@ -15,14 +15,18 @@ import {
   getPullSession as apiGetPullSession,
   resolvePullSession as apiResolvePullSession,
   finalizePullSession as apiFinalizePullSession,
+  importRepository as apiImportRepository,
   syncNow as apiSyncNow,
 } from '@/shared/api'
 import type {
   GitChangesResponse,
   GitHistoryResponse,
+  GitImportResponse,
   GitPullResponse,
   GitPullSessionResponse,
   GitStatus,
+  ImportRepositoryData,
+  ImportRepositoryResponse,
   PullRepositoryData,
   TextDiffResult,
 } from '@/shared/api'
@@ -69,9 +73,17 @@ export {
   apiGetPullSession as getPullSession,
   apiResolvePullSession as resolvePullSession,
   apiFinalizePullSession as finalizePullSession,
+  apiImportRepository as importRepository,
   apiSyncNow as syncNow,
   apiIgnoreDocument as ignoreDocument,
   apiIgnoreFolder as ignoreFolder,
 }
 
-export type { GitPullResponse, GitPullSessionResponse, PullRepositoryData }
+export type {
+  GitImportResponse,
+  GitPullResponse,
+  GitPullSessionResponse,
+  ImportRepositoryData,
+  ImportRepositoryResponse,
+  PullRepositoryData,
+}

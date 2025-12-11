@@ -470,12 +470,11 @@ function FileTreeInner() {
       await router.navigate({
         to: '/document/$id',
         params: { id: targetId },
-        search: (prev: Record<string, unknown>) => {
-          const next = { ...prev }
-          next.token = node.shareToken
-          next.shareMount = '1'
-          return next
-        },
+        search: (prev: Record<string, string | string[] | undefined>) => ({
+          ...(prev || {}),
+          token: node.shareToken,
+          shareMount: '1',
+        }),
       })
       return
     }

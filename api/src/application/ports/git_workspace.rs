@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem, GitCommitInfo, GitPullRequestDto, GitPullResultDto, GitRemoteCheckDto,
-    GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
+    GitChangeItem, GitCommitInfo, GitImportOutcome, GitPullRequestDto, GitPullResultDto,
+    GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
 };
 use crate::application::ports::git_repository::UserGitCfg;
 
@@ -32,9 +32,16 @@ pub trait GitWorkspacePort: Send + Sync {
         req: &GitSyncRequestDto,
         cfg: Option<&UserGitCfg>,
     ) -> anyhow::Result<GitSyncOutcome>;
+    async fn import_repository(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<GitImportOutcome>;
     async fn pull(
         &self,
         workspace_id: Uuid,
+        actor_id: Uuid,
         req: &GitPullRequestDto,
         cfg: &UserGitCfg,
     ) -> anyhow::Result<GitPullResultDto>;

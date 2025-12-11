@@ -18,6 +18,7 @@ import {
   getConfig,
   getStatus,
   initRepository,
+  importRepository,
 } from '@/entities/git'
 
 import { settingsNavItems } from '@/features/settings/nav'
@@ -90,6 +91,36 @@ export default function GitSyncPage() {
     },
     onError: (e: any) => {
       toast.error(`Failed to save settings: ${e?.message || e}`)
+    },
+  })
+
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      if (!repositoryUrl.trim()) throw new Error('Repository URL is required')
+      const auth_data = resolveAuthData()
+      return importRepository({
+        requestBody: {
+          repository_url: repositoryUrl.trim(),
+          branch_name: branchName.trim() || 'main',
+          auth_type: authType,
+          auth_data,
+          auto_sync: autoSync,
+        },
+      })
+    },
+    onSuccess: (data: any) => {
+      const msg = data?.message || 'Imported from Git'
+      const docs = data?.docs_created ?? 0
+      const attachments = data?.attachments_created ?? 0
+      const extra =
+        docs || attachments ? ` (${docs} docs, ${attachments} attachments)` : ''
+      toast.success(`${msg}${extra}`)
+      qc.invalidateQueries({ queryKey: ['git-status'] })
+      qc.invalidateQueries({ queryKey: ['git-config'] })
+    },
+    onError: (e: any) => {
+      const raw = e?.body?.message || e?.message || `${e}`
+      toast.error(`Import failed: ${raw}`)
     },
   })
 
@@ -286,7 +317,7 @@ export default function GitSyncPage() {
             <Separator />
 
             <p className="text-xs text-muted-foreground">
-              Auto sync is off. Use Pull to fetch remote changes and Sync to push manually.
+              Auto sync is off. Use Pull to fetch remote changes and Sync to push manually. Use Import to populate this workspace from the remote repository.
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -296,6 +327,18 @@ export default function GitSyncPage() {
                 className="rounded-full"
               >
                 {saveMutation.isPending ? 'Saving…' : 'Save settings'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => importMutation.mutate()}
+                disabled={
+                  importMutation.isPending ||
+                  saveMutation.isPending ||
+                  !repositoryUrl.trim()
+                }
+                className="rounded-full"
+              >
+                {importMutation.isPending ? 'Importing…' : 'Import from Git'}
               </Button>
             </div>
           </div>

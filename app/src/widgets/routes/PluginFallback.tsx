@@ -20,7 +20,12 @@ export default function PluginFallback() {
   const realtime = useRealtime()
   const shareTokenFromContext = useShareToken()
   const routerState = useRouterState()
-  const search = routerState.location?.search ?? ''
+  const searchValue = routerState.location?.search
+  const search = typeof searchValue === 'string'
+    ? searchValue
+    : Array.isArray(searchValue)
+      ? searchValue.join('&')
+      : ''
   const authReady = !authLoading && !!user
   const shareToken = React.useMemo(() => {
     if (typeof shareTokenFromContext === 'string' && shareTokenFromContext.length > 0) {

@@ -19,9 +19,10 @@ use uuid::Uuid;
 
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
-    GitChangeItem, GitCommitInfo, GitPullConflictItemDto, GitPullRequestDto, GitPullResultDto,
-    GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
+    GitChangeItem, GitCommitInfo, GitImportOutcome, GitPullConflictItemDto, GitPullRequestDto,
+    GitPullResultDto, GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
 };
+use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::git_repository::UserGitCfg;
 use crate::application::ports::git_storage::{
     BlobKey, CommitMeta, GitStorage, decode_commit_id, encode_commit_id,
@@ -30,9 +31,11 @@ use crate::application::ports::git_workspace::GitWorkspacePort;
 use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::diff::text_diff::compute_text_diff;
-use crate::application::services::realtime::snapshot::SnapshotService;
+use crate::application::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
 use crate::infrastructure::db::PgPool;
+use crate::infrastructure::db::repositories::document_repository_sqlx::SqlxDocumentRepository;
 use tokio::fs as async_fs;
+use sha2::{Digest as ShaDigest, Sha256};
 
 pub struct GitWorkspaceService {
     pool: PgPool,
@@ -983,6 +986,243 @@ impl GitWorkspaceService {
             }
         }
         Ok(changed)
+    }
+
+    async fn ensure_folder(
+        &self,
+        repo: &SqlxDocumentRepository,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        folder_path: &str,
+        cache: &mut HashMap<String, Uuid>,
+    ) -> anyhow::Result<Option<Uuid>> {
+        let trimmed = folder_path.trim_matches('/');
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+
+        let mut current_parent: Option<Uuid> = None;
+        let mut accumulated = String::new();
+        for segment in trimmed.split('/') {
+            if !accumulated.is_empty() {
+                accumulated.push('/');
+            }
+            accumulated.push_str(segment);
+
+            if let Some(id) = cache.get(&accumulated) {
+                current_parent = Some(*id);
+                continue;
+            }
+
+            if let Some(existing) = sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM documents WHERE workspace_id = $1 AND desired_path = $2 AND type = 'folder' LIMIT 1",
+            )
+            .bind(workspace_id)
+            .bind(&accumulated)
+            .fetch_optional(&self.pool)
+            .await?
+            {
+                cache.insert(accumulated.clone(), existing);
+                current_parent = Some(existing);
+                continue;
+            }
+
+            let title = if segment.trim().is_empty() {
+                "folder"
+            } else {
+                segment
+            };
+            let folder = repo
+                .create_for_user(
+                    workspace_id,
+                    actor_id,
+                    title,
+                    current_parent,
+                    "folder",
+                    None,
+                )
+                .await?;
+
+            let desired_path = accumulated.clone();
+            let normalized = format!("{}/{}", workspace_id, desired_path);
+            let path_digest: Vec<u8> = Sha256::digest(desired_path.as_bytes()).to_vec();
+            let slug = slug_from_git_path(&desired_path)?;
+
+            sqlx::query(
+                r#"UPDATE documents SET
+                        path = $3,
+                        desired_path = $4,
+                        path_digest = $5,
+                        slug = $6,
+                        parent_id = $7,
+                        updated_at = now()
+                    WHERE id = $1 AND workspace_id = $2"#,
+            )
+            .bind(folder.id)
+            .bind(workspace_id)
+            .bind(&normalized)
+            .bind(&desired_path)
+            .bind(path_digest)
+            .bind(&slug)
+            .bind(current_parent)
+            .execute(&self.pool)
+            .await?;
+
+            cache.insert(accumulated.clone(), folder.id);
+            current_parent = Some(folder.id);
+        }
+
+        Ok(current_parent)
+    }
+
+    async fn materialize_documents_from_state(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        state: &HashMap<String, FileSnapshot>,
+    ) -> anyhow::Result<(u32, u32)> {
+        let repo = SqlxDocumentRepository::new(self.pool.clone());
+        let mut folder_cache: HashMap<String, Uuid> = HashMap::new();
+        let mut docs_created: u32 = 0;
+        let mut attachments_created: u32 = 0;
+
+        let mut paths: Vec<String> = state.keys().cloned().collect();
+        paths.sort();
+
+        for path in paths {
+            let snapshot = match state.get(&path) {
+                Some(s) => s,
+                None => continue,
+            };
+            let normalized = normalize_repo_path(path.clone());
+            let parent_path = normalized
+                .rsplitn(2, '/')
+                .nth(1)
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty());
+            let parent_id = if let Some(ppath) = parent_path.as_ref() {
+                self.ensure_folder(
+                    &repo,
+                    workspace_id,
+                    actor_id,
+                    ppath,
+                    &mut folder_cache,
+                )
+                .await?
+            } else {
+                None
+            };
+
+            // Skip if document already exists at desired_path
+            if sqlx::query_scalar::<_, Option<Uuid>>(
+                "SELECT id FROM documents WHERE workspace_id = $1 AND desired_path = $2 LIMIT 1",
+            )
+            .bind(workspace_id)
+            .bind(&normalized)
+            .fetch_optional(&self.pool)
+            .await?
+            .is_some()
+            {
+                continue;
+            }
+
+            let filename = normalized
+                .rsplit('/')
+                .next()
+                .unwrap_or(&normalized)
+                .to_string();
+            let title = filename
+                .trim_end_matches(".md")
+                .trim_end_matches(".markdown")
+                .trim_end_matches(".txt");
+
+            let doc = repo
+                .create_for_user(
+                    workspace_id,
+                    actor_id,
+                    if title.is_empty() { "Document" } else { title },
+                    parent_id,
+                    "document",
+                    None,
+                )
+                .await?;
+
+            // Force repo path to match Git path inside the same transaction
+            let trimmed = normalized.trim_start_matches('/');
+            let desired_path = trimmed.to_string();
+            let owner_prefix = workspace_id.to_string();
+            let normalized_path = format!("{owner_prefix}/{}", desired_path);
+            let path_digest: Vec<u8> = Sha256::digest(desired_path.as_bytes()).to_vec();
+            let slug = slug_from_git_path(&desired_path)?;
+            let parent_path = parent_path_from_git(&desired_path);
+            let parent_id_for_update = if let Some(pp) = parent_path {
+                self.ensure_folder(
+                    &repo,
+                    workspace_id,
+                    actor_id,
+                    pp.as_str(),
+                    &mut folder_cache,
+                )
+                .await?
+            } else {
+                None
+            };
+
+            sqlx::query(
+                r#"UPDATE documents SET
+                        path = $3,
+                        desired_path = $4,
+                        path_digest = $5,
+                        slug = $6,
+                        parent_id = $7,
+                        updated_at = now()
+                    WHERE id = $1 AND workspace_id = $2"#,
+            )
+            .bind(doc.id)
+            .bind(workspace_id)
+            .bind(&normalized_path)
+            .bind(&desired_path)
+            .bind(path_digest)
+            .bind(&slug)
+            .bind(parent_id_for_update)
+            .execute(&self.pool)
+            .await?;
+            docs_created += 1;
+
+            let bytes = self.snapshot_bytes(snapshot).await.unwrap_or_default();
+            if snapshot.is_text {
+                let body = extract_markdown_body(&bytes).unwrap_or_else(|| {
+                    std::str::from_utf8(&bytes)
+                        .unwrap_or_default()
+                        .to_string()
+                });
+                let snap_bytes = snapshot_from_markdown(&body);
+                let _ = self
+                    .realtime
+                    .apply_snapshot(&doc.id.to_string(), snap_bytes.as_slice())
+                    .await;
+                let _ = self.realtime.force_persist(&doc.id.to_string()).await;
+            } else {
+                // Treat as attachment on the created document
+                let storage_path = format!("{}/{}", workspace_id, normalized);
+                let hash = snapshot.hash.clone();
+                let size = bytes.len() as i64;
+                let _ = sqlx::query(
+                    r#"INSERT INTO files (document_id, filename, content_type, size, storage_path, content_hash)
+                       VALUES ($1,$2,$3,$4,$5,$6)"#,
+                )
+                .bind(doc.id)
+                .bind(&filename)
+                .bind::<Option<&str>>(None)
+                .bind(size)
+                .bind(&storage_path)
+                .bind(&hash)
+                .execute(&self.pool)
+                .await;
+                attachments_created += 1;
+            }
+        }
+        Ok((docs_created, attachments_created))
     }
 
     /// Apply merged markdown files directly to realtime/persistence so documents reflect Pull results.
@@ -2040,6 +2280,65 @@ impl GitWorkspacePort for GitWorkspaceService {
             commit_hash: Some(commit_hex),
             pushed,
             message: outcome_message,
+        })
+    }
+
+    async fn import_repository(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<GitImportOutcome> {
+        let branch = if cfg.branch_name.is_empty() {
+            "main".to_string()
+        } else {
+            cfg.branch_name.clone()
+        };
+        self.ensure_repository(workspace_id, &branch).await?;
+
+        let previous_index = self
+            .latest_commit_meta(workspace_id)
+            .await?
+            .map(|m| m.file_hash_index)
+            .unwrap_or_default();
+
+        // Populate storage and DB with remote history; ignore auth/branch errors upstream.
+        let _ = self
+            .bootstrap_remote_history(workspace_id, cfg, branch.as_str())
+            .await?;
+        let latest = self.ensure_latest_meta(workspace_id).await?;
+        let Some(latest_meta) = latest else {
+            return Ok(GitImportOutcome {
+                files_changed: 0,
+                commit_hash: None,
+                docs_created: 0,
+                attachments_created: 0,
+                message: "remote has no commits".to_string(),
+            });
+        };
+
+        let state = self
+            .state_from_commit_meta(workspace_id, &latest_meta)
+            .await?;
+        let files_changed = self
+            .apply_state_to_workspace(workspace_id, &state, &previous_index)
+            .await?;
+
+        // Materialize documents and attachments from imported state
+        let (docs_created, attachments_created) = self
+            .materialize_documents_from_state(workspace_id, actor_id, &state)
+            .await
+            .unwrap_or((0, 0));
+
+        let _ = self.apply_merged_to_documents(workspace_id, &state).await;
+        let _ = self.clear_dirty(workspace_id).await;
+
+        Ok(GitImportOutcome {
+            files_changed,
+            docs_created,
+            attachments_created,
+            commit_hash: Some(encode_commit_id(&latest_meta.commit_id)),
+            message: "import completed".to_string(),
         })
     }
 
@@ -3596,6 +3895,34 @@ fn repo_relative_path(path: &str) -> anyhow::Result<String> {
     } else {
         Err(anyhow!("invalid storage path for repository: {path}"))
     }
+}
+
+fn slug_from_git_path(desired_path: &str) -> anyhow::Result<String> {
+    let segment = desired_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(desired_path)
+        .trim();
+    if segment.is_empty() {
+        anyhow::bail!("invalid_slug_from_path");
+    }
+    let slug = segment
+        .strip_suffix(".md")
+        .unwrap_or(segment)
+        .trim_matches('/');
+    if slug.is_empty() {
+        anyhow::bail!("invalid_slug_from_path");
+    }
+    Ok(slug.to_string())
+}
+
+fn parent_path_from_git(desired_path: &str) -> Option<String> {
+    let mut parts = desired_path.rsplitn(2, '/');
+    parts.next();
+    parts
+        .next()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn normalize_repo_path(path: String) -> String {

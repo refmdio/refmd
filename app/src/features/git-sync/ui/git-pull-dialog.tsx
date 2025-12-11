@@ -1,5 +1,6 @@
-import { AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
+import { AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
+
 import type { GitPullConflictItem } from '@/shared/api'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'

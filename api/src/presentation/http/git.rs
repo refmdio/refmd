@@ -38,6 +38,7 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/git/diff/working", get(get_working_diff))
         .route("/git/diff/commits/:from/:to", get(get_commit_diff))
         .route("/git/sync", post(sync_now))
+        .route("/git/import", post(import_repository))
         .route("/git/pull", post(pull_repository))
         .route("/git/pull/start", post(start_pull_session))
         .route("/git/pull/session/:id", get(get_pull_session))
@@ -203,6 +204,16 @@ pub struct GitPullResponse {
     pub commit_hash: Option<String>,
     pub conflicts: Option<Vec<GitPullConflictItem>>,
     pub git_status: Option<GitStatus>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub struct GitImportResponse {
+    pub success: bool,
+    pub message: String,
+    pub files_changed: i32,
+    pub commit_hash: Option<String>,
+    pub docs_created: i32,
+    pub attachments_created: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -622,6 +633,50 @@ pub async fn sync_now(
         message: out.message,
         commit_hash: out.commit_hash,
         files_changed: out.files_changed,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/git/import",
+    tag = "Git",
+    request_body = CreateGitConfigRequest,
+    responses((status = 200, body = GitImportResponse))
+)]
+pub async fn import_repository(
+    State(ctx): State<AppContext>,
+    bearer: Bearer,
+    headers: HeaderMap,
+    Json(req): Json<CreateGitConfigRequest>,
+) -> Result<Json<GitImportResponse>, StatusCode> {
+    if req.repository_url.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let bearer_token = bearer.0.clone();
+    let sub = validate_bearer(&ctx, bearer).await?;
+    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let workspace_id = workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        user_id,
+    )
+    .await?;
+    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_INIT)
+        .await?;
+
+    let service = ctx.git_service();
+    let dto = service
+        .import_repository(workspace_id, user_id, &UpsertGitConfigInput::from(req))
+        .await
+        .map_err(map_git_error)?;
+    Ok(Json(GitImportResponse {
+        success: true,
+        message: dto.message,
+        files_changed: dto.files_changed as i32,
+        commit_hash: dto.commit_hash,
+        docs_created: dto.docs_created as i32,
+        attachments_created: dto.attachments_created as i32,
     }))
 }
 

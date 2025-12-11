@@ -2,7 +2,7 @@ import type { UserResponse } from '@/shared/api'
 
 export type AuthRedirectTarget = {
   to: string
-  search?: Record<string, unknown>
+  search?: Record<string, string | string[] | undefined>
 }
 
 export type AuthMiddlewareContext = {

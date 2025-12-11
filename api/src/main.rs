@@ -148,6 +148,7 @@ const SESSION_CLEANUP_BATCH_SIZE: i64 = 500;
             api::presentation::http::git::get_working_diff,
             api::presentation::http::git::get_commit_diff,
             api::presentation::http::git::sync_now,
+            api::presentation::http::git::import_repository,
             api::presentation::http::git::start_pull_session,
             api::presentation::http::git::get_pull_session,
             api::presentation::http::git::resolve_pull_session,
