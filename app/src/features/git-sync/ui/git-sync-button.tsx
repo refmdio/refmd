@@ -460,7 +460,6 @@ export default function GitSyncButton({ className, compact = false }: Props) {
         isLoading={pullMutation.isPending}
         emptyWarning={emptyConflictWarning}
         sessionId={sessionId}
-        onResolve={(resolutions) => pullMutation.mutate({ resolutions })}
         onRetry={() => pullMutation.mutate({ resolutions: [] })}
       />
     </>

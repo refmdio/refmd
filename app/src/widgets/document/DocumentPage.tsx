@@ -264,6 +264,7 @@ function DocumentClient({
   const [activeConflict, setActiveConflict] = useState<GitPullConflictItem | null>(null)
   const [modifiedText, setModifiedText] = useState<string>('')
   const [previewContent, setPreviewContent] = useState<string>('')
+  const [hasInteracted, setHasInteracted] = useState(false)
   const [segments, setSegments] = useState<ConflictSegments>([])
   const [hunks, setHunks] = useState<ConflictHunk[]>([])
   const [hunkChoices, setHunkChoices] = useState<Record<string, 'ours' | 'theirs'>>({})
@@ -328,10 +329,11 @@ function DocumentClient({
         setHunks(nextHunks)
         setHunkChoices({})
         setHunkDefaultSide('ours')
-        // Show local content by default; users can flip hunks to remote.
-        setModifiedText(oursText || theirsText)
+        // Default merge is ours, but show diff against remote by setting modified to theirs initially.
+        setModifiedText(theirsText || oursText)
         setHunkAnchors(buildHunkAnchors(segs, {}, 'ours'))
         setPreviewContent(oursText)
+        setHasInteracted(false)
       } else {
         setSegments([])
         setHunks([])
@@ -340,6 +342,7 @@ function DocumentClient({
         setModifiedText(matched?.theirs ?? matched?.ours ?? '')
         setHunkAnchors([])
         setPreviewContent('')
+        setHasInteracted(false)
       }
     },
     [loaderData?.desired_path, loaderData?.path],
@@ -374,10 +377,12 @@ function DocumentClient({
 
   useEffect(() => {
     if (!segments.length) return
-    setModifiedText(buildMergedText(segments, hunkChoices, hunkDefaultSide))
+    if (hasInteracted) {
+      setModifiedText(buildMergedText(segments, hunkChoices, hunkDefaultSide))
+    }
     setHunkAnchors(buildHunkAnchors(segments, hunkChoices, hunkDefaultSide))
     setPreviewContent(buildMergedText(segments, hunkChoices, hunkDefaultSide))
-  }, [segments, hunkChoices, hunkDefaultSide])
+  }, [segments, hunkChoices, hunkDefaultSide, hasInteracted])
 
   const openDownloadDialog = useCallback(() => {
     if (!hasDoc) return
@@ -726,6 +731,7 @@ function DocumentClient({
         original: oursText,
         modified: modifiedText,
         onChange: (val: string) => {
+          setHasInteracted(true)
           setModifiedText(val)
           setPreviewContent(val)
         },
@@ -733,11 +739,13 @@ function DocumentClient({
         actions: !isBinaryConflict
           ? {
               onKeepMine: () => {
+                setHasInteracted(true)
                 setAllHunks('ours')
                 setModifiedText(oursText)
                 setPreviewContent(oursText)
               },
               onTakeTheirs: () => {
+                setHasInteracted(true)
                 setAllHunks('theirs')
                 setModifiedText(theirsText)
                 setPreviewContent(theirsText)
