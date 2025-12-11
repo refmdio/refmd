@@ -1667,7 +1667,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         let mut precomputed_upsert_bytes: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         let mut changed_text_snapshots: HashMap<String, FileSnapshot> = HashMap::new();
         let mut next_file_hash_index: HashMap<String, String> = previous_index.clone();
-        let mut files_changed_for_response: u32 = 0;
+        let mut files_changed_for_response: u32;
 
         if use_full_scan {
             let current = self.collect_current_state(workspace_id).await?;
@@ -1771,7 +1771,7 @@ impl GitWorkspacePort for GitWorkspaceService {
             }
         }
 
-        let (meta, pack_bytes, commit_hex, pushed, files_changed_for_response) = {
+        let (meta, pack_bytes, commit_hex, pushed) = {
             let temp_dir = TempDirBuilder::new()
                 .prefix("git-sync-")
                 .tempdir()
@@ -1900,13 +1900,7 @@ impl GitWorkspacePort for GitWorkspaceService {
 
             // files_changed_for_response computed earlier
 
-            (
-                meta,
-                pack_bytes,
-                commit_hex,
-                pushed,
-                files_changed_for_response,
-            )
+            (meta, pack_bytes, commit_hex, pushed)
         };
 
         if let Some((dir, _)) = previous_pack {
@@ -2124,34 +2118,7 @@ impl GitWorkspacePort for GitWorkspaceService {
         }
         // Detect drift between latest commit and current workspace using the same dirty set as Git Changes/Status.
         let dirty_rows = self.fetch_dirty(workspace_id).await?;
-        // Track paths that are dirty or differ from base to scope conflicts to overlapping files.
-        let mut dirty_paths: HashSet<String> = HashSet::new();
-        for d in dirty_rows.iter() {
-            if let Ok(rel) = repo_relative_path(&d.path) {
-                dirty_paths.insert(rel);
-            }
-        }
-        let mut drift_detected = !dirty_rows.is_empty();
         let current_state = self.collect_current_state(workspace_id).await?;
-        let mut current_index: HashMap<String, String> = HashMap::new();
-        for (path, snapshot) in current_state.iter() {
-            current_index.insert(path.clone(), snapshot.hash.clone());
-            if base_index.get(path) != Some(&snapshot.hash) {
-                drift_detected = true;
-                dirty_paths.insert(path.clone());
-            }
-        }
-
-        // Do not bail on drift: we preserve workspace edits by synthesizing an "ours" commit below.
-        if !drift_detected {
-            for path in base_index.keys() {
-                if !current_index.contains_key(path) {
-                    drift_detected = true;
-                    dirty_paths.insert(path.clone());
-                    break;
-                }
-            }
-        }
 
         // Build remote state directly from fetched pack (git2 tree), independent of DB meta.
         fn collect_remote_state(
@@ -2236,10 +2203,15 @@ impl GitWorkspacePort for GitWorkspaceService {
                 None
             };
 
-            let (ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
-            let (theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
-            let (base, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
+            let (mut ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
+            let (mut theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
+            let (mut base, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
             let is_binary = ours_bin || theirs_bin || base_bin;
+            if !is_binary {
+                ours = strip_front_matter_body(path.as_str(), ours);
+                theirs = strip_front_matter_body(path.as_str(), theirs);
+                base = strip_front_matter_body(path.as_str(), base);
+            }
 
             remote_conflicts.push(GitPullConflictItemDto {
                 path: path.clone(),
@@ -2506,15 +2478,21 @@ impl GitWorkspacePort for GitWorkspaceService {
             for (path, ours_bytes, theirs_bytes, base_bytes) in conflict_entries {
                 let resolution = resolution_map.get(&path);
                 if resolution.is_none() {
-                    let (ours_txt, ours_bin) =
+                    let (mut ours_txt, ours_bin) =
                         as_text_or_binary(path.as_str(), ours_bytes.as_ref());
-                    let (theirs_txt, theirs_bin) =
+                    let (mut theirs_txt, theirs_bin) =
                         as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
-                    let (base_txt, base_bin) =
+                    let (mut base_txt, base_bin) =
                         as_text_or_binary(path.as_str(), base_bytes.as_ref());
+                    let is_binary = ours_bin || theirs_bin || base_bin;
+                    if !is_binary {
+                        ours_txt = strip_front_matter_body(path.as_str(), ours_txt);
+                        theirs_txt = strip_front_matter_body(path.as_str(), theirs_txt);
+                        base_txt = strip_front_matter_body(path.as_str(), base_txt);
+                    }
                     unresolved.push(GitPullConflictItemDto {
                         path: path.clone(),
-                        is_binary: ours_bin || theirs_bin || base_bin,
+                        is_binary,
                         ours: ours_txt,
                         theirs: theirs_txt,
                         base: base_txt,
@@ -3118,20 +3096,68 @@ fn apply_pack_to_repo(repo: &Repository, pack: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn find_front_matter_end(s: &str) -> Option<(usize, usize)> {
+    let bytes = s.as_bytes();
+    let mut idx = 0;
+    while idx < bytes.len() {
+        if bytes[idx] == b'\n' {
+            let after_newline = &s[idx + 1..];
+            if after_newline.starts_with("---") {
+                let mut body_start = idx + 1 + 3;
+                let mut remainder = &s[body_start..];
+                // Skip trailing newlines after the closing delimiter to mirror ingest.
+                while remainder.starts_with("\r\n") || remainder.starts_with('\n') {
+                    if remainder.starts_with("\r\n") {
+                        body_start += 2;
+                        remainder = &s[body_start..];
+                    } else {
+                        body_start += 1;
+                        remainder = &s[body_start..];
+                    }
+                }
+                return Some((idx, body_start));
+            }
+        }
+        idx += 1;
+    }
+    None
+}
+
+fn split_front_matter(input: &str) -> Option<(&str, &str)> {
+    let Some(after_open) = input
+        .strip_prefix("---\r\n")
+        .or_else(|| input.strip_prefix("---\n"))
+    else {
+        return None;
+    };
+    if let Some((front_len, body_start)) = find_front_matter_end(after_open) {
+        let front = &after_open[..front_len];
+        let body = &after_open[body_start..];
+        return Some((front, body));
+    }
+    None
+}
+
+fn strip_front_matter_body(path: &str, text: Option<String>) -> Option<String> {
+    let Some(txt) = text else {
+        return None;
+    };
+    let lower = path.to_ascii_lowercase();
+    let is_markdown = lower.ends_with(".md") || lower.ends_with(".markdown");
+    if !is_markdown {
+        return Some(txt);
+    }
+    if let Some((_, body)) = split_front_matter(txt.as_str()) {
+        return Some(body.to_string());
+    }
+    Some(txt)
+}
+
 fn extract_markdown_body(bytes: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(bytes).ok()?;
     let trimmed = text.trim_start_matches('\u{feff}');
-    if let Some(rest) = trimmed
-        .strip_prefix("---\n")
-        .or_else(|| trimmed.strip_prefix("---\r\n"))
-    {
-        let delimiters = ["\n---\n", "\r\n---\r\n", "\n---\r\n", "\r\n---\n"];
-        for delim in delimiters {
-            if let Some(pos) = rest.find(delim) {
-                let body = &rest[pos + delim.len()..];
-                return Some(body.to_string());
-            }
-        }
+    if let Some((_, body)) = split_front_matter(trimmed) {
+        return Some(body.to_string());
     }
     Some(trimmed.to_string())
 }
@@ -3193,10 +3219,15 @@ fn collect_conflicts(
         let theirs_bytes = to_bytes(conflict.their.as_ref())?;
         let base_bytes = to_bytes(conflict.ancestor.as_ref())?;
 
-        let (ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
-        let (theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
-        let (base, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
+        let (mut ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
+        let (mut theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
+        let (mut base, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
         let is_binary = ours_bin || theirs_bin || base_bin;
+        if !is_binary {
+            ours = strip_front_matter_body(path.as_str(), ours);
+            theirs = strip_front_matter_body(path.as_str(), theirs);
+            base = strip_front_matter_body(path.as_str(), base);
+        }
 
         out.push(GitPullConflictItemDto {
             path,

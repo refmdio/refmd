@@ -27,6 +27,7 @@ impl GitDirtyDocEventSubscriber {
             .map(|row| row.flatten())
     }
 
+    #[allow(dead_code)]
     async fn desired_path(&self, doc_id: Uuid) -> anyhow::Result<Option<String>> {
         sqlx::query_scalar::<_, Option<String>>(
             "SELECT desired_path FROM documents WHERE id = $1",

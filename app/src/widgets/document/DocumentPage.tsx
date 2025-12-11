@@ -662,6 +662,7 @@ function DocumentClient({
   const renderSecondaryViewer = secondaryViewerRenderer
 
   const oursText = activeConflict?.ours ?? ''
+  const theirsText = activeConflict?.theirs ?? ''
   const isBinaryConflict = activeConflict?.is_binary ?? false
 
   const hunkCount = useMemo(() => hunks.length, [hunks])
@@ -720,7 +721,7 @@ function DocumentClient({
               },
               onTakeTheirs: () => {
                 setAllHunks('theirs')
-                setModifiedText(activeConflict?.theirs ?? '')
+                setModifiedText(theirsText)
               },
               onApplyMerged: () => {
                 handleApplyResolution('custom_text', modifiedText)
