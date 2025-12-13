@@ -22,10 +22,13 @@ where
     pub async fn execute(
         &self,
         workspace_id: Uuid,
+        actor_id: Uuid,
         req: GitPullRequestDto,
     ) -> anyhow::Result<GitPullResultDto> {
         let cfg = self.repo.load_user_git_cfg(workspace_id).await?;
         let cfg = cfg.ok_or_else(|| anyhow!("git_not_configured"))?;
-        self.workspace.pull(workspace_id, &req, &cfg).await
+        self.workspace
+            .pull(workspace_id, actor_id, &req, &cfg)
+            .await
     }
 }

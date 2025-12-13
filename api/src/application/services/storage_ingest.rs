@@ -726,7 +726,8 @@ struct MarkdownFrontMatter {
 
 fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownIngestPayload> {
     let content_hash = sha256_hex(&bytes);
-    let text = String::from_utf8(bytes)?;
+    // Accept lossy UTF-8 to avoid retry storms on malformed files; non-UTF8 bytes become U+FFFD.
+    let text = String::from_utf8_lossy(&bytes).to_string();
     let trimmed = text.trim_start_matches('\u{feff}');
     if let Some((front, body)) = split_front_matter(trimmed) {
         if let Ok(front_matter) = serde_yaml::from_str::<MarkdownFrontMatter>(front) {

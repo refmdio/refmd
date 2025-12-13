@@ -193,6 +193,9 @@ pub async fn mark_dirty_upsert_abs_path(
     is_text: bool,
     content_hash: Option<&str>,
 ) -> anyhow::Result<()> {
+    if crate::infrastructure::storage::dirty_tracking_suppressed() {
+        return Ok(());
+    }
     let rel = relative_from_uploads(uploads_root, abs_path).replace('\\', "/");
     if let Some((workspace_id, repo_path)) = split_owner_and_repo_path(&rel) {
         if !repo_path.is_empty() {
@@ -210,6 +213,9 @@ pub async fn mark_dirty_upsert_relative(
     is_text: bool,
     content_hash: Option<&str>,
 ) -> anyhow::Result<()> {
+    if crate::infrastructure::storage::dirty_tracking_suppressed() {
+        return Ok(());
+    }
     let rel = relative.trim_start_matches('/');
     if let Some((workspace_id, repo_path)) = split_owner_and_repo_path(rel) {
         if !repo_path.is_empty() {
@@ -222,6 +228,9 @@ pub async fn mark_dirty_upsert_relative(
 }
 
 pub async fn mark_dirty_delete_relative(pool: &PgPool, relative: &str) -> anyhow::Result<()> {
+    if crate::infrastructure::storage::dirty_tracking_suppressed() {
+        return Ok(());
+    }
     let rel = relative.trim_start_matches('/');
     if let Some((workspace_id, repo_path)) = split_owner_and_repo_path(rel) {
         if !repo_path.is_empty() {

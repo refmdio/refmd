@@ -360,13 +360,14 @@ impl GitService {
     pub async fn pull_repository(
         &self,
         workspace_id: Uuid,
+        actor_id: Uuid,
         req: GitPullRequestDto,
     ) -> Result<GitPullResultDto, ServiceError> {
         let uc = PullRepository {
             workspace: self.workspace.as_ref(),
             repo: self.repo.as_ref(),
         };
-        let mut dto = uc.execute(workspace_id, req).await.map_err(|err| {
+        let mut dto = uc.execute(workspace_id, actor_id, req).await.map_err(|err| {
             let msg = err.to_string();
             if msg.contains("pending changes") {
                 ServiceError::BadRequest("workspace_has_pending_changes")
@@ -453,9 +454,11 @@ impl GitService {
     pub async fn start_pull_session(
         &self,
         workspace_id: Uuid,
+        actor_id: Uuid,
     ) -> Result<GitPullResultDto, ServiceError> {
         self.pull_repository(
             workspace_id,
+            actor_id,
             GitPullRequestDto {
                 resolutions: Vec::new(),
             },

@@ -44,7 +44,12 @@ where
                         )
                         .await;
                 } else {
-                    let status = if outcome.pushed { "success" } else { "error" };
+                    // Treat "nothing to commit" as success even if no push occurred.
+                    let status = if outcome.files_changed == 0 || outcome.pushed {
+                        "success"
+                    } else {
+                        "error"
+                    };
                     let _ = self
                         .repo
                         .log_sync_operation(

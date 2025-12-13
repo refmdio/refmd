@@ -595,6 +595,7 @@ impl GitWorkspacePort for CliGitWorkspace {
     async fn pull(
         &self,
         _workspace_id: Uuid,
+        _actor_id: Uuid,
         _req: &api::application::dto::git::GitPullRequestDto,
         _cfg: &api::application::ports::git_repository::UserGitCfg,
     ) -> anyhow::Result<api::application::dto::git::GitPullResultDto> {

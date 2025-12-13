@@ -161,6 +161,36 @@ impl StorageResolverPort for FsStoragePort {
         if let Some(parent) = abs_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
+        // Short-circuit when content is unchanged to avoid unnecessary dirty tracking.
+        let new_hash = {
+            let mut hasher = Sha256::new();
+            hasher.update(data);
+            let digest = hasher.finalize();
+            let mut hex = String::with_capacity(64);
+            for byte in digest {
+                write!(&mut hex, "{byte:02x}").ok();
+            }
+            hex
+        };
+        if tokio::fs::try_exists(abs_path).await.unwrap_or(false) {
+            match tokio::fs::read(abs_path).await {
+                Ok(existing) => {
+                    let mut hasher = Sha256::new();
+                    hasher.update(existing);
+                    let digest = hasher.finalize();
+                    let mut old_hex = String::with_capacity(64);
+                    for byte in digest {
+                        write!(&mut old_hex, "{byte:02x}").ok();
+                    }
+                    if old_hex == new_hash {
+                        // No-op write; do not mark dirty.
+                        return Ok(());
+                    }
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
+        }
         tokio::fs::write(abs_path, data).await?;
         // Mark dirty (best-effort)
         let is_text = abs_path
@@ -168,19 +198,12 @@ impl StorageResolverPort for FsStoragePort {
             .and_then(|e| e.to_str())
             .map(|e| e.eq_ignore_ascii_case("md"))
             .unwrap_or(false);
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        let digest = hasher.finalize();
-        let content_hash = digest
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
         let _ = crate::infrastructure::storage::mark_dirty_upsert_abs_path(
             &self.pool,
             self.uploads_root.as_path(),
             abs_path,
             is_text,
-            Some(&content_hash),
+            Some(&new_hash),
         )
         .await;
         Ok(())

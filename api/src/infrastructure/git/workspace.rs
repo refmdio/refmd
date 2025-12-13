@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{self, ErrorKind, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
@@ -60,6 +60,57 @@ impl GitWorkspaceService {
             snapshot,
             realtime,
         })
+    }
+
+    fn is_missing_objects(err: &anyhow::Error) -> bool {
+        let msg = err.to_string().to_lowercase();
+        msg.contains("missing objects") || msg.contains("packfile is missing")
+    }
+
+    async fn recover_missing_objects(
+        &self,
+        workspace_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<()> {
+        // Pick branch from cfg or fallback to repository state default.
+        let branch = if cfg.branch_name.is_empty() {
+            self.load_repository_state(workspace_id)
+                .await?
+                .map(|(_, default_branch)| default_branch)
+                .unwrap_or_else(|| "main".to_string())
+        } else {
+            cfg.branch_name.clone()
+        };
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM git_dirty_files WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM git_commits WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "UPDATE git_repository_state SET initialized = true, default_branch = $2, updated_at = now() WHERE workspace_id = $1",
+        )
+        .bind(workspace_id)
+        .bind(&branch)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+
+        let _ = self.git_storage.delete_all(workspace_id).await;
+        let _ = self
+            .git_storage
+            .set_latest_commit(workspace_id, None)
+            .await;
+
+        // Re-bootstrap remote history (best effort).
+        let _ = self
+            .bootstrap_remote_history(workspace_id, cfg, branch.as_str())
+            .await;
+        Ok(())
     }
 
     async fn load_repository_state(
@@ -194,14 +245,26 @@ impl GitWorkspaceService {
             return Ok(None);
         }
 
+        let pack_bytes_master = read_first_pack(repo.path())?.ok_or_else(|| {
+            anyhow!(
+                "remote fetch produced no pack files for workspace {}",
+                workspace_id
+            )
+        })?;
+
         let mut latest_meta = self.git_storage.latest_commit(workspace_id).await?;
 
         for oid in ordered {
-            if self
+            let existing_meta = self
                 .commit_meta_by_id(workspace_id, oid.as_bytes())
-                .await?
-                .is_some()
-            {
+                .await?;
+            let existing_pack = self
+                .git_storage
+                .fetch_pack_for_commit(workspace_id, oid.as_bytes())
+                .await?;
+            // Skip only when both DB row and pack already exist.
+            if existing_meta.is_some() && existing_pack.is_some() {
+                latest_meta = existing_meta;
                 continue;
             }
 
@@ -239,11 +302,9 @@ impl GitWorkspaceService {
                     );
                 }
 
-                let mut pack_builder = repo.packbuilder()?;
-                pack_builder.insert_commit(oid)?;
-                let mut pack_buf = git2::Buf::new();
-                pack_builder.write_buf(&mut pack_buf)?;
-                let pack_bytes = pack_buf.to_vec();
+                let pack_builder = repo.packbuilder()?;
+                // Use the full remote pack for every commit to avoid thin-pack corruption.
+                let pack_bytes = pack_bytes_master.clone();
                 drop(pack_builder);
 
                 let commit_id = oid.as_bytes().to_vec();
@@ -309,7 +370,7 @@ impl GitWorkspaceService {
             }
 
             let mut tx = self.pool.begin().await?;
-            let insert_res = sqlx::query(
+            let upsert_res = sqlx::query(
                 r#"INSERT INTO git_commits (
                         commit_id,
                         parent_commit_id,
@@ -321,7 +382,14 @@ impl GitWorkspaceService {
                         pack_key,
                         file_hash_index
                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-                    ON CONFLICT (workspace_id, commit_id) DO NOTHING"#,
+                    ON CONFLICT (workspace_id, commit_id) DO UPDATE SET
+                        parent_commit_id = EXCLUDED.parent_commit_id,
+                        message = EXCLUDED.message,
+                        author_name = EXCLUDED.author_name,
+                        author_email = EXCLUDED.author_email,
+                        committed_at = EXCLUDED.committed_at,
+                        pack_key = EXCLUDED.pack_key,
+                        file_hash_index = EXCLUDED.file_hash_index"#,
             )
             .bind(meta.commit_id.clone())
             .bind(meta.parent_commit_id.clone())
@@ -335,7 +403,7 @@ impl GitWorkspaceService {
             .execute(&mut *tx)
             .await;
 
-            if let Err(err) = insert_res {
+            if let Err(err) = upsert_res {
                 tx.rollback().await.ok();
                 let _ = self
                     .git_storage
@@ -1263,16 +1331,16 @@ impl GitWorkspaceService {
             };
             let snap_bytes =
                 crate::application::services::realtime::snapshot::snapshot_from_markdown(&body);
-            if let Err(err) = self
-                .realtime
-                .apply_snapshot(&doc_id.to_string(), snap_bytes.as_slice())
-                .await
+            if let Err(err) = crate::infrastructure::storage::suppress_git_dirty(async {
+                self.realtime
+                    .apply_snapshot(&doc_id.to_string(), snap_bytes.as_slice())
+                    .await?;
+                self.realtime.force_persist(&doc_id.to_string()).await
+            })
+            .await
             {
                 warn!(document_id = %doc_id, error = ?err, "git_pull_apply_snapshot_failed");
                 continue;
-            }
-            if let Err(err) = self.realtime.force_persist(&doc_id.to_string()).await {
-                warn!(document_id = %doc_id, error = ?err, "git_pull_force_persist_failed");
             }
         }
         Ok(())
@@ -1749,10 +1817,10 @@ impl GitWorkspacePort for GitWorkspaceService {
         if latest_meta.is_none() {
             if let Some(cfg) = cfg {
                 if !cfg.repository_url.is_empty() {
-                    // Best-effort attempt to bootstrap remote history; ignore errors (e.g., redirects or auth loops)
-                    let _ = self
-                        .bootstrap_remote_history(workspace_id, cfg, branch_hint.as_str())
-                        .await;
+                    // Bootstrap remote history; propagate errors to avoid proceeding without packs.
+                    self.bootstrap_remote_history(workspace_id, cfg, branch_hint.as_str())
+                        .await?;
+                    latest_meta = self.ensure_latest_meta(workspace_id).await?;
                 }
             }
         }
@@ -1765,7 +1833,63 @@ impl GitWorkspacePort for GitWorkspaceService {
         let force_full_scan = req.full_scan.unwrap_or(false);
         let skip_push = req.skip_push.unwrap_or(false);
 
-        latest_meta = self.ensure_latest_meta(workspace_id).await?;
+        // Ensure latest commit pack exists; if missing, attempt to rebuild from storage/remote or fail early.
+        if let Some(latest) = latest_meta.as_ref() {
+            if self
+                .git_storage
+                .fetch_pack_for_commit(workspace_id, latest.commit_id.as_slice())
+                .await?
+                .is_none()
+            {
+                // Try to restore metadata and pack from storage (if pointer mismatch), else try remote bootstrap.
+                warn!(
+                    workspace_id = %workspace_id,
+                    commit = %encode_commit_id(&latest.commit_id),
+                    "git_sync_missing_latest_pack_detected"
+                );
+                // Attempt backfill from storage; ensure_latest_meta will also update latest pointer.
+                self.ensure_storage_commit_integrity(workspace_id).await?;
+                latest_meta = self.ensure_latest_meta(workspace_id).await?;
+                if let Some(latest2) = latest_meta.as_ref() {
+                    if self
+                        .git_storage
+                        .fetch_pack_for_commit(workspace_id, latest2.commit_id.as_slice())
+                        .await?
+                        .is_none()
+                    {
+                        if let Some(cfg) = cfg {
+                            if !cfg.repository_url.is_empty() {
+                                info!(
+                                    workspace_id = %workspace_id,
+                                    commit = %encode_commit_id(&latest2.commit_id),
+                                    "git_sync_missing_latest_pack_bootstrap_remote"
+                                );
+                                self.bootstrap_remote_history(
+                                    workspace_id,
+                                    cfg,
+                                    branch_hint.as_str(),
+                                )
+                                .await?;
+                                latest_meta = self.ensure_latest_meta(workspace_id).await?;
+                            }
+                        }
+                    }
+                }
+                if let Some(latest3) = latest_meta.as_ref() {
+                    if self
+                        .git_storage
+                        .fetch_pack_for_commit(workspace_id, latest3.commit_id.as_slice())
+                        .await?
+                        .is_none()
+                    {
+                        anyhow::bail!(
+                            "missing pack data for latest commit {}; pull and retry",
+                            encode_commit_id(&latest3.commit_id)
+                        );
+                    }
+                }
+            }
+        }
 
         let mut storage_latest = self.git_storage.latest_commit(workspace_id).await?;
         let mut storage_commit_hex = storage_latest
@@ -1837,9 +1961,9 @@ impl GitWorkspacePort for GitWorkspaceService {
         self.ensure_storage_commit_integrity(workspace_id).await?;
         latest_meta = self.latest_commit_meta(workspace_id).await?;
 
-        let mut use_full_scan = force_full_scan || latest_meta.is_none();
+        let use_full_scan = force_full_scan || latest_meta.is_none();
 
-        let mut previous_index = latest_meta
+        let previous_index = latest_meta
             .as_ref()
             .map(|c| c.file_hash_index.clone())
             .unwrap_or_default();
@@ -1910,6 +2034,8 @@ impl GitWorkspacePort for GitWorkspaceService {
         let mut files_changed_for_response: u32;
 
         if use_full_scan {
+            // Rebuild full-scan data fresh in case we fell back here after a pack failure.
+            next_file_hash_index.clear();
             let current = self.collect_current_state(workspace_id).await?;
             let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
             for (path, snapshot) in current.iter() {
@@ -1990,6 +2116,7 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         let mut previous_pack = None;
         if let Some(prev_meta) = latest_meta.as_ref() {
+            let prev_commit_hex = encode_commit_id(&prev_meta.commit_id);
             match self
                 .persist_pack_chain(workspace_id, Some(prev_meta.commit_id.as_slice()))
                 .await?
@@ -1998,15 +2125,36 @@ impl GitWorkspacePort for GitWorkspaceService {
                     previous_pack = Some(chain);
                 }
                 None => {
-                    // Pack chain missing or reset: fall back to full scan.
-                    warn!(
-                        workspace_id = %workspace_id,
-                        commit = %encode_commit_id(&prev_meta.commit_id),
-                        "git_sync_missing_pack_chain_fallback_full_scan"
-                    );
-                    latest_meta = None;
-                    previous_index.clear();
-                    use_full_scan = true;
+                    // Attempt to repair from remote and retry once.
+                    if let Some(cfg) = cfg {
+                        if !cfg.repository_url.is_empty() {
+                            warn!(
+                                workspace_id = %workspace_id,
+                                commit = %prev_commit_hex,
+                                "git_sync_missing_pack_chain_recover"
+                            );
+                            self.recover_missing_objects(workspace_id, cfg).await?;
+                            latest_meta = self.ensure_latest_meta(workspace_id).await?;
+                            if let Some(latest) = latest_meta.as_ref() {
+                                previous_pack = self
+                                    .persist_pack_chain(
+                                        workspace_id,
+                                        Some(latest.commit_id.as_slice()),
+                                    )
+                                    .await?;
+                            }
+                        }
+                    }
+                    if previous_pack.is_none() {
+                        warn!(
+                            workspace_id = %workspace_id,
+                            "git_sync_missing_pack_chain_abort"
+                        );
+                        anyhow::bail!(
+                            "missing pack data for current head {}; pull/import required before sync",
+                            prev_commit_hex
+                        );
+                    }
                 }
             }
         }
@@ -2024,25 +2172,62 @@ impl GitWorkspacePort for GitWorkspaceService {
                     let lower = err.to_string().to_lowercase();
                     let missing_obj = lower.contains("missing") && lower.contains("object");
                     if missing_obj {
+                        // Try to repair packs by re-bootstrap from remote, then retry apply once more.
                         warn!(
                             workspace_id = %workspace_id,
                             error = %err,
-                            "git_sync_pack_missing_objects_fallback_full_scan"
+                            "git_sync_pack_missing_objects_retry_bootstrap"
                         );
-                        // Fallback: switch to full scan and rebuild tree from current state
-                        let current = self.collect_current_state(workspace_id).await?;
-                        let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-                        next_file_hash_index.clear();
-                        for (path, snapshot) in current.iter() {
-                            let bytes = self.snapshot_bytes(snapshot).await?;
-                            entries.insert(path.clone(), bytes);
-                            next_file_hash_index.insert(path.clone(), snapshot.hash.clone());
+                        if let Some(cfg) = cfg {
+                            if !cfg.repository_url.is_empty() {
+                                let branch = branch_name.clone();
+                                self.bootstrap_remote_history(workspace_id, cfg, branch.as_str())
+                                    .await?;
+                                previous_pack = self
+                                    .persist_pack_chain(
+                                        workspace_id,
+                                        latest_meta.as_ref().map(|m| m.commit_id.as_slice()),
+                                    )
+                                    .await?;
+                                if let Some((_, ref pack_paths_retry)) = previous_pack {
+                                    if apply_pack_files(&repo, pack_paths_retry).is_err() {
+                                        // Last resort: recover objects and retry once more.
+                                        warn!(
+                                            workspace_id = %workspace_id,
+                                            "git_sync_pack_retry_still_missing_recovering_objects"
+                                        );
+                                        self.recover_missing_objects(workspace_id, cfg).await?;
+                                        latest_meta = self.ensure_latest_meta(workspace_id).await?;
+                                        previous_pack = self
+                                            .persist_pack_chain(
+                                                workspace_id,
+                                                latest_meta
+                                                    .as_ref()
+                                                    .map(|m| m.commit_id.as_slice()),
+                                            )
+                                            .await?;
+                                        if let Some((_, ref pack_paths_retry2)) = previous_pack {
+                                            apply_pack_files(&repo, pack_paths_retry2)?;
+                                        } else {
+                                            anyhow::bail!(
+                                                "missing pack objects after recovery; pull/import required before sync"
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    anyhow::bail!(
+                                        "missing pack objects after bootstrap; pull/import required before sync"
+                                    );
+                                }
+                            }
                         }
-                        precomputed_full_entries = Some(entries);
-                        files_changed_for_response = next_file_hash_index.len() as u32;
-                        use_full_scan = true;
-                        latest_meta = None;
-                        previous_index.clear();
+                        anyhow::bail!(
+                            "missing pack objects for {}; pull/import to repair history",
+                            latest_meta
+                                .as_ref()
+                                .map(|m| encode_commit_id(&m.commit_id))
+                                .unwrap_or_else(|| "unknown".to_string())
+                        );
                     } else {
                         return Err(err);
                     }
@@ -2052,7 +2237,22 @@ impl GitWorkspacePort for GitWorkspaceService {
             // Skip pre-fetch/verify to avoid remote redirect/auth loops; rely on push outcome.
             // Build sources from either full scan or dirty set (no awaits here)
             let tree_oid = if use_full_scan {
-                let entries = precomputed_full_entries.as_ref().unwrap();
+                if precomputed_full_entries.is_none() {
+                    // We fell back to full-scan after a pack failure; rebuild snapshots fresh.
+                    next_file_hash_index.clear();
+                    let current = self.collect_current_state(workspace_id).await?;
+                    let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+                    for (path, snapshot) in current.iter() {
+                        let bytes = self.snapshot_bytes(snapshot).await?;
+                        entries.insert(path.clone(), bytes);
+                        next_file_hash_index.insert(path.clone(), snapshot.hash.clone());
+                    }
+                    files_changed_for_response = next_file_hash_index.len() as u32;
+                    precomputed_full_entries = Some(entries);
+                }
+                let entries = precomputed_full_entries
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("full-scan entries missing"))?;
                 build_tree_from_entries(&repo, entries)?
             } else {
                 // Incremental: reuse previous blobs for unchanged paths
@@ -2266,7 +2466,12 @@ impl GitWorkspacePort for GitWorkspaceService {
         }
 
         // Best-effort clear of processed dirty entries
-        let _ = self.clear_dirty(workspace_id).await;
+        self.clear_dirty(workspace_id)
+            .await
+            .map_err(|err| {
+                error!(workspace_id = %workspace_id, error = %err, "git_import_clear_dirty_failed");
+                err
+            })?;
         let outcome_message = if pushed {
             "sync completed".to_string()
         } else if skip_push {
@@ -2289,6 +2494,8 @@ impl GitWorkspacePort for GitWorkspaceService {
         actor_id: Uuid,
         cfg: &UserGitCfg,
     ) -> anyhow::Result<GitImportOutcome> {
+        // Suppress dirty tracking globally during import so filesystem watcher/ingest won't re-mark files.
+        let _global_dirty_guard = crate::infrastructure::storage::suppress_git_dirty_global();
         let branch = if cfg.branch_name.is_empty() {
             "main".to_string()
         } else {
@@ -2302,9 +2509,8 @@ impl GitWorkspacePort for GitWorkspaceService {
             .map(|m| m.file_hash_index)
             .unwrap_or_default();
 
-        // Populate storage and DB with remote history; ignore auth/branch errors upstream.
-        let _ = self
-            .bootstrap_remote_history(workspace_id, cfg, branch.as_str())
+        // Populate storage and DB with remote history; surface errors so we don't proceed with missing packs.
+        self.bootstrap_remote_history(workspace_id, cfg, branch.as_str())
             .await?;
         let latest = self.ensure_latest_meta(workspace_id).await?;
         let Some(latest_meta) = latest else {
@@ -2320,18 +2526,26 @@ impl GitWorkspacePort for GitWorkspaceService {
         let state = self
             .state_from_commit_meta(workspace_id, &latest_meta)
             .await?;
-        let files_changed = self
-            .apply_state_to_workspace(workspace_id, &state, &previous_index)
+        let files_changed = crate::infrastructure::storage::suppress_git_dirty(async {
+            self.apply_state_to_workspace(workspace_id, &state, &previous_index)
+                .await
+        })
+        .await?;
+
+        // Materialize documents and attachments from imported state; surface failures so Import can fail loudly.
+        let (docs_created, attachments_created) =
+            crate::infrastructure::storage::suppress_git_dirty(async {
+                self.materialize_documents_from_state(workspace_id, actor_id, &state).await
+            })
             .await?;
 
-        // Materialize documents and attachments from imported state
-        let (docs_created, attachments_created) = self
-            .materialize_documents_from_state(workspace_id, actor_id, &state)
+        self.apply_merged_to_documents(workspace_id, &state).await?;
+        self.clear_dirty(workspace_id)
             .await
-            .unwrap_or((0, 0));
-
-        let _ = self.apply_merged_to_documents(workspace_id, &state).await;
-        let _ = self.clear_dirty(workspace_id).await;
+            .map_err(|err| {
+                error!(workspace_id = %workspace_id, error = %err, "git_import_clear_dirty_failed");
+                err
+            })?;
 
         Ok(GitImportOutcome {
             files_changed,
@@ -2345,8 +2559,228 @@ impl GitWorkspacePort for GitWorkspaceService {
     async fn pull(
         &self,
         workspace_id: Uuid,
+        actor_id: Uuid,
         req: &GitPullRequestDto,
         cfg: &UserGitCfg,
+    ) -> anyhow::Result<GitPullResultDto> {
+        let mut recover_attempts: u8 = 0;
+        let mut skip_local_pack_restore = false;
+        loop {
+            match self
+                .pull_once(workspace_id, actor_id, req, cfg, skip_local_pack_restore)
+                .await
+            {
+                Ok(dto) => return Ok(dto),
+                Err(err) => {
+                    if Self::is_missing_objects(&err) {
+                        if recover_attempts < 2 {
+                            recover_attempts += 1;
+                            skip_local_pack_restore = true;
+                            warn!(
+                                workspace_id = %workspace_id,
+                                attempt = %recover_attempts,
+                                error = %err,
+                                "git_pull_missing_objects_recovering"
+                            );
+                            self.recover_missing_objects(workspace_id, cfg).await?;
+                            continue;
+                        }
+                    }
+                    return Err(err);
+                }
+            }
+        }
+    }
+
+    async fn head_commit(&self, workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self
+            .latest_commit_meta(workspace_id)
+            .await?
+            .map(|m| m.commit_id))
+    }
+
+    async fn remote_head(
+        &self,
+        workspace_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let state = self.load_repository_state(workspace_id).await?;
+        let Some((initialized, branch_default)) = state else {
+            anyhow::bail!("repository not initialized");
+        };
+        if !initialized {
+            anyhow::bail!("repository not initialized");
+        }
+        if cfg.repository_url.is_empty() {
+            anyhow::bail!("remote not configured");
+        }
+        let branch = if cfg.branch_name.is_empty() {
+            branch_default
+        } else {
+            cfg.branch_name.clone()
+        };
+        let temp_dir = TempDirBuilder::new()
+            .prefix("git-remote-head-")
+            .tempdir()
+            .map_err(|e| anyhow!(e))?;
+        let repo = Repository::init_bare(temp_dir.path())?;
+        let head = fetch_remote_head(&repo, cfg, &branch)?;
+        Ok(head.map(|oid| oid.as_bytes().to_vec()))
+    }
+
+    async fn has_pending_changes(&self, workspace_id: Uuid) -> anyhow::Result<bool> {
+        let dirty_rows = self.fetch_dirty(workspace_id).await?;
+        Ok(!dirty_rows.is_empty())
+    }
+
+    // Build a synthetic commit that represents the current workspace state, so dirty edits participate in merge.
+    fn build_synthetic_commit(
+        &self,
+        workspace_id: Uuid,
+        repo: &Repository,
+        base_oid: git2::Oid,
+    ) -> anyhow::Result<git2::Oid> {
+        // Collect current workspace state into blobs and index entries (supports nested paths).
+        let current_state = tokio::task::block_in_place(|| {
+            let handle = tokio::runtime::Handle::current();
+            handle.block_on(self.collect_current_state(workspace_id))
+        })?;
+
+        let mut index = repo.index()?;
+        index.clear()?;
+
+        for (path, snapshot) in current_state.iter() {
+            let bytes = tokio::task::block_in_place(|| {
+                let handle = tokio::runtime::Handle::current();
+                handle.block_on(self.snapshot_bytes(snapshot))
+            })?;
+            let blob_oid = repo.blob(&bytes)?;
+
+            let entry = git2::IndexEntry {
+                ctime: git2::IndexTime::new(0, 0),
+                mtime: git2::IndexTime::new(0, 0),
+                dev: 0,
+                ino: 0,
+                mode: 0o100644,
+                uid: 0,
+                gid: 0,
+                file_size: bytes.len() as u32,
+                id: blob_oid,
+                flags: std::cmp::min(path.as_bytes().len(), 0x0fff) as u16,
+                flags_extended: 0,
+                path: path.as_bytes().to_vec(),
+            };
+            index.add(&entry)?;
+        }
+
+        let tree_oid = index.write_tree_to(repo)?;
+        let tree = repo.find_tree(tree_oid)?;
+
+        // Create a synthetic commit with remote as parent to anchor the merge base.
+        // Use an explicit signature so we don't rely on local git config being present.
+        let sig = signature_from_parts("RefMD", "refmd@example.com", Utc::now())?;
+        let commit_oid = repo.commit(
+            Some("refs/heads/synthetic-workspace"),
+            &sig,
+            &sig,
+            "workspace-state",
+            &tree,
+            &[&repo.find_commit(base_oid)?],
+        )?;
+        Ok(commit_oid)
+    }
+
+    async fn drift_since_commit(
+        &self,
+        workspace_id: Uuid,
+        base_commit: &[u8],
+    ) -> anyhow::Result<bool> {
+        let Some(meta) = self.commit_meta_by_id(workspace_id, base_commit).await? else {
+            return Ok(true);
+        };
+        let base_index = meta.file_hash_index;
+        let current_state = self.collect_current_state(workspace_id).await?;
+        if base_index.len() != current_state.len() {
+            return Ok(true);
+        }
+        for (path, snapshot) in current_state.into_iter() {
+            let Some(base_hash) = base_index.get(&path) else {
+                return Ok(true);
+            };
+            if base_hash != &snapshot.hash {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    async fn check_remote(
+        &self,
+        workspace_id: Uuid,
+        cfg: &UserGitCfg,
+    ) -> anyhow::Result<GitRemoteCheckDto> {
+        if cfg.repository_url.is_empty() {
+            return Ok(GitRemoteCheckDto {
+                ok: true,
+                message: "remote not configured".to_string(),
+                reason: Some("no_remote".to_string()),
+            });
+        }
+        let branch = cfg.branch_name.clone();
+        let temp_dir = TempDirBuilder::new()
+            .prefix("git-check-")
+            .tempdir()
+            .map_err(|e| anyhow!(e))?;
+        let repo = Repository::init_bare(temp_dir.path())?;
+        let result = match fetch_remote_head(&repo, cfg, &branch) {
+            Ok(Some(_)) => GitRemoteCheckDto {
+                ok: true,
+                message: "remote reachable".to_string(),
+                reason: None,
+            },
+            Ok(None) => GitRemoteCheckDto {
+                ok: false,
+                message: format!("branch '{branch}' not found on remote"),
+                reason: Some("branch_missing".to_string()),
+            },
+            Err(err) => {
+                let lower = err.to_string().to_lowercase();
+                let (reason, msg) = if lower.contains("git_http_auth_redirect") {
+                    (
+                        Some("auth_required".to_string()),
+                        "remote requires authentication or SSO approval".to_string(),
+                    )
+                } else if lower.contains("git_http_not_found") || lower.contains("status code: 404")
+                {
+                    (
+                        Some("repo_not_found".to_string()),
+                        "repository URL or branch not found".to_string(),
+                    )
+                } else {
+                    (None, err.to_string())
+                };
+                GitRemoteCheckDto {
+                    ok: false,
+                    message: msg,
+                    reason,
+                }
+            }
+        };
+        drop(repo);
+        let _ = temp_dir.close();
+        info!(workspace_id = %workspace_id, ok = %result.ok, reason = ?result.reason, "git_remote_check_completed");
+        Ok(result)
+    }
+}
+
+impl GitWorkspaceService {
+    async fn pull_once(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        req: &GitPullRequestDto,
+        cfg: &UserGitCfg,
+        skip_local_pack_restore: bool,
     ) -> anyhow::Result<GitPullResultDto> {
         let state = self.load_repository_state(workspace_id).await?;
         let Some((initialized, branch_default)) = state else {
@@ -2366,27 +2800,50 @@ impl GitWorkspacePort for GitWorkspaceService {
         };
 
         // Capture current workspace head before touching remote history.
-        let local_meta = self.latest_commit_meta(workspace_id).await?;
-        let base_index: HashMap<String, String> = local_meta
+        let mut local_meta = self.latest_commit_meta(workspace_id).await?;
+        // After a recovery we want to treat pull as a fresh fast-forward from remote.
+        if skip_local_pack_restore {
+            local_meta = None;
+        }
+        let mut local_history_reset = false;
+        let mut base_index: HashMap<String, String> = local_meta
             .as_ref()
             .map(|m| m.file_hash_index.clone())
             .unwrap_or_default();
-        let previous_index = base_index.clone();
-        let base_commit = local_meta.as_ref().map(|m| m.commit_id.clone());
+        let mut previous_index = base_index.clone();
+        let mut base_commit = local_meta.as_ref().map(|m| m.commit_id.clone());
 
         let temp_dir = TempDirBuilder::new()
             .prefix("git-pull-")
             .tempdir()
             .map_err(|e| anyhow::anyhow!(e))?;
         let repo = Repository::init_bare(temp_dir.path())?;
-        if let Some((_, pack_paths)) = self
-            .persist_pack_chain(
-                workspace_id,
-                local_meta.as_ref().map(|m| m.commit_id.as_slice()),
-            )
-            .await?
-        {
-            apply_pack_files(&repo, &pack_paths)?;
+        if !skip_local_pack_restore {
+            match self
+                .persist_pack_chain(
+                    workspace_id,
+                    local_meta.as_ref().map(|m| m.commit_id.as_slice()),
+                )
+                .await?
+            {
+                Some((_, pack_paths)) => {
+                    apply_pack_files(&repo, &pack_paths)?;
+                }
+                None => {
+                    warn!(
+                        workspace_id = %workspace_id,
+                        "git_pull_pack_restore_missing_resetting_base"
+                    );
+                    // Storage/DB history was reset; treat as fresh pull with no local history.
+                    local_meta = None;
+                    local_history_reset = true;
+                    base_index.clear();
+                    previous_index.clear();
+                    base_commit = None;
+                }
+            }
+        } else {
+            info!(workspace_id = %workspace_id, "git_pull_skip_local_pack_restore");
         }
 
         let remote_oid = {
@@ -2405,19 +2862,66 @@ impl GitWorkspacePort for GitWorkspaceService {
         };
         let remote_commit = Some(remote_oid.as_bytes().to_vec());
 
-        let mut local_oid = local_meta
-            .as_ref()
-            .and_then(|m| git2::Oid::from_bytes(&m.commit_id).ok());
+        let mut local_oid = if local_history_reset {
+            None
+        } else {
+            local_meta
+                .as_ref()
+                .and_then(|m| git2::Oid::from_bytes(&m.commit_id).ok())
+        };
         // If workspace has no local commit recorded (fresh pull), fall back to latest known meta after bootstrap.
-        if local_oid.is_none() {
-            local_oid = self
-                .latest_commit_meta(workspace_id)
-                .await?
-                .and_then(|m| git2::Oid::from_bytes(&m.commit_id).ok());
+        if local_oid.is_none() && !skip_local_pack_restore && !local_history_reset {
+            if let Some(meta) = self.latest_commit_meta(workspace_id).await? {
+                base_index = meta.file_hash_index.clone();
+                previous_index = base_index.clone();
+                base_commit = Some(meta.commit_id.clone());
+                local_oid = git2::Oid::from_bytes(&meta.commit_id).ok();
+                local_meta = Some(meta);
+            }
         }
         // Detect drift between latest commit and current workspace using the same dirty set as Git Changes/Status.
         let dirty_rows = self.fetch_dirty(workspace_id).await?;
         let current_state = self.collect_current_state(workspace_id).await?;
+        info!(workspace_id = %workspace_id, dirty_count = dirty_rows.len(), skip_local_pack_restore = skip_local_pack_restore, "git_pull_dirty_state");
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum CommitRelation {
+            NoLocal,
+            Same,
+            LocalAhead,
+            RemoteAhead,
+            Diverged,
+        }
+
+        let commit_relation = if let Some(local_oid_val) = local_oid {
+            if local_oid_val == remote_oid {
+                CommitRelation::Same
+            } else if repo.graph_descendant_of(local_oid_val, remote_oid)? {
+                CommitRelation::LocalAhead
+            } else if repo.graph_descendant_of(remote_oid, local_oid_val)? {
+                CommitRelation::RemoteAhead
+            } else {
+                CommitRelation::Diverged
+            }
+        } else {
+            CommitRelation::NoLocal
+        };
+
+        // Nothing to do when remote is identical to or behind the local head.
+        if matches!(commit_relation, CommitRelation::Same | CommitRelation::LocalAhead) {
+            let commit_hash = local_oid
+                .as_ref()
+                .map(|oid| encode_commit_id(oid.as_bytes()));
+            return Ok(GitPullResultDto {
+                success: true,
+                message: "no remote changes".to_string(),
+                files_changed: 0,
+                commit_hash,
+                conflicts: None,
+                base_commit: base_commit.clone(),
+                remote_commit: remote_commit.clone(),
+            });
+        }
 
         // Build remote state directly from fetched pack (git2 tree), independent of DB meta.
         fn collect_remote_state(
@@ -2484,36 +2988,38 @@ impl GitWorkspacePort for GitWorkspaceService {
                 remote_changed_paths.insert(path.clone());
             }
         }
-        for path in remote_changed_paths.into_iter() {
-            let ours_bytes = if let Some(snap) = current_state.get(&path) {
+        let remote_changed_paths_vec: Vec<String> = remote_changed_paths.iter().cloned().collect();
+        for path in remote_changed_paths_vec.iter() {
+            let path_str = path.as_str();
+            let ours_bytes = if let Some(snap) = current_state.get(path) {
                 Some(self.snapshot_bytes(snap).await?)
             } else {
                 None
             };
-            let theirs_bytes = if let Some(snap) = remote_state.get(&path) {
+            let theirs_bytes = if let Some(snap) = remote_state.get(path) {
                 Some(self.snapshot_bytes(snap).await?)
             } else {
                 Some(Vec::new())
             };
             let base_bytes = if let Some(meta) = local_meta.as_ref() {
-                self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), &path)
+                self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), path_str)
                     .await?
             } else {
                 None
             };
 
-            let (mut ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
-            let (mut theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
-            let (mut base, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
+            let (mut ours, ours_bin) = as_text_or_binary(path_str, ours_bytes.as_ref());
+            let (mut theirs, theirs_bin) = as_text_or_binary(path_str, theirs_bytes.as_ref());
+            let (mut base, base_bin) = as_text_or_binary(path_str, base_bytes.as_ref());
             let is_binary = ours_bin || theirs_bin || base_bin;
             if !is_binary {
-                ours = strip_front_matter_body(path.as_str(), ours);
-                theirs = strip_front_matter_body(path.as_str(), theirs);
-                base = strip_front_matter_body(path.as_str(), base);
+                ours = strip_front_matter_body(path_str, ours);
+                theirs = strip_front_matter_body(path_str, theirs);
+                base = strip_front_matter_body(path_str, base);
             }
 
             remote_conflicts.push(GitPullConflictItemDto {
-                path: path.clone(),
+                path: path.to_string(),
                 is_binary,
                 ours,
                 theirs,
@@ -2579,6 +3085,16 @@ impl GitWorkspacePort for GitWorkspaceService {
             }
         }
         let remote_changes = !remote_conflicts.is_empty();
+        let remote_ahead_clean =
+            matches!(commit_relation, CommitRelation::RemoteAhead) && dirty_rows.is_empty();
+        let fast_forward_remote =
+            matches!(commit_relation, CommitRelation::NoLocal) || remote_ahead_clean;
+
+        // Detect overlap between remote-changed paths and dirty rows to avoid false conflicts.
+        let dirty_paths: HashSet<String> = dirty_rows.iter().map(|r| r.path.clone()).collect();
+        let dirty_remote_overlap = remote_changed_paths_vec
+            .iter()
+            .any(|p| dirty_paths.contains(p));
 
         info!(
             workspace_id = %workspace_id,
@@ -2586,11 +3102,12 @@ impl GitWorkspacePort for GitWorkspaceService {
             remote_conflict_count = remote_conflicts.len(),
             remote_changes = remote_changes,
             resolutions_count = req.resolutions.len(),
+            dirty_remote_overlap = dirty_remote_overlap,
             "git_pull_debug_state"
         );
 
-        // If workspace has dirty changes and overlapping remote changes, require explicit resolutions.
-        if remote_changes && !dirty_rows.is_empty() && req.resolutions.is_empty() {
+        // If workspace has dirty changes overlapping remote changes, require explicit resolutions.
+        if remote_changes && dirty_remote_overlap && req.resolutions.is_empty() {
             let conflicts = if remote_conflicts.is_empty() {
                 vec![GitPullConflictItemDto {
                     path: "".to_string(),
@@ -2609,19 +3126,6 @@ impl GitWorkspacePort for GitWorkspaceService {
                 files_changed: 0,
                 commit_hash: None,
                 conflicts: Some(conflicts),
-                base_commit: base_commit.clone(),
-                remote_commit: remote_commit.clone(),
-            });
-        }
-
-        // When remote changes exist and no resolutions are provided, require resolution.
-        if remote_changes && req.resolutions.is_empty() {
-            return Ok(GitPullResultDto {
-                success: false,
-                message: "conflicts detected".to_string(),
-                files_changed: 0,
-                commit_hash: None,
-                conflicts: Some(remote_conflicts),
                 base_commit: base_commit.clone(),
                 remote_commit: remote_commit.clone(),
             });
@@ -2657,6 +3161,11 @@ impl GitWorkspacePort for GitWorkspaceService {
 
                 let mut pack_builder = repo.packbuilder()?;
                 pack_builder.insert_commit(remote_oid)?;
+                if let Some(parent_id) = parent_commit_id.as_ref() {
+                    if let Ok(parent_oid) = git2::Oid::from_bytes(parent_id) {
+                        let _ = pack_builder.insert_commit(parent_oid);
+                    }
+                }
                 let mut pack_buf = git2::Buf::new();
                 pack_builder.write_buf(&mut pack_buf)?;
                 let pack_bytes = pack_buf.to_vec();
@@ -2675,6 +3184,173 @@ impl GitWorkspacePort for GitWorkspaceService {
                 (remote_meta, pack_bytes)
             };
             remote_pack = Some((remote_meta, remote_pack_bytes));
+        }
+
+        // Fast-forward when there is no local history or the workspace head cleanly trails remote.
+        // For fresh workspaces with dirty changes, surface conflicts instead of overwriting.
+        if fast_forward_remote {
+            if matches!(commit_relation, CommitRelation::NoLocal)
+                && (!dirty_rows.is_empty() || !remote_conflicts.is_empty())
+            {
+                return Ok(GitPullResultDto {
+                    success: false,
+                    message: "conflicts detected".to_string(),
+                    files_changed: 0,
+                    commit_hash: None,
+                    conflicts: Some(remote_conflicts.clone()),
+                    base_commit: base_commit.clone(),
+                    remote_commit: remote_commit.clone(),
+                });
+            }
+            // Ensure we have pack data for the remote head regardless of existing metadata.
+            let (remote_meta, remote_pack_bytes) = if let Some((meta, pack)) = remote_pack.take() {
+                (meta, Some(pack))
+            } else {
+                let mut pack_builder = repo.packbuilder()?;
+                pack_builder.insert_commit(remote_oid)?;
+                // Include parent to avoid missing bases later.
+                if let Ok(parent_id) = repo.find_commit(remote_oid).and_then(|c| c.parent_id(0)) {
+                    let _ = pack_builder.insert_commit(parent_id);
+                }
+                let mut pack_buf = git2::Buf::new();
+                pack_builder.write_buf(&mut pack_buf)?;
+                let pack_bytes = pack_buf.to_vec();
+
+                let remote_index: HashMap<String, String> = remote_state
+                    .iter()
+                    .map(|(p, snap)| (p.clone(), snap.hash.clone()))
+                    .collect();
+                let commit = repo.find_commit(remote_oid)?;
+                let committed_at = git_time_to_datetime(commit.time())?;
+                let message = commit
+                    .message()
+                    .map(|m| m.trim_end_matches('\n').to_string())
+                    .filter(|m| !m.trim().is_empty());
+                let author = commit.author();
+                let author_name = author.name().map(|s| s.to_string());
+                let author_email = author.email().map(|s| s.to_string());
+                let parent_commit_id = if commit.parent_count() > 0 {
+                    Some(commit.parent_id(0)?.as_bytes().to_vec())
+                } else {
+                    None
+                };
+                let commit_hex = encode_commit_id(remote_oid.as_bytes());
+                let meta = CommitMeta {
+                    commit_id: remote_oid.as_bytes().to_vec(),
+                    parent_commit_id,
+                    message,
+                    author_name,
+                    author_email,
+                    committed_at,
+                    pack_key: format!("git/packs/{}/{}.pack", workspace_id, commit_hex),
+                    file_hash_index: remote_index,
+                };
+                (meta, Some(pack_bytes))
+            };
+
+            if let Some(pack_bytes) = remote_pack_bytes.as_ref() {
+                self.git_storage
+                    .store_pack(workspace_id, pack_bytes, &remote_meta)
+                    .await?;
+            }
+            self.upsert_commit_record(workspace_id, &remote_meta).await?;
+
+            let snapshot_keys = self
+                .store_commit_snapshots(workspace_id, &remote_meta.commit_id, &remote_state)
+                .await?;
+
+            if let Err(err) = self
+                .git_storage
+                .set_latest_commit(workspace_id, Some(&remote_meta))
+                .await
+            {
+                for key in snapshot_keys.iter().rev() {
+                    let _ = self.git_storage.delete_blob(key).await;
+                }
+                return Err(err);
+            }
+
+            let mut tx = self.pool.begin().await?;
+            // Ensure repo row still exists and initialized.
+            let repo_row = sqlx::query(
+                "SELECT initialized FROM git_repository_state WHERE workspace_id = $1",
+            )
+            .bind(workspace_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some(repo_row) = repo_row else {
+                tx.rollback().await.ok();
+                anyhow::bail!("repository not initialized")
+            };
+            let initialized: bool = repo_row.get("initialized");
+            if !initialized {
+                tx.rollback().await.ok();
+                anyhow::bail!("repository not initialized")
+            }
+
+            sqlx::query(
+                r#"INSERT INTO git_commits (
+                        commit_id,
+                        parent_commit_id,
+                        workspace_id,
+                        message,
+                        author_name,
+                        author_email,
+                        committed_at,
+                        pack_key,
+                        file_hash_index
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                    ON CONFLICT (commit_id, workspace_id) DO NOTHING"#,
+            )
+            .bind(remote_meta.commit_id.clone())
+            .bind(remote_meta.parent_commit_id.clone())
+            .bind(workspace_id)
+            .bind(remote_meta.message.clone())
+            .bind(remote_meta.author_name.clone())
+            .bind(remote_meta.author_email.clone())
+            .bind(remote_meta.committed_at)
+            .bind(remote_meta.pack_key.clone())
+            .bind(Json(&remote_meta.file_hash_index))
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query("UPDATE git_repository_state SET updated_at = now() WHERE workspace_id = $1")
+                .bind(workspace_id)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+
+            let files_changed = self
+                .apply_state_to_workspace(workspace_id, &remote_state, &previous_index)
+                .await?;
+
+            // Create any missing documents/attachments from the pulled state before syncing realtime.
+            self.materialize_documents_from_state(workspace_id, actor_id, &remote_state)
+                .await?;
+            self.apply_merged_to_documents(workspace_id, &remote_state)
+                .await?;
+            self.clear_dirty(workspace_id)
+                .await
+                .map_err(|err| {
+                    error!(workspace_id = %workspace_id, error = %err, "git_pull_clear_dirty_failed");
+                    err
+                })?;
+
+            info!(
+                workspace_id = %workspace_id,
+                commit = %encode_commit_id(&remote_meta.commit_id),
+                "git_pull_fast_forward_remote"
+            );
+
+            return Ok(GitPullResultDto {
+                success: true,
+                message: "fast-forwarded to remote".to_string(),
+                files_changed,
+                commit_hash: Some(encode_commit_id(&remote_meta.commit_id)),
+                conflicts: None,
+                base_commit: base_commit.clone(),
+                remote_commit: Some(remote_meta.commit_id.clone()),
+            });
         }
 
         // Diverged: merge local into remote (linear, parent = remote)
@@ -2966,7 +3642,12 @@ impl GitWorkspacePort for GitWorkspaceService {
         self.apply_merged_to_documents(workspace_id, &merged_snapshots)
             .await?;
 
-        self.clear_dirty(workspace_id).await.ok();
+        self.clear_dirty(workspace_id)
+            .await
+            .map_err(|err| {
+                error!(workspace_id = %workspace_id, error = %err, "git_pull_merge_clear_dirty_failed");
+                err
+            })?;
 
         Ok(GitPullResultDto {
             success: true,
@@ -2979,193 +3660,136 @@ impl GitWorkspacePort for GitWorkspaceService {
         })
     }
 
-    async fn head_commit(&self, workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
-        Ok(self
-            .latest_commit_meta(workspace_id)
-            .await?
-            .map(|m| m.commit_id))
-    }
-
-    async fn remote_head(
-        &self,
-        workspace_id: Uuid,
-        cfg: &UserGitCfg,
-    ) -> anyhow::Result<Option<Vec<u8>>> {
-        let state = self.load_repository_state(workspace_id).await?;
-        let Some((initialized, branch_default)) = state else {
-            anyhow::bail!("repository not initialized");
-        };
-        if !initialized {
-            anyhow::bail!("repository not initialized");
-        }
-        if cfg.repository_url.is_empty() {
-            anyhow::bail!("remote not configured");
-        }
-        let branch = if cfg.branch_name.is_empty() {
-            branch_default
-        } else {
-            cfg.branch_name.clone()
-        };
-        let temp_dir = TempDirBuilder::new()
-            .prefix("git-remote-head-")
-            .tempdir()
-            .map_err(|e| anyhow!(e))?;
-        let repo = Repository::init_bare(temp_dir.path())?;
-        let head = fetch_remote_head(&repo, cfg, &branch)?;
-        Ok(head.map(|oid| oid.as_bytes().to_vec()))
-    }
-
-    async fn has_pending_changes(&self, workspace_id: Uuid) -> anyhow::Result<bool> {
-        let dirty_rows = self.fetch_dirty(workspace_id).await?;
-        Ok(!dirty_rows.is_empty())
-    }
-
-    // Build a synthetic commit that represents the current workspace state, so dirty edits participate in merge.
-    fn build_synthetic_commit(
-        &self,
-        workspace_id: Uuid,
-        repo: &Repository,
-        base_oid: git2::Oid,
-    ) -> anyhow::Result<git2::Oid> {
-        // Collect current workspace state into blobs and index entries (supports nested paths).
-        let current_state = tokio::task::block_in_place(|| {
-            let handle = tokio::runtime::Handle::current();
-            handle.block_on(self.collect_current_state(workspace_id))
-        })?;
-
-        let mut index = repo.index()?;
-        index.clear()?;
-
-        for (path, snapshot) in current_state.iter() {
-            let bytes = tokio::task::block_in_place(|| {
-                let handle = tokio::runtime::Handle::current();
-                handle.block_on(self.snapshot_bytes(snapshot))
-            })?;
-            let blob_oid = repo.blob(&bytes)?;
-
-            let entry = git2::IndexEntry {
-                ctime: git2::IndexTime::new(0, 0),
-                mtime: git2::IndexTime::new(0, 0),
-                dev: 0,
-                ino: 0,
-                mode: 0o100644,
-                uid: 0,
-                gid: 0,
-                file_size: bytes.len() as u32,
-                id: blob_oid,
-                flags: std::cmp::min(path.as_bytes().len(), 0x0fff) as u16,
-                flags_extended: 0,
-                path: path.as_bytes().to_vec(),
-            };
-            index.add(&entry)?;
-        }
-
-        let tree_oid = index.write_tree_to(repo)?;
-        let tree = repo.find_tree(tree_oid)?;
-
-        // Create a synthetic commit with remote as parent to anchor the merge base.
-        // Use an explicit signature so we don't rely on local git config being present.
-        let sig = signature_from_parts("RefMD", "refmd@example.com", Utc::now())?;
-        let commit_oid = repo.commit(
-            Some("refs/heads/synthetic-workspace"),
-            &sig,
-            &sig,
-            "workspace-state",
-            &tree,
-            &[&repo.find_commit(base_oid)?],
-        )?;
-        Ok(commit_oid)
-    }
-
-    async fn drift_since_commit(
-        &self,
-        workspace_id: Uuid,
-        base_commit: &[u8],
-    ) -> anyhow::Result<bool> {
-        let Some(meta) = self.commit_meta_by_id(workspace_id, base_commit).await? else {
-            return Ok(true);
-        };
-        let base_index = meta.file_hash_index;
-        let current_state = self.collect_current_state(workspace_id).await?;
-        if base_index.len() != current_state.len() {
-            return Ok(true);
-        }
-        for (path, snapshot) in current_state.into_iter() {
-            let Some(base_hash) = base_index.get(&path) else {
-                return Ok(true);
-            };
-            if base_hash != &snapshot.hash {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    async fn check_remote(
-        &self,
-        workspace_id: Uuid,
-        cfg: &UserGitCfg,
-    ) -> anyhow::Result<GitRemoteCheckDto> {
-        if cfg.repository_url.is_empty() {
-            return Ok(GitRemoteCheckDto {
-                ok: true,
-                message: "remote not configured".to_string(),
-                reason: Some("no_remote".to_string()),
-            });
-        }
-        let branch = cfg.branch_name.clone();
-        let temp_dir = TempDirBuilder::new()
-            .prefix("git-check-")
-            .tempdir()
-            .map_err(|e| anyhow!(e))?;
-        let repo = Repository::init_bare(temp_dir.path())?;
-        let result = match fetch_remote_head(&repo, cfg, &branch) {
-            Ok(Some(_)) => GitRemoteCheckDto {
-                ok: true,
-                message: "remote reachable".to_string(),
-                reason: None,
-            },
-            Ok(None) => GitRemoteCheckDto {
-                ok: false,
-                message: format!("branch '{branch}' not found on remote"),
-                reason: Some("branch_missing".to_string()),
-            },
-            Err(err) => {
-                let lower = err.to_string().to_lowercase();
-                let (reason, msg) = if lower.contains("git_http_auth_redirect") {
-                    (
-                        Some("auth_required".to_string()),
-                        "remote requires authentication or SSO approval".to_string(),
-                    )
-                } else if lower.contains("git_http_not_found") || lower.contains("status code: 404")
-                {
-                    (
-                        Some("repo_not_found".to_string()),
-                        "repository URL or branch not found".to_string(),
-                    )
-                } else {
-                    (None, err.to_string())
-                };
-                GitRemoteCheckDto {
-                    ok: false,
-                    message: msg,
-                    reason,
-                }
-            }
-        };
-        drop(repo);
-        let _ = temp_dir.close();
-        info!(workspace_id = %workspace_id, ok = %result.ok, reason = ?result.reason, "git_remote_check_completed");
-        Ok(result)
-    }
-}
-
-impl GitWorkspaceService {
     async fn persist_pack_chain(
         &self,
         workspace_id: Uuid,
         until: Option<&[u8]>,
     ) -> anyhow::Result<Option<(TempDir, Vec<PathBuf>)>> {
+        // Attempt to rebuild pack chain from stored snapshots if packs are missing or corrupted.
+        async fn rebuild_from_snapshots(
+            svc: &GitWorkspaceService,
+            workspace_id: Uuid,
+            until: Option<&[u8]>,
+        ) -> anyhow::Result<Option<(TempDir, Vec<PathBuf>)>> {
+            // Collect commit metas from oldest to newest
+            let mut chain: Vec<CommitMeta> = Vec::new();
+            let mut cursor = match until {
+                Some(id) => svc.commit_meta_by_id(workspace_id, id).await?,
+                None => svc.latest_commit_meta(workspace_id).await?,
+            };
+            while let Some(meta) = cursor {
+                chain.push(meta.clone());
+                if let Some(parent) = meta.parent_commit_id.as_ref() {
+                    cursor = svc.commit_meta_by_id(workspace_id, parent).await?;
+                } else {
+                    break;
+                }
+            }
+            if chain.is_empty() {
+                return Ok(None);
+            }
+            chain.reverse();
+
+            // Preload snapshots async
+            let mut prepared: Vec<(CommitMeta, Vec<(String, Vec<u8>)>)> = Vec::new();
+            for meta in chain.iter() {
+                let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+                for path in meta.file_hash_index.keys() {
+                    let Some(bytes) = svc
+                        .load_file_snapshot(workspace_id, meta.commit_id.as_slice(), path)
+                        .await?
+                    else {
+                        anyhow::bail!(
+                            "missing snapshot blob for {} at commit {}",
+                            path,
+                            encode_commit_id(&meta.commit_id)
+                        );
+                    };
+                    entries.push((path.clone(), bytes));
+                }
+                prepared.push((meta.clone(), entries));
+            }
+
+            // Build packs synchronously to avoid Send issues with git2 types
+            let (temp_dir, pack_paths) = tokio::task::block_in_place(|| -> anyhow::Result<_> {
+                let temp_dir = tempfile::tempdir()?;
+                let repo = Repository::init_bare(temp_dir.path())?;
+                let mut built_commits: HashMap<Vec<u8>, git2::Oid> = HashMap::new();
+                let mut pack_paths: Vec<PathBuf> = Vec::new();
+
+                for (meta, entries) in prepared.into_iter() {
+                    let mut builder = repo.treebuilder(None)?;
+                    for (path, bytes) in entries.iter() {
+                        let blob_oid = repo.blob(bytes)?;
+                        builder.insert(path, blob_oid, FileMode::Blob.into())?;
+                    }
+                    let tree_oid = builder.write()?;
+                    let tree = repo.find_tree(tree_oid)?;
+
+                    let sig = signature_from_parts(
+                        meta.author_name.as_deref().unwrap_or("RefMD"),
+                        meta.author_email.as_deref().unwrap_or("refmd@example.com"),
+                        meta.committed_at,
+                    )?;
+                    let mut parents = Vec::new();
+                    if let Some(parent) = meta.parent_commit_id.as_ref() {
+                        if let Some(existing) = built_commits.get(parent) {
+                            parents.push(repo.find_commit(*existing)?);
+                        }
+                    }
+                    let parent_refs: Vec<&Commit> = parents.iter().collect();
+                    let commit_oid = repo.commit(
+                        None,
+                        &sig,
+                        &sig,
+                        meta.message
+                            .as_deref()
+                            .unwrap_or("Recovered commit from snapshots"),
+                        &tree,
+                        &parent_refs,
+                    )?;
+                    if commit_oid.as_bytes() != meta.commit_id.as_slice() {
+                        anyhow::bail!(
+                            "reconstructed commit id mismatch for {}",
+                            encode_commit_id(&meta.commit_id)
+                        );
+                    }
+                    built_commits.insert(meta.commit_id.clone(), commit_oid);
+
+                    let mut pack_builder = repo.packbuilder()?;
+                    pack_builder.insert_commit(commit_oid)?;
+                    for p in parents.iter() {
+                        pack_builder.insert_commit(p.id())?;
+                    }
+                    let mut pack_buf = git2::Buf::new();
+                    pack_builder.write_buf(&mut pack_buf)?;
+                    let pack_bytes = pack_buf.to_vec();
+
+                    let pack_path =
+                        temp_dir.path().join(format!("{:08}.pack", pack_paths.len()));
+                    std::fs::write(&pack_path, &pack_bytes)?;
+                    pack_paths.push(pack_path);
+                }
+
+                Ok((temp_dir, pack_paths))
+            })?;
+
+            // Persist rebuilt packs and metas back to storage
+            for (idx, meta) in chain.iter().enumerate() {
+                let pack_bytes = std::fs::read(&pack_paths[idx])?;
+                svc.git_storage
+                    .store_pack(workspace_id, &pack_bytes, meta)
+                    .await?;
+                svc.upsert_commit_record(workspace_id, meta).await?;
+                let _ = svc
+                    .git_storage
+                    .set_latest_commit(workspace_id, Some(meta))
+                    .await;
+            }
+
+            Ok(Some((temp_dir, pack_paths)))
+        }
+
         let mut attempts = 0;
         loop {
             match self.git_storage.load_pack_chain(workspace_id, until).await {
@@ -3189,6 +3813,11 @@ impl GitWorkspaceService {
                 Err(err) => {
                     let err_str = err.to_string();
                     let is_missing_objects = err_str.to_lowercase().contains("missing") && err_str.to_lowercase().contains("object");
+                    if let Some(rebuilt) =
+                        rebuild_from_snapshots(self, workspace_id, until).await?
+                    {
+                        return Ok(Some(rebuilt));
+                    }
                     if attempts == 0 {
                         if let Some(commit_hex) = missing_metadata_commit(&err) {
                             match self
@@ -3393,6 +4022,28 @@ fn apply_pack_to_repo(repo: &Repository, pack: &[u8]) -> anyhow::Result<()> {
     indexer.write_all(pack)?;
     indexer.commit()?;
     Ok(())
+}
+
+fn read_first_pack(repo_path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+    let pack_dir = repo_path.join("objects").join("pack");
+    if !pack_dir.exists() {
+        return Ok(None);
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(&pack_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "pack")
+                .unwrap_or(false)
+        })
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
+    if let Some(entry) = entries.first() {
+        let bytes = std::fs::read(entry.path())?;
+        return Ok(Some(bytes));
+    }
+    Ok(None)
 }
 
 fn find_front_matter_end(s: &str) -> Option<(usize, usize)> {

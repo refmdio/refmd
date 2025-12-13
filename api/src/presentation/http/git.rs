@@ -712,6 +712,7 @@ pub async fn pull_repository(
     let dto = service
         .pull_repository(
             workspace_id,
+            user_id,
             GitPullRequestDto {
                 resolutions: req
                     .resolutions
@@ -800,7 +801,7 @@ pub async fn start_pull_session(
         .await?;
 
     let service = ctx.git_service();
-    let dto = match service.start_pull_session(workspace_id).await {
+    let dto = match service.start_pull_session(workspace_id, user_id).await {
         Ok(v) => v,
         Err(err) => {
             let message = match &err {
@@ -999,6 +1000,7 @@ pub async fn resolve_pull_session(
     let dto = match service
         .pull_repository(
             workspace_id,
+            user_id,
             GitPullRequestDto {
                 resolutions: resolutions
                     .iter()
