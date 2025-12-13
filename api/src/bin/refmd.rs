@@ -650,15 +650,6 @@ impl GitWorkspacePort for CliGitWorkspace {
         Ok(false)
     }
 
-    fn build_synthetic_commit(
-        &self,
-        _workspace_id: Uuid,
-        _repo: &git2::Repository,
-        _base_oid: git2::Oid,
-    ) -> anyhow::Result<git2::Oid> {
-        anyhow::bail!("not supported in CLI")
-    }
-
     async fn check_remote(
         &self,
         _workspace_id: Uuid,

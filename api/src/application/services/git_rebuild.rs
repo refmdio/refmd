@@ -391,15 +391,6 @@ mod tests {
         ) -> anyhow::Result<bool> {
             Ok(false)
         }
-
-        fn build_synthetic_commit(
-            &self,
-            _workspace_id: Uuid,
-            _repo: &git2::Repository,
-            _base_oid: git2::Oid,
-        ) -> anyhow::Result<git2::Oid> {
-            anyhow::bail!("not supported")
-        }
     }
 
     struct RecordingJobQueue {

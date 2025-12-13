@@ -58,14 +58,6 @@ pub trait GitWorkspacePort: Send + Sync {
         base_commit: &[u8],
     ) -> anyhow::Result<bool>;
 
-    /// Build a synthetic commit representing current workspace state (used for merges with dirty workspaces).
-    fn build_synthetic_commit(
-        &self,
-        workspace_id: Uuid,
-        repo: &git2::Repository,
-        base_oid: git2::Oid,
-    ) -> anyhow::Result<git2::Oid>;
-
     async fn check_remote(
         &self,
         workspace_id: Uuid,
