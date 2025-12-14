@@ -360,6 +360,7 @@ function DocumentClient({
           if ((session as any)?.status === 'stale') {
             clearSession()
             clearResolutions()
+            lastPayloadRef.current = []
             setConflictsForDoc([])
             toast.error('Pull session expired. Please pull again.')
             return
@@ -463,6 +464,7 @@ function DocumentClient({
       if (result.status === 'stale') {
         clearSession()
         clearResolutions()
+        lastPayloadRef.current = []
         toast.error('Pull session expired. Please pull again.')
         return
       }

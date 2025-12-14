@@ -384,6 +384,8 @@ impl GitService {
                     ServiceError::BadRequest("repository_not_initialized")
                 } else if msg.contains("remote not configured") {
                     ServiceError::BadRequest("remote_not_configured")
+                } else if msg.contains("custom_text content required") {
+                    ServiceError::BadRequest("resolution_content_required")
                 } else {
                     ServiceError::from(err)
                 }

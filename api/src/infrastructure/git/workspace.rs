@@ -3455,7 +3455,13 @@ impl GitWorkspaceService {
                 let selected_bytes = match res.choice.as_str() {
                     "ours" => ours_bytes.clone(),
                     "theirs" => theirs_bytes.clone(),
-                    "custom_text" => Some(res.content.clone().unwrap_or_default().into_bytes()),
+                    "custom_text" => {
+                        let content = res
+                            .content
+                            .as_ref()
+                            .ok_or_else(|| anyhow!("custom_text content required"))?;
+                        Some(content.as_bytes().to_vec())
+                    }
                     other => anyhow::bail!("unsupported resolution choice {other}"),
                 }
                 .unwrap_or_default();
