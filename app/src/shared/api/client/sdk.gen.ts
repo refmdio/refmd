@@ -836,6 +836,10 @@ export const finalizePullSession = (data: FinalizePullSessionData): CancelablePr
         url: '/api/git/pull/session/{id}/finalize',
         path: {
             id: data.id
+        },
+        errors: {
+            400: '',
+            409: ''
         }
     });
 };
@@ -857,6 +861,7 @@ export const resolvePullSession = (data: ResolvePullSessionData): CancelableProm
         body: data.requestBody,
         mediaType: 'application/json',
         errors: {
+            400: '',
             409: ''
         }
     });
@@ -871,6 +876,7 @@ export const startPullSession = (): CancelablePromise<StartPullSessionResponse> 
         method: 'POST',
         url: '/api/git/pull/start',
         errors: {
+            400: '',
             409: 'Conflicts detected'
         }
     });

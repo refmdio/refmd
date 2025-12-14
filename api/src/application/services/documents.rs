@@ -27,7 +27,6 @@ use crate::application::ports::storage_projection_queue::{
 };
 use crate::application::services::errors::ServiceError;
 use crate::application::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
-use crate::application::utils::hash::sha256_hex;
 use crate::application::use_cases::documents::archive_document::ArchiveDocument;
 use crate::application::use_cases::documents::create_document::CreateDocument;
 use crate::application::use_cases::documents::delete_document::DeleteDocument;
@@ -49,6 +48,7 @@ use crate::application::use_cases::documents::snapshot_download::{
 };
 use crate::application::use_cases::documents::unarchive_document::UnarchiveDocument;
 use crate::application::use_cases::documents::update_document::UpdateDocument;
+use crate::application::utils::hash::sha256_hex;
 use crate::domain::documents::document::{
     BacklinkInfo as DomainBacklink, Document as DomainDocument, OutgoingLink as DomainOutgoingLink,
     SearchHit,

@@ -1,0 +1,2 @@
+ALTER TABLE git_pull_sessions
+ADD COLUMN IF NOT EXISTS message TEXT NULL;

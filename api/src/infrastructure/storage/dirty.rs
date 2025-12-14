@@ -13,10 +13,11 @@ pub struct GlobalSuppressGuard;
 
 impl Drop for GlobalSuppressGuard {
     fn drop(&mut self) {
-        GLOBAL_SUPPRESS_COUNT.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-            Some(v.saturating_sub(1))
-        })
-        .ok();
+        GLOBAL_SUPPRESS_COUNT
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                Some(v.saturating_sub(1))
+            })
+            .ok();
     }
 }
 

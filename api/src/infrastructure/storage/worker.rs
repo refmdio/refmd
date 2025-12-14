@@ -134,9 +134,9 @@ impl StorageProjectionWorker {
                         let doc_id = job
                             .doc_id
                             .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
-                        let res =
-                            self.handle_delete_doc(doc_id, delete_metadata.as_ref())
-                                .await;
+                        let res = self
+                            .handle_delete_doc(doc_id, delete_metadata.as_ref())
+                            .await;
                         if res.is_ok() {
                             self.emit_projection_event(doc_id, &job, "succeeded", None)
                                 .await;

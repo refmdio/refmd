@@ -142,6 +142,7 @@ pub struct GitPullSessionDto {
     pub status: String,
     pub conflicts: Vec<GitPullConflictItemDto>,
     pub resolutions: Vec<GitPullResolutionDto>,
+    pub message: Option<String>,
     pub base_commit: Option<Vec<u8>>,
     pub remote_commit: Option<Vec<u8>>,
 }

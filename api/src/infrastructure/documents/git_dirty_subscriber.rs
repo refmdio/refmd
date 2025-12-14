@@ -29,14 +29,12 @@ impl GitDirtyDocEventSubscriber {
 
     #[allow(dead_code)]
     async fn desired_path(&self, doc_id: Uuid) -> anyhow::Result<Option<String>> {
-        sqlx::query_scalar::<_, Option<String>>(
-            "SELECT desired_path FROM documents WHERE id = $1",
-        )
-        .bind(doc_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(anyhow::Error::from)
-        .map(|row| row.flatten())
+        sqlx::query_scalar::<_, Option<String>>("SELECT desired_path FROM documents WHERE id = $1")
+            .bind(doc_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(anyhow::Error::from)
+            .map(|row| row.flatten())
     }
 
     async fn doc_type(&self, doc_id: Uuid) -> anyhow::Result<Option<String>> {

@@ -32,6 +32,7 @@ use crate::application::use_cases::git::init_repo::{DeinitRepo, InitRepo};
 use crate::application::use_cases::git::pull::PullRepository;
 use crate::application::use_cases::git::sync_now::SyncNow;
 use crate::application::use_cases::git::upsert_config::UpsertGitConfig;
+use tracing::warn;
 
 pub struct GitService {
     repo: Arc<dyn GitRepository>,
@@ -372,18 +373,21 @@ impl GitService {
             workspace: self.workspace.as_ref(),
             repo: self.repo.as_ref(),
         };
-        let mut dto = uc.execute(workspace_id, actor_id, req).await.map_err(|err| {
-            let msg = err.to_string();
-            if msg.contains("pending changes") {
-                ServiceError::BadRequest("workspace_has_pending_changes")
-            } else if msg.contains("not initialized") {
-                ServiceError::BadRequest("repository_not_initialized")
-            } else if msg.contains("remote not configured") {
-                ServiceError::BadRequest("remote_not_configured")
-            } else {
-                ServiceError::from(err)
-            }
-        })?;
+        let mut dto = uc
+            .execute(workspace_id, actor_id, req)
+            .await
+            .map_err(|err| {
+                let msg = err.to_string();
+                if msg.contains("pending changes") {
+                    ServiceError::BadRequest("workspace_has_pending_changes")
+                } else if msg.contains("not initialized") {
+                    ServiceError::BadRequest("repository_not_initialized")
+                } else if msg.contains("remote not configured") {
+                    ServiceError::BadRequest("remote_not_configured")
+                } else {
+                    ServiceError::from(err)
+                }
+            })?;
 
         if let Some(conflicts) = dto.conflicts.take() {
             dto.conflicts = Some(
@@ -416,7 +420,9 @@ impl GitService {
         if let Some(head) = self.workspace.head_commit(workspace_id).await? {
             dto.base_commit = Some(head);
         }
-        let status = if conflicts.is_empty() {
+        let status = if !dto.success && conflicts.is_empty() {
+            "error".to_string()
+        } else if conflicts.is_empty() {
             "merged".to_string()
         } else {
             "pending".to_string()
@@ -427,6 +433,7 @@ impl GitService {
             status,
             conflicts,
             resolutions: Vec::new(),
+            message: Some(dto.message.clone()),
             base_commit: dto.base_commit,
             remote_commit: dto.remote_commit,
         };
@@ -445,12 +452,10 @@ impl GitService {
             .load_pull_session(workspace_id, session_id)
             .await?
             .ok_or(ServiceError::NotFound)?;
-        if self
-            .pull_session_is_stale(workspace_id, &existing)
-            .await?
-        {
+        if self.pull_session_is_stale(workspace_id, &existing).await? {
             let mut stale = existing.clone();
             stale.status = "stale".to_string();
+            stale.message = Some("Pull session is stale".to_string());
             let _ = self.save_pull_session(stale.clone()).await;
             return Ok(stale);
         }
@@ -465,7 +470,9 @@ impl GitService {
             )
             .await?;
         let conflicts = dto.conflicts.clone().unwrap_or_default();
-        let status = if conflicts.is_empty() {
+        let status = if !dto.success && conflicts.is_empty() {
+            "error".to_string()
+        } else if conflicts.is_empty() {
             "merged".to_string()
         } else {
             "resolving".to_string()
@@ -484,6 +491,7 @@ impl GitService {
             status,
             conflicts,
             resolutions,
+            message: Some(dto.message.clone()),
             base_commit,
             remote_commit: dto.remote_commit,
         };
@@ -500,12 +508,18 @@ impl GitService {
             .load_pull_session(workspace_id, session_id)
             .await?
             .ok_or(ServiceError::NotFound)?;
-        if self
-            .pull_session_is_stale(workspace_id, &existing)
-            .await?
-        {
+        if existing.status == "error" {
+            return Ok(FinalizePullSessionResult {
+                session: existing,
+                git_status: None,
+            });
+        }
+        if self.pull_session_is_stale(workspace_id, &existing).await? {
             let mut stale = existing.clone();
             stale.status = "stale".to_string();
+            if stale.message.is_none() {
+                stale.message = Some("Pull session is stale".to_string());
+            }
             let _ = self.save_pull_session(stale.clone()).await;
             return Ok(FinalizePullSessionResult {
                 session: stale,
@@ -525,6 +539,7 @@ impl GitService {
             status: "merged".to_string(),
             conflicts: Vec::new(),
             resolutions: existing.resolutions.clone(),
+            message: Some("merge completed".to_string()),
             base_commit: existing.base_commit.clone(),
             remote_commit: existing.remote_commit.clone(),
         };
@@ -546,6 +561,7 @@ impl GitService {
         };
         if self.pull_session_is_stale(workspace_id, &session).await? {
             session.status = "stale".to_string();
+            session.message = Some("Pull session is stale".to_string());
             let _ = self.save_pull_session(session.clone()).await;
         }
         Ok(Some(session))
@@ -641,7 +657,7 @@ impl GitService {
             .await
             .map_err(ServiceError::from)?;
         let Some(cfg) = cfg else {
-            return Ok(true);
+            return Err(ServiceError::BadRequest("remote_not_configured"));
         };
 
         if let Some(saved_base) = session.base_commit.as_ref() {
@@ -662,14 +678,28 @@ impl GitService {
         }
 
         if let Some(saved_remote) = session.remote_commit.as_ref() {
-            if let Some(current_remote) = self
-                .workspace
-                .remote_head(workspace_id, &cfg)
-                .await
-                .map_err(ServiceError::from)?
-            {
-                if saved_remote != &current_remote {
-                    return Ok(true);
+            match self.workspace.remote_head(workspace_id, &cfg).await {
+                Ok(Some(current_remote)) => {
+                    if saved_remote != &current_remote {
+                        return Ok(true);
+                    }
+                }
+                Ok(None) => return Ok(true),
+                Err(err) => {
+                    let msg = err.to_string();
+                    let mapped = if msg.contains("not initialized") {
+                        ServiceError::BadRequest("repository_not_initialized")
+                    } else if msg.contains("remote not configured") {
+                        ServiceError::BadRequest("remote_not_configured")
+                    } else {
+                        ServiceError::from(err)
+                    };
+                    warn!(
+                        workspace_id = %workspace_id,
+                        error = %msg,
+                        "git_pull_remote_head_unavailable"
+                    );
+                    return Err(mapped);
                 }
             }
         }

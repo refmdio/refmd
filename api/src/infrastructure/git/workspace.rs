@@ -103,10 +103,7 @@ impl GitWorkspaceService {
         tx.commit().await?;
 
         let _ = self.git_storage.delete_all(workspace_id).await;
-        let _ = self
-            .git_storage
-            .set_latest_commit(workspace_id, None)
-            .await;
+        let _ = self.git_storage.set_latest_commit(workspace_id, None).await;
 
         // Re-bootstrap remote history (best effort).
         let _ = self
@@ -257,9 +254,7 @@ impl GitWorkspaceService {
         let mut latest_meta = self.git_storage.latest_commit(workspace_id).await?;
 
         for oid in ordered {
-            let existing_meta = self
-                .commit_meta_by_id(workspace_id, oid.as_bytes())
-                .await?;
+            let existing_meta = self.commit_meta_by_id(workspace_id, oid.as_bytes()).await?;
             let existing_pack = self
                 .git_storage
                 .fetch_pack_for_commit(workspace_id, oid.as_bytes())
@@ -1108,7 +1103,14 @@ impl GitWorkspaceService {
             };
             let folder = self
                 .docs
-                .create_for_user(workspace_id, actor_id, title, current_parent, "folder", None)
+                .create_for_user(
+                    workspace_id,
+                    actor_id,
+                    title,
+                    current_parent,
+                    "folder",
+                    None,
+                )
                 .await?;
             self.docs
                 .update_repo_path(folder.id, workspace_id, &accumulated)
@@ -1194,11 +1196,8 @@ impl GitWorkspaceService {
 
             let bytes = self.snapshot_bytes(snapshot).await.unwrap_or_default();
             if snapshot.is_text {
-                let body = extract_markdown_body(&bytes).unwrap_or_else(|| {
-                    std::str::from_utf8(&bytes)
-                        .unwrap_or_default()
-                        .to_string()
-                });
+                let body = extract_markdown_body(&bytes)
+                    .unwrap_or_else(|| std::str::from_utf8(&bytes).unwrap_or_default().to_string());
                 let snap_bytes = snapshot_from_markdown(&body);
                 let _ = self
                     .realtime
@@ -2012,7 +2011,8 @@ impl GitWorkspacePort for GitWorkspaceService {
                         let repo = Repository::init_bare(temp_dir.path())?;
                         apply_pack_files(&repo, &pack_paths)?;
                         let oid = git2::Oid::from_bytes(&latest.commit_id)?;
-                        let pushed = perform_push(&repo, cfg.unwrap(), &branch_name, oid, force_push)?;
+                        let pushed =
+                            perform_push(&repo, cfg.unwrap(), &branch_name, oid, force_push)?;
                         drop(repo);
                         drop(temp_dir);
                         let _ = self.clear_dirty(workspace_id).await;
@@ -2499,12 +2499,10 @@ impl GitWorkspacePort for GitWorkspaceService {
         }
 
         // Best-effort clear of processed dirty entries
-        self.clear_dirty(workspace_id)
-            .await
-            .map_err(|err| {
-                error!(workspace_id = %workspace_id, error = %err, "git_import_clear_dirty_failed");
-                err
-            })?;
+        self.clear_dirty(workspace_id).await.map_err(|err| {
+            error!(workspace_id = %workspace_id, error = %err, "git_import_clear_dirty_failed");
+            err
+        })?;
         let outcome_message = if pushed {
             "sync completed".to_string()
         } else if skip_push {
@@ -2568,17 +2566,16 @@ impl GitWorkspacePort for GitWorkspaceService {
         // Materialize documents and attachments from imported state; surface failures so Import can fail loudly.
         let (docs_created, attachments_created) =
             crate::infrastructure::storage::suppress_git_dirty(async {
-                self.materialize_documents_from_state(workspace_id, actor_id, &state).await
+                self.materialize_documents_from_state(workspace_id, actor_id, &state)
+                    .await
             })
             .await?;
 
         self.apply_merged_to_documents(workspace_id, &state).await?;
-        self.clear_dirty(workspace_id)
-            .await
-            .map_err(|err| {
-                error!(workspace_id = %workspace_id, error = %err, "git_import_clear_dirty_failed");
-                err
-            })?;
+        self.clear_dirty(workspace_id).await.map_err(|err| {
+            error!(workspace_id = %workspace_id, error = %err, "git_import_clear_dirty_failed");
+            err
+        })?;
 
         Ok(GitImportOutcome {
             files_changed,
@@ -2929,7 +2926,10 @@ impl GitWorkspaceService {
         };
 
         // Nothing to do when remote is identical to or behind the local head.
-        if matches!(commit_relation, CommitRelation::Same | CommitRelation::LocalAhead) {
+        if matches!(
+            commit_relation,
+            CommitRelation::Same | CommitRelation::LocalAhead
+        ) {
             let commit_hash = local_oid
                 .as_ref()
                 .map(|oid| encode_commit_id(oid.as_bytes()));
@@ -3228,7 +3228,8 @@ impl GitWorkspaceService {
                     .store_pack(workspace_id, pack_bytes, &remote_meta)
                     .await?;
             }
-            self.upsert_commit_record(workspace_id, &remote_meta).await?;
+            self.upsert_commit_record(workspace_id, &remote_meta)
+                .await?;
 
             let snapshot_keys = self
                 .store_commit_snapshots(workspace_id, &remote_meta.commit_id, &remote_state)
@@ -3247,12 +3248,11 @@ impl GitWorkspaceService {
 
             let mut tx = self.pool.begin().await?;
             // Ensure repo row still exists and initialized.
-            let repo_row = sqlx::query(
-                "SELECT initialized FROM git_repository_state WHERE workspace_id = $1",
-            )
-            .bind(workspace_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+            let repo_row =
+                sqlx::query("SELECT initialized FROM git_repository_state WHERE workspace_id = $1")
+                    .bind(workspace_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
             let Some(repo_row) = repo_row else {
                 tx.rollback().await.ok();
                 anyhow::bail!("repository not initialized")
@@ -3289,10 +3289,12 @@ impl GitWorkspaceService {
             .execute(&mut *tx)
             .await?;
 
-            sqlx::query("UPDATE git_repository_state SET updated_at = now() WHERE workspace_id = $1")
-                .bind(workspace_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE git_repository_state SET updated_at = now() WHERE workspace_id = $1",
+            )
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await?;
             tx.commit().await?;
 
             let files_changed = self
@@ -3304,12 +3306,10 @@ impl GitWorkspaceService {
                 .await?;
             self.apply_merged_to_documents(workspace_id, &remote_state)
                 .await?;
-            self.clear_dirty(workspace_id)
-                .await
-                .map_err(|err| {
-                    error!(workspace_id = %workspace_id, error = %err, "git_pull_clear_dirty_failed");
-                    err
-                })?;
+            self.clear_dirty(workspace_id).await.map_err(|err| {
+                error!(workspace_id = %workspace_id, error = %err, "git_pull_clear_dirty_failed");
+                err
+            })?;
 
             info!(
                 workspace_id = %workspace_id,
@@ -3544,7 +3544,8 @@ impl GitWorkspaceService {
             self.git_storage
                 .store_pack(workspace_id, &remote_pack_bytes, &remote_meta)
                 .await?;
-            self.upsert_commit_record(workspace_id, &remote_meta).await?;
+            self.upsert_commit_record(workspace_id, &remote_meta)
+                .await?;
         }
 
         let snapshot_keys = self
@@ -3620,12 +3621,10 @@ impl GitWorkspaceService {
         self.apply_merged_to_documents(workspace_id, &merged_snapshots)
             .await?;
 
-        self.clear_dirty(workspace_id)
-            .await
-            .map_err(|err| {
-                error!(workspace_id = %workspace_id, error = %err, "git_pull_merge_clear_dirty_failed");
-                err
-            })?;
+        self.clear_dirty(workspace_id).await.map_err(|err| {
+            error!(workspace_id = %workspace_id, error = %err, "git_pull_merge_clear_dirty_failed");
+            err
+        })?;
 
         Ok(GitPullResultDto {
             success: true,
@@ -3743,8 +3742,9 @@ impl GitWorkspaceService {
                     pack_builder.write_buf(&mut pack_buf)?;
                     let pack_bytes = pack_buf.to_vec();
 
-                    let pack_path =
-                        temp_dir.path().join(format!("{:08}.pack", pack_paths.len()));
+                    let pack_path = temp_dir
+                        .path()
+                        .join(format!("{:08}.pack", pack_paths.len()));
                     std::fs::write(&pack_path, &pack_bytes)?;
                     pack_paths.push(pack_path);
                 }
@@ -3790,9 +3790,9 @@ impl GitWorkspaceService {
                 }
                 Err(err) => {
                     let err_str = err.to_string();
-                    let is_missing_objects = err_str.to_lowercase().contains("missing") && err_str.to_lowercase().contains("object");
-                    if let Some(rebuilt) =
-                        rebuild_from_snapshots(self, workspace_id, until).await?
+                    let is_missing_objects = err_str.to_lowercase().contains("missing")
+                        && err_str.to_lowercase().contains("object");
+                    if let Some(rebuilt) = rebuild_from_snapshots(self, workspace_id, until).await?
                     {
                         return Ok(Some(rebuilt));
                     }
@@ -3824,10 +3824,7 @@ impl GitWorkspaceService {
                                 "git_pack_missing_objects_detected_resetting_history"
                             );
                             // Drop storage latest pointer and DB commits for this workspace.
-                            let _ = self
-                                .git_storage
-                                .set_latest_commit(workspace_id, None)
-                                .await;
+                            let _ = self.git_storage.set_latest_commit(workspace_id, None).await;
                             let _ = sqlx::query("DELETE FROM git_commits WHERE workspace_id = $1")
                                 .bind(workspace_id)
                                 .execute(&self.pool)

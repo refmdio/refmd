@@ -241,7 +241,7 @@ impl From<GitPullSessionDto> for GitPullSessionResponse {
                     content: r.content,
                 })
                 .collect(),
-            message: None,
+            message: value.message,
         }
     }
 }
@@ -760,6 +760,7 @@ pub async fn pull_repository(
     tag = "Git",
     responses(
         (status = 200, body = GitPullSessionResponse),
+        (status = 400, body = GitPullSessionResponse),
         (status = 409, body = GitPullSessionResponse, description = "Conflicts detected")
     )
 )]
@@ -782,10 +783,7 @@ pub async fn start_pull_session(
         .await?;
 
     let service = ctx.git_service();
-    let session = match service
-        .start_pull_session_flow(workspace_id, user_id)
-        .await
-    {
+    let session = match service.start_pull_session_flow(workspace_id, user_id).await {
         Ok(v) => v,
         Err(err) => {
             let message = match &err {
@@ -808,6 +806,18 @@ pub async fn start_pull_session(
             ));
         }
     };
+    if session.status == "error" {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(GitPullSessionResponse {
+                session_id: session.id,
+                status: session.status,
+                conflicts: Vec::new(),
+                resolutions: Vec::new(),
+                message: session.message,
+            }),
+        ));
+    }
     let conflicts = session
         .conflicts
         .clone()
@@ -827,7 +837,7 @@ pub async fn start_pull_session(
             status: session.status,
             conflicts,
             resolutions: Vec::new(),
-            message: None,
+            message: session.message,
         }),
     ))
 }
@@ -879,7 +889,7 @@ pub async fn get_pull_session(
                 content: r.content,
             })
             .collect(),
-        message: None,
+        message: state.message,
     }))
 }
 
@@ -890,6 +900,7 @@ pub async fn get_pull_session(
     request_body = GitPullRequest,
     responses(
         (status = 200, body = GitPullSessionResponse),
+        (status = 400, body = GitPullSessionResponse),
         (status = 409, body = GitPullSessionResponse)
     )
 )]
@@ -986,6 +997,9 @@ pub async fn resolve_pull_session(
     if session.status == "stale" {
         status_code = StatusCode::CONFLICT;
     }
+    if session.status == "error" {
+        status_code = StatusCode::BAD_REQUEST;
+    }
     let session_status = session.status.clone();
 
     Ok((
@@ -995,10 +1009,12 @@ pub async fn resolve_pull_session(
             status: session_status.clone(),
             conflicts,
             resolutions,
-            message: if status_code == StatusCode::CONFLICT && session_status == "stale" {
+            message: if session_status == "error" {
+                session.message
+            } else if status_code == StatusCode::CONFLICT && session_status == "stale" {
                 Some("Pull session is stale. Please start a new pull.".to_string())
             } else {
-                None
+                session.message
             },
         }),
     ))
@@ -1008,14 +1024,18 @@ pub async fn resolve_pull_session(
     post,
     path = "/api/git/pull/session/{id}/finalize",
     tag = "Git",
-    responses((status = 200, body = GitPullResponse))
+    responses(
+        (status = 200, body = GitPullResponse),
+        (status = 400, body = GitPullResponse),
+        (status = 409, body = GitPullResponse)
+    )
 )]
 pub async fn finalize_pull_session(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
-) -> Result<Json<GitPullResponse>, StatusCode> {
+) -> Result<(StatusCode, Json<GitPullResponse>), StatusCode> {
     let bearer_token = bearer.0.clone();
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
@@ -1037,34 +1057,65 @@ pub async fn finalize_pull_session(
         .finalize_pull_session_flow(workspace_id, id)
         .await
         .map_err(map_git_error)?;
+    if session.status == "error" {
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(GitPullResponse {
+                success: false,
+                message: session
+                    .message
+                    .clone()
+                    .unwrap_or_else(|| "pull failed".to_string()),
+                files_changed: 0,
+                commit_hash: None,
+                conflicts: Some(session.conflicts.into_iter().map(Into::into).collect()),
+                git_status: None,
+            }),
+        ));
+    }
     if session.status == "stale" {
-        return Ok(Json(GitPullResponse {
-            success: false,
-            message: "pull session stale".to_string(),
-            files_changed: 0,
-            commit_hash: None,
-            conflicts: Some(session.conflicts.into_iter().map(Into::into).collect()),
-            git_status: None,
-        }));
+        return Ok((
+            StatusCode::CONFLICT,
+            Json(GitPullResponse {
+                success: false,
+                message: session
+                    .message
+                    .clone()
+                    .unwrap_or_else(|| "pull session stale".to_string()),
+                files_changed: 0,
+                commit_hash: None,
+                conflicts: Some(session.conflicts.into_iter().map(Into::into).collect()),
+                git_status: None,
+            }),
+        ));
     }
     if !session.conflicts.is_empty() {
-        return Ok(Json(GitPullResponse {
-            success: false,
-            message: "conflicts remaining".to_string(),
+        return Ok((
+            StatusCode::CONFLICT,
+            Json(GitPullResponse {
+                success: false,
+                message: "conflicts remaining".to_string(),
+                files_changed: 0,
+                commit_hash: None,
+                conflicts: Some(session.conflicts.into_iter().map(Into::into).collect()),
+                git_status: None,
+            }),
+        ));
+    }
+    Ok((
+        StatusCode::OK,
+        Json(GitPullResponse {
+            success: true,
+            message: session
+                .message
+                .clone()
+                .unwrap_or_else(|| "merge completed".to_string()),
             files_changed: 0,
             commit_hash: None,
-            conflicts: Some(session.conflicts.into_iter().map(Into::into).collect()),
-            git_status: None,
-        }));
-    }
-    Ok(Json(GitPullResponse {
-        success: true,
-        message: "merge completed".to_string(),
-        files_changed: 0,
-        commit_hash: None,
-        conflicts: None,
-        git_status: git_status.map(Into::into),
-    }))
+            conflicts: None,
+            git_status: git_status.map(Into::into),
+        }),
+    ))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
