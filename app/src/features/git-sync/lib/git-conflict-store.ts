@@ -1,6 +1,7 @@
 import type { GitPullConflictItem, GitPullResolution } from '@/shared/api'
 
 export const GIT_CONFLICT_EVENT = 'refmd:git-conflicts-updated'
+export const GIT_SESSION_EVENT = 'refmd:git-session-updated'
 
 let currentConflicts: GitPullConflictItem[] = []
 let currentResolutions: GitPullResolution[] = []
@@ -65,16 +66,17 @@ export const clearResolutions = () => setResolutions([])
 export const setSessionId = (sessionId: string | null) => {
   currentSessionId = sessionId || null
   persistStorage(STORAGE_SESSION_KEY, sessionId ? [sessionId] : [])
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(GIT_SESSION_EVENT, { detail: currentSessionId }))
+  }
 }
 
 export const clearSession = () => {
-  setSessionId(null)
   clearAllConflicts()
 }
 
 export const clearAllConflicts = () => {
   setConflicts([])
-  setResolutions([])
   setSessionId(null)
 }
 
@@ -86,4 +88,22 @@ export const subscribeConflicts = (handler: (items: GitPullConflictItem[]) => vo
   }
   window.addEventListener(GIT_CONFLICT_EVENT, listener)
   return () => window.removeEventListener(GIT_CONFLICT_EVENT, listener)
+}
+
+export const subscribeSessionId = (handler: (sessionId: string | null) => void) => {
+  if (typeof window === 'undefined') return () => {}
+  const storageListener = (event: StorageEvent) => {
+    if (event.key && event.key !== STORAGE_SESSION_KEY) return
+    handler(readSessionId())
+  }
+  const eventListener = (event: Event) => {
+    const detail = (event as CustomEvent<string | null>).detail
+    handler(detail ?? readSessionId())
+  }
+  window.addEventListener('storage', storageListener)
+  window.addEventListener(GIT_SESSION_EVENT, eventListener)
+  return () => {
+    window.removeEventListener('storage', storageListener)
+    window.removeEventListener(GIT_SESSION_EVENT, eventListener)
+  }
 }

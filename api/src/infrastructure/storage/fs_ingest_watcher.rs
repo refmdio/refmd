@@ -5,13 +5,13 @@ use std::time::Duration;
 use notify::event::{EventKind, ModifyKind, RenameMode};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
 use crate::application::services::storage_ingest::normalize_repo_path;
+use crate::application::utils::hash::sha256_hex;
 use crate::domain::workspaces::permissions::PermissionSet;
 
 pub struct FsIngestWatcher {
@@ -181,13 +181,7 @@ impl FsIngestWatcher {
     ) -> (Option<String>, Option<Value>) {
         match tokio::fs::read(path).await {
             Ok(bytes) => {
-                let mut hasher = Sha256::new();
-                hasher.update(&bytes);
-                let hash = hasher
-                    .finalize()
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect::<String>();
+                let hash = sha256_hex(&bytes);
                 let payload = serde_json::json!({
                     "file_kind": file_kind(repo_path),
                     "is_text": repo_path.ends_with(".md"),

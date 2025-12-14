@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Mutex;
 
+use crate::application::utils::hash::sha256_hex;
+
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 #[serde(default)]
 pub struct RenderOptions {
@@ -49,14 +51,6 @@ fn wants_feature(opts: &RenderOptions, name: &str) -> bool {
         ),
         _ => false,
     }
-}
-
-fn sha256_hex(s: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(s.as_bytes());
-    let out = hasher.finalize();
-    format!("{:x}", out)
 }
 
 fn normalize_wikilink_label(raw: &str) -> (String, bool) {

@@ -5,8 +5,8 @@ use uuid::Uuid;
 use crate::application::dto::diff::TextDiffResult;
 use crate::application::dto::git::{
     GitChangeItem, GitCommitInfo, GitConfigDto, GitPullConflictItemDto, GitPullRequestDto,
-    GitPullResultDto, GitPullSessionDto, GitRemoteCheckDto, GitStatusDto, GitSyncRequestDto,
-    GitSyncResponseDto, GitignoreUpdateDto, UpsertGitConfigInput,
+    GitPullResolutionDto, GitPullResultDto, GitPullSessionDto, GitRemoteCheckDto, GitStatusDto,
+    GitSyncRequestDto, GitSyncResponseDto, GitignoreUpdateDto, UpsertGitConfigInput,
 };
 use crate::application::ports::document_repository::DocumentRepository;
 use crate::application::ports::files_repository::FilesRepository;
@@ -41,6 +41,11 @@ pub struct GitService {
     gitignore: Arc<dyn GitignorePort>,
     workspace: Arc<dyn GitWorkspacePort>,
     pull_sessions: Arc<dyn GitPullSessionRepository>,
+}
+
+pub struct FinalizePullSessionResult {
+    pub session: GitPullSessionDto,
+    pub git_status: Option<GitStatusDto>,
 }
 
 impl GitService {
@@ -390,6 +395,162 @@ impl GitService {
         Ok(dto)
     }
 
+    pub async fn start_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+    ) -> Result<GitPullSessionDto, ServiceError> {
+        let mut dto = self
+            .pull_repository(
+                workspace_id,
+                actor_id,
+                GitPullRequestDto {
+                    resolutions: Vec::new(),
+                },
+            )
+            .await?;
+        let conflicts = dto.conflicts.clone().unwrap_or_default();
+        let session_id = Uuid::new_v4();
+        // Align recorded base commit with the current head so stale detection does not flag a
+        // successfully merged session.
+        if let Some(head) = self.workspace.head_commit(workspace_id).await? {
+            dto.base_commit = Some(head);
+        }
+        let status = if conflicts.is_empty() {
+            "merged".to_string()
+        } else {
+            "pending".to_string()
+        };
+        let session = GitPullSessionDto {
+            id: session_id,
+            workspace_id,
+            status,
+            conflicts,
+            resolutions: Vec::new(),
+            base_commit: dto.base_commit,
+            remote_commit: dto.remote_commit,
+        };
+        self.save_pull_session(session.clone()).await?;
+        Ok(session)
+    }
+
+    pub async fn resolve_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        session_id: Uuid,
+        resolutions: Vec<GitPullResolutionDto>,
+    ) -> Result<GitPullSessionDto, ServiceError> {
+        let existing = self
+            .load_pull_session(workspace_id, session_id)
+            .await?
+            .ok_or(ServiceError::NotFound)?;
+        if self
+            .pull_session_is_stale(workspace_id, &existing)
+            .await?
+        {
+            let mut stale = existing.clone();
+            stale.status = "stale".to_string();
+            let _ = self.save_pull_session(stale.clone()).await;
+            return Ok(stale);
+        }
+
+        let dto = self
+            .pull_repository(
+                workspace_id,
+                actor_id,
+                GitPullRequestDto {
+                    resolutions: resolutions.clone(),
+                },
+            )
+            .await?;
+        let conflicts = dto.conflicts.clone().unwrap_or_default();
+        let status = if conflicts.is_empty() {
+            "merged".to_string()
+        } else {
+            "resolving".to_string()
+        };
+        // When the pull completed (no conflicts), record the latest head as the session base so
+        // subsequent finalize calls don't treat the session as stale.
+        let mut base_commit = dto.base_commit.clone();
+        if conflicts.is_empty() {
+            if let Some(head) = self.workspace.head_commit(workspace_id).await? {
+                base_commit = Some(head);
+            }
+        }
+        let session = GitPullSessionDto {
+            id: session_id,
+            workspace_id,
+            status,
+            conflicts,
+            resolutions,
+            base_commit,
+            remote_commit: dto.remote_commit,
+        };
+        self.save_pull_session(session.clone()).await?;
+        Ok(session)
+    }
+
+    pub async fn finalize_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<FinalizePullSessionResult, ServiceError> {
+        let existing = self
+            .load_pull_session(workspace_id, session_id)
+            .await?
+            .ok_or(ServiceError::NotFound)?;
+        if self
+            .pull_session_is_stale(workspace_id, &existing)
+            .await?
+        {
+            let mut stale = existing.clone();
+            stale.status = "stale".to_string();
+            let _ = self.save_pull_session(stale.clone()).await;
+            return Ok(FinalizePullSessionResult {
+                session: stale,
+                git_status: None,
+            });
+        }
+        if !existing.conflicts.is_empty() {
+            return Ok(FinalizePullSessionResult {
+                session: existing,
+                git_status: None,
+            });
+        }
+        let git_status = self.get_status(workspace_id).await?;
+        let merged = GitPullSessionDto {
+            id: session_id,
+            workspace_id,
+            status: "merged".to_string(),
+            conflicts: Vec::new(),
+            resolutions: existing.resolutions.clone(),
+            base_commit: existing.base_commit.clone(),
+            remote_commit: existing.remote_commit.clone(),
+        };
+        let _ = self.save_pull_session(merged.clone()).await;
+        Ok(FinalizePullSessionResult {
+            session: merged,
+            git_status: Some(git_status),
+        })
+    }
+
+    pub async fn load_pull_session_with_stale_check(
+        &self,
+        workspace_id: Uuid,
+        id: Uuid,
+    ) -> Result<Option<GitPullSessionDto>, ServiceError> {
+        let mut session = match self.load_pull_session(workspace_id, id).await? {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        if self.pull_session_is_stale(workspace_id, &session).await? {
+            session.status = "stale".to_string();
+            let _ = self.save_pull_session(session.clone()).await;
+        }
+        Ok(Some(session))
+    }
+
     async fn attach_conflict_documents(
         &self,
         workspace_id: Uuid,
@@ -451,21 +612,6 @@ impl GitService {
         Ok(out)
     }
 
-    pub async fn start_pull_session(
-        &self,
-        workspace_id: Uuid,
-        actor_id: Uuid,
-    ) -> Result<GitPullResultDto, ServiceError> {
-        self.pull_repository(
-            workspace_id,
-            actor_id,
-            GitPullRequestDto {
-                resolutions: Vec::new(),
-            },
-        )
-        .await
-    }
-
     pub async fn save_pull_session(&self, session: GitPullSessionDto) -> Result<(), ServiceError> {
         self.pull_sessions
             .upsert(session)
@@ -499,16 +645,19 @@ impl GitService {
         };
 
         if let Some(saved_base) = session.base_commit.as_ref() {
-            if let Some(current_head) = self
+            let current_head = self
                 .workspace
                 .head_commit(workspace_id)
                 .await
-                .map_err(ServiceError::from)?
-            {
-                // Only mark stale if the recorded base commit diverges from the latest committed head.
-                if saved_base != &current_head {
-                    return Ok(true);
-                }
+                .map_err(ServiceError::from)?;
+            match current_head {
+                Some(head) if saved_base == &head => {}
+                Some(head)
+                    if session
+                        .remote_commit
+                        .as_ref()
+                        .is_some_and(|remote| remote == &head) => {}
+                Some(_) | None => return Ok(true),
             }
         }
 

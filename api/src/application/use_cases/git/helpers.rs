@@ -80,4 +80,7 @@ pub fn needs_force_retry(err: &Error) -> bool {
     msg.contains("remote repository state diverged")
         || msg.contains("repository latest commit mismatch")
         || msg.contains("remote repository already contains commit")
+        || msg.contains("non-fast-forward")
+        || msg.contains("non fast forward")
+        || (msg.contains("push") && msg.contains("rejected"))
 }

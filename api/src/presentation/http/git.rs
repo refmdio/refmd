@@ -16,6 +16,7 @@ use crate::application::dto::git::{
     UpsertGitConfigInput,
 };
 use crate::application::services::errors::ServiceError;
+use crate::application::services::git::FinalizePullSessionResult;
 use crate::domain::workspaces::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
 use crate::presentation::context::AppContext;
 use crate::presentation::http::workspace_scope;
@@ -781,7 +782,10 @@ pub async fn start_pull_session(
         .await?;
 
     let service = ctx.git_service();
-    let dto = match service.start_pull_session(workspace_id, user_id).await {
+    let session = match service
+        .start_pull_session_flow(workspace_id, user_id)
+        .await
+    {
         Ok(v) => v,
         Err(err) => {
             let message = match &err {
@@ -804,31 +808,13 @@ pub async fn start_pull_session(
             ));
         }
     };
-    let conflicts = dto
+    let conflicts = session
         .conflicts
         .clone()
-        .unwrap_or_default()
         .into_iter()
         .map(Into::into)
         .collect::<Vec<GitPullConflictItem>>();
     let has_conflicts = !conflicts.is_empty();
-
-    let session_id = Uuid::new_v4();
-    let _ = service
-        .save_pull_session(GitPullSessionDto {
-            id: session_id,
-            workspace_id,
-            status: if has_conflicts {
-                "pending".to_string()
-            } else {
-                "merged".to_string()
-            },
-            conflicts: dto.conflicts.unwrap_or_default(),
-            resolutions: Vec::new(),
-            base_commit: dto.base_commit.clone(),
-            remote_commit: dto.remote_commit.clone(),
-        })
-        .await;
     let status = if has_conflicts {
         StatusCode::CONFLICT
     } else {
@@ -837,12 +823,8 @@ pub async fn start_pull_session(
     Ok((
         status,
         Json(GitPullSessionResponse {
-            session_id,
-            status: if has_conflicts {
-                "pending".to_string()
-            } else {
-                "merged".to_string()
-            },
+            session_id: session.id,
+            status: session.status,
             conflicts,
             resolutions: Vec::new(),
             message: None,
@@ -876,22 +858,14 @@ pub async fn get_pull_session(
         .await?;
 
     let service = ctx.git_service();
-    let mut state = service
-        .load_pull_session(workspace_id, id)
+    let state = service
+        .load_pull_session_with_stale_check(workspace_id, id)
         .await
         .map_err(|err| {
             let status = map_git_error(err);
             status
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
-    if service
-        .pull_session_is_stale(workspace_id, &state)
-        .await
-        .map_err(map_git_error)?
-    {
-        state.status = "stale".to_string();
-        let _ = service.save_pull_session(state.clone()).await;
-    }
     Ok(Json(GitPullSessionResponse {
         session_id: state.id,
         status: state.status,
@@ -941,57 +915,25 @@ pub async fn resolve_pull_session(
 
     let service = ctx.git_service();
     let existing_session = service
-        .load_pull_session(workspace_id, id)
-        .await
-        .map_err(|err| {
-            let status = map_git_error(err);
-            status
-        })?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if service
-        .pull_session_is_stale(workspace_id, &existing_session)
+        .load_pull_session_with_stale_check(workspace_id, id)
         .await
         .map_err(map_git_error)?
-    {
-        let mut stale = existing_session.clone();
-        stale.status = "stale".to_string();
-        let _ = service.save_pull_session(stale.clone()).await;
-        return Ok((
-            StatusCode::CONFLICT,
-            Json(GitPullSessionResponse {
-                session_id: id,
-                status: "stale".to_string(),
-                conflicts: stale.conflicts.into_iter().map(Into::into).collect(),
-                resolutions: stale
-                    .resolutions
-                    .into_iter()
-                    .map(|r| GitPullResolution {
-                        path: r.path,
-                        choice: r.choice,
-                        content: r.content,
-                    })
-                    .collect(),
-                message: Some("Pull session is stale. Please start a new pull.".to_string()),
-            }),
-        ));
-    }
-
+        .ok_or(StatusCode::NOT_FOUND)?;
     let resolutions = req.resolutions.unwrap_or_default();
-    let dto = match service
-        .pull_repository(
+    let session = match service
+        .resolve_pull_session_flow(
             workspace_id,
             user_id,
-            GitPullRequestDto {
-                resolutions: resolutions
-                    .iter()
-                    .cloned()
-                    .map(|r| GitPullResolutionDto {
-                        path: r.path,
-                        choice: r.choice,
-                        content: r.content,
-                    })
-                    .collect(),
-            },
+            id,
+            resolutions
+                .iter()
+                .cloned()
+                .map(|r| GitPullResolutionDto {
+                    path: r.path,
+                    choice: r.choice,
+                    content: r.content,
+                })
+                .collect(),
         )
         .await
     {
@@ -1032,53 +974,32 @@ pub async fn resolve_pull_session(
 
     let mut status_code = StatusCode::OK;
 
-    let conflicts: Vec<GitPullConflictItem> = dto
+    let conflicts: Vec<GitPullConflictItem> = session
         .conflicts
         .clone()
-        .unwrap_or_default()
         .into_iter()
         .map(Into::into)
         .collect();
     if !conflicts.is_empty() {
         status_code = StatusCode::CONFLICT;
     }
-
-    let _ = service
-        .save_pull_session(GitPullSessionDto {
-            id,
-            workspace_id,
-            status: if conflicts.is_empty() {
-                "merged".to_string()
-            } else {
-                "resolving".to_string()
-            },
-            conflicts: dto.conflicts.unwrap_or_default(),
-            resolutions: resolutions
-                .iter()
-                .cloned()
-                .map(|r| GitPullResolutionDto {
-                    path: r.path,
-                    choice: r.choice,
-                    content: r.content,
-                })
-                .collect(),
-            base_commit: dto.base_commit.clone(),
-            remote_commit: dto.remote_commit.clone(),
-        })
-        .await;
+    if session.status == "stale" {
+        status_code = StatusCode::CONFLICT;
+    }
+    let session_status = session.status.clone();
 
     Ok((
         status_code,
         Json(GitPullSessionResponse {
             session_id: id,
-            status: if conflicts.is_empty() {
-                "merged".to_string()
-            } else {
-                "resolving".to_string()
-            },
+            status: session_status.clone(),
             conflicts,
             resolutions,
-            message: None,
+            message: if status_code == StatusCode::CONFLICT && session_status == "stale" {
+                Some("Pull session is stale. Please start a new pull.".to_string())
+            } else {
+                None
+            },
         }),
     ))
 }
@@ -1109,61 +1030,40 @@ pub async fn finalize_pull_session(
         .await?;
 
     let service = ctx.git_service();
-    let state = service
-        .load_pull_session(workspace_id, id)
+    let FinalizePullSessionResult {
+        session,
+        git_status,
+    } = service
+        .finalize_pull_session_flow(workspace_id, id)
         .await
-        .map_err(|err| map_git_error(err))?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    if service
-        .pull_session_is_stale(workspace_id, &state)
-        .await
-        .map_err(map_git_error)?
-    {
-        let mut stale = state.clone();
-        stale.status = "stale".to_string();
-        let _ = service.save_pull_session(stale.clone()).await;
+        .map_err(map_git_error)?;
+    if session.status == "stale" {
         return Ok(Json(GitPullResponse {
             success: false,
             message: "pull session stale".to_string(),
             files_changed: 0,
             commit_hash: None,
-            conflicts: Some(stale.conflicts.into_iter().map(Into::into).collect()),
+            conflicts: Some(session.conflicts.into_iter().map(Into::into).collect()),
             git_status: None,
         }));
     }
-    if !state.conflicts.is_empty() {
+    if !session.conflicts.is_empty() {
         return Ok(Json(GitPullResponse {
             success: false,
             message: "conflicts remaining".to_string(),
             files_changed: 0,
             commit_hash: None,
-            conflicts: Some(state.conflicts.into_iter().map(Into::into).collect()),
+            conflicts: Some(session.conflicts.into_iter().map(Into::into).collect()),
             git_status: None,
         }));
     }
-    let git_status = service
-        .get_status(workspace_id)
-        .await
-        .map_err(map_git_error)?;
-    let _ = service
-        .save_pull_session(GitPullSessionDto {
-            id,
-            workspace_id,
-            status: "merged".to_string(),
-            conflicts: Vec::new(),
-            resolutions: state.resolutions.clone(),
-            base_commit: state.base_commit.clone(),
-            remote_commit: state.remote_commit.clone(),
-        })
-        .await;
-
     Ok(Json(GitPullResponse {
         success: true,
         message: "merge completed".to_string(),
         files_changed: 0,
         commit_hash: None,
         conflicts: None,
-        git_status: Some(git_status.into()),
+        git_status: git_status.map(Into::into),
     }))
 }
 

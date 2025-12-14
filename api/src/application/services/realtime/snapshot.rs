@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use sha2::{Digest, Sha256};
 use tracing::warn;
 use uuid::Uuid;
 use yrs::updates::decoder::Decode;
@@ -19,6 +18,7 @@ use crate::application::ports::storage_projection_queue::{
 };
 use crate::application::ports::tagging_repository::TaggingRepository;
 use crate::application::services::tagging;
+use crate::application::utils::hash::sha256_hex;
 
 pub struct SnapshotService {
     state_reader: Arc<dyn DocStateReader>,
@@ -350,13 +350,6 @@ fn render_markdown_bytes(doc_id: &Uuid, title: &str, contents: &str) -> Vec<u8> 
         formatted.push('\n');
     }
     formatted.into_bytes()
-}
-
-fn sha256_hex(data: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let digest = hasher.finalize();
-    hex::encode(digest)
 }
 
 fn apply_update_bytes(doc: &Doc, bytes: &[u8]) -> anyhow::Result<()> {

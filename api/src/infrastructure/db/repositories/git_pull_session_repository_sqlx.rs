@@ -21,8 +21,15 @@ impl GitPullSessionRepositorySqlx {
 #[async_trait]
 impl GitPullSessionRepository for GitPullSessionRepositorySqlx {
     async fn upsert(&self, session: GitPullSessionDto) -> anyhow::Result<()> {
-        let conflicts: Vec<GitPullConflictItemDto> = session.conflicts;
-        let resolutions: Vec<GitPullResolutionDto> = session.resolutions;
+        let GitPullSessionDto {
+            id,
+            workspace_id,
+            status,
+            conflicts,
+            resolutions,
+            base_commit,
+            remote_commit,
+        } = session;
         sqlx::query(
             r#"INSERT INTO git_pull_sessions (id, workspace_id, status, conflicts, resolutions, created_at, updated_at, base_commit, remote_commit)
                 VALUES ($1, $2, $3, $4, $5, now(), now(), $6, $7)
@@ -34,13 +41,13 @@ impl GitPullSessionRepository for GitPullSessionRepositorySqlx {
                   remote_commit = EXCLUDED.remote_commit,
                   updated_at = now()"#,
         )
-        .bind(session.id)
-        .bind(session.workspace_id)
-        .bind(session.status)
+        .bind(id)
+        .bind(workspace_id)
+        .bind(status)
         .bind(Json(conflicts))
         .bind(Json(resolutions))
-        .bind(session.base_commit.clone())
-        .bind(session.remote_commit.clone())
+        .bind(base_commit.clone())
+        .bind(remote_commit.clone())
         .execute(&self.pool)
         .await?;
         Ok(())

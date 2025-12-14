@@ -709,6 +709,7 @@ async fn main() -> anyhow::Result<()> {
             storage_resolver.clone(),
             snapshot_service_arc.clone(),
             realtime_engine.clone(),
+            document_repo.clone(),
         )?,
     );
     let git_service = Arc::new(GitService::new(

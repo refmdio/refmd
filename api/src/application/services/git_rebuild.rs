@@ -356,6 +356,24 @@ mod tests {
             })
         }
 
+        async fn pull(
+            &self,
+            _workspace_id: Uuid,
+            _actor_id: Uuid,
+            _req: &crate::application::dto::git::GitPullRequestDto,
+            _cfg: &crate::application::ports::git_repository::UserGitCfg,
+        ) -> anyhow::Result<crate::application::dto::git::GitPullResultDto> {
+            Ok(crate::application::dto::git::GitPullResultDto {
+                success: true,
+                message: "ok".to_string(),
+                files_changed: 0,
+                commit_hash: None,
+                conflicts: None,
+                base_commit: None,
+                remote_commit: None,
+            })
+        }
+
         async fn check_remote(
             &self,
             _workspace_id: Uuid,

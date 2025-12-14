@@ -32,10 +32,9 @@ use crate::application::ports::realtime_port::RealtimeEngine;
 use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::diff::text_diff::compute_text_diff;
 use crate::application::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
+use crate::application::utils::hash::sha256_hex;
 use crate::infrastructure::db::PgPool;
-use crate::infrastructure::db::repositories::document_repository_sqlx::SqlxDocumentRepository;
 use tokio::fs as async_fs;
-use sha2::{Digest as ShaDigest, Sha256};
 
 pub struct GitWorkspaceService {
     pool: PgPool,
@@ -43,6 +42,7 @@ pub struct GitWorkspaceService {
     storage: Arc<dyn StorageResolverPort>,
     snapshot: Arc<SnapshotService>,
     realtime: Arc<dyn RealtimeEngine>,
+    docs: Arc<dyn DocumentRepository>,
 }
 
 impl GitWorkspaceService {
@@ -52,6 +52,7 @@ impl GitWorkspaceService {
         storage: Arc<dyn StorageResolverPort>,
         snapshot: Arc<SnapshotService>,
         realtime: Arc<dyn RealtimeEngine>,
+        docs: Arc<dyn DocumentRepository>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             pool,
@@ -59,6 +60,7 @@ impl GitWorkspaceService {
             storage,
             snapshot,
             realtime,
+            docs,
         })
     }
 
@@ -719,24 +721,23 @@ impl GitWorkspaceService {
     ) -> anyhow::Result<HashMap<String, FileSnapshot>> {
         let mut state: HashMap<String, FileSnapshot> = HashMap::new();
 
-        let doc_rows = sqlx::query(
-            "SELECT id, desired_path FROM documents WHERE owner_id = $1 AND type <> 'folder'",
-        )
-        .bind(workspace_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let doc_rows = self
+            .docs
+            .list_workspace_documents(workspace_id)
+            .await?
+            .into_iter()
+            .filter(|d| d.doc_type != "folder");
 
-        for row in doc_rows {
-            let doc_id: Uuid = row.get("id");
-            let export = match self.snapshot.export_current_markdown(&doc_id).await? {
+        for doc in doc_rows {
+            let export = match self.snapshot.export_current_markdown(&doc.id).await? {
                 Some(export) => export,
                 None => continue,
             };
             let repo_path = export
                 .repo_path
-                .or_else(|| row.try_get::<String, _>("desired_path").ok())
+                .or_else(|| Some(doc.desired_path.clone()))
                 .map(normalize_repo_path)
-                .ok_or_else(|| anyhow!("missing_repo_path_for_doc {}", doc_id))?;
+                .ok_or_else(|| anyhow!("missing_repo_path_for_doc {}", doc.id))?;
             state.insert(
                 repo_path,
                 FileSnapshot {
@@ -881,28 +882,33 @@ impl GitWorkspaceService {
             }
         }
 
+        // First try by normalized repo path (documents.path). Fall back to desired_path for older records.
+        let all_docs = self.docs.list_workspace_documents(workspace_id).await?;
+
         for (candidate, archived_only) in candidates {
-            let row = if archived_only {
-                sqlx::query(
-                    "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND archived_at IS NOT NULL AND type <> 'folder' LIMIT 1",
-                )
-                .bind(workspace_id)
-                .bind(candidate)
-                .fetch_optional(&self.pool)
-                .await?
+            let lookup_path = format!("{}/{}", workspace_id, candidate);
+            let from_path = self
+                .docs
+                .get_by_owner_and_path(workspace_id, &lookup_path)
+                .await?;
+
+            let doc = if let Some(doc) = from_path {
+                Some(doc)
             } else {
-                sqlx::query(
-                    "SELECT id FROM documents WHERE owner_id = $1 AND desired_path = $2 AND type <> 'folder' LIMIT 1",
-                )
-                .bind(workspace_id)
-                .bind(candidate)
-                .fetch_optional(&self.pool)
-                .await?
+                all_docs
+                    .iter()
+                    .find(|d| normalize_repo_path(d.desired_path.clone()) == candidate)
+                    .cloned()
             };
 
-            if let Some(row) = row {
-                let doc_id: Uuid = row.get("id");
-                if let Some(export) = self.snapshot.export_current_markdown(&doc_id).await? {
+            if let Some(doc) = doc {
+                if doc.doc_type == "folder" {
+                    continue;
+                }
+                if archived_only && doc.archived_at.is_none() {
+                    continue;
+                }
+                if let Some(export) = self.snapshot.export_current_markdown(&doc.id).await? {
                     return Ok(Some((export.bytes, export.content_hash)));
                 }
             }
@@ -1058,7 +1064,6 @@ impl GitWorkspaceService {
 
     async fn ensure_folder(
         &self,
-        repo: &SqlxDocumentRepository,
         workspace_id: Uuid,
         actor_id: Uuid,
         folder_path: &str,
@@ -1082,16 +1087,17 @@ impl GitWorkspaceService {
                 continue;
             }
 
-            if let Some(existing) = sqlx::query_scalar::<_, Uuid>(
-                "SELECT id FROM documents WHERE workspace_id = $1 AND desired_path = $2 AND type = 'folder' LIMIT 1",
-            )
-            .bind(workspace_id)
-            .bind(&accumulated)
-            .fetch_optional(&self.pool)
-            .await?
+            let lookup_path = format!("{}/{}", workspace_id, accumulated);
+            if let Some(existing) = self
+                .docs
+                .get_by_owner_and_path(workspace_id, &lookup_path)
+                .await?
             {
-                cache.insert(accumulated.clone(), existing);
-                current_parent = Some(existing);
+                if existing.doc_type != "folder" {
+                    anyhow::bail!("path_conflict_not_folder");
+                }
+                cache.insert(accumulated.clone(), existing.id);
+                current_parent = Some(existing.id);
                 continue;
             }
 
@@ -1100,41 +1106,13 @@ impl GitWorkspaceService {
             } else {
                 segment
             };
-            let folder = repo
-                .create_for_user(
-                    workspace_id,
-                    actor_id,
-                    title,
-                    current_parent,
-                    "folder",
-                    None,
-                )
+            let folder = self
+                .docs
+                .create_for_user(workspace_id, actor_id, title, current_parent, "folder", None)
                 .await?;
-
-            let desired_path = accumulated.clone();
-            let normalized = format!("{}/{}", workspace_id, desired_path);
-            let path_digest: Vec<u8> = Sha256::digest(desired_path.as_bytes()).to_vec();
-            let slug = slug_from_git_path(&desired_path)?;
-
-            sqlx::query(
-                r#"UPDATE documents SET
-                        path = $3,
-                        desired_path = $4,
-                        path_digest = $5,
-                        slug = $6,
-                        parent_id = $7,
-                        updated_at = now()
-                    WHERE id = $1 AND workspace_id = $2"#,
-            )
-            .bind(folder.id)
-            .bind(workspace_id)
-            .bind(&normalized)
-            .bind(&desired_path)
-            .bind(path_digest)
-            .bind(&slug)
-            .bind(current_parent)
-            .execute(&self.pool)
-            .await?;
+            self.docs
+                .update_repo_path(folder.id, workspace_id, &accumulated)
+                .await?;
 
             cache.insert(accumulated.clone(), folder.id);
             current_parent = Some(folder.id);
@@ -1149,10 +1127,17 @@ impl GitWorkspaceService {
         actor_id: Uuid,
         state: &HashMap<String, FileSnapshot>,
     ) -> anyhow::Result<(u32, u32)> {
-        let repo = SqlxDocumentRepository::new(self.pool.clone());
         let mut folder_cache: HashMap<String, Uuid> = HashMap::new();
         let mut docs_created: u32 = 0;
         let mut attachments_created: u32 = 0;
+
+        let mut existing_by_desired: HashMap<String, Uuid> = self
+            .docs
+            .list_workspace_documents(workspace_id)
+            .await?
+            .into_iter()
+            .map(|d| (normalize_repo_path(d.desired_path.clone()), d.id))
+            .collect();
 
         let mut paths: Vec<String> = state.keys().cloned().collect();
         paths.sort();
@@ -1169,28 +1154,14 @@ impl GitWorkspaceService {
                 .map(|s| s.trim().trim_end_matches('/').to_string())
                 .filter(|s| !s.is_empty());
             let parent_id = if let Some(ppath) = parent_path.as_ref() {
-                self.ensure_folder(
-                    &repo,
-                    workspace_id,
-                    actor_id,
-                    ppath,
-                    &mut folder_cache,
-                )
-                .await?
+                self.ensure_folder(workspace_id, actor_id, ppath, &mut folder_cache)
+                    .await?
             } else {
                 None
             };
 
             // Skip if document already exists at desired_path
-            if sqlx::query_scalar::<_, Option<Uuid>>(
-                "SELECT id FROM documents WHERE workspace_id = $1 AND desired_path = $2 LIMIT 1",
-            )
-            .bind(workspace_id)
-            .bind(&normalized)
-            .fetch_optional(&self.pool)
-            .await?
-            .is_some()
-            {
+            if existing_by_desired.contains_key(&normalized) {
                 continue;
             }
 
@@ -1204,7 +1175,8 @@ impl GitWorkspaceService {
                 .trim_end_matches(".markdown")
                 .trim_end_matches(".txt");
 
-            let doc = repo
+            let doc = self
+                .docs
                 .create_for_user(
                     workspace_id,
                     actor_id,
@@ -1214,48 +1186,11 @@ impl GitWorkspaceService {
                     None,
                 )
                 .await?;
-
-            // Force repo path to match Git path inside the same transaction
-            let trimmed = normalized.trim_start_matches('/');
-            let desired_path = trimmed.to_string();
-            let owner_prefix = workspace_id.to_string();
-            let normalized_path = format!("{owner_prefix}/{}", desired_path);
-            let path_digest: Vec<u8> = Sha256::digest(desired_path.as_bytes()).to_vec();
-            let slug = slug_from_git_path(&desired_path)?;
-            let parent_path = parent_path_from_git(&desired_path);
-            let parent_id_for_update = if let Some(pp) = parent_path {
-                self.ensure_folder(
-                    &repo,
-                    workspace_id,
-                    actor_id,
-                    pp.as_str(),
-                    &mut folder_cache,
-                )
-                .await?
-            } else {
-                None
-            };
-
-            sqlx::query(
-                r#"UPDATE documents SET
-                        path = $3,
-                        desired_path = $4,
-                        path_digest = $5,
-                        slug = $6,
-                        parent_id = $7,
-                        updated_at = now()
-                    WHERE id = $1 AND workspace_id = $2"#,
-            )
-            .bind(doc.id)
-            .bind(workspace_id)
-            .bind(&normalized_path)
-            .bind(&desired_path)
-            .bind(path_digest)
-            .bind(&slug)
-            .bind(parent_id_for_update)
-            .execute(&self.pool)
-            .await?;
+            self.docs
+                .update_repo_path(doc.id, workspace_id, &normalized)
+                .await?;
             docs_created += 1;
+            existing_by_desired.insert(normalized.clone(), doc.id);
 
             let bytes = self.snapshot_bytes(snapshot).await.unwrap_or_default();
             if snapshot.is_text {
@@ -1299,18 +1234,16 @@ impl GitWorkspaceService {
         workspace_id: Uuid,
         next_state: &HashMap<String, FileSnapshot>,
     ) -> anyhow::Result<()> {
-        let doc_rows = sqlx::query(
-            "SELECT id, desired_path FROM documents WHERE owner_id = $1 AND type <> 'folder'",
-        )
-        .bind(workspace_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let doc_rows = self
+            .docs
+            .list_workspace_documents(workspace_id)
+            .await?
+            .into_iter()
+            .filter(|d| d.doc_type != "folder");
 
-        for row in doc_rows {
-            let doc_id: Uuid = row.get("id");
-            let repo_path: Option<String> = row.try_get("desired_path").ok();
-            let Some(repo_path) = repo_path else { continue };
-            let normalized = normalize_repo_path(repo_path);
+        for doc in doc_rows {
+            let doc_id = doc.id;
+            let normalized = normalize_repo_path(doc.desired_path.clone());
             let Some(snapshot) = next_state.get(&normalized) else {
                 continue;
             };
@@ -1889,6 +1822,11 @@ impl GitWorkspacePort for GitWorkspaceService {
         let force_push = req.force.unwrap_or(false);
         let force_full_scan = req.full_scan.unwrap_or(false);
         let skip_push = req.skip_push.unwrap_or(false);
+        let push_required = cfg
+            .as_ref()
+            .map(|c| !c.repository_url.is_empty())
+            .unwrap_or(false)
+            && !skip_push;
 
         // Ensure latest commit pack exists; if missing, attempt to rebuild from storage/remote or fail early.
         if let Some(latest) = latest_meta.as_ref() {
@@ -2062,9 +2000,36 @@ impl GitWorkspacePort for GitWorkspaceService {
             );
         }
 
-        // If still nothing to do
+        // If still nothing to do, optionally push existing head when a remote is configured.
         if !use_full_scan && upserts.is_empty() && deletes.is_empty() {
-            // Nothing to commit: clear any leftover dirty and exit.
+            if push_required {
+                if let Some(latest) = latest_meta.as_ref() {
+                    // Ensure pack chain exists to materialize the commit for push.
+                    let pack_chain = self
+                        .persist_pack_chain(workspace_id, Some(latest.commit_id.as_slice()))
+                        .await?;
+                    if let Some((temp_dir, pack_paths)) = pack_chain {
+                        let repo = Repository::init_bare(temp_dir.path())?;
+                        apply_pack_files(&repo, &pack_paths)?;
+                        let oid = git2::Oid::from_bytes(&latest.commit_id)?;
+                        let pushed = perform_push(&repo, cfg.unwrap(), &branch_name, oid, force_push)?;
+                        drop(repo);
+                        drop(temp_dir);
+                        let _ = self.clear_dirty(workspace_id).await;
+                        return Ok(GitSyncOutcome {
+                            files_changed: 0,
+                            commit_hash: Some(encode_commit_id(&latest.commit_id)),
+                            pushed,
+                            message: if pushed {
+                                "push completed".to_string()
+                            } else {
+                                "nothing to push".to_string()
+                            },
+                        });
+                    }
+                }
+            }
+            // Nothing to commit/push: clear any leftover dirty and exit.
             let _ = self.clear_dirty(workspace_id).await;
             return Ok(GitSyncOutcome {
                 files_changed: 0,
@@ -2402,6 +2367,17 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         if let Some((dir, _)) = previous_pack {
             drop(dir);
+        }
+
+        // If push to a configured remote failed, do not advance local commit pointers or clear dirty state.
+        // Leave files as-is so the next sync attempt will retry the push instead of treating the workspace as clean.
+        if push_required && !pushed {
+            return Ok(GitSyncOutcome {
+                files_changed: files_changed_for_response,
+                commit_hash: None,
+                pushed: false,
+                message: "commit created (push failed)".to_string(),
+            });
         }
 
         // Short, focused transaction for DB writes only.
@@ -2774,6 +2750,51 @@ impl GitWorkspacePort for GitWorkspaceService {
 }
 
 impl GitWorkspaceService {
+    async fn build_conflict_item(
+        &self,
+        workspace_id: Uuid,
+        path: &str,
+        current_state: &HashMap<String, FileSnapshot>,
+        remote_state: &HashMap<String, FileSnapshot>,
+        local_meta: Option<&CommitMeta>,
+    ) -> anyhow::Result<GitPullConflictItemDto> {
+        let ours_bytes = if let Some(snap) = current_state.get(path) {
+            Some(self.snapshot_bytes(snap).await?)
+        } else {
+            None
+        };
+        let theirs_bytes = if let Some(snap) = remote_state.get(path) {
+            Some(self.snapshot_bytes(snap).await?)
+        } else {
+            Some(Vec::new())
+        };
+        let base_bytes = if let Some(meta) = local_meta.as_ref() {
+            self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), path)
+                .await?
+        } else {
+            None
+        };
+
+        let (mut ours, ours_bin) = as_text_or_binary(path, ours_bytes.as_ref());
+        let (mut theirs, theirs_bin) = as_text_or_binary(path, theirs_bytes.as_ref());
+        let (mut base, base_bin) = as_text_or_binary(path, base_bytes.as_ref());
+        let is_binary = ours_bin || theirs_bin || base_bin;
+        if !is_binary {
+            ours = strip_front_matter_body(path, ours);
+            theirs = strip_front_matter_body(path, theirs);
+            base = strip_front_matter_body(path, base);
+        }
+
+        Ok(GitPullConflictItemDto {
+            path: path.to_string(),
+            is_binary,
+            ours,
+            theirs,
+            base,
+            document_id: None,
+        })
+    }
+
     async fn pull_once(
         &self,
         workspace_id: Uuid,
@@ -2990,42 +3011,16 @@ impl GitWorkspaceService {
         }
         let remote_changed_paths_vec: Vec<String> = remote_changed_paths.iter().cloned().collect();
         for path in remote_changed_paths_vec.iter() {
-            let path_str = path.as_str();
-            let ours_bytes = if let Some(snap) = current_state.get(path) {
-                Some(self.snapshot_bytes(snap).await?)
-            } else {
-                None
-            };
-            let theirs_bytes = if let Some(snap) = remote_state.get(path) {
-                Some(self.snapshot_bytes(snap).await?)
-            } else {
-                Some(Vec::new())
-            };
-            let base_bytes = if let Some(meta) = local_meta.as_ref() {
-                self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), path_str)
-                    .await?
-            } else {
-                None
-            };
-
-            let (mut ours, ours_bin) = as_text_or_binary(path_str, ours_bytes.as_ref());
-            let (mut theirs, theirs_bin) = as_text_or_binary(path_str, theirs_bytes.as_ref());
-            let (mut base, base_bin) = as_text_or_binary(path_str, base_bytes.as_ref());
-            let is_binary = ours_bin || theirs_bin || base_bin;
-            if !is_binary {
-                ours = strip_front_matter_body(path_str, ours);
-                theirs = strip_front_matter_body(path_str, theirs);
-                base = strip_front_matter_body(path_str, base);
-            }
-
-            remote_conflicts.push(GitPullConflictItemDto {
-                path: path.to_string(),
-                is_binary,
-                ours,
-                theirs,
-                base,
-                document_id: None,
-            });
+            let item = self
+                .build_conflict_item(
+                    workspace_id,
+                    path,
+                    &current_state,
+                    &remote_state,
+                    local_meta.as_ref(),
+                )
+                .await?;
+            remote_conflicts.push(item);
         }
 
         // First-time pull with no local history and no dirty changes: allow fast-forward without forcing conflicts.
@@ -3051,36 +3046,16 @@ impl GitWorkspaceService {
                         continue;
                     }
 
-                    let ours_bytes = if let Some(snap) = current_state.get(&path) {
-                        Some(self.snapshot_bytes(snap).await?)
-                    } else {
-                        None
-                    };
-                    let theirs_bytes = if let Some(snap) = remote_state.get(&path) {
-                        Some(self.snapshot_bytes(snap).await?)
-                    } else {
-                        Some(Vec::new())
-                    };
-            let base_bytes = if let Some(meta) = local_meta.as_ref() {
-                self.load_file_snapshot(workspace_id, meta.commit_id.as_slice(), &path)
-                    .await?
-            } else {
-                None
-            };
-
-                    let (ours, ours_bin) = as_text_or_binary(path.as_str(), ours_bytes.as_ref());
-                    let (theirs, theirs_bin) = as_text_or_binary(path.as_str(), theirs_bytes.as_ref());
-                    let (base, base_bin) = as_text_or_binary(path.as_str(), base_bytes.as_ref());
-                    let is_binary = ours_bin || theirs_bin || base_bin;
-
-                    remote_conflicts.push(GitPullConflictItemDto {
-                        path: path.clone(),
-                        is_binary,
-                        ours,
-                        theirs,
-                        base,
-                        document_id: None,
-                    });
+                    let item = self
+                        .build_conflict_item(
+                            workspace_id,
+                            &path,
+                            &current_state,
+                            &remote_state,
+                            local_meta.as_ref(),
+                        )
+                        .await?;
+                    remote_conflicts.push(item);
                 }
             }
         }
@@ -3638,6 +3613,9 @@ impl GitWorkspaceService {
             .apply_state_to_workspace(workspace_id, &merged_snapshots, &previous_index)
             .await?;
 
+        // Create any missing documents/attachments from the merged state before syncing realtime.
+        self.materialize_documents_from_state(workspace_id, actor_id, &merged_snapshots)
+            .await?;
         // Apply merged markdown back into realtime/doc storage immediately.
         self.apply_merged_to_documents(workspace_id, &merged_snapshots)
             .await?;
@@ -4548,34 +4526,6 @@ fn repo_relative_path(path: &str) -> anyhow::Result<String> {
     }
 }
 
-fn slug_from_git_path(desired_path: &str) -> anyhow::Result<String> {
-    let segment = desired_path
-        .rsplit('/')
-        .next()
-        .unwrap_or(desired_path)
-        .trim();
-    if segment.is_empty() {
-        anyhow::bail!("invalid_slug_from_path");
-    }
-    let slug = segment
-        .strip_suffix(".md")
-        .unwrap_or(segment)
-        .trim_matches('/');
-    if slug.is_empty() {
-        anyhow::bail!("invalid_slug_from_path");
-    }
-    Ok(slug.to_string())
-}
-
-fn parent_path_from_git(desired_path: &str) -> Option<String> {
-    let mut parts = desired_path.rsplitn(2, '/');
-    parts.next();
-    parts
-        .next()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
 fn normalize_repo_path(path: String) -> String {
     let trimmed = path.trim_start_matches('/');
     if trimmed.is_empty() {
@@ -4587,13 +4537,6 @@ fn normalize_repo_path(path: String) -> String {
             .trim_start_matches('/')
             .to_string()
     }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    use sha2::Digest;
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
 }
 
 fn blob_key(workspace_id: Uuid, commit_id: &[u8], path: &str) -> BlobKey {

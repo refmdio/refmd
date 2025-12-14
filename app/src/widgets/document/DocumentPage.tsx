@@ -10,7 +10,7 @@ import type { DocumentHeaderAction } from '@/shared/types/document'
 import { Button } from '@/shared/ui/button'
 
 import { downloadDocumentFile, type DocumentDownloadFormat } from '@/entities/document'
-import { pullRepository, getPullSession, resolvePullSession, finalizePullSession } from '@/entities/git'
+import { getPullSession } from '@/entities/git'
 import { createShareMount, shareMountsQuery } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
@@ -22,7 +22,8 @@ import {
 } from '@/features/document-download'
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument, useViewContext } from '@/features/edit-document'
-import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts } from '@/features/git-sync/lib/git-conflict-store'
+import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
+import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
 import { usePluginDocumentRedirect } from '@/features/plugins'
 import { useSecondaryViewer } from '@/features/secondary-viewer'
 
@@ -210,6 +211,7 @@ const matchConflictToDoc = (
       return conflict
     }
   }
+
   if (conflicts.length === 1) return conflicts[0]
   return null
 }
@@ -278,13 +280,8 @@ function DocumentClient({
   const hasDoc = Boolean(doc)
   const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
   useEffect(() => {
-    const handler = () => setSessionIdState(readSessionId())
-    window.addEventListener('storage', handler)
-    window.addEventListener('refmd:git-conflicts-updated', handler as any)
-    return () => {
-      window.removeEventListener('storage', handler)
-      window.removeEventListener('refmd:git-conflicts-updated', handler as any)
-    }
+    const unsubscribe = subscribeSessionId((sid) => setSessionIdState(sid))
+    return () => unsubscribe()
   }, [])
   const pluginRedirectEnabled =
     loaderData?.createdByPlugin === undefined ? true : Boolean(loaderData?.createdByPlugin)
@@ -318,7 +315,13 @@ function DocumentClient({
   const setConflictsForDoc = useCallback(
     (list: GitPullConflictItem[]) => {
       const safeList = Array.isArray(list) ? list : []
-      setGlobalConflicts(safeList)
+      const existing = readConflicts()
+      const unchanged =
+        existing.length === safeList.length &&
+        existing.every((item, idx) => JSON.stringify(item) === JSON.stringify(safeList[idx]))
+      if (!unchanged) {
+        setGlobalConflicts(safeList)
+      }
       const matched = matchConflictToDoc(safeList, [loaderData?.path, loaderData?.desired_path], id)
       setActiveConflict(matched)
       if (matched && !matched.is_binary) {
@@ -451,61 +454,41 @@ function DocumentClient({
   }, [id, navigate, qc])
 
   const pullMutation = useMutation({
-    mutationFn: async (resolutions: GitPullResolution[]) => {
-      if (sessionId) {
-        return resolvePullSession({ id: sessionId, requestBody: { resolutions } })
-      }
-      return pullRepository({ requestBody: { resolutions } })
-    },
-    onSuccess: (res) => {
-      if ((res as any)?.status === 'stale') {
+    mutationFn: async (resolutions: GitPullResolution[]) =>
+      performPullSession(resolutions, { sessionId }),
+    onSuccess: (result) => {
+      setSessionIdState(result.sessionId ?? null)
+      setConflictsForDoc(result.conflicts)
+
+      if (result.status === 'stale') {
         clearSession()
         clearResolutions()
-        setConflictsForDoc([])
         toast.error('Pull session expired. Please pull again.')
         return
       }
-      const remaining = res.conflicts ?? []
-      setConflictsForDoc(remaining)
-      const stillPending = matchConflictToDoc(remaining, [loaderData?.path, loaderData?.desired_path], id)
-      if (remaining.length === 0) {
+
+      const stillPending = matchConflictToDoc(result.conflicts, [loaderData?.path, loaderData?.desired_path], id)
+      if (result.status === 'conflicts') {
+        const payload = lastPayloadRef.current || []
+        if (payload.length) setResolutions(payload)
+        const message =
+          result.message ||
+          (stillPending
+            ? 'Resolution applied. Another conflict remains for this document.'
+            : 'Resolution applied. Another conflict remains.')
+        toast.success(message)
+        return
+      }
+
+      if (result.status === 'merged') {
         clearResolutions()
         lastPayloadRef.current = []
-        if (sessionId) {
-          void finalizePullSession({ id: sessionId }).finally(() => clearSession())
-        }
-      } else {
-        const payload = lastPayloadRef.current || []
-        setResolutions(payload)
-      }
-      const message = 'message' in res && typeof res.message === 'string' ? res.message : undefined
-      if (stillPending) {
-        toast.success(message || 'Resolution applied. Another conflict remains for this document.')
-      } else {
-        toast.success(message || 'Conflict resolved')
-        if (remaining.length === 0) {
-          handleConflictResolved()
-        }
-      }
-    },
-    onError: (err) => {
-      const statusField = (err as any)?.body?.status
-      const msg = (err as any)?.body?.message || ''
-      if (statusField === 'stale' || (typeof msg === 'string' && msg.toLowerCase().includes('stale'))) {
-        clearSession()
-        clearResolutions()
-        setConflictsForDoc([])
-        toast.error('Pull session expired. Please pull again.')
+        handleConflictResolved()
+        toast.success(result.message || 'Conflict resolved')
         return
       }
-      if (err instanceof ApiError && err.status === 409) {
-        const next = ((err.body as any)?.conflicts ?? []) as GitPullConflictItem[]
-        setConflictsForDoc(next)
-        toast.error((err.body as any)?.message || 'Conflicts remain. Please resolve and try again.')
-        return
-      }
-      const detail = (err as any)?.body?.message || (err as any)?.message || 'Failed to apply resolution'
-      toast.error(detail)
+
+      toast.error(result.message || 'Failed to apply resolution')
     },
   })
 
@@ -515,24 +498,9 @@ function DocumentClient({
       const payload = [...preserved, resolution]
       setResolutions(payload)
       lastPayloadRef.current = payload
-      if (sessionId) {
-        pullMutation.mutate(payload)
-      } else {
-        pullRepository({ requestBody: { resolutions: payload } })
-          .then((res) => {
-            const remaining = res.conflicts ?? []
-            setConflictsForDoc(remaining)
-            if (remaining.length === 0) {
-              clearResolutions()
-              handleConflictResolved()
-            }
-          })
-          .catch((err) => {
-            toast.error((err as any)?.body?.message || (err as any)?.message || 'Failed to apply resolution')
-          })
-      }
+      pullMutation.mutate(payload)
     },
-    [pullMutation, sessionId, handleConflictResolved, setConflictsForDoc],
+    [pullMutation],
   )
 
   useEffect(() => {
