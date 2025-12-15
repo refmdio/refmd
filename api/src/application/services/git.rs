@@ -384,6 +384,8 @@ impl GitService {
                     ServiceError::BadRequest("repository_not_initialized")
                 } else if msg.contains("remote not configured") {
                     ServiceError::BadRequest("remote_not_configured")
+                } else if msg.contains("git_not_configured") {
+                    ServiceError::BadRequest("remote_not_configured")
                 } else if msg.contains("custom_text content required") {
                     ServiceError::BadRequest("resolution_content_required")
                 } else {
@@ -510,13 +512,35 @@ impl GitService {
             .load_pull_session(workspace_id, session_id)
             .await?
             .ok_or(ServiceError::NotFound)?;
+        if existing.status == "merged" {
+            let git_status = self.get_status(workspace_id).await?;
+            return Ok(FinalizePullSessionResult {
+                session: existing,
+                git_status: Some(git_status),
+            });
+        }
+        if existing.status == "stale" {
+            let mut stale = existing.clone();
+            if stale.message.is_none() {
+                stale.message = Some("Pull session is stale".to_string());
+                let _ = self.save_pull_session(stale.clone()).await;
+            }
+            return Ok(FinalizePullSessionResult {
+                session: stale,
+                git_status: None,
+            });
+        }
         if existing.status == "error" {
             return Ok(FinalizePullSessionResult {
                 session: existing,
                 git_status: None,
             });
         }
-        if self.pull_session_is_stale(workspace_id, &existing).await? {
+        if matches!(existing.status.as_str(), "pending" | "resolving")
+            && self
+                .pull_session_is_stale(workspace_id, &existing)
+                .await?
+        {
             let mut stale = existing.clone();
             stale.status = "stale".to_string();
             if stale.message.is_none() {
@@ -561,7 +585,11 @@ impl GitService {
             Some(s) => s,
             None => return Ok(None),
         };
-        if self.pull_session_is_stale(workspace_id, &session).await? {
+        if matches!(session.status.as_str(), "pending" | "resolving")
+            && self
+                .pull_session_is_stale(workspace_id, &session)
+                .await?
+        {
             session.status = "stale".to_string();
             session.message = Some("Pull session is stale".to_string());
             let _ = self.save_pull_session(session.clone()).await;
