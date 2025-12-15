@@ -1129,43 +1129,87 @@ impl GitWorkspaceService {
         actor_id: Uuid,
         state: &HashMap<String, FileSnapshot>,
     ) -> anyhow::Result<(u32, u32)> {
+        fn folder_key(path: &str) -> String {
+            path.rsplitn(2, '/')
+                .nth(1)
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(String::new)
+        }
+
+        fn attachment_owner_folder(path: &str) -> String {
+            if let Some(idx) = path.find("/attachments/") {
+                let prefix = &path[..idx];
+                if prefix.is_empty() {
+                    String::new()
+                } else {
+                    prefix.trim_end_matches('/').to_string()
+                }
+            } else if path.starts_with("attachments/") {
+                String::new()
+            } else {
+                folder_key(path)
+            }
+        }
+
+        fn is_markdown_path(path: &str) -> bool {
+            let lower = path.to_ascii_lowercase();
+            lower.ends_with(".md") || lower.ends_with(".markdown")
+        }
+
         let mut folder_cache: HashMap<String, Uuid> = HashMap::new();
         let mut docs_created: u32 = 0;
         let mut attachments_created: u32 = 0;
 
-        let mut existing_by_desired: HashMap<String, Uuid> = self
-            .docs
-            .list_workspace_documents(workspace_id)
-            .await?
-            .into_iter()
-            .map(|d| (normalize_repo_path(d.desired_path.clone()), d.id))
-            .collect();
+        let mut existing_by_desired: HashMap<String, Uuid> = HashMap::new();
+        let mut folder_docs: HashMap<String, Vec<Uuid>> = HashMap::new();
+
+        for doc in self.docs.list_workspace_documents(workspace_id).await? {
+            let normalized = normalize_repo_path(doc.desired_path.clone());
+            existing_by_desired.insert(normalized.clone(), doc.id);
+            if doc.doc_type != "folder" {
+                let key = folder_key(&normalized);
+                folder_docs.entry(key.clone()).or_default().push(doc.id);
+                if doc.archived_at.is_some() {
+                    let archived_key = if key.is_empty() {
+                        "Archives".to_string()
+                    } else {
+                        format!("Archives/{}", key)
+                    };
+                    folder_docs.entry(archived_key).or_default().push(doc.id);
+                }
+            }
+        }
 
         let mut paths: Vec<String> = state.keys().cloned().collect();
         paths.sort();
 
-        for path in paths {
-            let snapshot = match state.get(&path) {
+        // First pass: create documents only for markdown files
+        for path in paths.iter() {
+            let snapshot = match state.get(path) {
                 Some(s) => s,
                 None => continue,
             };
+            if !snapshot.is_text {
+                continue;
+            }
             let normalized = normalize_repo_path(path.clone());
-            let parent_path = normalized
-                .rsplitn(2, '/')
-                .nth(1)
-                .map(|s| s.trim().trim_end_matches('/').to_string())
-                .filter(|s| !s.is_empty());
-            let parent_id = if let Some(ppath) = parent_path.as_ref() {
-                self.ensure_folder(workspace_id, actor_id, ppath, &mut folder_cache)
-                    .await?
-            } else {
-                None
-            };
+            if !is_markdown_path(&normalized) {
+                continue;
+            }
 
-            // Skip if document already exists at desired_path
+            // Skip if document already exists at desired_path (including folders that would conflict)
             if existing_by_desired.contains_key(&normalized) {
                 continue;
             }
+
+            let parent_path = folder_key(&normalized);
+            let parent_id = if parent_path.is_empty() {
+                None
+            } else {
+                self.ensure_folder(workspace_id, actor_id, &parent_path, &mut folder_cache)
+                    .await?
+            };
 
             let filename = normalized
                 .rsplit('/')
@@ -1194,35 +1238,77 @@ impl GitWorkspaceService {
             docs_created += 1;
             existing_by_desired.insert(normalized.clone(), doc.id);
 
+            folder_docs.entry(parent_path).or_default().push(doc.id);
+
             let bytes = self.snapshot_bytes(snapshot).await.unwrap_or_default();
-            if snapshot.is_text {
-                let body = extract_markdown_body(&bytes)
-                    .unwrap_or_else(|| std::str::from_utf8(&bytes).unwrap_or_default().to_string());
-                let snap_bytes = snapshot_from_markdown(&body);
-                let _ = self
-                    .realtime
-                    .apply_snapshot(&doc.id.to_string(), snap_bytes.as_slice())
-                    .await;
-                let _ = self.realtime.force_persist(&doc.id.to_string()).await;
-            } else {
-                // Treat as attachment on the created document
-                let storage_path = format!("{}/{}", workspace_id, normalized);
-                let hash = snapshot.hash.clone();
-                let size = bytes.len() as i64;
-                let _ = sqlx::query(
-                    r#"INSERT INTO files (document_id, filename, content_type, size, storage_path, content_hash)
-                       VALUES ($1,$2,$3,$4,$5,$6)"#,
-                )
-                .bind(doc.id)
-                .bind(&filename)
-                .bind::<Option<&str>>(None)
-                .bind(size)
-                .bind(&storage_path)
-                .bind(&hash)
-                .execute(&self.pool)
+            let body = extract_markdown_body(&bytes)
+                .unwrap_or_else(|| std::str::from_utf8(&bytes).unwrap_or_default().to_string());
+            let snap_bytes = snapshot_from_markdown(&body);
+            let _ = self
+                .realtime
+                .apply_snapshot(&doc.id.to_string(), snap_bytes.as_slice())
                 .await;
-                attachments_created += 1;
+            let _ = self.realtime.force_persist(&doc.id.to_string()).await;
+        }
+
+        for docs in folder_docs.values_mut() {
+            docs.sort();
+        }
+
+        // Second pass: attach binaries without creating documents
+        for path in paths {
+            let snapshot = match state.get(&path) {
+                Some(s) => s,
+                None => continue,
+            };
+            if snapshot.is_text {
+                continue;
             }
+            let normalized = normalize_repo_path(path.clone());
+            if !normalized.contains("/attachments/") && !normalized.starts_with("attachments/") {
+                continue;
+            }
+            let filename = normalized
+                .rsplit('/')
+                .next()
+                .unwrap_or(&normalized)
+                .to_string();
+            let folder = attachment_owner_folder(&normalized);
+            let doc_id = folder_docs.get(&folder).and_then(|v| v.first().copied());
+            let Some(doc_id) = doc_id else {
+                warn!(
+                    workspace_id = %workspace_id,
+                    repo_path = normalized.as_str(),
+                    "git_materialize_attachment_no_owner"
+                );
+                continue;
+            };
+
+            let storage_path = format!("{}/{}", workspace_id, normalized);
+            let existing: Option<Uuid> =
+                sqlx::query_scalar("SELECT id FROM files WHERE storage_path = $1 LIMIT 1")
+                    .bind(&storage_path)
+                    .fetch_optional(&self.pool)
+                    .await?;
+            if existing.is_some() {
+                continue;
+            }
+
+            let bytes = self.snapshot_bytes(snapshot).await.unwrap_or_default();
+            let size = bytes.len() as i64;
+            let _ = sqlx::query(
+                r#"INSERT INTO files (document_id, filename, content_type, size, storage_path, content_hash)
+                       VALUES ($1,$2,$3,$4,$5,$6)"#,
+            )
+            .bind(doc_id)
+            .bind(&filename)
+            .bind::<Option<&str>>(None)
+            .bind(size)
+            .bind(&storage_path)
+            .bind(&snapshot.hash)
+            .execute(&self.pool)
+            .await?;
+            attachments_created += 1;
         }
         Ok((docs_created, attachments_created))
     }
