@@ -1,10 +1,8 @@
-use tracing::warn;
 use uuid::Uuid;
 
 use crate::application::dto::git::{GitSyncRequestDto, GitSyncResponseDto};
 use crate::application::ports::git_repository::GitRepository;
 use crate::application::ports::git_workspace::GitWorkspacePort;
-use crate::application::use_cases::git::helpers::needs_force_retry;
 
 pub struct SyncNow<'a, R, W>
 where
@@ -26,25 +24,11 @@ where
         req: GitSyncRequestDto,
     ) -> anyhow::Result<GitSyncResponseDto> {
         let cfg = self.repo.load_user_git_cfg(workspace_id).await?;
-        let mut attempt_req = req.clone();
-        let outcome = match self
+        let attempt_req = req.clone();
+        let outcome = self
             .workspace
             .sync(workspace_id, &attempt_req, cfg.as_ref())
-            .await
-        {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                if !attempt_req.force.unwrap_or(false) && needs_force_retry(&err) {
-                    warn!(workspace_id = %workspace_id, "git_sync_retrying_with_force");
-                    attempt_req.force = Some(true);
-                    self.workspace
-                        .sync(workspace_id, &attempt_req, cfg.as_ref())
-                        .await?
-                } else {
-                    return Err(err);
-                }
-            }
-        };
+            .await?;
 
         if let Some(cfg) = cfg.as_ref() {
             if !cfg.repository_url.is_empty() {
@@ -60,7 +44,12 @@ where
                         )
                         .await;
                 } else {
-                    let status = if outcome.pushed { "success" } else { "error" };
+                    // Treat "nothing to commit" as success even if no push occurred.
+                    let status = if outcome.files_changed == 0 || outcome.pushed {
+                        "success"
+                    } else {
+                        "error"
+                    };
                     let _ = self
                         .repo
                         .log_sync_operation(

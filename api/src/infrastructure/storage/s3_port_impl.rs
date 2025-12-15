@@ -12,13 +12,13 @@ use aws_sdk_s3::operation::head_bucket::HeadBucketError;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use aws_sdk_s3::{Client, error::SdkError};
-use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 use crate::application::ports::storage_port::{
     StorageProjectionPort, StorageResolverPort, StoredAttachment,
 };
+use crate::application::utils::hash::sha256_hex;
 use crate::infrastructure::db::PgPool;
 
 #[derive(Clone, Debug)]
@@ -552,13 +552,7 @@ impl StorageResolverPort for S3StoragePort {
         let key = self.relative_to_key(&relative);
         self.put_object(&key, bytes).await?;
         let size = bytes.len() as i64;
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-        let digest = hasher.finalize();
-        let hash = digest
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
+        let hash = sha256_hex(bytes);
         Ok(StoredAttachment {
             filename: target
                 .file_name()

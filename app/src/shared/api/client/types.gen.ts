@@ -245,6 +245,51 @@ export type GitHistoryResponse = {
     commits: Array<GitCommitItem>;
 };
 
+export type GitImportResponse = {
+    attachments_created: number;
+    commit_hash?: (string) | null;
+    docs_created: number;
+    files_changed: number;
+    message: string;
+    success: boolean;
+};
+
+export type GitPullConflictItem = {
+    base?: (string) | null;
+    document_id?: (string) | null;
+    is_binary: boolean;
+    ours?: (string) | null;
+    path: string;
+    theirs?: (string) | null;
+};
+
+export type GitPullRequest = {
+    resolutions?: Array<GitPullResolution> | null;
+};
+
+export type GitPullResolution = {
+    choice: string;
+    content?: (string) | null;
+    path: string;
+};
+
+export type GitPullResponse = {
+    commit_hash?: (string) | null;
+    conflicts?: Array<GitPullConflictItem> | null;
+    files_changed: number;
+    git_status?: ((GitStatus) | null);
+    message: string;
+    success: boolean;
+};
+
+export type GitPullSessionResponse = {
+    conflicts: Array<GitPullConflictItem>;
+    message?: (string) | null;
+    resolutions: Array<GitPullResolution>;
+    session_id: string;
+    status: string;
+};
+
 export type GitRemoteCheckResponse = {
     message: string;
     ok: boolean;
@@ -1101,7 +1146,40 @@ export type IgnoreFolderData = {
 
 export type IgnoreFolderResponse = (unknown);
 
+export type ImportRepositoryData = {
+    requestBody: CreateGitConfigRequest;
+};
+
+export type ImportRepositoryResponse = (GitImportResponse);
+
 export type InitRepositoryResponse = (unknown);
+
+export type PullRepositoryData = {
+    requestBody: GitPullRequest;
+};
+
+export type PullRepositoryResponse = (GitPullResponse);
+
+export type GetPullSessionData = {
+    id: string;
+};
+
+export type GetPullSessionResponse = (GitPullSessionResponse);
+
+export type FinalizePullSessionData = {
+    id: string;
+};
+
+export type FinalizePullSessionResponse = (GitPullResponse);
+
+export type ResolvePullSessionData = {
+    id: string;
+    requestBody: GitPullRequest;
+};
+
+export type ResolvePullSessionResponse = (GitPullSessionResponse);
+
+export type StartPullSessionResponse = (GitPullSessionResponse);
 
 export type GetStatusResponse = (GitStatus);
 

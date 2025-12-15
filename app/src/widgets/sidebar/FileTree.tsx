@@ -4,7 +4,7 @@ import { Archive, Building2, Check, ChevronDown, ChevronRight, FileText, Github,
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-import type { WorkspaceMembershipResponse } from '@/shared/api'
+import type { GitPullConflictItem, WorkspaceMembershipResponse } from '@/shared/api'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -18,6 +18,7 @@ import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGrou
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { downloadWorkspaceArchive } from '@/entities/document'
+import { getPullSession } from '@/entities/git'
 
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext } from '@/features/edit-document'
@@ -31,6 +32,7 @@ import { useFileTreeDrag } from '@/features/file-tree/lib/useFileTreeDrag'
 import FileNode from '@/features/file-tree/ui/FileNode'
 import FolderNode from '@/features/file-tree/ui/FolderNode'
 import { GitSyncButton } from '@/features/git-sync'
+import { GIT_CONFLICT_EVENT, readConflicts, readSessionId, setConflicts as setGlobalConflicts, setSessionId, clearSession, clearResolutions } from '@/features/git-sync/lib/git-conflict-store'
 import { useSecondaryViewer } from '@/features/secondary-viewer'
 import { ShareDialog } from '@/features/sharing'
 import {
@@ -265,6 +267,8 @@ function FileTreeInner() {
   const [temporaryEntries, setTemporaryEntries] = useState<TemporaryDocumentMeta[]>([])
   const [shareFolderId, setShareFolderId] = useState<string | null>(null)
   const [workspaceDownloadPending, setWorkspaceDownloadPending] = useState(false)
+  const [gitConflicts, setGitConflicts] = useState<GitPullConflictItem[]>(() => readConflicts())
+  const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
   const openTemporaryDocument = useCallback(() => {
     if (typeof window === 'undefined') return
     const entry = createTemporaryDocumentEntry()
@@ -276,7 +280,7 @@ function FileTreeInner() {
   const refreshTempEntries = useCallback(() => {
     if (typeof window === 'undefined') return [] as TemporaryDocumentMeta[]
     return listTemporaryDocuments()
-  }, [])
+  }, [sessionId])
   const clearAllTemporaries = useCallback(() => {
     const list = refreshTempEntries()
     list.forEach((entry) => deleteTemporaryDocumentEntry(entry.id))
@@ -337,6 +341,60 @@ function FileTreeInner() {
         docPickerPromiseRef.current(null)
         docPickerPromiseRef.current = null
       }
+    }
+  }, [])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail
+      if (Array.isArray(detail)) {
+        setGitConflicts(detail as GitPullConflictItem[])
+      } else {
+        setGitConflicts(readConflicts())
+      }
+    }
+    const sessionHandler = () => setSessionIdState(readSessionId())
+    window.addEventListener(GIT_CONFLICT_EVENT, handler as EventListener)
+    window.addEventListener('storage', handler)
+    window.addEventListener('storage', sessionHandler)
+    return () => {
+      window.removeEventListener(GIT_CONFLICT_EVENT, handler as EventListener)
+      window.removeEventListener('storage', handler)
+      window.removeEventListener('storage', sessionHandler)
+    }
+  }, [])
+
+  useEffect(() => {
+    const sid = sessionId ?? readSessionId()
+    if (!sid) return
+    let cancelled = false
+    const syncSession = () => {
+      getPullSession({ id: sid })
+        .then((session) => {
+          if (cancelled) return
+          if ((session as any)?.status === 'stale') {
+            clearSession()
+            clearResolutions()
+            setGitConflicts([])
+            return
+          }
+          if ((session as any)?.status === 'merged' && (session.conflicts ?? []).length === 0) {
+            clearSession()
+            clearResolutions()
+            setGitConflicts([])
+            return
+          }
+          setSessionId(session.session_id)
+          setGlobalConflicts(session.conflicts ?? [])
+          setGitConflicts(session.conflicts ?? [])
+        })
+        .catch(() => {})
+    }
+    syncSession()
+    const timer = window.setInterval(syncSession, 10000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
     }
   }, [])
 
@@ -412,12 +470,11 @@ function FileTreeInner() {
       await router.navigate({
         to: '/document/$id',
         params: { id: targetId },
-        search: (prev: Record<string, unknown>) => {
-          const next = { ...prev }
-          next.token = node.shareToken
-          next.shareMount = '1'
-          return next
-        },
+        search: (prev: Record<string, string | string[] | undefined>) => ({
+          ...(prev || {}),
+          token: node.shareToken,
+          shareMount: '1',
+        }),
       })
       return
     }
@@ -427,6 +484,42 @@ function FileTreeInner() {
   const onSelect = useCallback(async (node: DocumentNode) => {
     await openNode(node)
   }, [openNode])
+
+  const normalizeConflictPath = useCallback((path?: string | null) => {
+    if (!path) return ''
+    return path.replace(/^[./]+/, '').trim().toLowerCase()
+  }, [])
+
+  const conflictForNode = useCallback(
+    (node: DocumentNode): GitPullConflictItem | null => {
+      if (node.type !== 'file') return null
+      const targets = [normalizeConflictPath(node.path), normalizeConflictPath(node.desiredPath)].filter(Boolean)
+      const names = new Set<string>()
+      const addName = (value?: string | null) => {
+        if (!value) return
+        const trimmed = value.trim().toLowerCase()
+        if (trimmed) names.add(trimmed)
+      }
+      addName(node.title)
+      targets.forEach((t) => {
+        addName(t.split('/').pop())
+      })
+      if (!targets.length && names.size === 0) return null
+      for (const conflict of gitConflicts) {
+        if (conflict.document_id && conflict.document_id === node.id) {
+          return conflict
+        }
+        const candidate = normalizeConflictPath(conflict.path)
+        if (!candidate) continue
+        const candidateBase = candidate.split('/').pop()
+        if (targets.some((t) => candidate === t || candidate.endsWith(`/${t}`)) || (candidateBase && names.has(candidateBase))) {
+          return conflict
+        }
+      }
+      return null
+    },
+    [gitConflicts, normalizeConflictPath],
+  )
 
   // Sync selection from current URL (when user navigates elsewhere)
   useEffect(() => {
@@ -715,6 +808,8 @@ function FileTreeInner() {
       )
     }
 
+    const conflict = conflictForNode(node)
+
     return (
       <FileNode
         key={node.id}
@@ -738,9 +833,10 @@ function FileTreeInner() {
         pluginRules={fileTreeRules}
         onOpenSecondaryViewer={openSecondaryViewer}
         gitEnabled
+        conflict={conflict}
       />
     )
-  }, [createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   const renderNestedNode = useCallback((node: DocumentNode, parentId?: string, depth = 1): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.id)
@@ -797,9 +893,10 @@ function FileTreeInner() {
         pluginRules={fileTreeRules}
         onOpenSecondaryViewer={openSecondaryViewer}
         gitEnabled
+        conflict={conflictForNode(node)}
       />
     )
-  }, [createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   return (
     <div className="flex h-full flex-1 flex-col">

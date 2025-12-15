@@ -341,6 +341,39 @@ mod tests {
             }
         }
 
+        async fn import_repository(
+            &self,
+            _workspace_id: Uuid,
+            _actor_id: Uuid,
+            _cfg: &crate::application::ports::git_repository::UserGitCfg,
+        ) -> anyhow::Result<crate::application::dto::git::GitImportOutcome> {
+            Ok(crate::application::dto::git::GitImportOutcome {
+                files_changed: 0,
+                commit_hash: None,
+                docs_created: 0,
+                attachments_created: 0,
+                message: "not implemented".to_string(),
+            })
+        }
+
+        async fn pull(
+            &self,
+            _workspace_id: Uuid,
+            _actor_id: Uuid,
+            _req: &crate::application::dto::git::GitPullRequestDto,
+            _cfg: &crate::application::ports::git_repository::UserGitCfg,
+        ) -> anyhow::Result<crate::application::dto::git::GitPullResultDto> {
+            Ok(crate::application::dto::git::GitPullResultDto {
+                success: true,
+                message: "ok".to_string(),
+                files_changed: 0,
+                commit_hash: None,
+                conflicts: None,
+                base_commit: None,
+                remote_commit: None,
+            })
+        }
+
         async fn check_remote(
             &self,
             _workspace_id: Uuid,
@@ -351,6 +384,30 @@ mod tests {
                 message: "ok".into(),
                 reason: None,
             })
+        }
+
+        async fn head_commit(&self, _workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+
+        async fn remote_head(
+            &self,
+            _workspace_id: Uuid,
+            _cfg: &crate::application::ports::git_repository::UserGitCfg,
+        ) -> anyhow::Result<Option<Vec<u8>>> {
+            Ok(None)
+        }
+
+        async fn has_pending_changes(&self, _workspace_id: Uuid) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn drift_since_commit(
+            &self,
+            _workspace_id: Uuid,
+            _base_commit: &[u8],
+        ) -> anyhow::Result<bool> {
+            Ok(false)
         }
     }
 

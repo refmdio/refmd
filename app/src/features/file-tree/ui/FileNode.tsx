@@ -1,6 +1,7 @@
 "use client"
 
 import { useQueries } from '@tanstack/react-query'
+import { useRouter } from '@tanstack/react-router'
 import {
   FileText,
   Edit,
@@ -11,6 +12,7 @@ import {
   Globe,
   Link as LinkIcon,
   Ban,
+  AlertTriangle,
   MessageSquare,
   Blocks,
   StickyNote,
@@ -27,6 +29,7 @@ import type { LucideIcon } from 'lucide-react'
 import React, { useState, useCallback, memo, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
+import type { GitPullConflictItem } from '@/shared/api'
 import useInView from '@/shared/hooks/use-in-view'
 import { overlayMenuClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -67,6 +70,7 @@ type FileNodeProps = {
   pluginRules?: FileTreeRule[]
   onOpenSecondaryViewer?: (id: string, type?: 'document' | 'scrap') => void
   gitEnabled?: boolean
+  conflict?: GitPullConflictItem | null
 }
 
 export const FileNode = memo(function FileNode({
@@ -90,6 +94,7 @@ export const FileNode = memo(function FileNode({
   pluginRules,
   onOpenSecondaryViewer,
   gitEnabled = false,
+  conflict = null,
 }: FileNodeProps) {
   const {
     sharedDocIds,
@@ -100,6 +105,7 @@ export const FileNode = memo(function FileNode({
     refreshDocuments,
     setArchivesExpanded,
   } = useFileTree()
+  const router = useRouter()
   const rowRef = useRef<HTMLDivElement | null>(null)
   const isRowInView = useInView(rowRef, { rootMargin: '160px' })
   const [hasBeenVisible, setHasBeenVisible] = useState(false)
@@ -110,6 +116,7 @@ export const FileNode = memo(function FileNode({
   const menuGuardRef = useRef<{ block: boolean; timer?: number }>({ block: false })
   const isArchived = Boolean(node.archived)
   const isShareMount = Boolean(node.isShareMount)
+  const hasConflict = Boolean(conflict)
   const archiveMutation = useArchiveDocument()
   const unarchiveMutation = useUnarchiveDocument()
 
@@ -177,6 +184,13 @@ export const FileNode = memo(function FileNode({
     }
   }, [isShareMount, node, onDuplicate])
   const handleSelect = useCallback(() => { onSelect(node) }, [node, onSelect])
+  const handleOpenConflictResolver = useCallback(() => {
+    router.navigate({
+      to: '/document/$id',
+      params: { id: node.id },
+      search: (prev: Record<string, unknown>) => ({ ...prev, conflict: '1' }),
+    })
+  }, [node.id, router])
   const handleArchive = useCallback(async () => {
     if (isShareMount) return
     try {
@@ -444,6 +458,12 @@ export const FileNode = memo(function FileNode({
                     {sharedDocIds.has(node.id) && <Share2 className="h-3 w-3" />}
                   </span>
                 )}
+                {hasConflict && (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-destructive">
+                    <AlertTriangle className="h-3 w-3" />
+                    Conflict
+                  </span>
+                )}
               </div>
             </SidebarMenuButton>
 
@@ -492,6 +512,13 @@ export const FileNode = memo(function FileNode({
                 >
                   <FileText className="h-4 w-4 mr-2" />Open in Secondary Viewer
                 </DropdownMenuItem>
+                {hasConflict && !isShareMount && (
+                  <DropdownMenuItem
+                    onSelect={(event) => guardMenuAction(event, handleOpenConflictResolver)}
+                  >
+                    <AlertTriangle className="h-4 w-4 mr-2 text-destructive" />Open in Conflict Resolver
+                  </DropdownMenuItem>
+                )}
                 {!isShareMount && (
                   <>
                     {gitEnabled && (
@@ -559,7 +586,8 @@ export const FileNode = memo(function FileNode({
   prev.isSelected === next.isSelected &&
   prev.isDragging === next.isDragging &&
   prev.isDropTarget === next.isDropTarget &&
-  prev.gitEnabled === next.gitEnabled
+  prev.gitEnabled === next.gitEnabled &&
+  (prev.conflict?.path || null) === (next.conflict?.path || null)
 ))
 
 export default FileNode

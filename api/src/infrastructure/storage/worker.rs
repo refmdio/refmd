@@ -22,6 +22,7 @@ use crate::application::services::workspaces::permission_snapshot::permission_se
 use crate::domain::workspaces::permissions::{
     PERM_DOC_DELETE, PERM_FILE_DELETE, PERM_FOLDER_DELETE, PermissionSet,
 };
+use crate::infrastructure::storage::suppress_git_dirty;
 
 pub struct StorageProjectionWorker {
     jobs: Arc<dyn StorageProjectionQueue>,
@@ -109,47 +110,50 @@ impl StorageProjectionWorker {
 
         async move {
             let delete_metadata = parse_delete_job_metadata(job.reason.as_ref());
-            let result = match job.job_type {
-                StorageProjectionJobKind::DocSync => {
-                    let doc_id = job
-                        .doc_id
-                        .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
-                    let res = self.handle_doc_sync(doc_id).await;
-                    if res.is_ok() {
-                        self.emit_projection_event(doc_id, &job, "succeeded", None)
-                            .await;
+            let result = suppress_git_dirty(async {
+                match job.job_type {
+                    StorageProjectionJobKind::DocSync => {
+                        let doc_id = job
+                            .doc_id
+                            .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
+                        let res = self.handle_doc_sync(doc_id).await;
+                        if res.is_ok() {
+                            self.emit_projection_event(doc_id, &job, "succeeded", None)
+                                .await;
+                        }
+                        res
                     }
-                    res
-                }
-                StorageProjectionJobKind::FolderSync => {
-                    self.handle_folder_sync(
-                        job.folder_id
-                            .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
-                    )
-                    .await
-                }
-                StorageProjectionJobKind::DeleteDoc => {
-                    let doc_id = job
-                        .doc_id
-                        .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
-                    let res = self
-                        .handle_delete_doc(doc_id, delete_metadata.as_ref())
-                        .await;
-                    if res.is_ok() {
-                        self.emit_projection_event(doc_id, &job, "succeeded", None)
-                            .await;
+                    StorageProjectionJobKind::FolderSync => {
+                        self.handle_folder_sync(
+                            job.folder_id
+                                .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
+                        )
+                        .await
                     }
-                    res
+                    StorageProjectionJobKind::DeleteDoc => {
+                        let doc_id = job
+                            .doc_id
+                            .ok_or_else(|| anyhow::anyhow!("doc_id_required"))?;
+                        let res = self
+                            .handle_delete_doc(doc_id, delete_metadata.as_ref())
+                            .await;
+                        if res.is_ok() {
+                            self.emit_projection_event(doc_id, &job, "succeeded", None)
+                                .await;
+                        }
+                        res
+                    }
+                    StorageProjectionJobKind::DeleteFolder => {
+                        self.handle_delete_folder(
+                            job.folder_id
+                                .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
+                            delete_metadata.as_ref(),
+                        )
+                        .await
+                    }
                 }
-                StorageProjectionJobKind::DeleteFolder => {
-                    self.handle_delete_folder(
-                        job.folder_id
-                            .ok_or_else(|| anyhow::anyhow!("folder_id_required"))?,
-                        delete_metadata.as_ref(),
-                    )
-                    .await
-                }
-            };
+            })
+            .await;
 
             match result {
                 Ok(()) => {

@@ -1,14 +1,16 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { BookmarkPlus, Download, History } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
-import { ApiError } from '@/shared/api'
+import { ApiError, type GitPullConflictItem, type GitPullResolution } from '@/shared/api'
 import { useRealtime } from '@/shared/contexts/realtime-context'
 import type { DocumentHeaderAction } from '@/shared/types/document'
+import { Button } from '@/shared/ui/button'
 
 import { downloadDocumentFile, type DocumentDownloadFormat } from '@/entities/document'
+import { getPullSession } from '@/entities/git'
 import { createShareMount, shareMountsQuery } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
@@ -20,9 +22,10 @@ import {
 } from '@/features/document-download'
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument, useViewContext } from '@/features/edit-document'
+import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
+import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
 import { usePluginDocumentRedirect } from '@/features/plugins'
 import { useSecondaryViewer } from '@/features/secondary-viewer'
-
 
 type SecondaryViewerType = ReturnType<typeof useSecondaryViewer>['secondaryDocumentType']
 
@@ -30,6 +33,8 @@ export type DocumentLoaderData = {
   title: string
   token?: string
   createdByPlugin?: string | null
+  path?: string | null
+  desired_path?: string | null
 }
 
 export type SecondaryViewerRendererProps = {
@@ -45,9 +50,173 @@ export type DocumentPageProps = {
   loaderData?: DocumentLoaderData
   shareToken?: string
   secondaryViewerRenderer?: (props: SecondaryViewerRendererProps) => ReactNode
+  conflictMode?: boolean
 }
 
-export function DocumentPage({ id, loaderData, shareToken, secondaryViewerRenderer }: DocumentPageProps) {
+const normalizeConflictPath = (path?: string | null) => (path || '').replace(/^[./]+/, '').trim().toLowerCase()
+
+type ConflictHunk = {
+  id: string
+  ours: string[]
+  theirs: string[]
+  oursStart?: number
+  theirsStart?: number
+}
+
+type ConflictSegments = Array<
+  | { type: 'equal'; lines: string[] }
+  | { type: 'conflict'; hunkId: string; ours: string[]; theirs: string[] }
+>
+
+const genHunkId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return Math.random().toString(36).slice(2)
+}
+
+const buildLineDiffSegments = (oursRaw: string, theirsRaw: string): { segments: ConflictSegments; hunks: ConflictHunk[] } => {
+  const ours = oursRaw.split('\n')
+  const theirs = theirsRaw.split('\n')
+  const m = ours.length
+  const n = theirs.length
+  const lcs: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0))
+  for (let i = m - 1; i >= 0; i -= 1) {
+    for (let j = n - 1; j >= 0; j -= 1) {
+      if (ours[i] === theirs[j]) lcs[i][j] = lcs[i + 1][j + 1] + 1
+      else lcs[i][j] = Math.max(lcs[i + 1][j], lcs[i][j + 1])
+    }
+  }
+
+  type Op = { type: 'equal' | 'del' | 'ins'; line: string }
+  const ops: Op[] = []
+  let i = 0
+  let j = 0
+  while (i < m && j < n) {
+    if (ours[i] === theirs[j]) {
+      ops.push({ type: 'equal', line: ours[i] })
+      i += 1
+      j += 1
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      ops.push({ type: 'del', line: ours[i] })
+      i += 1
+    } else {
+      ops.push({ type: 'ins', line: theirs[j] })
+      j += 1
+    }
+  }
+  while (i < m) {
+    ops.push({ type: 'del', line: ours[i] })
+    i += 1
+  }
+  while (j < n) {
+    ops.push({ type: 'ins', line: theirs[j] })
+    j += 1
+  }
+
+  const segments: ConflictSegments = []
+  const hunks: ConflictHunk[] = []
+  let currentEqual: string[] = []
+  let currentConflict: { ours: string[]; theirs: string[]; hunkId: string } | null = null
+
+  const pushEqual = () => {
+    if (currentEqual.length) {
+      segments.push({ type: 'equal', lines: currentEqual })
+      currentEqual = []
+    }
+  }
+
+  const pushConflict = () => {
+    if (currentConflict) {
+      segments.push({ type: 'conflict', hunkId: currentConflict.hunkId, ours: currentConflict.ours, theirs: currentConflict.theirs })
+      hunks.push({ id: currentConflict.hunkId, ours: currentConflict.ours.slice(), theirs: currentConflict.theirs.slice() })
+      currentConflict = null
+    }
+  }
+
+  for (const op of ops) {
+    if (op.type === 'equal') {
+      pushConflict()
+      currentEqual.push(op.line)
+    } else {
+      pushEqual()
+      if (!currentConflict) {
+        currentConflict = { ours: [], theirs: [], hunkId: genHunkId() }
+      }
+      if (op.type === 'del') currentConflict.ours.push(op.line)
+      else currentConflict.theirs.push(op.line)
+    }
+  }
+  pushConflict()
+  pushEqual()
+
+  return { segments, hunks }
+}
+
+const buildMergedText = (
+  segments: ConflictSegments,
+  choices: Record<string, 'ours' | 'theirs'>,
+  defaultPick: 'ours' | 'theirs' = 'ours',
+) => {
+  const out: string[] = []
+  for (const seg of segments) {
+    if (seg.type === 'equal') {
+      out.push(...seg.lines)
+    } else {
+      const pick = choices[seg.hunkId] || defaultPick
+      out.push(...(pick === 'theirs' ? seg.theirs : seg.ours))
+    }
+  }
+  return out.join('\n')
+}
+
+const buildHunkAnchors = (
+  segments: ConflictSegments,
+  choices: Record<string, 'ours' | 'theirs'>,
+  defaultPick: 'ours' | 'theirs',
+): Array<{ hunkId: string; line: number }> => {
+  const anchors: Array<{ hunkId: string; line: number }> = []
+  let line = 0
+  for (const seg of segments) {
+    if (seg.type === 'equal') {
+      line += seg.lines.length
+    } else {
+      const pick = choices[seg.hunkId] || defaultPick
+      const lines = pick === 'theirs' ? seg.theirs : seg.ours
+      const start = line + 1
+      const end = line + lines.length
+      anchors.push({ hunkId: seg.hunkId, line: lines.length ? end : start })
+      line = end
+    }
+  }
+  return anchors
+}
+
+const matchConflictToDoc = (
+  conflicts: GitPullConflictItem[],
+  docPaths: Array<string | null | undefined>,
+  docId: string,
+): GitPullConflictItem | null => {
+  if (conflicts.length === 0) return null
+  const targets = docPaths
+    .map((p) => normalizeConflictPath(p))
+    .filter((p) => p.length > 0)
+
+  for (const conflict of conflicts) {
+    if (conflict.document_id && conflict.document_id === docId) return conflict
+  }
+
+  for (const conflict of conflicts) {
+    const candidate = normalizeConflictPath(conflict.path)
+    if (!candidate) continue
+    if (targets.some((t) => candidate === t || candidate.endsWith(`/${t}`))) {
+      return conflict
+    }
+  }
+
+  if (conflicts.length === 1) return conflicts[0]
+  return null
+}
+
+export function DocumentPage({ id, loaderData, shareToken, secondaryViewerRenderer, conflictMode = false }: DocumentPageProps) {
   const [isClient, setIsClient] = useState(typeof window !== 'undefined')
 
   useEffect(() => {
@@ -64,6 +233,7 @@ export function DocumentPage({ id, loaderData, shareToken, secondaryViewerRender
       loaderData={loaderData}
       shareToken={shareToken}
       secondaryViewerRenderer={secondaryViewerRenderer}
+      conflictMode={conflictMode}
     />
   )
 }
@@ -73,7 +243,7 @@ export default DocumentPage
 function DocumentSSRPlaceholder() {
   return (
     <div className="relative flex h-full flex-1 min-h-0 flex-col">
-      <EditorOverlay label="Loading…" />
+      <EditorOverlay label="Loading..." />
     </div>
   )
 }
@@ -83,6 +253,7 @@ function DocumentClient({
   loaderData,
   shareToken,
   secondaryViewerRenderer,
+  conflictMode = false,
 }: DocumentPageProps) {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -92,11 +263,26 @@ function DocumentClient({
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
   const [downloadPending, setDownloadPending] = useState(false)
   const [savingShare, setSavingShare] = useState(false)
+  const [activeConflict, setActiveConflict] = useState<GitPullConflictItem | null>(null)
+  const [modifiedText, setModifiedText] = useState<string>('')
+  const [previewContent, setPreviewContent] = useState<string>('')
+  const [hasInteracted, setHasInteracted] = useState(false)
+  const [segments, setSegments] = useState<ConflictSegments>([])
+  const [hunks, setHunks] = useState<ConflictHunk[]>([])
+  const [hunkChoices, setHunkChoices] = useState<Record<string, 'ours' | 'theirs'>>({})
+  const [hunkDefaultSide, setHunkDefaultSide] = useState<'ours' | 'theirs'>('ours')
+  const [hunkAnchors, setHunkAnchors] = useState<Array<{ hunkId: string; line: number }>>([])
+  const lastPayloadRef = useRef<GitPullResolution[]>([])
   const { secondaryDocumentId, secondaryDocumentType, showSecondaryViewer, closeSecondaryViewer, openSecondaryViewer } = useSecondaryViewer()
   const { showBacklinks, setShowBacklinks } = useViewContext()
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
+  const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
+  useEffect(() => {
+    const unsubscribe = subscribeSessionId((sid) => setSessionIdState(sid))
+    return () => unsubscribe()
+  }, [])
   const pluginRedirectEnabled =
     loaderData?.createdByPlugin === undefined ? true : Boolean(loaderData?.createdByPlugin)
   const { redirecting, resolving: pluginResolving } = usePluginDocumentRedirect(id, {
@@ -125,6 +311,82 @@ function DocumentClient({
 
   const loaderTitle = loaderData?.title
   const resolvedTitle = (realtimeTitle && realtimeTitle.trim()) || loaderTitle
+
+  const setConflictsForDoc = useCallback(
+    (list: GitPullConflictItem[]) => {
+      const safeList = Array.isArray(list) ? list : []
+      const existing = readConflicts()
+      const unchanged =
+        existing.length === safeList.length &&
+        existing.every((item, idx) => JSON.stringify(item) === JSON.stringify(safeList[idx]))
+      if (!unchanged) {
+        setGlobalConflicts(safeList)
+      }
+      const matched = matchConflictToDoc(safeList, [loaderData?.path, loaderData?.desired_path], id)
+      setActiveConflict(matched)
+      if (matched && !matched.is_binary) {
+        const oursText = matched.ours ?? ''
+        const theirsText = matched.theirs ?? ''
+        const { segments: segs, hunks: nextHunks } = buildLineDiffSegments(oursText, theirsText)
+        setSegments(segs)
+        setHunks(nextHunks)
+        setHunkChoices({})
+        setHunkDefaultSide('ours')
+        // Default merge is ours, but show diff against remote by setting modified to theirs initially.
+        setModifiedText(theirsText || oursText)
+        setHunkAnchors(buildHunkAnchors(segs, {}, 'ours'))
+        setPreviewContent(oursText)
+        setHasInteracted(false)
+      } else {
+        setSegments([])
+        setHunks([])
+        setHunkChoices({})
+        setHunkDefaultSide('ours')
+        setModifiedText(matched?.theirs ?? matched?.ours ?? '')
+        setHunkAnchors([])
+        setPreviewContent('')
+        setHasInteracted(false)
+      }
+    },
+    [loaderData?.desired_path, loaderData?.path],
+  )
+
+  useEffect(() => {
+    if (!conflictMode) return
+    const fetchConflicts = async () => {
+      try {
+        if (sessionId) {
+          const session = await getPullSession({ id: sessionId })
+          if ((session as any)?.status === 'stale') {
+            clearSession()
+            clearResolutions()
+            lastPayloadRef.current = []
+            setConflictsForDoc([])
+            toast.error('Pull session expired. Please pull again.')
+            return
+          }
+          setSessionId(session.session_id)
+          setConflictsForDoc(session.conflicts ?? [])
+          setResolutions(session.resolutions ?? [])
+          return
+        }
+        // Fallback: hydrate from local store when session is not yet available.
+        setConflictsForDoc(readConflicts())
+      } catch (error) {
+        toast.error((error as any)?.body?.message || (error as any)?.message || 'Failed to load conflicts')
+      }
+    }
+    void fetchConflicts()
+  }, [conflictMode, setConflictsForDoc, sessionId])
+
+  useEffect(() => {
+    if (!segments.length) return
+    if (hasInteracted) {
+      setModifiedText(buildMergedText(segments, hunkChoices, hunkDefaultSide))
+    }
+    setHunkAnchors(buildHunkAnchors(segments, hunkChoices, hunkDefaultSide))
+    setPreviewContent(buildMergedText(segments, hunkChoices, hunkDefaultSide))
+  }, [segments, hunkChoices, hunkDefaultSide, hasInteracted])
 
   const openDownloadDialog = useCallback(() => {
     if (!hasDoc) return
@@ -173,6 +435,75 @@ function DocumentClient({
       setSavingShare(false)
     }
   }, [qc, savingShare, shareToken])
+
+  const handleConflictResolved = useCallback(() => {
+    navigate({
+      to: '/document/$id',
+      params: { id },
+      search: (prev: Record<string, string | string[] | undefined>) => {
+        const next: Record<string, string | string[] | undefined> = { ...prev }
+        delete next.conflict
+        return next
+      },
+      replace: true,
+    })
+    setConflictsForDoc([])
+    clearResolutions()
+    clearSession()
+    lastPayloadRef.current = []
+    qc.invalidateQueries({ queryKey: ['git-status'] })
+  }, [id, navigate, qc])
+
+  const pullMutation = useMutation({
+    mutationFn: async (resolutions: GitPullResolution[]) =>
+      performPullSession(resolutions, { sessionId }),
+    onSuccess: (result) => {
+      setSessionIdState(result.sessionId ?? null)
+      setConflictsForDoc(result.conflicts)
+
+      if (result.status === 'stale') {
+        clearSession()
+        clearResolutions()
+        lastPayloadRef.current = []
+        toast.error('Pull session expired. Please pull again.')
+        return
+      }
+
+      const stillPending = matchConflictToDoc(result.conflicts, [loaderData?.path, loaderData?.desired_path], id)
+      if (result.status === 'conflicts') {
+        const payload = lastPayloadRef.current || []
+        if (payload.length) setResolutions(payload)
+        const message =
+          result.message ||
+          (stillPending
+            ? 'Resolution applied. Another conflict remains for this document.'
+            : 'Resolution applied. Another conflict remains.')
+        toast.success(message)
+        return
+      }
+
+      if (result.status === 'merged') {
+        clearResolutions()
+        lastPayloadRef.current = []
+        handleConflictResolved()
+        toast.success(result.message || 'Conflict resolved')
+        return
+      }
+
+      toast.error(result.message || 'Failed to apply resolution')
+    },
+  })
+
+  const submitResolution = useCallback(
+    (resolution: GitPullResolution) => {
+      const preserved = readResolutions().filter((r) => r.path !== resolution.path)
+      const payload = [...preserved, resolution]
+      setResolutions(payload)
+      lastPayloadRef.current = payload
+      pullMutation.mutate(payload)
+    },
+    [pullMutation],
+  )
 
   useEffect(() => {
     const ensureAction = (
@@ -242,12 +573,14 @@ function DocumentClient({
   const overlayLabel = realtimeError
     ? realtimeError
     : pluginResolving
-      ? 'Preparing plugin…'
+      ? 'Preparing plugin...'
       : redirecting
-        ? 'Opening plugin…'
+        ? 'Opening plugin...'
         : status === 'connecting'
-          ? 'Connecting…'
-          : 'Loading…'
+          ? 'Connecting...'
+          : 'Loading...'
+  const showEditor = Boolean(doc && awareness && !realtimeError)
+  const showOverlay = shouldShowOverlay
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -256,11 +589,11 @@ function DocumentClient({
     const computedTitle = (() => {
       if (!baseTitle) return 'RefMD'
       if (shareToken) return baseTitle
-      return `${baseTitle} • RefMD`
+      return `${baseTitle} - RefMD`
     })()
     document.title = computedTitle
 
-    const summary = (() => {
+      const summary = (() => {
       if (!baseTitle) return shareToken ? 'Shared document on RefMD' : 'Editing a document on RefMD'
       if (shareToken) return baseTitle
       return `${baseTitle} on RefMD`
@@ -305,20 +638,163 @@ function DocumentClient({
 
   const renderSecondaryViewer = secondaryViewerRenderer
 
+  const oursText = activeConflict?.ours ?? ''
+  const theirsText = activeConflict?.theirs ?? ''
+  const isBinaryConflict = activeConflict?.is_binary ?? false
+
+  const hunkCount = useMemo(() => hunks.length, [hunks])
+  const resolvedHunks = useMemo(() => hunks.filter((h) => hunkChoices[h.id]).length, [hunks, hunkChoices])
+  const allResolved = useMemo(() => (hunkCount ? resolvedHunks === hunkCount : true), [hunkCount, resolvedHunks])
+
+  const chooseHunkSide = useCallback((hunkId: string, side: 'ours' | 'theirs') => {
+    setHunkChoices((prev) => ({ ...prev, [hunkId]: side }))
+  }, [])
+
+  const setAllHunks = useCallback(
+    (side: 'ours' | 'theirs') => {
+      if (!hunks.length) return
+      const entries = Object.fromEntries(hunks.map((h) => [h.id, side]))
+      setHunkChoices(entries)
+      setHunkDefaultSide(side)
+    },
+    [hunks],
+  )
+
+  const applyGlobalChoice = useCallback(
+    (side: 'ours' | 'theirs') => {
+      setAllHunks(side)
+      const nextText = side === 'theirs' ? theirsText : oursText
+      setModifiedText(nextText)
+      setPreviewContent(nextText)
+    },
+    [oursText, setAllHunks, setModifiedText, setPreviewContent, theirsText],
+  )
+
+  const handleApplyResolution = useCallback(
+    (choice: GitPullResolution['choice'], customContent?: string) => {
+      if (!activeConflict) return
+      if (choice === 'custom_text' && !allResolved) {
+        toast.error('Resolve all hunks before applying.')
+        return
+      }
+      if (choice === 'custom_text' && !(customContent ?? modifiedText).trim()) {
+        toast.error('Add your merged content before applying.')
+        return
+      }
+      const resolution: GitPullResolution = {
+        path: activeConflict.path,
+        choice,
+        content: choice === 'custom_text' ? customContent ?? modifiedText : undefined,
+      }
+      submitResolution(resolution)
+    },
+    [activeConflict, allResolved, modifiedText, submitResolution],
+  )
+
+  const showConflictUI = Boolean(activeConflict)
+
+  const conflictView = showConflictUI && activeConflict
+    ? {
+        kind: isBinaryConflict ? 'binary' as const : 'text' as const,
+        original: oursText,
+        modified: modifiedText,
+        onChange: (val: string) => {
+          setHasInteracted(true)
+          setModifiedText(val)
+          setPreviewContent(val)
+        },
+        readOnly: pullMutation.isPending,
+        actions: !isBinaryConflict
+          ? {
+              onKeepMine: () => {
+                setHasInteracted(true)
+                setAllHunks('ours')
+                setModifiedText(oursText)
+                setPreviewContent(oursText)
+              },
+              onTakeTheirs: () => {
+                setHasInteracted(true)
+                setAllHunks('theirs')
+                setModifiedText(theirsText)
+                setPreviewContent(theirsText)
+              },
+              onApplyMerged: () => {
+                handleApplyResolution('custom_text', modifiedText)
+              },
+            }
+          : undefined,
+      }
+    : undefined
+
+  const conflictControls = showConflictUI
+    ? (
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:gap-3">
+        {!isBinaryConflict ? (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full px-3"
+              disabled={pullMutation.isPending}
+              onClick={() => applyGlobalChoice('ours')}
+            >
+              Keep mine
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full px-3"
+              disabled={pullMutation.isPending}
+              onClick={() => applyGlobalChoice('theirs')}
+            >
+              Take remote
+            </Button>
+            <Button
+              size="sm"
+              variant="default"
+              className="rounded-full px-3"
+              disabled={pullMutation.isPending || !allResolved}
+              onClick={() => handleApplyResolution('custom_text', modifiedText)}
+            >
+              Apply merge
+            </Button>
+          </>
+        ) : null}
+      </div>
+    )
+    : null
+
+  const conflictBadgeText = !isBinaryConflict ? `${resolvedHunks}/${hunkCount} decided` : undefined
+
+  const conflictHunkWidgets =
+    showConflictUI && activeConflict && !isBinaryConflict && hunks.length
+      ? hunkAnchors.map((anchor) => ({
+          id: anchor.hunkId,
+          line: anchor.line,
+          choice: hunkChoices[anchor.hunkId],
+          onChoose: (side: 'ours' | 'theirs') => chooseHunkSide(anchor.hunkId, side),
+        }))
+      : undefined
+
   return (
     <div className="relative flex h-full flex-1 min-h-0 flex-col">
-      {shouldShowOverlay && <EditorOverlay label={overlayLabel} />}
-      {doc && awareness && !realtimeError && (
+      {showOverlay && <EditorOverlay label={overlayLabel} />}
+      {showEditor ? (
         <MarkdownEditor
           key={id}
-          doc={doc}
-          awareness={awareness}
+          doc={doc!}
+          awareness={awareness!}
           connected={status === 'connected'}
           initialView="split"
           userId={user?.id || anonIdentity?.id}
           userName={user?.name || anonIdentity?.name}
           documentId={id}
-          readOnly={isReadOnly || redirecting}
+          readOnly={isReadOnly || redirecting || Boolean(activeConflict)}
+          conflictView={conflictView}
+          conflictHunkWidgets={conflictHunkWidgets}
+          conflictBadgeText={conflictBadgeText}
+          conflictControls={conflictControls}
+          previewOverride={showConflictUI && !isBinaryConflict ? previewContent || oursText : undefined}
           extraRight={
             showBacklinks ? (
               <BacklinksPanel documentId={id} className="h-full" onClose={() => setShowBacklinks(false)} />
@@ -333,7 +809,7 @@ function DocumentClient({
             ) : undefined
           }
         />
-      )}
+      ) : null}
       <SnapshotHistoryDialog
         documentId={id}
         open={showSnapshots}

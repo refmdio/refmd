@@ -82,6 +82,5 @@ pub fn needs_force_retry(err: &Error) -> bool {
         || msg.contains("remote repository already contains commit")
         || msg.contains("non-fast-forward")
         || msg.contains("non fast forward")
-        || msg.contains("failed to push some refs")
-        || msg.contains("rejected")
+        || (msg.contains("push") && msg.contains("rejected"))
 }

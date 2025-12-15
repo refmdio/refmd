@@ -1,8 +1,6 @@
-use std::fmt::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::{error, warn};
 use uuid::Uuid;
@@ -50,6 +48,7 @@ use crate::application::use_cases::documents::snapshot_download::{
 };
 use crate::application::use_cases::documents::unarchive_document::UnarchiveDocument;
 use crate::application::use_cases::documents::update_document::UpdateDocument;
+use crate::application::utils::hash::sha256_hex;
 use crate::domain::documents::document::{
     BacklinkInfo as DomainBacklink, Document as DomainDocument, OutgoingLink as DomainOutgoingLink,
     SearchHit,
@@ -1406,14 +1405,7 @@ fn duplicate_title(source_title: &str, override_title: Option<String>) -> String
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let digest = hasher.finalize();
-    let mut out = String::with_capacity(64);
-    for byte in digest {
-        let _ = write!(&mut out, "{:02x}", byte);
-    }
-    out
+    sha256_hex(bytes)
 }
 
 fn path_depth(path: &str) -> usize {

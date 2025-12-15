@@ -592,6 +592,64 @@ impl GitWorkspacePort for CliGitWorkspace {
         bail!("sync not supported in refmd CLI");
     }
 
+    async fn pull(
+        &self,
+        _workspace_id: Uuid,
+        _actor_id: Uuid,
+        _req: &api::application::dto::git::GitPullRequestDto,
+        _cfg: &api::application::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<api::application::dto::git::GitPullResultDto> {
+        bail!("pull not supported in refmd CLI");
+    }
+
+    async fn import_repository(
+        &self,
+        _workspace_id: Uuid,
+        _actor_id: Uuid,
+        _cfg: &api::application::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<api::application::dto::git::GitImportOutcome> {
+        bail!("import not supported in refmd CLI");
+    }
+
+    async fn head_commit(&self, workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self
+            .latest_commit_meta(workspace_id)
+            .await?
+            .map(|m| m.commit_id))
+    }
+
+    async fn remote_head(
+        &self,
+        _workspace_id: Uuid,
+        _cfg: &api::application::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    async fn has_pending_changes(&self, workspace_id: Uuid) -> anyhow::Result<bool> {
+        let dirty_rows = self.fetch_dirty(workspace_id).await?;
+        Ok(!dirty_rows.is_empty())
+    }
+
+    async fn drift_since_commit(
+        &self,
+        workspace_id: Uuid,
+        base_commit: &[u8],
+    ) -> anyhow::Result<bool> {
+        // CLI helper: fallback to dirty check when full state comparison is not available.
+        if self.has_pending_changes(workspace_id).await? {
+            return Ok(true);
+        }
+        // If the base commit is not the latest, consider it stale.
+        let latest = self.latest_commit_meta(workspace_id).await?;
+        if let Some(meta) = latest {
+            if meta.commit_id.as_slice() != base_commit {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     async fn check_remote(
         &self,
         _workspace_id: Uuid,

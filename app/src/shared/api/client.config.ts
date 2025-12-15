@@ -45,7 +45,7 @@ export function setClientWorkspaceId(workspaceId: string | null) {
   writeSessionWorkspaceId(workspaceId)
 }
 
-function getClientWorkspaceId() {
+export function getClientWorkspaceId() {
   if (typeof window === 'undefined') {
     return inMemoryWorkspaceId
   }

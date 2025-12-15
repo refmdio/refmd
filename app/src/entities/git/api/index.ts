@@ -10,9 +10,26 @@ import {
   ignoreDocument as apiIgnoreDocument,
   ignoreFolder as apiIgnoreFolder,
   initRepository as apiInitRepository,
+  pullRepository as apiPullRepository,
+  startPullSession as apiStartPullSession,
+  getPullSession as apiGetPullSession,
+  resolvePullSession as apiResolvePullSession,
+  finalizePullSession as apiFinalizePullSession,
+  importRepository as apiImportRepository,
   syncNow as apiSyncNow,
 } from '@/shared/api'
-import type { GitChangesResponse, GitHistoryResponse, GitStatus, TextDiffResult } from '@/shared/api'
+import type {
+  GitChangesResponse,
+  GitHistoryResponse,
+  GitImportResponse,
+  GitPullResponse,
+  GitPullSessionResponse,
+  GitStatus,
+  ImportRepositoryData,
+  ImportRepositoryResponse,
+  PullRepositoryData,
+  TextDiffResult,
+} from '@/shared/api'
 
 export const gitKeys = {
   all: ['git'] as const,
@@ -51,7 +68,22 @@ export {
   apiCreateOrUpdateConfig as createOrUpdateConfig,
   apiDeinitRepository as deinitRepository,
   apiInitRepository as initRepository,
+  apiPullRepository as pullRepository,
+  apiStartPullSession as startPullSession,
+  apiGetPullSession as getPullSession,
+  apiResolvePullSession as resolvePullSession,
+  apiFinalizePullSession as finalizePullSession,
+  apiImportRepository as importRepository,
   apiSyncNow as syncNow,
   apiIgnoreDocument as ignoreDocument,
   apiIgnoreFolder as ignoreFolder,
+}
+
+export type {
+  GitImportResponse,
+  GitPullResponse,
+  GitPullSessionResponse,
+  ImportRepositoryData,
+  ImportRepositoryResponse,
+  PullRepositoryData,
 }

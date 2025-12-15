@@ -11,7 +11,6 @@ import { Card } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 import { Separator } from '@/shared/ui/separator'
-import { Switch } from '@/shared/ui/switch'
 
 import {
   createOrUpdateConfig,
@@ -19,7 +18,7 @@ import {
   getConfig,
   getStatus,
   initRepository,
-  syncNow,
+  importRepository,
 } from '@/entities/git'
 
 import { settingsNavItems } from '@/features/settings/nav'
@@ -38,9 +37,9 @@ export default function GitSyncPage() {
   const [authType, setAuthType] = React.useState<'ssh' | 'token'>('token')
   const [token, setToken] = React.useState('')
   const [privateKey, setPrivateKey] = React.useState('')
-  const [autoSync, setAutoSync] = React.useState(true)
   const [lastCheck, setLastCheck] = React.useState<RemoteCheck>(null)
   const lastSecretRef = React.useRef<{ token?: string; private_key?: string }>({})
+  const autoSync = false
 
   React.useEffect(() => {
     if (config) {
@@ -49,7 +48,6 @@ export default function GitSyncPage() {
       setAuthType(config.auth_type === 'ssh' ? 'ssh' : 'token')
       setToken('')
       setPrivateKey('')
-      setAutoSync(config.auto_sync ?? true)
       setLastCheck((config as any).remote_check ?? null)
     }
   }, [config])
@@ -96,6 +94,36 @@ export default function GitSyncPage() {
     },
   })
 
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      if (!repositoryUrl.trim()) throw new Error('Repository URL is required')
+      const auth_data = resolveAuthData()
+      return importRepository({
+        requestBody: {
+          repository_url: repositoryUrl.trim(),
+          branch_name: branchName.trim() || 'main',
+          auth_type: authType,
+          auth_data,
+          auto_sync: autoSync,
+        },
+      })
+    },
+    onSuccess: (data: any) => {
+      const msg = data?.message || 'Imported from Git'
+      const docs = data?.docs_created ?? 0
+      const attachments = data?.attachments_created ?? 0
+      const extra =
+        docs || attachments ? ` (${docs} docs, ${attachments} attachments)` : ''
+      toast.success(`${msg}${extra}`)
+      qc.invalidateQueries({ queryKey: ['git-status'] })
+      qc.invalidateQueries({ queryKey: ['git-config'] })
+    },
+    onError: (e: any) => {
+      const raw = e?.body?.message || e?.message || `${e}`
+      toast.error(`Import failed: ${raw}`)
+    },
+  })
+
   const initMutation = useMutation({
     mutationFn: () => initRepository(),
     onSuccess: () => {
@@ -103,17 +131,6 @@ export default function GitSyncPage() {
       qc.invalidateQueries({ queryKey: ['git-status'] })
     },
     onError: (e: any) => toast.error(`Initialization failed: ${e?.message || e}`),
-  })
-
-  const syncMutation = useMutation({
-    mutationFn: () => syncNow({ requestBody: { message: undefined } }),
-    onSuccess: (data: any) => {
-      const changed = data?.files_changed ?? 0
-      const msg = data?.message || 'Sync completed'
-      toast.success(`${msg}: ${changed} files changed`)
-      qc.invalidateQueries({ queryKey: ['git-status'] })
-    },
-    onError: (e: any) => toast.error(`Sync failed: ${e?.message || e}`),
   })
 
   const deinitMutation = useMutation({
@@ -267,13 +284,6 @@ export default function GitSyncPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">Leave the secret blank to keep the existing one.</p>
               </div>
-              <div className="flex items-center justify-between rounded-2xl border border-border/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Auto sync</p>
-                  <p className="text-xs text-muted-foreground">Push/pull periodically in background.</p>
-                </div>
-                <Switch checked={autoSync} onCheckedChange={setAutoSync} />
-              </div>
             </div>
 
             {authType === 'token' ? (
@@ -306,6 +316,10 @@ export default function GitSyncPage() {
 
             <Separator />
 
+            <p className="text-xs text-muted-foreground">
+              Auto sync is off. Use Pull to fetch remote changes and Sync to push manually. Use Import to populate this workspace from the remote repository.
+            </p>
+
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 onClick={() => saveMutation.mutate()}
@@ -314,16 +328,18 @@ export default function GitSyncPage() {
               >
                 {saveMutation.isPending ? 'Saving…' : 'Save settings'}
               </Button>
-              {repositoryInitialized ? (
-                <Button
-                  variant="outline"
-                  onClick={() => syncMutation.mutate()}
-                  disabled={syncMutation.isPending}
-                  className="rounded-full"
-                >
-                  {syncMutation.isPending ? 'Syncing…' : 'Force sync'}
-                </Button>
-              ) : null}
+              <Button
+                variant="outline"
+                onClick={() => importMutation.mutate()}
+                disabled={
+                  importMutation.isPending ||
+                  saveMutation.isPending ||
+                  !repositoryUrl.trim()
+                }
+                className="rounded-full"
+              >
+                {importMutation.isPending ? 'Importing…' : 'Import from Git'}
+              </Button>
             </div>
           </div>
         </Card>

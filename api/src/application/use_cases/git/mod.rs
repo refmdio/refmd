@@ -10,5 +10,6 @@ pub mod helpers;
 pub mod ignore_document;
 pub mod ignore_folder;
 pub mod init_repo;
+pub mod pull;
 pub mod sync_now;
 pub mod upsert_config;

@@ -5,7 +5,6 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use rand::{Rng, distributions::Alphanumeric, rngs::OsRng};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::application::dto::api_tokens::{ApiTokenDto, CreatedApiTokenDto};
@@ -14,6 +13,7 @@ use crate::application::services::errors::ServiceError;
 use crate::application::use_cases::api_tokens::create_token::CreateApiToken;
 use crate::application::use_cases::api_tokens::list_tokens::ListApiTokens;
 use crate::application::use_cases::api_tokens::revoke_token::RevokeApiToken;
+use crate::application::utils::hash::sha256_hex_str;
 use crate::domain::workspaces::permissions::{PERM_API_TOKEN_MANAGE, PermissionSet};
 
 pub struct ApiTokenService {
@@ -110,9 +110,7 @@ pub fn generate_api_token() -> anyhow::Result<GeneratedApiToken> {
 }
 
 pub fn compute_digest(token: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(token.as_bytes());
-    hex::encode(hasher.finalize())
+    sha256_hex_str(token)
 }
 
 pub fn verify_token(token: &str, token_hash: &str) -> anyhow::Result<bool> {

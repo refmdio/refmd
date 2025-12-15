@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { AlertCircle, CheckCircle, Eye, FileX, GitCommit, History, Loader2, Settings } from 'lucide-react'
-import { useMemo, useState, useCallback } from 'react'
+import { AlertCircle, CheckCircle, Eye, FileX, GitCommit, History, Loader2, RefreshCw, Settings } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
+import type { GitPullConflictItem, GitPullResolution } from '@/shared/api'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { overlayMenuClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -11,10 +12,14 @@ import { Button } from '@/shared/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/shared/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
-import { getStatus, getConfig, syncNow, initRepository } from '@/entities/git'
+import { getStatus, getConfig, syncNow, initRepository, getPullSession } from '@/entities/git'
+
+import { clearResolutions, clearSession, readConflicts, readSessionId, setConflicts, setSessionId, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
+import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
 
 import GitChangesDialog from './git-changes-dialog'
 import GitHistoryDialog from './git-history-dialog'
+import GitPullDialog from './git-pull-dialog'
 
 type Props = { className?: string; compact?: boolean }
 
@@ -26,6 +31,16 @@ function useGitSyncController() {
   const isMobile = useIsMobile()
   const [showChanges, setShowChanges] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [showPullDialog, setShowPullDialog] = useState(false)
+  const [pullConflicts, setPullConflicts] = useState<GitPullConflictItem[]>(() => readConflicts())
+  const [emptyConflictWarning, setEmptyConflictWarning] = useState(false)
+  const [polling, setPolling] = useState(false)
+  const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
+
+  useEffect(() => {
+    const unsubscribe = subscribeSessionId((sid) => setSessionIdState(sid))
+    return () => unsubscribe()
+  }, [])
 
   const {
     data: status,
@@ -51,6 +66,15 @@ function useGitSyncController() {
         toast.error('Git sync failed: repository URL or branch was not found. Please check the URL/branch and try again.')
       } else if (lower.includes('git_auth_redirect') || lower.includes('too many redirects') || lower.includes('http (34)')) {
         toast.error('Git sync failed: remote requires re-authentication. Please re-enter your token/SSH key and ensure SSO is approved.')
+      } else if (e?.status === 409) {
+        toast.error('Remote is ahead. Pull and resolve conflicts before syncing.')
+        clearResolutions()
+        const fallback = readConflicts()
+        setPullConflicts(fallback)
+        setConflicts(fallback)
+        if (!fallback.length) setEmptyConflictWarning(true)
+        setShowPullDialog(true)
+        pullMutation.mutate({ resolutions: [] })
       } else {
         toast.error(`Sync failed: ${raw}`)
       }
@@ -65,6 +89,38 @@ function useGitSyncController() {
       qc.invalidateQueries({ queryKey: ['git-status'] })
     },
     onError: (e: any) => toast.error(`Initialization failed: ${e?.message || e}`),
+  })
+
+  const pullMutation = useMutation({
+    mutationFn: async (payload?: { resolutions?: GitPullResolution[] }) =>
+      performPullSession(payload?.resolutions, { sessionId }),
+    onSuccess: (result) => {
+      setSessionIdState(result.sessionId ?? null)
+      setPullConflicts(result.conflicts)
+      setEmptyConflictWarning(Boolean(result.emptyConflictWarning))
+
+      if (result.status === 'stale') {
+        toast.error('Pull session expired. Please pull again.')
+        qc.invalidateQueries({ queryKey: ['git-status'] })
+        return
+      }
+
+      if (result.status === 'conflicts') {
+        if (result.emptyConflictWarning) {
+          toast.error('Conflicts reported but server returned no list.')
+        }
+        setShowPullDialog(true)
+        return
+      }
+
+      if (result.status === 'merged') {
+        toast.success('Pull completed')
+        qc.invalidateQueries({ queryKey: ['git-status'] })
+        return
+      }
+
+      toast.error(result.message || 'Pull failed')
+    },
   })
 
   const syncPending = syncMutation.isPending || initMutation.isPending
@@ -121,7 +177,39 @@ function useGitSyncController() {
     return <CheckCircle className="h-4 w-4 text-emerald-500" />
   }, [config, hasChanges, status, statusError, statusLoading, syncPending])
 
+  useEffect(() => {
+    const sid = sessionId ?? readSessionId()
+    if (!sid) return
+    setPolling(true)
+    const timer = window.setInterval(() => {
+      getPullSession({ id: sid })
+        .then((session) => {
+          if ((session as any)?.status === 'stale') {
+            clearSession()
+            clearResolutions()
+            setConflicts([])
+            setPullConflicts([])
+            setEmptyConflictWarning(true)
+            toast.error('Pull session expired. Please pull again.')
+            return
+          }
+          setSessionId(session.session_id)
+          const conflicts = session.conflicts ?? []
+          setConflicts(conflicts)
+          setPullConflicts(conflicts)
+          setEmptyConflictWarning(false)
+        })
+        .catch(() => {})
+    }, 10000)
+    return () => {
+      window.clearInterval(timer)
+      setPolling(false)
+    }
+  }, [sessionId])
+
   return {
+    sessionId,
+    polling,
     isMobile,
     syncPending,
     canSync,
@@ -137,12 +225,21 @@ function useGitSyncController() {
     setShowHistory,
     isConfigured,
     showButton,
+    showPullDialog,
+    setShowPullDialog,
+    pullMutation,
+    pullConflicts,
+    setPullConflicts,
+    setEmptyConflictWarning,
+    emptyConflictWarning,
   }
 }
 
 export default function GitSyncButton({ className, compact = false }: Props) {
   const controller = useGitSyncController()
   const {
+    sessionId,
+    polling,
     isMobile,
     syncPending,
     canSync,
@@ -158,6 +255,13 @@ export default function GitSyncButton({ className, compact = false }: Props) {
     setShowHistory,
     isConfigured,
     showButton,
+    showPullDialog,
+    setShowPullDialog,
+    pullMutation,
+    pullConflicts,
+    setPullConflicts,
+    setEmptyConflictWarning,
+    emptyConflictWarning,
   } = controller
 
   const [menuOpen, setMenuOpen] = useState(false)
@@ -196,7 +300,9 @@ export default function GitSyncButton({ className, compact = false }: Props) {
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-background/70">{icon}</span>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-foreground">Git Sync</p>
-                  <p className="truncate text-xs text-muted-foreground/80">{statusText}</p>
+                  <p className="truncate text-xs text-muted-foreground/80">
+                    {polling ? 'Synchronizing conflicts…' : statusText}
+                  </p>
                 </div>
               </div>
           </div>
@@ -214,6 +320,26 @@ export default function GitSyncButton({ className, compact = false }: Props) {
               <GitCommit className="mr-2 h-4 w-4" />
             )}
             Sync Now
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              clearResolutions()
+              const stored = readConflicts()
+              setPullConflicts(stored)
+              setConflicts(stored)
+              setEmptyConflictWarning(!stored.length)
+              setShowPullDialog(true)
+              pullMutation.mutate({ resolutions: [] })
+              setMenuOpen(false)
+            }}
+            disabled={!isConfigured || pullMutation.isPending}
+          >
+            {pullMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Pull (resolve conflicts)
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => {
@@ -251,6 +377,15 @@ export default function GitSyncButton({ className, compact = false }: Props) {
 
       <GitChangesDialog open={showChanges} onOpenChange={setShowChanges} />
       <GitHistoryDialog open={showHistory} onOpenChange={setShowHistory} />
+      <GitPullDialog
+        open={showPullDialog}
+        onOpenChange={setShowPullDialog}
+        conflicts={pullConflicts}
+        isLoading={pullMutation.isPending}
+        emptyWarning={emptyConflictWarning}
+        sessionId={sessionId}
+        onRetry={() => pullMutation.mutate({ resolutions: [] })}
+      />
     </>
   )
 }

@@ -12,6 +12,7 @@ import SecondaryViewer from '@/widgets/secondary-viewer/SecondaryViewer'
 
 export type DocumentRouteSearch = {
   token?: string
+  conflict?: string
   [key: string]: string | string[] | undefined
 }
 
@@ -48,9 +49,9 @@ export const Route = createFileRoute('/(app)/document/$id')({
       const meta = await fetchDocumentMeta(params.id, token)
       const title = typeof meta?.title === 'string' ? meta.title.trim() : ''
       const createdByPlugin = meta?.created_by_plugin ?? null
-      return { title, token, createdByPlugin } satisfies LoaderData
+      return { title, token, createdByPlugin, path: meta?.path ?? null, desired_path: meta?.desired_path ?? null } satisfies LoaderData
     } catch {
-      return { title: '', token, createdByPlugin: undefined } satisfies LoaderData
+      return { title: '', token, createdByPlugin: undefined, path: null, desired_path: null } satisfies LoaderData
     }
   },
   head: ({ loaderData, params }) => {
@@ -97,11 +98,13 @@ function DocumentRouteComponent() {
   const loaderData = Route.useLoaderData() as LoaderData | undefined
   const search = Route.useSearch() as DocumentRouteSearch
   const shareToken = loaderData?.token ?? (typeof search.token === 'string' && search.token.trim().length > 0 ? search.token.trim() : undefined)
+  const conflictMode = Object.prototype.hasOwnProperty.call(search, 'conflict')
   return (
     <DocumentPage
       id={id}
       loaderData={loaderData}
       shareToken={shareToken}
+      conflictMode={conflictMode}
       secondaryViewerRenderer={(props) => <SecondaryViewer {...props} />}
     />
   )

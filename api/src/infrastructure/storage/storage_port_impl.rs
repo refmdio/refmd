@@ -1,11 +1,10 @@
-use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::application::ports::storage_port::{
     StorageProjectionPort, StorageResolverPort, StoredAttachment,
 };
-use sha2::{Digest, Sha256};
+use crate::application::utils::hash::sha256_hex;
 
 pub struct FsStoragePort {
     pub pool: crate::infrastructure::db::PgPool,
@@ -161,6 +160,21 @@ impl StorageResolverPort for FsStoragePort {
         if let Some(parent) = abs_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
+        // Short-circuit when content is unchanged to avoid unnecessary dirty tracking.
+        let new_hash = sha256_hex(data);
+        if tokio::fs::try_exists(abs_path).await.unwrap_or(false) {
+            match tokio::fs::read(abs_path).await {
+                Ok(existing) => {
+                    let old_hex = sha256_hex(&existing);
+                    if old_hex == new_hash {
+                        // No-op write; do not mark dirty.
+                        return Ok(());
+                    }
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
+            }
+        }
         tokio::fs::write(abs_path, data).await?;
         // Mark dirty (best-effort)
         let is_text = abs_path
@@ -168,19 +182,12 @@ impl StorageResolverPort for FsStoragePort {
             .and_then(|e| e.to_str())
             .map(|e| e.eq_ignore_ascii_case("md"))
             .unwrap_or(false);
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        let digest = hasher.finalize();
-        let content_hash = digest
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
         let _ = crate::infrastructure::storage::mark_dirty_upsert_abs_path(
             &self.pool,
             self.uploads_root.as_path(),
             abs_path,
             is_text,
-            Some(&content_hash),
+            Some(&new_hash),
         )
         .await;
         Ok(())
@@ -253,13 +260,7 @@ impl StorageResolverPort for FsStoragePort {
         .replace('\\', "/");
         let size = bytes.len() as i64;
 
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-        let digest = hasher.finalize();
-        let mut content_hash = String::with_capacity(64);
-        for byte in digest {
-            let _ = write!(&mut content_hash, "{:02x}", byte);
-        }
+        let content_hash = sha256_hex(bytes);
 
         Ok(StoredAttachment {
             filename: safe,

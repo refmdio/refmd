@@ -1,4 +1,5 @@
 mod core;
+mod dirty;
 mod fs_ingest_watcher;
 mod gitignore_port_impl;
 mod ingest_queue;
@@ -11,6 +12,7 @@ mod s3_port_impl;
 mod storage_port_impl;
 mod worker;
 pub use core::*;
+pub use dirty::*;
 pub use fs_ingest_watcher::FsIngestWatcher;
 pub use ingest_queue::PgStorageIngestQueue;
 pub use ingest_worker::{LoggingStorageIngestHandler, StorageIngestWorker};

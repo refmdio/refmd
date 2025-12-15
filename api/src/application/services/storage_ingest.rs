@@ -5,7 +5,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -22,6 +21,7 @@ use crate::application::services::storage_projection_cache::RecentProjectionCach
 use crate::application::services::workspaces::{
     WorkspacePermissionResolver, permission_snapshot::permission_set_from_snapshot,
 };
+use crate::application::utils::hash::sha256_hex;
 use crate::domain::documents::document::Document as DomainDocument;
 use crate::domain::workspaces::permissions::PermissionSet;
 
@@ -253,13 +253,7 @@ impl StorageIngestService {
             Err(err) => return Err(err),
         };
         let size = bytes.len() as i64;
-        let mut hasher = Sha256::new();
-        hasher.update(&bytes);
-        let digest = hasher.finalize();
-        let hash = digest
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
+        let hash = sha256_hex(&bytes);
         self.files_repo
             .update_hash_and_size(file_id, size, &hash)
             .await?;
@@ -726,7 +720,8 @@ struct MarkdownFrontMatter {
 
 fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownIngestPayload> {
     let content_hash = sha256_hex(&bytes);
-    let text = String::from_utf8(bytes)?;
+    // Accept lossy UTF-8 to avoid retry storms on malformed files; non-UTF8 bytes become U+FFFD.
+    let text = String::from_utf8_lossy(&bytes).to_string();
     let trimmed = text.trim_start_matches('\u{feff}');
     if let Some((front, body)) = split_front_matter(trimmed) {
         if let Ok(front_matter) = serde_yaml::from_str::<MarkdownFrontMatter>(front) {
@@ -789,13 +784,6 @@ fn find_front_matter_end(s: &str) -> Option<(usize, usize)> {
         idx += 1;
     }
     None
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let digest = hasher.finalize();
-    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn is_not_found_error(err: &anyhow::Error) -> bool {
