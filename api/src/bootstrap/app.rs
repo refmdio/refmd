@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use anyhow::Context;
 use chrono::Utc;
 use dotenvy::dotenv;
 use tokio::task::JoinHandle;
@@ -23,19 +22,13 @@ use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
 use api::application::ports::user_session_repository::UserSessionRepository;
 use api::application::services::api_tokens::ApiTokenService;
 use api::application::services::auth::account::AccountService;
-use api::application::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
-use api::application::services::auth::service::AuthService;
 use api::application::services::auth::token_validation::TokenValidationService;
-use api::application::services::auth::user_sessions::UserSessionService;
 use api::application::services::authorization::AuthorizationService;
 use api::application::services::doc_events::{
     DocEventSubscriber, FanoutDocEventSubscriber, LoggingDocEventSubscriber,
 };
 use api::application::services::documents::DocumentService;
 use api::application::services::files::FileService;
-use api::application::services::git::GitService;
-use api::application::services::git_rebuild::GitRebuildService;
-use api::application::services::git_rebuild_scheduler::GitRebuildScheduler;
 use api::application::services::health::HealthService;
 use api::application::services::markdown_render::MarkdownRenderService;
 use api::application::services::metrics::MetricsRegistry;
@@ -45,7 +38,7 @@ use api::application::services::plugins::execution::PluginExecutionService;
 use api::application::services::plugins::management::PluginManagementService;
 use api::application::services::plugins::permissions::PluginPermissionService;
 use api::application::services::public::PublicService;
-use api::application::services::realtime::snapshot::{MarkdownExportProvider, SnapshotService};
+use api::application::services::realtime::snapshot::MarkdownExportProvider;
 use api::application::services::shares::ShareService;
 use api::application::services::storage_ingest::StorageIngestService;
 use api::application::services::storage_reconcile::StorageReconcileService;
@@ -53,19 +46,16 @@ use api::application::services::storage_reconcile_scheduler::StorageReconcileSch
 use api::application::services::tags::TagService;
 use api::application::services::user_shortcuts::UserShortcutService;
 use api::application::services::workspaces::{WorkspacePermissionResolver, WorkspaceService};
+use api::bootstrap::auth;
 use api::bootstrap::config::{Config, StorageBackend};
-use api::bootstrap::{http, jobs::Jobs, plugins, telemetry};
-use api::infrastructure::auth::github::GithubOAuthProvider;
-use api::infrastructure::auth::google::GoogleIdentityProvider;
-use api::infrastructure::auth::oidc::OidcIdentityProvider;
+use api::bootstrap::git::{self, GitStack};
+use api::bootstrap::{http, jobs::Jobs, plugins, realtime, telemetry};
 use api::infrastructure::db::PgPool;
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::doc_event_log::PgDocEventLog;
 use api::infrastructure::documents::event_poller::DocEventPoller;
 use api::infrastructure::documents::exporter::DefaultDocumentExporter;
 use api::infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
-use api::infrastructure::git::PgGitRebuildJobQueue;
-use api::infrastructure::git::storage::GitStorageDriverConfig;
 use api::infrastructure::storage::{
     FsIngestWatcher, PgStorageIngestQueue, PgStorageReconcileJobs, StorageConsistencyMonitor,
     StorageIngestWorker, StorageProjectionWorker,
@@ -74,32 +64,6 @@ use api::presentation::context::{AppContext, AppServices, PresentationConfig};
 
 const SESSION_CLEANUP_INTERVAL_SECS: u64 = 15 * 60;
 const SESSION_CLEANUP_BATCH_SIZE: i64 = 500;
-
-pub fn git_storage_driver_config(cfg: &Config) -> anyhow::Result<GitStorageDriverConfig> {
-    let uploads_root = std::path::PathBuf::from(&cfg.storage_root);
-    let config = match cfg.storage_backend {
-        StorageBackend::Filesystem => GitStorageDriverConfig::Filesystem {
-            root: uploads_root.clone(),
-        },
-        StorageBackend::S3 => {
-            let s3_settings = api::infrastructure::git::storage::S3GitStorageConfig {
-                storage_root_prefix: cfg.storage_root.clone(),
-                bucket: cfg
-                    .s3_bucket
-                    .clone()
-                    .context("S3_BUCKET must be configured when using S3 storage backend")?,
-                region: cfg.s3_region.clone(),
-                endpoint: cfg.s3_endpoint.clone(),
-                access_key: cfg.s3_access_key.clone(),
-                secret_key: cfg.s3_secret_key.clone(),
-                use_path_style: cfg.s3_use_path_style,
-            };
-            GitStorageDriverConfig::S3(s3_settings)
-        }
-    };
-    Ok(config)
-}
-
 pub struct AppBuilder {
     cfg: Config,
     spawn_background_tasks: bool,
@@ -321,8 +285,6 @@ pub async fn build_runtime(
     let metrics = Arc::new(MetricsRegistry::default());
     let storage_reconcile_jobs: Arc<dyn StorageReconcileJobs> =
         Arc::new(PgStorageReconcileJobs::new(pool.clone()));
-    let git_rebuild_jobs: Arc<dyn GitRebuildJobQueue> =
-        Arc::new(PgGitRebuildJobQueue::new(pool.clone()));
     let logging_subscriber: Arc<dyn DocEventSubscriber> = LoggingDocEventSubscriber::new();
     let git_dirty_subscriber: Arc<dyn DocEventSubscriber> =
         GitDirtyDocEventSubscriber::new(pool.clone());
@@ -433,27 +395,17 @@ pub async fn build_runtime(
     );
     let api_token_service = Arc::new(ApiTokenService::new(api_token_repo.clone()));
     let token_validation_service = Arc::new(TokenValidationService::new(api_token_repo.clone()));
-    let cookie_secure = cfg
-        .frontend_url
-        .as_deref()
-        .map(|u| u.starts_with("https://"))
-        .unwrap_or(false);
-    let auth_service = Arc::new(AuthService::new(
-        cfg.jwt_secret_pem.clone(),
-        token_validation_service.clone(),
-        cfg.jwt_expires_secs as usize,
-    ));
     let user_session_repo = Arc::new(
         api::infrastructure::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository::new(
             pool.clone(),
         ),
     );
-    let session_service = Arc::new(UserSessionService::new(
+    let auth_stack = auth::build_auth_stack(
+        &cfg,
+        token_validation_service.clone(),
         user_session_repo.clone(),
-        auth_service.clone(),
-        cfg.session_refresh_ttl_secs,
-        cfg.session_refresh_remember_ttl_secs,
-    ));
+    )
+    .await?;
 
     if spawn_background_tasks {
         let repo = user_session_repo.clone();
@@ -497,104 +449,17 @@ pub async fn build_runtime(
     );
     let user_shortcut_service =
         Arc::new(UserShortcutService::new(user_shortcuts.clone(), 32 * 1024));
-    let git_repo = Arc::new(
-        api::infrastructure::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
-            pool.clone(),
-            cfg.encryption_key.clone(),
-        ),
-    );
-    let git_pull_sessions = Arc::new(
-        api::infrastructure::db::repositories::git_pull_session_repository_sqlx::GitPullSessionRepositorySqlx::new(
-            pool.clone(),
-        ),
-    );
-    let auto_archive_interval = Duration::from_secs(cfg.snapshot_archive_interval_secs);
-    let mut local_hub: Option<api::infrastructure::realtime::Hub> = None;
-    let (realtime_engine, snapshot_service_arc): (
-        Arc<dyn api::application::ports::realtime_port::RealtimeEngine>,
-        Arc<SnapshotService>,
-    ) = if cfg.cluster_mode {
-        tracing::info!("cluster_mode_enabled");
-        let redis_settings = api::infrastructure::realtime::RedisRealtimeConfig {
-            redis_url: cfg
-                .redis_url
-                .clone()
-                .context("REDIS_URL must be set when CLUSTER_MODE=1")?,
-            stream_prefix: cfg.redis_stream_prefix.clone(),
-            stream_max_len: cfg.redis_stream_max_len,
-            task_debounce_ms: cfg.redis_task_debounce_ms,
-            min_message_lifetime_ms: cfg.redis_min_message_lifetime_ms,
-            awareness_ttl_ms: cfg.redis_awareness_ttl_ms,
-            snapshot_archive_interval_secs: cfg.snapshot_archive_interval_secs,
-            spawn_persistence_worker: true,
-        };
-        let engine = Arc::new(
-            api::infrastructure::realtime::RedisRealtimeEngine::from_config(
-                redis_settings,
-                pool.clone(),
-                storage_resolver.clone(),
-                storage_job_queue.clone(),
-            )?,
-        );
-        let snapshot_service = engine.snapshot_service();
-        let engine_trait: Arc<dyn api::application::ports::realtime_port::RealtimeEngine> =
-            engine.clone();
-        (engine_trait, snapshot_service)
-    } else {
-        tracing::info!("cluster_mode_disabled_using_local_hub");
-        let doc_state_reader: Arc<
-            dyn api::application::ports::realtime_hydration_port::DocStateReader,
-        > = Arc::new(api::infrastructure::realtime::SqlxDocStateReader::new(
-            pool.clone(),
-        ));
-        let backlog_reader: Arc<
-            dyn api::application::ports::realtime_hydration_port::RealtimeBacklogReader,
-        > = Arc::new(api::infrastructure::realtime::NoopBacklogReader::default());
-        let doc_persistence: Arc<
-            dyn api::application::ports::realtime_persistence_port::DocPersistencePort,
-        > = Arc::new(api::infrastructure::realtime::SqlxDocPersistenceAdapter::new(pool.clone()));
-        let linkgraph_repo: Arc<dyn api::application::ports::linkgraph_repository::LinkGraphRepository> =
-            Arc::new(
-                api::infrastructure::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository::new(
-                    pool.clone(),
-                ),
-            );
-        let tagging_repo: Arc<dyn api::application::ports::tagging_repository::TaggingRepository> =
-            Arc::new(
-                api::infrastructure::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository::new(
-                    pool.clone(),
-                ),
-            );
-        let hydration_service = Arc::new(
-            api::application::services::realtime::doc_hydration::DocHydrationService::new(
-                doc_state_reader.clone(),
-                backlog_reader,
-                storage_resolver.clone(),
-            ),
-        );
-        let snapshot_service = Arc::new(
-            api::application::services::realtime::snapshot::SnapshotService::new(
-                doc_state_reader.clone(),
-                doc_persistence.clone(),
-                linkgraph_repo,
-                tagging_repo,
-                snapshot_archive_repo.clone(),
-                storage_job_queue.clone(),
-            ),
-        );
-        let hub = api::infrastructure::realtime::Hub::new(
-            hydration_service,
-            snapshot_service.clone(),
-            doc_persistence,
-            auto_archive_interval,
-        );
-        let engine =
-            Arc::new(api::infrastructure::realtime::LocalRealtimeEngine { hub: hub.clone() });
-        let engine_trait: Arc<dyn api::application::ports::realtime_port::RealtimeEngine> =
-            engine.clone();
-        local_hub = Some(hub);
-        (engine_trait, snapshot_service)
-    };
+    let realtime_stack = realtime::build_realtime_stack(
+        &cfg,
+        &pool,
+        storage_resolver.clone(),
+        storage_job_queue.clone(),
+        snapshot_archive_repo.clone(),
+    )
+    .await?;
+    let local_hub = realtime_stack.local_hub.clone();
+    let realtime_engine = realtime_stack.engine.clone();
+    let snapshot_service_arc = realtime_stack.snapshot_service.clone();
 
     let recent_projection_cache = Arc::new(
         api::application::services::storage_projection_cache::RecentProjectionCache::new(
@@ -621,58 +486,35 @@ pub async fn build_runtime(
         }
     }
 
-    let git_storage_config = git_storage_driver_config(&cfg)?;
-    let git_storage =
-        api::infrastructure::git::storage::build_git_storage(git_storage_config).await?;
-    let gitignore_port = Arc::new(api::infrastructure::storage::gitignore::FsGitignorePort);
-    let git_workspace = Arc::new(
-        api::infrastructure::git::workspace::GitWorkspaceService::new(
-            pool.clone(),
-            git_storage.clone(),
-            storage_resolver.clone(),
-            snapshot_service_arc.clone(),
-            realtime_engine.clone(),
-            document_repo.clone(),
-        )?,
-    );
-    let git_service = Arc::new(GitService::new(
-        git_repo.clone(),
+    let GitStack {
+        workspace: git_workspace,
+        service: git_service,
+        repo: git_repo,
+        rebuild,
+        rebuild_jobs: git_rebuild_jobs,
+    } = git::build_git_stack(
+        &cfg,
+        &pool,
         storage_resolver.clone(),
-        files_repo.clone(),
+        snapshot_service_arc.clone(),
+        realtime_engine.clone(),
         document_repo.clone(),
-        gitignore_port.clone(),
-        git_workspace.clone(),
-        git_pull_sessions.clone(),
-    ));
-    if cfg.git_rebuild_enabled {
-        let rebuild_service = Arc::new(GitRebuildService::new(
-            git_rebuild_jobs.clone(),
-            git_workspace.clone(),
-            git_repo.clone(),
-            metrics.clone(),
-            workspace_permissions.clone(),
-        ));
+        files_repo.clone(),
+        workspace_permissions.clone(),
+        metrics.clone(),
+    )
+    .await?;
+
+    if let Some(rebuild) = rebuild {
         if spawn_background_tasks {
-            jobs.spawn("git_rebuild_worker", {
-                let svc = rebuild_service.clone();
-                async move {
-                    svc.run().await;
-                }
+            let svc = rebuild.service.clone();
+            jobs.spawn("git_rebuild_worker", async move {
+                svc.run().await;
             });
-        }
-        let rebuild_scheduler = GitRebuildScheduler::new(
-            git_rebuild_jobs.clone(),
-            git_repo.clone(),
-            git_workspace.clone(),
-            Duration::from_secs(cfg.git_rebuild_interval_secs),
-        );
-        if spawn_background_tasks {
             jobs.spawn("git_rebuild_scheduler", async move {
-                rebuild_scheduler.run().await;
+                rebuild.scheduler.run().await;
             });
         }
-    } else {
-        tracing::info!("git_rebuild_scheduler_disabled");
     }
     let plugin_repo = Arc::new(
         api::infrastructure::db::repositories::plugin_repository_sqlx::SqlxPluginRepository::new(
@@ -822,45 +664,7 @@ pub async fn build_runtime(
         api::infrastructure::health::db_probe::DatabaseHealthProbe::new(pool.clone());
     let health_service = Arc::new(HealthService::new(health_probe));
 
-    let mut external_auth_providers: Vec<Arc<dyn ExternalAuthVerifier>> = Vec::new();
-    if let Some(google_cfg) = cfg.google_oauth.clone() {
-        match GoogleIdentityProvider::new(google_cfg.client_ids.clone()) {
-            Ok(provider) => {
-                tracing::info!("google_oauth_provider_enabled");
-                external_auth_providers.push(Arc::new(provider));
-            }
-            Err(err) => {
-                tracing::warn!(error = ?err, "google_oauth_provider_init_failed");
-            }
-        }
-    }
-    if let Some(github_cfg) = cfg.github_oauth.clone() {
-        match GithubOAuthProvider::new(
-            github_cfg.client_id.clone(),
-            github_cfg.client_secret.clone(),
-            github_cfg.redirect_uri.clone(),
-        ) {
-            Ok(provider) => {
-                tracing::info!("github_oauth_provider_enabled");
-                external_auth_providers.push(Arc::new(provider));
-            }
-            Err(err) => {
-                tracing::warn!(error = ?err, "github_oauth_provider_init_failed");
-            }
-        }
-    }
-    if let Some(oidc_cfg) = cfg.oidc_oauth.clone() {
-        match OidcIdentityProvider::discover(oidc_cfg).await {
-            Ok(provider) => {
-                tracing::info!("oidc_oauth_provider_enabled");
-                external_auth_providers.push(Arc::new(provider));
-            }
-            Err(err) => {
-                tracing::warn!(error = ?err, "oidc_oauth_provider_init_failed");
-            }
-        }
-    }
-    let external_auth_registry = Arc::new(ExternalAuthRegistry::new(external_auth_providers));
+    let external_auth_registry = auth_stack.external_auth.clone();
 
     let services = AppServices::new(
         authorization_service,
@@ -881,8 +685,8 @@ pub async fn build_runtime(
         plugin_event_subscriber,
         health_service.clone(),
         account_service.clone(),
-        auth_service.clone(),
-        session_service.clone(),
+        auth_stack.auth_service.clone(),
+        auth_stack.session_service.clone(),
         realtime_engine.clone(),
         storage_ingest_queue.clone(),
         external_auth_registry.clone(),
@@ -892,7 +696,7 @@ pub async fn build_runtime(
         frontend_url: cfg.frontend_url.clone(),
         upload_max_bytes: cfg.upload_max_bytes,
         public_base_url: cfg.public_base_url.clone(),
-        session_cookie_secure: cookie_secure,
+        session_cookie_secure: auth_stack.cookie_secure,
     };
     let ctx = AppContext::new(presentation_cfg, services, metrics.clone());
 

@@ -1,7 +1,10 @@
 pub mod app;
+pub mod auth;
 pub mod config;
+pub mod git;
 pub mod http;
 pub mod jobs;
 pub mod plugins;
+pub mod realtime;
 pub mod storage;
 pub mod telemetry;
