@@ -12,7 +12,9 @@ use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{Bearer, validate_bearer};
 use crate::presentation::http::workspaces::scope as workspace_scope;
 
-use super::types::{CreateGitConfigRequest, GitConfigResponse, GitRemoteCheckResponse, map_git_error};
+use super::types::{
+    CreateGitConfigRequest, GitConfigResponse, GitRemoteCheckResponse, map_git_error,
+};
 
 #[utoipa::path(get, path = "/api/git/config", tag = "Git", responses((status = 200, body = Option<GitConfigResponse>)))]
 pub async fn get_config(

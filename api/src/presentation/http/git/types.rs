@@ -1,13 +1,13 @@
-use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
-use tracing::error;
-use utoipa::ToSchema;
+use crate::application::dto::git::UpsertGitConfigInput;
 use crate::application::dto::git::{
     GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitPullConflictItemDto,
     GitPullResolutionDto, GitPullSessionDto, GitStatusDto, GitignoreUpdateDto,
 };
 use crate::application::services::errors::ServiceError;
-use crate::application::dto::git::UpsertGitConfigInput;
+use axum::http::StatusCode;
+use serde::{Deserialize, Serialize};
+use tracing::error;
+use utoipa::ToSchema;
 
 pub fn map_git_error(err: ServiceError) -> StatusCode {
     match err {

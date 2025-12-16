@@ -11,9 +11,9 @@ use crate::presentation::http::auth::{self, Bearer};
 
 #[allow(unused_imports)]
 use super::types::{
-    DocumentArchiveBinary, SnapshotDiffQuery, SnapshotDiffResponse, SnapshotDiffBaseParam,
-    SnapshotListResponse, SnapshotRestoreResponse, SnapshotTokenQuery, snapshot_diff_side_response_from,
-    snapshot_summary_from, map_service_error,
+    DocumentArchiveBinary, SnapshotDiffBaseParam, SnapshotDiffQuery, SnapshotDiffResponse,
+    SnapshotListResponse, SnapshotRestoreResponse, SnapshotTokenQuery, map_service_error,
+    snapshot_diff_side_response_from, snapshot_summary_from,
 };
 
 #[utoipa::path(

@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::application::services::errors::ServiceError;
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
-use crate::presentation::http::documents::{to_http_document, Document};
+use crate::presentation::http::documents::{Document, to_http_document};
 use crate::presentation::http::workspaces::scope as workspace_scope;
 
 use super::types::{PublicDocumentSummary, PublishResponse};
@@ -155,10 +155,7 @@ pub async fn list_workspace_public_documents(
         .await
         .map_err(map_public_error)?;
     Ok(Json(
-        items
-            .into_iter()
-            .map(PublicDocumentSummary::from)
-            .collect(),
+        items.into_iter().map(PublicDocumentSummary::from).collect(),
     ))
 }
 

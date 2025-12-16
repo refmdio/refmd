@@ -1,16 +1,19 @@
 mod download;
 mod serve;
-mod upload;
 pub mod types;
+mod upload;
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 
 use crate::presentation::context::AppContext;
 
 pub use download::*;
 pub use serve::*;
-pub use upload::*;
 pub use types::*;
+pub use upload::*;
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

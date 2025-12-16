@@ -537,9 +537,7 @@ impl GitService {
             });
         }
         if matches!(existing.status.as_str(), "pending" | "resolving")
-            && self
-                .pull_session_is_stale(workspace_id, &existing)
-                .await?
+            && self.pull_session_is_stale(workspace_id, &existing).await?
         {
             let mut stale = existing.clone();
             stale.status = "stale".to_string();
@@ -586,9 +584,7 @@ impl GitService {
             None => return Ok(None),
         };
         if matches!(session.status.as_str(), "pending" | "resolving")
-            && self
-                .pull_session_is_stale(workspace_id, &session)
-                .await?
+            && self.pull_session_is_stale(workspace_id, &session).await?
         {
             session.status = "stale".to_string();
             session.message = Some("Pull session is stale".to_string());

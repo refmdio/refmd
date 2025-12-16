@@ -23,8 +23,8 @@ use uuid::Uuid;
 
 use crate::presentation::http::workspaces::scope as workspace_scope;
 
-mod types;
 pub mod middleware;
+mod types;
 
 pub use types::*;
 

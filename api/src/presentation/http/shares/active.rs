@@ -8,8 +8,8 @@ use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
 use crate::presentation::http::workspaces::scope as workspace_scope;
 
-use crate::application::dto::shares::ActiveShareItemDto;
 use super::types::{ActiveShareItem, frontend_base, map_share_error};
+use crate::application::dto::shares::ActiveShareItemDto;
 
 #[utoipa::path(
     get,

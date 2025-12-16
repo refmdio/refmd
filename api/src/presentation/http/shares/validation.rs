@@ -6,7 +6,7 @@ use axum::{
 
 use crate::presentation::context::AppContext;
 
-use super::types::{ShareBrowseResponse, ShareTokenQuery, ShareDocumentResponse, map_share_error};
+use super::types::{ShareBrowseResponse, ShareDocumentResponse, ShareTokenQuery, map_share_error};
 
 #[utoipa::path(
     get,

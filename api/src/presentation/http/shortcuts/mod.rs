@@ -1,7 +1,7 @@
 mod handlers;
 pub mod types;
 
-use axum::{routing::get, Router};
+use axum::{Router, routing::get};
 
 use crate::presentation::context::AppContext;
 

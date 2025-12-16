@@ -270,9 +270,19 @@ pub struct UpdateDocumentContentRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum DocumentPatchOperationRequest {
-    Insert { offset: usize, text: String },
-    Delete { offset: usize, length: usize },
-    Replace { offset: usize, length: usize, text: String },
+    Insert {
+        offset: usize,
+        text: String,
+    },
+    Delete {
+        offset: usize,
+        length: usize,
+    },
+    Replace {
+        offset: usize,
+        length: usize,
+        text: String,
+    },
 }
 
 impl From<DocumentPatchOperationRequest> for DocumentPatchOperation {

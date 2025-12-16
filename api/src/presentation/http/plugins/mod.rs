@@ -4,11 +4,14 @@ mod install;
 mod kv;
 mod manifest;
 mod records;
-mod updates;
 pub mod types;
+mod updates;
 mod util;
 
-use axum::{routing::{get, patch, post}, Router};
+use axum::{
+    Router,
+    routing::{get, patch, post},
+};
 
 use crate::presentation::context::AppContext;
 
@@ -18,8 +21,8 @@ pub use install::*;
 pub use kv::*;
 pub use manifest::*;
 pub use records::*;
-pub use updates::*;
 pub use types::*;
+pub use updates::*;
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

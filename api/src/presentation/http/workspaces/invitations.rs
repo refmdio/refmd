@@ -11,8 +11,8 @@ use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
 
 use super::types::{
-    CreateWorkspaceInvitationRequest, WorkspaceInvitationResponse, map_service_error,
-    invitation_response_from, require_permission,
+    CreateWorkspaceInvitationRequest, WorkspaceInvitationResponse, invitation_response_from,
+    map_service_error, require_permission,
 };
 
 #[utoipa::path(

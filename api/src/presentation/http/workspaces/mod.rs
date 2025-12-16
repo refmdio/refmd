@@ -6,8 +6,8 @@ mod roles;
 pub mod scope;
 pub mod types;
 
-use axum::routing::{delete, get, patch, post};
 use axum::Router;
+use axum::routing::{delete, get, patch, post};
 
 use crate::presentation::context::AppContext;
 

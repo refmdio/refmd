@@ -1,6 +1,6 @@
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::extract::State;
 use axum::http::StatusCode;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::{self, Stream, StreamExt};
 use std::time::Duration;
 use uuid::Uuid;

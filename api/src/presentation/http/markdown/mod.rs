@@ -1,8 +1,8 @@
 mod handlers;
-mod user_scope;
 pub mod types;
+mod user_scope;
 
-use axum::{routing::post, Router};
+use axum::{Router, routing::post};
 
 use crate::presentation::context::AppContext;
 

@@ -9,9 +9,7 @@ use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
 use crate::presentation::http::workspaces::scope as workspace_scope;
 
-use super::types::{
-    CreateShareMountRequest, MaterializeResponse, ShareMountItem, map_share_error,
-};
+use super::types::{CreateShareMountRequest, MaterializeResponse, ShareMountItem, map_share_error};
 
 #[utoipa::path(
     post,

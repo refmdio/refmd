@@ -12,9 +12,9 @@ use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
 
 use super::types::{
-    CreateWorkspaceRoleRequest, UpdateWorkspaceRoleRequest, WorkspaceRoleResponse, map_service_error,
-    normalize_overrides, require_any_permission, require_permission, role_response_from,
-    validate_base_role,
+    CreateWorkspaceRoleRequest, UpdateWorkspaceRoleRequest, WorkspaceRoleResponse,
+    map_service_error, normalize_overrides, require_any_permission, require_permission,
+    role_response_from, validate_base_role,
 };
 
 #[utoipa::path(

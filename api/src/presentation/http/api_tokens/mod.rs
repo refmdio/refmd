@@ -1,8 +1,8 @@
 mod handlers;
 pub mod types;
 
-use axum::routing::{delete, get};
 use axum::Router;
+use axum::routing::{delete, get};
 
 use crate::presentation::context::AppContext;
 

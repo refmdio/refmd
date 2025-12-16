@@ -11,9 +11,9 @@ use crate::presentation::http::auth::Bearer;
 use crate::presentation::http::workspaces::scope as workspace_scope;
 
 use super::types::{
-    CreateDocumentRequest, Document, DocumentListResponse, DocumentStateFilter,
-    DuplicateDocumentRequest, DoubleOption, ListDocumentsQuery, UpdateDocumentRequest,
-    map_service_error, to_http_document,
+    CreateDocumentRequest, Document, DocumentListResponse, DocumentStateFilter, DoubleOption,
+    DuplicateDocumentRequest, ListDocumentsQuery, UpdateDocumentRequest, map_service_error,
+    to_http_document,
 };
 
 #[utoipa::path(get, path = "/api/documents", tag = "Documents",

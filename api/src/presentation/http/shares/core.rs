@@ -13,8 +13,8 @@ use crate::presentation::http::workspaces::scope as workspace_scope;
 use crate::application::dto::shares::ShareItemDto;
 
 use super::types::{
-    CreateShareRequest, CreateShareResponse, ShareItem, map_share_error, frontend_base,
-    build_share_url,
+    CreateShareRequest, CreateShareResponse, ShareItem, build_share_url, frontend_base,
+    map_share_error,
 };
 
 #[utoipa::path(

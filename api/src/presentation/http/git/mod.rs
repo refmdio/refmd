@@ -5,7 +5,10 @@ mod status;
 mod sync;
 pub mod types;
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 
 use crate::presentation::context::AppContext;
 
@@ -36,7 +39,10 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/git/pull/start", post(start_pull_session))
         .route("/git/pull/session/:id", get(get_pull_session))
         .route("/git/pull/session/:id/resolve", post(resolve_pull_session))
-        .route("/git/pull/session/:id/finalize", post(finalize_pull_session))
+        .route(
+            "/git/pull/session/:id/finalize",
+            post(finalize_pull_session),
+        )
         .route("/git/init", post(init_repository))
         .route("/git/deinit", post(deinit_repository))
         .route("/git/ignore/doc/:id", post(ignore_document))

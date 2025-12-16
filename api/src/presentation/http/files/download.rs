@@ -11,7 +11,7 @@ use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
 use crate::presentation::http::workspaces::scope as workspace_scope;
 
-use super::types::{FileByNameQuery, map_file_error, file_payload_response};
+use super::types::{FileByNameQuery, file_payload_response, map_file_error};
 
 #[utoipa::path(
     get,

@@ -11,17 +11,20 @@ use crate::application::access;
 use crate::application::ports::workspace_repository::WorkspaceListItem;
 use crate::application::services::auth::user_sessions::SessionMetadata;
 use crate::application::services::errors::ServiceError;
-use crate::domain::workspaces::permissions::{PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE};
+use crate::domain::workspaces::permissions::{
+    PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
+};
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{
-    self, Bearer, apply_session_cookies, extract_client_ip, extract_refresh_token, extract_user_agent,
+    self, Bearer, apply_session_cookies, extract_client_ip, extract_refresh_token,
+    extract_user_agent,
 };
 #[allow(unused_imports)]
 use crate::presentation::http::documents::DocumentDownloadBinary;
 
 use super::types::{
-    CreateWorkspaceRequest, DownloadWorkspaceQuery, SwitchWorkspaceResponse, UpdateWorkspaceRequest,
-    WorkspaceResponse, map_service_error, require_permission, to_response,
+    CreateWorkspaceRequest, DownloadWorkspaceQuery, SwitchWorkspaceResponse,
+    UpdateWorkspaceRequest, WorkspaceResponse, map_service_error, require_permission, to_response,
 };
 
 #[utoipa::path(get, path = "/api/workspaces", tag = "Workspaces", responses((status = 200, body = [WorkspaceResponse])))]

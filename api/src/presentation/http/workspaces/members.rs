@@ -5,7 +5,9 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::domain::workspaces::permissions::{PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW};
+use crate::domain::workspaces::permissions::{
+    PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW,
+};
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::Bearer;
 

@@ -14,8 +14,8 @@ use crate::presentation::http::auth::{Bearer, validate_bearer};
 use crate::presentation::http::workspaces::scope as workspace_scope;
 
 use super::types::{
-    GitPullConflictItem, GitPullRequest, GitPullResolution, GitPullResponse, GitPullSessionResponse,
-    map_git_error,
+    GitPullConflictItem, GitPullRequest, GitPullResolution, GitPullResponse,
+    GitPullSessionResponse, map_git_error,
 };
 
 #[utoipa::path(

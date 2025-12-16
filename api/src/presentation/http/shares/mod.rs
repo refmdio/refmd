@@ -2,10 +2,13 @@ mod active;
 mod applicable;
 mod core;
 mod mounts;
-mod validation;
 pub mod types;
+mod validation;
 
-use axum::{routing::{delete, get, post}, Router};
+use axum::{
+    Router,
+    routing::{delete, get, post},
+};
 
 use crate::presentation::context::AppContext;
 
@@ -13,8 +16,8 @@ pub use active::*;
 pub use applicable::*;
 pub use core::*;
 pub use mounts::*;
-pub use validation::*;
 pub use types::*;
+pub use validation::*;
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

@@ -1,11 +1,11 @@
+use crate::domain::workspaces::permissions::PERM_PLUGIN_RUN;
+use crate::presentation::context::AppContext;
+use crate::presentation::http::auth::Bearer;
 use axum::{
     Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use crate::domain::workspaces::permissions::PERM_PLUGIN_RUN;
-use crate::presentation::context::AppContext;
-use crate::presentation::http::auth::Bearer;
 
 use super::types::{KvPath, KvValueBody, KvValueResponse, ensure_valid_plugin_id};
 use super::util::{

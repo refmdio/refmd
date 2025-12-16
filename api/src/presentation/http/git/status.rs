@@ -4,8 +4,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
-use crate::application::dto::git::{GitCommitInfo, GitStatusDto};
 use crate::application::dto::diff::TextDiffResult;
+use crate::application::dto::git::{GitCommitInfo, GitStatusDto};
 use crate::presentation::context::AppContext;
 use crate::presentation::http::auth::{Bearer, validate_bearer};
 use crate::presentation::http::workspaces::scope as workspace_scope;
