@@ -249,6 +249,9 @@ impl AppRuntime {
             Ok(Err(e)) => error!(?e, "API server task failed"),
             Err(e) => error!(?e, "API server task panicked"),
         }
+
+        // Abort background jobs on exit.
+        jobs.shutdown().await;
         Ok(())
     }
 }

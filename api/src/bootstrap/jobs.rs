@@ -1,4 +1,8 @@
+use std::panic::AssertUnwindSafe;
+
+use futures_util::FutureExt;
 use tokio::task::JoinHandle;
+use tracing::{debug, error};
 
 /// Handle to a background task.
 pub struct JobHandle {
@@ -23,12 +27,32 @@ impl Jobs {
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
-        let handle = tokio::spawn(async move { fut.await });
+        let handle = tokio::spawn(async move {
+            if let Err(panic) = AssertUnwindSafe(fut).catch_unwind().await {
+                error!(?panic, job = name, "background_job_panicked");
+            }
+        });
         self.handles.push(JobHandle { name, handle });
     }
 
     /// Expose handles for inspection or later coordination.
     pub fn handles(&self) -> &[JobHandle] {
         &self.handles
+    }
+
+    /// Abort all tracked jobs and await their termination.
+    pub async fn shutdown(self) {
+        for JobHandle { name, handle } in self.handles {
+            handle.abort();
+            match handle.await {
+                Ok(()) => {}
+                Err(err) if err.is_cancelled() => {
+                    debug!(job = name, "background_job_cancelled");
+                }
+                Err(err) => {
+                    error!(job = name, error = ?err, "background_job_join_failed");
+                }
+            }
+        }
     }
 }
