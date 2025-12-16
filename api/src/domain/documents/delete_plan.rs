@@ -152,10 +152,10 @@ mod tests {
 
         let entries = build_delete_plan(root_id, root_meta, nodes).unwrap();
 
-        // Expected order: deepest doc leaf, folder, sibling doc, root folder last
+        // Expected order: deepest doc leaf, sibling doc, folder, root folder last
         assert_eq!(entries[0].doc_id, leaf);
-        assert_eq!(entries[1].doc_id, folder);
-        assert_eq!(entries[2].doc_id, doc1);
+        assert_eq!(entries[1].doc_id, doc1);
+        assert_eq!(entries[2].doc_id, folder);
         assert_eq!(entries[3].doc_id, root_id);
     }
 }

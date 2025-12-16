@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use sqlx::{Pool, Postgres, Transaction};
@@ -8,14 +7,13 @@ use uuid::Uuid;
 use crate::application::access::{self, Actor};
 use crate::application::dto::document_export::{DocumentDownload, DocumentDownloadFormat};
 use crate::application::dto::documents::{
-    DocumentListFilter, SnapshotDiffBaseMode, SnapshotDiffDto, SnapshotDiffSideDto,
-    SnapshotSummaryDto,
+    DocumentListFilter, SnapshotDiffBaseMode, SnapshotDiffDto, SnapshotSummaryDto,
 };
 use crate::application::ports::access_repository::AccessRepository;
 use crate::application::ports::doc_event_log::DocEventLog;
 use crate::application::ports::document_exporter::DocumentExporter;
 use crate::application::ports::document_repository::{
-    DocMeta, DocumentListState, DocumentPathConflictError, DocumentRepository,
+    DocMeta, DocumentPathConflictError, DocumentRepository,
 };
 use crate::application::ports::files_repository::FilesRepository;
 use crate::application::ports::realtime_port::RealtimeEngine;
@@ -40,9 +38,7 @@ use crate::application::use_cases::documents::list_documents::ListDocuments;
 use crate::application::use_cases::documents::list_snapshots::ListSnapshots;
 use crate::application::use_cases::documents::restore_snapshot::RestoreSnapshot;
 use crate::application::use_cases::documents::search_documents::SearchDocuments;
-use crate::application::use_cases::documents::snapshot_diff::{
-    SnapshotDiff, SnapshotDiffResult, SnapshotDiffSide,
-};
+use crate::application::use_cases::documents::snapshot_diff::SnapshotDiff;
 use crate::application::use_cases::documents::snapshot_download::{
     DownloadSnapshot, SnapshotDownload,
 };
@@ -55,10 +51,24 @@ use crate::domain::documents::document::{
 };
 use crate::domain::documents::{delete_plan, hierarchy, path as doc_path, policy as doc_policy};
 use crate::domain::documents::permissions as doc_permissions;
-use crate::domain::documents::policy::{DocumentPolicyError, DocumentState};
+use crate::domain::documents::policy::DocumentState;
 use crate::domain::documents::title;
 use crate::domain::workspaces::permissions::PermissionSet;
 use serde_json::json;
+
+mod attachments;
+mod deletion;
+mod events;
+mod jobs;
+mod patch;
+mod snapshot_dto;
+mod util;
+
+pub use patch::DocumentPatchOperation;
+
+use patch::apply_patch_operations;
+use snapshot_dto::snapshot_diff_dto_from_result;
+use util::{map_parent_error, map_policy_error, map_sqlx_error, to_repo_state};
 
 pub struct DocumentService {
     db: Pool<Postgres>,
@@ -882,112 +892,6 @@ impl DocumentService {
             .map_err(ServiceError::from)
     }
 
-    async fn snapshot_attachments(
-        &self,
-        doc_id: Uuid,
-    ) -> Result<Vec<AttachmentSnapshot>, ServiceError> {
-        let files = self
-            .files_repo
-            .list_files_for_document(doc_id)
-            .await
-            .map_err(ServiceError::from)?;
-        let mut snapshots = Vec::new();
-        for file in files {
-            let abs_path = self.storage.absolute_from_relative(&file.storage_path);
-            let exists = self
-                .storage
-                .exists(&abs_path)
-                .await
-                .map_err(ServiceError::from)?;
-            if !exists {
-                warn!(
-                    document_id = %doc_id,
-                    storage_path = %file.storage_path,
-                    "duplicate_attachment_missing"
-                );
-                continue;
-            }
-            let bytes = self
-                .storage
-                .read_bytes(&abs_path)
-                .await
-                .map_err(ServiceError::from)?;
-            let content_hash = hash_bytes(&bytes);
-            snapshots.push(AttachmentSnapshot {
-                filename: file.filename,
-                content_type: file.content_type,
-                bytes,
-                content_hash,
-            });
-        }
-        Ok(snapshots)
-    }
-
-    async fn copy_attachments(
-        &self,
-        target_doc: &DomainDocument,
-        attachments: &[AttachmentSnapshot],
-        actor_id: Uuid,
-    ) -> Result<(), ServiceError> {
-        if attachments.is_empty() {
-            return Ok(());
-        }
-        let base_dir = self
-            .storage
-            .build_doc_dir(target_doc.id)
-            .await
-            .map_err(ServiceError::from)?;
-        for attachment in attachments {
-            let filename = Path::new(&attachment.filename)
-                .file_name()
-                .and_then(|f| f.to_str())
-                .map(str::to_string)
-                .filter(|f| !f.is_empty())
-                .unwrap_or_else(|| attachment.filename.clone());
-            let target_path = base_dir.join("attachments").join(&filename);
-            self.storage
-                .write_bytes(&target_path, &attachment.bytes)
-                .await
-                .map_err(ServiceError::from)?;
-            let storage_path = self
-                .storage
-                .relative_from_uploads(&target_path)
-                .replace('\\', "/");
-            self.files_repo
-                .insert_file(
-                    target_doc.id,
-                    &filename,
-                    attachment.content_type.as_deref(),
-                    attachment.bytes.len() as i64,
-                    &storage_path,
-                    &attachment.content_hash,
-                )
-                .await
-                .map_err(ServiceError::from)?;
-            if let Some(repo_path) =
-                doc_path::repo_relative_from_storage(target_doc.workspace_id, &storage_path)
-            {
-                let payload = json!({
-                    "repo_path": repo_path,
-                    "storage_path": storage_path,
-                    "backend": "api",
-                    "size": attachment.bytes.len() as i64,
-                    "content_hash": attachment.content_hash,
-                    "workspace_id": target_doc.workspace_id.to_string(),
-                    "actor_id": actor_id.to_string(),
-                });
-                self.record_event(
-                    target_doc.workspace_id,
-                    target_doc.id,
-                    "attachment.ingest_upsert",
-                    Some(payload),
-                )
-                .await;
-            }
-        }
-        Ok(())
-    }
-
     async fn ensure_active_parent(
         &self,
         workspace_id: Uuid,
@@ -1015,394 +919,4 @@ impl DocumentService {
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)
     }
-
-    async fn enqueue_projection_for_document_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        doc: &DomainDocument,
-        reason: &'static str,
-    ) -> Result<(), ServiceError> {
-        if doc.doc_type == "folder" {
-            self.enqueue_folder_sync_tx(tx, doc.workspace_id, doc.id, reason)
-                .await
-        } else {
-            self.enqueue_doc_sync_tx(tx, doc.workspace_id, doc.id, reason)
-                .await
-        }
-    }
-
-    async fn enqueue_doc_sync_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        doc_id: Uuid,
-        reason: &'static str,
-    ) -> Result<(), ServiceError> {
-        let encoded_reason = serde_json::to_string(&StorageJobReason {
-            reason: reason.to_string(),
-            metadata: Some(WorkspaceJobMetadata { workspace_id }),
-        })
-        .ok();
-        self.storage_jobs
-            .enqueue_doc_job_tx(
-                tx,
-                workspace_id,
-                doc_id,
-                StorageProjectionJobKind::DocSync,
-                encoded_reason.as_deref(),
-            )
-            .await
-            .map_err(|err| {
-                warn!(
-                    error = ?err,
-                    doc_id = %doc_id,
-                    "storage_projection_enqueue_failed"
-                );
-                ServiceError::Unexpected(err)
-            })
-    }
-
-    async fn enqueue_doc_delete_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        doc_id: Uuid,
-        reason: &'static str,
-        metadata: Option<StorageDeleteJobMetadata>,
-    ) -> Result<(), ServiceError> {
-        let encoded_reason = metadata.and_then(|meta| {
-            serde_json::to_string(&StorageJobReason {
-                reason: reason.to_string(),
-                metadata: Some(meta),
-            })
-            .ok()
-        });
-        let reason_str = encoded_reason.as_deref().unwrap_or(reason);
-        self.storage_jobs
-            .enqueue_doc_job_tx(
-                tx,
-                workspace_id,
-                doc_id,
-                StorageProjectionJobKind::DeleteDoc,
-                Some(reason_str),
-            )
-            .await
-            .map_err(|err| {
-                warn!(
-                    error = ?err,
-                    doc_id = %doc_id,
-                    "storage_projection_enqueue_failed"
-                );
-                ServiceError::Unexpected(err)
-            })
-    }
-
-    async fn enqueue_folder_sync_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        folder_id: Uuid,
-        reason: &'static str,
-    ) -> Result<(), ServiceError> {
-        self.storage_jobs
-            .enqueue_folder_job_tx(
-                tx,
-                workspace_id,
-                folder_id,
-                StorageProjectionJobKind::FolderSync,
-                Some(reason),
-            )
-            .await
-            .map_err(|err| {
-                warn!(
-                    error = ?err,
-                    folder_id = %folder_id,
-                    "storage_projection_enqueue_failed"
-                );
-                ServiceError::Unexpected(err)
-            })
-    }
-
-    async fn enqueue_folder_delete_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        folder_id: Uuid,
-        reason: &'static str,
-        metadata: Option<StorageDeleteJobMetadata>,
-    ) -> Result<(), ServiceError> {
-        let encoded_reason = metadata.and_then(|meta| {
-            serde_json::to_string(&StorageJobReason {
-                reason: reason.to_string(),
-                metadata: Some(meta),
-            })
-            .ok()
-        });
-        let reason_str = encoded_reason.as_deref().unwrap_or(reason);
-        self.storage_jobs
-            .enqueue_folder_job_tx(
-                tx,
-                workspace_id,
-                folder_id,
-                StorageProjectionJobKind::DeleteFolder,
-                Some(reason_str),
-            )
-            .await
-            .map_err(|err| {
-                warn!(
-                    error = ?err,
-                    folder_id = %folder_id,
-                    "storage_projection_enqueue_failed"
-                );
-                ServiceError::Unexpected(err)
-            })
-    }
-
-    async fn record_event(
-        &self,
-        workspace_id: Uuid,
-        doc_id: Uuid,
-        event_type: &'static str,
-        payload: Option<serde_json::Value>,
-    ) {
-        if let Err(err) = self
-            .events
-            .append(workspace_id, doc_id, event_type, payload)
-            .await
-        {
-            warn!(
-                error = ?err,
-                doc_id = %doc_id,
-                event_type,
-                "doc_event_log_append_failed"
-            );
-        }
-    }
-
-    async fn build_delete_plan(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        doc_id: Uuid,
-        workspace_id: Uuid,
-        root_meta: DocMeta,
-    ) -> Result<Vec<delete_plan::DeleteEntry>, ServiceError> {
-        let subtree = self
-            .document_repo
-            .list_owned_subtree_documents_tx(tx, workspace_id, doc_id)
-            .await
-            .map_err(ServiceError::from)?;
-
-        let mut nodes = Vec::new();
-        for node in subtree {
-            let meta = if node.id == doc_id {
-                root_meta.clone()
-            } else {
-                self.document_repo
-                    .get_meta_for_owner_tx(tx, node.id, workspace_id)
-                    .await
-                    .map_err(ServiceError::from)?
-                    .ok_or(ServiceError::NotFound)?
-            };
-            let attachments = if node.doc_type != "folder" {
-                self.files_repo
-                    .list_storage_paths_for_document_tx(tx, node.id)
-                    .await
-                    .map_err(ServiceError::from)?
-            } else {
-                Vec::new()
-            };
-            nodes.push(delete_plan::DeleteNode {
-                id: node.id,
-                doc_type: node.doc_type,
-                meta,
-                attachments,
-            });
-        }
-
-        let entries = delete_plan::build_delete_plan(doc_id, root_meta, nodes).map_err(|err| {
-            error!(error = ?err, "build_delete_entries_failed");
-            ServiceError::Unexpected(err.into())
-        })?;
-        Ok(entries)
-    }
-
-    async fn enqueue_delete_job_for_entry(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        entry: &delete_plan::DeleteEntry,
-        permission_snapshot: &[String],
-        actor_id: Option<Uuid>,
-    ) -> Result<(), ServiceError> {
-        let repo_path = doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref())
-            .unwrap_or_else(|| entry.meta.desired_path.clone());
-        let metadata = StorageDeleteJobMetadata {
-            workspace_id,
-            repo_path: Some(repo_path),
-            doc_type: entry.doc_type.clone(),
-            attachment_paths: if entry.attachments.is_empty() {
-                None
-            } else {
-                Some(entry.attachments.clone())
-            },
-            permission_snapshot: permission_snapshot.to_vec(),
-            actor_id,
-        };
-        if entry.doc_type == "folder" {
-            self.enqueue_folder_delete_tx(
-                tx,
-                workspace_id,
-                entry.doc_id,
-                entry.reason,
-                Some(metadata),
-            )
-            .await
-        } else {
-            self.enqueue_doc_delete_tx(tx, workspace_id, entry.doc_id, entry.reason, Some(metadata))
-                .await
-        }
-    }
-
-    async fn record_delete_event(
-        &self,
-        workspace_id: Uuid,
-        entry: &delete_plan::DeleteEntry,
-        actor_id: Option<Uuid>,
-    ) {
-        let repo_path = doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref())
-            .unwrap_or_else(|| entry.meta.desired_path.clone());
-        let previous_repo_path =
-            doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref());
-        let mut payload = json!({
-            "doc_type": entry.doc_type,
-            "repo_path": repo_path,
-            "slug": entry.meta.slug,
-            "desired_path": entry.meta.desired_path,
-            "owner_id": workspace_id,
-            "previous_path": previous_repo_path,
-        });
-        if let Some(actor) = actor_id {
-            if let serde_json::Value::Object(ref mut map) = payload {
-                map.insert("actor_id".into(), json!(actor));
-            }
-        }
-        self.record_event(
-            workspace_id,
-            entry.doc_id,
-            "document.deleted",
-            Some(payload),
-        )
-        .await;
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum DocumentPatchOperation {
-    Insert { offset: usize, text: String },
-    Delete { offset: usize, length: usize },
-    Replace { offset: usize, length: usize, text: String },
-}
-
-#[derive(Debug, Clone)]
-struct AttachmentSnapshot {
-    filename: String,
-    content_type: Option<String>,
-    bytes: Vec<u8>,
-    content_hash: String,
-}
-
-fn apply_patch_operations(
-    initial: &str,
-    operations: &[DocumentPatchOperation],
-) -> Result<String, ServiceError> {
-    let mut chars: Vec<char> = initial.chars().collect();
-    for operation in operations {
-        match operation {
-            DocumentPatchOperation::Insert { offset, text } => {
-                splice_chars(&mut chars, *offset, 0, text)?;
-            }
-            DocumentPatchOperation::Delete { offset, length } => {
-                splice_chars(&mut chars, *offset, *length, "")?;
-            }
-            DocumentPatchOperation::Replace {
-                offset,
-                length,
-                text,
-            } => {
-                splice_chars(&mut chars, *offset, *length, text)?;
-            }
-        }
-    }
-    Ok(chars.into_iter().collect())
-}
-
-fn splice_chars(
-    chars: &mut Vec<char>,
-    offset: usize,
-    length: usize,
-    replacement: &str,
-) -> Result<(), ServiceError> {
-    if offset > chars.len() {
-        return Err(ServiceError::BadRequest("patch_offset_out_of_bounds"));
-    }
-    let end = offset
-        .checked_add(length)
-        .ok_or(ServiceError::BadRequest("patch_length_overflow"))?;
-    if end > chars.len() {
-        return Err(ServiceError::BadRequest("patch_range_out_of_bounds"));
-    }
-    chars.splice(offset..end, replacement.chars());
-    Ok(())
-}
-
-fn hash_bytes(bytes: &[u8]) -> String {
-    sha256_hex(bytes)
-}
-
-fn snapshot_diff_dto_from_result(result: SnapshotDiffResult) -> SnapshotDiffDto {
-    SnapshotDiffDto {
-        base: snapshot_diff_side_from_use_case(result.base),
-        target: snapshot_diff_side_from_use_case(result.target),
-        diff: result.diff,
-    }
-}
-
-fn snapshot_diff_side_from_use_case(side: SnapshotDiffSide) -> SnapshotDiffSideDto {
-    match side {
-        SnapshotDiffSide::Current { markdown } => SnapshotDiffSideDto::Current { markdown },
-        SnapshotDiffSide::Snapshot { record, markdown } => SnapshotDiffSideDto::Snapshot {
-            snapshot: SnapshotSummaryDto::from(record),
-            markdown,
-        },
-    }
-}
-
-fn to_repo_state(filter: DocumentListFilter) -> DocumentListState {
-    match filter {
-        DocumentListFilter::Active => DocumentListState::Active,
-        DocumentListFilter::Archived => DocumentListState::Archived,
-        DocumentListFilter::All => DocumentListState::All,
-    }
-}
-
-fn map_policy_error(err: DocumentPolicyError) -> ServiceError {
-    match err {
-        DocumentPolicyError::Forbidden => ServiceError::Forbidden,
-        DocumentPolicyError::Archived | DocumentPolicyError::NotArchived => ServiceError::Conflict,
-        DocumentPolicyError::FolderNotSupported => {
-            ServiceError::BadRequest("operation_not_supported_for_folder")
-        }
-    }
-}
-
-fn map_parent_error(err: hierarchy::ParentValidationError) -> ServiceError {
-    match err {
-        hierarchy::ParentValidationError::NotFound => ServiceError::NotFound,
-        hierarchy::ParentValidationError::Archived => ServiceError::Conflict,
-    }
-}
-
-fn map_sqlx_error(err: sqlx::Error) -> ServiceError {
-    error!(error = ?err, "document_sql_error");
-    ServiceError::Unexpected(err.into())
 }
