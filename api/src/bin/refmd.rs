@@ -1,7 +1,6 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
+use anyhow::{Result, anyhow, bail, ensure};
 use argon2::{
     Argon2,
     password_hash::{PasswordHasher, SaltString},
@@ -19,15 +18,16 @@ use api::application::ports::git_workspace::GitWorkspacePort;
 use api::application::ports::plugin_asset_store::PluginAssetStore;
 use api::application::ports::shares_repository::SharesRepository;
 use api::application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use api::application::ports::storage_projection_queue::StorageProjectionQueue;
 use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
 use api::application::ports::user_session_repository::UserSessionRepository;
 use api::application::services::api_tokens::generate_api_token;
 use api::application::services::workspaces::WorkspaceService;
 use api::application::use_cases::auth::delete_account::DeleteAccount;
 use api::application::use_cases::auth::register::{Register, RegisterRequest};
+use api::bootstrap::app::{AppBuilder, git_storage_driver_config};
 use api::bootstrap::config::Config;
 use api::domain::workspaces::permissions::PermissionSet;
-use api::infrastructure::db;
 use api::infrastructure::db::PgPool;
 use api::infrastructure::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository;
 use api::infrastructure::db::repositories::document_repository_sqlx::SqlxDocumentRepository;
@@ -37,16 +37,7 @@ use api::infrastructure::db::repositories::plugin_repository_sqlx::SqlxPluginRep
 use api::infrastructure::db::repositories::shares_repository_sqlx::SqlxSharesRepository;
 use api::infrastructure::db::repositories::user_repository_sqlx::SqlxUserRepository;
 use api::infrastructure::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository;
-use api::infrastructure::db::repositories::workspace_repository_sqlx::SqlxWorkspaceRepository;
-use api::infrastructure::git::PgGitRebuildJobQueue;
-use api::infrastructure::git::storage::{GitStorageDriverConfig, build_git_storage};
-use api::infrastructure::plugins::filesystem_store::{
-    FilesystemPluginStore, PluginExecutionLimits,
-};
-use api::infrastructure::plugins::s3_store::{S3BackedPluginStore, S3PluginStoreConfig};
-use api::infrastructure::storage::PgStorageIngestQueue;
-use api::infrastructure::storage::PgStorageProjectionQueue;
-use api::infrastructure::storage::PgStorageReconcileJobs;
+use api::infrastructure::git::storage::build_git_storage;
 
 #[derive(Parser)]
 #[command(name = "refmd", about = "Admin CLI for managing a refmd node", version)]
@@ -339,9 +330,9 @@ struct Deps {
     pool: PgPool,
     user_repo: SqlxUserRepository,
     workspace_service: Arc<WorkspaceService>,
-    ingest_queue: PgStorageIngestQueue,
-    reconcile_jobs: PgStorageReconcileJobs,
-    git_rebuild_jobs: PgGitRebuildJobQueue,
+    ingest_queue: Arc<dyn StorageIngestQueue>,
+    reconcile_jobs: Arc<dyn StorageReconcileJobs>,
+    git_rebuild_jobs: Arc<dyn GitRebuildJobQueue>,
     session_repo: SqlxUserSessionRepository,
     document_repo: SqlxDocumentRepository,
     files_repo: SqlxFilesRepository,
@@ -351,7 +342,7 @@ struct Deps {
     shares_repo: SqlxSharesRepository,
     plugin_assets: Arc<dyn PluginAssetStore>,
     git_repo: api::infrastructure::db::repositories::git_repository_sqlx::SqlxGitRepository,
-    storage_jobs: PgStorageProjectionQueue,
+    storage_jobs: Arc<dyn StorageProjectionQueue>,
     git_workspace: Arc<CliGitWorkspace>,
 }
 
@@ -693,20 +684,30 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     let cli = Cli::parse();
 
-    let cfg = Config::from_env()?;
-    let database_url = cli.database_url.unwrap_or(cfg.database_url.clone());
+    let mut cfg = Config::from_env()?;
+    if let Some(db_url) = cli.database_url {
+        cfg.database_url = db_url;
+    }
 
-    let pool = db::connect_pool(&database_url)
-        .await
-        .context("failed to connect to database")?;
+    let runtime = AppBuilder::new(cfg.clone())
+        .with_background_tasks(false)
+        .build()
+        .await?;
+    let (
+        cfg,
+        pool,
+        ctx,
+        _hub,
+        _jobs,
+        storage_jobs,
+        reconcile_jobs,
+        git_rebuild_jobs,
+        plugin_assets,
+    ) = runtime.into_parts();
 
     let user_repo = SqlxUserRepository::new(pool.clone());
-    let workspace_repo = SqlxWorkspaceRepository::new(pool.clone());
-    let workspace_service = Arc::new(WorkspaceService::new(Arc::new(workspace_repo)));
-    let ingest_queue = PgStorageIngestQueue::new(pool.clone());
-    let storage_jobs = PgStorageProjectionQueue::new(pool.clone());
-    let reconcile_jobs = PgStorageReconcileJobs::new(pool.clone());
-    let git_rebuild_jobs = PgGitRebuildJobQueue::new(pool.clone());
+    let workspace_service = ctx.workspace_service();
+    let ingest_queue = ctx.storage_ingest_queue();
     let session_repo = SqlxUserSessionRepository::new(pool.clone());
     let document_repo = SqlxDocumentRepository::new(pool.clone());
     let files_repo = SqlxFilesRepository::new(pool.clone());
@@ -714,68 +715,12 @@ async fn main() -> Result<()> {
     let plugin_repo = SqlxPluginRepository::new(pool.clone());
     let api_tokens = SqlxApiTokenRepository::new(pool.clone());
     let shares_repo = SqlxSharesRepository::new(pool.clone());
-    let plugin_limits = {
-        let timeout = if cfg.plugin_timeout_secs == 0 {
-            None
-        } else {
-            Some(std::time::Duration::from_secs(cfg.plugin_timeout_secs))
-        };
-        let memory_pages_raw = cfg.plugin_memory_max_mb.saturating_mul(16);
-        let memory_max_pages = if memory_pages_raw == 0 {
-            None
-        } else {
-            Some(memory_pages_raw.min(u32::MAX as u64) as u32)
-        };
-        let fuel_limit = cfg
-            .plugin_fuel_limit
-            .and_then(|limit| if limit == 0 { None } else { Some(limit) });
-        PluginExecutionLimits::new(timeout, memory_max_pages, fuel_limit)
-    };
-    let plugin_assets: Arc<dyn PluginAssetStore> = match cfg.storage_backend {
-        api::bootstrap::config::StorageBackend::Filesystem => {
-            Arc::new(FilesystemPluginStore::new(&cfg.plugin_dir, plugin_limits)?)
-        }
-        api::bootstrap::config::StorageBackend::S3 => {
-            let s3_cfg = S3PluginStoreConfig {
-                plugin_dir: cfg.plugin_dir.clone(),
-                bucket: cfg
-                    .s3_bucket
-                    .clone()
-                    .context("S3_BUCKET must be configured when using S3 storage backend")?,
-                region: cfg.s3_region.clone(),
-                endpoint: cfg.s3_endpoint.clone(),
-                access_key: cfg.s3_access_key.clone(),
-                secret_key: cfg.s3_secret_key.clone(),
-                use_path_style: cfg.s3_use_path_style,
-            };
-            Arc::new(S3BackedPluginStore::new(&s3_cfg, plugin_limits).await?)
-        }
-    };
     let git_repo =
         api::infrastructure::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
             pool.clone(),
             cfg.encryption_key.clone(),
         );
-    let git_storage_cfg = match cfg.storage_backend {
-        api::bootstrap::config::StorageBackend::Filesystem => GitStorageDriverConfig::Filesystem {
-            root: PathBuf::from(cfg.storage_root.clone()),
-        },
-        api::bootstrap::config::StorageBackend::S3 => {
-            let s3_settings = api::infrastructure::git::storage::S3GitStorageConfig {
-                storage_root_prefix: cfg.storage_root.clone(),
-                bucket: cfg
-                    .s3_bucket
-                    .clone()
-                    .context("S3_BUCKET must be configured when using S3 storage backend")?,
-                region: cfg.s3_region.clone(),
-                endpoint: cfg.s3_endpoint.clone(),
-                access_key: cfg.s3_access_key.clone(),
-                secret_key: cfg.s3_secret_key.clone(),
-                use_path_style: cfg.s3_use_path_style,
-            };
-            GitStorageDriverConfig::S3(s3_settings)
-        }
-    };
+    let git_storage_cfg = git_storage_driver_config(&cfg)?;
     let git_storage = build_git_storage(git_storage_cfg).await?;
     let git_workspace = Arc::new(CliGitWorkspace::new(pool.clone(), git_storage.clone()));
 
@@ -858,7 +803,7 @@ async fn handle_users(deps: &Deps, cmd: UserCommand) -> Result<()> {
 async fn handle_jobs(deps: &Deps, cmd: JobsCommand) -> Result<()> {
     match cmd {
         JobsCommand::Ingest { command } => match command {
-            IngestCommand::Stats => print_ingest_stats(&deps.ingest_queue).await,
+            IngestCommand::Stats => print_ingest_stats(deps.ingest_queue.as_ref()).await,
             IngestCommand::Enqueue {
                 workspace_id,
                 user_id,
@@ -869,7 +814,7 @@ async fn handle_jobs(deps: &Deps, cmd: JobsCommand) -> Result<()> {
                 actor_id,
             } => {
                 enqueue_ingest(
-                    &deps.ingest_queue,
+                    deps.ingest_queue.as_ref(),
                     workspace_id,
                     user_id,
                     actor_id,
@@ -1166,7 +1111,7 @@ async fn delete_user(deps: &Deps, user_id: Uuid) -> Result<()> {
         plugin_assets: deps.plugin_assets.clone(),
         git_repo: &deps.git_repo,
         git_workspace: deps.git_workspace.as_ref(),
-        storage_jobs: &deps.storage_jobs,
+        storage_jobs: deps.storage_jobs.as_ref(),
         files_repo: &deps.files_repo,
     };
     uc.execute(user_id).await?;
@@ -1338,7 +1283,7 @@ async fn list_shares(
     Ok(())
 }
 
-async fn print_ingest_stats(queue: &PgStorageIngestQueue) -> Result<()> {
+async fn print_ingest_stats(queue: &dyn StorageIngestQueue) -> Result<()> {
     let stats = queue.stats().await?;
     println!("storage_ingest.pending={}", stats.pending);
     println!("storage_ingest.locked={}", stats.locked);
@@ -1354,7 +1299,7 @@ async fn print_ingest_stats(queue: &PgStorageIngestQueue) -> Result<()> {
 }
 
 async fn enqueue_ingest(
-    queue: &PgStorageIngestQueue,
+    queue: &dyn StorageIngestQueue,
     workspace_id: Uuid,
     user_id: Uuid,
     actor_id: Option<Uuid>,
