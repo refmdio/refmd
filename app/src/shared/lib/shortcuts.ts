@@ -1,3 +1,5 @@
+import isHotkey from 'is-hotkey'
+
 import type {
   KeyBinding,
   KeyChord,
@@ -16,6 +18,8 @@ export const detectPlatform = (): ShortcutPlatform => {
 }
 
 const normalizeKey = (value: string) => (value.length === 1 ? value.toLowerCase() : value)
+
+const normalizeHotkeyKey = (value: string) => value.toLowerCase()
 
 const cloneChord = (chord: KeyChord): KeyChord => ({
   key: normalizeKey(chord.key),
@@ -116,19 +120,34 @@ export const resolveBindings = (
   return fallback.map((binding) => binding.map(cloneChord))
 }
 
-const chordMatchesEvent = (chord: KeyChord, event: KeyboardEvent) => {
-  if (Boolean(chord.meta) !== event.metaKey) return false
-  if (Boolean(chord.ctrl) !== event.ctrlKey) return false
-  if (Boolean(chord.alt) !== event.altKey) return false
-  if (Boolean(chord.shift) !== event.shiftKey) return false
-  const eKey = normalizeKey(event.key || '')
-  const chordKey = normalizeKey(chord.key)
-  return chordKey === eKey
+const createHotkeyString = (chord: KeyChord, useModAlias: boolean) => {
+  const parts: string[] = []
+  const useMod = useModAlias && (chord.meta || chord.ctrl)
+  if (useMod) {
+    parts.push('mod')
+  } else {
+    if (chord.meta) parts.push('meta')
+    if (chord.ctrl) parts.push('ctrl')
+  }
+  if (chord.alt) parts.push('alt')
+  if (chord.shift) parts.push('shift')
+  parts.push(normalizeHotkeyKey(chord.key))
+  return parts.join('+')
+}
+
+const chordToHotkeys = (chord: KeyChord) => {
+  const hotkeys = new Set<string>()
+  hotkeys.add(createHotkeyString(chord, false))
+  if ((chord.meta || chord.ctrl) && !(chord.meta && chord.ctrl)) {
+    hotkeys.add(createHotkeyString(chord, true))
+  }
+  return Array.from(hotkeys)
 }
 
 export const matchBinding = (binding: KeyBinding, event: KeyboardEvent) => {
   if (binding.length !== 1) return false
-  return chordMatchesEvent(binding[0], event)
+  const chord = binding[0]
+  return chordToHotkeys(chord).some((hotkey) => isHotkey(hotkey, { byKey: true }, event))
 }
 
 const SYMBOLS: Record<ShortcutPlatform, Record<'meta' | 'ctrl' | 'alt' | 'shift', string>> = {
