@@ -58,7 +58,7 @@ pub fn encrypt_auth_data(secret: &str, auth_data: &serde_json::Value) -> serde_j
         serde_json::Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (k, v) in map {
-                if (k == "token" || k == "private_key") && v.is_string() {
+                if (k == "token" || k == "private_key" || k == "passphrase") && v.is_string() {
                     let s = v.as_str().unwrap_or("");
                     // idempotent: avoid double-encryption
                     let enc = if s.starts_with("v1:") {
@@ -82,7 +82,7 @@ pub fn decrypt_auth_data(secret: &str, auth_data: &serde_json::Value) -> serde_j
         serde_json::Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (k, v) in map {
-                if (k == "token" || k == "private_key") && v.is_string() {
+                if (k == "token" || k == "private_key" || k == "passphrase") && v.is_string() {
                     let s = v.as_str().unwrap_or("");
                     let dec = decrypt_string(secret, s).unwrap_or_else(|_| s.to_string());
                     out.insert(k.clone(), serde_json::Value::String(dec));

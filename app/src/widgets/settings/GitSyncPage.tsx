@@ -11,6 +11,7 @@ import { Card } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 import { Separator } from '@/shared/ui/separator'
+import { Textarea } from '@/shared/ui/textarea'
 
 import {
   createOrUpdateConfig,
@@ -37,8 +38,9 @@ export default function GitSyncPage() {
   const [authType, setAuthType] = React.useState<'ssh' | 'token'>('token')
   const [token, setToken] = React.useState('')
   const [privateKey, setPrivateKey] = React.useState('')
+  const [passphrase, setPassphrase] = React.useState('')
   const [lastCheck, setLastCheck] = React.useState<RemoteCheck>(null)
-  const lastSecretRef = React.useRef<{ token?: string; private_key?: string }>({})
+  const lastSecretRef = React.useRef<{ token?: string; private_key?: string; passphrase?: string }>({})
   const autoSync = false
 
   React.useEffect(() => {
@@ -48,6 +50,7 @@ export default function GitSyncPage() {
       setAuthType(config.auth_type === 'ssh' ? 'ssh' : 'token')
       setToken('')
       setPrivateKey('')
+      setPassphrase('')
       setLastCheck((config as any).remote_check ?? null)
     }
   }, [config])
@@ -61,13 +64,14 @@ export default function GitSyncPage() {
       lastSecretRef.current = { token: resolved }
       return { token: resolved }
     }
-    const resolved = privateKey.trim() || lastSecretRef.current.private_key
-    if (!resolved) {
+    const resolvedKey = privateKey.trim() || lastSecretRef.current.private_key
+    if (!resolvedKey) {
       throw new Error('SSH private key is required to save.')
     }
-    lastSecretRef.current = { private_key: resolved }
-    return { private_key: resolved }
-  }, [authType, privateKey, token])
+    const resolvedPass = passphrase.trim() || lastSecretRef.current.passphrase
+    lastSecretRef.current = { private_key: resolvedKey, passphrase: resolvedPass }
+    return resolvedPass ? { private_key: resolvedKey, passphrase: resolvedPass } : { private_key: resolvedKey }
+  }, [authType, privateKey, token, passphrase])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -302,14 +306,22 @@ export default function GitSyncPage() {
             ) : (
               <div className="space-y-2">
                 <Label>SSH private key</Label>
-                <Input
-                  type="password"
-                  placeholder="-----BEGIN PRIVATE KEY-----"
+                <Textarea
+                  placeholder={`-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----`}
                   value={privateKey}
                   onChange={(e) => setPrivateKey(e.target.value)}
+                  rows={6}
+                  className="font-mono"
+                />
+                <Label>Passphrase (if encrypted)</Label>
+                <Input
+                  type="password"
+                  placeholder="Leave blank if none"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Reuses the last key you entered on this page. After a reload, enter it again before saving.
+                  Reuses the last key/passphrase you entered on this page. After a reload, enter them again before saving.
                 </p>
               </div>
             )}

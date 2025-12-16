@@ -9,8 +9,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use git2::{
-    CertificateCheckStatus, Commit, Cred, ErrorClass, FetchOptions, FileMode, Indexer, ObjectType,
-    PushOptions, RemoteCallbacks, Repository, Signature, Sort, Time, TreeWalkMode, TreeWalkResult,
+    CertificateCheckStatus, Commit, Cred, Error as GitError, ErrorClass, FetchOptions, FileMode,
+    Indexer, ObjectType, PushOptions, RemoteCallbacks, Repository, Signature, Sort, Time,
+    TreeWalkMode, TreeWalkResult,
 };
 use sqlx::{Row, types::Json};
 use tempfile::{Builder as TempDirBuilder, TempDir};
@@ -4357,7 +4358,29 @@ fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallbacks<'static> {
                     .and_then(|v| v.as_str())
                 {
                     let user = username_from_url.unwrap_or("git");
-                    Cred::ssh_key_from_memory(user, None, key, None)
+                    let passphrase = auth_data
+                        .as_ref()
+                        .and_then(|v| v.get("passphrase"))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty());
+                    let trimmed = key.trim();
+                    if trimmed.starts_with("v1:") {
+                        return Err(GitError::from_str(
+                            "failed to decrypt stored SSH key; check ENCRYPTION_KEY and re-save credentials",
+                        ));
+                    }
+                    if trimmed.contains("BEGIN OPENSSH PRIVATE KEY") {
+                        return Err(GitError::from_str(
+                            "OpenSSH private key format is not supported; provide PEM (BEGIN RSA/EC PRIVATE KEY)",
+                        ));
+                    }
+                    let needs_passphrase = trimmed.contains("ENCRYPTED");
+                    if needs_passphrase && passphrase.is_none() {
+                        return Err(GitError::from_str(
+                            "SSH private key is encrypted; passphrase is required",
+                        ));
+                    }
+                    Cred::ssh_key_from_memory(user, None, trimmed, passphrase)
                 } else {
                     Cred::default()
                 }
