@@ -2,7 +2,7 @@ use std::panic::AssertUnwindSafe;
 
 use futures_util::FutureExt;
 use tokio::task::JoinHandle;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 /// Handle to a background task.
 pub struct JobHandle {
@@ -54,5 +54,28 @@ impl Jobs {
                 }
             }
         }
+    }
+}
+
+/// Wait for Ctrl+C or SIGTERM and log which signal was received.
+pub async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("create SIGTERM listener");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!("shutdown_signal_received: ctrl_c");
+            }
+            _ = sigterm.recv() => {
+                info!("shutdown_signal_received: sigterm");
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("shutdown_signal_received: ctrl_c");
     }
 }

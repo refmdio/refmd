@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use dotenvy::dotenv;
-use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 
@@ -49,7 +48,8 @@ use api::application::services::workspaces::{WorkspacePermissionResolver, Worksp
 use api::bootstrap::auth;
 use api::bootstrap::config::{Config, StorageBackend};
 use api::bootstrap::git::{self, GitStack};
-use api::bootstrap::{http, jobs::Jobs, plugins, realtime, telemetry};
+use api::bootstrap::jobs::{self, Jobs};
+use api::bootstrap::{http, plugins, realtime, telemetry};
 use api::infrastructure::db::PgPool;
 use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::doc_event_log::PgDocEventLog;
@@ -165,11 +165,6 @@ impl AppRuntime {
 
         let app = api_router.merge(ws_router);
 
-        let api_handle: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
-            axum::serve(listener, app).await?;
-            Ok(())
-        });
-
         // Background snapshots
         const SNAPSHOT_LOCK_KEY: i64 = i64::from_be_bytes(*b"REFSNAP1");
 
@@ -208,10 +203,10 @@ impl AppRuntime {
             });
         }
 
-        match api_handle.await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => error!(?e, "API server task failed"),
-            Err(e) => error!(?e, "API server task panicked"),
+        let server = axum::serve(listener, app).with_graceful_shutdown(jobs::wait_for_shutdown_signal());
+        match server.await {
+            Ok(()) => {}
+            Err(e) => error!(?e, "API server failed"),
         }
 
         // Abort background jobs on exit.
