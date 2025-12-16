@@ -12,5 +12,4 @@ pub mod shares;
 pub mod shortcuts;
 pub mod storage_ingest;
 pub mod tags;
-pub mod workspace_scope;
 pub mod workspaces;
