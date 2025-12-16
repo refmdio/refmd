@@ -1,10 +1,9 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use chrono::Utc;
 use dotenvy::dotenv;
-use tokio::time::{Duration, sleep};
-use tracing::{debug, error, info, warn};
+use tokio::time::Duration;
+use tracing::{error, info};
 
 // Allow using the crate name `api::` for intra-crate references.
 use crate as api;
@@ -14,11 +13,9 @@ use api::application::ports::git_rebuild_job_queue::GitRebuildJobQueue;
 use api::application::ports::plugin_asset_store::PluginAssetStore;
 use api::application::ports::plugin_event_publisher::PluginEventPublisher;
 use api::application::ports::plugin_event_subscriber::PluginEventSubscriber;
-use api::application::ports::plugin_installation_repository::PluginInstallationRepository;
 use api::application::ports::storage_ingest_queue::StorageIngestQueue;
 use api::application::ports::storage_projection_queue::StorageProjectionQueue;
 use api::application::ports::storage_reconcile_jobs::StorageReconcileJobs;
-use api::application::ports::user_session_repository::UserSessionRepository;
 use api::application::services::api_tokens::ApiTokenService;
 use api::application::services::auth::account::AccountService;
 use api::application::services::auth::token_validation::TokenValidationService;
@@ -51,7 +48,6 @@ use api::bootstrap::git::{self, GitStack};
 use api::bootstrap::jobs::{self, Jobs};
 use api::bootstrap::{http, plugins, realtime, telemetry};
 use api::infrastructure::db::PgPool;
-use api::infrastructure::db::advisory_lock::AdvisoryLock;
 use api::infrastructure::documents::doc_event_log::PgDocEventLog;
 use api::infrastructure::documents::event_poller::DocEventPoller;
 use api::infrastructure::documents::exporter::DefaultDocumentExporter;
@@ -62,8 +58,6 @@ use api::infrastructure::storage::{
 };
 use api::presentation::context::{AppContext, AppServices, PresentationConfig};
 
-const SESSION_CLEANUP_INTERVAL_SECS: u64 = 15 * 60;
-const SESSION_CLEANUP_BATCH_SIZE: i64 = 500;
 pub struct AppBuilder {
     cfg: Config,
     spawn_background_tasks: bool,
@@ -165,43 +159,7 @@ impl AppRuntime {
 
         let app = api_router.merge(ws_router);
 
-        // Background snapshots
-        const SNAPSHOT_LOCK_KEY: i64 = i64::from_be_bytes(*b"REFSNAP1");
-
-        if let Some(hub_for_snap) = local_hub.clone() {
-            let cfg_for_snap = cfg.clone();
-            let pool_for_snap = pool.clone();
-            jobs.spawn("snapshot_loop", async move {
-                let interval = Duration::from_secs(cfg_for_snap.snapshot_interval_secs);
-                loop {
-                    match AdvisoryLock::try_acquire(&pool_for_snap, SNAPSHOT_LOCK_KEY).await {
-                        Ok(Some(lock)) => {
-                            let snapshot_result = hub_for_snap
-                                .snapshot_all(
-                                    cfg_for_snap.snapshot_keep_versions,
-                                    cfg_for_snap.updates_keep_window,
-                                )
-                                .await;
-
-                            if let Err(e) = lock.release().await {
-                                tracing::error!(error = ?e, "snapshot_lock_release_failed");
-                            }
-
-                            if let Err(e) = snapshot_result {
-                                tracing::error!(error = ?e, "snapshot_loop_failed");
-                            }
-                        }
-                        Ok(None) => {
-                            tracing::debug!("snapshot_loop_skipped_lock_held");
-                        }
-                        Err(e) => {
-                            tracing::error!(error = ?e, "snapshot_lock_error");
-                        }
-                    }
-                    sleep(interval).await;
-                }
-            });
-        }
+        jobs::spawn_snapshot_loop(&mut jobs, true, local_hub.clone(), cfg.clone(), pool.clone());
 
         let server = axum::serve(listener, app).with_graceful_shutdown(jobs::wait_for_shutdown_signal());
         match server.await {
@@ -255,11 +213,12 @@ pub async fn build_runtime(
             batch_size = cfg.storage_monitor_batch_size,
             "storage_consistency_monitor_enabled"
         );
-        if spawn_background_tasks {
-            jobs.spawn("storage_consistency_monitor", async move {
-                monitor.run().await;
-            });
-        }
+        jobs::spawn_storage_consistency_monitor(
+            &mut jobs,
+            true,
+            spawn_background_tasks,
+            monitor,
+        );
     } else {
         tracing::info!("storage_consistency_monitor_disabled");
     }
@@ -291,11 +250,7 @@ pub async fn build_runtime(
             storage_ingest_queue.clone(),
             "fs_watcher",
         ));
-        if spawn_background_tasks {
-            jobs.spawn("fs_ingest_watcher", async move {
-                watcher.run().await;
-            });
-        }
+        jobs::spawn_fs_ingest_watcher(&mut jobs, spawn_background_tasks, watcher);
     }
     {
         let poller = Arc::new(DocEventPoller::new(
@@ -305,11 +260,7 @@ pub async fn build_runtime(
             200,
             "doc_event_poller",
         ));
-        if spawn_background_tasks {
-            jobs.spawn("doc_event_poller", async move {
-                poller.run().await;
-            });
-        }
+        jobs::spawn_doc_event_poller(&mut jobs, spawn_background_tasks, poller);
     }
     let shares_repo_impl = Arc::new(
         api::infrastructure::db::repositories::shares_repository_sqlx::SqlxSharesRepository::new(
@@ -358,24 +309,17 @@ pub async fn build_runtime(
             reconcile_backend.clone(),
             reconcile_ingest_known_paths,
         ));
-        if spawn_background_tasks {
-            jobs.spawn("storage_reconcile_worker", {
-                let svc = reconcile_service.clone();
-                async move {
-                    svc.run().await;
-                }
-            });
-        }
+        jobs::spawn_storage_reconcile_worker(
+            &mut jobs,
+            spawn_background_tasks,
+            reconcile_service.clone(),
+        );
         let scheduler = StorageReconcileScheduler::new(
             storage_reconcile_jobs.clone(),
             workspace_repo.clone(),
             Duration::from_secs(60 * 60),
         );
-        if spawn_background_tasks {
-            jobs.spawn("storage_reconcile_scheduler", async move {
-                scheduler.run().await;
-            });
-        }
+        jobs::spawn_storage_reconcile_scheduler(&mut jobs, spawn_background_tasks, scheduler);
     }
     let tag_repo = Arc::new(
         api::infrastructure::db::repositories::tag_repository_sqlx::SqlxTagRepository::new(
@@ -402,41 +346,13 @@ pub async fn build_runtime(
     )
     .await?;
 
-    if spawn_background_tasks {
-        let repo = user_session_repo.clone();
-        jobs.spawn("session_cleanup", async move {
-            let mut ticker =
-                tokio::time::interval(Duration::from_secs(SESSION_CLEANUP_INTERVAL_SECS));
-            loop {
-                ticker.tick().await;
-                let cutoff = Utc::now();
-                let mut total_removed: u64 = 0;
-                loop {
-                    match repo
-                        .delete_expired(cutoff, SESSION_CLEANUP_BATCH_SIZE)
-                        .await
-                    {
-                        Ok(removed) => {
-                            if removed == 0 {
-                                break;
-                            }
-                            total_removed += removed;
-                            if removed < SESSION_CLEANUP_BATCH_SIZE as u64 {
-                                break;
-                            }
-                        }
-                        Err(err) => {
-                            warn!(error = ?err, "user_session_cleanup_failed");
-                            break;
-                        }
-                    }
-                }
-                if total_removed > 0 {
-                    debug!(removed = total_removed, "user_session_cleanup_deleted");
-                }
-            }
-        });
-    }
+    jobs::spawn_session_cleanup(
+        &mut jobs,
+        spawn_background_tasks,
+        user_session_repo.clone(),
+        jobs::SESSION_CLEANUP_INTERVAL_SECS,
+        jobs::SESSION_CLEANUP_BATCH_SIZE,
+    );
     let user_shortcuts = Arc::new(
         api::infrastructure::db::repositories::user_shortcut_repository_sqlx::SqlxUserShortcutRepository::new(
             pool.clone(),
@@ -474,11 +390,7 @@ pub async fn build_runtime(
             workspace_permissions.clone(),
             recent_projection_cache.clone(),
         ));
-        if spawn_background_tasks {
-            jobs.spawn("storage_projection_worker", async move {
-                worker.run().await;
-            });
-        }
+        jobs::spawn_storage_projection_worker(&mut jobs, spawn_background_tasks, worker);
     }
 
     let GitStack {
@@ -500,17 +412,7 @@ pub async fn build_runtime(
     )
     .await?;
 
-    if let Some(rebuild) = rebuild {
-        if spawn_background_tasks {
-            let svc = rebuild.service.clone();
-            jobs.spawn("git_rebuild_worker", async move {
-                svc.run().await;
-            });
-            jobs.spawn("git_rebuild_scheduler", async move {
-                rebuild.scheduler.run().await;
-            });
-        }
-    }
+    jobs::spawn_git_rebuild_jobs(&mut jobs, spawn_background_tasks, rebuild);
     let plugin_repo = Arc::new(
         api::infrastructure::db::repositories::plugin_repository_sqlx::SqlxPluginRepository::new(
             pool.clone(),
@@ -555,35 +457,7 @@ pub async fn build_runtime(
 
         let installations = plugin_installations.clone();
         let assets = store.clone();
-        if spawn_background_tasks {
-            jobs.spawn("plugin_prefetch", async move {
-                match installations.list_all().await {
-                    Ok(installs) => {
-                        for inst in installs.into_iter().filter(|i| i.status == "enabled") {
-                            if let Err(err) = assets
-                                .load_user_manifest(
-                                    &inst.workspace_id,
-                                    &inst.plugin_id,
-                                    &inst.version,
-                                )
-                                .await
-                            {
-                                tracing::warn!(
-                                    error = ?err,
-                                    workspace_id = %inst.workspace_id,
-                                    plugin = inst.plugin_id.as_str(),
-                                    version = inst.version.as_str(),
-                                    "prefetch_user_plugin_failed"
-                                );
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        tracing::warn!(error = ?err, "list_all_plugin_installations_failed");
-                    }
-                }
-            });
-        }
+        jobs::spawn_plugin_prefetch(&mut jobs, spawn_background_tasks, installations, assets);
     }
     let plugin_event_publisher: Arc<dyn PluginEventPublisher> = plugin_event_bus.clone();
     let plugin_event_subscriber: Arc<dyn PluginEventSubscriber> = plugin_event_bus.clone();
@@ -621,11 +495,7 @@ pub async fn build_runtime(
             handler,
             metrics.clone(),
         ));
-        if spawn_background_tasks {
-            jobs.spawn("storage_ingest_worker", async move {
-                worker.run().await;
-            });
-        }
+        jobs::spawn_storage_ingest_worker(&mut jobs, spawn_background_tasks, worker);
     }
     let file_service = Arc::new(FileService::new(
         files_repo.clone(),
