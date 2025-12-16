@@ -40,7 +40,7 @@ RUN useradd -m -u 10001 appuser \
     && mkdir -p /data/uploads \
     && chown -R appuser:appuser /app /data
 
-COPY docker/entrypoint.sh /entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 USER root

@@ -1,4 +1,4 @@
-use api::presentation::{
+use presentation::{
     http::{
         api_tokens, auth, documents, files, git, health, markdown, plugins, public, shares,
         shortcuts, tags, workspaces,
@@ -197,9 +197,9 @@ use utoipa::OpenApi;
         git::GitChangesResponse,
         git::GitCommitItem,
         git::GitHistoryResponse,
-        api::application::dto::diff::TextDiffLineType,
-        api::application::dto::diff::TextDiffLine,
-        api::application::dto::diff::TextDiffResult,
+        application::contracts::diff::TextDiffLineType,
+        application::contracts::diff::TextDiffLine,
+        application::contracts::diff::TextDiffResult,
         git::AddPatternsRequest,
         git::CheckIgnoredRequest,
         markdown::RenderOptionsPayload,

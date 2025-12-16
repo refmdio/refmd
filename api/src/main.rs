@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use api::bootstrap::app;
+use bootstrap::app;
 
 #[tokio::main]
 async fn main() -> Result<()> {

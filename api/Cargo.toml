@@ -3,6 +3,15 @@ name = "api"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    "crates/domain",
+    "crates/application",
+    "crates/presentation",
+    "crates/infrastructure",
+    "crates/bootstrap",
+]
+
 [dependencies]
 axum = { version = "0.7", features = ["macros", "json", "multipart", "ws"] }
 tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "signal", "process"] }
@@ -65,3 +74,8 @@ semver = "1"
 pandoc = "0.8"
 notify = "6"
 clap = { version = "4.5", features = ["derive"] }
+domain = { path = "crates/domain" }
+application = { path = "crates/application", features = ["openapi"] }
+presentation = { path = "crates/presentation" }
+infrastructure = { path = "crates/infrastructure" }
+bootstrap = { path = "crates/bootstrap" }

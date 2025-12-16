@@ -1,0 +1,30 @@
+[package]
+name = "bootstrap"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { path = "../application", features = ["openapi"] }
+domain = { path = "../domain" }
+infrastructure = { path = "../infrastructure" }
+presentation = { path = "../presentation" }
+
+anyhow = "1"
+axum = { version = "0.7", features = ["macros", "json", "multipart", "ws"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+dotenvy = "0.15"
+futures-util = { version = "0.3", features = ["sink"] }
+http = "1"
+once_cell = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "macros"] }
+tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "signal", "process"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+uuid = { version = "1", features = ["v4", "serde"] }

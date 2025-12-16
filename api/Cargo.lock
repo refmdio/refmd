@@ -159,6 +159,7 @@ dependencies = [
  "aes-gcm",
  "ammonia",
  "anyhow",
+ "application",
  "argon2",
  "async-lock",
  "async-trait",
@@ -166,9 +167,11 @@ dependencies = [
  "aws-sdk-s3",
  "axum",
  "base64 0.21.7",
+ "bootstrap",
  "chrono",
  "clap",
  "comrak",
+ "domain",
  "dotenvy",
  "extism",
  "futures-core",
@@ -178,12 +181,14 @@ dependencies = [
  "hmac",
  "htmlescape",
  "http 1.3.1",
+ "infrastructure",
  "jsonwebtoken",
  "mime_guess",
  "notify",
  "once_cell",
  "pandoc",
  "password-hash 0.5.0",
+ "presentation",
  "rand 0.8.5",
  "redis",
  "regex",
@@ -211,6 +216,50 @@ dependencies = [
  "walkdir",
  "yrs",
  "yrs-warp",
+ "zip 0.6.6",
+]
+
+[[package]]
+name = "application"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "base64 0.21.7",
+ "chrono",
+ "comrak",
+ "domain",
+ "futures-core",
+ "futures-util",
+ "hex",
+ "hmac",
+ "htmlescape",
+ "http 1.3.1",
+ "jsonwebtoken",
+ "mime_guess",
+ "once_cell",
+ "password-hash 0.5.0",
+ "rand 0.8.5",
+ "regex",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "similar",
+ "sqlx",
+ "syntect",
+ "syntect-assets",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "urlencoding",
+ "utoipa",
+ "uuid",
+ "yrs",
  "zip 0.6.6",
 ]
 
@@ -919,6 +968,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "bootstrap"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "application",
+ "axum",
+ "chrono",
+ "domain",
+ "dotenvy",
+ "futures-util",
+ "http 1.3.1",
+ "infrastructure",
+ "once_cell",
+ "presentation",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "tokio",
+ "tokio-stream",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+ "utoipa-swagger-ui",
+ "uuid",
 ]
 
 [[package]]
@@ -1756,6 +1834,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
+]
+
+[[package]]
+name = "domain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "uuid",
 ]
 
 [[package]]
@@ -2826,6 +2913,57 @@ dependencies = [
  "equivalent",
  "hashbrown 0.15.5",
  "serde",
+]
+
+[[package]]
+name = "infrastructure"
+version = "0.1.0"
+dependencies = [
+ "aead",
+ "aes-gcm",
+ "anyhow",
+ "application",
+ "argon2",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "base64 0.21.7",
+ "chrono",
+ "domain",
+ "dotenvy",
+ "extism",
+ "futures-core",
+ "futures-util",
+ "git2",
+ "hex",
+ "hmac",
+ "http 1.3.1",
+ "jsonwebtoken",
+ "mime_guess",
+ "notify",
+ "once_cell",
+ "pandoc",
+ "password-hash 0.5.0",
+ "rand 0.8.5",
+ "redis",
+ "regex",
+ "reqwest 0.11.27",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "walkdir",
+ "yrs",
+ "yrs-warp",
+ "zip 0.6.6",
 ]
 
 [[package]]
@@ -3920,6 +4058,28 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+
+[[package]]
+name = "presentation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "application",
+ "axum",
+ "chrono",
+ "domain",
+ "futures-util",
+ "http 1.3.1",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "utoipa",
+ "uuid",
+ "yrs",
+ "yrs-warp",
+]
 
 [[package]]
 name = "prettyplease"
