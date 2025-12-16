@@ -6,6 +6,7 @@ use crate::domain::documents::document::Document as DomainDocument;
 use crate::domain::documents::document::{
     BacklinkInfo as DomBacklinkInfo, OutgoingLink as DomOutgoingLink, SearchHit,
 };
+pub use crate::domain::documents::meta::DocMeta;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocumentPathConflictError;
@@ -187,17 +188,6 @@ pub trait DocumentRepository: Send + Sync {
         workspace_id: Uuid,
         relative_path: &str,
     ) -> anyhow::Result<()>;
-}
-
-#[derive(Debug, Clone)]
-pub struct DocMeta {
-    pub workspace_id: Uuid,
-    pub doc_type: String,
-    pub path: Option<String>,
-    pub slug: String,
-    pub desired_path: String,
-    pub title: String,
-    pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone)]

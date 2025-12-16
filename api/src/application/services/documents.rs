@@ -53,10 +53,11 @@ use crate::domain::documents::document::{
     BacklinkInfo as DomainBacklink, Document as DomainDocument, OutgoingLink as DomainOutgoingLink,
     SearchHit,
 };
-use crate::domain::workspaces::permissions::{
-    PERM_DOC_ARCHIVE, PERM_DOC_CREATE, PERM_DOC_DELETE, PERM_DOC_EDIT, PERM_DOC_MOVE,
-    PERM_FOLDER_CREATE, PERM_FOLDER_DELETE, PermissionSet,
-};
+use crate::domain::documents::{delete_plan, hierarchy, path as doc_path, policy as doc_policy};
+use crate::domain::documents::permissions as doc_permissions;
+use crate::domain::documents::policy::{DocumentPolicyError, DocumentState};
+use crate::domain::documents::title;
+use crate::domain::workspaces::permissions::PermissionSet;
 use serde_json::json;
 
 pub struct DocumentService {
@@ -132,7 +133,8 @@ impl DocumentService {
         doc_type: &str,
         created_by_plugin: Option<&str>,
     ) -> Result<DomainDocument, ServiceError> {
-        ensure_can_create(permissions, doc_type)?;
+        doc_permissions::ensure_can_create(permissions, doc_type)
+            .map_err(|_| ServiceError::Forbidden)?;
         if let Some(parent_id) = parent_id {
             self.ensure_active_parent(workspace_id, parent_id).await?;
         }
@@ -232,7 +234,7 @@ impl DocumentService {
             .unwrap_or_default();
 
         let attachments = self.snapshot_attachments(source.id).await?;
-        let new_title = duplicate_title(&source.title, title);
+        let new_title = title::duplicate_title(&source.title, title);
         let new_doc = self
             .create_for_user(
                 workspace_id,
@@ -324,7 +326,8 @@ impl DocumentService {
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
         if enforce_permissions {
-            ensure_can_delete(permissions, &root_meta.doc_type)?;
+            doc_permissions::ensure_can_delete(permissions, &root_meta.doc_type)
+                .map_err(|_| ServiceError::Forbidden)?;
         }
         let delete_plan = self
             .build_delete_plan(&mut tx, doc_id, workspace_id, root_meta.clone())
@@ -550,21 +553,20 @@ impl DocumentService {
         parent_id: Option<Option<Uuid>>,
     ) -> Result<DomainDocument, ServiceError> {
         let meta = self.load_owner_meta(workspace_id, doc_id).await?;
-        if meta.archived_at.is_some() {
-            return Err(ServiceError::Conflict);
-        }
+        let state = DocumentState::new(&meta.doc_type, meta.archived_at);
         let rename_requested = title.is_some();
         let move_requested = parent_id.is_some();
         if rename_requested {
-            ensure_can_edit(permissions, &meta.doc_type)?;
+            doc_policy::ensure_editable(state, permissions).map_err(map_policy_error)?;
         }
         if move_requested {
-            ensure_can_move(permissions, &meta.doc_type)?;
+            doc_policy::ensure_movable(state, permissions).map_err(map_policy_error)?;
         }
         if let Some(Some(parent)) = parent_id {
             self.ensure_active_parent(workspace_id, parent).await?;
         }
-        let previous_repo_path = workspace_repo_relative(workspace_id, meta.path.as_deref());
+        let previous_repo_path =
+            doc_path::workspace_repo_relative(workspace_id, meta.path.as_deref());
         let uc = UpdateDocument {
             repo: self.document_repo.as_ref(),
         };
@@ -621,11 +623,10 @@ impl DocumentService {
         permissions: &PermissionSet,
     ) -> Result<DomainDocument, ServiceError> {
         let meta = self.load_owner_meta(workspace_id, doc_id).await?;
-        if meta.archived_at.is_some() {
-            return Err(ServiceError::Conflict);
-        }
-        ensure_can_archive(permissions, &meta.doc_type)?;
-        let previous_repo_path = workspace_repo_relative(workspace_id, meta.path.as_deref());
+        let state = DocumentState::new(&meta.doc_type, meta.archived_at);
+        doc_policy::ensure_archivable(state, permissions).map_err(map_policy_error)?;
+        let previous_repo_path =
+            doc_path::workspace_repo_relative(workspace_id, meta.path.as_deref());
         let uc = ArchiveDocument {
             repo: self.document_repo.as_ref(),
             realtime: self.realtime.as_ref(),
@@ -668,11 +669,10 @@ impl DocumentService {
         permissions: &PermissionSet,
     ) -> Result<DomainDocument, ServiceError> {
         let meta = self.load_owner_meta(workspace_id, doc_id).await?;
-        if meta.archived_at.is_none() {
-            return Err(ServiceError::Conflict);
-        }
-        ensure_can_archive(permissions, &meta.doc_type)?;
-        let previous_repo_path = workspace_repo_relative(workspace_id, meta.path.as_deref());
+        let state = DocumentState::new(&meta.doc_type, meta.archived_at);
+        doc_policy::ensure_unarchivable(state, permissions).map_err(map_policy_error)?;
+        let previous_repo_path =
+            doc_path::workspace_repo_relative(workspace_id, meta.path.as_deref());
         let uc = UnarchiveDocument {
             repo: self.document_repo.as_ref(),
             realtime: self.realtime.as_ref(),
@@ -965,7 +965,7 @@ impl DocumentService {
                 .await
                 .map_err(ServiceError::from)?;
             if let Some(repo_path) =
-                repo_relative_from_storage(target_doc.workspace_id, &storage_path)
+                doc_path::repo_relative_from_storage(target_doc.workspace_id, &storage_path)
             {
                 let payload = json!({
                     "repo_path": repo_path,
@@ -993,21 +993,15 @@ impl DocumentService {
         workspace_id: Uuid,
         parent_id: Uuid,
     ) -> Result<(), ServiceError> {
-        match self
+        let meta = self
             .document_repo
             .get_meta_for_owner(parent_id, workspace_id)
             .await
-            .map_err(ServiceError::from)?
-        {
-            Some(meta) => {
-                if meta.archived_at.is_some() {
-                    Err(ServiceError::Conflict)
-                } else {
-                    Ok(())
-                }
-            }
-            None => Err(ServiceError::NotFound),
-        }
+            .map_err(ServiceError::from)?;
+        hierarchy::ensure_active_parent(meta.map(|m| hierarchy::ParentMeta {
+            archived_at: m.archived_at,
+        }))
+        .map_err(map_parent_error)
     }
 
     async fn load_owner_meta(
@@ -1191,28 +1185,14 @@ impl DocumentService {
         doc_id: Uuid,
         workspace_id: Uuid,
         root_meta: DocMeta,
-    ) -> Result<Vec<PendingDelete>, ServiceError> {
-        if root_meta.doc_type != "folder" {
-            let attachments = self
-                .files_repo
-                .list_storage_paths_for_document_tx(tx, doc_id)
-                .await
-                .map_err(ServiceError::from)?;
-            return Ok(vec![PendingDelete {
-                doc_id,
-                doc_type: root_meta.doc_type.clone(),
-                meta: root_meta,
-                attachments,
-                reason: "delete_document",
-            }]);
-        }
-
+    ) -> Result<Vec<delete_plan::DeleteEntry>, ServiceError> {
         let subtree = self
             .document_repo
             .list_owned_subtree_documents_tx(tx, workspace_id, doc_id)
             .await
             .map_err(ServiceError::from)?;
-        let mut entries = Vec::new();
+
+        let mut nodes = Vec::new();
         for node in subtree {
             let meta = if node.id == doc_id {
                 root_meta.clone()
@@ -1231,28 +1211,18 @@ impl DocumentService {
             } else {
                 Vec::new()
             };
-            let reason = if node.id == doc_id {
-                "delete_folder"
-            } else if node.doc_type == "folder" {
-                "delete_folder_descendant"
-            } else {
-                "delete_document_descendant"
-            };
-            entries.push(PendingDelete {
-                doc_id: node.id,
+            nodes.push(delete_plan::DeleteNode {
+                id: node.id,
                 doc_type: node.doc_type,
                 meta,
                 attachments,
-                reason,
             });
         }
-        entries.sort_by(|a, b| {
-            let depth_a = path_depth(&a.meta.desired_path);
-            let depth_b = path_depth(&b.meta.desired_path);
-            depth_b
-                .cmp(&depth_a)
-                .then_with(|| is_folder(&a.doc_type).cmp(&is_folder(&b.doc_type)))
-        });
+
+        let entries = delete_plan::build_delete_plan(doc_id, root_meta, nodes).map_err(|err| {
+            error!(error = ?err, "build_delete_entries_failed");
+            ServiceError::Unexpected(err.into())
+        })?;
         Ok(entries)
     }
 
@@ -1260,11 +1230,12 @@ impl DocumentService {
         &self,
         tx: &mut Transaction<'_, Postgres>,
         workspace_id: Uuid,
-        entry: &PendingDelete,
+        entry: &delete_plan::DeleteEntry,
         permission_snapshot: &[String],
         actor_id: Option<Uuid>,
     ) -> Result<(), ServiceError> {
-        let repo_path = entry.repo_path(workspace_id);
+        let repo_path = doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref())
+            .unwrap_or_else(|| entry.meta.desired_path.clone());
         let metadata = StorageDeleteJobMetadata {
             workspace_id,
             repo_path: Some(repo_path),
@@ -1295,11 +1266,13 @@ impl DocumentService {
     async fn record_delete_event(
         &self,
         workspace_id: Uuid,
-        entry: &PendingDelete,
+        entry: &delete_plan::DeleteEntry,
         actor_id: Option<Uuid>,
     ) {
-        let repo_path = entry.repo_path(workspace_id);
-        let previous_repo_path = workspace_repo_relative(workspace_id, entry.meta.path.as_deref());
+        let repo_path = doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref())
+            .unwrap_or_else(|| entry.meta.desired_path.clone());
+        let previous_repo_path =
+            doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref());
         let mut payload = json!({
             "doc_type": entry.doc_type,
             "repo_path": repo_path,
@@ -1325,19 +1298,9 @@ impl DocumentService {
 
 #[derive(Debug, Clone)]
 pub enum DocumentPatchOperation {
-    Insert {
-        offset: usize,
-        text: String,
-    },
-    Delete {
-        offset: usize,
-        length: usize,
-    },
-    Replace {
-        offset: usize,
-        length: usize,
-        text: String,
-    },
+    Insert { offset: usize, text: String },
+    Delete { offset: usize, length: usize },
+    Replace { offset: usize, length: usize, text: String },
 }
 
 #[derive(Debug, Clone)]
@@ -1392,46 +1355,8 @@ fn splice_chars(
     Ok(())
 }
 
-fn duplicate_title(source_title: &str, override_title: Option<String>) -> String {
-    if let Some(custom) = override_title {
-        let trimmed = custom.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-    let base = source_title.trim();
-    let fallback = if base.is_empty() { "Untitled" } else { base };
-    format!("{fallback} (Copy)")
-}
-
 fn hash_bytes(bytes: &[u8]) -> String {
     sha256_hex(bytes)
-}
-
-fn path_depth(path: &str) -> usize {
-    path.split('/')
-        .filter(|segment| !segment.is_empty())
-        .count()
-}
-
-fn is_folder(doc_type: &str) -> usize {
-    if doc_type == "folder" { 1 } else { 0 }
-}
-
-#[derive(Clone)]
-struct PendingDelete {
-    doc_id: Uuid,
-    doc_type: String,
-    meta: DocMeta,
-    attachments: Vec<String>,
-    reason: &'static str,
-}
-
-impl PendingDelete {
-    fn repo_path(&self, workspace_id: Uuid) -> String {
-        workspace_repo_relative(workspace_id, self.meta.path.as_deref())
-            .unwrap_or_else(|| self.meta.desired_path.clone())
-    }
 }
 
 fn snapshot_diff_dto_from_result(result: SnapshotDiffResult) -> SnapshotDiffDto {
@@ -1452,91 +1377,28 @@ fn snapshot_diff_side_from_use_case(side: SnapshotDiffSide) -> SnapshotDiffSideD
     }
 }
 
-fn repo_relative_from_storage(workspace_id: Uuid, storage_path: &str) -> Option<String> {
-    let trimmed = storage_path.trim_start_matches('/');
-    let owner_prefix = workspace_id.to_string();
-    let remainder = trimmed
-        .strip_prefix(&owner_prefix)
-        .map(|rest| rest.trim_start_matches('/'))
-        .unwrap_or(trimmed);
-    if remainder.is_empty() {
-        None
-    } else {
-        Some(remainder.to_string())
-    }
-}
-
-fn workspace_repo_relative(workspace_id: Uuid, stored_path: Option<&str>) -> Option<String> {
-    let stored = stored_path?.trim_start_matches('/');
-    if stored.is_empty() {
-        return None;
-    }
-    let owner_prefix = workspace_id.to_string();
-    let repo = if let Some(rest) = stored.strip_prefix(&owner_prefix) {
-        rest.trim_start_matches('/')
-    } else {
-        stored
-    };
-    if repo.is_empty() {
-        None
-    } else {
-        Some(repo.to_string())
-    }
-}
-
-fn ensure_can_create(permissions: &PermissionSet, doc_type: &str) -> Result<(), ServiceError> {
-    ensure_folder_sensitive_permission(
-        permissions,
-        doc_type,
-        PERM_DOC_CREATE,
-        Some(PERM_FOLDER_CREATE),
-    )
-}
-
-fn ensure_can_delete(permissions: &PermissionSet, doc_type: &str) -> Result<(), ServiceError> {
-    ensure_folder_sensitive_permission(
-        permissions,
-        doc_type,
-        PERM_DOC_DELETE,
-        Some(PERM_FOLDER_DELETE),
-    )
-}
-
-fn ensure_can_edit(permissions: &PermissionSet, doc_type: &str) -> Result<(), ServiceError> {
-    ensure_folder_sensitive_permission(permissions, doc_type, PERM_DOC_EDIT, None)
-}
-
-fn ensure_can_move(permissions: &PermissionSet, doc_type: &str) -> Result<(), ServiceError> {
-    ensure_folder_sensitive_permission(permissions, doc_type, PERM_DOC_MOVE, None)
-}
-
-fn ensure_can_archive(permissions: &PermissionSet, doc_type: &str) -> Result<(), ServiceError> {
-    ensure_folder_sensitive_permission(permissions, doc_type, PERM_DOC_ARCHIVE, None)
-}
-
-fn ensure_folder_sensitive_permission(
-    permissions: &PermissionSet,
-    doc_type: &str,
-    doc_permission: &'static str,
-    folder_permission: Option<&'static str>,
-) -> Result<(), ServiceError> {
-    let required = if doc_type == "folder" {
-        folder_permission.unwrap_or(doc_permission)
-    } else {
-        doc_permission
-    };
-    if permissions.allows(required) {
-        Ok(())
-    } else {
-        Err(ServiceError::Forbidden)
-    }
-}
-
 fn to_repo_state(filter: DocumentListFilter) -> DocumentListState {
     match filter {
         DocumentListFilter::Active => DocumentListState::Active,
         DocumentListFilter::Archived => DocumentListState::Archived,
         DocumentListFilter::All => DocumentListState::All,
+    }
+}
+
+fn map_policy_error(err: DocumentPolicyError) -> ServiceError {
+    match err {
+        DocumentPolicyError::Forbidden => ServiceError::Forbidden,
+        DocumentPolicyError::Archived | DocumentPolicyError::NotArchived => ServiceError::Conflict,
+        DocumentPolicyError::FolderNotSupported => {
+            ServiceError::BadRequest("operation_not_supported_for_folder")
+        }
+    }
+}
+
+fn map_parent_error(err: hierarchy::ParentValidationError) -> ServiceError {
+    match err {
+        hierarchy::ParentValidationError::NotFound => ServiceError::NotFound,
+        hierarchy::ParentValidationError::Archived => ServiceError::Conflict,
     }
 }
 

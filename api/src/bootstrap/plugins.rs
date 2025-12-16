@@ -153,8 +153,8 @@ mod tests {
             oidc_oauth: None,
         };
         let limits = build_plugin_execution_limits(&cfg);
-        assert_eq!(limits.timeout(), None);
-        assert_eq!(limits.memory_max_pages(), None);
-        assert_eq!(limits.fuel_limit(), None);
+        assert_eq!(limits.timeout, None);
+        assert_eq!(limits.memory_max_pages, None);
+        assert_eq!(limits.fuel_limit, None);
     }
 }

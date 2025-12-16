@@ -13,6 +13,7 @@ use crate::application::ports::share_access_port::ShareAccessPort;
 use crate::application::ports::storage_port::StorageResolverPort;
 use crate::application::services::errors::ServiceError;
 use crate::application::use_cases::files::upload_file::{UploadFile, UploadedFile};
+use crate::domain::documents::path as doc_path;
 
 pub struct FilePayload {
     pub bytes: Vec<u8>,
@@ -169,7 +170,9 @@ impl FileService {
         doc_id: Uuid,
         file: &UploadedFile,
     ) {
-        let Some(repo_path) = repo_relative_from_storage(workspace_id, &file.storage_path) else {
+        let Some(repo_path) =
+            doc_path::repo_relative_from_storage(workspace_id, &file.storage_path)
+        else {
             return;
         };
         if let Err(err) = self
@@ -196,19 +199,5 @@ impl FileService {
                 "attachment_event_emit_failed"
             );
         }
-    }
-}
-
-fn repo_relative_from_storage(workspace_id: Uuid, storage_path: &str) -> Option<String> {
-    let trimmed = storage_path.trim_start_matches('/');
-    let owner_prefix = workspace_id.to_string();
-    let remainder = trimmed
-        .strip_prefix(&owner_prefix)
-        .map(|rest| rest.trim_start_matches('/'))
-        .unwrap_or(trimmed);
-    if remainder.is_empty() {
-        None
-    } else {
-        Some(remainder.to_string())
     }
 }

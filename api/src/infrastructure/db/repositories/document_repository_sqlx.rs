@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
@@ -13,6 +13,7 @@ use crate::domain::documents::document::{
     BacklinkInfo as DomBacklinkInfo, Document as DomainDocument, OutgoingLink as DomOutgoingLink,
     SearchHit,
 };
+use crate::domain::documents::path as doc_path;
 use crate::infrastructure::db::PgPool;
 
 pub struct SqlxDocumentRepository {
@@ -58,116 +59,12 @@ impl SqlxDocumentRepository {
         }
     }
 
-    fn slugify(title: &str) -> String {
-        let trimmed = title.trim();
-        if trimmed.is_empty() {
-            return "untitled".to_string();
-        }
-
-        let mut slug = String::with_capacity(trimmed.len());
-        let mut last_was_space = false;
-        for ch in trimmed.chars() {
-            if ch.is_control() {
-                continue;
-            }
-            if ch.is_whitespace() {
-                if !last_was_space {
-                    slug.push(' ');
-                    last_was_space = true;
-                }
-                continue;
-            }
-            last_was_space = false;
-            let safe = match ch {
-                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
-                _ => ch,
-            };
-            slug.push(safe);
-        }
-
-        let mut slug = slug
-            .trim_matches(|c: char| matches!(c, ' ' | '-'))
-            .to_string();
-        if slug.is_empty() {
-            slug.push_str("untitled");
-        }
-        if slug.len() > 100 {
-            slug.truncate(100);
-        }
-        slug
-    }
-
-    fn apply_slug_suffix(base: &str, attempt: usize) -> String {
-        if attempt == 0 {
-            base.to_string()
-        } else {
-            format!("{base}-{}", attempt + 1)
-        }
-    }
-
-    async fn build_desired_path(
-        &self,
-        parent_id: Option<Uuid>,
-        slug: &str,
-        doc_type: &str,
-    ) -> anyhow::Result<String> {
-        let prefix = if let Some(pid) = parent_id {
-            let path = sqlx::query_scalar::<_, Option<String>>(
-                "SELECT desired_path FROM documents WHERE id = $1",
-            )
-            .bind(pid)
-            .fetch_optional(&self.pool)
-            .await?
-            .flatten()
-            .ok_or_else(|| anyhow!("parent_document_not_found"))?;
-            if path.is_empty() {
-                String::new()
-            } else {
-                format!("{path}/")
-            }
-        } else {
-            String::new()
-        };
-
-        let desired = if doc_type == "folder" {
-            format!("{prefix}{slug}")
-        } else {
-            format!("{prefix}{slug}.md")
-        };
-        Ok(desired.trim_start_matches('/').to_string())
-    }
-
     fn hash_path(desired_path: &str) -> Vec<u8> {
         Sha256::digest(desired_path.as_bytes()).to_vec()
     }
 
     fn owner_relative_path(owner_id: Uuid, desired_path: &str) -> String {
         format!("{owner_id}/{}", desired_path.trim_start_matches('/'))
-    }
-
-    fn parent_desired_path(desired_path: &str) -> Option<String> {
-        let mut parts = desired_path.rsplitn(2, '/');
-        parts.next()?; // skip current file/folder
-        parts.next().map(|parent| parent.to_string())
-    }
-
-    fn slug_from_desired_path(desired_path: &str) -> anyhow::Result<String> {
-        let segment = desired_path
-            .rsplit('/')
-            .next()
-            .ok_or_else(|| anyhow!("invalid_desired_path"))?;
-        let trimmed = segment.trim();
-        if trimmed.is_empty() {
-            bail!("invalid_desired_path_segment");
-        }
-        let slug = trimmed
-            .strip_suffix(".md")
-            .unwrap_or(trimmed)
-            .trim_matches('/');
-        if slug.is_empty() {
-            bail!("invalid_slug_from_path");
-        }
-        Ok(slug.to_string())
     }
 
     async fn resolve_parent_folder_id(
@@ -255,18 +152,18 @@ impl SqlxDocumentRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::SqlxDocumentRepository;
+    use crate::domain::documents::path as doc_path;
 
     #[test]
     fn slug_preserves_unicode_and_case() {
-        assert_eq!(SqlxDocumentRepository::slugify("Main"), "Main");
-        assert_eq!(SqlxDocumentRepository::slugify("Résumé2025"), "Résumé2025");
+        assert_eq!(doc_path::slugify("Main"), "Main");
+        assert_eq!(doc_path::slugify("Résumé2025"), "Résumé2025");
     }
 
     #[test]
     fn slug_sanitizes_forbidden_chars() {
-        assert_eq!(SqlxDocumentRepository::slugify(" Foo / Bar "), "Foo - Bar");
-        assert_eq!(SqlxDocumentRepository::slugify("////"), "untitled");
+        assert_eq!(doc_path::slugify(" Foo / Bar "), "Foo - Bar");
+        assert_eq!(doc_path::slugify("////"), "untitled");
     }
 }
 
@@ -469,11 +366,24 @@ impl DocumentRepository for SqlxDocumentRepository {
         sqlx::query("SAVEPOINT document_create")
             .execute(tx.as_mut())
             .await?;
-        let base_slug = Self::slugify(title);
+        let base_slug = doc_path::slugify(title);
         let mut attempt = 0usize;
         loop {
-            let slug = Self::apply_slug_suffix(&base_slug, attempt);
-            let desired_path = self.build_desired_path(parent_id, &slug, doc_type).await?;
+            let slug = doc_path::apply_slug_suffix(&base_slug, attempt);
+            let parent_path = if let Some(pid) = parent_id {
+                let path = sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT desired_path FROM documents WHERE id = $1",
+                )
+                .bind(pid)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten()
+                .ok_or_else(|| anyhow!("parent_document_not_found"))?;
+                Some(path)
+            } else {
+                None
+            };
+            let desired_path = doc_path::build_desired_path(parent_path.as_deref(), &slug, doc_type);
             let repo_path = Self::owner_relative_path(workspace_id, &desired_path);
             let path_digest = Self::hash_path(&desired_path);
             let row = sqlx::query(
@@ -567,7 +477,7 @@ impl DocumentRepository for SqlxDocumentRepository {
         };
         let doc_type: String = current.get("type");
         let base_slug = if title.is_some() {
-            Self::slugify(&next_title)
+            doc_path::slugify(&next_title)
         } else {
             current.get("slug")
         };
@@ -577,10 +487,21 @@ impl DocumentRepository for SqlxDocumentRepository {
             .await?;
         let mut attempt = 0usize;
         loop {
-            let slug = Self::apply_slug_suffix(&base_slug, attempt);
-            let desired_path = self
-                .build_desired_path(next_parent, &slug, &doc_type)
-                .await?;
+            let slug = doc_path::apply_slug_suffix(&base_slug, attempt);
+            let parent_path = if let Some(pid) = next_parent {
+                let path = sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT desired_path FROM documents WHERE id = $1",
+                )
+                .bind(pid)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten()
+                .ok_or_else(|| anyhow!("parent_document_not_found"))?;
+                Some(path)
+            } else {
+                None
+            };
+            let desired_path = doc_path::build_desired_path(parent_path.as_deref(), &slug, &doc_type);
             let path_digest = Self::hash_path(&desired_path);
             let row = sqlx::query(
                 r#"UPDATE documents SET
@@ -1030,8 +951,8 @@ impl DocumentRepository for SqlxDocumentRepository {
         if desired_path.is_empty() {
             return Err(anyhow!("invalid_relative_path"));
         }
-        let slug = Self::slug_from_desired_path(&desired_path)?;
-        let parent_path = Self::parent_desired_path(&desired_path);
+        let slug = doc_path::slug_from_desired_path(&desired_path)?;
+        let parent_path = doc_path::parent_desired_path(&desired_path);
         let parent_id = self
             .resolve_parent_folder_id(workspace_id, parent_path.as_deref())
             .await?;
