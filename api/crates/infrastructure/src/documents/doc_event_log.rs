@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use uuid::Uuid;
 
-use application::ports::doc_event_log::DocEventLog;
-use crate::db::PgPool;
+use application::documents::ports::doc_event_log::DocEventLog;
+use crate::core::db::PgPool;
 
 pub struct PgDocEventLog {
     pool: PgPool,

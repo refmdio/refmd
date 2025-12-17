@@ -9,7 +9,7 @@ use domain::workspaces::permissions::{
     PERM_MEMBER_INVITE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW,
 };
 use crate::context::AppContext;
-use crate::http::auth::Bearer;
+use crate::security::token::{self, Bearer};
 
 use super::types::{
     CreateWorkspaceRoleRequest, UpdateWorkspaceRoleRequest, WorkspaceRoleResponse,
@@ -29,8 +29,9 @@ pub async fn list_roles(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<WorkspaceRoleResponse>>, StatusCode> {
-    let sub = crate::http::auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     require_any_permission(
         &ctx,
         id,
@@ -71,8 +72,9 @@ pub async fn create_role(
         return Err(StatusCode::BAD_REQUEST);
     }
     let overrides = normalize_overrides(body.overrides)?;
-    let sub = crate::http::auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     require_permission(&ctx, id, user_id, PERM_MEMBER_UPDATE_ROLE).await?;
     let record = ctx
         .workspace_service()
@@ -118,8 +120,9 @@ pub async fn update_role(
     } else {
         None
     };
-    let sub = crate::http::auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_UPDATE_ROLE).await?;
     let mut record = ctx
         .workspace_service()
@@ -156,8 +159,9 @@ pub async fn delete_role(
     bearer: Bearer,
     Path((workspace_id, role_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = crate::http::auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_UPDATE_ROLE).await?;
     ctx.workspace_service()
         .delete_role(workspace_id, role_id)

@@ -12,8 +12,8 @@ use tokio::task;
 use zip::write::FileOptions;
 use zip::{self, CompressionMethod};
 
-use application::contracts::document_export::{DocumentDownload, DocumentDownloadFormat};
-use application::ports::document_exporter::{
+use application::documents::dtos::{DocumentDownload, DocumentDownloadFormat};
+use application::documents::ports::document_exporter::{
     DocumentExportAssets, DocumentExportAttachment, DocumentExporter,
 };
 

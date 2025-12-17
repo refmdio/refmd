@@ -5,7 +5,7 @@ use axum::{
 };
 
 use crate::context::AppContext;
-use crate::http::auth::Bearer;
+use crate::http::identity::auth::Bearer;
 
 use super::types::ManifestItem;
 use super::util::resolve_plugin_user_context;

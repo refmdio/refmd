@@ -12,23 +12,23 @@ use presentation::context::AppContext;
 #[derive(OpenApi)]
 #[openapi(
         paths(
-            presentation::http::auth::register,
-            presentation::http::auth::login,
-            presentation::http::auth::oauth_state,
-            presentation::http::auth::oauth_login,
-            presentation::http::auth::list_oauth_providers,
-            presentation::http::auth::refresh_session,
-            presentation::http::auth::logout,
-            presentation::http::auth::me,
-            presentation::http::auth::list_sessions,
-            presentation::http::auth::revoke_session,
-            presentation::http::api_tokens::list_api_tokens,
-            presentation::http::api_tokens::create_api_token,
-            presentation::http::api_tokens::revoke_api_token,
-            presentation::http::shortcuts::get_user_shortcuts,
-            presentation::http::shortcuts::update_user_shortcuts,
-            presentation::http::tags::list_tags,
-            presentation::ws::axum_ws_entry,
+            presentation::http::identity::auth::register,
+            presentation::http::identity::auth::login,
+            presentation::http::identity::auth::oauth_state,
+            presentation::http::identity::auth::oauth_login,
+            presentation::http::identity::auth::list_oauth_providers,
+            presentation::http::identity::auth::refresh_session,
+            presentation::http::identity::auth::logout,
+            presentation::http::identity::auth::me,
+            presentation::http::identity::auth::list_sessions,
+            presentation::http::identity::auth::revoke_session,
+            presentation::http::identity::api_tokens::list_api_tokens,
+            presentation::http::identity::api_tokens::create_api_token,
+            presentation::http::identity::api_tokens::revoke_api_token,
+            presentation::http::identity::shortcuts::get_user_shortcuts,
+            presentation::http::identity::shortcuts::update_user_shortcuts,
+            presentation::http::documents::tagging::list_tags,
+            presentation::ws::documents::yjs::axum_ws_entry,
             presentation::http::documents::list_documents,
             presentation::http::documents::create_document,
             presentation::http::documents::get_document,
@@ -44,26 +44,26 @@ use presentation::context::AppContext;
             presentation::http::documents::search_documents,
             presentation::http::documents::get_backlinks,
             presentation::http::documents::get_outgoing_links,
-            presentation::http::files::upload_file,
-            presentation::http::files::get_file,
-            presentation::http::files::get_file_by_name,
-            presentation::http::shares::create_share,
-            presentation::http::shares::delete_share,
-            presentation::http::shares::list_document_shares,
-            presentation::http::shares::validate_share_token,
-            presentation::http::shares::browse_share,
-            presentation::http::shares::list_active_shares,
-            presentation::http::shares::create_share_mount,
-            presentation::http::shares::list_share_mounts,
-            presentation::http::shares::delete_share_mount,
-            presentation::http::shares::list_applicable_shares,
-            presentation::http::shares::materialize_folder_share,
-            presentation::http::public::publish_document,
-            presentation::http::public::unpublish_document,
-            presentation::http::public::get_publish_status,
-            presentation::http::public::list_workspace_public_documents,
-            presentation::http::public::get_public_by_workspace_and_id,
-            presentation::http::public::get_public_content_by_workspace_and_id,
+            presentation::http::documents::files::upload_file,
+            presentation::http::documents::files::get_file,
+            presentation::http::documents::files::get_file_by_name,
+            presentation::http::documents::sharing::create_share,
+            presentation::http::documents::sharing::delete_share,
+            presentation::http::documents::sharing::list_document_shares,
+            presentation::http::documents::sharing::validate_share_token,
+            presentation::http::documents::sharing::browse_share,
+            presentation::http::documents::sharing::list_active_shares,
+            presentation::http::documents::sharing::create_share_mount,
+            presentation::http::documents::sharing::list_share_mounts,
+            presentation::http::documents::sharing::delete_share_mount,
+            presentation::http::documents::sharing::list_applicable_shares,
+            presentation::http::documents::sharing::materialize_folder_share,
+            presentation::http::documents::publishing::publish_document,
+            presentation::http::documents::publishing::unpublish_document,
+            presentation::http::documents::publishing::get_publish_status,
+            presentation::http::documents::publishing::list_workspace_public_documents,
+            presentation::http::documents::publishing::get_public_by_workspace_and_id,
+            presentation::http::documents::publishing::get_public_content_by_workspace_and_id,
             presentation::http::git::get_config,
             presentation::http::git::create_or_update_config,
             presentation::http::git::delete_config,
@@ -85,9 +85,9 @@ use presentation::context::AppContext;
             presentation::http::git::get_gitignore_patterns,
             presentation::http::git::add_gitignore_patterns,
             presentation::http::git::check_path_ignored,
-            presentation::http::storage_ingest::enqueue_ingest_events,
-            presentation::http::markdown::render_markdown,
-            presentation::http::markdown::render_markdown_many,
+            presentation::http::core::storage_ingest::enqueue_ingest_events,
+            presentation::http::core::markdown::render_markdown,
+            presentation::http::core::markdown::render_markdown_many,
             presentation::http::workspaces::list_workspaces,
             presentation::http::workspaces::create_workspace,
             presentation::http::workspaces::switch_workspace,
@@ -113,20 +113,20 @@ use presentation::context::AppContext;
             presentation::http::plugins::install_from_url,
             presentation::http::plugins::uninstall,
             presentation::http::plugins::sse_updates,
-            presentation::http::health::health,
+            presentation::http::core::health::health,
         ),
         components(schemas(
-            presentation::http::auth::RegisterRequest,
-            presentation::http::auth::LoginRequest,
-            presentation::http::auth::LoginResponse,
-            presentation::http::auth::OAuthLoginRequest,
-            presentation::http::auth::OAuthStateResponse,
-            presentation::http::auth::UserResponse,
-            presentation::http::auth::WorkspaceMembershipResponse,
-            presentation::http::api_tokens::ApiTokenItem,
-            presentation::http::api_tokens::ApiTokenCreateRequest,
-            presentation::http::api_tokens::ApiTokenCreateResponse,
-            presentation::http::tags::TagItem,
+            presentation::http::identity::auth::RegisterRequest,
+            presentation::http::identity::auth::LoginRequest,
+            presentation::http::identity::auth::LoginResponse,
+            presentation::http::identity::auth::OAuthLoginRequest,
+            presentation::http::identity::auth::OAuthStateResponse,
+            presentation::http::identity::auth::UserResponse,
+            presentation::http::identity::auth::WorkspaceMembershipResponse,
+            presentation::http::identity::api_tokens::ApiTokenItem,
+            presentation::http::identity::api_tokens::ApiTokenCreateRequest,
+            presentation::http::identity::api_tokens::ApiTokenCreateResponse,
+            presentation::http::documents::tagging::TagItem,
             presentation::http::documents::Document,
             presentation::http::documents::DocumentListResponse,
             presentation::http::documents::CreateDocumentRequest,
@@ -137,21 +137,21 @@ use presentation::context::AppContext;
             presentation::http::documents::OutgoingLink,
             presentation::http::documents::OutgoingLinksResponse,
             presentation::http::documents::SearchResult,
-            presentation::http::files::UploadFileResponse,
-            presentation::http::files::UploadFileMultipart,
-            presentation::http::shares::CreateShareRequest,
-            presentation::http::shares::CreateShareResponse,
-            presentation::http::shares::CreateShareMountRequest,
-            presentation::http::shares::ShareItem,
-            presentation::http::shares::ShareDocumentResponse,
-            presentation::http::shares::ShareBrowseTreeItem,
-            presentation::http::shares::ShareBrowseResponse,
-            presentation::http::shares::ApplicableShareItem,
-            presentation::http::shares::ActiveShareItem,
-            presentation::http::shares::ShareMountItem,
-            presentation::http::shares::MaterializeResponse,
-            presentation::http::public::PublishResponse,
-            presentation::http::public::PublicDocumentSummary,
+            presentation::http::documents::files::UploadFileResponse,
+            presentation::http::documents::files::UploadFileMultipart,
+            presentation::http::documents::sharing::CreateShareRequest,
+            presentation::http::documents::sharing::CreateShareResponse,
+            presentation::http::documents::sharing::CreateShareMountRequest,
+            presentation::http::documents::sharing::ShareItem,
+            presentation::http::documents::sharing::ShareDocumentResponse,
+            presentation::http::documents::sharing::ShareBrowseTreeItem,
+            presentation::http::documents::sharing::ShareBrowseResponse,
+            presentation::http::documents::sharing::ApplicableShareItem,
+            presentation::http::documents::sharing::ActiveShareItem,
+            presentation::http::documents::sharing::ShareMountItem,
+            presentation::http::documents::sharing::MaterializeResponse,
+            presentation::http::documents::publishing::PublishResponse,
+            presentation::http::documents::publishing::PublicDocumentSummary,
             presentation::http::git::GitConfigResponse,
             presentation::http::git::CreateGitConfigRequest,
             presentation::http::git::UpdateGitConfigRequest,
@@ -164,11 +164,11 @@ use presentation::context::AppContext;
             presentation::http::git::GitHistoryResponse,
             presentation::http::git::AddPatternsRequest,
             presentation::http::git::CheckIgnoredRequest,
-            application::contracts::diff::TextDiffLineType,
-            application::contracts::diff::TextDiffLine,
-            application::contracts::diff::TextDiffResult,
-            presentation::http::markdown::RenderOptionsPayload,
-            presentation::http::markdown::PlaceholderItemPayload,
+            application::core::dtos::TextDiffLineType,
+            application::core::dtos::TextDiffLine,
+            application::core::dtos::TextDiffResult,
+            presentation::http::core::markdown::RenderOptionsPayload,
+            presentation::http::core::markdown::PlaceholderItemPayload,
             presentation::http::workspaces::WorkspaceResponse,
             presentation::http::workspaces::CreateWorkspaceRequest,
             presentation::http::workspaces::WorkspaceMemberResponse,
@@ -182,10 +182,10 @@ use presentation::context::AppContext;
             presentation::http::workspaces::WorkspaceInvitationResponse,
             presentation::http::workspaces::CreateWorkspaceInvitationRequest,
             presentation::http::workspaces::CreateWorkspaceRequest,
-            presentation::http::markdown::RenderResponseBody,
-            presentation::http::markdown::RenderRequest,
-            presentation::http::markdown::RenderManyRequest,
-            presentation::http::markdown::RenderManyResponse,
+            presentation::http::core::markdown::RenderResponseBody,
+            presentation::http::core::markdown::RenderRequest,
+            presentation::http::core::markdown::RenderManyRequest,
+            presentation::http::core::markdown::RenderManyResponse,
             presentation::http::plugins::ManifestItem,
             presentation::http::plugins::RecordsResponse,
             presentation::http::plugins::CreateRecordBody,
@@ -197,9 +197,9 @@ use presentation::context::AppContext;
             presentation::http::plugins::InstallFromUrlBody,
             presentation::http::plugins::InstallResponse,
             presentation::http::plugins::UninstallBody,
-            presentation::http::health::HealthResp,
-            presentation::http::shortcuts::UserShortcutResponse,
-            presentation::http::shortcuts::UpdateUserShortcutRequest,
+            presentation::http::core::health::HealthResp,
+            presentation::http::identity::shortcuts::UserShortcutResponse,
+            presentation::http::identity::shortcuts::UpdateUserShortcutRequest,
         )),
         tags(
             (name = "Auth", description = "Authentication"),
@@ -225,27 +225,27 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
 
     // Build upload router with state
     let upload_router = Router::new()
-        .route("/*path", get(presentation::http::files::serve_upload))
+        .route("/*path", get(presentation::http::documents::files::serve_upload))
         .with_state(ctx.clone());
 
     // Build API router
     let api_router = Router::new()
-        .nest("/api", presentation::http::health::routes(ctx.clone()))
+        .nest("/api", presentation::http::core::health::routes(ctx.clone()))
         .nest(
             "/api",
             presentation::http::documents::routes(ctx.clone()),
         )
         .nest(
             "/api/auth",
-            presentation::http::auth::routes(ctx.clone()),
+            presentation::http::identity::auth::routes(ctx.clone()),
         )
-        .nest("/api", presentation::http::shares::routes(ctx.clone()))
-        .nest("/api", presentation::http::files::routes(ctx.clone()))
-        .nest("/api", presentation::http::tags::routes(ctx.clone()))
+        .nest("/api", presentation::http::documents::sharing::routes(ctx.clone()))
+        .nest("/api", presentation::http::documents::files::routes(ctx.clone()))
+        .nest("/api", presentation::http::documents::tagging::routes(ctx.clone()))
         .nest("/api", presentation::http::git::routes(ctx.clone()))
         .nest(
             "/api",
-            presentation::http::markdown::routes(ctx.clone()),
+            presentation::http::core::markdown::routes(ctx.clone()),
         )
         .nest(
             "/api",
@@ -253,11 +253,11 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
         )
         .nest(
             "/api",
-            presentation::http::api_tokens::routes(ctx.clone()),
+            presentation::http::identity::api_tokens::routes(ctx.clone()),
         )
         .nest(
             "/api",
-            presentation::http::storage_ingest::routes(ctx.clone()),
+            presentation::http::core::storage_ingest::routes(ctx.clone()),
         )
         .nest(
             "/api",
@@ -265,19 +265,19 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
         )
         .nest(
             "/api",
-            presentation::http::shortcuts::routes(ctx.clone()),
+            presentation::http::identity::shortcuts::routes(ctx.clone()),
         )
         .nest(
             "/api/public",
-            presentation::http::public::routes(ctx.clone()),
+            presentation::http::documents::publishing::routes(ctx.clone()),
         )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn_with_state(
             ctx.clone(),
-            presentation::http::auth::refresh_middleware,
+            presentation::http::identity::auth::refresh_middleware,
         ))
         .layer(middleware::from_fn(
-            presentation::http::auth::request_status::middleware,
+            presentation::http::identity::auth::request_status::middleware,
         ))
         .layer(cors)
         // Global body size limit for uploads (configurable)
@@ -298,7 +298,7 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
     let metrics_router = Router::new()
         .route(
             "/metrics",
-            get(presentation::http::metrics::metrics_handler),
+            get(presentation::http::core::metrics::metrics_handler),
         )
         .with_state(ctx.clone());
     let api_router = api_router.merge(metrics_router);
@@ -310,14 +310,17 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
 
 pub fn build_ws_router(ctx: AppContext) -> Router {
     Router::new()
-        .route("/api/yjs/:id", get(presentation::ws::axum_ws_entry))
+        .route(
+            "/api/yjs/:id",
+            get(presentation::ws::documents::yjs::axum_ws_entry),
+        )
         .with_state(ctx.clone())
         .layer(middleware::from_fn_with_state(
             ctx.clone(),
-            presentation::http::auth::refresh_middleware,
+            presentation::http::identity::auth::refresh_middleware,
         ))
         .layer(middleware::from_fn(
-            presentation::http::auth::request_status::middleware,
+            presentation::http::identity::auth::request_status::middleware,
         ))
 }
 

@@ -4,12 +4,12 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
-use application::contracts::git::GitConfigDto;
-use application::contracts::git::UpsertGitConfigInput;
-use application::services::errors::ServiceError;
+use application::git::dtos::GitConfigDto;
+use application::git::dtos::UpsertGitConfigInput;
+use application::core::services::errors::ServiceError;
 use domain::workspaces::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
 use crate::context::AppContext;
-use crate::http::auth::{Bearer, validate_bearer};
+use crate::security::token::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
 
 use super::types::{
@@ -23,8 +23,9 @@ pub async fn get_config(
     headers: HeaderMap,
 ) -> Result<Json<Option<GitConfigResponse>>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -64,8 +65,9 @@ pub async fn create_or_update_config(
     Json(req): Json<CreateGitConfigRequest>,
 ) -> Result<Json<GitConfigResponse>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -106,8 +108,9 @@ pub async fn delete_config(
     headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

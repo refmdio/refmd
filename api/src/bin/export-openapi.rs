@@ -1,10 +1,8 @@
-use presentation::{
-    http::{
-        api_tokens, auth, documents, files, git, health, markdown, plugins, public, shares,
-        shortcuts, tags, workspaces,
-    },
-    ws,
-};
+use presentation::{http::{documents, git, health, plugins, workspaces}, ws};
+use presentation::http::core::markdown;
+use presentation::http::documents::files;
+use presentation::http::documents::{publishing as public, sharing as shares, tagging as tags};
+use presentation::http::identity::{api_tokens, auth, shortcuts};
 use utoipa::OpenApi;
 
 #[derive(OpenApi)]
@@ -197,9 +195,9 @@ use utoipa::OpenApi;
         git::GitChangesResponse,
         git::GitCommitItem,
         git::GitHistoryResponse,
-        application::contracts::diff::TextDiffLineType,
-        application::contracts::diff::TextDiffLine,
-        application::contracts::diff::TextDiffResult,
+        application::core::dtos::TextDiffLineType,
+        application::core::dtos::TextDiffLine,
+        application::core::dtos::TextDiffResult,
         git::AddPatternsRequest,
         git::CheckIgnoredRequest,
         markdown::RenderOptionsPayload,

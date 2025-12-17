@@ -4,16 +4,16 @@ use anyhow::Context;
 use tracing::info;
 
 
-use application::ports::git_rebuild_job_queue::GitRebuildJobQueue;
-use application::ports::storage_port::StorageResolverPort;
-use application::services::git::GitService;
-use application::services::git_rebuild::GitRebuildService;
-use application::services::git_rebuild_scheduler::GitRebuildScheduler;
-use application::services::metrics::MetricsRegistry;
-use application::services::realtime::snapshot::SnapshotService;
-use application::services::workspaces::WorkspacePermissionResolver;
+use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
+use application::core::ports::storage::storage_port::StorageResolverPort;
+use application::git::services::GitService;
+use application::git::services::rebuild::GitRebuildService;
+use application::git::services::rebuild_scheduler::GitRebuildScheduler;
+use application::core::services::metrics::MetricsRegistry;
+use application::documents::services::realtime::snapshot::SnapshotService;
+use application::workspaces::services::WorkspacePermissionResolver;
 use crate::config::{Config, StorageBackend};
-use infrastructure::db::PgPool;
+use infrastructure::core::db::PgPool;
 use infrastructure::git::PgGitRebuildJobQueue;
 use infrastructure::git::storage::{GitStorageDriverConfig, build_git_storage};
 use infrastructure::git::workspace::GitWorkspaceService;
@@ -26,7 +26,7 @@ pub struct GitRebuildStack {
 pub struct GitStack {
     pub workspace: Arc<GitWorkspaceService>,
     pub service: Arc<GitService>,
-    pub repo: Arc<dyn application::ports::git_repository::GitRepository>,
+    pub repo: Arc<dyn application::git::ports::git_repository::GitRepository>,
     pub rebuild: Option<GitRebuildStack>,
     pub rebuild_jobs: Arc<dyn GitRebuildJobQueue>,
 }
@@ -62,9 +62,9 @@ pub async fn build_git_stack(
     pool: &PgPool,
     storage_resolver: Arc<dyn StorageResolverPort>,
     snapshot_service: Arc<SnapshotService>,
-    realtime_engine: Arc<dyn application::ports::realtime_port::RealtimeEngine>,
-    document_repo: Arc<dyn application::ports::document_repository::DocumentRepository>,
-    files_repo: Arc<dyn application::ports::files_repository::FilesRepository>,
+    realtime_engine: Arc<dyn application::documents::ports::realtime::realtime_port::RealtimeEngine>,
+    document_repo: Arc<dyn application::documents::ports::document_repository::DocumentRepository>,
+    files_repo: Arc<dyn application::documents::ports::files::files_repository::FilesRepository>,
     workspace_permissions: Arc<dyn WorkspacePermissionResolver>,
     metrics: Arc<MetricsRegistry>,
 ) -> anyhow::Result<GitStack> {
@@ -72,19 +72,19 @@ pub async fn build_git_stack(
         Arc::new(PgGitRebuildJobQueue::new(pool.clone()));
 
     let git_repo = Arc::new(
-        infrastructure::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
+        infrastructure::git::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
             pool.clone(),
             cfg.encryption_key.clone(),
         ),
     );
     let git_pull_sessions = Arc::new(
-        infrastructure::db::repositories::git_pull_session_repository_sqlx::GitPullSessionRepositorySqlx::new(
+        infrastructure::git::db::repositories::git_pull_session_repository_sqlx::GitPullSessionRepositorySqlx::new(
             pool.clone(),
         ),
     );
     let git_storage_cfg = git_storage_driver_config(cfg)?;
     let git_storage = build_git_storage(git_storage_cfg).await?;
-    let gitignore_port = Arc::new(infrastructure::storage::gitignore::FsGitignorePort);
+    let gitignore_port = Arc::new(infrastructure::core::storage::gitignore::FsGitignorePort);
     let git_workspace = Arc::new(GitWorkspaceService::new(
         pool.clone(),
         git_storage.clone(),

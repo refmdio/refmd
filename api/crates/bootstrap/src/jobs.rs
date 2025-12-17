@@ -11,19 +11,19 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
 use crate::git::GitRebuildStack;
-use application::ports::plugin_asset_store::PluginAssetStore;
-use infrastructure::db::PgPool;
-use infrastructure::db::advisory_lock::AdvisoryLock;
+use application::plugins::ports::plugin_asset_store::PluginAssetStore;
+use infrastructure::core::db::PgPool;
+use infrastructure::core::db::advisory_lock::AdvisoryLock;
 use infrastructure::documents::event_poller::DocEventPoller;
 use infrastructure::plugins::s3_store::S3BackedPluginStore;
-use infrastructure::realtime::Hub;
-use infrastructure::storage::{
+use infrastructure::documents::realtime::Hub;
+use infrastructure::core::storage::{
     FsIngestWatcher, StorageConsistencyMonitor, StorageIngestWorker, StorageProjectionWorker,
 };
-use application::ports::plugin_installation_repository::PluginInstallationRepository;
-use application::ports::user_session_repository::UserSessionRepository;
-use application::services::storage_reconcile::StorageReconcileService;
-use application::services::storage_reconcile_scheduler::StorageReconcileScheduler;
+use application::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
+use application::identity::ports::user_session_repository::UserSessionRepository;
+use application::core::services::storage::reconcile::StorageReconcileService;
+use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
 
 /// Handle to a background task.
 pub struct JobHandle {

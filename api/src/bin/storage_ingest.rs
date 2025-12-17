@@ -2,11 +2,11 @@ use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
-use application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use application::core::ports::storage::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
 use bootstrap::config::Config;
 use domain::workspaces::permissions::PermissionSet;
-use infrastructure::db;
-use infrastructure::storage::PgStorageIngestQueue;
+use infrastructure::core::db;
+use infrastructure::core::storage::PgStorageIngestQueue;
 
 #[derive(Parser)]
 #[command(about = "Inspect and enqueue storage ingest events", version)]

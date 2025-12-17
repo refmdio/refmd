@@ -4,13 +4,13 @@ use tracing::error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use application::contracts::diff::TextDiffResult;
-use application::contracts::document_export::DocumentDownloadFormat;
-use application::contracts::documents::{
+use application::core::dtos::TextDiffResult;
+use application::documents::dtos::DocumentDownloadFormat;
+use application::documents::dtos::{
     DocumentListFilter, SnapshotDiffBaseMode, SnapshotDiffSideDto, SnapshotSummaryDto,
 };
-use application::services::documents::DocumentPatchOperation;
-use application::services::errors::ServiceError;
+use application::documents::services::DocumentPatchOperation;
+use application::core::services::errors::ServiceError;
 use domain::documents::document as domain;
 
 #[derive(Debug, Serialize, ToSchema)]

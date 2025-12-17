@@ -1,9 +1,9 @@
-use application::contracts::git::UpsertGitConfigInput;
-use application::contracts::git::{
+use application::git::dtos::UpsertGitConfigInput;
+use application::git::dtos::{
     GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitPullConflictItemDto,
     GitPullResolutionDto, GitPullSessionDto, GitStatusDto, GitignoreUpdateDto,
 };
-use application::services::errors::ServiceError;
+use application::core::services::errors::ServiceError;
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -57,8 +57,8 @@ pub struct GitRemoteCheckResponse {
     pub reason: Option<String>,
 }
 
-impl From<application::contracts::git::GitRemoteCheckDto> for GitRemoteCheckResponse {
-    fn from(value: application::contracts::git::GitRemoteCheckDto) -> Self {
+impl From<application::git::dtos::GitRemoteCheckDto> for GitRemoteCheckResponse {
+    fn from(value: application::git::dtos::GitRemoteCheckDto) -> Self {
         Self {
             ok: value.ok,
             message: value.message,

@@ -1,2 +1,1 @@
-mod ws;
-pub use ws::*;
+pub mod documents;

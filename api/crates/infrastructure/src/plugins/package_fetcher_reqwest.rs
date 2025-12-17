@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use application::ports::plugin_package_fetcher::PluginPackageFetcher;
+use application::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
 
 pub struct ReqwestPluginPackageFetcher {
     client: reqwest::Client,

@@ -5,10 +5,10 @@ use axum::{
 };
 use serde_json::json;
 
-use application::access;
+use application::core::services::access;
 use domain::workspaces::permissions::PERM_PLUGIN_RUN;
 use crate::context::AppContext;
-use crate::http::auth::Bearer;
+use crate::http::identity::auth::Bearer;
 
 use super::types::{ExecBody, ExecResultResponse, ensure_valid_plugin_id, extract_doc_id};
 use super::util::{map_plugin_service_error, resolve_plugin_user_context};

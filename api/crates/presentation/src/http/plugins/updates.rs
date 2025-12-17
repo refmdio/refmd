@@ -6,7 +6,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::context::AppContext;
-use crate::http::auth::Bearer;
+use crate::http::identity::auth::Bearer;
 
 #[utoipa::path(
     get,
@@ -18,7 +18,7 @@ pub async fn sse_updates(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, StatusCode> {
-    let sub = crate::http::auth::validate_bearer_public(&ctx, bearer).await?;
+    let sub = crate::http::identity::auth::validate_bearer_public(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     let initial = stream::iter(vec![Ok(Event::default().event("ready").data("{}\n"))]);

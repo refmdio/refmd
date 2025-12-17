@@ -5,9 +5,9 @@ use serde_json::Value;
 use tracing::info;
 use uuid::Uuid;
 
-use application::services::doc_events::{DocEventRecord, DocEventSubscriber};
-use crate::db::PgPool;
-use crate::storage::{mark_dirty_delete_relative, mark_dirty_upsert_relative};
+use application::core::services::doc_events::{DocEventRecord, DocEventSubscriber};
+use crate::core::db::PgPool;
+use crate::core::storage::{mark_dirty_delete_relative, mark_dirty_upsert_relative};
 
 pub struct GitDirtyDocEventSubscriber {
     pool: PgPool,

@@ -15,14 +15,14 @@ use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tokio::{sync::RwLock, task};
 use uuid::Uuid;
 
-use application::contracts::plugins::ExecResult;
-use application::ports::plugin_asset_store::{
+use application::plugins::dtos::ExecResult;
+use application::plugins::ports::plugin_asset_store::{
     PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
 };
-use application::ports::plugin_installer::{
+use application::plugins::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
 };
-use application::ports::plugin_runtime::PluginRuntime;
+use application::plugins::ports::plugin_runtime::PluginRuntime;
 
 static PLUGIN_ID_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[A-Za-z0-9_-]+$").expect("valid regex"));

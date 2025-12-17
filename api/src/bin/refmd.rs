@@ -11,33 +11,33 @@ use password_hash::rand_core::OsRng;
 use sqlx::{Row, types::Json};
 use uuid::Uuid;
 
-use application::ports::api_token_repository::ApiTokenRepository;
-use application::ports::git_rebuild_job_queue::GitRebuildJobQueue;
-use application::ports::git_storage::GitStorage;
-use application::ports::git_workspace::GitWorkspacePort;
-use application::ports::plugin_asset_store::PluginAssetStore;
-use application::ports::shares_repository::SharesRepository;
-use application::ports::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
-use application::ports::storage_projection_queue::StorageProjectionQueue;
-use application::ports::storage_reconcile_jobs::StorageReconcileJobs;
-use application::ports::user_session_repository::UserSessionRepository;
-use application::services::api_tokens::generate_api_token;
-use application::services::workspaces::WorkspaceService;
-use application::use_cases::auth::delete_account::DeleteAccount;
-use application::use_cases::auth::register::{Register, RegisterRequest};
+use application::identity::ports::api_token_repository::ApiTokenRepository;
+use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
+use application::git::ports::git_storage::GitStorage;
+use application::git::ports::git_workspace::GitWorkspacePort;
+use application::plugins::ports::plugin_asset_store::PluginAssetStore;
+use application::documents::ports::sharing::shares_repository::SharesRepository;
+use application::core::ports::storage::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
+use application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
+use application::identity::ports::user_session_repository::UserSessionRepository;
+use application::identity::services::api_tokens::generate_api_token;
+use application::workspaces::services::WorkspaceService;
+use application::identity::use_cases::auth::delete_account::DeleteAccount;
+use application::identity::use_cases::auth::register::{Register, RegisterRequest};
 use bootstrap::app::AppBuilder;
 use bootstrap::git::git_storage_driver_config;
 use bootstrap::config::Config;
 use domain::workspaces::permissions::PermissionSet;
-use infrastructure::db::PgPool;
-use infrastructure::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository;
-use infrastructure::db::repositories::document_repository_sqlx::SqlxDocumentRepository;
-use infrastructure::db::repositories::files_repository_sqlx::SqlxFilesRepository;
-use infrastructure::db::repositories::plugin_installation_repository_sqlx::SqlxPluginInstallationRepository;
-use infrastructure::db::repositories::plugin_repository_sqlx::SqlxPluginRepository;
-use infrastructure::db::repositories::shares_repository_sqlx::SqlxSharesRepository;
-use infrastructure::db::repositories::user_repository_sqlx::SqlxUserRepository;
-use infrastructure::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository;
+use infrastructure::core::db::PgPool;
+use infrastructure::identity::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository;
+use infrastructure::documents::db::repositories::document_repository_sqlx::SqlxDocumentRepository;
+use infrastructure::documents::db::repositories::files_repository_sqlx::SqlxFilesRepository;
+use infrastructure::plugins::db::repositories::plugin_installation_repository_sqlx::SqlxPluginInstallationRepository;
+use infrastructure::plugins::db::repositories::plugin_repository_sqlx::SqlxPluginRepository;
+use infrastructure::documents::db::repositories::shares_repository_sqlx::SqlxSharesRepository;
+use infrastructure::identity::db::repositories::user_repository_sqlx::SqlxUserRepository;
+use infrastructure::identity::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository;
 use infrastructure::git::storage::build_git_storage;
 
 #[derive(Parser)]
@@ -342,7 +342,7 @@ struct Deps {
     api_tokens: SqlxApiTokenRepository,
     shares_repo: SqlxSharesRepository,
     plugin_assets: Arc<dyn PluginAssetStore>,
-    git_repo: infrastructure::db::repositories::git_repository_sqlx::SqlxGitRepository,
+    git_repo: infrastructure::git::db::repositories::git_repository_sqlx::SqlxGitRepository,
     storage_jobs: Arc<dyn StorageProjectionQueue>,
     git_workspace: Arc<CliGitWorkspace>,
 }
@@ -373,7 +373,7 @@ impl CliGitWorkspace {
     async fn latest_commit_meta(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<application::ports::git_storage::CommitMeta>> {
+    ) -> anyhow::Result<Option<application::git::ports::git_storage::CommitMeta>> {
         let row = sqlx::query(
             r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
                       committed_at, pack_key, file_hash_index
@@ -455,10 +455,10 @@ impl GitWorkspacePort for CliGitWorkspace {
     async fn status(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<application::contracts::git::GitWorkspaceStatus> {
+    ) -> anyhow::Result<application::git::dtos::GitWorkspaceStatus> {
         let state = self.load_repository_state(workspace_id).await?;
         let Some((initialized, branch)) = state else {
-            return Ok(application::contracts::git::GitWorkspaceStatus {
+            return Ok(application::git::dtos::GitWorkspaceStatus {
                 repository_initialized: false,
                 current_branch: None,
                 uncommitted_changes: 0,
@@ -466,7 +466,7 @@ impl GitWorkspacePort for CliGitWorkspace {
             });
         };
         if !initialized {
-            return Ok(application::contracts::git::GitWorkspaceStatus {
+            return Ok(application::git::dtos::GitWorkspaceStatus {
                 repository_initialized: false,
                 current_branch: Some(branch),
                 uncommitted_changes: 0,
@@ -504,7 +504,7 @@ impl GitWorkspacePort for CliGitWorkspace {
             }
         }
 
-        Ok(application::contracts::git::GitWorkspaceStatus {
+        Ok(application::git::dtos::GitWorkspaceStatus {
             repository_initialized: true,
             current_branch: Some(branch),
             uncommitted_changes: modified + deleted,
@@ -515,7 +515,7 @@ impl GitWorkspacePort for CliGitWorkspace {
     async fn list_changes(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<application::contracts::git::GitChangeItem>> {
+    ) -> anyhow::Result<Vec<application::git::dtos::GitChangeItem>> {
         if let Some((initialized, _)) = self.load_repository_state(workspace_id).await? {
             if !initialized {
                 return Ok(Vec::new());
@@ -544,7 +544,7 @@ impl GitWorkspacePort for CliGitWorkspace {
                 }
                 _ => "unknown",
             };
-            out.push(application::contracts::git::GitChangeItem {
+            out.push(application::git::dtos::GitChangeItem {
                 path: d.path,
                 status: status.to_string(),
             });
@@ -555,7 +555,7 @@ impl GitWorkspacePort for CliGitWorkspace {
     async fn working_diff(
         &self,
         _workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<application::contracts::diff::TextDiffResult>> {
+    ) -> anyhow::Result<Vec<application::core::dtos::TextDiffResult>> {
         bail!("working_diff not supported in refmd CLI");
     }
 
@@ -564,23 +564,23 @@ impl GitWorkspacePort for CliGitWorkspace {
         _workspace_id: Uuid,
         _from: &str,
         _to: &str,
-    ) -> anyhow::Result<Vec<application::contracts::diff::TextDiffResult>> {
+    ) -> anyhow::Result<Vec<application::core::dtos::TextDiffResult>> {
         bail!("commit_diff not supported in refmd CLI");
     }
 
     async fn history(
         &self,
         _workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<application::contracts::git::GitCommitInfo>> {
+    ) -> anyhow::Result<Vec<application::git::dtos::GitCommitInfo>> {
         bail!("history not supported in refmd CLI");
     }
 
     async fn sync(
         &self,
         _workspace_id: Uuid,
-        _req: &application::contracts::git::GitSyncRequestDto,
-        _cfg: Option<&application::ports::git_repository::UserGitCfg>,
-    ) -> anyhow::Result<application::contracts::git::GitSyncOutcome> {
+        _req: &application::git::dtos::GitSyncRequestDto,
+        _cfg: Option<&application::git::ports::git_repository::UserGitCfg>,
+    ) -> anyhow::Result<application::git::dtos::GitSyncOutcome> {
         bail!("sync not supported in refmd CLI");
     }
 
@@ -588,9 +588,9 @@ impl GitWorkspacePort for CliGitWorkspace {
         &self,
         _workspace_id: Uuid,
         _actor_id: Uuid,
-        _req: &application::contracts::git::GitPullRequestDto,
-        _cfg: &application::ports::git_repository::UserGitCfg,
-    ) -> anyhow::Result<application::contracts::git::GitPullResultDto> {
+        _req: &application::git::dtos::GitPullRequestDto,
+        _cfg: &application::git::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<application::git::dtos::GitPullResultDto> {
         bail!("pull not supported in refmd CLI");
     }
 
@@ -598,8 +598,8 @@ impl GitWorkspacePort for CliGitWorkspace {
         &self,
         _workspace_id: Uuid,
         _actor_id: Uuid,
-        _cfg: &application::ports::git_repository::UserGitCfg,
-    ) -> anyhow::Result<application::contracts::git::GitImportOutcome> {
+        _cfg: &application::git::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<application::git::dtos::GitImportOutcome> {
         bail!("import not supported in refmd CLI");
     }
 
@@ -613,7 +613,7 @@ impl GitWorkspacePort for CliGitWorkspace {
     async fn remote_head(
         &self,
         _workspace_id: Uuid,
-        _cfg: &application::ports::git_repository::UserGitCfg,
+        _cfg: &application::git::ports::git_repository::UserGitCfg,
     ) -> anyhow::Result<Option<Vec<u8>>> {
         Ok(None)
     }
@@ -645,9 +645,9 @@ impl GitWorkspacePort for CliGitWorkspace {
     async fn check_remote(
         &self,
         _workspace_id: Uuid,
-        _cfg: &application::ports::git_repository::UserGitCfg,
-    ) -> anyhow::Result<application::contracts::git::GitRemoteCheckDto> {
-        Ok(application::contracts::git::GitRemoteCheckDto {
+        _cfg: &application::git::ports::git_repository::UserGitCfg,
+    ) -> anyhow::Result<application::git::dtos::GitRemoteCheckDto> {
+        Ok(application::git::dtos::GitRemoteCheckDto {
             ok: false,
             message: "remote check not supported in CLI".to_string(),
             reason: Some("unsupported".to_string()),
@@ -657,7 +657,7 @@ impl GitWorkspacePort for CliGitWorkspace {
 
 fn row_to_commit_meta(
     row: sqlx::postgres::PgRow,
-) -> anyhow::Result<application::ports::git_storage::CommitMeta> {
+) -> anyhow::Result<application::git::ports::git_storage::CommitMeta> {
     let commit_id: Vec<u8> = row.get("commit_id");
     let parent_commit_id: Option<Vec<u8>> = row.try_get("parent_commit_id").ok();
     let message: Option<String> = row.try_get("message").ok();
@@ -668,7 +668,7 @@ fn row_to_commit_meta(
     let file_hash_index: Json<std::collections::HashMap<String, String>> =
         row.get("file_hash_index");
 
-    Ok(application::ports::git_storage::CommitMeta {
+    Ok(application::git::ports::git_storage::CommitMeta {
         commit_id,
         parent_commit_id,
         message,
@@ -717,7 +717,7 @@ async fn main() -> Result<()> {
     let api_tokens = SqlxApiTokenRepository::new(pool.clone());
     let shares_repo = SqlxSharesRepository::new(pool.clone());
     let git_repo =
-        infrastructure::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
+        infrastructure::git::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
             pool.clone(),
             cfg.encryption_key.clone(),
         );

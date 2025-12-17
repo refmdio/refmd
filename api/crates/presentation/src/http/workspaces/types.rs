@@ -5,10 +5,10 @@ use tracing::error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use application::ports::workspace_repository::{
+use application::workspaces::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceRoleRecord,
 };
-use application::services::errors::ServiceError;
+use application::core::services::errors::ServiceError;
 use crate::context::AppContext;
 use crate::http::documents::DownloadFormat;
 

@@ -5,9 +5,9 @@ use axum::{
 };
 use uuid::Uuid;
 
-use application::services::errors::ServiceError;
+use application::core::services::errors::ServiceError;
 use crate::context::AppContext;
-use crate::http::auth::{Bearer, validate_bearer};
+use crate::security::token::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
 
 use super::types::{
@@ -22,8 +22,9 @@ pub async fn ignore_document(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<GitignoreUpdateResponse>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -51,8 +52,9 @@ pub async fn ignore_folder(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<GitignoreUpdateResponse>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -80,8 +82,9 @@ pub async fn add_gitignore_patterns(
     Json(req): Json<AddPatternsRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -104,8 +107,9 @@ pub async fn get_gitignore_patterns(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -129,8 +133,9 @@ pub async fn check_path_ignored(
     Json(req): Json<CheckIgnoredRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

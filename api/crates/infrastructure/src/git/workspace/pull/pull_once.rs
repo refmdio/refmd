@@ -364,7 +364,7 @@ fn pull_build_diverged_merge_commit(
 
     let resolution_map: std::collections::HashMap<
         String,
-        &application::contracts::git::GitPullResolutionDto,
+        &application::git::dtos::GitPullResolutionDto,
     > = req.resolutions.iter().map(|r| (r.path.clone(), r)).collect();
 
     // Build merged state from resolved index (stage 0) plus user resolutions.

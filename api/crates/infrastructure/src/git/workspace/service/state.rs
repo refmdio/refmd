@@ -647,8 +647,8 @@ impl GitWorkspaceService {
                 None => continue,
             };
             let snap_bytes =
-                application::services::realtime::snapshot::snapshot_from_markdown(&body);
-            if let Err(err) = crate::storage::suppress_git_dirty(async {
+                application::documents::services::realtime::snapshot::snapshot_from_markdown(&body);
+            if let Err(err) = crate::core::storage::suppress_git_dirty(async {
                 self.realtime
                     .apply_snapshot(&doc_id.to_string(), snap_bytes.as_slice())
                     .await?;

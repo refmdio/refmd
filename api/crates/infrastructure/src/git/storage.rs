@@ -9,7 +9,7 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use application::ports::git_storage::{
+use application::git::ports::git_storage::{
     BlobKey, CommitMeta, GitStorage, PackBlob, PackStream, encode_commit_id,
 };
 
@@ -325,9 +325,9 @@ impl StoredCommitMeta {
 
     fn into_meta(self) -> anyhow::Result<CommitMeta> {
         Ok(CommitMeta {
-            commit_id: application::ports::git_storage::decode_commit_id(&self.commit_id)?,
+            commit_id: application::git::ports::git_storage::decode_commit_id(&self.commit_id)?,
             parent_commit_id: match self.parent_commit_id {
-                Some(hex) => Some(application::ports::git_storage::decode_commit_id(
+                Some(hex) => Some(application::git::ports::git_storage::decode_commit_id(
                     &hex,
                 )?),
                 None => None,

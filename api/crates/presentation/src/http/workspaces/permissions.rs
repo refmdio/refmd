@@ -6,7 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
-use crate::http::auth::Bearer;
+use crate::security::token::{self, Bearer};
 
 use super::types::{WorkspacePermissionsResponse, map_service_error};
 
@@ -22,8 +22,9 @@ pub async fn get_workspace_permissions(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WorkspacePermissionsResponse>, StatusCode> {
-    let sub = crate::http::auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let set = ctx
         .workspace_service()
         .resolve_permission_set(id, user_id)

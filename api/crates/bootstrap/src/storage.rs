@@ -3,13 +3,13 @@ use std::sync::Arc;
 use anyhow::Context;
 
 
-use application::ports::storage_port::{StorageProjectionPort, StorageResolverPort};
-use application::ports::storage_reconcile_backend::StorageReconcileBackend;
+use application::core::ports::storage::storage_port::{StorageProjectionPort, StorageResolverPort};
+use application::core::ports::storage::storage_reconcile_backend::StorageReconcileBackend;
 use crate::config::{Config, StorageBackend};
-use infrastructure::db::PgPool;
-use infrastructure::storage::s3::S3StorageConfig;
-use infrastructure::storage::s3::S3StoragePort;
-use infrastructure::storage::{
+use infrastructure::core::db::PgPool;
+use infrastructure::core::storage::s3::S3StorageConfig;
+use infrastructure::core::storage::s3::S3StoragePort;
+use infrastructure::core::storage::{
     FsReconcileBackend, PgStorageProjectionQueue, S3ReconcileBackend,
 };
 
@@ -24,7 +24,7 @@ pub async fn build_storage_ports(cfg: &Config, pool: &PgPool) -> anyhow::Result<
     let uploads_root = std::path::PathBuf::from(&cfg.storage_root);
     let ports = match cfg.storage_backend {
         StorageBackend::Filesystem => {
-            let port = Arc::new(infrastructure::storage::port_impl::FsStoragePort {
+            let port = Arc::new(infrastructure::core::storage::port_impl::FsStoragePort {
                 pool: pool.clone(),
                 uploads_root: uploads_root.clone(),
             });

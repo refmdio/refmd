@@ -5,8 +5,8 @@ use serde_json::Value;
 use sqlx::{Row, pool::PoolConnection, postgres::Postgres};
 use tracing::{error, info, warn};
 
-use application::services::doc_events::{DocEventRecord, DocEventSubscriber};
-use crate::db::PgPool;
+use application::core::services::doc_events::{DocEventRecord, DocEventSubscriber};
+use crate::core::db::PgPool;
 
 pub struct DocEventPoller {
     pool: PgPool,

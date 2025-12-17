@@ -3,10 +3,10 @@ use std::sync::Arc;
 use anyhow::Context;
 
 
-use application::ports::plugin_asset_store::PluginAssetStore;
-use application::ports::plugin_installer::PluginInstaller;
-use application::ports::plugin_package_fetcher::PluginPackageFetcher;
-use application::ports::plugin_runtime::PluginRuntime;
+use application::plugins::ports::plugin_asset_store::PluginAssetStore;
+use application::plugins::ports::plugin_installer::PluginInstaller;
+use application::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
+use application::plugins::ports::plugin_runtime::PluginRuntime;
 use crate::config::{Config, StorageBackend};
 use infrastructure::plugins::filesystem_store::{
     FilesystemPluginStore, PluginExecutionLimits,

@@ -18,23 +18,23 @@ use tempfile::{Builder as TempDirBuilder, TempDir};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use application::contracts::diff::TextDiffResult;
-use application::contracts::git::{
+use application::core::dtos::TextDiffResult;
+use application::git::dtos::{
     GitChangeItem, GitCommitInfo, GitImportOutcome, GitPullConflictItemDto, GitPullRequestDto,
     GitPullResultDto, GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
 };
-use application::ports::document_repository::DocumentRepository;
-use application::ports::git_repository::UserGitCfg;
-use application::ports::git_storage::{
+use application::documents::ports::document_repository::DocumentRepository;
+use application::git::ports::git_repository::UserGitCfg;
+use application::git::ports::git_storage::{
     BlobKey, CommitMeta, GitStorage, decode_commit_id, encode_commit_id,
 };
-use application::ports::git_workspace::GitWorkspacePort;
-use application::ports::realtime_port::RealtimeEngine;
-use application::ports::storage_port::StorageResolverPort;
-use application::services::diff::text_diff::compute_text_diff;
-use application::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
-use application::utils::hash::sha256_hex;
-use crate::db::PgPool;
+use application::git::ports::git_workspace::GitWorkspacePort;
+use application::documents::ports::realtime::realtime_port::RealtimeEngine;
+use application::core::ports::storage::storage_port::StorageResolverPort;
+use application::core::services::diff::text_diff::compute_text_diff;
+use application::documents::services::realtime::snapshot::{SnapshotService, snapshot_from_markdown};
+use application::core::services::utils::hash::sha256_hex;
+use crate::core::db::PgPool;
 use tokio::fs as async_fs;
 
 mod helpers;

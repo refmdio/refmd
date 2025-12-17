@@ -6,7 +6,7 @@ impl GitWorkspaceService {
         cfg: &UserGitCfg,
     ) -> anyhow::Result<GitImportOutcome> {
         // Suppress dirty tracking globally during import so filesystem watcher/ingest won't re-mark files.
-        let _global_dirty_guard = crate::storage::suppress_git_dirty_global();
+        let _global_dirty_guard = crate::core::storage::suppress_git_dirty_global();
         let branch = if cfg.branch_name.is_empty() {
             "main".to_string()
         } else {
@@ -37,7 +37,7 @@ impl GitWorkspaceService {
         let state = self
             .state_from_commit_meta(workspace_id, &latest_meta)
             .await?;
-        let files_changed = crate::storage::suppress_git_dirty(async {
+        let files_changed = crate::core::storage::suppress_git_dirty(async {
             self.apply_state_to_workspace(workspace_id, &state, &previous_index)
                 .await
         })
@@ -45,7 +45,7 @@ impl GitWorkspaceService {
 
         // Materialize documents and attachments from imported state; surface failures so Import can fail loudly.
         let (docs_created, attachments_created) =
-            crate::storage::suppress_git_dirty(async {
+            crate::core::storage::suppress_git_dirty(async {
                 self.materialize_documents_from_state(workspace_id, actor_id, &state)
                     .await
             })

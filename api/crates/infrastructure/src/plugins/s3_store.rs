@@ -20,15 +20,15 @@ use tokio::time::sleep;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-use application::contracts::plugins::ExecResult;
-use application::ports::plugin_asset_store::{
+use application::plugins::dtos::ExecResult;
+use application::plugins::ports::plugin_asset_store::{
     PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
 };
-use application::ports::plugin_event_publisher::PluginScopedEvent;
-use application::ports::plugin_installer::{
+use application::plugins::ports::plugin_event_publisher::PluginScopedEvent;
+use application::plugins::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
 };
-use application::ports::plugin_runtime::PluginRuntime;
+use application::plugins::ports::plugin_runtime::PluginRuntime;
 use crate::plugins::event_bus_pg::PgPluginEventBus;
 use crate::plugins::filesystem_store::{
     FilesystemPluginStore, PluginExecutionLimits,

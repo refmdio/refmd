@@ -1,8 +1,8 @@
-mod content;
-mod crud;
-mod links;
-mod search;
-mod snapshots;
+mod handlers;
+pub mod files;
+pub mod publishing;
+pub mod sharing;
+pub mod tagging;
 pub mod types;
 
 use axum::{
@@ -13,11 +13,7 @@ use axum::{
 use crate::context::AppContext;
 
 // Re-export handlers and schemas so OpenAPI can locate generated __path_* items.
-pub use content::*;
-pub use crud::*;
-pub use links::*;
-pub use search::*;
-pub use snapshots::*;
+pub use handlers::*;
 pub use types::*;
 
 pub fn routes(ctx: AppContext) -> Router {

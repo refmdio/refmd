@@ -4,10 +4,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
-use application::contracts::diff::TextDiffResult;
-use application::contracts::git::{GitCommitInfo, GitStatusDto};
+use application::core::dtos::TextDiffResult;
+use application::git::dtos::{GitCommitInfo, GitStatusDto};
 use crate::context::AppContext;
-use crate::http::auth::{Bearer, validate_bearer};
+use crate::security::token::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
 
 use super::types::{GitChangesResponse, GitHistoryResponse, GitStatus, map_git_error};
@@ -19,8 +19,9 @@ pub async fn get_status(
     headers: HeaderMap,
 ) -> Result<Json<GitStatus>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -44,8 +45,9 @@ pub async fn get_changes(
     headers: HeaderMap,
 ) -> Result<Json<GitChangesResponse>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -69,8 +71,9 @@ pub async fn get_history(
     headers: HeaderMap,
 ) -> Result<Json<GitHistoryResponse>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -99,8 +102,9 @@ pub async fn get_working_diff(
     headers: HeaderMap,
 ) -> Result<Json<Vec<TextDiffResult>>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -130,8 +134,9 @@ pub async fn get_commit_diff(
     axum::extract::Path((from, to)): axum::extract::Path<(String, String)>,
 ) -> Result<Json<Vec<TextDiffResult>>, StatusCode> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = uuid::Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

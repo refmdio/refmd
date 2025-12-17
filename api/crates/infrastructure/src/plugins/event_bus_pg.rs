@@ -8,9 +8,9 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-use application::ports::plugin_event_publisher::{PluginEventPublisher, PluginScopedEvent};
-use application::ports::plugin_event_subscriber::PluginEventSubscriber;
-use crate::db::PgPool;
+use application::plugins::ports::plugin_event_publisher::{PluginEventPublisher, PluginScopedEvent};
+use application::plugins::ports::plugin_event_subscriber::PluginEventSubscriber;
+use crate::core::db::PgPool;
 
 #[derive(Clone)]
 pub struct PgPluginEventBus {

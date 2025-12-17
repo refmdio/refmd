@@ -1,7 +1,6 @@
-pub mod access;
-pub mod contracts;
-pub mod linkgraph;
-pub mod ports;
-pub mod services;
-pub mod use_cases;
-pub mod utils;
+pub mod core;
+pub mod documents;
+pub mod git;
+pub mod identity;
+pub mod plugins;
+pub mod workspaces;

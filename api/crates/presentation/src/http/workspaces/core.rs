@@ -7,18 +7,19 @@ use axum::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use application::access;
-use application::ports::workspace_repository::WorkspaceListItem;
-use application::services::auth::user_sessions::SessionMetadata;
-use application::services::errors::ServiceError;
+use application::core::services::access;
+use application::workspaces::ports::workspace_repository::WorkspaceListItem;
+use application::identity::services::auth::user_sessions::SessionMetadata;
+use application::core::services::errors::ServiceError;
 use domain::workspaces::permissions::{
     PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
 };
 use crate::context::AppContext;
-use crate::http::auth::{
-    self, Bearer, apply_session_cookies, extract_client_ip, extract_refresh_token,
-    extract_user_agent,
+use crate::http::identity::auth::{
+    self, apply_session_cookies, extract_client_ip, extract_refresh_token, extract_user_agent,
 };
+use crate::security::token as security_token;
+use crate::security::token::Bearer;
 #[allow(unused_imports)]
 use crate::http::documents::DocumentDownloadBinary;
 
@@ -32,8 +33,9 @@ pub async fn list_workspaces(
     State(ctx): State<AppContext>,
     bearer: Bearer,
 ) -> Result<Json<Vec<WorkspaceResponse>>, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = security_token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let items = ctx
         .workspace_service()
         .list_for_user(user_id)
@@ -54,8 +56,9 @@ pub async fn create_workspace(
     if payload.name.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = security_token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspace = ctx
         .workspace_service()
         .create_workspace(
@@ -101,8 +104,9 @@ pub async fn get_workspace_detail(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WorkspaceResponse>, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = security_token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     let workspaces = ctx
         .workspace_service()
         .list_for_user(user_id)
@@ -134,8 +138,9 @@ pub async fn update_workspace(
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = security_token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     require_permission(&ctx, id, user_id, PERM_WORKSPACE_UPDATE).await?;
     let normalized_name = payload
         .name
@@ -193,8 +198,9 @@ pub async fn delete_workspace(
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = security_token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     require_permission(&ctx, id, user_id, PERM_WORKSPACE_DELETE).await?;
     let workspace = ctx
         .workspace_service()
@@ -232,8 +238,9 @@ pub async fn leave_workspace(
     bearer: Bearer,
     Path(workspace_id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = security_token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     ctx.workspace_service()
         .leave_workspace(workspace_id, user_id)
         .await
@@ -254,8 +261,9 @@ pub async fn switch_workspace(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<(HeaderMap, Json<SwitchWorkspaceResponse>), StatusCode> {
-    let sub = auth::validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = security_token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     ctx.workspace_service()
         .set_default_workspace(user_id, id)
         .await
@@ -338,16 +346,9 @@ pub async fn download_workspace_archive(
         )
     };
 
-    let sub = auth::validate_bearer(&ctx, bearer)
+    let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|status| error_response(status, "unauthorized", "Unauthorized".to_string()))?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| {
-        error_response(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "Unauthorized".to_string(),
-        )
-    })?;
+        .map_err(|_| error_response(StatusCode::UNAUTHORIZED, "unauthorized", "Unauthorized".to_string()))?;
 
     require_permission(&ctx, id, user_id, PERM_DOC_VIEW)
         .await

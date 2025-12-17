@@ -1,9 +1,6 @@
-pub mod auth;
-pub mod crypto;
-pub mod db;
+pub mod core;
 pub mod documents;
 pub mod git;
-pub mod health;
+pub mod identity;
 pub mod plugins;
-pub mod realtime;
-pub mod storage;
+pub mod workspaces;

@@ -137,7 +137,7 @@ impl GitWorkspaceService {
         workspace_id: Uuid,
         hex: &str,
     ) -> anyhow::Result<Option<CommitMeta>> {
-        let bytes = application::ports::git_storage::decode_commit_id(hex)?;
+        let bytes = application::git::ports::git_storage::decode_commit_id(hex)?;
         let row = sqlx::query(
             r#"SELECT commit_id, parent_commit_id, message, author_name, author_email,
                       committed_at, pack_key, file_hash_index

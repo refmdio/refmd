@@ -4,10 +4,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
-use application::use_cases::plugins::install_from_url::InstallPluginError;
+use application::plugins::use_cases::install_from_url::InstallPluginError;
 use domain::workspaces::permissions::{PERM_PLUGIN_INSTALL, PERM_PLUGIN_UNINSTALL};
 use crate::context::AppContext;
-use crate::http::auth::Bearer;
+use crate::http::identity::auth::Bearer;
 
 use super::types::{InstallFromUrlBody, InstallResponse, UninstallBody, ensure_valid_plugin_id};
 use super::util::{map_plugin_service_error, resolve_plugin_user_context};
@@ -56,10 +56,10 @@ pub async fn install_from_url(
             match err {
                 InstallPluginError::Download(_) => Err(StatusCode::BAD_GATEWAY),
                 InstallPluginError::Install(inner) => match inner {
-                    application::ports::plugin_installer::PluginInstallError::InvalidPackage(_) => {
+                    application::plugins::ports::plugin_installer::PluginInstallError::InvalidPackage(_) => {
                         Err(StatusCode::BAD_REQUEST)
                     }
-                    application::ports::plugin_installer::PluginInstallError::Storage(_) => {
+                    application::plugins::ports::plugin_installer::PluginInstallError::Storage(_) => {
                         Err(StatusCode::INTERNAL_SERVER_ERROR)
                     }
                 },

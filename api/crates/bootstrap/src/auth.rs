@@ -3,14 +3,14 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 
-use application::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
-use application::services::auth::service::AuthService;
-use application::services::auth::token_validation::TokenValidationService;
-use application::services::auth::user_sessions::UserSessionService;
+use application::identity::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
+use application::identity::services::auth::service::AuthService;
+use application::identity::services::auth::token_validation::TokenValidationService;
+use application::identity::services::auth::user_sessions::UserSessionService;
 use crate::config::Config;
-use infrastructure::auth::github::GithubOAuthProvider;
-use infrastructure::auth::google::GoogleIdentityProvider;
-use infrastructure::auth::oidc::{OidcIdentityProvider, OidcOAuthProviderConfig};
+use infrastructure::identity::auth::github::GithubOAuthProvider;
+use infrastructure::identity::auth::google::GoogleIdentityProvider;
+use infrastructure::identity::auth::oidc::{OidcIdentityProvider, OidcOAuthProviderConfig};
 
 pub struct AuthStack {
     pub auth_service: Arc<AuthService>,
@@ -22,7 +22,7 @@ pub struct AuthStack {
 pub async fn build_auth_stack(
     cfg: &Config,
     token_validation_service: Arc<TokenValidationService>,
-    user_session_repo: Arc<dyn application::ports::user_session_repository::UserSessionRepository>,
+    user_session_repo: Arc<dyn application::identity::ports::user_session_repository::UserSessionRepository>,
 ) -> anyhow::Result<AuthStack> {
     let external_auth = build_external_auth_registry(cfg).await?;
 

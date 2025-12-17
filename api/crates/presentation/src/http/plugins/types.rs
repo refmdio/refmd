@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use application::contracts::plugins::ExecResult;
-use application::services::plugins::management::PluginManifestItem;
+use application::plugins::dtos::ExecResult;
+use application::plugins::services::management::PluginManifestItem;
 
 pub use super::util::ensure_valid_plugin_id;
 

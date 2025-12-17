@@ -1,15 +1,6 @@
-pub mod api_tokens;
-pub mod auth;
+pub mod core;
+pub mod identity;
 pub mod documents;
-pub mod files;
 pub mod git;
-pub mod health;
-pub mod markdown;
-pub mod metrics;
 pub mod plugins;
-pub mod public;
-pub mod shares;
-pub mod shortcuts;
-pub mod storage_ingest;
-pub mod tags;
 pub mod workspaces;
