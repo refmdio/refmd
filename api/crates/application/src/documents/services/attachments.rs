@@ -1,4 +1,14 @@
-use super::*;
+use serde_json::json;
+use tracing::warn;
+use uuid::Uuid;
+
+use domain::documents::document::Document as DomainDocument;
+use domain::documents::path as doc_path;
+
+use crate::core::services::errors::ServiceError;
+use crate::core::services::utils::hash::sha256_hex;
+
+use super::DocumentService;
 
 #[derive(Debug, Clone)]
 pub(super) struct AttachmentSnapshot {
@@ -95,7 +105,7 @@ impl DocumentService {
                 doc_path::repo_relative_from_storage(target_doc.workspace_id, &storage_path)
             {
                 let payload = json!({
-                    "repo_path": repo_path,
+                    "repo_path": repo_path.as_str(),
                     "storage_path": storage_path,
                     "backend": "api",
                     "size": attachment.bytes.len() as i64,
@@ -119,4 +129,3 @@ impl DocumentService {
 fn hash_bytes(bytes: &[u8]) -> String {
     sha256_hex(bytes)
 }
-

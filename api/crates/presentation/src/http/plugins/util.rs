@@ -5,6 +5,7 @@ use uuid::Uuid;
 use application::core::services::access;
 use application::core::services::errors::ServiceError;
 use application::plugins::services::management;
+use domain::documents::share;
 use domain::workspaces::permissions::{
     PERM_DOC_EDIT, PERM_DOC_VIEW, PERM_PLUGIN_RUN, PermissionSet,
 };
@@ -60,20 +61,17 @@ pub async fn resolve_plugin_user_context(
             })
         }
         access::Actor::ShareToken(token) => {
-            let share = ctx
+            let ctx_share = ctx
                 .share_service()
                 .resolve_share_context(&token)
                 .await
                 .map_err(|_| StatusCode::UNAUTHORIZED)?
                 .ok_or(StatusCode::UNAUTHORIZED)?;
-            let (_share_id, perm, expires_at, _shared_id, _shared_type, workspace_id) = share;
-            if let Some(exp) = expires_at {
-                if exp < chrono::Utc::now() {
-                    return Err(StatusCode::UNAUTHORIZED);
-                }
+            if share::is_expired(ctx_share.expires_at.as_ref(), chrono::Utc::now()) {
+                return Err(StatusCode::UNAUTHORIZED);
             }
             let mut permissions = PermissionSet::from_slice(&[PERM_PLUGIN_RUN, PERM_DOC_VIEW]);
-            if perm == "edit" {
+            if ctx_share.permission.allows_edit() {
                 permissions.insert(PERM_DOC_EDIT);
             }
             if let Some(permission) = required_permission {
@@ -82,9 +80,9 @@ pub async fn resolve_plugin_user_context(
                 }
             }
             Ok(PluginUserContext {
-                workspace_id,
+                workspace_id: ctx_share.workspace_id,
                 // Share tokens do not map to a user; use workspace_id as a stable placeholder
-                user_id: workspace_id,
+                user_id: ctx_share.workspace_id,
                 permissions,
                 actor: access::Actor::ShareToken(token),
             })

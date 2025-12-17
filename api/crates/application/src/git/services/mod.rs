@@ -630,7 +630,7 @@ impl GitService {
                         paths.push(norm);
                     }
                 }
-                let desired = normalize(&doc.desired_path);
+                let desired = normalize(doc.desired_path.as_str());
                 if !desired.is_empty() {
                     paths.push(desired);
                 }
@@ -648,7 +648,7 @@ impl GitService {
             conflict.document_id = matched;
             if let Some(doc_id) = matched {
                 if let Some(doc) = docs.iter().find(|d| d.id == doc_id) {
-                    conflict.path = doc.desired_path.clone();
+                    conflict.path = doc.desired_path.as_str().to_string();
                 }
             }
             out.push(conflict);

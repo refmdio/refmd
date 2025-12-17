@@ -1,29 +1,24 @@
 use uuid::Uuid;
 
-use crate::documents::ports::document_repository::DocumentRepository;
-use sqlx::{Postgres, Transaction};
+use crate::documents::ports::document_repository::DocumentRepositoryTx;
+use domain::documents::doc_type::DocumentType;
 
 pub struct DeleteDocument<'a, R>
 where
-    R: DocumentRepository + ?Sized,
+    R: DocumentRepositoryTx + ?Sized,
 {
-    pub repo: &'a R,
+    pub repo: &'a mut R,
 }
 
 impl<'a, R> DeleteDocument<'a, R>
 where
-    R: DocumentRepository + ?Sized,
+    R: DocumentRepositoryTx + ?Sized,
 {
-    pub async fn execute(&self, id: Uuid, workspace_id: Uuid) -> anyhow::Result<Option<String>> {
-        self.repo.delete_owned(id, workspace_id).await
-    }
-
-    pub async fn execute_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
+    pub async fn execute(
+        &mut self,
         id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<String>> {
-        self.repo.delete_owned_tx(tx, id, workspace_id).await
+    ) -> anyhow::Result<Option<DocumentType>> {
+        self.repo.delete_owned(id, workspace_id).await
     }
 }

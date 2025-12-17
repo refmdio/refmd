@@ -1,16 +1,21 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use domain::documents::share::{ShareContext, SharePermission};
+use domain::documents::doc_type::DocumentType;
+use domain::documents::title::Title;
+use chrono::{DateTime, Utc};
+
 #[derive(Debug, Clone)]
 pub struct ShareRow {
     pub id: Uuid,
     pub token: String,
-    pub permission: String,
+    pub permission: SharePermission,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub parent_share_id: Option<Uuid>,
     pub document_id: Uuid,
-    pub document_type: String,
-    pub document_title: String,
+    pub document_type: DocumentType,
+    pub document_title: Title,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -19,11 +24,50 @@ pub struct ShareMountRow {
     pub id: Uuid,
     pub token: String,
     pub target_document_id: Uuid,
-    pub target_document_type: String,
-    pub target_title: String,
-    pub permission: String,
+    pub target_document_type: DocumentType,
+    pub target_title: Title,
+    pub permission: SharePermission,
     pub parent_folder_id: Option<Uuid>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreatedShare {
+    pub token: String,
+    pub share_id: Uuid,
+    pub document_type: DocumentType,
+}
+
+#[derive(Debug, Clone)]
+pub struct ShareTokenValidation {
+    pub document_id: Uuid,
+    pub permission: SharePermission,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub title: Title,
+}
+
+#[derive(Debug, Clone)]
+pub struct ApplicableShareRow {
+    pub token: String,
+    pub permission: SharePermission,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ShareDocumentMeta {
+    pub document_id: Uuid,
+    pub owner_id: Uuid,
+    pub workspace_id: Uuid,
+}
+
+#[derive(Debug, Clone)]
+pub struct ShareSubtreeNode {
+    pub id: Uuid,
+    pub title: Title,
+    pub document_type: DocumentType,
+    pub parent_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[async_trait]
@@ -33,9 +77,9 @@ pub trait SharesRepository: Send + Sync {
         workspace_id: Uuid,
         actor_id: Uuid,
         document_id: Uuid,
-        permission: &str,
+        permission: SharePermission,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> anyhow::Result<(String, Uuid, String)>; // (token_saved, share_id, document_type)
+    ) -> anyhow::Result<CreatedShare>;
 
     async fn list_document_shares(
         &self,
@@ -48,29 +92,20 @@ pub trait SharesRepository: Send + Sync {
     async fn validate_share_token(
         &self,
         token: &str,
-    ) -> anyhow::Result<Option<(Uuid, String, Option<chrono::DateTime<chrono::Utc>>, String)>>; // (document_id, permission, expires_at, title)
+    ) -> anyhow::Result<Option<ShareTokenValidation>>;
 
     async fn list_applicable_shares_for_doc(
         &self,
         workspace_id: Uuid,
         doc_id: Uuid,
-    ) -> anyhow::Result<Vec<(String, String, Option<chrono::DateTime<chrono::Utc>>)>>; // (token, permission, expires)
+    ) -> anyhow::Result<Vec<ApplicableShareRow>>;
 
     async fn list_active_shares(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareRow>>;
 
     async fn resolve_share_by_token(
         &self,
         token: &str,
-    ) -> anyhow::Result<
-        Option<(
-            Uuid,
-            String,
-            Option<chrono::DateTime<chrono::Utc>>,
-            Uuid,
-            String,
-            Uuid,
-        )>,
-    >; // (share_id, permission, expires_at, shared_id, shared_type, workspace_id)
+    ) -> anyhow::Result<Option<ShareContext>>;
 
     async fn list_share_mounts(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareMountRow>>;
 
@@ -80,9 +115,9 @@ pub trait SharesRepository: Send + Sync {
         actor_id: Uuid,
         token: &str,
         target_document_id: Uuid,
-        target_document_type: &str,
-        target_title: &str,
-        permission: &str,
+        target_document_type: DocumentType,
+        target_title: Title,
+        permission: SharePermission,
         parent_folder_id: Option<Uuid>,
     ) -> anyhow::Result<ShareMountRow>;
 
@@ -91,21 +126,12 @@ pub trait SharesRepository: Send + Sync {
     async fn get_share_document_meta(
         &self,
         token: &str,
-    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>>; // (document_id, owner_id, workspace_id)
+    ) -> anyhow::Result<Option<ShareDocumentMeta>>;
 
     async fn list_subtree_nodes(
         &self,
         root_id: Uuid,
-    ) -> anyhow::Result<
-        Vec<(
-            Uuid,
-            String,
-            String,
-            Option<Uuid>,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-        )>,
-    >; // (id,title,type,parent_id,created_at,updated_at)
+    ) -> anyhow::Result<Vec<ShareSubtreeNode>>;
 
     async fn list_materialized_children(&self, parent_share_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
 

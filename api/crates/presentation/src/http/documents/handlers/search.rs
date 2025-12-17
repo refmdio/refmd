@@ -44,8 +44,8 @@ pub async fn search_documents(
         .into_iter()
         .map(|h| SearchResult {
             id: h.id,
-            title: h.title,
-            document_type: h.doc_type,
+            title: h.title.into_string(),
+            document_type: h.doc_type.to_string(),
             path: h.path,
             updated_at: h.updated_at,
         })

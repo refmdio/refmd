@@ -29,6 +29,12 @@ pub struct SnapshotArchiveRecord {
     pub content_hash: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct SnapshotArchiveEntry {
+    pub record: SnapshotArchiveRecord,
+    pub bytes: Vec<u8>,
+}
+
 #[async_trait]
 pub trait DocumentSnapshotArchiveRepository: Send + Sync {
     async fn insert(
@@ -37,7 +43,7 @@ pub trait DocumentSnapshotArchiveRepository: Send + Sync {
     ) -> anyhow::Result<SnapshotArchiveRecord>;
 
     async fn get_by_id(&self, id: Uuid)
-    -> anyhow::Result<Option<(SnapshotArchiveRecord, Vec<u8>)>>;
+    -> anyhow::Result<Option<SnapshotArchiveEntry>>;
 
     async fn list_for_document(
         &self,
@@ -50,5 +56,5 @@ pub trait DocumentSnapshotArchiveRepository: Send + Sync {
         &self,
         doc_id: Uuid,
         version: i64,
-    ) -> anyhow::Result<Option<(SnapshotArchiveRecord, Vec<u8>)>>;
+    ) -> anyhow::Result<Option<SnapshotArchiveEntry>>;
 }

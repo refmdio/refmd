@@ -1,9 +1,15 @@
+use anyhow::Context;
 use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
-use application::documents::ports::publishing::public_repository::PublicRepository;
+use application::documents::ports::publishing::public_repository::{
+    PublicDocumentSummaryRow, PublicRepository, PublishStatusRow, WorkspaceTitleAndSlug,
+};
+use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document;
+use domain::documents::path as doc_path;
+use domain::documents::title::Title;
 use crate::core::db::PgPool;
 
 pub struct SqlxPublicRepository {
@@ -22,7 +28,7 @@ impl PublicRepository for SqlxPublicRepository {
         &self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<(String, String)>> {
+    ) -> anyhow::Result<Option<WorkspaceTitleAndSlug>> {
         let row = sqlx::query(
             "SELECT d.title, w.slug as workspace_slug FROM documents d JOIN workspaces w ON d.workspace_id = w.id WHERE d.id = $1 AND d.workspace_id = $2",
         )
@@ -30,7 +36,10 @@ impl PublicRepository for SqlxPublicRepository {
             .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row.map(|r| (r.get("title"), r.get("workspace_slug"))))
+        Ok(row.map(|r| WorkspaceTitleAndSlug {
+            title: r.get("title"),
+            workspace_slug: r.get("workspace_slug"),
+        }))
     }
 
     async fn upsert_public_document(&self, doc_id: Uuid, slug: &str) -> anyhow::Result<()> {
@@ -78,7 +87,7 @@ impl PublicRepository for SqlxPublicRepository {
         &self,
         workspace_id: Uuid,
         doc_id: Uuid,
-    ) -> anyhow::Result<Option<(String, String)>> {
+    ) -> anyhow::Result<Option<PublishStatusRow>> {
         let row = sqlx::query(
             r#"SELECT p.slug, w.slug as workspace_slug
                FROM public_documents p
@@ -90,20 +99,16 @@ impl PublicRepository for SqlxPublicRepository {
         .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| (r.get("slug"), r.get("workspace_slug"))))
+        Ok(row.map(|r| PublishStatusRow {
+            slug: r.get("slug"),
+            workspace_slug: r.get("workspace_slug"),
+        }))
     }
 
     async fn list_workspace_public_documents(
         &self,
         workspace_slug: &str,
-    ) -> anyhow::Result<
-        Vec<(
-            Uuid,
-            String,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-        )>,
-    > {
+    ) -> anyhow::Result<Vec<PublicDocumentSummaryRow>> {
         let rows = sqlx::query(
             r#"SELECT d.id, d.title, d.updated_at, p.published_at
                FROM public_documents p
@@ -122,13 +127,11 @@ impl PublicRepository for SqlxPublicRepository {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|r| {
-                (
-                    r.get("id"),
-                    r.get("title"),
-                    r.get("updated_at"),
-                    r.get("published_at"),
-                )
+            .map(|r| PublicDocumentSummaryRow {
+                id: r.get("id"),
+                title: r.get("title"),
+                updated_at: r.get("updated_at"),
+                published_at: r.get("published_at"),
             })
             .collect())
     }
@@ -157,25 +160,36 @@ impl PublicRepository for SqlxPublicRepository {
         .bind(doc_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| Document {
-            id: r.get("id"),
-            owner_id: r.get("owner_id"),
-            owner_user_id: r.try_get("owner_user_id").ok(),
-            workspace_id: r.get("workspace_id"),
-            title: r.get("title"),
-            parent_id: r.try_get("parent_id").ok(),
-            doc_type: r.get("type"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
-            slug: r.get("slug"),
-            desired_path: r.get("desired_path"),
-            path: r.try_get("path").ok(),
-            created_by: r.try_get("created_by").ok(),
-            created_by_plugin: r.try_get("created_by_plugin").ok(),
-            archived_at: r.try_get("archived_at").ok(),
-            archived_by: r.try_get("archived_by").ok(),
-            archived_parent_id: r.try_get("archived_parent_id").ok(),
-        }))
+        row.map(|r| {
+            let doc_type_str: String = r.get("type");
+            let doc_type =
+                DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+            let title: String = r.get("title");
+            let slug_str: String = r.get("slug");
+            let slug = doc_path::Slug::new(slug_str).context("invalid_slug")?;
+            let desired_path_str: String = r.get("desired_path");
+            let desired_path = doc_path::DesiredPath::new(desired_path_str);
+            Ok(Document {
+                id: r.get("id"),
+                owner_id: r.get("owner_id"),
+                owner_user_id: r.try_get("owner_user_id").ok(),
+                workspace_id: r.get("workspace_id"),
+                title: Title::new(title),
+                parent_id: r.try_get("parent_id").ok(),
+                doc_type,
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+                slug,
+                desired_path,
+                path: r.try_get("path").ok(),
+                created_by: r.try_get("created_by").ok(),
+                created_by_plugin: r.try_get("created_by_plugin").ok(),
+                archived_at: r.try_get("archived_at").ok(),
+                archived_by: r.try_get("archived_by").ok(),
+                archived_parent_id: r.try_get("archived_parent_id").ok(),
+            })
+        })
+        .transpose()
     }
 
     async fn public_exists_by_workspace_and_id(

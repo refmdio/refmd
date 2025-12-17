@@ -2,6 +2,7 @@ use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::core::ports::storage::storage_port::StorageResolverPort;
 use anyhow::Error;
+use domain::documents::doc_type::DocumentType;
 use uuid::Uuid;
 
 fn strip_user_prefix(owner_id: Uuid, rel_from_uploads: &str) -> String {
@@ -36,7 +37,7 @@ pub async fn compute_doc_patterns_with<
     let dtype = meta.doc_type;
 
     // Folder: ignore the entire directory under the repo root
-    if dtype == "folder" {
+    if dtype == DocumentType::Folder {
         let dir_full = storage.build_doc_dir(node_id).await?; // .../uploads/<owner>/<folders>
         let rel_from_uploads = storage.relative_from_uploads(&dir_full);
         let repo_rel = strip_user_prefix(owner_id, &rel_from_uploads);

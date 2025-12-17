@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,26 +57,8 @@ pub trait StorageProjectionQueue: Send + Sync {
         reason: Option<&str>,
     ) -> anyhow::Result<()>;
 
-    async fn enqueue_doc_job_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        doc_id: Uuid,
-        kind: StorageProjectionJobKind,
-        reason: Option<&str>,
-    ) -> anyhow::Result<()>;
-
     async fn enqueue_folder_job(
         &self,
-        workspace_id: Uuid,
-        folder_id: Uuid,
-        kind: StorageProjectionJobKind,
-        reason: Option<&str>,
-    ) -> anyhow::Result<()>;
-
-    async fn enqueue_folder_job_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
         workspace_id: Uuid,
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
@@ -96,5 +77,24 @@ pub trait StorageProjectionQueue: Send + Sync {
         job_id: i64,
         locked_at: DateTime<Utc>,
         error: &str,
+    ) -> anyhow::Result<()>;
+}
+
+#[async_trait]
+pub trait StorageProjectionQueueTx: Send {
+    async fn enqueue_doc_job(
+        &mut self,
+        workspace_id: Uuid,
+        doc_id: Uuid,
+        kind: StorageProjectionJobKind,
+        reason: Option<&str>,
+    ) -> anyhow::Result<()>;
+
+    async fn enqueue_folder_job(
+        &mut self,
+        workspace_id: Uuid,
+        folder_id: Uuid,
+        kind: StorageProjectionJobKind,
+        reason: Option<&str>,
     ) -> anyhow::Result<()>;
 }

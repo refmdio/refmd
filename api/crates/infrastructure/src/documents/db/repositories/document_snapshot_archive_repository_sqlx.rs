@@ -3,7 +3,8 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use application::documents::ports::document_snapshot_archive_repository::{
-    DocumentSnapshotArchiveRepository, SnapshotArchiveInsert, SnapshotArchiveRecord,
+    DocumentSnapshotArchiveRepository, SnapshotArchiveEntry, SnapshotArchiveInsert,
+    SnapshotArchiveRecord,
 };
 use crate::core::db::PgPool;
 
@@ -103,7 +104,7 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
     async fn get_by_id(
         &self,
         id: Uuid,
-    ) -> anyhow::Result<Option<(SnapshotArchiveRecord, Vec<u8>)>> {
+    ) -> anyhow::Result<Option<SnapshotArchiveEntry>> {
         let row = sqlx::query(
             r#"SELECT
                     id,
@@ -124,23 +125,20 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|row| {
-            let snapshot: Vec<u8> = row.get("snapshot");
-            (
-                SnapshotArchiveRecord {
-                    id: row.get("id"),
-                    document_id: row.get("document_id"),
-                    version: row.get::<i32, _>("version") as i64,
-                    label: row.get("label"),
-                    notes: row.try_get("notes").ok(),
-                    kind: row.get("kind"),
-                    created_at: row.get("created_at"),
-                    created_by: row.try_get("created_by").ok(),
-                    byte_size: row.get("byte_size"),
-                    content_hash: row.get("content_hash"),
-                },
-                snapshot,
-            )
+        Ok(row.map(|row| SnapshotArchiveEntry {
+            record: SnapshotArchiveRecord {
+                id: row.get("id"),
+                document_id: row.get("document_id"),
+                version: row.get::<i32, _>("version") as i64,
+                label: row.get("label"),
+                notes: row.try_get("notes").ok(),
+                kind: row.get("kind"),
+                created_at: row.get("created_at"),
+                created_by: row.try_get("created_by").ok(),
+                byte_size: row.get("byte_size"),
+                content_hash: row.get("content_hash"),
+            },
+            bytes: row.get("snapshot"),
         }))
     }
 
@@ -194,7 +192,7 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
         &self,
         doc_id: Uuid,
         version: i64,
-    ) -> anyhow::Result<Option<(SnapshotArchiveRecord, Vec<u8>)>> {
+    ) -> anyhow::Result<Option<SnapshotArchiveEntry>> {
         let row = sqlx::query(
             r#"SELECT
                     id,
@@ -218,23 +216,20 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|row| {
-            let snapshot: Vec<u8> = row.get("snapshot");
-            (
-                SnapshotArchiveRecord {
-                    id: row.get("id"),
-                    document_id: row.get("document_id"),
-                    version: row.get::<i32, _>("version") as i64,
-                    label: row.get("label"),
-                    notes: row.try_get("notes").ok(),
-                    kind: row.get("kind"),
-                    created_at: row.get("created_at"),
-                    created_by: row.try_get("created_by").ok(),
-                    byte_size: row.get("byte_size"),
-                    content_hash: row.get("content_hash"),
-                },
-                snapshot,
-            )
+        Ok(row.map(|row| SnapshotArchiveEntry {
+            record: SnapshotArchiveRecord {
+                id: row.get("id"),
+                document_id: row.get("document_id"),
+                version: row.get::<i32, _>("version") as i64,
+                label: row.get("label"),
+                notes: row.try_get("notes").ok(),
+                kind: row.get("kind"),
+                created_at: row.get("created_at"),
+                created_by: row.try_get("created_by").ok(),
+                byte_size: row.get("byte_size"),
+                content_hash: row.get("content_hash"),
+            },
+            bytes: row.get("snapshot"),
         }))
     }
 }

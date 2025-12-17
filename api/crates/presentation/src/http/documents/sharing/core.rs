@@ -6,6 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use application::core::services::access;
+use domain::documents::share::SHARE_PERMISSION_VIEW;
 use crate::context::AppContext;
 use crate::security::token::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
@@ -48,7 +49,7 @@ pub async fn create_share(
         .require_edit(&actor, req.document_id)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
-    let permission = req.permission.as_deref().unwrap_or("view");
+    let permission = req.permission.as_deref().unwrap_or(SHARE_PERMISSION_VIEW);
     let service = ctx.share_service();
     let res = service
         .create_share(

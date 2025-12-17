@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use application::core::services::access;
+use domain::documents::share;
 use crate::context::AppContext;
 use crate::security::{request_status, token};
 
@@ -29,13 +30,13 @@ pub(super) async fn resolve_user_scope_from_inputs(
                 }
             }
             Ok(access::Actor::ShareToken(t)) => {
-                if let Ok(Some((_share_id, _perm, exp, _doc_id, _typ, workspace_id))) =
+                if let Ok(Some(ctx_share)) =
                     ctx.share_service().resolve_share_context(&t).await
                 {
-                    if exp.map(|e| e < chrono::Utc::now()).unwrap_or(false) {
+                    if share::is_expired(ctx_share.expires_at.as_ref(), chrono::Utc::now()) {
                         return None;
                     }
-                    return Some(workspace_id);
+                    return Some(ctx_share.workspace_id);
                 }
             }
             Ok(_) => {}
@@ -61,13 +62,13 @@ pub(super) async fn resolve_user_scope_from_inputs(
                 }
             }
             Ok(access::Actor::ShareToken(t)) => {
-                if let Ok(Some((_share_id, _perm, exp, _doc_id, _typ, workspace_id))) =
+                if let Ok(Some(ctx_share)) =
                     ctx.share_service().resolve_share_context(&t).await
                 {
-                    if exp.map(|e| e < chrono::Utc::now()).unwrap_or(false) {
+                    if share::is_expired(ctx_share.expires_at.as_ref(), chrono::Utc::now()) {
                         return None;
                     }
-                    return Some(workspace_id);
+                    return Some(ctx_share.workspace_id);
                 }
             }
             Ok(_) => {}

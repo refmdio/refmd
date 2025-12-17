@@ -4,10 +4,13 @@ use uuid::Uuid;
 
 use crate::plugins::dtos::ExecResult;
 use crate::documents::ports::document_repository::DocumentRepository;
+use crate::documents::use_cases::create_document::CreateDocument;
 use crate::plugins::ports::plugin_repository::PluginRepository;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;
 use crate::core::services::authorization::AuthorizationService;
 use crate::core::services::access;
+use domain::documents::doc_type::DocumentType;
+use domain::documents::title::Title;
 use domain::workspaces::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet};
 
 const PERMISSION_DOC_WRITE: &str = "doc.write";
@@ -149,21 +152,47 @@ where
                         .get("title")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Untitled");
-                    let doc_type = effect
+                    let title = Title::from_user_input(title);
+                    let doc_type_str = effect
                         .get("docType")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("document");
+                        .unwrap_or(DocumentType::Document.as_str());
+                    let doc_type = DocumentType::try_from(doc_type_str).map_err(|_| {
+                        PluginEffectError::Other(anyhow::anyhow!("invalid_document_type"))
+                    })?;
                     let parent_id = effect
                         .get("parentId")
                         .and_then(|v| v.as_str())
                         .and_then(|s| Uuid::parse_str(s).ok());
-                    let doc = self
-                        .document_repo
-                        .create_for_user(
+                    let parent_desired_path = if let Some(pid) = parent_id {
+                        let meta = self
+                            .document_repo
+                            .get_meta_for_owner(pid, workspace_id)
+                            .await
+                            .map_err(PluginEffectError::from)?
+                            .ok_or_else(|| {
+                                PluginEffectError::Other(anyhow::anyhow!(
+                                    "parent_document_not_found"
+                                ))
+                            })?;
+                        if meta.archived_at.is_some() {
+                            return Err(PluginEffectError::Other(anyhow::anyhow!(
+                                "parent_document_archived"
+                            )));
+                        }
+                        Some(meta.desired_path)
+                    } else {
+                        None
+                    };
+                    let mut repo = self.document_repo;
+                    let mut uc = CreateDocument { repo: &mut repo };
+                    let doc = uc
+                        .execute(
                             workspace_id,
                             user_id,
-                            title,
+                            &title,
                             parent_id,
+                            parent_desired_path.as_ref(),
                             doc_type,
                             Some(plugin),
                         )

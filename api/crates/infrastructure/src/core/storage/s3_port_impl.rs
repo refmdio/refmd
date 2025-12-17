@@ -20,6 +20,7 @@ use application::core::ports::storage::storage_port::{
 };
 use application::core::services::utils::hash::sha256_hex;
 use crate::core::db::PgPool;
+use domain::documents::doc_type::DOC_TYPE_FOLDER;
 
 #[derive(Clone, Debug)]
 pub struct S3StorageConfig {
@@ -195,7 +196,7 @@ impl S3StoragePort {
         };
         let owner_id: Uuid = row.get("owner_id");
         let dtype: String = row.get("type");
-        if dtype == "folder" {
+        if dtype == DOC_TYPE_FOLDER {
             return Ok(());
         }
         let old_rel: Option<String> = row.try_get("path").ok();
@@ -349,7 +350,7 @@ impl StorageProjectionPort for S3StoragePort {
             None => return Ok(()),
         };
         let dtype: String = row.get("type");
-        if dtype == "folder" {
+        if dtype == DOC_TYPE_FOLDER {
             return Ok(());
         }
         if let Some(path) = row.try_get::<String, _>("path").ok() {

@@ -29,7 +29,7 @@ impl<'a, R: PublicRepository + ?Sized> PublishDocument<'a, R> {
         workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Option<PublishResponseDto>> {
-        let (title, workspace_slug) = match self
+        let ws = match self
             .repo
             .ensure_workspace_title_and_slug(doc_id, workspace_id)
             .await?
@@ -37,7 +37,7 @@ impl<'a, R: PublicRepository + ?Sized> PublishDocument<'a, R> {
             Some(v) => v,
             None => return Ok(None),
         };
-        let mut base_slug = sanitize_title_local(&title);
+        let mut base_slug = sanitize_title_local(&ws.title);
         if base_slug.is_empty() {
             base_slug = doc_id.to_string();
         }
@@ -48,7 +48,7 @@ impl<'a, R: PublicRepository + ?Sized> PublishDocument<'a, R> {
             i += 1;
         }
         self.repo.upsert_public_document(doc_id, &slug).await?;
-        let public_url = format!("/w/{}/{}", workspace_slug, doc_id);
+        let public_url = format!("/w/{}/{}", ws.workspace_slug, doc_id);
         Ok(Some(PublishResponseDto { slug, public_url }))
     }
 }

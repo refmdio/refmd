@@ -12,9 +12,8 @@ use crate::documents::use_cases::publishing::list_workspace::ListWorkspacePublic
 use crate::documents::use_cases::publishing::publish::{PublishDocument, PublishResponseDto};
 use crate::documents::use_cases::publishing::unpublish::UnpublishDocument;
 use domain::documents::document::Document;
-use domain::workspaces::permissions::{
-    PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH, PermissionSet,
-};
+use domain::documents::public_policy;
+use domain::workspaces::permissions::PermissionSet;
 
 pub struct PublicService {
     repo: Arc<dyn PublicRepository>,
@@ -32,7 +31,8 @@ impl PublicService {
         permissions: &PermissionSet,
         doc_id: Uuid,
     ) -> Result<PublishResponseDto, ServiceError> {
-        ensure_public_publish_permission(permissions)?;
+        public_policy::ensure_public_publish_allowed(permissions)
+            .map_err(|_| ServiceError::Forbidden)?;
         let uc = PublishDocument {
             repo: self.repo.as_ref(),
         };
@@ -48,7 +48,8 @@ impl PublicService {
         permissions: &PermissionSet,
         doc_id: Uuid,
     ) -> Result<bool, ServiceError> {
-        ensure_public_unpublish_permission(permissions)?;
+        public_policy::ensure_public_unpublish_allowed(permissions)
+            .map_err(|_| ServiceError::Forbidden)?;
         let uc = UnpublishDocument {
             repo: self.repo.as_ref(),
         };
@@ -63,7 +64,8 @@ impl PublicService {
         permissions: &PermissionSet,
         doc_id: Uuid,
     ) -> Result<PublishResponseDto, ServiceError> {
-        ensure_public_publish_permission(permissions)?;
+        public_policy::ensure_public_publish_allowed(permissions)
+            .map_err(|_| ServiceError::Forbidden)?;
         let uc = GetPublishStatus {
             repo: self.repo.as_ref(),
         };
@@ -122,21 +124,5 @@ impl PublicService {
             .map_err(ServiceError::from)?
             .unwrap_or_default();
         Ok(content)
-    }
-}
-
-fn ensure_public_publish_permission(permissions: &PermissionSet) -> Result<(), ServiceError> {
-    if permissions.allows(PERM_PUBLIC_PUBLISH) {
-        Ok(())
-    } else {
-        Err(ServiceError::Forbidden)
-    }
-}
-
-fn ensure_public_unpublish_permission(permissions: &PermissionSet) -> Result<(), ServiceError> {
-    if permissions.allows(PERM_PUBLIC_UNPUBLISH) {
-        Ok(())
-    } else {
-        Err(ServiceError::Forbidden)
     }
 }

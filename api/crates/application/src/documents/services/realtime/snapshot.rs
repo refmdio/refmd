@@ -19,6 +19,8 @@ use crate::core::ports::storage::storage_projection_queue::{
 use crate::documents::ports::tagging::tagging_repository::TaggingRepository;
 use crate::core::services::tagging;
 use crate::core::services::utils::hash::sha256_hex;
+use crate::documents::ports::realtime::realtime_persistence_port::SnapshotEntry;
+use domain::documents::doc_type::DocumentType;
 
 pub struct SnapshotService {
     state_reader: Arc<dyn DocStateReader>,
@@ -137,7 +139,7 @@ impl SnapshotService {
         let snapshot_bin = encode_doc_snapshot(doc);
         let (current_version, previous_snapshot) = if options.skip_if_unchanged {
             match self.persistence.latest_snapshot_entry(doc_id).await? {
-                Some((version, bytes)) => (version, Some(bytes)),
+                Some(SnapshotEntry { version, bytes }) => (version, Some(bytes)),
                 None => (0, None),
             }
         } else {
@@ -203,7 +205,7 @@ impl SnapshotService {
             Some(r) => r,
             None => return Ok(MarkdownPersistResult { written: false }),
         };
-        if record.doc_type == "folder" {
+        if record.doc_type == DocumentType::Folder {
             return Ok(MarkdownPersistResult { written: false });
         }
         let contents = extract_markdown(doc);
@@ -245,7 +247,7 @@ impl SnapshotService {
         let Some(record) = self.state_reader.document_record(doc_id).await? else {
             return Ok(None);
         };
-        if record.doc_type == "folder" {
+        if record.doc_type == DocumentType::Folder {
             return Ok(None);
         }
         let doc = self.hydrate_doc_from_state(doc_id).await?;
@@ -303,12 +305,12 @@ impl SnapshotService {
         &self,
         archive_id: Uuid,
     ) -> anyhow::Result<Option<(SnapshotArchiveRecord, Doc)>> {
-        let Some((record, bytes)) = self.archive_repo.get_by_id(archive_id).await? else {
+        let Some(entry) = self.archive_repo.get_by_id(archive_id).await? else {
             return Ok(None);
         };
         let doc = Doc::new();
-        apply_update_bytes(&doc, &bytes)?;
-        Ok(Some((record, doc)))
+        apply_update_bytes(&doc, &entry.bytes)?;
+        Ok(Some((entry.record, doc)))
     }
 
     pub async fn load_archive_markdown(
@@ -327,11 +329,11 @@ impl SnapshotService {
         doc_id: Uuid,
         version: i64,
     ) -> anyhow::Result<Option<(SnapshotArchiveRecord, String)>> {
-        if let Some((record, bytes)) = self.archive_repo.latest_before(doc_id, version).await? {
+        if let Some(entry) = self.archive_repo.latest_before(doc_id, version).await? {
             let doc = Doc::new();
-            apply_update_bytes(&doc, &bytes)?;
+            apply_update_bytes(&doc, &entry.bytes)?;
             let markdown = extract_markdown(&doc);
-            return Ok(Some((record, markdown)));
+            return Ok(Some((entry.record, markdown)));
         }
         Ok(None)
     }

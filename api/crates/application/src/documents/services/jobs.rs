@@ -1,24 +1,34 @@
-use super::*;
+use tracing::warn;
+use uuid::Uuid;
+
+use domain::documents::doc_type::DocumentType;
+use domain::documents::document::Document as DomainDocument;
+
+use crate::core::ports::storage::storage_projection_queue::StorageProjectionQueueTx;
+use crate::core::ports::storage::storage_projection_queue::{
+    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, WorkspaceJobMetadata,
+};
+use crate::core::services::errors::ServiceError;
+
+use super::DocumentService;
 
 impl DocumentService {
     pub(super) async fn enqueue_projection_for_document_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
+        storage_jobs: &mut dyn StorageProjectionQueueTx,
         doc: &DomainDocument,
         reason: &'static str,
     ) -> Result<(), ServiceError> {
-        if doc.doc_type == "folder" {
-            self.enqueue_folder_sync_tx(tx, doc.workspace_id, doc.id, reason)
+        if doc.doc_type == DocumentType::Folder {
+            Self::enqueue_folder_sync_tx(storage_jobs, doc.workspace_id, doc.id, reason)
                 .await
         } else {
-            self.enqueue_doc_sync_tx(tx, doc.workspace_id, doc.id, reason)
+            Self::enqueue_doc_sync_tx(storage_jobs, doc.workspace_id, doc.id, reason)
                 .await
         }
     }
 
     pub(super) async fn enqueue_doc_sync_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
+        storage_jobs: &mut dyn StorageProjectionQueueTx,
         workspace_id: Uuid,
         doc_id: Uuid,
         reason: &'static str,
@@ -28,9 +38,8 @@ impl DocumentService {
             metadata: Some(WorkspaceJobMetadata { workspace_id }),
         })
         .ok();
-        self.storage_jobs
-            .enqueue_doc_job_tx(
-                tx,
+        storage_jobs
+            .enqueue_doc_job(
                 workspace_id,
                 doc_id,
                 StorageProjectionJobKind::DocSync,
@@ -48,8 +57,7 @@ impl DocumentService {
     }
 
     pub(super) async fn enqueue_doc_delete_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
+        storage_jobs: &mut dyn StorageProjectionQueueTx,
         workspace_id: Uuid,
         doc_id: Uuid,
         reason: &'static str,
@@ -63,9 +71,8 @@ impl DocumentService {
             .ok()
         });
         let reason_str = encoded_reason.as_deref().unwrap_or(reason);
-        self.storage_jobs
-            .enqueue_doc_job_tx(
-                tx,
+        storage_jobs
+            .enqueue_doc_job(
                 workspace_id,
                 doc_id,
                 StorageProjectionJobKind::DeleteDoc,
@@ -83,15 +90,13 @@ impl DocumentService {
     }
 
     pub(super) async fn enqueue_folder_sync_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
+        storage_jobs: &mut dyn StorageProjectionQueueTx,
         workspace_id: Uuid,
         folder_id: Uuid,
         reason: &'static str,
     ) -> Result<(), ServiceError> {
-        self.storage_jobs
-            .enqueue_folder_job_tx(
-                tx,
+        storage_jobs
+            .enqueue_folder_job(
                 workspace_id,
                 folder_id,
                 StorageProjectionJobKind::FolderSync,
@@ -109,8 +114,7 @@ impl DocumentService {
     }
 
     pub(super) async fn enqueue_folder_delete_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
+        storage_jobs: &mut dyn StorageProjectionQueueTx,
         workspace_id: Uuid,
         folder_id: Uuid,
         reason: &'static str,
@@ -124,9 +128,8 @@ impl DocumentService {
             .ok()
         });
         let reason_str = encoded_reason.as_deref().unwrap_or(reason);
-        self.storage_jobs
-            .enqueue_folder_job_tx(
-                tx,
+        storage_jobs
+            .enqueue_folder_job(
                 workspace_id,
                 folder_id,
                 StorageProjectionJobKind::DeleteFolder,
@@ -143,4 +146,3 @@ impl DocumentService {
             })
     }
 }
-

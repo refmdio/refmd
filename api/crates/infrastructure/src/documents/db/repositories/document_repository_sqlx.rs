@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
@@ -13,7 +13,9 @@ use domain::documents::document::{
     BacklinkInfo as DomBacklinkInfo, Document as DomainDocument, OutgoingLink as DomOutgoingLink,
     SearchHit,
 };
+use domain::documents::doc_type::DocumentType;
 use domain::documents::path as doc_path;
+use domain::documents::title::Title;
 use crate::core::db::PgPool;
 
 pub struct SqlxDocumentRepository {
@@ -25,38 +27,54 @@ impl SqlxDocumentRepository {
         Self { pool }
     }
 
-    fn map_row_to_meta(row: &PgRow) -> DocMeta {
-        DocMeta {
+    fn map_row_to_meta(row: &PgRow) -> anyhow::Result<DocMeta> {
+        let doc_type_str: String = row.get("type");
+        let doc_type =
+            DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+        let slug_str: String = row.get("slug");
+        let slug = doc_path::Slug::new(slug_str).context("invalid_slug")?;
+        let desired_path_str: String = row.get("desired_path");
+        let desired_path = doc_path::DesiredPath::new(desired_path_str);
+        let title: String = row.get("title");
+        Ok(DocMeta {
             workspace_id: row.get("workspace_id"),
-            doc_type: row.get("type"),
+            doc_type,
             path: row.try_get("path").ok(),
-            slug: row.get("slug"),
-            desired_path: row.get("desired_path"),
-            title: row.get("title"),
+            slug,
+            desired_path,
+            title: Title::new(title),
             archived_at: row.try_get("archived_at").ok(),
-        }
+        })
     }
 
-    fn map_row_to_document(row: &PgRow) -> DomainDocument {
-        DomainDocument {
+    fn map_row_to_document(row: &PgRow) -> anyhow::Result<DomainDocument> {
+        let doc_type_str: String = row.get("type");
+        let doc_type =
+            DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+        let title: String = row.get("title");
+        let slug_str: String = row.get("slug");
+        let slug = doc_path::Slug::new(slug_str).context("invalid_slug")?;
+        let desired_path_str: String = row.get("desired_path");
+        let desired_path = doc_path::DesiredPath::new(desired_path_str);
+        Ok(DomainDocument {
             id: row.get("id"),
             owner_id: row.get("owner_id"),
             owner_user_id: row.try_get("owner_user_id").ok(),
             workspace_id: row.get("workspace_id"),
-            title: row.get("title"),
+            title: Title::new(title),
             parent_id: row.get("parent_id"),
-            doc_type: row.get("type"),
+            doc_type,
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
             created_by_plugin: row.try_get("created_by_plugin").ok(),
-            slug: row.get("slug"),
-            desired_path: row.get("desired_path"),
+            slug,
+            desired_path,
             path: row.try_get("path").ok(),
             created_by: row.try_get("created_by").ok(),
             archived_at: row.try_get("archived_at").ok(),
             archived_by: row.try_get("archived_by").ok(),
             archived_parent_id: row.try_get("archived_parent_id").ok(),
-        }
+        })
     }
 
     fn hash_path(desired_path: &str) -> Vec<u8> {
@@ -70,9 +88,12 @@ impl SqlxDocumentRepository {
     async fn resolve_parent_folder_id(
         &self,
         workspace_id: Uuid,
-        desired_parent_path: Option<&str>,
+        desired_parent_path: Option<&doc_path::DesiredPath>,
     ) -> anyhow::Result<Option<Uuid>> {
-        let Some(path) = desired_parent_path.filter(|p| !p.is_empty()) else {
+        let Some(path) = desired_parent_path
+            .map(|p| p.as_str())
+            .filter(|p| !p.is_empty())
+        else {
             return Ok(None);
         };
         let row = sqlx::query(
@@ -148,6 +169,404 @@ impl SqlxDocumentRepository {
         err.downcast_ref::<sqlx::Error>()
             .is_some_and(|sqlx_err| Self::is_unique_violation(sqlx_err))
     }
+
+    pub(crate) async fn create_for_user_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        workspace_id: Uuid,
+        created_by: Uuid,
+        title: &Title,
+        parent_id: Option<Uuid>,
+        doc_type: DocumentType,
+        created_by_plugin: Option<&str>,
+        slug: &doc_path::Slug,
+        desired_path: &doc_path::DesiredPath,
+    ) -> anyhow::Result<DomainDocument> {
+        sqlx::query("SAVEPOINT document_create")
+            .execute(tx.as_mut())
+            .await?;
+        let repo_path = Self::owner_relative_path(workspace_id, desired_path.as_str());
+        let path_digest = Self::hash_path(desired_path.as_str());
+        let row = sqlx::query(
+            r#"INSERT INTO documents (title, owner_id, owner_user_id, workspace_id, created_by, created_by_plugin, parent_id, type, slug, desired_path, path, path_digest)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+               RETURNING *"#,
+        )
+        .bind(title.as_str())
+        .bind(workspace_id)
+        .bind(created_by)
+        .bind(workspace_id)
+        .bind(created_by)
+        .bind(created_by_plugin)
+        .bind(parent_id)
+        .bind(doc_type.as_str())
+        .bind(slug.as_str())
+        .bind(desired_path.as_str())
+        .bind(&repo_path)
+        .bind(&path_digest)
+        .fetch_one(tx.as_mut())
+        .await;
+        match row {
+            Ok(row) => {
+                sqlx::query("RELEASE SAVEPOINT document_create")
+                    .execute(tx.as_mut())
+                    .await
+                    .ok();
+                Ok(Self::map_row_to_document(&row)?)
+            }
+            Err(err) => {
+                if Self::is_unique_violation(&err) {
+                    sqlx::query("ROLLBACK TO SAVEPOINT document_create")
+                        .execute(tx.as_mut())
+                        .await
+                        .ok();
+                    sqlx::query("RELEASE SAVEPOINT document_create")
+                        .execute(tx.as_mut())
+                        .await
+                        .ok();
+                    return Err(DocumentPathConflictError.into());
+                }
+                sqlx::query("ROLLBACK TO SAVEPOINT document_create")
+                    .execute(tx.as_mut())
+                    .await
+                    .ok();
+                sqlx::query("RELEASE SAVEPOINT document_create")
+                    .execute(tx.as_mut())
+                    .await
+                    .ok();
+                Err(err.into())
+            }
+        }
+    }
+
+    pub(crate) async fn update_title_and_parent_for_user_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        workspace_id: Uuid,
+        title: &Title,
+        parent_id: Option<Option<Uuid>>,
+        slug: &doc_path::Slug,
+        desired_path: &doc_path::DesiredPath,
+    ) -> anyhow::Result<Option<DomainDocument>> {
+        sqlx::query("SAVEPOINT document_update")
+            .execute(tx.as_mut())
+            .await?;
+        let path_digest = Self::hash_path(desired_path.as_str());
+        let row = match parent_id {
+            None => {
+                sqlx::query(
+                    r#"UPDATE documents SET
+                            title = $1,
+                            slug = $2,
+                            desired_path = $3,
+                            path_digest = $4,
+                            updated_at = now()
+                        WHERE id = $5 AND workspace_id = $6
+                        RETURNING *"#,
+                )
+                .bind(title.as_str())
+                .bind(slug.as_str())
+                .bind(desired_path.as_str())
+                .bind(&path_digest)
+                .bind(id)
+                .bind(workspace_id)
+                .fetch_optional(tx.as_mut())
+                .await
+            }
+            Some(new_parent) => {
+                sqlx::query(
+                    r#"UPDATE documents SET
+                            title = $1,
+                            parent_id = $2,
+                            slug = $3,
+                            desired_path = $4,
+                            path_digest = $5,
+                            updated_at = now()
+                        WHERE id = $6 AND workspace_id = $7
+                        RETURNING *"#,
+                )
+                .bind(title.as_str())
+                .bind(new_parent)
+                .bind(slug.as_str())
+                .bind(desired_path.as_str())
+                .bind(&path_digest)
+                .bind(id)
+                .bind(workspace_id)
+                .fetch_optional(tx.as_mut())
+                .await
+            }
+        };
+
+        match row {
+            Ok(Some(row)) => {
+                let doc = Self::map_row_to_document(&row)?;
+                if doc.doc_type == DocumentType::Folder {
+                    sqlx::query("SAVEPOINT document_update_descendants")
+                        .execute(tx.as_mut())
+                        .await?;
+                    let result = self
+                        .update_descendant_paths_tx(tx, doc.id)
+                        .await
+                        .map_err(|err| {
+                            if Self::is_anyhow_unique_violation(&err) {
+                                anyhow::Error::new(DocumentPathConflictError)
+                            } else {
+                                err
+                            }
+                        });
+                    match result {
+                        Ok(()) => {
+                            sqlx::query("RELEASE SAVEPOINT document_update_descendants")
+                                .execute(tx.as_mut())
+                                .await
+                                .ok();
+                        }
+                        Err(err) => {
+                            sqlx::query("ROLLBACK TO SAVEPOINT document_update_descendants")
+                                .execute(tx.as_mut())
+                                .await
+                                .ok();
+                            sqlx::query("ROLLBACK TO SAVEPOINT document_update")
+                                .execute(tx.as_mut())
+                                .await
+                                .ok();
+                            sqlx::query("RELEASE SAVEPOINT document_update")
+                                .execute(tx.as_mut())
+                                .await
+                                .ok();
+                            return Err(err);
+                        }
+                    }
+                }
+                sqlx::query("RELEASE SAVEPOINT document_update")
+                    .execute(tx.as_mut())
+                    .await
+                    .ok();
+                Ok(Some(doc))
+            }
+            Ok(None) => {
+                sqlx::query("RELEASE SAVEPOINT document_update")
+                    .execute(tx.as_mut())
+                    .await
+                    .ok();
+                Ok(None)
+            }
+            Err(err) => {
+                if Self::is_unique_violation(&err) {
+                    sqlx::query("ROLLBACK TO SAVEPOINT document_update")
+                        .execute(tx.as_mut())
+                        .await
+                        .ok();
+                    sqlx::query("RELEASE SAVEPOINT document_update")
+                        .execute(tx.as_mut())
+                        .await
+                        .ok();
+                    return Err(DocumentPathConflictError.into());
+                }
+                sqlx::query("ROLLBACK TO SAVEPOINT document_update")
+                    .execute(tx.as_mut())
+                    .await
+                    .ok();
+                sqlx::query("RELEASE SAVEPOINT document_update")
+                    .execute(tx.as_mut())
+                    .await
+                    .ok();
+                Err(err.into())
+            }
+        }
+    }
+
+    pub(crate) async fn delete_owned_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Option<DocumentType>> {
+        // fetch type
+        let row = sqlx::query(r#"SELECT type FROM documents WHERE id = $1 AND workspace_id = $2"#)
+            .bind(id)
+            .bind(workspace_id)
+            .fetch_optional(tx.as_mut())
+            .await?;
+        let dtype = match row {
+            Some(r) => {
+                let doc_type_str: String = r.get("type");
+                DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?
+            }
+            None => return Ok(None),
+        };
+        let res = sqlx::query(r#"DELETE FROM documents WHERE id = $1 AND workspace_id = $2"#)
+            .bind(id)
+            .bind(workspace_id)
+            .execute(tx.as_mut())
+            .await?;
+        if res.rows_affected() > 0 {
+            Ok(Some(dtype))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub(crate) async fn get_meta_for_owner_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Option<DocMeta>> {
+        let row = sqlx::query(
+            "SELECT workspace_id, type, path, slug, desired_path, title, archived_at FROM documents WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
+        )
+        .bind(doc_id)
+        .bind(workspace_id)
+        .fetch_optional(tx.as_mut())
+        .await?;
+        row.as_ref()
+            .map(SqlxDocumentRepository::map_row_to_meta)
+            .transpose()
+    }
+
+    pub(crate) async fn archive_subtree_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        workspace_id: Uuid,
+        archived_by: Uuid,
+    ) -> anyhow::Result<Option<DomainDocument>> {
+        let updated = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            WITH RECURSIVE subtree AS (
+                SELECT id FROM documents WHERE id = $1 AND workspace_id = $2
+                UNION ALL
+                SELECT d.id
+                FROM documents d
+                JOIN subtree sb ON d.parent_id = sb.id
+                WHERE d.workspace_id = $2
+            ),
+            removed_shares AS (
+                DELETE FROM shares s
+                USING subtree sb
+                WHERE s.document_id = sb.id
+                RETURNING 1
+            ),
+            updated AS (
+                UPDATE documents AS d
+                SET archived_at = now(),
+                    archived_by = $3,
+                    archived_parent_id = d.parent_id,
+                    parent_id = NULL,
+                    updated_at = now()
+                FROM subtree sb
+                WHERE d.id = sb.id AND d.archived_at IS NULL
+                RETURNING d.id
+            )
+            SELECT id FROM updated WHERE id = $1 LIMIT 1
+            "#,
+        )
+        .bind(doc_id)
+        .bind(workspace_id)
+        .bind(archived_by)
+        .fetch_optional(tx.as_mut())
+        .await?;
+
+        let root = if let Some(root_id) = updated {
+            sqlx::query(r#"SELECT * FROM documents WHERE id = $1"#)
+                .bind(root_id)
+                .fetch_optional(tx.as_mut())
+                .await?
+                .map(|r| Self::map_row_to_document(&r))
+                .transpose()?
+        } else {
+            None
+        };
+
+        Ok(root)
+    }
+
+    pub(crate) async fn unarchive_subtree_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Option<DomainDocument>> {
+        let updated = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            WITH RECURSIVE subtree AS (
+                SELECT id FROM documents WHERE id = $1 AND workspace_id = $2
+                UNION ALL
+                SELECT d.id
+                FROM documents d
+                JOIN subtree sb ON d.archived_parent_id = sb.id
+                WHERE d.workspace_id = $2
+            ),
+            updated AS (
+                UPDATE documents AS d
+                SET parent_id = archived_parent_id,
+                    archived_parent_id = NULL,
+                    archived_at = NULL,
+                    archived_by = NULL,
+                    updated_at = now()
+                FROM subtree sb
+                WHERE d.id = sb.id AND d.archived_at IS NOT NULL
+                RETURNING d.id
+            )
+            SELECT id FROM updated WHERE id = $1 LIMIT 1
+            "#,
+        )
+        .bind(doc_id)
+        .bind(workspace_id)
+        .fetch_optional(tx.as_mut())
+        .await?;
+
+        let root = if let Some(root_id) = updated {
+            sqlx::query(r#"SELECT * FROM documents WHERE id = $1"#)
+                .bind(root_id)
+                .fetch_optional(tx.as_mut())
+                .await?
+                .map(|r| Self::map_row_to_document(&r))
+                .transpose()?
+        } else {
+            None
+        };
+
+        Ok(root)
+    }
+
+    pub(crate) async fn list_owned_subtree_documents_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        workspace_id: Uuid,
+        root_id: Uuid,
+    ) -> anyhow::Result<Vec<SubtreeDocument>> {
+        let rows = sqlx::query(
+            r#"
+            WITH RECURSIVE subtree AS (
+                SELECT id, type FROM documents WHERE id = $1 AND workspace_id = $2
+                UNION ALL
+                SELECT d.id, d.type
+                FROM documents d
+                JOIN subtree sb ON COALESCE(d.parent_id, d.archived_parent_id) = sb.id
+                WHERE d.workspace_id = $2
+            )
+            SELECT id, type FROM subtree FOR UPDATE
+            "#,
+        )
+        .bind(root_id)
+        .bind(workspace_id)
+        .fetch_all(tx.as_mut())
+        .await?;
+        rows.into_iter()
+            .map(|r| {
+                let doc_type_str: String = r.get("type");
+                let doc_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
+                Ok(SubtreeDocument {
+                    id: r.get("id"),
+                    doc_type,
+                })
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -156,14 +575,14 @@ mod tests {
 
     #[test]
     fn slug_preserves_unicode_and_case() {
-        assert_eq!(doc_path::slugify("Main"), "Main");
-        assert_eq!(doc_path::slugify("Résumé2025"), "Résumé2025");
+        assert_eq!(doc_path::Slug::from_title("Main").as_str(), "Main");
+        assert_eq!(doc_path::Slug::from_title("Résumé2025").as_str(), "Résumé2025");
     }
 
     #[test]
     fn slug_sanitizes_forbidden_chars() {
-        assert_eq!(doc_path::slugify(" Foo / Bar "), "Foo - Bar");
-        assert_eq!(doc_path::slugify("////"), "untitled");
+        assert_eq!(doc_path::Slug::from_title(" Foo / Bar ").as_str(), "Foo - Bar");
+        assert_eq!(doc_path::Slug::from_title("////").as_str(), "untitled");
     }
 }
 
@@ -225,10 +644,9 @@ impl DocumentRepository for SqlxDocumentRepository {
                 .await?
         };
 
-        Ok(rows
-            .into_iter()
+        rows.into_iter()
             .map(|r| Self::map_row_to_document(&r))
-            .collect())
+            .collect()
     }
 
     async fn list_ids_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<Uuid>> {
@@ -266,10 +684,9 @@ impl DocumentRepository for SqlxDocumentRepository {
             .bind(workspace_id)
             .fetch_all(&self.pool)
             .await?;
-        Ok(rows
-            .into_iter()
+        rows.into_iter()
             .map(|r| Self::map_row_to_document(&r))
-            .collect())
+            .collect()
     }
 
     async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>> {
@@ -277,7 +694,7 @@ impl DocumentRepository for SqlxDocumentRepository {
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row.map(|r| Self::map_row_to_document(&r)))
+        row.map(|r| Self::map_row_to_document(&r)).transpose()
     }
 
     async fn search_for_user(
@@ -315,27 +732,33 @@ impl DocumentRepository for SqlxDocumentRepository {
                 .fetch_all(&self.pool)
                 .await?
         };
-        let out = rows
-            .into_iter()
-            .map(|r| SearchHit {
-                id: r.get("id"),
-                title: r.get("title"),
-                doc_type: r.get::<String, _>("type"),
-                path: r.try_get("path").ok(),
-                updated_at: r.get("updated_at"),
+        rows.into_iter()
+            .map(|r| {
+                let doc_type_str: String = r.get("type");
+                let doc_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
+                let title: String = r.get("title");
+                Ok(SearchHit {
+                    id: r.get("id"),
+                    title: Title::new(title),
+                    doc_type,
+                    path: r.try_get("path").ok(),
+                    updated_at: r.get("updated_at"),
+                })
             })
-            .collect();
-        Ok(out)
+            .collect()
     }
 
     async fn create_for_user(
         &self,
         workspace_id: Uuid,
         created_by: Uuid,
-        title: &str,
+        title: &Title,
         parent_id: Option<Uuid>,
-        doc_type: &str,
+        doc_type: DocumentType,
         created_by_plugin: Option<&str>,
+        slug: &doc_path::Slug,
+        desired_path: &doc_path::DesiredPath,
     ) -> anyhow::Result<DomainDocument> {
         let mut tx = self.pool.begin().await?;
         let doc = self
@@ -347,283 +770,48 @@ impl DocumentRepository for SqlxDocumentRepository {
                 parent_id,
                 doc_type,
                 created_by_plugin,
-            )
+                slug,
+                desired_path,
+        )
             .await?;
         tx.commit().await?;
         Ok(doc)
-    }
-
-    async fn create_for_user_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        created_by: Uuid,
-        title: &str,
-        parent_id: Option<Uuid>,
-        doc_type: &str,
-        created_by_plugin: Option<&str>,
-    ) -> anyhow::Result<DomainDocument> {
-        sqlx::query("SAVEPOINT document_create")
-            .execute(tx.as_mut())
-            .await?;
-        let base_slug = doc_path::slugify(title);
-        let mut attempt = 0usize;
-        loop {
-            let slug = doc_path::apply_slug_suffix(&base_slug, attempt);
-            let parent_path = if let Some(pid) = parent_id {
-                let path = sqlx::query_scalar::<_, Option<String>>(
-                    "SELECT desired_path FROM documents WHERE id = $1",
-                )
-                .bind(pid)
-                .fetch_optional(&self.pool)
-                .await?
-                .flatten()
-                .ok_or_else(|| anyhow!("parent_document_not_found"))?;
-                Some(path)
-            } else {
-                None
-            };
-            let desired_path = doc_path::build_desired_path(parent_path.as_deref(), &slug, doc_type);
-            let repo_path = Self::owner_relative_path(workspace_id, &desired_path);
-            let path_digest = Self::hash_path(&desired_path);
-            let row = sqlx::query(
-                r#"INSERT INTO documents (title, owner_id, owner_user_id, workspace_id, created_by, created_by_plugin, parent_id, type, slug, desired_path, path, path_digest)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                   RETURNING *"#,
-            )
-            .bind(title)
-            .bind(workspace_id)
-            .bind(created_by)
-            .bind(workspace_id)
-            .bind(created_by)
-            .bind(created_by_plugin)
-            .bind(parent_id)
-            .bind(doc_type)
-            .bind(&slug)
-            .bind(&desired_path)
-            .bind(&repo_path)
-            .bind(&path_digest)
-            .fetch_one(tx.as_mut())
-            .await;
-            match row {
-                Ok(row) => {
-                    sqlx::query("RELEASE SAVEPOINT document_create")
-                        .execute(tx.as_mut())
-                        .await
-                        .ok();
-                    return Ok(Self::map_row_to_document(&row));
-                }
-                Err(err) if Self::is_unique_violation(&err) => {
-                    sqlx::query("ROLLBACK TO SAVEPOINT document_create")
-                        .execute(tx.as_mut())
-                        .await?;
-                    attempt += 1;
-                    continue;
-                }
-                Err(err) => {
-                    sqlx::query("ROLLBACK TO SAVEPOINT document_create")
-                        .execute(tx.as_mut())
-                        .await
-                        .ok();
-                    if Self::is_unique_violation(&err) {
-                        return Err(DocumentPathConflictError.into());
-                    }
-                    return Err(err.into());
-                }
-            }
-        }
     }
 
     async fn update_title_and_parent_for_user(
         &self,
         id: Uuid,
         workspace_id: Uuid,
-        title: Option<String>,
+        title: &Title,
         parent_id: Option<Option<Uuid>>,
+        slug: &doc_path::Slug,
+        desired_path: &doc_path::DesiredPath,
     ) -> anyhow::Result<Option<DomainDocument>> {
         let mut tx = self.pool.begin().await?;
         let doc = self
-            .update_title_and_parent_for_user_tx(&mut tx, id, workspace_id, title, parent_id)
-            .await?;
+            .update_title_and_parent_for_user_tx(
+                &mut tx,
+                id,
+                workspace_id,
+                title,
+                parent_id,
+                slug,
+                desired_path,
+            )
+        .await?;
         tx.commit().await?;
         Ok(doc)
     }
 
-    async fn update_title_and_parent_for_user_tx(
+    async fn delete_owned(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
         id: Uuid,
         workspace_id: Uuid,
-        title: Option<String>,
-        parent_id: Option<Option<Uuid>>,
-    ) -> anyhow::Result<Option<DomainDocument>> {
-        let current = sqlx::query(
-            r#"SELECT title, parent_id, type, slug
-               FROM documents
-               WHERE id = $1 AND workspace_id = $2"#,
-        )
-        .bind(id)
-        .bind(workspace_id)
-        .fetch_optional(tx.as_mut())
-        .await?;
-        let Some(current) = current else {
-            return Ok(None);
-        };
-
-        let next_title = title.clone().unwrap_or_else(|| current.get("title"));
-        let next_parent: Option<Uuid> = match parent_id {
-            None => current.get("parent_id"),
-            Some(new_parent) => new_parent,
-        };
-        let doc_type: String = current.get("type");
-        let base_slug = if title.is_some() {
-            doc_path::slugify(&next_title)
-        } else {
-            current.get("slug")
-        };
-
-        sqlx::query("SAVEPOINT document_update")
-            .execute(tx.as_mut())
-            .await?;
-        let mut attempt = 0usize;
-        loop {
-            let slug = doc_path::apply_slug_suffix(&base_slug, attempt);
-            let parent_path = if let Some(pid) = next_parent {
-                let path = sqlx::query_scalar::<_, Option<String>>(
-                    "SELECT desired_path FROM documents WHERE id = $1",
-                )
-                .bind(pid)
-                .fetch_optional(&self.pool)
-                .await?
-                .flatten()
-                .ok_or_else(|| anyhow!("parent_document_not_found"))?;
-                Some(path)
-            } else {
-                None
-            };
-            let desired_path = doc_path::build_desired_path(parent_path.as_deref(), &slug, &doc_type);
-            let path_digest = Self::hash_path(&desired_path);
-            let row = sqlx::query(
-                r#"UPDATE documents SET
-                        title = $1,
-                        parent_id = $2,
-                        slug = $3,
-                        desired_path = $4,
-                        path_digest = $5,
-                        updated_at = now()
-                    WHERE id = $6 AND workspace_id = $7
-                    RETURNING *"#,
-            )
-            .bind(&next_title)
-            .bind(next_parent)
-            .bind(&slug)
-            .bind(&desired_path)
-            .bind(&path_digest)
-            .bind(id)
-            .bind(workspace_id)
-            .fetch_optional(tx.as_mut())
-            .await;
-            match row {
-                Ok(Some(row)) => {
-                    let doc = Self::map_row_to_document(&row);
-                    if doc.doc_type == "folder" {
-                        sqlx::query("SAVEPOINT document_update_descendants")
-                            .execute(tx.as_mut())
-                            .await?;
-                        let result =
-                            self.update_descendant_paths_tx(tx, doc.id)
-                                .await
-                                .map_err(|err| {
-                                    if Self::is_anyhow_unique_violation(&err) {
-                                        anyhow::Error::new(DocumentPathConflictError)
-                                    } else {
-                                        err
-                                    }
-                                });
-                        match result {
-                            Ok(()) => {
-                                sqlx::query("RELEASE SAVEPOINT document_update_descendants")
-                                    .execute(tx.as_mut())
-                                    .await
-                                    .ok();
-                            }
-                            Err(err) => {
-                                sqlx::query("ROLLBACK TO SAVEPOINT document_update_descendants")
-                                    .execute(tx.as_mut())
-                                    .await
-                                    .ok();
-                                sqlx::query("ROLLBACK TO SAVEPOINT document_update")
-                                    .execute(tx.as_mut())
-                                    .await
-                                    .ok();
-                                return Err(err);
-                            }
-                        }
-                    }
-                    sqlx::query("RELEASE SAVEPOINT document_update")
-                        .execute(tx.as_mut())
-                        .await
-                        .ok();
-                    return Ok(Some(doc));
-                }
-                Ok(None) => {
-                    sqlx::query("RELEASE SAVEPOINT document_update")
-                        .execute(tx.as_mut())
-                        .await
-                        .ok();
-                    return Ok(None);
-                }
-                Err(err) if Self::is_unique_violation(&err) => {
-                    sqlx::query("ROLLBACK TO SAVEPOINT document_update")
-                        .execute(tx.as_mut())
-                        .await?;
-                    attempt += 1;
-                    continue;
-                }
-                Err(err) => {
-                    sqlx::query("ROLLBACK TO SAVEPOINT document_update")
-                        .execute(tx.as_mut())
-                        .await
-                        .ok();
-                    return Err(err.into());
-                }
-            }
-        }
-    }
-
-    async fn delete_owned(&self, id: Uuid, workspace_id: Uuid) -> anyhow::Result<Option<String>> {
+    ) -> anyhow::Result<Option<DocumentType>> {
         let mut tx = self.pool.begin().await?;
         let res = self.delete_owned_tx(&mut tx, id, workspace_id).await?;
         tx.commit().await?;
         Ok(res)
-    }
-
-    async fn delete_owned_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        id: Uuid,
-        workspace_id: Uuid,
-    ) -> anyhow::Result<Option<String>> {
-        // fetch type
-        let row = sqlx::query(r#"SELECT type FROM documents WHERE id = $1 AND workspace_id = $2"#)
-            .bind(id)
-            .bind(workspace_id)
-            .fetch_optional(tx.as_mut())
-            .await?;
-        let dtype: String = match row {
-            Some(r) => r.get("type"),
-            None => return Ok(None),
-        };
-        let res = sqlx::query(r#"DELETE FROM documents WHERE id = $1 AND workspace_id = $2"#)
-            .bind(id)
-            .bind(workspace_id)
-            .execute(tx.as_mut())
-            .await?;
-        if res.rows_affected() > 0 {
-            Ok(Some(dtype))
-        } else {
-            Ok(None)
-        }
     }
 
     async fn backlinks_for(
@@ -644,19 +832,23 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
-        let out = rows
-            .into_iter()
-            .map(|r| DomBacklinkInfo {
-                document_id: r.get("document_id"),
-                title: r.get("title"),
-                document_type: r.get("document_type"),
-                file_path: r.try_get("file_path").ok(),
-                link_type: r.get("link_type"),
-                link_text: r.try_get("link_text").ok(),
-                link_count: r.try_get("link_count").unwrap_or(1_i64),
+        rows.into_iter()
+            .map(|r| {
+                let doc_type_str: String = r.get("document_type");
+                let document_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
+                let title: String = r.get("title");
+                Ok(DomBacklinkInfo {
+                    document_id: r.get("document_id"),
+                    title: Title::new(title),
+                    document_type,
+                    file_path: r.try_get("file_path").ok(),
+                    link_type: r.get("link_type"),
+                    link_text: r.try_get("link_text").ok(),
+                    link_count: r.try_get("link_count").unwrap_or(1_i64),
+                })
             })
-            .collect();
-        Ok(out)
+            .collect()
     }
 
     async fn outgoing_links_for(
@@ -676,20 +868,24 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
-        let out = rows
-            .into_iter()
-            .map(|r| DomOutgoingLink {
-                document_id: r.get("document_id"),
-                title: r.get("title"),
-                document_type: r.get("document_type"),
-                file_path: r.try_get("file_path").ok(),
-                link_type: r.get("link_type"),
-                link_text: r.try_get("link_text").ok(),
-                position_start: r.try_get("position_start").ok(),
-                position_end: r.try_get("position_end").ok(),
+        rows.into_iter()
+            .map(|r| {
+                let doc_type_str: String = r.get("document_type");
+                let document_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
+                let title: String = r.get("title");
+                Ok(DomOutgoingLink {
+                    document_id: r.get("document_id"),
+                    title: Title::new(title),
+                    document_type,
+                    file_path: r.try_get("file_path").ok(),
+                    link_type: r.get("link_type"),
+                    link_text: r.try_get("link_text").ok(),
+                    position_start: r.try_get("position_start").ok(),
+                    position_end: r.try_get("position_end").ok(),
+                })
             })
-            .collect();
-        Ok(out)
+            .collect()
     }
 
     async fn get_meta_for_owner(
@@ -704,23 +900,9 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.as_ref().map(SqlxDocumentRepository::map_row_to_meta))
-    }
-
-    async fn get_meta_for_owner_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        doc_id: Uuid,
-        workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocMeta>> {
-        let row = sqlx::query(
-            "SELECT workspace_id, type, path, slug, desired_path, title, archived_at FROM documents WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
-        )
-        .bind(doc_id)
-        .bind(workspace_id)
-        .fetch_optional(tx.as_mut())
-        .await?;
-        Ok(row.as_ref().map(SqlxDocumentRepository::map_row_to_meta))
+        row.as_ref()
+            .map(SqlxDocumentRepository::map_row_to_meta)
+            .transpose()
     }
 
     async fn archive_subtree(
@@ -737,62 +919,6 @@ impl DocumentRepository for SqlxDocumentRepository {
         Ok(doc)
     }
 
-    async fn archive_subtree_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        doc_id: Uuid,
-        workspace_id: Uuid,
-        archived_by: Uuid,
-    ) -> anyhow::Result<Option<DomainDocument>> {
-        let updated = sqlx::query_scalar::<_, Uuid>(
-            r#"
-            WITH RECURSIVE subtree AS (
-                SELECT id FROM documents WHERE id = $1 AND workspace_id = $2
-                UNION ALL
-                SELECT d.id
-                FROM documents d
-                JOIN subtree sb ON d.parent_id = sb.id
-                WHERE d.workspace_id = $2
-            ),
-            removed_shares AS (
-                DELETE FROM shares s
-                USING subtree sb
-                WHERE s.document_id = sb.id
-                RETURNING 1
-            ),
-            updated AS (
-                UPDATE documents AS d
-                SET archived_at = now(),
-                    archived_by = $3,
-                    archived_parent_id = d.parent_id,
-                    parent_id = NULL,
-                    updated_at = now()
-                FROM subtree sb
-                WHERE d.id = sb.id AND d.archived_at IS NULL
-                RETURNING d.id
-            )
-            SELECT id FROM updated WHERE id = $1 LIMIT 1
-            "#,
-        )
-        .bind(doc_id)
-        .bind(workspace_id)
-        .bind(archived_by)
-        .fetch_optional(tx.as_mut())
-        .await?;
-
-        let root = if let Some(root_id) = updated {
-            sqlx::query(r#"SELECT * FROM documents WHERE id = $1"#)
-                .bind(root_id)
-                .fetch_optional(tx.as_mut())
-                .await?
-                .map(|r| Self::map_row_to_document(&r))
-        } else {
-            None
-        };
-
-        Ok(root)
-    }
-
     async fn unarchive_subtree(
         &self,
         doc_id: Uuid,
@@ -804,54 +930,6 @@ impl DocumentRepository for SqlxDocumentRepository {
             .await?;
         tx.commit().await?;
         Ok(doc)
-    }
-
-    async fn unarchive_subtree_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        doc_id: Uuid,
-        workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DomainDocument>> {
-        let updated = sqlx::query_scalar::<_, Uuid>(
-            r#"
-            WITH RECURSIVE subtree AS (
-                SELECT id FROM documents WHERE id = $1 AND workspace_id = $2
-                UNION ALL
-                SELECT d.id
-                FROM documents d
-                JOIN subtree sb ON d.archived_parent_id = sb.id
-                WHERE d.workspace_id = $2
-            ),
-            updated AS (
-                UPDATE documents AS d
-                SET parent_id = archived_parent_id,
-                    archived_parent_id = NULL,
-                    archived_at = NULL,
-                    archived_by = NULL,
-                    updated_at = now()
-                FROM subtree sb
-                WHERE d.id = sb.id AND d.archived_at IS NOT NULL
-                RETURNING d.id
-            )
-            SELECT id FROM updated WHERE id = $1 LIMIT 1
-            "#,
-        )
-        .bind(doc_id)
-        .bind(workspace_id)
-        .fetch_optional(tx.as_mut())
-        .await?;
-
-        let root = if let Some(root_id) = updated {
-            sqlx::query(r#"SELECT * FROM documents WHERE id = $1"#)
-                .bind(root_id)
-                .fetch_optional(tx.as_mut())
-                .await?
-                .map(|r| Self::map_row_to_document(&r))
-        } else {
-            None
-        };
-
-        Ok(root)
     }
 
     async fn list_owned_subtree_documents(
@@ -876,45 +954,17 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| SubtreeDocument {
-                id: r.get("id"),
-                doc_type: r.get("type"),
+        rows.into_iter()
+            .map(|r| {
+                let doc_type_str: String = r.get("type");
+                let doc_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
+                Ok(SubtreeDocument {
+                    id: r.get("id"),
+                    doc_type,
+                })
             })
-            .collect())
-    }
-
-    async fn list_owned_subtree_documents_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        root_id: Uuid,
-    ) -> anyhow::Result<Vec<SubtreeDocument>> {
-        let rows = sqlx::query(
-            r#"
-            WITH RECURSIVE subtree AS (
-                SELECT id, type FROM documents WHERE id = $1 AND workspace_id = $2
-                UNION ALL
-                SELECT d.id, d.type
-                FROM documents d
-                JOIN subtree sb ON COALESCE(d.parent_id, d.archived_parent_id) = sb.id
-                WHERE d.workspace_id = $2
-            )
-            SELECT id, type FROM subtree FOR UPDATE
-            "#,
-        )
-        .bind(root_id)
-        .bind(workspace_id)
-        .fetch_all(tx.as_mut())
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| SubtreeDocument {
-                id: r.get("id"),
-                doc_type: r.get("type"),
-            })
-            .collect())
+            .collect()
     }
 
     async fn get_by_owner_and_path(
@@ -932,7 +982,7 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(relative_path)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| Self::map_row_to_document(&r)))
+        row.map(|r| Self::map_row_to_document(&r)).transpose()
     }
 
     async fn update_repo_path(
@@ -951,13 +1001,14 @@ impl DocumentRepository for SqlxDocumentRepository {
         if desired_path.is_empty() {
             return Err(anyhow!("invalid_relative_path"));
         }
+        let desired_path = doc_path::DesiredPath::new(desired_path);
         let slug = doc_path::slug_from_desired_path(&desired_path)?;
         let parent_path = doc_path::parent_desired_path(&desired_path);
         let parent_id = self
-            .resolve_parent_folder_id(workspace_id, parent_path.as_deref())
+            .resolve_parent_folder_id(workspace_id, parent_path.as_ref())
             .await?;
-        let normalized_path = Self::owner_relative_path(workspace_id, &desired_path);
-        let path_digest = Self::hash_path(&desired_path);
+        let normalized_path = Self::owner_relative_path(workspace_id, desired_path.as_str());
+        let path_digest = Self::hash_path(desired_path.as_str());
         sqlx::query(
             r#"UPDATE documents SET
                     path = $3,
@@ -971,9 +1022,9 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(doc_id)
         .bind(workspace_id)
         .bind(&normalized_path)
-        .bind(&desired_path)
+        .bind(desired_path.as_str())
         .bind(&path_digest)
-        .bind(&slug)
+        .bind(slug.as_str())
         .bind(parent_id)
         .execute(&self.pool)
         .await?;

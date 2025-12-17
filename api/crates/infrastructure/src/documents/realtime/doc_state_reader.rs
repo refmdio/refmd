@@ -7,6 +7,7 @@ use uuid::Uuid;
 use application::documents::ports::realtime::realtime_hydration_port::{
     DocSnapshot, DocStateReader, DocUpdate, DocumentRecord,
 };
+use domain::documents::doc_type::DocumentType;
 use crate::core::db::PgPool;
 
 #[derive(Clone)]
@@ -71,13 +72,19 @@ impl DocStateReader for SqlxDocStateReader {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|row| DocumentRecord {
-            doc_type: row.get("type"),
-            path: row.try_get("path").ok(),
-            desired_path: row.try_get("desired_path").ok(),
-            title: row.get("title"),
-            owner_id: row.try_get("owner_id").ok(),
-            workspace_id: row.get("workspace_id"),
-        }))
+        row.map(|row| {
+            let doc_type_str: String = row.get("type");
+            let doc_type =
+                DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+            Ok(DocumentRecord {
+                doc_type,
+                path: row.try_get("path").ok(),
+                desired_path: row.try_get("desired_path").ok(),
+                title: row.get("title"),
+                owner_id: row.try_get("owner_id").ok(),
+                workspace_id: row.get("workspace_id"),
+            })
+        })
+        .transpose()
     }
 }

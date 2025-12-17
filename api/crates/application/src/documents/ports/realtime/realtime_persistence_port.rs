@@ -15,6 +15,12 @@ pub struct PersistenceTask {
     pub document_id: Uuid,
 }
 
+#[derive(Debug, Clone)]
+pub struct SnapshotEntry {
+    pub version: i64,
+    pub bytes: Vec<u8>,
+}
+
 #[async_trait]
 pub trait DocPersistencePort: Send + Sync {
     async fn append_update_with_seq(
@@ -33,7 +39,7 @@ pub trait DocPersistencePort: Send + Sync {
         snapshot: &[u8],
     ) -> anyhow::Result<()>;
 
-    async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> anyhow::Result<Option<(i64, Vec<u8>)>>;
+    async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> anyhow::Result<Option<SnapshotEntry>>;
 
     async fn latest_snapshot_version(&self, doc_id: &Uuid) -> anyhow::Result<Option<i64>>;
 

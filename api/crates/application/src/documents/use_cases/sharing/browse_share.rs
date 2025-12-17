@@ -1,5 +1,7 @@
 use crate::documents::dtos::{ShareBrowseResponseDto, ShareBrowseTreeItemDto};
 use crate::documents::ports::sharing::shares_repository::SharesRepository;
+use domain::documents::doc_type::DocumentType;
+use domain::documents::share;
 
 pub struct BrowseShare<'a, R: SharesRepository + ?Sized> {
     pub repo: &'a R,
@@ -7,44 +9,38 @@ pub struct BrowseShare<'a, R: SharesRepository + ?Sized> {
 
 impl<'a, R: SharesRepository + ?Sized> BrowseShare<'a, R> {
     pub async fn execute(&self, token: &str) -> anyhow::Result<Option<ShareBrowseResponseDto>> {
-        let row = self.repo.resolve_share_by_token(token).await?;
-        let (share_id, _perm, expires_at, shared_id, shared_type, _workspace_id) = match row {
-            Some(r) => r,
+        let ctx = match self.repo.resolve_share_by_token(token).await? {
+            Some(ctx) => ctx,
             None => return Ok(None),
         };
-        if let Some(exp) = expires_at {
-            if exp < chrono::Utc::now() {
-                return Ok(None);
-            }
+        if share::is_expired(ctx.expires_at.as_ref(), chrono::Utc::now()) {
+            return Ok(None);
         }
         // If token targets a document (not folder), return single node
-        if shared_type != "folder" {
+        if !ctx.shared_type.is_folder() {
             let mut tree = Vec::new();
-            let doc_rows = self.repo.list_subtree_nodes(shared_id).await?;
-            if let Some((id, title, typ, _parent_id, created_at, updated_at)) = doc_rows
-                .into_iter()
-                .find(|(id, _, _, _, _, _)| *id == shared_id)
-            {
+            let doc_rows = self.repo.list_subtree_nodes(ctx.shared_id).await?;
+            if let Some(node) = doc_rows.into_iter().find(|n| n.id == ctx.shared_id) {
                 tree.push(ShareBrowseTreeItemDto {
-                    id,
-                    title,
+                    id: node.id,
+                    title: node.title.into_string(),
                     parent_id: None,
-                    r#type: typ,
-                    created_at,
-                    updated_at,
+                    r#type: node.document_type.as_str().to_string(),
+                    created_at: node.created_at,
+                    updated_at: node.updated_at,
                 });
             } else {
                 let fallback_title = self
                     .repo
                     .validate_share_token(token)
                     .await?
-                    .map(|(_, _, _, title)| title)
+                    .map(|doc| doc.title.into_string())
                     .unwrap_or_default();
                 tree.push(ShareBrowseTreeItemDto {
-                    id: shared_id,
+                    id: ctx.shared_id,
                     title: fallback_title,
                     parent_id: None,
-                    r#type: shared_type.clone(),
+                    r#type: ctx.shared_type.as_str().to_string(),
                     created_at: chrono::Utc::now(),
                     updated_at: chrono::Utc::now(),
                 });
@@ -52,21 +48,21 @@ impl<'a, R: SharesRepository + ?Sized> BrowseShare<'a, R> {
             return Ok(Some(ShareBrowseResponseDto { tree }));
         }
         // Folder: list subtree and filter to materialized shares under this folder share
-        let rows = self.repo.list_subtree_nodes(shared_id).await?;
-        let allowed = self.repo.list_materialized_children(share_id).await?;
+        let rows = self.repo.list_subtree_nodes(ctx.shared_id).await?;
+        let allowed = self.repo.list_materialized_children(ctx.share_id).await?;
         let tree: Vec<ShareBrowseTreeItemDto> = rows
             .into_iter()
-            .filter_map(|(id, title, typ, parent_id, created_at, updated_at)| {
-                if typ == "document" && !allowed.contains(&id) {
+            .filter_map(|node| {
+                if node.document_type == DocumentType::Document && !allowed.contains(&node.id) {
                     return None;
                 }
                 Some(ShareBrowseTreeItemDto {
-                    id,
-                    title,
-                    parent_id,
-                    r#type: typ,
-                    created_at,
-                    updated_at,
+                    id: node.id,
+                    title: node.title.into_string(),
+                    parent_id: node.parent_id,
+                    r#type: node.document_type.as_str().to_string(),
+                    created_at: node.created_at,
+                    updated_at: node.updated_at,
                 })
             })
             .collect();

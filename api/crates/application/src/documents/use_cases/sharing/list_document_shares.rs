@@ -22,10 +22,10 @@ impl<'a, R: SharesRepository + ?Sized> ListDocumentShares<'a, R> {
             .map(|r| ShareItemDto {
                 id: r.id,
                 token: r.token.clone(),
-                permission: r.permission,
+                permission: r.permission.as_str().to_string(),
                 expires_at: r.expires_at,
                 document_id: r.document_id,
-                document_type: r.document_type,
+                document_type: r.document_type.as_str().to_string(),
                 parent_share_id: r.parent_share_id,
             })
             .collect())

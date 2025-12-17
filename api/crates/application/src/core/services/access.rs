@@ -2,6 +2,8 @@ use uuid::Uuid;
 
 use crate::documents::ports::access_repository::AccessRepository;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
+use domain::documents::doc_type::DocumentType;
+use domain::documents::share;
 use domain::workspaces::permissions::{PERM_DOC_EDIT, PERM_DOC_VIEW};
 
 #[derive(Debug, Clone)]
@@ -50,9 +52,7 @@ where
         }
         Actor::ShareToken(t) => {
             // Resolve token target and then decide access when document matches token scope
-            if let Ok(Some((share_id, perm, expires_at, shared_id, shared_type, _workspace_id))) =
-                shares_repo.resolve_share_by_token(t).await
-            {
+            if let Ok(Some(ctx)) = shares_repo.resolve_share_by_token(t).await {
                 if access_repo
                     .is_document_archived(doc_id)
                     .await
@@ -61,14 +61,12 @@ where
                     return Capability::None;
                 }
                 // Check expiration
-                if let Some(exp) = expires_at {
-                    if exp < chrono::Utc::now() {
-                        return Capability::None;
-                    }
+                if share::is_expired(ctx.expires_at.as_ref(), chrono::Utc::now()) {
+                    return Capability::None;
                 }
-                if shared_type != "folder" {
-                    if shared_id == doc_id {
-                        if perm == "edit" {
+                if ctx.shared_type != DocumentType::Folder {
+                    if ctx.shared_id == doc_id {
+                        if ctx.permission.allows_edit() {
                             Capability::Edit
                         } else {
                             Capability::View
@@ -79,11 +77,11 @@ where
                 } else {
                     // Need a materialized child share for this doc
                     match shares_repo
-                        .get_materialized_permission(share_id, doc_id)
+                        .get_materialized_permission(ctx.share_id, doc_id)
                         .await
                     {
                         Ok(Some(p)) => {
-                            if p == "edit" {
+                            if p.allows_edit() {
                                 Capability::Edit
                             } else {
                                 Capability::View

@@ -16,6 +16,7 @@ use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
 use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::documents::services::realtime::snapshot::SnapshotService;
+use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
 use thiserror::Error;
 use zip::write::FileOptions;
@@ -63,7 +64,7 @@ where
             None => return Ok(None),
         };
 
-        if document.doc_type == "folder" {
+        if document.doc_type == DocumentType::Folder {
             return self.download_folder(actor, &document, format).await;
         }
 
@@ -80,7 +81,7 @@ where
         &self,
         document: &DomainDocument,
     ) -> anyhow::Result<Option<DocumentExportAssets>> {
-        if document.doc_type == "folder" {
+        if document.doc_type == DocumentType::Folder {
             return Ok(None);
         }
         let export = match self.snapshot.export_current_markdown(&document.id).await? {
@@ -89,8 +90,8 @@ where
         };
         let doc_dir = self.storage.build_doc_dir(document.id).await?;
         let attachments = self.collect_attachments(document.id, &doc_dir).await?;
-        let safe_title = sanitize_filename(&document.title);
-        let display_title = document.title.trim();
+        let safe_title = sanitize_filename(document.title.as_str());
+        let display_title = document.title.as_str().trim();
         let display_title = if display_title.is_empty() {
             None
         } else {
@@ -164,7 +165,7 @@ where
             }
         }
 
-        let root_name = sanitize_filename(&folder.title);
+        let root_name = sanitize_filename(folder.title.as_str());
         let entries = self
             .build_archive_entries(actor, &nodes, folder.id, Some(folder.desired_path.as_str()))
             .await?;
@@ -201,14 +202,15 @@ where
             owner_id: workspace_id,
             owner_user_id: None,
             workspace_id,
-            title: workspace_name.to_string(),
+            title: domain::documents::title::Title::new(workspace_name),
             parent_id: None,
-            doc_type: "folder".to_string(),
+            doc_type: DocumentType::Folder,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             created_by_plugin: None,
-            slug: sanitize_filename(workspace_name),
-            desired_path: String::new(),
+            slug: domain::documents::path::Slug::new(sanitize_filename(workspace_name))
+                .unwrap_or_else(|_| domain::documents::path::Slug::from_title(workspace_name)),
+            desired_path: domain::documents::path::DesiredPath::root(),
             path: None,
             created_by: None,
             archived_at: None,
@@ -238,7 +240,7 @@ where
     ) -> anyhow::Result<Vec<FolderDownloadEntry>> {
         let mut entries: Vec<FolderDownloadEntry> = Vec::new();
         for doc in nodes.values() {
-            if doc.id == root_id || doc.doc_type == "folder" {
+            if doc.id == root_id || doc.doc_type == DocumentType::Folder {
                 continue;
             }
             let capability =
@@ -277,7 +279,7 @@ fn sanitize_filename(name: &str) -> String {
 }
 
 fn resolve_relative_path(doc: &DomainDocument, base_prefix: Option<&str>) -> String {
-    let path = doc.desired_path.trim_start_matches('/');
+    let path = doc.desired_path.as_str().trim_start_matches('/');
     if let Some(base) = base_prefix {
         let base = base.trim_start_matches('/');
         if !base.is_empty() {
@@ -290,7 +292,7 @@ fn resolve_relative_path(doc: &DomainDocument, base_prefix: Option<&str>) -> Str
         }
     }
     if path.is_empty() {
-        format!("{}.md", sanitize_filename(&doc.title))
+        format!("{}.md", sanitize_filename(doc.title.as_str()))
     } else {
         path.to_string()
     }

@@ -8,6 +8,7 @@ use application::documents::dtos::{
 };
 use application::core::services::errors::ServiceError;
 use crate::context::PresentationConfig;
+use domain::documents::doc_type::{DOC_TYPE_DOCUMENT, DOC_TYPE_FOLDER};
 
 pub fn frontend_base(cfg: &PresentationConfig) -> String {
     cfg.frontend_url
@@ -17,7 +18,7 @@ pub fn frontend_base(cfg: &PresentationConfig) -> String {
 
 pub fn build_share_url(base: &str, document_type: &str, document_id: Uuid, token: &str) -> String {
     let base = base.trim_end_matches('/');
-    if document_type == "folder" {
+    if document_type == DOC_TYPE_FOLDER {
         format!("{}/share/{}", base, token)
     } else {
         format!("{}/document/{}?token={}", base, document_id, token)
@@ -25,10 +26,10 @@ pub fn build_share_url(base: &str, document_type: &str, document_id: Uuid, token
 }
 
 pub fn share_scope(document_type: &str) -> String {
-    if document_type == "folder" {
-        "folder".to_string()
+    if document_type == DOC_TYPE_FOLDER {
+        DOC_TYPE_FOLDER.to_string()
     } else {
-        "document".to_string()
+        DOC_TYPE_DOCUMENT.to_string()
     }
 }
 

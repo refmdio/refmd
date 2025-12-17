@@ -16,7 +16,10 @@ impl<'a, R: TagRepository + ?Sized> ListTags<'a, R> {
         let rows = self.repo.list_tags(owner_id, filter).await?;
         Ok(rows
             .into_iter()
-            .map(|(name, count)| TagItemDto { name, count })
+            .map(|row| TagItemDto {
+                name: row.name,
+                count: row.count,
+            })
             .collect())
     }
 }

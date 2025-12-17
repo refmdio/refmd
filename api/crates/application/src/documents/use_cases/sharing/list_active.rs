@@ -15,12 +15,12 @@ impl<'a, R: SharesRepository + ?Sized> ListActiveShares<'a, R> {
             items.push(ActiveShareItemDto {
                 id: r.id,
                 token: r.token,
-                permission: r.permission,
+                permission: r.permission.as_str().to_string(),
                 expires_at: r.expires_at,
                 created_at: r.created_at,
                 document_id: r.document_id,
-                document_title: r.document_title,
-                document_type: r.document_type,
+                document_title: r.document_title.into_string(),
+                document_type: r.document_type.as_str().to_string(),
                 parent_share_id: r.parent_share_id,
             });
         }

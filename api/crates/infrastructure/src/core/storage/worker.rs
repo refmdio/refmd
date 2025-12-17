@@ -19,6 +19,7 @@ use application::documents::services::realtime::snapshot::MarkdownExportProvider
 use application::core::services::storage::projection_cache::RecentProjectionCache;
 use application::workspaces::services::WorkspacePermissionResolver;
 use application::workspaces::services::permission_snapshot::permission_set_from_snapshot;
+use domain::documents::doc_type::DOC_TYPE_FOLDER;
 use domain::workspaces::permissions::{
     PERM_DOC_DELETE, PERM_FILE_DELETE, PERM_FOLDER_DELETE, PermissionSet,
 };
@@ -254,7 +255,7 @@ impl StorageProjectionWorker {
         metadata: &StorageDeleteJobMetadata,
     ) -> anyhow::Result<()> {
         let permissions = self.permission_set_from_metadata(metadata).await?;
-        if metadata.doc_type == "folder" {
+        if metadata.doc_type == DOC_TYPE_FOLDER {
             if !permissions.allows(PERM_FOLDER_DELETE) {
                 warn!(
                     workspace_id = %metadata.workspace_id,
@@ -440,7 +441,6 @@ impl StorageProjectionWorker {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use sqlx::{Postgres, Transaction};
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -734,30 +734,8 @@ mod tests {
             unimplemented!()
         }
 
-        async fn enqueue_doc_job_tx(
-            &self,
-            _tx: &mut Transaction<'_, Postgres>,
-            _workspace_id: Uuid,
-            _doc_id: Uuid,
-            _kind: StorageProjectionJobKind,
-            _reason: Option<&str>,
-        ) -> anyhow::Result<()> {
-            unimplemented!()
-        }
-
         async fn enqueue_folder_job(
             &self,
-            _workspace_id: Uuid,
-            _folder_id: Uuid,
-            _kind: StorageProjectionJobKind,
-            _reason: Option<&str>,
-        ) -> anyhow::Result<()> {
-            unimplemented!()
-        }
-
-        async fn enqueue_folder_job_tx(
-            &self,
-            _tx: &mut Transaction<'_, Postgres>,
             _workspace_id: Uuid,
             _folder_id: Uuid,
             _kind: StorageProjectionJobKind,
@@ -973,23 +951,6 @@ mod tests {
     impl DocEventLog for RecordingDocEventLog {
         async fn append(
             &self,
-            workspace_id: Uuid,
-            doc_id: Uuid,
-            event_type: &str,
-            payload: Option<serde_json::Value>,
-        ) -> anyhow::Result<()> {
-            self.events.lock().unwrap().push((
-                workspace_id,
-                doc_id,
-                event_type.to_string(),
-                payload,
-            ));
-            Ok(())
-        }
-
-        async fn append_tx(
-            &self,
-            _tx: &mut Transaction<'_, Postgres>,
             workspace_id: Uuid,
             doc_id: Uuid,
             event_type: &str,

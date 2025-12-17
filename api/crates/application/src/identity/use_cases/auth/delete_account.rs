@@ -14,6 +14,7 @@ use crate::core::ports::storage::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
 };
 use crate::identity::ports::user_repository::UserRepository;
+use domain::documents::doc_type::DocumentType;
 use domain::workspaces::permissions::PermissionSet;
 
 pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
@@ -94,7 +95,7 @@ where
                 .get_meta_for_owner(*doc_id, user_id)
                 .await?
             {
-                let attachment_paths = if meta.doc_type != "folder" {
+                let attachment_paths = if meta.doc_type != DocumentType::Folder {
                     Some(
                         self.files_repo
                             .list_storage_paths_for_document(*doc_id)
@@ -105,8 +106,8 @@ where
                 };
                 let delete_metadata = StorageDeleteJobMetadata {
                     workspace_id: meta.workspace_id,
-                    repo_path: Some(meta.desired_path.clone()),
-                    doc_type: meta.doc_type.clone(),
+                    repo_path: Some(meta.desired_path.as_str().to_string()),
+                    doc_type: meta.doc_type.as_str().to_string(),
                     attachment_paths,
                     permission_snapshot: PermissionSet::all().to_vec(),
                     actor_id: Some(user_id),
@@ -117,9 +118,10 @@ where
                 })
                 .ok();
                 let reason_ref = reason.as_deref();
-                let kind = match meta.doc_type.as_str() {
-                    "folder" => StorageProjectionJobKind::DeleteFolder,
-                    _ => StorageProjectionJobKind::DeleteDoc,
+                let kind = if meta.doc_type == DocumentType::Folder {
+                    StorageProjectionJobKind::DeleteFolder
+                } else {
+                    StorageProjectionJobKind::DeleteDoc
                 };
                 if let Err(err) = match kind {
                     StorageProjectionJobKind::DeleteFolder => {

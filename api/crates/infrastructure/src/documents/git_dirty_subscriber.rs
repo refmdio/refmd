@@ -8,6 +8,7 @@ use uuid::Uuid;
 use application::core::services::doc_events::{DocEventRecord, DocEventSubscriber};
 use crate::core::db::PgPool;
 use crate::core::storage::{mark_dirty_delete_relative, mark_dirty_upsert_relative};
+use domain::documents::doc_type::DOC_TYPE_FOLDER;
 
 pub struct GitDirtyDocEventSubscriber {
     pool: PgPool,
@@ -51,13 +52,13 @@ impl GitDirtyDocEventSubscriber {
         doc_id: Uuid,
         doc_type_hint: &mut Option<String>,
     ) -> anyhow::Result<bool> {
-        if matches!(doc_type_hint.as_deref(), Some("folder")) {
+        if matches!(doc_type_hint.as_deref(), Some(DOC_TYPE_FOLDER)) {
             return Ok(true);
         }
         if doc_type_hint.is_none() {
             *doc_type_hint = self.doc_type(doc_id).await?;
         }
-        Ok(matches!(doc_type_hint.as_deref(), Some("folder")))
+        Ok(matches!(doc_type_hint.as_deref(), Some(DOC_TYPE_FOLDER)))
     }
 
     async fn mark_upsert(

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
-use application::documents::ports::tagging::tag_repository::TagRepository;
+use application::documents::ports::tagging::tag_repository::{TagRepository, TagSummary};
 use crate::core::db::PgPool;
 
 pub struct SqlxTagRepository {
@@ -21,7 +21,7 @@ impl TagRepository for SqlxTagRepository {
         &self,
         owner_id: Uuid,
         filter: Option<String>,
-    ) -> anyhow::Result<Vec<(String, i64)>> {
+    ) -> anyhow::Result<Vec<TagSummary>> {
         let rows = if let Some(f) = filter.filter(|s| !s.trim().is_empty()) {
             let like = format!("%{}%", f);
             sqlx::query(
@@ -52,7 +52,10 @@ impl TagRepository for SqlxTagRepository {
         };
         Ok(rows
             .into_iter()
-            .map(|r| (r.get("name"), r.get("count")))
+            .map(|r| TagSummary {
+                name: r.get("name"),
+                count: r.get("count"),
+            })
             .collect())
     }
 }

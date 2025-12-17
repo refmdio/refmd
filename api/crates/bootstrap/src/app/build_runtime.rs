@@ -146,6 +146,12 @@ pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow:
             pool.clone(),
         ),
     );
+    let documents_tx_runner: Arc<dyn application::documents::ports::tx_runner::DocumentsTxRunner> =
+        Arc::new(infrastructure::documents::tx_runner_sqlx::SqlxDocumentsTxRunner::new(
+            pool.clone(),
+            document_repo.clone(),
+            files_repo.clone(),
+        ));
     let public_repo = Arc::new(
         infrastructure::documents::db::repositories::public_repository_sqlx::SqlxPublicRepository::new(
             pool.clone(),
@@ -317,14 +323,13 @@ pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow:
     let document_exporter = Arc::new(DefaultDocumentExporter::new());
 
     let document_service = Arc::new(DocumentService::new(
-        pool.clone(),
+        documents_tx_runner,
         document_repo.clone(),
         files_repo.clone(),
         access_repo.clone(),
         shares_repo_impl.clone(),
         storage_resolver.clone(),
         doc_event_log.clone(),
-        storage_job_queue.clone(),
         realtime_engine.clone(),
         snapshot_service_arc.clone(),
         document_exporter.clone(),

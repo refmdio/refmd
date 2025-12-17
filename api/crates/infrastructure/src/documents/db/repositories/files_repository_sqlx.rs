@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use application::documents::ports::files::files_repository::{FileRecord, FilesRepository};
+use application::documents::ports::files::files_repository::{
+    FileMeta, FilePathMeta, FileRecord, FilesRepository, StoredFileScope,
+};
 use crate::core::db::PgPool;
 
 pub struct SqlxFilesRepository {
@@ -12,6 +14,21 @@ pub struct SqlxFilesRepository {
 impl SqlxFilesRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    pub(crate) async fn list_storage_paths_for_document_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        doc_id: Uuid,
+    ) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query("SELECT storage_path FROM files WHERE document_id = $1 FOR UPDATE")
+            .bind(doc_id)
+            .fetch_all(tx.as_mut())
+            .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
+            .collect())
     }
 }
 
@@ -60,7 +77,7 @@ impl FilesRepository for SqlxFilesRepository {
     async fn get_file_meta(
         &self,
         file_id: Uuid,
-    ) -> anyhow::Result<Option<(String, Option<String>, Uuid)>> {
+    ) -> anyhow::Result<Option<FileMeta>> {
         let row = sqlx::query(
             r#"SELECT f.storage_path, f.content_type, d.workspace_id
                FROM files f JOIN documents d ON f.document_id = d.id
@@ -69,12 +86,10 @@ impl FilesRepository for SqlxFilesRepository {
         .bind(file_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| {
-            (
-                r.get("storage_path"),
-                r.try_get("content_type").ok(),
-                r.get("workspace_id"),
-            )
+        Ok(row.map(|r| FileMeta {
+            storage_path: r.get("storage_path"),
+            content_type: r.try_get("content_type").ok(),
+            workspace_id: r.get("workspace_id"),
         }))
     }
 
@@ -82,7 +97,7 @@ impl FilesRepository for SqlxFilesRepository {
         &self,
         doc_id: Uuid,
         filename: &str,
-    ) -> anyhow::Result<Option<(String, Option<String>)>> {
+    ) -> anyhow::Result<Option<FilePathMeta>> {
         let row = sqlx::query(
             r#"SELECT storage_path, content_type FROM files WHERE document_id = $1 AND filename = $2"#,
         )
@@ -90,28 +105,16 @@ impl FilesRepository for SqlxFilesRepository {
         .bind(filename)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| (r.get("storage_path"), r.try_get("content_type").ok())))
+        Ok(row.map(|r| FilePathMeta {
+            storage_path: r.get("storage_path"),
+            content_type: r.try_get("content_type").ok(),
+        }))
     }
 
     async fn list_storage_paths_for_document(&self, doc_id: Uuid) -> anyhow::Result<Vec<String>> {
         let rows = sqlx::query("SELECT storage_path FROM files WHERE document_id = $1")
             .bind(doc_id)
             .fetch_all(&self.pool)
-            .await?;
-        Ok(rows
-            .into_iter()
-            .filter_map(|r| r.try_get::<String, _>("storage_path").ok())
-            .collect())
-    }
-
-    async fn list_storage_paths_for_document_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        doc_id: Uuid,
-    ) -> anyhow::Result<Vec<String>> {
-        let rows = sqlx::query("SELECT storage_path FROM files WHERE document_id = $1 FOR UPDATE")
-            .bind(doc_id)
-            .fetch_all(tx.as_mut())
             .await?;
         Ok(rows
             .into_iter()
@@ -165,7 +168,7 @@ impl FilesRepository for SqlxFilesRepository {
     async fn find_by_storage_path(
         &self,
         storage_path: &str,
-    ) -> anyhow::Result<Option<(Uuid, Uuid, Uuid)>> {
+    ) -> anyhow::Result<Option<StoredFileScope>> {
         let row = sqlx::query(
             r#"SELECT f.id as file_id, f.document_id, d.workspace_id
                FROM files f
@@ -176,12 +179,10 @@ impl FilesRepository for SqlxFilesRepository {
         .bind(storage_path)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| {
-            (
-                r.get("file_id"),
-                r.get("document_id"),
-                r.get("workspace_id"),
-            )
+        Ok(row.map(|r| StoredFileScope {
+            file_id: r.get("file_id"),
+            document_id: r.get("document_id"),
+            workspace_id: r.get("workspace_id"),
         }))
     }
 

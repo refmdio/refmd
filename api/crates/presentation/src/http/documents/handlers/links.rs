@@ -47,8 +47,8 @@ pub async fn get_backlinks(
         .into_iter()
         .map(|r| BacklinkInfo {
             document_id: r.document_id.to_string(),
-            title: r.title,
-            document_type: r.document_type,
+            title: r.title.into_string(),
+            document_type: r.document_type.to_string(),
             file_path: r.file_path,
             link_type: r.link_type,
             link_text: r.link_text,
@@ -93,8 +93,8 @@ pub async fn get_outgoing_links(
         .into_iter()
         .map(|r| OutgoingLink {
             document_id: r.document_id.to_string(),
-            title: r.title,
-            document_type: r.document_type,
+            title: r.title.into_string(),
+            document_type: r.document_type.to_string(),
             file_path: r.file_path,
             link_type: r.link_type,
             link_text: r.link_text,

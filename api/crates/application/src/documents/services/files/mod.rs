@@ -81,11 +81,10 @@ impl FileService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
-        let (path, content_type, stored_workspace) = meta;
-        if stored_workspace != workspace_id {
+        if meta.workspace_id != workspace_id {
             return Err(ServiceError::Forbidden);
         }
-        let abs_path = self.storage.absolute_from_relative(&path);
+        let abs_path = self.storage.absolute_from_relative(&meta.storage_path);
         let bytes = self
             .storage
             .read_bytes(&abs_path)
@@ -93,7 +92,7 @@ impl FileService {
             .map_err(ServiceError::from)?;
         Ok(FilePayload {
             bytes,
-            content_type,
+            content_type: meta.content_type,
         })
     }
 
@@ -112,13 +111,13 @@ impl FileService {
         .await
         .map_err(|_| ServiceError::Forbidden)?;
 
-        let (path, ct) = self
+        let meta = self
             .files_repo
             .get_file_path_by_doc_and_name(doc_id, filename)
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
-        let abs_path = self.storage.absolute_from_relative(&path);
+        let abs_path = self.storage.absolute_from_relative(&meta.storage_path);
         let bytes = self
             .storage
             .read_bytes(&abs_path)
@@ -126,7 +125,7 @@ impl FileService {
             .map_err(ServiceError::from)?;
         Ok(FilePayload {
             bytes,
-            content_type: ct,
+            content_type: meta.content_type,
         })
     }
 
@@ -182,7 +181,7 @@ impl FileService {
                 doc_id,
                 "attachment.ingest_upsert",
                 Some(json!({
-                    "repo_path": repo_path,
+                    "repo_path": repo_path.as_str(),
                     "storage_path": file.storage_path,
                     "backend": "api",
                     "size": file.size,

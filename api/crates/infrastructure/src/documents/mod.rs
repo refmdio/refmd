@@ -4,3 +4,4 @@ pub mod exporter;
 pub mod git_dirty_subscriber;
 pub mod realtime;
 pub mod db;
+pub mod tx_runner_sqlx;

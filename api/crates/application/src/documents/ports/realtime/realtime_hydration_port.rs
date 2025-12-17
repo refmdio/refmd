@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use domain::documents::doc_type::DocumentType;
+
 #[derive(Debug, Clone)]
 pub struct DocSnapshot {
     pub version: i64,
@@ -21,7 +23,7 @@ pub struct StreamFrame {
 
 #[derive(Debug, Clone)]
 pub struct DocumentRecord {
-    pub doc_type: String,
+    pub doc_type: DocumentType,
     pub path: Option<String>,
     pub desired_path: Option<String>,
     pub title: String,

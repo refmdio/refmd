@@ -1,5 +1,6 @@
-use presentation::{http::{documents, git, health, plugins, workspaces}, ws};
+use presentation::{http::{documents, git, plugins, workspaces}, ws};
 use presentation::http::core::markdown;
+use presentation::http::core::health;
 use presentation::http::documents::files;
 use presentation::http::documents::{publishing as public, sharing as shares, tagging as tags};
 use presentation::http::identity::{api_tokens, auth, shortcuts};
@@ -24,7 +25,7 @@ use utoipa::OpenApi;
         shortcuts::get_user_shortcuts,
         shortcuts::update_user_shortcuts,
         auth::delete_account,
-        ws::axum_ws_entry,
+        ws::documents::yjs::axum_ws_entry,
         tags::list_tags,
         documents::list_documents,
         documents::create_document,

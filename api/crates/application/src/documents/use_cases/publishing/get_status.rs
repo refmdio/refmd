@@ -17,11 +17,12 @@ impl<'a, R: PublicRepository + ?Sized> GetPublishStatus<'a, R> {
         workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Option<PublishStatusDto>> {
-        if let Some((slug, workspace_slug)) =
-            self.repo.get_publish_status(workspace_id, doc_id).await?
-        {
-            let public_url = format!("/w/{}/{}", workspace_slug, doc_id);
-            Ok(Some(PublishStatusDto { slug, public_url }))
+        if let Some(status) = self.repo.get_publish_status(workspace_id, doc_id).await? {
+            let public_url = format!("/w/{}/{}", status.workspace_slug, doc_id);
+            Ok(Some(PublishStatusDto {
+                slug: status.slug,
+                public_url,
+            }))
         } else {
             Ok(None)
         }

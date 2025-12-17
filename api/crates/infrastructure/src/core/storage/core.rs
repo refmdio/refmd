@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use domain::documents::doc_type::DOC_TYPE_FOLDER;
 
 fn pathbuf_to_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
@@ -88,7 +89,7 @@ pub async fn build_doc_dir(
         .flatten()
         .is_some();
 
-    let rel = if dtype == "folder" {
+    let rel = if dtype == DOC_TYPE_FOLDER {
         owner_relative_buf(owner_id, &desired_path, archived)
     } else {
         owner_relative_parent_buf(owner_id, &desired_path, archived)
@@ -109,7 +110,7 @@ pub async fn build_doc_file_path(
     .fetch_one(pool)
     .await?;
     let dtype: String = row.get("type");
-    if dtype == "folder" {
+    if dtype == DOC_TYPE_FOLDER {
         anyhow::bail!("folder_has_no_markdown_path");
     }
     let owner_id: Uuid = row.get("owner_id");
@@ -257,7 +258,7 @@ pub async fn move_doc_paths(
     };
     let owner_id: Uuid = row.get("owner_id");
     let dtype: String = row.get("type");
-    if dtype == "folder" {
+    if dtype == DOC_TYPE_FOLDER {
         return Ok(());
     }
     let old_rel: Option<String> = row.try_get("path").ok();
@@ -391,7 +392,7 @@ pub async fn delete_doc_physical(
         None => return Ok(()),
     };
     let dtype: String = row.get("type");
-    if dtype == "folder" {
+    if dtype == DOC_TYPE_FOLDER {
         return Ok(());
     }
 

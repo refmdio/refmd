@@ -3,7 +3,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use application::documents::ports::realtime::realtime_persistence_port::{
-    DocPersistencePort, DocumentMissingError,
+    DocPersistencePort, DocumentMissingError, SnapshotEntry,
 };
 use crate::core::db::PgPool;
 
@@ -77,7 +77,7 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
         }
     }
 
-    async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> anyhow::Result<Option<(i64, Vec<u8>)>> {
+    async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> anyhow::Result<Option<SnapshotEntry>> {
         let row = sqlx::query(
             "SELECT version, snapshot FROM document_snapshots WHERE document_id = $1
              ORDER BY version DESC LIMIT 1",
@@ -85,10 +85,9 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
         .bind(doc_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|row| {
-            let version = row.get::<i32, _>("version") as i64;
-            let snapshot = row.get("snapshot");
-            (version, snapshot)
+        Ok(row.map(|row| SnapshotEntry {
+            version: row.get::<i32, _>("version") as i64,
+            bytes: row.get("snapshot"),
         }))
     }
 
@@ -96,7 +95,7 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
         Ok(self
             .latest_snapshot_entry(doc_id)
             .await?
-            .map(|(version, _)| version))
+            .map(|entry| entry.version))
     }
 
     async fn prune_snapshots(&self, doc_id: &Uuid, keep_latest: i64) -> anyhow::Result<()> {

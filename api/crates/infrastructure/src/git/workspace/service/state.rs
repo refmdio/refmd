@@ -1,3 +1,6 @@
+use domain::documents::doc_type::DocumentType;
+use domain::documents::title::Title;
+
 impl GitWorkspaceService {
     async fn collect_current_state(
         &self,
@@ -10,7 +13,7 @@ impl GitWorkspaceService {
             .list_workspace_documents(workspace_id)
             .await?
             .into_iter()
-            .filter(|d| d.doc_type != "folder");
+            .filter(|d| d.doc_type != DocumentType::Folder);
 
         for doc in doc_rows {
             let export = match self.snapshot.export_current_markdown(&doc.id).await? {
@@ -19,7 +22,7 @@ impl GitWorkspaceService {
             };
             let repo_path = export
                 .repo_path
-                .or_else(|| Some(doc.desired_path.clone()))
+                .or_else(|| Some(doc.desired_path.as_str().to_string()))
                 .map(normalize_repo_path)
                 .ok_or_else(|| anyhow!("missing_repo_path_for_doc {}", doc.id))?;
             state.insert(
@@ -185,12 +188,12 @@ impl GitWorkspaceService {
             } else {
                 all_docs
                     .iter()
-                    .find(|d| normalize_repo_path(d.desired_path.clone()) == candidate)
+                    .find(|d| normalize_repo_path(d.desired_path.as_str().to_string()) == candidate)
                     .cloned()
             };
 
             if let Some(doc) = doc {
-                if doc.doc_type == "folder" {
+                if doc.doc_type == DocumentType::Folder {
                     continue;
                 }
                 if archived_only && doc.archived_at.is_none() {
@@ -387,7 +390,7 @@ impl GitWorkspaceService {
                 .get_by_owner_and_path(workspace_id, &lookup_path)
                 .await?
             {
-                if existing.doc_type != "folder" {
+                if existing.doc_type != DocumentType::Folder {
                     anyhow::bail!("path_conflict_not_folder");
                 }
                 cache.insert(accumulated.clone(), existing.id);
@@ -400,17 +403,29 @@ impl GitWorkspaceService {
             } else {
                 segment
             };
-            let folder = self
-                .docs
-                .create_for_user(
-                    workspace_id,
-                    actor_id,
-                    title,
-                    current_parent,
-                    "folder",
-                    None,
-                )
-                .await?;
+            let parent_desired_path = match current_parent {
+                Some(parent_id) => self
+                    .docs
+                    .get_meta_for_owner(parent_id, workspace_id)
+                    .await?
+                    .map(|m| m.desired_path),
+                None => None,
+            };
+            let title = Title::from_user_input(title);
+            let mut repo = self.docs.as_ref();
+            let folder = application::documents::use_cases::create_document::CreateDocument {
+                repo: &mut repo,
+            }
+            .execute(
+                workspace_id,
+                actor_id,
+                &title,
+                current_parent,
+                parent_desired_path.as_ref(),
+                DocumentType::Folder,
+                None,
+            )
+            .await?;
             self.docs
                 .update_repo_path(folder.id, workspace_id, &accumulated)
                 .await?;
@@ -464,9 +479,9 @@ impl GitWorkspaceService {
         let mut folder_docs: HashMap<String, Vec<Uuid>> = HashMap::new();
 
         for doc in self.docs.list_workspace_documents(workspace_id).await? {
-            let normalized = normalize_repo_path(doc.desired_path.clone());
+            let normalized = normalize_repo_path(doc.desired_path.as_str().to_string());
             existing_by_desired.insert(normalized.clone(), doc.id);
-            if doc.doc_type != "folder" {
+            if doc.doc_type != DocumentType::Folder {
                 let key = folder_key(&normalized);
                 folder_docs.entry(key.clone()).or_default().push(doc.id);
                 if doc.archived_at.is_some() {
@@ -520,17 +535,29 @@ impl GitWorkspaceService {
                 .trim_end_matches(".markdown")
                 .trim_end_matches(".txt");
 
-            let doc = self
-                .docs
-                .create_for_user(
-                    workspace_id,
-                    actor_id,
-                    if title.is_empty() { "Document" } else { title },
-                    parent_id,
-                    "document",
-                    None,
-                )
-                .await?;
+            let parent_desired_path = match parent_id {
+                Some(parent_id) => self
+                    .docs
+                    .get_meta_for_owner(parent_id, workspace_id)
+                    .await?
+                    .map(|m| m.desired_path),
+                None => None,
+            };
+            let title = Title::from_user_input(if title.is_empty() { "Document" } else { title });
+            let mut repo = self.docs.as_ref();
+            let doc = application::documents::use_cases::create_document::CreateDocument {
+                repo: &mut repo,
+            }
+            .execute(
+                workspace_id,
+                actor_id,
+                &title,
+                parent_id,
+                parent_desired_path.as_ref(),
+                DocumentType::Document,
+                None,
+            )
+            .await?;
             self.docs
                 .update_repo_path(doc.id, workspace_id, &normalized)
                 .await?;
@@ -623,11 +650,11 @@ impl GitWorkspaceService {
             .list_workspace_documents(workspace_id)
             .await?
             .into_iter()
-            .filter(|d| d.doc_type != "folder");
+            .filter(|d| d.doc_type != DocumentType::Folder);
 
         for doc in doc_rows {
             let doc_id = doc.id;
-            let normalized = normalize_repo_path(doc.desired_path.clone());
+            let normalized = normalize_repo_path(doc.desired_path.as_str().to_string());
             let Some(snapshot) = next_state.get(&normalized) else {
                 continue;
             };
@@ -837,4 +864,3 @@ impl GitWorkspaceService {
         Ok(results)
     }
 }
-

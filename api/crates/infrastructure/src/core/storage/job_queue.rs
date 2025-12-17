@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::Row;
 use uuid::Uuid;
 
 use application::core::ports::storage::storage_projection_queue::{
@@ -87,55 +87,6 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         Ok(())
     }
 
-    async fn enqueue_doc_job_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        doc_id: Uuid,
-        kind: StorageProjectionJobKind,
-        reason: Option<&str>,
-    ) -> anyhow::Result<()> {
-        match kind {
-            StorageProjectionJobKind::DocSync | StorageProjectionJobKind::DeleteDoc => {}
-            other => anyhow::bail!("job_kind {other:?} requires a folder_id"),
-        }
-
-        let job_type = Self::kind_to_str(kind);
-        sqlx::query(
-            r#"
-            INSERT INTO storage_projection_jobs (workspace_id, job_type, doc_id, reason, attempts, locked_at, last_error)
-            VALUES ($1, $2, $3, $4, 0, NULL, NULL)
-            ON CONFLICT (job_type, doc_id) WHERE doc_id IS NOT NULL
-            DO UPDATE SET reason = EXCLUDED.reason,
-                          locked_at = CASE
-                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
-                              ELSE storage_projection_jobs.locked_at
-                          END,
-                          attempts = CASE
-                              WHEN storage_projection_jobs.locked_at IS NULL THEN 0
-                              ELSE storage_projection_jobs.attempts
-                          END,
-                          last_error = CASE
-                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
-                              ELSE storage_projection_jobs.last_error
-                          END,
-                          workspace_id = EXCLUDED.workspace_id,
-                          pending_retry = CASE
-                              WHEN storage_projection_jobs.locked_at IS NULL THEN false
-                              ELSE true
-                          END,
-                          updated_at = now()
-            "#,
-        )
-        .bind(workspace_id)
-        .bind(job_type)
-        .bind(doc_id)
-        .bind(reason)
-        .execute(tx.as_mut())
-        .await?;
-        Ok(())
-    }
-
     async fn enqueue_folder_job(
         &self,
         workspace_id: Uuid,
@@ -180,55 +131,6 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         .bind(folder_id)
         .bind(reason)
         .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    async fn enqueue_folder_job_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        workspace_id: Uuid,
-        folder_id: Uuid,
-        kind: StorageProjectionJobKind,
-        reason: Option<&str>,
-    ) -> anyhow::Result<()> {
-        match kind {
-            StorageProjectionJobKind::FolderSync | StorageProjectionJobKind::DeleteFolder => {}
-            other => anyhow::bail!("job_kind {other:?} requires a doc_id"),
-        }
-
-        let job_type = Self::kind_to_str(kind);
-        sqlx::query(
-            r#"
-            INSERT INTO storage_projection_jobs (workspace_id, job_type, folder_id, reason, attempts, locked_at, last_error)
-            VALUES ($1, $2, $3, $4, 0, NULL, NULL)
-            ON CONFLICT (job_type, folder_id) WHERE folder_id IS NOT NULL
-            DO UPDATE SET reason = EXCLUDED.reason,
-                          locked_at = CASE
-                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
-                              ELSE storage_projection_jobs.locked_at
-                          END,
-                          attempts = CASE
-                              WHEN storage_projection_jobs.locked_at IS NULL THEN 0
-                              ELSE storage_projection_jobs.attempts
-                          END,
-                          last_error = CASE
-                              WHEN storage_projection_jobs.locked_at IS NULL THEN NULL
-                              ELSE storage_projection_jobs.last_error
-                          END,
-                          workspace_id = EXCLUDED.workspace_id,
-                          pending_retry = CASE
-                              WHEN storage_projection_jobs.locked_at IS NULL THEN false
-                              ELSE true
-                          END,
-                          updated_at = now()
-            "#,
-        )
-        .bind(workspace_id)
-        .bind(job_type)
-        .bind(folder_id)
-        .bind(reason)
-        .execute(tx.as_mut())
         .await?;
         Ok(())
     }

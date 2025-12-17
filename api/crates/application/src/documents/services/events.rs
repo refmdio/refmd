@@ -1,4 +1,7 @@
-use super::*;
+use tracing::warn;
+use uuid::Uuid;
+
+use super::DocumentService;
 
 impl DocumentService {
     pub(super) async fn record_event(
@@ -22,4 +25,3 @@ impl DocumentService {
         }
     }
 }
-

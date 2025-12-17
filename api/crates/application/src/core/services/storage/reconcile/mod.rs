@@ -6,8 +6,6 @@ use serde_json::json;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::documents::ports::document_repository::DocumentRepository;
-use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::core::ports::storage::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
 use crate::core::ports::storage::storage_projection_queue::{
     StorageProjectionJobKind, StorageProjectionQueue,
@@ -16,9 +14,12 @@ use crate::core::ports::storage::storage_reconcile_backend::StorageReconcileBack
 use crate::core::ports::storage::storage_reconcile_jobs::{
     StorageReconcileJob, StorageReconcileJobs,
 };
+use crate::documents::ports::document_repository::DocumentRepository;
+use crate::documents::ports::files::files_repository::FilesRepository;
 use domain::workspaces::permissions::PermissionSet;
 
-const RESERVED_REPO_PATHS: &[&str] = &[".gitignore"]; // Files managed outside Document/Files repos
+mod paths;
+use paths::{is_attachment_repo_path, is_reserved_repo_path, normalize_repo_path, reserved_storage_paths};
 
 pub struct StorageReconcileService {
     jobs: Arc<dyn StorageReconcileJobs>,
@@ -256,68 +257,5 @@ impl StorageReconcileService {
                 }
             }
         }
-    }
-}
-
-fn reserved_storage_paths(workspace_id: Uuid) -> impl Iterator<Item = String> {
-    RESERVED_REPO_PATHS
-        .iter()
-        .map(move |rel| format!("{}/{}", workspace_id, rel.trim_start_matches('/')))
-}
-
-fn is_reserved_repo_path(repo_path: &str) -> bool {
-    let trimmed = repo_path.trim_start_matches('/');
-    RESERVED_REPO_PATHS
-        .iter()
-        .any(|reserved| trimmed == reserved.trim_start_matches('/'))
-}
-
-fn is_attachment_repo_path(repo_path: &str) -> bool {
-    repo_path.contains("/attachments/")
-}
-
-fn normalize_repo_path(raw: &str) -> Option<String> {
-    let replaced = raw.replace('\\', "/");
-    let trimmed = replaced.trim_start_matches('/');
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{is_reserved_repo_path, normalize_repo_path, reserved_storage_paths};
-    use uuid::Uuid;
-
-    #[test]
-    fn reserved_paths_are_under_workspace_root() {
-        let workspace = Uuid::new_v4();
-        let collected: Vec<String> = reserved_storage_paths(workspace).collect();
-        assert_eq!(collected, vec![format!("{}/.gitignore", workspace)]);
-    }
-
-    #[test]
-    fn normalize_handles_windows_paths() {
-        let user = Uuid::new_v4();
-        let path = format!(r"{}\notes\foo.md", user);
-        assert_eq!(
-            normalize_repo_path(&path),
-            Some(format!("{}/notes/foo.md", user))
-        );
-    }
-
-    #[test]
-    fn normalize_filters_empty() {
-        assert_eq!(normalize_repo_path(""), None);
-        assert_eq!(normalize_repo_path("/"), None);
-    }
-
-    #[test]
-    fn detects_reserved_repo_path() {
-        assert!(is_reserved_repo_path(".gitignore"));
-        assert!(is_reserved_repo_path("/.gitignore"));
-        assert!(!is_reserved_repo_path("docs/foo.md"));
     }
 }

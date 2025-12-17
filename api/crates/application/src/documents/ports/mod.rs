@@ -4,6 +4,7 @@ pub mod document_exporter;
 pub mod document_repository;
 pub mod document_snapshot_archive_repository;
 pub mod linkgraph_repository;
+pub mod tx_runner;
 pub mod files;
 pub mod publishing;
 pub mod realtime;

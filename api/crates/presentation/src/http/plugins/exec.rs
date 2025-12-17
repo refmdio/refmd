@@ -6,6 +6,7 @@ use axum::{
 use serde_json::json;
 
 use application::core::services::access;
+use domain::documents::doc_type::DocumentType;
 use domain::workspaces::permissions::PERM_PLUGIN_RUN;
 use crate::context::AppContext;
 use crate::http::identity::auth::Bearer;
@@ -45,9 +46,9 @@ pub async fn exec_action(
                 .resolve_share_context(token)
                 .await
                 .map_err(map_plugin_service_error)?
-                .and_then(|(_, _, _, shared_id, shared_type, _)| {
-                    if shared_type == "document" {
-                        Some(shared_id)
+                .and_then(|ctx| {
+                    if ctx.shared_type == DocumentType::Document {
+                        Some(ctx.shared_id)
                     } else {
                         None
                     }

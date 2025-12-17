@@ -1,5 +1,3 @@
-use tracing::error;
-
 use crate::documents::dtos::DocumentListFilter;
 use crate::documents::ports::document_repository::DocumentListState;
 use crate::core::services::errors::ServiceError;
@@ -31,8 +29,9 @@ pub(super) fn map_parent_error(err: hierarchy::ParentValidationError) -> Service
     }
 }
 
-pub(super) fn map_sqlx_error(err: sqlx::Error) -> ServiceError {
-    error!(error = ?err, "document_sql_error");
-    ServiceError::Unexpected(err.into())
+pub(super) fn map_tx_error(err: anyhow::Error) -> ServiceError {
+    match err.downcast::<ServiceError>() {
+        Ok(service_error) => service_error,
+        Err(err) => ServiceError::from(err),
+    }
 }
-
