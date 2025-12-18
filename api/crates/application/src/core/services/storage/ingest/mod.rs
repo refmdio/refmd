@@ -14,6 +14,7 @@ use crate::core::services::errors::ServiceError;
 use crate::core::services::storage::projection_cache::RecentProjectionCache;
 use crate::core::services::utils::hash::sha256_hex;
 use crate::documents::ports::doc_event_log::DocEventLog;
+use crate::documents::ports::document_path_repository::DocumentPathRepository;
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::realtime::realtime_port::RealtimeEngine;
@@ -46,6 +47,7 @@ pub trait StorageIngestHandler: Send + Sync {
 
 pub struct StorageIngestService {
     document_repo: Arc<dyn DocumentRepository>,
+    document_paths: Arc<dyn DocumentPathRepository>,
     files_repo: Arc<dyn FilesRepository>,
     realtime: Arc<dyn RealtimeEngine>,
     storage: Arc<dyn StorageResolverPort>,
@@ -59,6 +61,7 @@ pub struct StorageIngestService {
 impl StorageIngestService {
     pub fn new(
         document_repo: Arc<dyn DocumentRepository>,
+        document_paths: Arc<dyn DocumentPathRepository>,
         files_repo: Arc<dyn FilesRepository>,
         realtime: Arc<dyn RealtimeEngine>,
         storage: Arc<dyn StorageResolverPort>,
@@ -70,6 +73,7 @@ impl StorageIngestService {
     ) -> Self {
         Self {
             document_repo,
+            document_paths,
             files_repo,
             realtime,
             storage,

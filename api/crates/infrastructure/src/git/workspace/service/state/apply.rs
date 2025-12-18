@@ -58,7 +58,7 @@ impl GitWorkspaceService {
 
             let lookup_path = format!("{}/{}", workspace_id, accumulated);
             if let Some(existing) = self
-                .docs
+                .doc_paths
                 .get_by_owner_and_path(workspace_id, &lookup_path)
                 .await?
             {
@@ -98,7 +98,7 @@ impl GitWorkspaceService {
                 None,
             )
             .await?;
-            self.docs
+            self.doc_paths
                 .update_repo_path(folder.id, workspace_id, &accumulated)
                 .await?;
 
@@ -230,7 +230,7 @@ impl GitWorkspaceService {
                 None,
             )
             .await?;
-            self.docs
+            self.doc_paths
                 .update_repo_path(doc.id, workspace_id, &normalized)
                 .await?;
             docs_created += 1;

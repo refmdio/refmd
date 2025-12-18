@@ -25,10 +25,13 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::NotFound)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::NotFound,
+            other => other,
+        })?;
 
         let uc = GetBacklinks {
-            repo: self.document_repo.as_ref(),
+            repo: self.linkgraph_repo.as_ref(),
         };
         uc.execute(workspace_id, doc_id)
             .await
@@ -48,10 +51,13 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::NotFound)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::NotFound,
+            other => other,
+        })?;
 
         let uc = GetOutgoingLinks {
-            repo: self.document_repo.as_ref(),
+            repo: self.linkgraph_repo.as_ref(),
         };
         uc.execute(workspace_id, doc_id)
             .await

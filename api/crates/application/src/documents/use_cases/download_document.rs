@@ -54,7 +54,7 @@ where
         doc_id: Uuid,
         format: DocumentDownloadFormat,
     ) -> anyhow::Result<Option<DocumentDownload>> {
-        let capability = access::resolve_document(self.access, self.shares, actor, doc_id).await;
+        let capability = access::resolve_document(self.access, self.shares, actor, doc_id).await?;
         if capability < Capability::View {
             return Ok(None);
         }
@@ -244,7 +244,7 @@ where
                 continue;
             }
             let capability =
-                access::resolve_document(self.access, self.shares, actor, doc.id).await;
+                access::resolve_document(self.access, self.shares, actor, doc.id).await?;
             if capability < Capability::View {
                 continue;
             }

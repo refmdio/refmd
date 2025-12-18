@@ -26,7 +26,10 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::Unauthorized)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::Unauthorized,
+            other => other,
+        })?;
 
         let uc = ListSnapshots {
             snapshots: self.snapshot_service.as_ref(),
@@ -53,7 +56,10 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::Unauthorized)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::Unauthorized,
+            other => other,
+        })?;
 
         let uc = SnapshotDiff {
             snapshots: self.snapshot_service.as_ref(),
@@ -81,7 +87,10 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::Unauthorized)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::Unauthorized,
+            other => other,
+        })?;
 
         let created_by = match actor {
             Actor::User(uid) => Some(*uid),
@@ -114,7 +123,10 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::Unauthorized)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::Unauthorized,
+            other => other,
+        })?;
 
         let uc = DownloadSnapshot {
             files: self.files_repo.as_ref(),

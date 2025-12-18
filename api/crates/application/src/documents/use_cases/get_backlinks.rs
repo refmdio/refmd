@@ -1,13 +1,13 @@
 use uuid::Uuid;
 
-use crate::documents::ports::document_repository::DocumentRepository;
+use crate::documents::ports::linkgraph_repository::LinkGraphRepository;
 use domain::documents::document::BacklinkInfo;
 
-pub struct GetBacklinks<'a, R: DocumentRepository + ?Sized> {
+pub struct GetBacklinks<'a, R: LinkGraphRepository + ?Sized> {
     pub repo: &'a R,
 }
 
-impl<'a, R: DocumentRepository + ?Sized> GetBacklinks<'a, R> {
+impl<'a, R: LinkGraphRepository + ?Sized> GetBacklinks<'a, R> {
     pub async fn execute(
         &self,
         workspace_id: Uuid,

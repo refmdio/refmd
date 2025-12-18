@@ -16,7 +16,7 @@ impl StorageIngestHandler for StorageIngestService {
 
         let mut doc_previous_repo_path: Option<String> = None;
         let mut doc = self
-            .document_repo
+            .document_paths
             .get_by_owner_and_path(event.workspace_id, &rel_path)
             .await?
             .map(ResolvedDocument::from);
@@ -25,13 +25,13 @@ impl StorageIngestHandler for StorageIngestService {
             if let Some(prev_repo) = payload_previous_repo_path.as_deref() {
                 let prev_rel = Self::relative_path(event.workspace_id, prev_repo);
                 if let Some(prev_doc) = self
-                    .document_repo
+                    .document_paths
                     .get_by_owner_and_path(event.workspace_id, &prev_rel)
                     .await?
                     .map(ResolvedDocument::from)
                 {
                     if let Err(err) = self
-                        .document_repo
+                        .document_paths
                         .update_repo_path(prev_doc.id, event.workspace_id, &rel_path)
                         .await
                     {

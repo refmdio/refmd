@@ -23,6 +23,7 @@ use application::core::dtos::TextDiffResult;
 use application::core::ports::storage::storage_port::StorageResolverPort;
 use application::core::services::diff::text_diff::compute_text_diff;
 use application::core::services::utils::hash::sha256_hex;
+use application::documents::ports::document_path_repository::DocumentPathRepository;
 use application::documents::ports::document_repository::DocumentRepository;
 use application::documents::ports::realtime::realtime_port::RealtimeEngine;
 use application::documents::services::realtime::snapshot::{
@@ -49,6 +50,7 @@ pub struct GitWorkspaceService {
     snapshot: Arc<SnapshotService>,
     realtime: Arc<dyn RealtimeEngine>,
     docs: Arc<dyn DocumentRepository>,
+    doc_paths: Arc<dyn DocumentPathRepository>,
 }
 
 include!("workspace_service.rs");

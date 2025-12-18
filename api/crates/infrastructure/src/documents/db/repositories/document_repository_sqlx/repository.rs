@@ -3,14 +3,12 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use application::documents::ports::document_path_repository::DocumentPathRepository;
 use application::documents::ports::document_repository::{
     DocMeta, DocumentListState, DocumentRepository, SubtreeDocument,
 };
 use domain::documents::doc_type::DocumentType;
-use domain::documents::document::{
-    BacklinkInfo as DomBacklinkInfo, Document as DomainDocument, OutgoingLink as DomOutgoingLink,
-    SearchHit,
-};
+use domain::documents::document::{Document as DomainDocument, SearchHit};
 use domain::documents::path as doc_path;
 use domain::documents::title::Title;
 
@@ -82,25 +80,6 @@ impl DocumentRepository for SqlxDocumentRepository {
             .fetch_all(&self.pool)
             .await?;
         Ok(rows.into_iter().map(|r| r.get("id")).collect())
-    }
-
-    async fn list_paths_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<String>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT path
-            FROM documents
-            WHERE workspace_id = $1
-              AND path IS NOT NULL
-              AND type <> 'folder'
-            "#,
-        )
-        .bind(workspace_id)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .filter_map(|r| r.try_get::<String, _>("path").ok())
-            .collect())
     }
 
     async fn list_workspace_documents(
@@ -241,80 +220,6 @@ impl DocumentRepository for SqlxDocumentRepository {
         Ok(res)
     }
 
-    async fn backlinks_for(
-        &self,
-        workspace_id: Uuid,
-        target_id: Uuid,
-    ) -> anyhow::Result<Vec<DomBacklinkInfo>> {
-        let rows = sqlx::query(
-            r#"SELECT d.id as document_id, d.title, d.type as document_type, d.path as file_path,
-                      dl.link_type, dl.link_text, COUNT(*)::BIGINT as link_count
-               FROM document_links dl
-               JOIN documents d ON d.id = dl.source_document_id
-               WHERE dl.target_document_id = $1 AND d.workspace_id = $2
-               GROUP BY d.id, d.title, d.type, d.path, dl.link_type, dl.link_text
-               ORDER BY link_count DESC, d.title"#,
-        )
-        .bind(target_id)
-        .bind(workspace_id)
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|r| {
-                let doc_type_str: String = r.get("document_type");
-                let document_type = DocumentType::try_from(doc_type_str.as_str())
-                    .context("invalid_document_type")?;
-                let title: String = r.get("title");
-                Ok(DomBacklinkInfo {
-                    document_id: r.get("document_id"),
-                    title: Title::new(title),
-                    document_type,
-                    file_path: r.try_get("file_path").ok(),
-                    link_type: r.get("link_type"),
-                    link_text: r.try_get("link_text").ok(),
-                    link_count: r.try_get("link_count").unwrap_or(1_i64),
-                })
-            })
-            .collect()
-    }
-
-    async fn outgoing_links_for(
-        &self,
-        workspace_id: Uuid,
-        source_id: Uuid,
-    ) -> anyhow::Result<Vec<DomOutgoingLink>> {
-        let rows = sqlx::query(
-            r#"SELECT d.id as document_id, d.title, d.type as document_type, d.path as file_path,
-                      dl.link_type, dl.link_text, dl.position_start, dl.position_end
-               FROM document_links dl
-               JOIN documents d ON d.id = dl.target_document_id
-               WHERE dl.source_document_id = $1 AND d.workspace_id = $2
-               ORDER BY dl.position_start"#,
-        )
-        .bind(source_id)
-        .bind(workspace_id)
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|r| {
-                let doc_type_str: String = r.get("document_type");
-                let document_type = DocumentType::try_from(doc_type_str.as_str())
-                    .context("invalid_document_type")?;
-                let title: String = r.get("title");
-                Ok(DomOutgoingLink {
-                    document_id: r.get("document_id"),
-                    title: Title::new(title),
-                    document_type,
-                    file_path: r.try_get("file_path").ok(),
-                    link_type: r.get("link_type"),
-                    link_text: r.try_get("link_text").ok(),
-                    position_start: r.try_get("position_start").ok(),
-                    position_end: r.try_get("position_end").ok(),
-                })
-            })
-            .collect()
-    }
-
     async fn get_meta_for_owner(
         &self,
         doc_id: Uuid,
@@ -392,6 +297,28 @@ impl DocumentRepository for SqlxDocumentRepository {
                 })
             })
             .collect()
+    }
+}
+
+#[async_trait]
+impl DocumentPathRepository for SqlxDocumentRepository {
+    async fn list_paths_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT path
+            FROM documents
+            WHERE workspace_id = $1
+              AND path IS NOT NULL
+              AND type <> 'folder'
+            "#,
+        )
+        .bind(workspace_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.try_get::<String, _>("path").ok())
+            .collect())
     }
 
     async fn get_by_owner_and_path(

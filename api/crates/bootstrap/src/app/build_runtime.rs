@@ -102,6 +102,12 @@ pub async fn build_runtime(
             pool.clone(),
         ),
     );
+    let linkgraph_repo: Arc<dyn application::documents::ports::linkgraph_repository::LinkGraphRepository> =
+        Arc::new(
+            infrastructure::documents::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository::new(
+                pool.clone(),
+            ),
+        );
     let doc_event_log: Arc<dyn DocEventLog> = Arc::new(PgDocEventLog::new(pool.clone()));
     let metrics = Arc::new(MetricsRegistry::default());
     let storage_reconcile_jobs: Arc<dyn StorageReconcileJobs> =
@@ -274,6 +280,7 @@ pub async fn build_runtime(
         snapshot_service_arc.clone(),
         realtime_engine.clone(),
         document_repo.clone(),
+        document_repo.clone(),
         files_repo.clone(),
         workspace_permissions.clone(),
         metrics.clone(),
@@ -335,6 +342,7 @@ pub async fn build_runtime(
         files_repo.clone(),
         access_repo.clone(),
         shares_repo_impl.clone(),
+        linkgraph_repo.clone(),
         storage_resolver.clone(),
         doc_event_log.clone(),
         realtime_engine.clone(),
@@ -344,6 +352,7 @@ pub async fn build_runtime(
 
     {
         let handler = Arc::new(StorageIngestService::new(
+            document_repo.clone(),
             document_repo.clone(),
             files_repo.clone(),
             realtime_engine.clone(),

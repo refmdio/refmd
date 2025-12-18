@@ -25,7 +25,7 @@ where
 {
     pub async fn execute(&self, actor: &Actor, id: Uuid) -> anyhow::Result<Option<DomainDocument>> {
         // Enforce view permission using existing access policy
-        let cap = access::resolve_document(self.access, self.shares, actor, id).await;
+        let cap = access::resolve_document(self.access, self.shares, actor, id).await?;
         if cap < Capability::View {
             return Ok(None);
         }

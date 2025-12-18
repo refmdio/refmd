@@ -9,6 +9,7 @@ use crate::documents::ports::doc_event_log::DocEventLog;
 use crate::documents::ports::document_exporter::DocumentExporter;
 use crate::documents::ports::document_repository::{DocMeta, DocumentRepository};
 use crate::documents::ports::files::files_repository::FilesRepository;
+use crate::documents::ports::linkgraph_repository::LinkGraphRepository;
 use crate::documents::ports::realtime::realtime_port::RealtimeEngine;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
 use crate::documents::ports::tx_runner::DocumentsTxRunner;
@@ -42,6 +43,7 @@ pub struct DocumentService {
     files_repo: Arc<dyn FilesRepository>,
     access_repo: Arc<dyn AccessRepository>,
     share_access: Arc<dyn ShareAccessPort>,
+    linkgraph_repo: Arc<dyn LinkGraphRepository>,
     storage: Arc<dyn StorageResolverPort>,
     events: Arc<dyn DocEventLog>,
     realtime: Arc<dyn RealtimeEngine>,
@@ -57,6 +59,7 @@ impl DocumentService {
         files_repo: Arc<dyn FilesRepository>,
         access_repo: Arc<dyn AccessRepository>,
         share_access: Arc<dyn ShareAccessPort>,
+        linkgraph_repo: Arc<dyn LinkGraphRepository>,
         storage: Arc<dyn StorageResolverPort>,
         events: Arc<dyn DocEventLog>,
         realtime: Arc<dyn RealtimeEngine>,
@@ -69,6 +72,7 @@ impl DocumentService {
             files_repo,
             access_repo,
             share_access,
+            linkgraph_repo,
             storage,
             events,
             realtime,

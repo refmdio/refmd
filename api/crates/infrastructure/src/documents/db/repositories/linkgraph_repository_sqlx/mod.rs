@@ -1,9 +1,13 @@
+use anyhow::Context;
 use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
 use application::documents::ports::linkgraph_repository::LinkGraphRepository;
+use domain::documents::doc_type::DocumentType;
+use domain::documents::document::{BacklinkInfo, OutgoingLink};
+use domain::documents::title::Title;
 
 pub struct SqlxLinkGraphRepository {
     pub pool: PgPool,
@@ -83,5 +87,81 @@ impl LinkGraphRepository for SqlxLinkGraphRepository {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    async fn backlinks_for(
+        &self,
+        workspace_id: Uuid,
+        target_id: Uuid,
+    ) -> anyhow::Result<Vec<BacklinkInfo>> {
+        let rows = sqlx::query(
+            r#"SELECT d.id as document_id, d.title, d.type as document_type, d.path as file_path,
+                      dl.link_type, dl.link_text, COUNT(*)::BIGINT as link_count
+               FROM document_links dl
+               JOIN documents d ON d.id = dl.source_document_id
+               WHERE dl.target_document_id = $1 AND d.workspace_id = $2
+               GROUP BY d.id, d.title, d.type, d.path, dl.link_type, dl.link_text
+               ORDER BY link_count DESC, d.title"#,
+        )
+        .bind(target_id)
+        .bind(workspace_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|r| {
+                let doc_type_str: String = r.get("document_type");
+                let document_type =
+                    DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+                let title: String = r.get("title");
+                Ok(BacklinkInfo {
+                    document_id: r.get("document_id"),
+                    title: Title::new(title),
+                    document_type,
+                    file_path: r.try_get("file_path").ok(),
+                    link_type: r.get("link_type"),
+                    link_text: r.try_get("link_text").ok(),
+                    link_count: r.try_get("link_count").unwrap_or(1_i64),
+                })
+            })
+            .collect()
+    }
+
+    async fn outgoing_links_for(
+        &self,
+        workspace_id: Uuid,
+        source_id: Uuid,
+    ) -> anyhow::Result<Vec<OutgoingLink>> {
+        let rows = sqlx::query(
+            r#"SELECT d.id as document_id, d.title, d.type as document_type, d.path as file_path,
+                      dl.link_type, dl.link_text, dl.position_start, dl.position_end
+               FROM document_links dl
+               JOIN documents d ON d.id = dl.target_document_id
+               WHERE dl.source_document_id = $1 AND d.workspace_id = $2
+               ORDER BY dl.position_start"#,
+        )
+        .bind(source_id)
+        .bind(workspace_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|r| {
+                let doc_type_str: String = r.get("document_type");
+                let document_type =
+                    DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+                let title: String = r.get("title");
+                Ok(OutgoingLink {
+                    document_id: r.get("document_id"),
+                    title: Title::new(title),
+                    document_type,
+                    file_path: r.try_get("file_path").ok(),
+                    link_type: r.get("link_type"),
+                    link_text: r.try_get("link_text").ok(),
+                    position_start: r.try_get("position_start").ok(),
+                    position_end: r.try_get("position_end").ok(),
+                })
+            })
+            .collect()
     }
 }

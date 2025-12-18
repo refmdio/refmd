@@ -22,7 +22,10 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::NotFound)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::NotFound,
+            other => other,
+        })?;
 
         let content = self
             .realtime
@@ -46,7 +49,10 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::Unauthorized)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::Unauthorized,
+            other => other,
+        })?;
 
         let snapshot_bytes = snapshot_from_markdown(content);
         self.realtime
@@ -115,7 +121,10 @@ impl DocumentService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::Unauthorized)?;
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::Unauthorized,
+            other => other,
+        })?;
 
         let current = self
             .realtime

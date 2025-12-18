@@ -178,7 +178,7 @@ impl StorageIngestService {
             return Ok(true);
         }
         match self
-            .document_repo
+            .document_paths
             .update_repo_path(doc.id, owner_id, rel_path)
             .await
         {

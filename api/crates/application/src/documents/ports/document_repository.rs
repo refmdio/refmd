@@ -3,9 +3,7 @@ use uuid::Uuid;
 
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
-use domain::documents::document::{
-    BacklinkInfo as DomBacklinkInfo, OutgoingLink as DomOutgoingLink, SearchHit,
-};
+use domain::documents::document::SearchHit;
 pub use domain::documents::meta::DocMeta;
 use domain::documents::path::{DesiredPath, Slug};
 use domain::documents::title::Title;
@@ -45,8 +43,6 @@ pub trait DocumentRepository: Send + Sync {
     ) -> anyhow::Result<Vec<DomainDocument>>;
 
     async fn list_ids_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
-
-    async fn list_paths_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<String>>;
 
     async fn list_workspace_documents(
         &self,
@@ -92,18 +88,6 @@ pub trait DocumentRepository: Send + Sync {
         workspace_id: Uuid,
     ) -> anyhow::Result<Option<DocumentType>>;
 
-    async fn backlinks_for(
-        &self,
-        workspace_id: Uuid,
-        target_id: Uuid,
-    ) -> anyhow::Result<Vec<DomBacklinkInfo>>;
-
-    async fn outgoing_links_for(
-        &self,
-        workspace_id: Uuid,
-        source_id: Uuid,
-    ) -> anyhow::Result<Vec<DomOutgoingLink>>;
-
     // Lightweight meta for ownership-scoped queries
     async fn get_meta_for_owner(
         &self,
@@ -129,19 +113,6 @@ pub trait DocumentRepository: Send + Sync {
         workspace_id: Uuid,
         root_id: Uuid,
     ) -> anyhow::Result<Vec<SubtreeDocument>>;
-
-    async fn get_by_owner_and_path(
-        &self,
-        workspace_id: Uuid,
-        relative_path: &str,
-    ) -> anyhow::Result<Option<DomainDocument>>;
-
-    async fn update_repo_path(
-        &self,
-        doc_id: Uuid,
-        workspace_id: Uuid,
-        relative_path: &str,
-    ) -> anyhow::Result<()>;
 }
 
 #[async_trait]

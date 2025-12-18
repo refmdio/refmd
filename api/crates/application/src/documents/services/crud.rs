@@ -137,8 +137,7 @@ impl DocumentService {
             &actor,
             source_id,
         )
-        .await
-        .map_err(|_| ServiceError::Forbidden)?;
+        .await?;
 
         let source = self
             .document_repo

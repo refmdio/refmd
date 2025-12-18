@@ -14,7 +14,7 @@ use crate::core::ports::storage::storage_reconcile_backend::StorageReconcileBack
 use crate::core::ports::storage::storage_reconcile_jobs::{
     StorageReconcileJob, StorageReconcileJobs,
 };
-use crate::documents::ports::document_repository::DocumentRepository;
+use crate::documents::ports::document_path_repository::DocumentPathRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use domain::access::permissions::PermissionSet;
 use domain::storage::ingest_backend::StorageIngestBackend;
@@ -26,7 +26,7 @@ use paths::{
 
 pub struct StorageReconcileService {
     jobs: Arc<dyn StorageReconcileJobs>,
-    documents: Arc<dyn DocumentRepository>,
+    documents: Arc<dyn DocumentPathRepository>,
     files: Arc<dyn FilesRepository>,
     ingest_queue: Arc<dyn StorageIngestQueue>,
     storage_jobs: Arc<dyn StorageProjectionQueue>,
@@ -37,7 +37,7 @@ pub struct StorageReconcileService {
 impl StorageReconcileService {
     pub fn new(
         jobs: Arc<dyn StorageReconcileJobs>,
-        documents: Arc<dyn DocumentRepository>,
+        documents: Arc<dyn DocumentPathRepository>,
         files: Arc<dyn FilesRepository>,
         ingest_queue: Arc<dyn StorageIngestQueue>,
         storage_jobs: Arc<dyn StorageProjectionQueue>,

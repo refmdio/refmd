@@ -18,7 +18,7 @@ impl GitWorkspaceService {
         for (candidate, archived_only) in candidates {
             let lookup_path = format!("{}/{}", workspace_id, candidate);
             let from_path = self
-                .docs
+                .doc_paths
                 .get_by_owner_and_path(workspace_id, &lookup_path)
                 .await?;
 

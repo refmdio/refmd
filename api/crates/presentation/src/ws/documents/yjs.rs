@@ -74,7 +74,14 @@ pub async fn axum_ws_entry(
     let cap = state
         .authorization()
         .resolve_document(&actor, doc_uuid)
-        .await;
+        .await
+        .map_err(|err| {
+            if err.is_internal() {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::UNAUTHORIZED
+            }
+        })?;
     if cap == Capability::None {
         return Err(StatusCode::UNAUTHORIZED);
     }

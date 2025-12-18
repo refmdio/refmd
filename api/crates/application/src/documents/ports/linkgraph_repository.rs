@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use domain::documents::document::{BacklinkInfo, OutgoingLink};
+
 #[async_trait]
 pub trait LinkGraphRepository: Send + Sync {
     async fn clear_links_for_source(&self, source_id: Uuid) -> anyhow::Result<()>;
@@ -19,4 +21,16 @@ pub trait LinkGraphRepository: Send + Sync {
         position_start: i32,
         position_end: i32,
     ) -> anyhow::Result<()>;
+
+    async fn backlinks_for(
+        &self,
+        workspace_id: Uuid,
+        target_id: Uuid,
+    ) -> anyhow::Result<Vec<BacklinkInfo>>;
+
+    async fn outgoing_links_for(
+        &self,
+        workspace_id: Uuid,
+        source_id: Uuid,
+    ) -> anyhow::Result<Vec<OutgoingLink>>;
 }

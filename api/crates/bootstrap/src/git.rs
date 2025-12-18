@@ -65,6 +65,9 @@ pub async fn build_git_stack(
         dyn application::documents::ports::realtime::realtime_port::RealtimeEngine,
     >,
     document_repo: Arc<dyn application::documents::ports::document_repository::DocumentRepository>,
+    document_paths: Arc<
+        dyn application::documents::ports::document_path_repository::DocumentPathRepository,
+    >,
     files_repo: Arc<dyn application::documents::ports::files::files_repository::FilesRepository>,
     workspace_permissions: Arc<dyn WorkspacePermissionResolver>,
     metrics: Arc<MetricsRegistry>,
@@ -93,6 +96,7 @@ pub async fn build_git_stack(
         snapshot_service.clone(),
         realtime_engine.clone(),
         document_repo.clone(),
+        document_paths.clone(),
     )?);
     let git_service = Arc::new(GitService::new(
         git_repo.clone(),

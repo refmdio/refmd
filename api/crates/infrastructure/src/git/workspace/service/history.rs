@@ -6,6 +6,7 @@ impl GitWorkspaceService {
         snapshot: Arc<SnapshotService>,
         realtime: Arc<dyn RealtimeEngine>,
         docs: Arc<dyn DocumentRepository>,
+        doc_paths: Arc<dyn DocumentPathRepository>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             pool,
@@ -14,6 +15,7 @@ impl GitWorkspaceService {
             snapshot,
             realtime,
             docs,
+            doc_paths,
         })
     }
 

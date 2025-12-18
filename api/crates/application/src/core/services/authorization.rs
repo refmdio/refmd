@@ -24,7 +24,11 @@ impl AuthorizationService {
         }
     }
 
-    pub async fn resolve_document(&self, actor: &Actor, doc_id: Uuid) -> Capability {
+    pub async fn resolve_document(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+    ) -> Result<Capability, ServiceError> {
         access::resolve_document(
             self.access_repo.as_ref(),
             self.share_access.as_ref(),
@@ -46,7 +50,6 @@ impl AuthorizationService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::Forbidden)
     }
 
     pub async fn require_edit(&self, actor: &Actor, doc_id: Uuid) -> Result<(), ServiceError> {
@@ -57,6 +60,5 @@ impl AuthorizationService {
             doc_id,
         )
         .await
-        .map_err(|_| ServiceError::Forbidden)
     }
 }

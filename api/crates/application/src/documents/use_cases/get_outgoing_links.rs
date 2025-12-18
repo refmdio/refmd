@@ -1,13 +1,13 @@
 use uuid::Uuid;
 
-use crate::documents::ports::document_repository::DocumentRepository;
+use crate::documents::ports::linkgraph_repository::LinkGraphRepository;
 use domain::documents::document::OutgoingLink;
 
-pub struct GetOutgoingLinks<'a, R: DocumentRepository + ?Sized> {
+pub struct GetOutgoingLinks<'a, R: LinkGraphRepository + ?Sized> {
     pub repo: &'a R,
 }
 
-impl<'a, R: DocumentRepository + ?Sized> GetOutgoingLinks<'a, R> {
+impl<'a, R: LinkGraphRepository + ?Sized> GetOutgoingLinks<'a, R> {
     pub async fn execute(
         &self,
         workspace_id: Uuid,

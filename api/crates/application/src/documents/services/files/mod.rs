@@ -108,8 +108,7 @@ impl FileService {
             actor,
             doc_id,
         )
-        .await
-        .map_err(|_| ServiceError::Forbidden)?;
+        .await?;
 
         let meta = self
             .files_repo
@@ -141,8 +140,7 @@ impl FileService {
             actor,
             doc_id,
         )
-        .await
-        .map_err(|_| ServiceError::Unauthorized)?;
+        .await?;
 
         let file_path = self
             .storage

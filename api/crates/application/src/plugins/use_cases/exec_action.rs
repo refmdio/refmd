@@ -408,7 +408,11 @@ where
         if Some(doc_id) == doc_id_created {
             return Ok(Some(doc_id));
         }
-        let capability = self.authorization.resolve_document(actor, doc_id).await;
+        let capability = self
+            .authorization
+            .resolve_document(actor, doc_id)
+            .await
+            .map_err(|err| PluginEffectError::Other(anyhow::Error::new(err)))?;
         let has_access = if require_edit {
             capability >= access::Capability::Edit
         } else {
