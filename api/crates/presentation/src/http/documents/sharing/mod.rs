@@ -1,7 +1,7 @@
 mod active;
 mod applicable;
-mod core;
 mod mounts;
+mod shares;
 pub mod types;
 mod validation;
 
@@ -14,18 +14,18 @@ use crate::context::AppContext;
 
 pub use active::list_active_shares;
 pub use applicable::list_applicable_shares;
-pub use core::{create_share, delete_share, list_document_shares};
 pub use mounts::{
     create_share_mount, delete_share_mount, list_share_mounts, materialize_folder_share,
 };
+pub use shares::{create_share, delete_share, list_document_shares};
 pub use types::*;
 pub use validation::{browse_share, validate_share_token};
 
 pub mod openapi {
     pub use super::active::*;
     pub use super::applicable::*;
-    pub use super::core::*;
     pub use super::mounts::*;
+    pub use super::shares::*;
     pub use super::validation::*;
 }
 

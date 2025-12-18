@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use domain::workspaces::permissions::PermissionSet;
+use domain::access::permissions::PermissionSet;
 
 #[derive(Debug, Clone)]
 pub struct DocumentUserAccess {

@@ -2,11 +2,11 @@ use serde_json::json;
 use tracing::{error, warn};
 use uuid::Uuid;
 
+use domain::access::permissions::PermissionSet;
 use domain::documents::document::{Document as DomainDocument, SearchHit};
 use domain::documents::permissions as doc_permissions;
 use domain::documents::policy::DocumentState;
 use domain::documents::{hierarchy, path as doc_path, policy as doc_policy, title};
-use domain::workspaces::permissions::PermissionSet;
 
 use crate::core::services::access::{self, Actor};
 use crate::core::services::errors::ServiceError;

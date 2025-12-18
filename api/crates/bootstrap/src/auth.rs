@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::config::Config;
+use application::identity::services::auth::auth_service::AuthService;
 use application::identity::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
-use application::identity::services::auth::service::AuthService;
 use application::identity::services::auth::token_validation::TokenValidationService;
 use application::identity::services::auth::user_sessions::UserSessionService;
 use infrastructure::identity::auth::github::GithubOAuthProvider;

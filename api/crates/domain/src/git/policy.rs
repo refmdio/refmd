@@ -1,4 +1,4 @@
-use crate::workspaces::permissions::{PERM_GIT_SYNC, PermissionSet};
+use crate::access::permissions::{PERM_GIT_SYNC, PermissionSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GitPolicyError {
@@ -16,7 +16,7 @@ pub fn ensure_git_sync_allowed(permissions: &PermissionSet) -> Result<(), GitPol
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspaces::permissions::PERM_GIT_SYNC;
+    use crate::access::permissions::PERM_GIT_SYNC;
 
     #[test]
     fn git_sync_requires_permission() {

@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use domain::workspaces::permissions::PermissionSet;
+use domain::access::permissions::PermissionSet;
 
 use crate::core::services::errors::ServiceError;
 

@@ -11,9 +11,9 @@ use crate::documents::use_cases::publishing::get_status::{GetPublishStatus, Publ
 use crate::documents::use_cases::publishing::list_workspace::ListWorkspacePublic;
 use crate::documents::use_cases::publishing::publish::{PublishDocument, PublishResponseDto};
 use crate::documents::use_cases::publishing::unpublish::UnpublishDocument;
+use domain::access::permissions::PermissionSet;
 use domain::documents::document::Document;
 use domain::documents::public_policy;
-use domain::workspaces::permissions::PermissionSet;
 
 pub struct PublicService {
     repo: Arc<dyn PublicRepository>,

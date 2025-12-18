@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::context::AppContext;
 use crate::http::identity::auth::Bearer;
-use domain::workspaces::permissions::PERM_PLUGIN_RUN;
+use domain::access::permissions::PERM_PLUGIN_RUN;
 
 use super::types::{
     CreateRecordBody, RecordsPath, RecordsResponse, UpdateRecordBody, UpdateRecordPath,

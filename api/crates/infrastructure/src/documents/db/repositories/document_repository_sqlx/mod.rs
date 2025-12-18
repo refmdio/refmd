@@ -1,7 +1,7 @@
 use crate::core::db::PgPool;
 
 mod helpers;
-mod repo;
+mod repository;
 
 #[cfg(test)]
 mod tests;

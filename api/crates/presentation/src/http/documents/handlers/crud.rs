@@ -8,8 +8,8 @@ use uuid::Uuid;
 use crate::context::AppContext;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
+use domain::access::permissions::PERM_DOC_VIEW;
 use domain::documents::doc_type::DocumentType;
-use domain::workspaces::permissions::PERM_DOC_VIEW;
 
 use crate::http::documents::types::{
     CreateDocumentRequest, Document, DocumentListResponse, DocumentStateFilter, DoubleOption,

@@ -22,8 +22,8 @@ use crate::documents::services::realtime::snapshot::snapshot_from_markdown;
 use crate::workspaces::services::{
     WorkspacePermissionResolver, permission_snapshot::permission_set_from_snapshot,
 };
+use domain::access::permissions::PermissionSet;
 use domain::documents::document::Document as DomainDocument;
-use domain::workspaces::permissions::PermissionSet;
 
 mod attachments;
 mod documents;

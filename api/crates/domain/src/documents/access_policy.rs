@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use crate::access::permissions::{PERM_DOC_EDIT, PERM_DOC_VIEW, PermissionSet};
 use crate::documents::doc_type::DocumentType;
 use crate::documents::share::{self, ShareContext, SharePermission};
-use crate::workspaces::permissions::{PERM_DOC_EDIT, PERM_DOC_VIEW, PermissionSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Capability {

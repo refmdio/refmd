@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use domain::workspaces::permissions::PERM_PLUGIN_RUN;
+use domain::access::permissions::PERM_PLUGIN_RUN;
 
 use super::types::{KvPath, KvValueBody, KvValueResponse, ensure_valid_plugin_id};
 use super::util::{

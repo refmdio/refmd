@@ -14,8 +14,8 @@ use crate::identity::ports::api_token_repository::ApiTokenRepository;
 use crate::identity::use_cases::api_tokens::create_token::CreateApiToken;
 use crate::identity::use_cases::api_tokens::list_tokens::ListApiTokens;
 use crate::identity::use_cases::api_tokens::revoke_token::RevokeApiToken;
+use domain::access::permissions::PermissionSet;
 use domain::identity::policy;
-use domain::workspaces::permissions::PermissionSet;
 
 pub struct ApiTokenService {
     repo: Arc<dyn ApiTokenRepository>,

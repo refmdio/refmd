@@ -10,8 +10,8 @@ use crate::identity::use_cases::user_shortcuts::get_shortcuts::GetUserShortcuts;
 use crate::identity::use_cases::user_shortcuts::update_shortcuts::{
     UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,
 };
+use domain::access::permissions::PermissionSet;
 use domain::identity::policy;
-use domain::workspaces::permissions::PermissionSet;
 
 pub struct UserShortcutService {
     repo: Arc<dyn UserShortcutRepository>,

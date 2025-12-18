@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
+use domain::access::permissions::PermissionSet;
 use domain::documents::share;
-use domain::workspaces::permissions::PermissionSet;
 
 use crate::core::services::errors::ServiceError;
 use crate::documents::dtos::{

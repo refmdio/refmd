@@ -8,7 +8,7 @@ use uuid::Uuid;
 use application::workspaces::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceRoleRecord,
 };
-use domain::workspaces::permissions::PermissionOverride;
+use domain::access::permissions::PermissionOverride;
 use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
 
 use super::SqlxWorkspaceRepository;

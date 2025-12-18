@@ -11,8 +11,8 @@ use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;
 use application::git::dtos::{GitPullRequestDto, GitPullResolutionDto};
 use application::git::services::FinalizePullSessionResult;
+use domain::access::permissions::PERM_GIT_SYNC;
 use domain::git::pull_session::GitPullSessionStatus;
-use domain::workspaces::permissions::PERM_GIT_SYNC;
 
 use super::types::{
     GitPullConflictItem, GitPullRequest, GitPullResolution, GitPullResponse,

@@ -1,4 +1,4 @@
-use crate::workspaces::permissions::{PERM_API_TOKEN_MANAGE, PERM_SHORTCUT_UPDATE, PermissionSet};
+use crate::access::permissions::{PERM_API_TOKEN_MANAGE, PERM_SHORTCUT_UPDATE, PermissionSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentityPolicyError {
@@ -28,7 +28,7 @@ pub fn ensure_shortcut_update_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspaces::permissions::{PERM_API_TOKEN_MANAGE, PERM_SHORTCUT_UPDATE};
+    use crate::access::permissions::{PERM_API_TOKEN_MANAGE, PERM_SHORTCUT_UPDATE};
 
     #[test]
     fn api_token_manage_requires_permission() {

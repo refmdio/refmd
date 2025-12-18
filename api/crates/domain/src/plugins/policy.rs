@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use uuid::Uuid;
 
-use crate::workspaces::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet};
+use crate::access::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet};
 
 pub const PLUGIN_PERMISSION_DOC_WRITE: &str = "doc.write";
 
@@ -77,7 +77,7 @@ pub fn ensure_record_owned_by_plugin(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspaces::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT};
+    use crate::access::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT};
 
     #[test]
     fn plugin_permission_requires_membership() {

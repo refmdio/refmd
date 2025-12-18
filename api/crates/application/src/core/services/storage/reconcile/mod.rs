@@ -16,8 +16,8 @@ use crate::core::ports::storage::storage_reconcile_jobs::{
 };
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
+use domain::access::permissions::PermissionSet;
 use domain::storage::ingest_backend::StorageIngestBackend;
-use domain::workspaces::permissions::PermissionSet;
 
 mod paths;
 use paths::{

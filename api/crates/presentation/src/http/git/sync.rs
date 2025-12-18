@@ -8,7 +8,7 @@ use crate::context::AppContext;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::git::dtos::{GitSyncRequestDto, UpsertGitConfigInput};
-use domain::workspaces::permissions::PERM_GIT_INIT;
+use domain::access::permissions::PERM_GIT_INIT;
 
 use super::types::{
     CreateGitConfigRequest, GitImportResponse, GitSyncRequest, GitSyncResponse, map_git_error,

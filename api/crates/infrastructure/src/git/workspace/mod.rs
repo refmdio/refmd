@@ -51,7 +51,7 @@ pub struct GitWorkspaceService {
     docs: Arc<dyn DocumentRepository>,
 }
 
-include!("service.rs");
+include!("workspace_service.rs");
 include!("sync.rs");
 include!("import.rs");
 include!("remote.rs");

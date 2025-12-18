@@ -9,7 +9,7 @@ use crate::context::AppContext;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
-use domain::workspaces::permissions::PERM_DOC_VIEW;
+use domain::access::permissions::PERM_DOC_VIEW;
 
 use crate::http::documents::types::{
     BacklinkInfo, BacklinksResponse, OutgoingLink, OutgoingLinksResponse, map_service_error,

@@ -7,7 +7,7 @@ use axum::{
 use crate::context::AppContext;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
-use domain::workspaces::permissions::PERM_DOC_VIEW;
+use domain::access::permissions::PERM_DOC_VIEW;
 
 use crate::http::documents::types::{SearchQuery, SearchResult, map_service_error};
 

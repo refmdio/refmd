@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::context::AppContext;
 use crate::http::workspaces::map_service_error;
-use domain::workspaces::permissions::PermissionSet;
+use domain::access::permissions::PermissionSet;
 
 const WORKSPACE_HEADER: &str = "X-Workspace-ID";
 

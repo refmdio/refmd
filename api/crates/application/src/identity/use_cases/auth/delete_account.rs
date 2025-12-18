@@ -14,9 +14,9 @@ use crate::identity::ports::user_repository::UserRepository;
 use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::plugins::ports::plugin_repository::PluginRepository;
+use domain::access::permissions::PermissionSet;
 use domain::documents::doc_type::DocumentType;
 use domain::plugins::scope::{PluginRecordScope, PluginScope};
-use domain::workspaces::permissions::PermissionSet;
 
 pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
 where

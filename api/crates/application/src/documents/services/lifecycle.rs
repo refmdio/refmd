@@ -1,11 +1,11 @@
 use serde_json::json;
 use uuid::Uuid;
 
+use domain::access::permissions::PermissionSet;
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
 use domain::documents::policy::DocumentState;
 use domain::documents::{path as doc_path, policy as doc_policy};
-use domain::workspaces::permissions::PermissionSet;
 
 use crate::core::services::errors::ServiceError;
 use crate::documents::ports::tx_runner::run_in_tx;

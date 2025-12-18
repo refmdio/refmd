@@ -4,9 +4,7 @@ use uuid::Uuid;
 
 use crate::core::db::PgPool;
 use application::documents::ports::access_repository::{AccessRepository, DocumentUserAccess};
-use domain::workspaces::permissions::{
-    PermissionSet, apply_custom_overrides, system_role_permissions,
-};
+use domain::access::permissions::{PermissionSet, apply_custom_overrides, system_role_permissions};
 
 pub struct SqlxAccessRepository {
     pub pool: PgPool,
@@ -77,7 +75,7 @@ impl AccessRepository for SqlxAccessRepository {
                     .flatten(),
                 row.try_get::<Option<bool>, _>("allowed").ok().flatten(),
             ) {
-                overrides.push(domain::workspaces::permissions::PermissionOverride::new(
+                overrides.push(domain::access::permissions::PermissionOverride::new(
                     permission, allowed,
                 ));
             }
@@ -123,7 +121,7 @@ fn build_permission_set(
     role_kind: &str,
     system_role: Option<&str>,
     custom_base_role: Option<&str>,
-    overrides: Vec<domain::workspaces::permissions::PermissionOverride>,
+    overrides: Vec<domain::access::permissions::PermissionOverride>,
 ) -> PermissionSet {
     let set = match role_kind {
         "system" => {

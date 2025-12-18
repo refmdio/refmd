@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use domain::workspaces::permissions::{
+use domain::access::permissions::{
     PermissionOverride, PermissionSet, apply_custom_overrides, system_role_permissions,
 };
 use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};

@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 
+use crate::access::permissions::PermissionSet;
 use crate::documents::doc_type::DocumentType;
 use crate::documents::permissions;
-use crate::workspaces::permissions::PermissionSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentPolicyError {
@@ -85,8 +85,8 @@ pub fn ensure_active(state: DocumentState) -> Result<(), DocumentPolicyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::access::permissions::{PERM_DOC_ARCHIVE, PERM_DOC_EDIT, PERM_DOC_MOVE};
     use crate::documents::doc_type::DocumentType;
-    use crate::workspaces::permissions::{PERM_DOC_ARCHIVE, PERM_DOC_EDIT, PERM_DOC_MOVE};
 
     #[test]
     fn duplicate_folder_is_not_allowed() {

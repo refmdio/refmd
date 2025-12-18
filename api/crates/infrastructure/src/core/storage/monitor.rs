@@ -15,8 +15,8 @@ use application::core::ports::storage::storage_port::StorageResolverPort;
 use application::core::ports::storage::storage_projection_queue::{
     StorageProjectionJobKind, StorageProjectionQueue,
 };
+use domain::access::permissions::PermissionSet;
 use domain::storage::ingest_backend::StorageIngestBackend;
-use domain::workspaces::permissions::PermissionSet;
 
 /// Periodically verifies that metadata entries in `documents` / `files`
 /// still have a corresponding object in the configured storage backend.

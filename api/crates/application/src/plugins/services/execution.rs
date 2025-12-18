@@ -8,7 +8,7 @@ use crate::plugins::dtos::ExecResult;
 use crate::plugins::ports::plugin_repository::PluginRepository;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;
 use crate::plugins::use_cases::exec_action::ExecutePluginAction;
-use domain::workspaces::permissions::PermissionSet;
+use domain::access::permissions::PermissionSet;
 
 pub struct PluginExecutionService {
     plugin_repo: Arc<dyn PluginRepository>,

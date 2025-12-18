@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use domain::workspaces::permissions::PermissionOverride;
+use domain::access::permissions::PermissionOverride;
 use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
 
 #[derive(Debug, Clone)]

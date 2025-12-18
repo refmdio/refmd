@@ -14,9 +14,9 @@ use crate::plugins::ports::plugin_installer::{InstalledPlugin, PluginInstaller};
 use crate::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
 use crate::plugins::services::asset_signer::{AssetScope, AssetSigner};
 use crate::plugins::use_cases::install_from_url::{InstallPluginError, InstallPluginFromUrl};
+use domain::access::permissions::PermissionSet;
 use domain::plugins::events::PluginEventKind;
 use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
-use domain::workspaces::permissions::PermissionSet;
 
 #[derive(Debug, Clone)]
 pub struct PluginManifestItem {

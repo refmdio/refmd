@@ -7,10 +7,10 @@ use application::core::ports::storage::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason,
 };
 use application::workspaces::services::permission_snapshot::permission_set_from_snapshot;
-use domain::documents::doc_type::DocumentType;
-use domain::workspaces::permissions::{
+use domain::access::permissions::{
     PERM_DOC_DELETE, PERM_FILE_DELETE, PERM_FOLDER_DELETE, PermissionSet,
 };
+use domain::documents::doc_type::DocumentType;
 
 use super::StorageProjectionWorker;
 

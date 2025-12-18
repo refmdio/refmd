@@ -1,5 +1,5 @@
+use domain::access::permissions::PermissionSet;
 use domain::documents::sharing_policy;
-use domain::workspaces::permissions::PermissionSet;
 
 use crate::core::services::errors::ServiceError;
 

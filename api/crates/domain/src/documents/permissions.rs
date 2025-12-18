@@ -1,8 +1,8 @@
-use crate::documents::doc_type::DocumentType;
-use crate::workspaces::permissions::{
+use crate::access::permissions::{
     PERM_DOC_ARCHIVE, PERM_DOC_CREATE, PERM_DOC_DELETE, PERM_DOC_EDIT, PERM_DOC_MOVE,
     PERM_FOLDER_CREATE, PERM_FOLDER_DELETE, PermissionSet,
 };
+use crate::documents::doc_type::DocumentType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentPermissionError {

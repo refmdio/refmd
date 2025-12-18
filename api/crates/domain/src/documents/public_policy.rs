@@ -1,4 +1,4 @@
-use crate::workspaces::permissions::{PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH, PermissionSet};
+use crate::access::permissions::{PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH, PermissionSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublicPolicyError {
@@ -26,7 +26,7 @@ pub fn ensure_public_unpublish_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspaces::permissions::{PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH};
+    use crate::access::permissions::{PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH};
 
     #[test]
     fn publish_requires_permission() {

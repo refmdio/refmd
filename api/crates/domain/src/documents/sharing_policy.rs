@@ -1,4 +1,4 @@
-use crate::workspaces::permissions::{
+use crate::access::permissions::{
     PERM_DOC_VIEW, PERM_SHARE_CREATE, PERM_SHARE_DELETE, PermissionSet,
 };
 
@@ -34,7 +34,7 @@ pub fn ensure_document_view_allowed(permissions: &PermissionSet) -> Result<(), S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspaces::permissions::{PERM_DOC_VIEW, PERM_SHARE_CREATE, PERM_SHARE_DELETE};
+    use crate::access::permissions::{PERM_DOC_VIEW, PERM_SHARE_CREATE, PERM_SHARE_DELETE};
 
     #[test]
     fn share_create_requires_permission() {

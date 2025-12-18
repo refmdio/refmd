@@ -9,11 +9,11 @@ use crate::documents::use_cases::create_document::CreateDocument;
 use crate::plugins::dtos::ExecResult;
 use crate::plugins::ports::plugin_repository::PluginRepository;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;
+use domain::access::permissions::{PERM_DOC_EDIT, PermissionSet};
 use domain::documents::doc_type::DocumentType;
 use domain::documents::title::Title;
 use domain::plugins::policy;
 use domain::plugins::scope::{PluginRecordScope, PluginScope};
-use domain::workspaces::permissions::{PERM_DOC_EDIT, PermissionSet};
 
 enum PluginEffectError {
     PermissionDenied { permission: String },

@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use tracing::warn;
 
-use domain::workspaces::permissions::PermissionSet;
+use domain::access::permissions::PermissionSet;
 
 pub fn permission_set_from_snapshot(snapshot: &[String]) -> PermissionSet {
     permission_set_from_snapshot_or_else(snapshot, PermissionSet::default)

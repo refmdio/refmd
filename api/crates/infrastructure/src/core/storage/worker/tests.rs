@@ -6,10 +6,10 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use application::core::ports::storage::storage_projection_queue::StorageDeleteJobMetadata;
-use domain::documents::doc_type::DocumentType;
-use domain::workspaces::permissions::{
+use domain::access::permissions::{
     PERM_DOC_DELETE, PERM_FILE_DELETE, PERM_FOLDER_DELETE, PermissionSet,
 };
+use domain::documents::doc_type::DocumentType;
 
 use application::core::ports::storage::storage_port::StoredAttachment;
 use application::core::services::errors::ServiceError;

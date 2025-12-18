@@ -8,8 +8,8 @@ use serde_json::json;
 use crate::context::AppContext;
 use crate::http::identity::auth::Bearer;
 use application::core::services::access;
+use domain::access::permissions::PERM_PLUGIN_RUN;
 use domain::documents::doc_type::DocumentType;
-use domain::workspaces::permissions::PERM_PLUGIN_RUN;
 
 use super::types::{ExecBody, ExecResultResponse, ensure_valid_plugin_id, extract_doc_id};
 use super::util::{map_plugin_service_error, resolve_plugin_user_context};
