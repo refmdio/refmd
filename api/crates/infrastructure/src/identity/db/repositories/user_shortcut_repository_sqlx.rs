@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::identity::ports::user_shortcuts::user_shortcut_repository::{
     UserShortcutProfile, UserShortcutRepository,
 };
-use crate::core::db::PgPool;
 
 pub struct SqlxUserShortcutRepository {
     pool: PgPool,

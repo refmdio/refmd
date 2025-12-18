@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use tracing::{error, info};
 
-use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
-use application::plugins::ports::plugin_asset_store::PluginAssetStore;
 use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
+use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
+use application::plugins::ports::plugin_asset_store::PluginAssetStore;
 use infrastructure::core::db::PgPool;
 use presentation::context::AppContext;
 
@@ -66,7 +66,13 @@ impl AppRuntime {
 
         let app = api_router.merge(ws_router);
 
-        jobs::spawn_snapshot_loop(&mut jobs, true, local_hub.clone(), cfg.clone(), pool.clone());
+        jobs::spawn_snapshot_loop(
+            &mut jobs,
+            true,
+            local_hub.clone(),
+            cfg.clone(),
+            pool.clone(),
+        );
 
         let server =
             axum::serve(listener, app).with_graceful_shutdown(jobs::wait_for_shutdown_signal());

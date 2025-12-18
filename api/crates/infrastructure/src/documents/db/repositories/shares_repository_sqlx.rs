@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::documents::ports::sharing::share_access_port::ShareAccessPort;
 use application::documents::ports::sharing::shares_repository::{
     ApplicableShareRow, CreatedShare, ShareDocumentMeta, ShareMountRow, ShareRow, ShareSubtreeNode,
     ShareTokenValidation, SharesRepository,
 };
-use crate::core::db::PgPool;
 use domain::documents::doc_type::DocumentType;
 use domain::documents::share;
 use domain::documents::title::Title;
@@ -407,10 +407,7 @@ impl SharesRepository for SqlxSharesRepository {
         }))
     }
 
-    async fn list_subtree_nodes(
-        &self,
-        root_id: Uuid,
-    ) -> anyhow::Result<Vec<ShareSubtreeNode>> {
+    async fn list_subtree_nodes(&self, root_id: Uuid) -> anyhow::Result<Vec<ShareSubtreeNode>> {
         let rows = sqlx::query(
             r#"
             WITH RECURSIVE subtree AS (

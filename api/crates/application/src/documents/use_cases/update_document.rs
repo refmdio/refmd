@@ -1,8 +1,10 @@
 use uuid::Uuid;
 
-use crate::documents::ports::document_repository::{DocumentPathConflictError, DocumentRepositoryTx};
-use domain::documents::document::Document as DomainDocument;
+use crate::documents::ports::document_repository::{
+    DocumentPathConflictError, DocumentRepositoryTx,
+};
 use domain::documents::doc_type::DocumentType;
+use domain::documents::document::Document as DomainDocument;
 use domain::documents::path as doc_path;
 use domain::documents::title::Title;
 
@@ -45,12 +47,9 @@ where
             None => current_parent_path.as_ref(),
         };
 
-        for (slug, desired_path) in doc_path::desired_path_candidates(
-            &base_slug,
-            parent_path,
-            doc_type,
-            MAX_SLUG_ATTEMPTS,
-        ) {
+        for (slug, desired_path) in
+            doc_path::desired_path_candidates(&base_slug, parent_path, doc_type, MAX_SLUG_ATTEMPTS)
+        {
             let result = self
                 .repo
                 .update_title_and_parent_for_user(

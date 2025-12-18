@@ -5,6 +5,7 @@ use std::path::{Component, Path};
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::core::services::access::{self, Actor, Capability};
 use crate::documents::dtos::{DocumentDownload, DocumentDownloadFormat};
 use crate::documents::ports::access_repository::AccessRepository;
@@ -14,7 +15,6 @@ use crate::documents::ports::document_exporter::{
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
-use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::documents::services::realtime::snapshot::SnapshotService;
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;

@@ -4,7 +4,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tracing::{error, info, warn};
 
-use application::core::ports::storage::storage_ingest_queue::{StorageIngestEvent, StorageIngestQueue};
+use application::core::ports::storage::storage_ingest_queue::{
+    StorageIngestEvent, StorageIngestQueue,
+};
 use application::core::services::metrics::MetricsRegistry;
 use application::core::services::storage::ingest::StorageIngestHandler;
 
@@ -158,8 +160,9 @@ mod tests {
 
         async fn stats(
             &self,
-        ) -> anyhow::Result<application::core::ports::storage::storage_ingest_queue::StorageIngestQueueStats>
-        {
+        ) -> anyhow::Result<
+            application::core::ports::storage::storage_ingest_queue::StorageIngestQueueStats,
+        > {
             unimplemented!()
         }
     }

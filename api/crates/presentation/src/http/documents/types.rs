@@ -5,12 +5,12 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use application::core::dtos::TextDiffResult;
+use application::core::services::errors::ServiceError;
 use application::documents::dtos::DocumentDownloadFormat;
 use application::documents::dtos::{
     DocumentListFilter, SnapshotDiffBaseMode, SnapshotDiffSideDto, SnapshotSummaryDto,
 };
 use application::documents::services::DocumentPatchOperation;
-use application::core::services::errors::ServiceError;
 use domain::documents::document as domain;
 
 #[derive(Debug, Serialize, ToSchema)]

@@ -1,6 +1,6 @@
+use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
-use crate::core::ports::storage::storage_port::StorageResolverPort;
 use anyhow::Error;
 use domain::documents::doc_type::DocumentType;
 use uuid::Uuid;

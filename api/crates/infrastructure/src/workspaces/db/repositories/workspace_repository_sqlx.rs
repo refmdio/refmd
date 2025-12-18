@@ -6,12 +6,12 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row, postgres::PgRow};
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::workspaces::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceMemberRow,
     WorkspacePermissionRecord, WorkspaceRepository, WorkspaceRoleRecord, WorkspaceRow,
     WorkspaceSetDefaultError,
 };
-use crate::core::db::PgPool;
 use domain::workspaces::permissions::PermissionOverride;
 use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
 
@@ -38,15 +38,18 @@ impl SqlxWorkspaceRepository {
                 priority: row.get("priority"),
                 overrides: Vec::new(),
             });
-            entry.base_role = Self::parse_base_role(&base_role_raw)
-                .with_context(|| format!("invalid workspace_roles.base_role for role_id={role_id}"))?;
+            entry.base_role = Self::parse_base_role(&base_role_raw).with_context(|| {
+                format!("invalid workspace_roles.base_role for role_id={role_id}")
+            })?;
             if let (Some(permission), Some(allowed)) = (
                 row.try_get::<Option<String>, _>("permission")
                     .ok()
                     .flatten(),
                 row.try_get::<Option<bool>, _>("allowed").ok().flatten(),
             ) {
-                entry.overrides.push(PermissionOverride::new(permission, allowed));
+                entry
+                    .overrides
+                    .push(PermissionOverride::new(permission, allowed));
             }
         }
         Ok(map

@@ -20,6 +20,8 @@ use tokio::time::sleep;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use crate::plugins::event_bus_pg::PgPluginEventBus;
+use crate::plugins::filesystem_store::{FilesystemPluginStore, PluginExecutionLimits};
 use application::plugins::dtos::ExecResult;
 use application::plugins::ports::plugin_asset_store::{
     LatestGlobalManifest, PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
@@ -29,10 +31,6 @@ use application::plugins::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
 };
 use application::plugins::ports::plugin_runtime::PluginRuntime;
-use crate::plugins::event_bus_pg::PgPluginEventBus;
-use crate::plugins::filesystem_store::{
-    FilesystemPluginStore, PluginExecutionLimits,
-};
 use domain::plugins::events::PluginEventKind;
 
 const PLUGINS_PREFIX: &str = "plugins";
@@ -528,9 +526,7 @@ impl PluginAssetStore for S3BackedPluginStore {
         Ok(())
     }
 
-    async fn list_latest_global_manifests(
-        &self,
-    ) -> anyhow::Result<Vec<LatestGlobalManifest>> {
+    async fn list_latest_global_manifests(&self) -> anyhow::Result<Vec<LatestGlobalManifest>> {
         let now = epoch_secs_now();
         if self.global_cache.needs_refresh(now) {
             let _guard = self.global_cache.refresh_lock.lock().await;

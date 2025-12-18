@@ -8,12 +8,10 @@ use chrono::{DateTime, Duration, Utc};
 use rand::{Rng, distributions::Alphanumeric, rngs::OsRng};
 use uuid::Uuid;
 
-use crate::identity::ports::user_session_repository::{
-    UserSessionRecord, UserSessionRepository,
-};
+use crate::core::services::errors::ServiceError;
+use crate::identity::ports::user_session_repository::{UserSessionRecord, UserSessionRepository};
 use crate::identity::services::api_tokens::{compute_digest, verify_token};
 use crate::identity::services::auth::service::{AuthService, IssuedSession};
-use crate::core::services::errors::ServiceError;
 
 pub struct SessionMetadata<'a> {
     pub user_agent: Option<&'a str>,

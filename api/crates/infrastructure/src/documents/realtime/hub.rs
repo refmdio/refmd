@@ -22,6 +22,8 @@ use yrs::{Doc, ReadTxn, StateVector, Text, Transact, Update};
 use yrs_warp::AwarenessRef;
 use yrs_warp::broadcast::BroadcastGroup;
 
+use crate::documents::realtime::utils::wrap_stream_with_edit_guard;
+use crate::documents::realtime::{DynRealtimeSink, DynRealtimeStream};
 use application::documents::ports::realtime::realtime_persistence_port::{
     DocPersistencePort, DocumentMissingError,
 };
@@ -31,8 +33,6 @@ use application::documents::services::realtime::doc_hydration::{
 use application::documents::services::realtime::snapshot::{
     SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
 };
-use crate::documents::realtime::utils::wrap_stream_with_edit_guard;
-use crate::documents::realtime::{DynRealtimeSink, DynRealtimeStream};
 
 #[derive(Clone)]
 pub struct DocumentRoom {

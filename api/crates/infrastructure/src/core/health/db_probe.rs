@@ -3,8 +3,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use sqlx::Row;
 
-use application::core::ports::health_probe::{HealthProbe, HealthStatus};
 use crate::core::db::PgPool;
+use application::core::ports::health_probe::{HealthProbe, HealthStatus};
 
 pub struct DatabaseHealthProbe {
     pool: PgPool,

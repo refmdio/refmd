@@ -5,10 +5,10 @@ use axum::{
 };
 use uuid::Uuid;
 
-use application::core::services::errors::ServiceError;
 use crate::context::AppContext;
 use crate::http::identity::auth::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
+use application::core::services::errors::ServiceError;
 use tracing::error;
 
 use super::types::{UpdateUserShortcutRequest, UserShortcutResponse};

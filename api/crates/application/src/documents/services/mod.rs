@@ -3,6 +3,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::core::ports::storage::storage_port::StorageResolverPort;
+use crate::core::services::errors::ServiceError;
 use crate::documents::ports::access_repository::AccessRepository;
 use crate::documents::ports::doc_event_log::DocEventLog;
 use crate::documents::ports::document_exporter::DocumentExporter;
@@ -11,28 +12,27 @@ use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::realtime::realtime_port::RealtimeEngine;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
 use crate::documents::ports::tx_runner::DocumentsTxRunner;
-use crate::core::services::errors::ServiceError;
 use crate::documents::services::realtime::snapshot::SnapshotService;
 
 mod attachments;
-mod deletion;
-mod events;
-mod jobs;
-mod patch;
-mod snapshot_dto;
-mod util;
 mod content;
 mod crud;
+mod deletion;
 mod downloads;
-mod lifecycle;
-mod links;
-mod snapshots;
+mod events;
 pub mod files;
+mod jobs;
+mod lifecycle;
 pub mod linkgraph;
+mod links;
+mod patch;
 pub mod publishing;
 pub mod realtime;
 pub mod sharing;
+mod snapshot_dto;
+mod snapshots;
 pub mod tagging;
+mod util;
 
 pub use patch::DocumentPatchOperation;
 

@@ -3,8 +3,8 @@ use sqlx::Row;
 use tracing::debug;
 use uuid::Uuid;
 
-use application::git::ports::git_rebuild_job_queue::{GitRebuildJob, GitRebuildJobQueue};
 use crate::core::db::PgPool;
+use application::git::ports::git_rebuild_job_queue::{GitRebuildJob, GitRebuildJobQueue};
 
 pub struct PgGitRebuildJobQueue {
     pool: PgPool,

@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use crate::core::services::errors::ServiceError;
 use crate::documents::dtos::TagItemDto;
 use crate::documents::ports::tagging::tag_repository::TagRepository;
-use crate::core::services::errors::ServiceError;
 use crate::documents::use_cases::tagging::list_tags::ListTags;
 
 pub struct TagService {

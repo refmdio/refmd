@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::documents::ports::realtime::realtime_persistence_port::{
     DocPersistencePort, DocumentMissingError, SnapshotEntry,
 };
-use crate::core::db::PgPool;
 
 #[derive(Clone)]
 pub struct SqlxDocPersistenceAdapter {

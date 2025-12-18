@@ -4,10 +4,10 @@ use serde_json::{Value, json};
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::core::ports::storage::storage_ingest_queue::{
     StorageIngestEvent, StorageIngestKind, StorageIngestQueue, StorageIngestQueueStats,
 };
-use crate::core::db::PgPool;
 use domain::storage::ingest_backend::StorageIngestBackend;
 
 pub struct PgStorageIngestQueue {

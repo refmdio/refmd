@@ -225,32 +225,41 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
 
     // Build upload router with state
     let upload_router = Router::new()
-        .route("/*path", get(presentation::http::documents::files::serve_upload))
+        .route(
+            "/*path",
+            get(presentation::http::documents::files::serve_upload),
+        )
         .with_state(ctx.clone());
 
     // Build API router
     let api_router = Router::new()
-        .nest("/api", presentation::http::core::health::routes(ctx.clone()))
         .nest(
             "/api",
-            presentation::http::documents::routes(ctx.clone()),
+            presentation::http::core::health::routes(ctx.clone()),
         )
+        .nest("/api", presentation::http::documents::routes(ctx.clone()))
         .nest(
             "/api/auth",
             presentation::http::identity::auth::routes(ctx.clone()),
         )
-        .nest("/api", presentation::http::documents::sharing::routes(ctx.clone()))
-        .nest("/api", presentation::http::documents::files::routes(ctx.clone()))
-        .nest("/api", presentation::http::documents::tagging::routes(ctx.clone()))
+        .nest(
+            "/api",
+            presentation::http::documents::sharing::routes(ctx.clone()),
+        )
+        .nest(
+            "/api",
+            presentation::http::documents::files::routes(ctx.clone()),
+        )
+        .nest(
+            "/api",
+            presentation::http::documents::tagging::routes(ctx.clone()),
+        )
         .nest("/api", presentation::http::git::routes(ctx.clone()))
         .nest(
             "/api",
             presentation::http::core::markdown::routes(ctx.clone()),
         )
-        .nest(
-            "/api",
-            presentation::http::plugins::routes(ctx.clone()),
-        )
+        .nest("/api", presentation::http::plugins::routes(ctx.clone()))
         .nest(
             "/api",
             presentation::http::identity::api_tokens::routes(ctx.clone()),
@@ -259,10 +268,7 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
             "/api",
             presentation::http::core::storage_ingest::routes(ctx.clone()),
         )
-        .nest(
-            "/api",
-            presentation::http::workspaces::routes(ctx.clone()),
-        )
+        .nest("/api", presentation::http::workspaces::routes(ctx.clone()))
         .nest(
             "/api",
             presentation::http::identity::shortcuts::routes(ctx.clone()),

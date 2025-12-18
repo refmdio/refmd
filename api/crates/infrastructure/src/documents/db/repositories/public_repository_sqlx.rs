@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::documents::ports::publishing::public_repository::{
     PublicDocumentSummaryRow, PublicRepository, PublishStatusRow, WorkspaceTitleAndSlug,
 };
@@ -10,7 +11,6 @@ use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document;
 use domain::documents::path as doc_path;
 use domain::documents::title::Title;
-use crate::core::db::PgPool;
 
 pub struct SqlxPublicRepository {
     pub pool: PgPool,

@@ -18,17 +18,26 @@ use yrs::sync::{DefaultProtocol, Protocol};
 use yrs::updates::encoder::{Encoder, EncoderV1};
 use yrs::{Doc, GetString, ReadTxn, StateVector, Text, Transact};
 
-use application::documents::ports::realtime::awareness_port::AwarenessPublisher;
+use crate::core::db::PgPool;
+use crate::documents::db::repositories::document_snapshot_archive_repository_sqlx::SqlxDocumentSnapshotArchiveRepository;
+use crate::documents::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository;
+use crate::documents::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository;
+use crate::documents::realtime::awareness::{AwarenessService, encode_awareness_state};
+use crate::documents::realtime::utils::{analyse_frame, wrap_stream_with_edit_guard};
+use crate::documents::realtime::{SqlxDocPersistenceAdapter, SqlxDocStateReader};
+use application::core::ports::storage::storage_port::StorageResolverPort;
+use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::documents::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository;
 use application::documents::ports::linkgraph_repository::LinkGraphRepository;
-use application::documents::ports::realtime::realtime_hydration_port::{DocStateReader, RealtimeBacklogReader};
+use application::documents::ports::realtime::awareness_port::AwarenessPublisher;
+use application::documents::ports::realtime::realtime_hydration_port::{
+    DocStateReader, RealtimeBacklogReader,
+};
 use application::documents::ports::realtime::realtime_persistence_port::{
     DocPersistencePort, DocumentMissingError,
 };
 use application::documents::ports::realtime::realtime_port::RealtimeEngine as RealtimeEngineTrait;
 use application::documents::ports::realtime::realtime_types::{DynRealtimeSink, DynRealtimeStream};
-use application::core::ports::storage::storage_port::StorageResolverPort;
-use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::documents::ports::tagging::tagging_repository::TaggingRepository;
 use application::documents::services::realtime::doc_hydration::{
     DocHydrationService, HydrationOptions,
@@ -37,13 +46,6 @@ use application::documents::services::realtime::snapshot::{
     SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
     doc_from_snapshot_bytes,
 };
-use crate::core::db::PgPool;
-use crate::documents::db::repositories::document_snapshot_archive_repository_sqlx::SqlxDocumentSnapshotArchiveRepository;
-use crate::documents::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository;
-use crate::documents::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository;
-use crate::documents::realtime::awareness::{AwarenessService, encode_awareness_state};
-use crate::documents::realtime::utils::{analyse_frame, wrap_stream_with_edit_guard};
-use crate::documents::realtime::{SqlxDocPersistenceAdapter, SqlxDocStateReader};
 
 use super::cluster_bus::{RedisClusterBus, StreamItem};
 

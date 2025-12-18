@@ -5,8 +5,8 @@ use axum::{
 };
 use uuid::Uuid;
 
-use application::plugins::services::management::{AssetRequestScope, PluginAssetRequest};
 use crate::context::AppContext;
+use application::plugins::services::management::{AssetRequestScope, PluginAssetRequest};
 
 use super::util::map_plugin_service_error;
 

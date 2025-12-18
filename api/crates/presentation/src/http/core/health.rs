@@ -2,8 +2,8 @@ use axum::{Json, Router, extract::State, routing::get};
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use application::core::services::health::OverallHealth;
 use crate::context::AppContext;
+use application::core::services::health::OverallHealth;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct HealthResp {
@@ -28,4 +28,3 @@ pub async fn health(State(ctx): State<AppContext>) -> Json<HealthResp> {
 pub fn routes(ctx: AppContext) -> Router {
     Router::new().route("/health", get(health)).with_state(ctx)
 }
-

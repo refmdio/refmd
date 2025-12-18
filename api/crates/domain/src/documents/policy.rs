@@ -85,8 +85,8 @@ pub fn ensure_active(state: DocumentState) -> Result<(), DocumentPolicyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspaces::permissions::{PERM_DOC_ARCHIVE, PERM_DOC_EDIT, PERM_DOC_MOVE};
     use crate::documents::doc_type::DocumentType;
+    use crate::workspaces::permissions::{PERM_DOC_ARCHIVE, PERM_DOC_EDIT, PERM_DOC_MOVE};
 
     #[test]
     fn duplicate_folder_is_not_allowed() {

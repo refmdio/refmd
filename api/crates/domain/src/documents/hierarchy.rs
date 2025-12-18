@@ -47,6 +47,9 @@ mod tests {
 
     #[test]
     fn missing_parent_rejected() {
-        assert_eq!(ensure_active_parent(None), Err(ParentValidationError::NotFound));
+        assert_eq!(
+            ensure_active_parent(None),
+            Err(ParentValidationError::NotFound)
+        );
     }
 }

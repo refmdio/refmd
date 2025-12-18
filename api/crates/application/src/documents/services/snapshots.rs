@@ -8,8 +8,8 @@ use crate::documents::use_cases::restore_snapshot::RestoreSnapshot;
 use crate::documents::use_cases::snapshot_diff::SnapshotDiff;
 use crate::documents::use_cases::snapshot_download::{DownloadSnapshot, SnapshotDownload};
 
-use super::snapshot_dto::snapshot_diff_dto_from_result;
 use super::DocumentService;
+use super::snapshot_dto::snapshot_diff_dto_from_result;
 
 impl DocumentService {
     pub async fn list_snapshots(

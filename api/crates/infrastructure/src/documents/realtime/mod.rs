@@ -1,4 +1,6 @@
-pub use application::documents::ports::realtime::realtime_types::{DynRealtimeSink, DynRealtimeStream};
+pub use application::documents::ports::realtime::realtime_types::{
+    DynRealtimeSink, DynRealtimeStream,
+};
 
 mod awareness;
 mod doc_persistence;

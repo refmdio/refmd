@@ -1,15 +1,15 @@
-mod builder;
 mod build_runtime;
+mod builder;
 mod runtime;
 
 pub use builder::AppBuilder;
 
 use std::sync::Arc;
 
-use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
-use application::plugins::ports::plugin_asset_store::PluginAssetStore;
 use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
+use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
+use application::plugins::ports::plugin_asset_store::PluginAssetStore;
 use infrastructure::core::db::PgPool;
 use presentation::context::AppContext;
 

@@ -3,19 +3,19 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::core::dtos::TextDiffResult;
+use crate::core::ports::storage::storage_port::StorageResolverPort;
+use crate::core::services::errors::ServiceError;
+use crate::documents::ports::document_repository::DocumentRepository;
+use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::dtos::{
     GitChangeItem, GitCommitInfo, GitConfigDto, GitPullConflictItemDto, GitPullRequestDto,
     GitPullResolutionDto, GitPullResultDto, GitPullSessionDto, GitRemoteCheckDto, GitStatusDto,
     GitSyncRequestDto, GitSyncResponseDto, GitignoreUpdateDto, UpsertGitConfigInput,
 };
-use crate::documents::ports::document_repository::DocumentRepository;
-use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::ports::git_pull_session_repository::GitPullSessionRepository;
 use crate::git::ports::git_repository::GitRepository;
 use crate::git::ports::git_workspace::GitWorkspacePort;
 use crate::git::ports::gitignore_port::GitignorePort;
-use crate::core::ports::storage::storage_port::StorageResolverPort;
-use crate::core::services::errors::ServiceError;
 use crate::git::use_cases::delete_config::DeleteGitConfig;
 use crate::git::use_cases::get_changes::GetChanges;
 use crate::git::use_cases::get_commit_diff::GetCommitDiff;

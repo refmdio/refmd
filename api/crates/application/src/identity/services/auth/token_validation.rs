@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use crate::core::services::errors::ServiceError;
 use crate::identity::ports::api_token_repository::ApiTokenRepository;
 use crate::identity::services::api_tokens::{compute_digest, verify_token};
-use crate::core::services::errors::ServiceError;
 use domain::identity::api_token::ApiTokenSubject;
 
 pub struct TokenValidationService {

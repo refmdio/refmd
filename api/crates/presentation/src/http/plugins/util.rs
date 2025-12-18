@@ -2,6 +2,9 @@ use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use uuid::Uuid;
 
+use crate::context::AppContext;
+use crate::http::workspaces::scope as workspace_scope;
+use crate::security::{request_status, token};
 use application::core::services::access;
 use application::core::services::errors::ServiceError;
 use application::plugins::services::management;
@@ -9,9 +12,6 @@ use domain::documents::share;
 use domain::workspaces::permissions::{
     PERM_DOC_EDIT, PERM_DOC_VIEW, PERM_PLUGIN_RUN, PermissionSet,
 };
-use crate::context::AppContext;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::{request_status, token};
 
 pub const PERMISSION_DOC_READ: &str = "doc.read";
 pub const PERMISSION_DOC_WRITE: &str = "doc.write";
@@ -41,13 +41,18 @@ pub async fn resolve_plugin_user_context(
 
     match actor {
         access::Actor::User(user_id) => {
-            let workspace_id =
-                workspace_scope::resolve_active_workspace_id(ctx, headers, Some(bearer_token), user_id)
+            let workspace_id = workspace_scope::resolve_active_workspace_id(
+                ctx,
+                headers,
+                Some(bearer_token),
+                user_id,
+            )
+            .await
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+            let permissions =
+                workspace_scope::resolve_workspace_permissions(ctx, workspace_id, user_id)
                     .await
                     .map_err(|_| StatusCode::FORBIDDEN)?;
-            let permissions = workspace_scope::resolve_workspace_permissions(ctx, workspace_id, user_id)
-                .await
-                .map_err(|_| StatusCode::FORBIDDEN)?;
             if let Some(permission) = required_permission {
                 if !permissions.allows(permission) {
                     return Err(StatusCode::FORBIDDEN);

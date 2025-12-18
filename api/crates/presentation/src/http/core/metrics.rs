@@ -14,4 +14,3 @@ pub async fn metrics_handler(State(ctx): State<AppContext>) -> Result<Response, 
         .body(body.into())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
-

@@ -6,8 +6,10 @@ use yrs::sync::{Message, MessageReader, SyncMessage};
 use yrs::updates::decoder::{Decode, DecoderV1};
 use yrs::{Doc, Transact, Update};
 
-use crate::documents::ports::realtime::realtime_hydration_port::{DocStateReader, RealtimeBacklogReader};
 use crate::core::ports::storage::storage_port::StorageResolverPort;
+use crate::documents::ports::realtime::realtime_hydration_port::{
+    DocStateReader, RealtimeBacklogReader,
+};
 
 pub struct DocHydrationService {
     state_reader: Arc<dyn DocStateReader>,

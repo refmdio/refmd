@@ -2,16 +2,16 @@ use serde_json::json;
 use uuid::Uuid;
 
 use domain::documents::doc_type::DocumentType;
+use domain::documents::document::Document as DomainDocument;
 use domain::documents::policy::DocumentState;
 use domain::documents::{path as doc_path, policy as doc_policy};
 use domain::workspaces::permissions::PermissionSet;
-use domain::documents::document::Document as DomainDocument;
 
 use crate::core::services::errors::ServiceError;
 use crate::documents::ports::tx_runner::run_in_tx;
 
-use super::util::{map_policy_error, map_tx_error};
 use super::DocumentService;
+use super::util::{map_policy_error, map_tx_error};
 
 impl DocumentService {
     pub async fn archive_document(

@@ -73,7 +73,9 @@ pub fn build_delete_plan(
 }
 
 fn path_depth(path: &str) -> usize {
-    path.split('/').filter(|segment| !segment.is_empty()).count()
+    path.split('/')
+        .filter(|segment| !segment.is_empty())
+        .count()
 }
 
 fn is_folder(doc_type: DocumentType) -> usize {

@@ -113,8 +113,14 @@ mod tests {
         assert_eq!(PluginScope::from_str("doc"), Some(PluginScope::Doc));
         assert_eq!(PluginScope::from_str("nope"), None);
 
-        assert_eq!(PluginRecordScope::from_str("user"), Some(PluginRecordScope::User));
-        assert_eq!(PluginRecordScope::from_str("doc"), Some(PluginRecordScope::Doc));
+        assert_eq!(
+            PluginRecordScope::from_str("user"),
+            Some(PluginRecordScope::User)
+        );
+        assert_eq!(
+            PluginRecordScope::from_str("doc"),
+            Some(PluginRecordScope::Doc)
+        );
         assert_eq!(PluginRecordScope::from_str("global"), None);
     }
 
@@ -131,4 +137,3 @@ mod tests {
         assert_eq!(PluginInstallationStatus::from_str("nope"), None);
     }
 }
-

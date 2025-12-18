@@ -4,13 +4,13 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
+use crate::context::AppContext;
+use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
+use application::core::services::errors::ServiceError;
 use application::git::dtos::GitConfigDto;
 use application::git::dtos::UpsertGitConfigInput;
-use application::core::services::errors::ServiceError;
 use domain::workspaces::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
-use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
-use crate::http::workspaces::scope as workspace_scope;
 
 use super::types::{
     CreateGitConfigRequest, GitConfigResponse, GitRemoteCheckResponse, map_git_error,

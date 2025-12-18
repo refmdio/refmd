@@ -3,8 +3,8 @@ use serde_json::Value as JsonValue;
 use sqlx::Row;
 use uuid::Uuid;
 
-use application::plugins::ports::plugin_repository::{PluginRecord, PluginRepository};
 use crate::core::db::PgPool;
+use application::plugins::ports::plugin_repository::{PluginRecord, PluginRepository};
 use domain::plugins::scope::{PluginRecordScope, PluginScope};
 
 pub struct SqlxPluginRepository {

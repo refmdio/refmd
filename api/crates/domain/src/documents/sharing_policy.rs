@@ -1,4 +1,6 @@
-use crate::workspaces::permissions::{PermissionSet, PERM_DOC_VIEW, PERM_SHARE_CREATE, PERM_SHARE_DELETE};
+use crate::workspaces::permissions::{
+    PERM_DOC_VIEW, PERM_SHARE_CREATE, PERM_SHARE_DELETE, PermissionSet,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SharingPolicyError {
@@ -67,4 +69,3 @@ mod tests {
         assert_eq!(ensure_document_view_allowed(&perms), Ok(()));
     }
 }
-

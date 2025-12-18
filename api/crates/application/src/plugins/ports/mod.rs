@@ -6,4 +6,3 @@ pub mod plugin_installer;
 pub mod plugin_package_fetcher;
 pub mod plugin_repository;
 pub mod plugin_runtime;
-

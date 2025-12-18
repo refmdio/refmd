@@ -60,4 +60,3 @@ mod tests {
         assert!(GitAuthType::Ssh.validate_repository_url("git@example.com:repo.git"));
     }
 }
-

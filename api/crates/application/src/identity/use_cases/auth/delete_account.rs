@@ -3,17 +3,17 @@ use std::sync::Arc;
 use serde_json;
 use uuid::Uuid;
 
+use crate::core::ports::storage::storage_projection_queue::{
+    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
+};
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::ports::git_repository::GitRepository;
 use crate::git::ports::git_workspace::GitWorkspacePort;
+use crate::identity::ports::user_repository::UserRepository;
 use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::plugins::ports::plugin_repository::PluginRepository;
-use crate::core::ports::storage::storage_projection_queue::{
-    StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJobKind, StorageProjectionQueue,
-};
-use crate::identity::ports::user_repository::UserRepository;
 use domain::documents::doc_type::DocumentType;
 use domain::plugins::scope::{PluginRecordScope, PluginScope};
 use domain::workspaces::permissions::PermissionSet;

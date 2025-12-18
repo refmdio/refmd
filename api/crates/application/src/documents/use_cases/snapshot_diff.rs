@@ -1,10 +1,10 @@
 use uuid::Uuid;
 
 use crate::core::dtos::TextDiffResult;
+use crate::core::services::diff::text_diff::compute_text_diff;
 use crate::documents::dtos::SnapshotDiffBaseMode;
 use crate::documents::ports::document_snapshot_archive_repository::SnapshotArchiveRecord;
 use crate::documents::ports::realtime::realtime_port::RealtimeEngine;
-use crate::core::services::diff::text_diff::compute_text_diff;
 use crate::documents::services::realtime::snapshot::SnapshotService;
 
 pub enum SnapshotDiffSide {

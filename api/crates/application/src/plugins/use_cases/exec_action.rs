@@ -2,18 +2,18 @@ use std::collections::HashSet;
 
 use uuid::Uuid;
 
-use crate::plugins::dtos::ExecResult;
+use crate::core::services::access;
+use crate::core::services::authorization::AuthorizationService;
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::use_cases::create_document::CreateDocument;
+use crate::plugins::dtos::ExecResult;
 use crate::plugins::ports::plugin_repository::PluginRepository;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;
-use crate::core::services::authorization::AuthorizationService;
-use crate::core::services::access;
 use domain::documents::doc_type::DocumentType;
 use domain::documents::title::Title;
 use domain::plugins::policy;
 use domain::plugins::scope::{PluginRecordScope, PluginScope};
-use domain::workspaces::permissions::{PermissionSet, PERM_DOC_EDIT};
+use domain::workspaces::permissions::{PERM_DOC_EDIT, PermissionSet};
 
 enum PluginEffectError {
     PermissionDenied { permission: String },
@@ -152,7 +152,10 @@ where
                     self.log_effect(effect);
                 }
                 "createDocument" => {
-                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_plugin_permission(
+                        permissions,
+                        policy::PLUGIN_PERMISSION_DOC_WRITE,
+                    )?;
                     policy::ensure_workspace_can_create_documents(workspace_permissions)?;
                     let title = effect
                         .get("title")
@@ -207,7 +210,10 @@ where
                     doc_id_created = Some(doc.id);
                 }
                 "putKv" => {
-                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_plugin_permission(
+                        permissions,
+                        policy::PLUGIN_PERMISSION_DOC_WRITE,
+                    )?;
                     policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
                     let Some(key) = effect.get("key").and_then(|v| v.as_str()) else {
                         continue;
@@ -238,7 +244,10 @@ where
                     }
                 }
                 "createRecord" => {
-                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_plugin_permission(
+                        permissions,
+                        policy::PLUGIN_PERMISSION_DOC_WRITE,
+                    )?;
                     policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
                     let Some(kind) = effect.get("kind").and_then(|v| v.as_str()) else {
                         continue;
@@ -270,7 +279,10 @@ where
                     }
                 }
                 "updateRecord" => {
-                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_plugin_permission(
+                        permissions,
+                        policy::PLUGIN_PERMISSION_DOC_WRITE,
+                    )?;
                     policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
                     if let Some(record_id) = effect
                         .get("recordId")
@@ -309,7 +321,10 @@ where
                     }
                 }
                 "deleteRecord" => {
-                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_plugin_permission(
+                        permissions,
+                        policy::PLUGIN_PERMISSION_DOC_WRITE,
+                    )?;
                     policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
                     if let Some(record_id) = effect
                         .get("recordId")

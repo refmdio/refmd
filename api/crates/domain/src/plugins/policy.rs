@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use uuid::Uuid;
 
-use crate::workspaces::permissions::{PermissionSet, PERM_DOC_CREATE, PERM_DOC_EDIT};
+use crate::workspaces::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet};
 
 pub const PLUGIN_PERMISSION_DOC_WRITE: &str = "doc.write";
 
@@ -147,4 +147,3 @@ mod tests {
         );
     }
 }
-

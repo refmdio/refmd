@@ -3,10 +3,10 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::identity::ports::user_session_repository::{
     UserSessionRecord, UserSessionRepository, UserSessionSecret,
 };
-use crate::core::db::PgPool;
 
 pub struct SqlxUserSessionRepository {
     pool: PgPool,

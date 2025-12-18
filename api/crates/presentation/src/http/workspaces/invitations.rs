@@ -5,10 +5,10 @@ use axum::{
 };
 use uuid::Uuid;
 
-use application::core::services::errors::ServiceError;
-use domain::workspaces::permissions::PERM_MEMBER_INVITE;
 use crate::context::AppContext;
 use crate::security::token::{self, Bearer};
+use application::core::services::errors::ServiceError;
+use domain::workspaces::permissions::PERM_MEMBER_INVITE;
 
 use super::types::{
     CreateWorkspaceInvitationRequest, WorkspaceInvitationResponse, invitation_response_from,

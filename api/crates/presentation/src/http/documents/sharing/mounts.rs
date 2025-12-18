@@ -6,8 +6,8 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
 
 use super::types::{CreateShareMountRequest, MaterializeResponse, ShareMountItem, map_share_error};
 

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::plugins::ports::plugin_repository::{PluginRecord, PluginRepository};
 use crate::core::services::errors::ServiceError;
+use crate::plugins::ports::plugin_repository::{PluginRecord, PluginRepository};
 use crate::plugins::use_cases::kv::{GetPluginKv, PutPluginKv};
 use crate::plugins::use_cases::records::{
     CreatePluginRecord, DeletePluginRecord, GetPluginRecord, ListPluginRecords, UpdatePluginRecord,

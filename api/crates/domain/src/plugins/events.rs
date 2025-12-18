@@ -70,4 +70,3 @@ mod tests {
         assert_eq!(PluginEventKind::Unpublish.to_string(), "unpublish");
     }
 }
-

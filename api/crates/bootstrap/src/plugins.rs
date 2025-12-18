@@ -2,15 +2,12 @@ use std::sync::Arc;
 
 use anyhow::Context;
 
-
+use crate::config::{Config, StorageBackend};
 use application::plugins::ports::plugin_asset_store::PluginAssetStore;
 use application::plugins::ports::plugin_installer::PluginInstaller;
 use application::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
 use application::plugins::ports::plugin_runtime::PluginRuntime;
-use crate::config::{Config, StorageBackend};
-use infrastructure::plugins::filesystem_store::{
-    FilesystemPluginStore, PluginExecutionLimits,
-};
+use infrastructure::plugins::filesystem_store::{FilesystemPluginStore, PluginExecutionLimits};
 
 pub type PluginStack = (
     Arc<dyn PluginRuntime>,
@@ -42,9 +39,8 @@ pub async fn build_plugin_stack(
     cfg: &Config,
     plugin_limits: PluginExecutionLimits,
 ) -> anyhow::Result<PluginStack> {
-    let mut s3_plugin_store: Option<
-        Arc<infrastructure::plugins::s3_store::S3BackedPluginStore>,
-    > = None;
+    let mut s3_plugin_store: Option<Arc<infrastructure::plugins::s3_store::S3BackedPluginStore>> =
+        None;
 
     let (plugin_runtime, plugin_installer, plugin_assets): (
         Arc<dyn PluginRuntime>,

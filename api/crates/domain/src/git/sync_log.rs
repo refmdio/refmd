@@ -104,4 +104,3 @@ mod tests {
         assert_eq!(GitSyncStatus::Error.to_string(), "error");
     }
 }
-

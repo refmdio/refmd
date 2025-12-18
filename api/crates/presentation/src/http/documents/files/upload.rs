@@ -5,10 +5,10 @@ use axum::{
 };
 use uuid::Uuid;
 
-use domain::workspaces::permissions::PERM_FILE_UPLOAD;
 use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
+use domain::workspaces::permissions::PERM_FILE_UPLOAD;
 
 use super::types::{UploadFileResponse, map_file_error};
 

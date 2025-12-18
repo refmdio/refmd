@@ -3,11 +3,11 @@ use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 use tracing::warn;
 
+use application::core::services::errors::ServiceError;
 use application::identity::services::auth::external::{
     ExternalAuthIdentity, ExternalAuthPayload, ExternalAuthProviderDescriptor,
     ExternalAuthProviderKind, ExternalAuthVerifier,
 };
-use application::core::services::errors::ServiceError;
 
 const AUTH_URL: &str = "https://github.com/login/oauth/authorize";
 const TOKEN_URL: &str = "https://github.com/login/oauth/access_token";

@@ -82,6 +82,9 @@ mod tests {
         assert!(GitPullSessionStatus::Pending.is_in_progress());
         assert!(GitPullSessionStatus::Resolving.is_in_progress());
         assert!(!GitPullSessionStatus::Merged.is_in_progress());
-        assert_eq!(GitPullSessionStatus::Merged.as_str(), GIT_PULL_STATUS_MERGED);
+        assert_eq!(
+            GitPullSessionStatus::Merged.as_str(),
+            GIT_PULL_STATUS_MERGED
+        );
     }
 }

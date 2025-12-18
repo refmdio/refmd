@@ -1,9 +1,9 @@
 use uuid::Uuid;
 
-use application::core::services::access;
-use domain::documents::share;
 use crate::context::AppContext;
 use crate::security::{request_status, token};
+use application::core::services::access;
+use domain::documents::share;
 
 pub(super) async fn resolve_user_scope_from_inputs(
     ctx: &AppContext,
@@ -30,9 +30,7 @@ pub(super) async fn resolve_user_scope_from_inputs(
                 }
             }
             Ok(access::Actor::ShareToken(t)) => {
-                if let Ok(Some(ctx_share)) =
-                    ctx.share_service().resolve_share_context(&t).await
-                {
+                if let Ok(Some(ctx_share)) = ctx.share_service().resolve_share_context(&t).await {
                     if share::is_expired(ctx_share.expires_at.as_ref(), chrono::Utc::now()) {
                         return None;
                     }
@@ -62,9 +60,7 @@ pub(super) async fn resolve_user_scope_from_inputs(
                 }
             }
             Ok(access::Actor::ShareToken(t)) => {
-                if let Ok(Some(ctx_share)) =
-                    ctx.share_service().resolve_share_context(&t).await
-                {
+                if let Ok(Some(ctx_share)) = ctx.share_service().resolve_share_context(&t).await {
                     if share::is_expired(ctx_share.expires_at.as_ref(), chrono::Utc::now()) {
                         return None;
                     }

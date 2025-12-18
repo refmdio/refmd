@@ -3,46 +3,46 @@ use std::sync::Arc;
 use tokio::time::Duration;
 use tracing::info;
 
-use application::documents::ports::doc_event_log::DocEventLog;
-use application::plugins::ports::plugin_event_publisher::PluginEventPublisher;
-use application::plugins::ports::plugin_event_subscriber::PluginEventSubscriber;
 use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
 use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
-use application::identity::services::api_tokens::ApiTokenService;
-use application::identity::services::auth::account::AccountService;
-use application::identity::services::auth::token_validation::TokenValidationService;
 use application::core::services::authorization::AuthorizationService;
 use application::core::services::doc_events::{
     DocEventSubscriber, FanoutDocEventSubscriber, LoggingDocEventSubscriber,
 };
-use application::documents::services::DocumentService;
-use application::documents::services::files::FileService;
 use application::core::services::health::HealthService;
 use application::core::services::markdown_render::MarkdownRenderService;
 use application::core::services::metrics::MetricsRegistry;
+use application::core::services::storage::ingest::StorageIngestService;
+use application::core::services::storage::reconcile::StorageReconcileService;
+use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
+use application::documents::ports::doc_event_log::DocEventLog;
+use application::documents::services::DocumentService;
+use application::documents::services::files::FileService;
+use application::documents::services::publishing::PublicService;
+use application::documents::services::realtime::snapshot::MarkdownExportProvider;
+use application::documents::services::sharing::ShareService;
+use application::documents::services::tagging::TagService;
+use application::identity::services::api_tokens::ApiTokenService;
+use application::identity::services::auth::account::AccountService;
+use application::identity::services::auth::token_validation::TokenValidationService;
+use application::identity::services::user_shortcuts::UserShortcutService;
+use application::plugins::ports::plugin_event_publisher::PluginEventPublisher;
+use application::plugins::ports::plugin_event_subscriber::PluginEventSubscriber;
 use application::plugins::services::asset_signer::AssetSigner;
 use application::plugins::services::data::PluginDataService;
 use application::plugins::services::execution::PluginExecutionService;
 use application::plugins::services::management::PluginManagementService;
 use application::plugins::services::permissions::PluginPermissionService;
-use application::documents::services::publishing::PublicService;
-use application::documents::services::realtime::snapshot::MarkdownExportProvider;
-use application::documents::services::sharing::ShareService;
-use application::core::services::storage::ingest::StorageIngestService;
-use application::core::services::storage::reconcile::StorageReconcileService;
-use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
-use application::documents::services::tagging::TagService;
-use application::identity::services::user_shortcuts::UserShortcutService;
 use application::workspaces::services::{WorkspacePermissionResolver, WorkspaceService};
-use infrastructure::documents::doc_event_log::PgDocEventLog;
-use infrastructure::documents::event_poller::DocEventPoller;
-use infrastructure::documents::exporter::DefaultDocumentExporter;
-use infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
 use infrastructure::core::storage::{
     FsIngestWatcher, PgStorageIngestQueue, PgStorageReconcileJobs, StorageConsistencyMonitor,
     StorageIngestWorker, StorageProjectionWorker,
 };
+use infrastructure::documents::doc_event_log::PgDocEventLog;
+use infrastructure::documents::event_poller::DocEventPoller;
+use infrastructure::documents::exporter::DefaultDocumentExporter;
+use infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
 use presentation::context::{AppContext, AppServices, PresentationConfig};
 
 use crate::app::AppRuntime;
@@ -50,7 +50,10 @@ use crate::config::{Config, StorageBackend};
 use crate::jobs::{self, Jobs};
 use crate::{auth, git, plugins, realtime};
 
-pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow::Result<AppRuntime> {
+pub async fn build_runtime(
+    cfg: Config,
+    spawn_background_tasks: bool,
+) -> anyhow::Result<AppRuntime> {
     info!(?cfg, "Starting RefMD backend");
 
     // Database
@@ -148,11 +151,13 @@ pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow:
         ),
     );
     let documents_tx_runner: Arc<dyn application::documents::ports::tx_runner::DocumentsTxRunner> =
-        Arc::new(infrastructure::documents::tx_runner_sqlx::SqlxDocumentsTxRunner::new(
-            pool.clone(),
-            document_repo.clone(),
-            files_repo.clone(),
-        ));
+        Arc::new(
+            infrastructure::documents::tx_runner_sqlx::SqlxDocumentsTxRunner::new(
+                pool.clone(),
+                document_repo.clone(),
+                files_repo.clone(),
+            ),
+        );
     let public_repo = Arc::new(
         infrastructure::documents::db::repositories::public_repository_sqlx::SqlxPublicRepository::new(
             pool.clone(),
@@ -189,7 +194,9 @@ pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow:
         jobs::spawn_storage_reconcile_scheduler(&mut jobs, spawn_background_tasks, scheduler);
     }
     let tag_repo = Arc::new(
-        infrastructure::documents::db::repositories::tag_repository_sqlx::SqlxTagRepository::new(pool.clone()),
+        infrastructure::documents::db::repositories::tag_repository_sqlx::SqlxTagRepository::new(
+            pool.clone(),
+        ),
     );
     let tag_service = Arc::new(TagService::new(tag_repo.clone()));
     let api_token_repo = Arc::new(
@@ -307,10 +314,9 @@ pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow:
         storage_job_queue.clone(),
         workspace_service.clone(),
     ));
-    let plugin_event_bus = Arc::new(infrastructure::plugins::event_bus_pg::PgPluginEventBus::new(
-        pool.clone(),
-        "plugin_events",
-    ));
+    let plugin_event_bus = Arc::new(
+        infrastructure::plugins::event_bus_pg::PgPluginEventBus::new(pool.clone(), "plugin_events"),
+    );
     if let Some(store) = &s3_plugin_store {
         store.spawn_event_listener(plugin_event_bus.clone());
 
@@ -362,7 +368,10 @@ pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow:
         shares_repo_impl.clone(),
         doc_event_log.clone(),
     ));
-    let public_service = Arc::new(PublicService::new(public_repo.clone(), realtime_engine.clone()));
+    let public_service = Arc::new(PublicService::new(
+        public_repo.clone(),
+        realtime_engine.clone(),
+    ));
     let plugin_management_service = Arc::new(PluginManagementService::new(
         plugin_installations.clone(),
         plugin_assets.clone(),
@@ -380,7 +389,8 @@ pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow:
         cfg.plugin_asset_url_ttl_secs,
     ));
 
-    let health_probe = infrastructure::core::health::db_probe::DatabaseHealthProbe::new(pool.clone());
+    let health_probe =
+        infrastructure::core::health::db_probe::DatabaseHealthProbe::new(pool.clone());
     let health_service = Arc::new(HealthService::new(health_probe));
 
     let external_auth_registry = auth_stack.external_auth.clone();

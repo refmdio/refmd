@@ -150,4 +150,3 @@ mod tests {
         assert_eq!(WorkspaceBaseRole::from_str("owner"), None);
     }
 }
-

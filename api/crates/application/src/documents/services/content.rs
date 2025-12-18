@@ -9,9 +9,9 @@ use crate::core::services::errors::ServiceError;
 use crate::documents::ports::tx_runner::run_in_tx;
 use crate::documents::services::realtime::snapshot::snapshot_from_markdown;
 
+use super::DocumentService;
 use super::patch::{DocumentPatchOperation, apply_patch_operations};
 use super::util::map_tx_error;
-use super::DocumentService;
 
 impl DocumentService {
     pub async fn get_content(&self, actor: &Actor, doc_id: Uuid) -> Result<String, ServiceError> {
@@ -68,8 +68,13 @@ impl DocumentService {
         let doc_id = doc.id;
         run_in_tx(self.tx_runner.as_ref(), move |tx| {
             Box::pin(async move {
-                Self::enqueue_doc_sync_tx(tx.storage_jobs(), workspace_id, doc_id, "update_content")
-                    .await?;
+                Self::enqueue_doc_sync_tx(
+                    tx.storage_jobs(),
+                    workspace_id,
+                    doc_id,
+                    "update_content",
+                )
+                .await?;
                 Ok(())
             })
         })

@@ -1,5 +1,5 @@
-mod handlers;
 pub mod files;
+mod handlers;
 pub mod publishing;
 pub mod sharing;
 pub mod tagging;

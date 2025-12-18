@@ -1,16 +1,13 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use application::core::services::access::Capability;
-use application::documents::ports::realtime::realtime_port::RealtimeError;
 use crate::context::{AppContext, DynRealtimeSink, DynRealtimeStream};
 use crate::security::request_status;
 use crate::security::token::{
-    AccessTokenOverride,
-    ActorResolveError,
-    bearer_from_headers,
-    resolve_actor_from_token_str,
+    AccessTokenOverride, ActorResolveError, bearer_from_headers, resolve_actor_from_token_str,
 };
+use application::core::services::access::Capability;
+use application::documents::ports::realtime::realtime_port::RealtimeError;
 use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::HeaderMap;
@@ -55,9 +52,7 @@ pub async fn axum_ws_entry(
         query
             .token
             .or(query.access_token)
-            .or_else(|| {
-                bearer_from_headers(&headers).map(|b| b.0)
-            })
+            .or_else(|| bearer_from_headers(&headers).map(|b| b.0))
     });
 
     // Try to parse document ID

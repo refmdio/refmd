@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use domain::documents::share::{ShareContext, SharePermission};
-use domain::documents::doc_type::DocumentType;
-use domain::documents::title::Title;
 use chrono::{DateTime, Utc};
+use domain::documents::doc_type::DocumentType;
+use domain::documents::share::{ShareContext, SharePermission};
+use domain::documents::title::Title;
 
 #[derive(Debug, Clone)]
 pub struct ShareRow {
@@ -102,10 +102,7 @@ pub trait SharesRepository: Send + Sync {
 
     async fn list_active_shares(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareRow>>;
 
-    async fn resolve_share_by_token(
-        &self,
-        token: &str,
-    ) -> anyhow::Result<Option<ShareContext>>;
+    async fn resolve_share_by_token(&self, token: &str) -> anyhow::Result<Option<ShareContext>>;
 
     async fn list_share_mounts(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareMountRow>>;
 
@@ -128,10 +125,7 @@ pub trait SharesRepository: Send + Sync {
         token: &str,
     ) -> anyhow::Result<Option<ShareDocumentMeta>>;
 
-    async fn list_subtree_nodes(
-        &self,
-        root_id: Uuid,
-    ) -> anyhow::Result<Vec<ShareSubtreeNode>>;
+    async fn list_subtree_nodes(&self, root_id: Uuid) -> anyhow::Result<Vec<ShareSubtreeNode>>;
 
     async fn list_materialized_children(&self, parent_share_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
 

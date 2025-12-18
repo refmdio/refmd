@@ -12,11 +12,11 @@ use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceS
 
 pub mod permission_snapshot;
 mod slug;
+use crate::core::services::errors::ServiceError;
 use crate::workspaces::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceMemberRow,
     WorkspaceRepository, WorkspaceRoleRecord, WorkspaceRow, WorkspaceSetDefaultError,
 };
-use crate::core::services::errors::ServiceError;
 
 #[async_trait]
 pub trait WorkspacePermissionResolver: Send + Sync {

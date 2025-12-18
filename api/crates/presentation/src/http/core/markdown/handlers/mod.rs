@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use axum::{Json, extract::State, http::StatusCode};
 use uuid::Uuid;
 
+use crate::context::AppContext;
+use crate::http::identity::auth::Bearer;
 use application::core::services::errors::ServiceError;
 use application::core::services::markdown::RenderOptions;
 use application::core::services::markdown_render::MarkdownRenderTask;
-use crate::context::AppContext;
-use crate::http::identity::auth::Bearer;
 
 use super::types::{RenderManyRequest, RenderManyResponse, RenderRequest, RenderResponseBody};
 use super::user_scope::resolve_user_scope_from_inputs;

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::core::services::errors::ServiceError;
 use crate::identity::dtos::UserShortcutProfileDto;
 use crate::identity::ports::user_shortcuts::user_shortcut_repository::UserShortcutRepository;
-use crate::core::services::errors::ServiceError;
 use crate::identity::use_cases::user_shortcuts::get_shortcuts::GetUserShortcuts;
 use crate::identity::use_cases::user_shortcuts::update_shortcuts::{
     UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,

@@ -3,9 +3,9 @@ use uuid::Uuid;
 use crate::documents::ports::document_repository::{
     DocumentPathConflictError, DocumentRepository, DocumentRepositoryTx,
 };
-use domain::documents::path as doc_path;
-use domain::documents::document::Document as DomainDocument;
 use domain::documents::doc_type::DocumentType;
+use domain::documents::document::Document as DomainDocument;
+use domain::documents::path as doc_path;
 use domain::documents::title::Title;
 
 const MAX_SLUG_ATTEMPTS: usize = 50;

@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
-use application::documents::ports::linkgraph_repository::LinkGraphRepository;
 use crate::core::db::PgPool;
+use application::documents::ports::linkgraph_repository::LinkGraphRepository;
 
 pub struct SqlxLinkGraphRepository {
     pub pool: PgPool,

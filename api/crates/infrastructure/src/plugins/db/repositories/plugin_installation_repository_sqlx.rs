@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::plugins::ports::plugin_installation_repository::{
     PluginInstallation, PluginInstallationRepository,
 };
-use crate::core::db::PgPool;
 use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
 
 pub struct SqlxPluginInstallationRepository {

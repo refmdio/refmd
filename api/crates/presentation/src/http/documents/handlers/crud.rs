@@ -5,11 +5,11 @@ use axum::{
 };
 use uuid::Uuid;
 
+use crate::context::AppContext;
+use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
 use domain::documents::doc_type::DocumentType;
 use domain::workspaces::permissions::PERM_DOC_VIEW;
-use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
-use crate::http::workspaces::scope as workspace_scope;
 
 use crate::http::documents::types::{
     CreateDocumentRequest, Document, DocumentListResponse, DocumentStateFilter, DoubleOption,
@@ -81,7 +81,9 @@ pub async fn create_document(
     let permissions =
         workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let title = req.title.unwrap_or_else(|| "Untitled".into());
-    let dtype = req.r#type.unwrap_or_else(|| DocumentType::Document.as_str().to_string());
+    let dtype = req
+        .r#type
+        .unwrap_or_else(|| DocumentType::Document.as_str().to_string());
     let doc_type = DocumentType::try_from(dtype.as_str()).map_err(|_| StatusCode::BAD_REQUEST)?;
     let service = ctx.document_service();
     let doc = service

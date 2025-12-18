@@ -3,9 +3,7 @@ use sqlx::types::Json;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use application::git::dtos::{
-    GitPullConflictItemDto, GitPullResolutionDto, GitPullSessionDto,
-};
+use application::git::dtos::{GitPullConflictItemDto, GitPullResolutionDto, GitPullSessionDto};
 use application::git::ports::git_pull_session_repository::GitPullSessionRepository;
 use domain::git::pull_session::GitPullSessionStatus;
 

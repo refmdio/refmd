@@ -51,4 +51,3 @@ where
         .map(|v| *v)
         .map_err(|_| anyhow!("documents tx runner output type mismatch"))
 }
-

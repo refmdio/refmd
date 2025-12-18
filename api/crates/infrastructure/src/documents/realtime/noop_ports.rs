@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 
 use application::documents::ports::realtime::awareness_port::AwarenessPublisher;
-use application::documents::ports::realtime::realtime_hydration_port::{RealtimeBacklogReader, StreamFrame};
+use application::documents::ports::realtime::realtime_hydration_port::{
+    RealtimeBacklogReader, StreamFrame,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct NoopBacklogReader;

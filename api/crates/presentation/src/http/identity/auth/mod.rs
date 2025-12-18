@@ -1,11 +1,13 @@
+use crate::context::AppContext;
 use application::core::services::access;
+use application::core::services::errors::ServiceError;
 use application::identity::dtos::UserDto;
 use application::identity::ports::user_session_repository::UserSessionRecord;
-use application::workspaces::ports::workspace_repository::WorkspaceListItem;
-use application::identity::services::auth::external::{ExternalAuthPayload, ExternalAuthProviderKind};
+use application::identity::services::auth::external::{
+    ExternalAuthPayload, ExternalAuthProviderKind,
+};
 use application::identity::services::auth::user_sessions::{IssuedSessionBundle, SessionMetadata};
-use application::core::services::errors::ServiceError;
-use crate::context::AppContext;
+use application::workspaces::ports::workspace_repository::WorkspaceListItem;
 use axum::{
     Json, Router,
     body::Body,

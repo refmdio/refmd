@@ -8,22 +8,22 @@ use sqlx::Error as SqlxError;
 use tracing::{Instrument, error, info, info_span, warn};
 use uuid::Uuid;
 
-use application::documents::ports::doc_event_log::DocEventLog;
+use crate::core::storage::suppress_git_dirty;
 use application::core::ports::storage::storage_port::{StorageProjectionPort, StorageResolverPort};
 use application::core::ports::storage::storage_projection_queue::{
     StorageDeleteJobMetadata, StorageJobReason, StorageProjectionJob, StorageProjectionJobKind,
     StorageProjectionQueue,
 };
 use application::core::services::metrics::MetricsRegistry;
-use application::documents::services::realtime::snapshot::MarkdownExportProvider;
 use application::core::services::storage::projection_cache::RecentProjectionCache;
+use application::documents::ports::doc_event_log::DocEventLog;
+use application::documents::services::realtime::snapshot::MarkdownExportProvider;
 use application::workspaces::services::WorkspacePermissionResolver;
 use application::workspaces::services::permission_snapshot::permission_set_from_snapshot;
 use domain::documents::doc_type::DocumentType;
 use domain::workspaces::permissions::{
     PERM_DOC_DELETE, PERM_FILE_DELETE, PERM_FOLDER_DELETE, PermissionSet,
 };
-use crate::core::storage::suppress_git_dirty;
 
 pub struct StorageProjectionWorker {
     jobs: Arc<dyn StorageProjectionQueue>,

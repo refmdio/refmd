@@ -15,11 +15,11 @@ use aws_sdk_s3::{Client, error::SdkError};
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::core::ports::storage::storage_port::{
     StorageProjectionPort, StorageResolverPort, StoredAttachment,
 };
 use application::core::services::utils::hash::sha256_hex;
-use crate::core::db::PgPool;
 use domain::documents::doc_type::DOC_TYPE_FOLDER;
 
 #[derive(Clone, Debug)]
@@ -102,8 +102,8 @@ impl S3StoragePort {
     }
 
     fn key_from_path(&self, abs_path: &Path) -> String {
-        let rel = crate::core::storage::relative_from_uploads(&self.root, abs_path)
-            .replace('\\', "/");
+        let rel =
+            crate::core::storage::relative_from_uploads(&self.root, abs_path).replace('\\', "/");
         self.relative_to_key(&rel)
     }
 
@@ -207,11 +207,8 @@ impl S3StoragePort {
             .ok()
             .flatten()
             .is_some();
-        let target_rel = crate::core::storage::owner_relative_from_desired(
-            owner_id,
-            &desired_path,
-            archived,
-        );
+        let target_rel =
+            crate::core::storage::owner_relative_from_desired(owner_id, &desired_path, archived);
         let target_parent_rel = crate::core::storage::owner_relative_parent_from_desired(
             owner_id,
             &desired_path,
@@ -226,10 +223,8 @@ impl S3StoragePort {
                     self.copy_object(&src_key, &dst_key).await?;
                     self.delete_object(&src_key).await?;
                 }
-                let _ = crate::core::storage::mark_dirty_delete_relative(
-                    &self.pool, &old_rel,
-                )
-                .await;
+                let _ =
+                    crate::core::storage::mark_dirty_delete_relative(&self.pool, &old_rel).await;
             }
         }
 
@@ -265,10 +260,8 @@ impl S3StoragePort {
                     .execute(&self.pool)
                     .await?;
                 }
-                let _ = crate::core::storage::mark_dirty_delete_relative(
-                    &self.pool, &old_path,
-                )
-                .await;
+                let _ =
+                    crate::core::storage::mark_dirty_delete_relative(&self.pool, &old_path).await;
                 let _ = crate::core::storage::mark_dirty_upsert_relative(
                     &self.pool,
                     &new_rel_attachment,
@@ -287,13 +280,9 @@ impl S3StoragePort {
             .execute(&self.pool)
             .await?;
 
-        let _ = crate::core::storage::mark_dirty_upsert_relative(
-            &self.pool,
-            &target_rel,
-            true,
-            None,
-        )
-        .await;
+        let _ =
+            crate::core::storage::mark_dirty_upsert_relative(&self.pool, &target_rel, true, None)
+                .await;
 
         Ok(())
     }
@@ -330,8 +319,7 @@ fn sanitize_filename(name: &str) -> String {
 #[async_trait]
 impl StorageProjectionPort for S3StoragePort {
     async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize> {
-        let ids =
-            crate::core::storage::list_descendant_docs(&self.pool, folder_id).await?;
+        let ids = crate::core::storage::list_descendant_docs(&self.pool, folder_id).await?;
         for id in &ids {
             self.move_doc_paths(*id).await?;
         }
@@ -372,8 +360,7 @@ impl StorageProjectionPort for S3StoragePort {
     }
 
     async fn delete_folder_physical(&self, folder_id: Uuid) -> anyhow::Result<usize> {
-        let ids =
-            crate::core::storage::list_descendant_docs(&self.pool, folder_id).await?;
+        let ids = crate::core::storage::list_descendant_docs(&self.pool, folder_id).await?;
         for id in &ids {
             self.delete_doc_physical(*id).await?;
         }
@@ -444,8 +431,8 @@ impl StorageResolverPort for S3StoragePort {
             anyhow::bail!("forbidden");
         }
 
-        let rel = crate::core::storage::relative_from_uploads(&self.root, &full_path)
-            .replace('\\', "/");
+        let rel =
+            crate::core::storage::relative_from_uploads(&self.root, &full_path).replace('\\', "/");
         let key = self.relative_to_key(&rel);
         if !self.object_exists(&key).await? {
             anyhow::bail!("not_found");
@@ -495,12 +482,10 @@ impl StorageResolverPort for S3StoragePort {
         }
         let key = self.key_from_path(abs_path);
         self.put_object(&key, data).await?;
-        let rel = crate::core::storage::relative_from_uploads(&self.root, abs_path)
-            .replace('\\', "/");
-        let _ = crate::core::storage::mark_dirty_upsert_relative(
-            &self.pool, &rel, true, None,
-        )
-        .await;
+        let rel =
+            crate::core::storage::relative_from_uploads(&self.root, abs_path).replace('\\', "/");
+        let _ =
+            crate::core::storage::mark_dirty_upsert_relative(&self.pool, &rel, true, None).await;
         Ok(())
     }
 
@@ -512,18 +497,16 @@ impl StorageResolverPort for S3StoragePort {
     ) -> anyhow::Result<StoredAttachment> {
         use tokio::fs;
 
-        let base_dir =
-            crate::core::storage::build_doc_dir(&self.pool, &self.root, doc_id)
-                .await?
-                .to_path_buf();
+        let base_dir = crate::core::storage::build_doc_dir(&self.pool, &self.root, doc_id)
+            .await?
+            .to_path_buf();
         let attachments_dir = base_dir.join("attachments");
         let _ = fs::create_dir_all(&attachments_dir).await;
 
         let sanitized = sanitize_filename(original_filename.unwrap_or("attachment"));
         let mut target = attachments_dir.join(&sanitized);
         let mut relative =
-            crate::core::storage::relative_from_uploads(&self.root, &target)
-                .replace('\\', "/");
+            crate::core::storage::relative_from_uploads(&self.root, &target).replace('\\', "/");
         let mut counter = 1;
         loop {
             let key = self.relative_to_key(&relative);
@@ -542,8 +525,8 @@ impl StorageResolverPort for S3StoragePort {
                 .unwrap_or_default();
             let new_name = format!("{stem}-{counter}{ext}");
             target = attachments_dir.join(&new_name);
-            relative = crate::core::storage::relative_from_uploads(&self.root, &target)
-                .replace('\\', "/");
+            relative =
+                crate::core::storage::relative_from_uploads(&self.root, &target).replace('\\', "/");
             counter += 1;
         }
 

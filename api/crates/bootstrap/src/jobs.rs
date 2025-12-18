@@ -8,23 +8,22 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
-
 use crate::config::Config;
 use crate::git::GitRebuildStack;
+use application::core::services::storage::reconcile::StorageReconcileService;
+use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
+use application::identity::ports::user_session_repository::UserSessionRepository;
 use application::plugins::ports::plugin_asset_store::PluginAssetStore;
+use application::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
+use domain::plugins::scope::PluginInstallationStatus;
 use infrastructure::core::db::PgPool;
 use infrastructure::core::db::advisory_lock::AdvisoryLock;
-use infrastructure::documents::event_poller::DocEventPoller;
-use infrastructure::plugins::s3_store::S3BackedPluginStore;
-use infrastructure::documents::realtime::Hub;
 use infrastructure::core::storage::{
     FsIngestWatcher, StorageConsistencyMonitor, StorageIngestWorker, StorageProjectionWorker,
 };
-use application::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
-use application::identity::ports::user_session_repository::UserSessionRepository;
-use application::core::services::storage::reconcile::StorageReconcileService;
-use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
-use domain::plugins::scope::PluginInstallationStatus;
+use infrastructure::documents::event_poller::DocEventPoller;
+use infrastructure::documents::realtime::Hub;
+use infrastructure::plugins::s3_store::S3BackedPluginStore;
 
 /// Handle to a background task.
 pub struct JobHandle {

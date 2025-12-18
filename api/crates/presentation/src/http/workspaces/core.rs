@@ -7,22 +7,22 @@ use axum::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use application::core::services::access;
-use application::workspaces::ports::workspace_repository::WorkspaceListItem;
-use application::identity::services::auth::user_sessions::SessionMetadata;
-use application::core::services::errors::ServiceError;
-use domain::workspaces::permissions::{
-    PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
-};
-use domain::workspaces::roles::{WorkspaceRoleKind, WorkspaceSystemRole};
 use crate::context::AppContext;
+#[allow(unused_imports)]
+use crate::http::documents::DocumentDownloadBinary;
 use crate::http::identity::auth::{
     self, apply_session_cookies, extract_client_ip, extract_refresh_token, extract_user_agent,
 };
 use crate::security::token as security_token;
 use crate::security::token::Bearer;
-#[allow(unused_imports)]
-use crate::http::documents::DocumentDownloadBinary;
+use application::core::services::access;
+use application::core::services::errors::ServiceError;
+use application::identity::services::auth::user_sessions::SessionMetadata;
+use application::workspaces::ports::workspace_repository::WorkspaceListItem;
+use domain::workspaces::permissions::{
+    PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
+};
+use domain::workspaces::roles::{WorkspaceRoleKind, WorkspaceSystemRole};
 
 use super::types::{
     CreateWorkspaceRequest, DownloadWorkspaceQuery, SwitchWorkspaceResponse,
@@ -349,7 +349,13 @@ pub async fn download_workspace_archive(
 
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| error_response(StatusCode::UNAUTHORIZED, "unauthorized", "Unauthorized".to_string()))?;
+        .map_err(|_| {
+            error_response(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                "Unauthorized".to_string(),
+            )
+        })?;
 
     require_permission(&ctx, id, user_id, PERM_DOC_VIEW)
         .await

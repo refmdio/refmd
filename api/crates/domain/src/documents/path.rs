@@ -167,10 +167,7 @@ pub fn normalize_repo_path(repo_path: &str) -> Option<String> {
 }
 
 /// Convert a stored doc path (which may be absolute or prefixed with workspace id) to repo-relative.
-pub fn workspace_repo_relative(
-    workspace_id: Uuid,
-    stored_path: Option<&str>,
-) -> Option<RepoPath> {
+pub fn workspace_repo_relative(workspace_id: Uuid, stored_path: Option<&str>) -> Option<RepoPath> {
     let stored = stored_path?.trim_start_matches('/');
     if stored.is_empty() {
         return None;
@@ -300,7 +297,10 @@ mod tests {
 
     #[test]
     fn repo_path_new_normalizes_and_rejects_traversal() {
-        assert_eq!(RepoPath::new("//docs//foo.md").unwrap().as_str(), "docs/foo.md");
+        assert_eq!(
+            RepoPath::new("//docs//foo.md").unwrap().as_str(),
+            "docs/foo.md"
+        );
         assert!(RepoPath::new("../secret").is_err());
         assert!(RepoPath::new("foo/../bar").is_err());
     }
@@ -383,8 +383,14 @@ mod tests {
         assert_eq!(
             candidates,
             vec![
-                (Slug::new("foo".to_string()).unwrap(), DesiredPath::new("bar/foo.md")),
-                (Slug::new("foo-2".to_string()).unwrap(), DesiredPath::new("bar/foo-2.md")),
+                (
+                    Slug::new("foo".to_string()).unwrap(),
+                    DesiredPath::new("bar/foo.md")
+                ),
+                (
+                    Slug::new("foo-2".to_string()).unwrap(),
+                    DesiredPath::new("bar/foo-2.md")
+                ),
             ]
         );
     }
@@ -398,8 +404,14 @@ mod tests {
         assert_eq!(
             candidates,
             vec![
-                (Slug::new("foo".to_string()).unwrap(), DesiredPath::new("bar/foo")),
-                (Slug::new("foo-2".to_string()).unwrap(), DesiredPath::new("bar/foo-2")),
+                (
+                    Slug::new("foo".to_string()).unwrap(),
+                    DesiredPath::new("bar/foo")
+                ),
+                (
+                    Slug::new("foo-2".to_string()).unwrap(),
+                    DesiredPath::new("bar/foo-2")
+                ),
             ]
         );
     }

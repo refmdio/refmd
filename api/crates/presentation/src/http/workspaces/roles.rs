@@ -5,16 +5,16 @@ use axum::{
 };
 use uuid::Uuid;
 
+use crate::context::AppContext;
+use crate::security::token::{self, Bearer};
 use domain::workspaces::permissions::{
     PERM_MEMBER_INVITE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW,
 };
-use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
 
 use super::types::{
     CreateWorkspaceRoleRequest, UpdateWorkspaceRoleRequest, WorkspaceRoleResponse,
-    map_service_error, normalize_overrides, require_any_permission, require_permission,
-    parse_base_role, parse_optional_base_role, role_response_from, validate_base_role,
+    map_service_error, normalize_overrides, parse_base_role, parse_optional_base_role,
+    require_any_permission, require_permission, role_response_from, validate_base_role,
 };
 
 #[utoipa::path(

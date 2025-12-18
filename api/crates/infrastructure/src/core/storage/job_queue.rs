@@ -3,10 +3,10 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::core::ports::storage::storage_projection_queue::{
     StorageProjectionJob, StorageProjectionJobKind, StorageProjectionQueue,
 };
-use crate::core::db::PgPool;
 
 pub struct PgStorageProjectionQueue {
     pool: PgPool,

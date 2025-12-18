@@ -5,8 +5,8 @@ use axum::{
 };
 
 use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
 
 use super::types::{ActiveShareItem, frontend_base, map_share_error};
 use application::documents::dtos::ActiveShareItemDto;

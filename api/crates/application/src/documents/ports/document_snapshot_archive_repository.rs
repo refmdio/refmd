@@ -42,8 +42,7 @@ pub trait DocumentSnapshotArchiveRepository: Send + Sync {
         input: SnapshotArchiveInsert<'_>,
     ) -> anyhow::Result<SnapshotArchiveRecord>;
 
-    async fn get_by_id(&self, id: Uuid)
-    -> anyhow::Result<Option<SnapshotArchiveEntry>>;
+    async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<SnapshotArchiveEntry>>;
 
     async fn list_for_document(
         &self,

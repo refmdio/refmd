@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::documents::ports::files::files_repository::{
     FileMeta, FilePathMeta, FileRecord, FilesRepository, StoredFileScope,
 };
-use crate::core::db::PgPool;
 
 pub struct SqlxFilesRepository {
     pub pool: PgPool,
@@ -74,10 +74,7 @@ impl FilesRepository for SqlxFilesRepository {
         Ok(row.get("id"))
     }
 
-    async fn get_file_meta(
-        &self,
-        file_id: Uuid,
-    ) -> anyhow::Result<Option<FileMeta>> {
+    async fn get_file_meta(&self, file_id: Uuid) -> anyhow::Result<Option<FileMeta>> {
         let row = sqlx::query(
             r#"SELECT f.storage_path, f.content_type, d.workspace_id
                FROM files f JOIN documents d ON f.document_id = d.id

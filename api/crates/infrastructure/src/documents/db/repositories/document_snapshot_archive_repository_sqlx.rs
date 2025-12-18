@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::documents::ports::document_snapshot_archive_repository::{
     DocumentSnapshotArchiveRepository, SnapshotArchiveEntry, SnapshotArchiveInsert,
     SnapshotArchiveRecord,
 };
-use crate::core::db::PgPool;
 
 pub struct SqlxDocumentSnapshotArchiveRepository {
     pool: PgPool,
@@ -101,10 +101,7 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
         })
     }
 
-    async fn get_by_id(
-        &self,
-        id: Uuid,
-    ) -> anyhow::Result<Option<SnapshotArchiveEntry>> {
+    async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<SnapshotArchiveEntry>> {
         let row = sqlx::query(
             r#"SELECT
                     id,

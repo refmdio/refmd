@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::core::services::errors::ServiceError;
 use crate::plugins::ports::plugin_asset_store::{
     LatestGlobalManifest, PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
 };
@@ -11,14 +12,11 @@ use crate::plugins::ports::plugin_event_publisher::{PluginEventPublisher, Plugin
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::plugins::ports::plugin_installer::{InstalledPlugin, PluginInstaller};
 use crate::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
-use crate::core::services::errors::ServiceError;
 use crate::plugins::services::asset_signer::{AssetScope, AssetSigner};
-use crate::plugins::use_cases::install_from_url::{
-    InstallPluginError, InstallPluginFromUrl,
-};
-use domain::workspaces::permissions::PermissionSet;
-use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
+use crate::plugins::use_cases::install_from_url::{InstallPluginError, InstallPluginFromUrl};
 use domain::plugins::events::PluginEventKind;
+use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
+use domain::workspaces::permissions::PermissionSet;
 
 #[derive(Debug, Clone)]
 pub struct PluginManifestItem {

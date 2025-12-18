@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
-
+use crate::config::Config;
 use application::identity::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
 use application::identity::services::auth::service::AuthService;
 use application::identity::services::auth::token_validation::TokenValidationService;
 use application::identity::services::auth::user_sessions::UserSessionService;
-use crate::config::Config;
 use infrastructure::identity::auth::github::GithubOAuthProvider;
 use infrastructure::identity::auth::google::GoogleIdentityProvider;
 use infrastructure::identity::auth::oidc::{OidcIdentityProvider, OidcOAuthProviderConfig};
@@ -22,7 +21,9 @@ pub struct AuthStack {
 pub async fn build_auth_stack(
     cfg: &Config,
     token_validation_service: Arc<TokenValidationService>,
-    user_session_repo: Arc<dyn application::identity::ports::user_session_repository::UserSessionRepository>,
+    user_session_repo: Arc<
+        dyn application::identity::ports::user_session_repository::UserSessionRepository,
+    >,
 ) -> anyhow::Result<AuthStack> {
     let external_auth = build_external_auth_registry(cfg).await?;
 

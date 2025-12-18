@@ -629,9 +629,7 @@ impl PluginAssetStore for FilesystemPluginStore {
         FilesystemPluginStore::remove_user_plugin_dir(self, user_id, plugin_id)
     }
 
-    async fn list_latest_global_manifests(
-        &self,
-    ) -> anyhow::Result<Vec<LatestGlobalManifest>> {
+    async fn list_latest_global_manifests(&self) -> anyhow::Result<Vec<LatestGlobalManifest>> {
         use std::io::ErrorKind;
         let mut items = Vec::new();
         let root = self.global_root();

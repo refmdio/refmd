@@ -1,4 +1,3 @@
-use domain::workspaces::permissions::PERM_PLUGIN_RUN;
 use crate::context::AppContext;
 use crate::http::identity::auth::Bearer;
 use axum::{
@@ -6,6 +5,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
+use domain::workspaces::permissions::PERM_PLUGIN_RUN;
 
 use super::types::{KvPath, KvValueBody, KvValueResponse, ensure_valid_plugin_id};
 use super::util::{
@@ -95,7 +95,13 @@ pub async fn put_kv_value(
 
     let plugin_data = ctx.plugin_data_service();
     plugin_data
-        .put_kv(&p.plugin, PluginScope::Doc, Some(p.doc_id), &p.key, &body.value)
+        .put_kv(
+            &p.plugin,
+            PluginScope::Doc,
+            Some(p.doc_id),
+            &p.key,
+            &body.value,
+        )
         .await
         .map_err(map_plugin_service_error)?;
     Ok(StatusCode::NO_CONTENT)

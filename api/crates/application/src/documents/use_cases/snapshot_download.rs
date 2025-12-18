@@ -5,9 +5,9 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::documents::ports::document_snapshot_archive_repository::SnapshotArchiveRecord;
 use crate::documents::ports::files::files_repository::FilesRepository;
-use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::documents::services::realtime::snapshot::SnapshotService;
 
 pub struct SnapshotDownload {

@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
 use domain::documents::document::{
     BacklinkInfo as DomBacklinkInfo, OutgoingLink as DomOutgoingLink, SearchHit,
 };
-use domain::documents::doc_type::DocumentType;
+pub use domain::documents::meta::DocMeta;
 use domain::documents::path::{DesiredPath, Slug};
 use domain::documents::title::Title;
-pub use domain::documents::meta::DocMeta;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocumentPathConflictError;

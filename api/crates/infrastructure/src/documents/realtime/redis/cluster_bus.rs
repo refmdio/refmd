@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use application::documents::ports::realtime::awareness_port::AwarenessPublisher;
-use application::documents::ports::realtime::realtime_hydration_port::{RealtimeBacklogReader, StreamFrame};
 use anyhow::Context;
+use application::documents::ports::realtime::awareness_port::AwarenessPublisher;
+use application::documents::ports::realtime::realtime_hydration_port::{
+    RealtimeBacklogReader, StreamFrame,
+};
 use async_trait::async_trait;
 use redis::AsyncCommands;
 use redis::streams::{StreamRangeReply, StreamReadOptions, StreamReadReply};

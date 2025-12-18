@@ -20,7 +20,9 @@ use domain::storage::ingest_backend::StorageIngestBackend;
 use domain::workspaces::permissions::PermissionSet;
 
 mod paths;
-use paths::{is_attachment_repo_path, is_reserved_repo_path, normalize_repo_path, reserved_storage_paths};
+use paths::{
+    is_attachment_repo_path, is_reserved_repo_path, normalize_repo_path, reserved_storage_paths,
+};
 
 pub struct StorageReconcileService {
     jobs: Arc<dyn StorageReconcileJobs>,

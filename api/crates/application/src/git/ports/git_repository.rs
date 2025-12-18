@@ -47,7 +47,8 @@ pub trait GitRepository: Send + Sync {
     ) -> anyhow::Result<GitConfigRecord>;
     async fn delete_config(&self, workspace_id: Uuid) -> anyhow::Result<bool>;
     async fn load_user_git_cfg(&self, workspace_id: Uuid) -> anyhow::Result<Option<UserGitCfg>>;
-    async fn get_last_sync_log(&self, workspace_id: Uuid) -> anyhow::Result<Option<GitLastSyncLog>>;
+    async fn get_last_sync_log(&self, workspace_id: Uuid)
+    -> anyhow::Result<Option<GitLastSyncLog>>;
     async fn log_sync_operation(
         &self,
         workspace_id: Uuid,

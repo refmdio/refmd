@@ -2,8 +2,8 @@ use uuid::Uuid;
 
 use crate::documents::ports::access_repository::AccessRepository;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
-use domain::documents::doc_type::DocumentType;
 use domain::documents::access_policy;
+use domain::documents::doc_type::DocumentType;
 
 pub use domain::documents::access_policy::Capability;
 
@@ -41,8 +41,7 @@ where
                 let is_archived = access_repo
                     .is_document_archived(doc_id)
                     .await
-                    .unwrap_or(false)
-                    ;
+                    .unwrap_or(false);
                 let materialized_permission = if ctx.shared_type == DocumentType::Folder {
                     shares_repo
                         .get_materialized_permission(ctx.share_id, doc_id)
@@ -64,7 +63,10 @@ where
             }
         }
         Actor::Public => {
-            let is_public = access_repo.is_document_public(doc_id).await.unwrap_or(false);
+            let is_public = access_repo
+                .is_document_public(doc_id)
+                .await
+                .unwrap_or(false);
             // Public documents remain view-only even when archived.
             access_policy::capability_for_public_document(is_public)
         }

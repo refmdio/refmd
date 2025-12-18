@@ -7,8 +7,8 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::identity::services::auth::token_validation::TokenValidationService;
 use crate::core::services::errors::ServiceError;
+use crate::identity::services::auth::token_validation::TokenValidationService;
 
 #[derive(Clone)]
 pub struct AuthService {

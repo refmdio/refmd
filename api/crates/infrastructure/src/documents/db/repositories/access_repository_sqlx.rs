@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::documents::ports::access_repository::{AccessRepository, DocumentUserAccess};
 use domain::workspaces::permissions::{
     PermissionSet, apply_custom_overrides, system_role_permissions,
 };
-use crate::core::db::PgPool;
 
 pub struct SqlxAccessRepository {
     pub pool: PgPool,
@@ -78,8 +78,7 @@ impl AccessRepository for SqlxAccessRepository {
                 row.try_get::<Option<bool>, _>("allowed").ok().flatten(),
             ) {
                 overrides.push(domain::workspaces::permissions::PermissionOverride::new(
-                    permission,
-                    allowed,
+                    permission, allowed,
                 ));
             }
         }

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::plugins::ports::plugin_runtime::PluginRuntime;
 use crate::core::services::errors::ServiceError;
+use crate::plugins::ports::plugin_runtime::PluginRuntime;
 
 pub struct PluginPermissionService {
     runtime: Arc<dyn PluginRuntime>,

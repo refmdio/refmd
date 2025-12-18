@@ -4,10 +4,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
-use application::plugins::use_cases::install_from_url::InstallPluginError;
-use domain::workspaces::permissions::{PERM_PLUGIN_INSTALL, PERM_PLUGIN_UNINSTALL};
 use crate::context::AppContext;
 use crate::http::identity::auth::Bearer;
+use application::plugins::use_cases::install_from_url::InstallPluginError;
+use domain::workspaces::permissions::{PERM_PLUGIN_INSTALL, PERM_PLUGIN_UNINSTALL};
 
 use super::types::{InstallFromUrlBody, InstallResponse, UninstallBody, ensure_valid_plugin_id};
 use super::util::{map_plugin_service_error, resolve_plugin_user_context};

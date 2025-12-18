@@ -6,9 +6,9 @@ use axum::{
 use serde_json::json;
 use std::collections::HashMap;
 
-use domain::workspaces::permissions::PERM_PLUGIN_RUN;
 use crate::context::AppContext;
 use crate::http::identity::auth::Bearer;
+use domain::workspaces::permissions::PERM_PLUGIN_RUN;
 
 use super::types::{
     CreateRecordBody, RecordsPath, RecordsResponse, UpdateRecordBody, UpdateRecordPath,

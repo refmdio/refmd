@@ -1,13 +1,13 @@
+pub mod access_policy;
+pub mod delete_plan;
 pub mod doc_type;
 pub mod document;
-pub mod share;
 pub mod hierarchy;
 pub mod meta;
 pub mod path;
 pub mod permissions;
 pub mod policy;
-pub mod delete_plan;
-pub mod title;
 pub mod public_policy;
+pub mod share;
 pub mod sharing_policy;
-pub mod access_policy;
+pub mod title;

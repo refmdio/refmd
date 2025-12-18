@@ -1,10 +1,10 @@
 use uuid::Uuid;
 
+use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::ports::git_workspace::GitWorkspacePort;
 use crate::git::ports::gitignore_port::GitignorePort;
-use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::git::use_cases::helpers::compute_doc_patterns_with;
 
 pub struct IgnoreFolder<'a, G, S, F, D, W>

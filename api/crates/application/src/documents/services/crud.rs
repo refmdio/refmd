@@ -3,9 +3,9 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use domain::documents::document::{Document as DomainDocument, SearchHit};
+use domain::documents::permissions as doc_permissions;
 use domain::documents::policy::DocumentState;
 use domain::documents::{hierarchy, path as doc_path, policy as doc_policy, title};
-use domain::documents::permissions as doc_permissions;
 use domain::workspaces::permissions::PermissionSet;
 
 use crate::core::services::access::{self, Actor};
@@ -20,8 +20,8 @@ use crate::documents::use_cases::list_documents::ListDocuments;
 use crate::documents::use_cases::search_documents::SearchDocuments;
 use crate::documents::use_cases::update_document::UpdateDocument;
 
-use super::util::{map_parent_error, map_policy_error, map_tx_error, to_repo_state};
 use super::DocumentService;
+use super::util::{map_parent_error, map_policy_error, map_tx_error, to_repo_state};
 
 impl DocumentService {
     pub async fn list_for_user(
@@ -66,7 +66,9 @@ impl DocumentService {
         let doc = match run_in_tx(self.tx_runner.as_ref(), move |tx| {
             Box::pin(async move {
                 let doc = {
-                    let mut uc = CreateDocument { repo: tx.documents() };
+                    let mut uc = CreateDocument {
+                        repo: tx.documents(),
+                    };
                     uc.execute(
                         workspace_id,
                         actor_id,
@@ -273,7 +275,9 @@ impl DocumentService {
                 let mut delete_events = Vec::new();
                 for entry in delete_plan {
                     let deleted_type = {
-                        let mut uc = DeleteDocument { repo: tx.documents() };
+                        let mut uc = DeleteDocument {
+                            repo: tx.documents(),
+                        };
                         uc.execute(entry.doc_id, workspace_id).await?
                     };
                     if deleted_type.is_some() {
@@ -315,8 +319,9 @@ impl DocumentService {
     ) -> Result<DomainDocument, ServiceError> {
         let meta = self.load_owner_meta(workspace_id, doc_id).await?;
         let state = DocumentState::new(meta.doc_type, meta.archived_at);
-        let requested_title =
-            title.as_deref().map(domain::documents::title::Title::from_user_input);
+        let requested_title = title
+            .as_deref()
+            .map(domain::documents::title::Title::from_user_input);
         let rename_requested = title.is_some();
         let move_requested = parent_id.is_some();
         if rename_requested {
@@ -348,7 +353,9 @@ impl DocumentService {
         let doc = match run_in_tx(self.tx_runner.as_ref(), move |tx| {
             Box::pin(async move {
                 let doc = {
-                    let mut uc = UpdateDocument { repo: tx.documents() };
+                    let mut uc = UpdateDocument {
+                        repo: tx.documents(),
+                    };
                     uc.execute(
                         doc_id,
                         workspace_id,

@@ -6,20 +6,20 @@ use uuid::Uuid;
 use yrs::updates::decoder::Decode;
 use yrs::{Doc, GetString, ReadTxn, StateVector, Text, Transact, Update};
 
-use crate::documents::services::linkgraph;
+use crate::core::ports::storage::storage_projection_queue::{
+    StorageProjectionJobKind, StorageProjectionQueue,
+};
+use crate::core::services::tagging;
+use crate::core::services::utils::hash::sha256_hex;
 use crate::documents::ports::document_snapshot_archive_repository::{
     DocumentSnapshotArchiveRepository, SnapshotArchiveInsert, SnapshotArchiveRecord,
 };
 use crate::documents::ports::linkgraph_repository::LinkGraphRepository;
 use crate::documents::ports::realtime::realtime_hydration_port::DocStateReader;
 use crate::documents::ports::realtime::realtime_persistence_port::DocPersistencePort;
-use crate::core::ports::storage::storage_projection_queue::{
-    StorageProjectionJobKind, StorageProjectionQueue,
-};
-use crate::documents::ports::tagging::tagging_repository::TaggingRepository;
-use crate::core::services::tagging;
-use crate::core::services::utils::hash::sha256_hex;
 use crate::documents::ports::realtime::realtime_persistence_port::SnapshotEntry;
+use crate::documents::ports::tagging::tagging_repository::TaggingRepository;
+use crate::documents::services::linkgraph;
 use domain::documents::doc_type::DocumentType;
 
 pub struct SnapshotService {

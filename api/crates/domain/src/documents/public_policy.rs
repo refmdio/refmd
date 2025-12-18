@@ -1,13 +1,11 @@
-use crate::workspaces::permissions::{PermissionSet, PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH};
+use crate::workspaces::permissions::{PERM_PUBLIC_PUBLISH, PERM_PUBLIC_UNPUBLISH, PermissionSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublicPolicyError {
     Forbidden,
 }
 
-pub fn ensure_public_publish_allowed(
-    permissions: &PermissionSet,
-) -> Result<(), PublicPolicyError> {
+pub fn ensure_public_publish_allowed(permissions: &PermissionSet) -> Result<(), PublicPolicyError> {
     if permissions.allows(PERM_PUBLIC_PUBLISH) {
         Ok(())
     } else {
@@ -52,4 +50,3 @@ mod tests {
         assert_eq!(ensure_public_unpublish_allowed(&perms), Ok(()));
     }
 }
-

@@ -83,7 +83,11 @@ fn build_archive(assets: &DocumentExportAssets) -> anyhow::Result<Vec<u8>> {
         zip.start_file(markdown_entry, options)?;
         zip.write_all(&assets.markdown)?;
         for attachment in &assets.attachments {
-            let entry = format!("{}/{}", assets.safe_title, attachment_trimmed_path(attachment));
+            let entry = format!(
+                "{}/{}",
+                assets.safe_title,
+                attachment_trimmed_path(attachment)
+            );
             zip.start_file(entry, options)?;
             zip.write_all(&attachment.bytes)?;
         }

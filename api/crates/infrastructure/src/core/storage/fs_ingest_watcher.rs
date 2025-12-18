@@ -9,7 +9,9 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
-use application::core::ports::storage::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use application::core::ports::storage::storage_ingest_queue::{
+    StorageIngestKind, StorageIngestQueue,
+};
 use application::core::services::storage::ingest::normalize_repo_path;
 use application::core::services::utils::hash::sha256_hex;
 use domain::storage::ingest_backend::StorageIngestBackend;

@@ -3,11 +3,11 @@ use reqwest::Url;
 use serde::Deserialize;
 use tracing::warn;
 
+use application::core::services::errors::ServiceError;
 use application::identity::services::auth::external::{
     ExternalAuthIdentity, ExternalAuthPayload, ExternalAuthProviderDescriptor,
     ExternalAuthProviderKind, ExternalAuthVerifier,
 };
-use application::core::services::errors::ServiceError;
 
 #[derive(Debug, Clone)]
 pub struct OidcOAuthProviderConfig {

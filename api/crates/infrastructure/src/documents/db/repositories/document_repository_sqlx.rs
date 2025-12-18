@@ -1,22 +1,22 @@
 use std::borrow::Cow;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::documents::ports::document_repository::{
     DocMeta, DocumentListState, DocumentPathConflictError, DocumentRepository, SubtreeDocument,
 };
+use domain::documents::doc_type::DocumentType;
 use domain::documents::document::{
     BacklinkInfo as DomBacklinkInfo, Document as DomainDocument, OutgoingLink as DomOutgoingLink,
     SearchHit,
 };
-use domain::documents::doc_type::DocumentType;
 use domain::documents::path as doc_path;
 use domain::documents::title::Title;
-use crate::core::db::PgPool;
 
 pub struct SqlxDocumentRepository {
     pub pool: PgPool,
@@ -576,12 +576,18 @@ mod tests {
     #[test]
     fn slug_preserves_unicode_and_case() {
         assert_eq!(doc_path::Slug::from_title("Main").as_str(), "Main");
-        assert_eq!(doc_path::Slug::from_title("Résumé2025").as_str(), "Résumé2025");
+        assert_eq!(
+            doc_path::Slug::from_title("Résumé2025").as_str(),
+            "Résumé2025"
+        );
     }
 
     #[test]
     fn slug_sanitizes_forbidden_chars() {
-        assert_eq!(doc_path::Slug::from_title(" Foo / Bar ").as_str(), "Foo - Bar");
+        assert_eq!(
+            doc_path::Slug::from_title(" Foo / Bar ").as_str(),
+            "Foo - Bar"
+        );
         assert_eq!(doc_path::Slug::from_title("////").as_str(), "untitled");
     }
 }
@@ -772,7 +778,7 @@ impl DocumentRepository for SqlxDocumentRepository {
                 created_by_plugin,
                 slug,
                 desired_path,
-        )
+            )
             .await?;
         tx.commit().await?;
         Ok(doc)
@@ -798,7 +804,7 @@ impl DocumentRepository for SqlxDocumentRepository {
                 slug,
                 desired_path,
             )
-        .await?;
+            .await?;
         tx.commit().await?;
         Ok(doc)
     }

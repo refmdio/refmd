@@ -1,9 +1,9 @@
 use axum::http::{HeaderMap, StatusCode};
 use uuid::Uuid;
 
-use domain::workspaces::permissions::PermissionSet;
 use crate::context::AppContext;
 use crate::http::workspaces::map_service_error;
+use domain::workspaces::permissions::PermissionSet;
 
 const WORKSPACE_HEADER: &str = "X-Workspace-ID";
 

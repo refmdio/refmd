@@ -141,8 +141,13 @@ impl StorageIngestHandler for StorageIngestService {
                     .await?;
                 }
                 StorageIngestKind::Delete => {
-                    self.handle_attachment_delete(file.file_id, file.document_id, &repo_path, event)
-                        .await?;
+                    self.handle_attachment_delete(
+                        file.file_id,
+                        file.document_id,
+                        &repo_path,
+                        event,
+                    )
+                    .await?;
                 }
             }
             return Ok(());

@@ -5,11 +5,11 @@ use axum::{
 };
 use uuid::Uuid;
 
-use application::core::services::errors::ServiceError;
 use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
 use crate::http::documents::{Document, to_http_document};
 use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
+use application::core::services::errors::ServiceError;
 
 use super::types::{PublicDocumentSummary, PublishResponse};
 

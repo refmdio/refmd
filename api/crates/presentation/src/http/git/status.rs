@@ -4,11 +4,11 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
+use crate::context::AppContext;
+use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
 use application::core::dtos::TextDiffResult;
 use application::git::dtos::{GitCommitInfo, GitStatusDto};
-use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
-use crate::http::workspaces::scope as workspace_scope;
 
 use super::types::{GitChangesResponse, GitHistoryResponse, GitStatus, map_git_error};
 

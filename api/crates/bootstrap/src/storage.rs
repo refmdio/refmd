@@ -2,10 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Context;
 
-
+use crate::config::{Config, StorageBackend};
 use application::core::ports::storage::storage_port::{StorageProjectionPort, StorageResolverPort};
 use application::core::ports::storage::storage_reconcile_backend::StorageReconcileBackend;
-use crate::config::{Config, StorageBackend};
 use infrastructure::core::db::PgPool;
 use infrastructure::core::storage::s3::S3StorageConfig;
 use infrastructure::core::storage::s3::S3StoragePort;

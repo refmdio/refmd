@@ -5,11 +5,11 @@ use tokio::sync::Mutex;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::core::crypto;
+use crate::core::db::PgPool;
 use application::git::ports::git_repository::{
     GitConfigRecord, GitLastSyncLog, GitRepository, UserGitCfg,
 };
-use crate::core::crypto;
-use crate::core::db::PgPool;
 use domain::git::auth::GitAuthType;
 use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};
 

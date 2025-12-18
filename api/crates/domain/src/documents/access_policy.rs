@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::documents::doc_type::DocumentType;
 use crate::documents::share::{self, ShareContext, SharePermission};
-use crate::workspaces::permissions::{PermissionSet, PERM_DOC_EDIT, PERM_DOC_VIEW};
+use crate::workspaces::permissions::{PERM_DOC_EDIT, PERM_DOC_VIEW, PermissionSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Capability {
@@ -12,10 +12,7 @@ pub enum Capability {
     Edit,
 }
 
-pub fn capability_for_user_document(
-    permissions: &PermissionSet,
-    is_archived: bool,
-) -> Capability {
+pub fn capability_for_user_document(permissions: &PermissionSet, is_archived: bool) -> Capability {
     if !permissions.allows(PERM_DOC_VIEW) {
         return Capability::None;
     }
@@ -80,13 +77,22 @@ mod tests {
     #[test]
     fn user_document_requires_view_and_archived_is_view_only() {
         let perms = PermissionSet::default();
-        assert_eq!(capability_for_user_document(&perms, false), Capability::None);
+        assert_eq!(
+            capability_for_user_document(&perms, false),
+            Capability::None
+        );
 
         let perms = PermissionSet::from_slice(&[PERM_DOC_VIEW]);
-        assert_eq!(capability_for_user_document(&perms, false), Capability::View);
+        assert_eq!(
+            capability_for_user_document(&perms, false),
+            Capability::View
+        );
 
         let perms = PermissionSet::from_slice(&[PERM_DOC_VIEW, PERM_DOC_EDIT]);
-        assert_eq!(capability_for_user_document(&perms, false), Capability::Edit);
+        assert_eq!(
+            capability_for_user_document(&perms, false),
+            Capability::Edit
+        );
         assert_eq!(capability_for_user_document(&perms, true), Capability::View);
     }
 
@@ -113,7 +119,10 @@ mod tests {
         );
         assert_eq!(
             capability_for_share_token(
-                &ShareContext { expires_at: None, ..ctx },
+                &ShareContext {
+                    expires_at: None,
+                    ..ctx
+                },
                 ctx.shared_id,
                 now,
                 true,
@@ -182,4 +191,3 @@ mod tests {
         );
     }
 }
-

@@ -16,14 +16,12 @@ impl<'a, R: PublicRepository + ?Sized> ListWorkspacePublic<'a, R> {
             .await?;
         Ok(rows
             .into_iter()
-            .map(
-                |row| PublicDocumentSummaryDto {
-                    id: row.id,
-                    title: row.title,
-                    updated_at: row.updated_at,
-                    published_at: row.published_at,
-                }
-            )
+            .map(|row| PublicDocumentSummaryDto {
+                id: row.id,
+                title: row.title,
+                updated_at: row.updated_at,
+                published_at: row.published_at,
+            })
             .collect())
     }
 }

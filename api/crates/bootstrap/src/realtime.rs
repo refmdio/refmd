@@ -4,15 +4,14 @@ use std::time::Duration;
 use anyhow::Context;
 use tracing::info;
 
-
+use crate::config::Config;
+use application::core::ports::storage::storage_port::StorageResolverPort;
+use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::documents::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository;
 use application::documents::ports::linkgraph_repository::LinkGraphRepository;
 use application::documents::ports::realtime::realtime_port::RealtimeEngine;
-use application::core::ports::storage::storage_port::StorageResolverPort;
-use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::documents::services::realtime::doc_hydration::DocHydrationService;
 use application::documents::services::realtime::snapshot::SnapshotService;
-use crate::config::Config;
 use infrastructure::core::db::PgPool;
 
 pub struct RealtimeStack {
@@ -66,17 +65,13 @@ pub async fn build_realtime_stack(
     info!("cluster_mode_disabled_using_local_hub");
     let doc_state_reader: Arc<
         dyn application::documents::ports::realtime::realtime_hydration_port::DocStateReader,
-    > = Arc::new(infrastructure::documents::realtime::SqlxDocStateReader::new(
-        pool.clone(),
-    ));
+    > = Arc::new(infrastructure::documents::realtime::SqlxDocStateReader::new(pool.clone()));
     let backlog_reader: Arc<
         dyn application::documents::ports::realtime::realtime_hydration_port::RealtimeBacklogReader,
     > = Arc::new(infrastructure::documents::realtime::NoopBacklogReader::default());
     let doc_persistence: Arc<
         dyn application::documents::ports::realtime::realtime_persistence_port::DocPersistencePort,
-    > = Arc::new(infrastructure::documents::realtime::SqlxDocPersistenceAdapter::new(
-        pool.clone(),
-    ));
+    > = Arc::new(infrastructure::documents::realtime::SqlxDocPersistenceAdapter::new(pool.clone()));
     let linkgraph_repo: Arc<dyn LinkGraphRepository> = Arc::new(
         infrastructure::documents::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository::new(
             pool.clone(),
@@ -107,7 +102,8 @@ pub async fn build_realtime_stack(
         doc_persistence,
         auto_archive_interval,
     );
-    let engine = Arc::new(infrastructure::documents::realtime::LocalRealtimeEngine { hub: hub.clone() });
+    let engine =
+        Arc::new(infrastructure::documents::realtime::LocalRealtimeEngine { hub: hub.clone() });
     let engine_trait: Arc<dyn RealtimeEngine> = engine.clone();
     Ok(RealtimeStack {
         engine: engine_trait,

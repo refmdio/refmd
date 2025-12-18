@@ -1,9 +1,9 @@
+use application::core::services::errors::ServiceError;
 use application::git::dtos::UpsertGitConfigInput;
 use application::git::dtos::{
     GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitPullConflictItemDto,
     GitPullResolutionDto, GitPullSessionDto, GitStatusDto, GitignoreUpdateDto,
 };
-use application::core::services::errors::ServiceError;
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use tracing::error;

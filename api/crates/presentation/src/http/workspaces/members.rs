@@ -5,11 +5,11 @@ use axum::{
 };
 use uuid::Uuid;
 
+use crate::context::AppContext;
+use crate::security::token::{self, Bearer};
 use domain::workspaces::permissions::{
     PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW,
 };
-use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
 
 use super::types::{
     UpdateMemberRoleRequest, WorkspaceMemberResponse, map_service_error, member_response_from,

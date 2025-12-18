@@ -4,11 +4,11 @@ use futures_util::TryStreamExt;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::documents::ports::realtime::realtime_hydration_port::{
     DocSnapshot, DocStateReader, DocUpdate, DocumentRecord,
 };
 use domain::documents::doc_type::DocumentType;
-use crate::core::db::PgPool;
 
 #[derive(Clone)]
 pub struct SqlxDocStateReader {

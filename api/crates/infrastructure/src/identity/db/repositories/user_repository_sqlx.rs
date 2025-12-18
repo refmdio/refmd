@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
-use application::identity::ports::user_repository::{UserRepository, UserRow};
 use crate::core::db::PgPool;
+use application::identity::ports::user_repository::{UserRepository, UserRow};
 
 pub struct SqlxUserRepository {
     pub pool: PgPool,

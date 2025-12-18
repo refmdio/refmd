@@ -26,4 +26,3 @@ pub async fn middleware(req: Request<Body>, next: Next) -> Response {
         })
         .await
 }
-

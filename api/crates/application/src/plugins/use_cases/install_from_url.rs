@@ -4,9 +4,9 @@ use crate::plugins::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
 };
 use crate::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
-use uuid::Uuid;
-use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
 use domain::plugins::events::PluginEventKind;
+use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
+use uuid::Uuid;
 
 #[derive(thiserror::Error, Debug)]
 pub enum InstallPluginError {

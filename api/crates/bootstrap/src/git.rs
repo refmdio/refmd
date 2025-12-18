@@ -3,16 +3,15 @@ use std::sync::Arc;
 use anyhow::Context;
 use tracing::info;
 
-
-use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
+use crate::config::{Config, StorageBackend};
 use application::core::ports::storage::storage_port::StorageResolverPort;
+use application::core::services::metrics::MetricsRegistry;
+use application::documents::services::realtime::snapshot::SnapshotService;
+use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
 use application::git::services::GitService;
 use application::git::services::rebuild::GitRebuildService;
 use application::git::services::rebuild_scheduler::GitRebuildScheduler;
-use application::core::services::metrics::MetricsRegistry;
-use application::documents::services::realtime::snapshot::SnapshotService;
 use application::workspaces::services::WorkspacePermissionResolver;
-use crate::config::{Config, StorageBackend};
 use infrastructure::core::db::PgPool;
 use infrastructure::git::PgGitRebuildJobQueue;
 use infrastructure::git::storage::{GitStorageDriverConfig, build_git_storage};
@@ -62,7 +61,9 @@ pub async fn build_git_stack(
     pool: &PgPool,
     storage_resolver: Arc<dyn StorageResolverPort>,
     snapshot_service: Arc<SnapshotService>,
-    realtime_engine: Arc<dyn application::documents::ports::realtime::realtime_port::RealtimeEngine>,
+    realtime_engine: Arc<
+        dyn application::documents::ports::realtime::realtime_port::RealtimeEngine,
+    >,
     document_repo: Arc<dyn application::documents::ports::document_repository::DocumentRepository>,
     files_repo: Arc<dyn application::documents::ports::files::files_repository::FilesRepository>,
     workspace_permissions: Arc<dyn WorkspacePermissionResolver>,

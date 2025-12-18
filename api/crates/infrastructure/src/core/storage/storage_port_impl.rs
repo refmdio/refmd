@@ -23,12 +23,8 @@ impl StorageProjectionPort for FsStoragePort {
     }
 
     async fn delete_doc_physical(&self, doc_id: Uuid) -> anyhow::Result<()> {
-        crate::core::storage::delete_doc_physical(
-            &self.pool,
-            self.uploads_root.as_path(),
-            doc_id,
-        )
-        .await
+        crate::core::storage::delete_doc_physical(&self.pool, self.uploads_root.as_path(), doc_id)
+            .await
     }
 
     async fn delete_folder_physical(&self, folder_id: Uuid) -> anyhow::Result<usize> {
@@ -41,12 +37,7 @@ impl StorageProjectionPort for FsStoragePort {
     }
 
     async fn sync_doc_paths(&self, doc_id: Uuid) -> anyhow::Result<()> {
-        crate::core::storage::move_doc_paths(
-            &self.pool,
-            self.uploads_root.as_path(),
-            doc_id,
-        )
-        .await
+        crate::core::storage::move_doc_paths(&self.pool, self.uploads_root.as_path(), doc_id).await
     }
 
     async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
@@ -74,21 +65,12 @@ impl StorageProjectionPort for FsStoragePort {
 #[async_trait::async_trait]
 impl StorageResolverPort for FsStoragePort {
     async fn build_doc_dir(&self, doc_id: Uuid) -> anyhow::Result<PathBuf> {
-        crate::core::storage::build_doc_dir(
-            &self.pool,
-            self.uploads_root.as_path(),
-            doc_id,
-        )
-        .await
+        crate::core::storage::build_doc_dir(&self.pool, self.uploads_root.as_path(), doc_id).await
     }
 
     async fn build_doc_file_path(&self, doc_id: Uuid) -> anyhow::Result<PathBuf> {
-        crate::core::storage::build_doc_file_path(
-            &self.pool,
-            self.uploads_root.as_path(),
-            doc_id,
-        )
-        .await
+        crate::core::storage::build_doc_file_path(&self.pool, self.uploads_root.as_path(), doc_id)
+            .await
     }
 
     fn relative_from_uploads(&self, abs: &Path) -> String {
@@ -109,12 +91,9 @@ impl StorageResolverPort for FsStoragePort {
         use tokio::fs;
 
         // Build base directory for the document (guaranteed to live under uploads dir).
-        let doc_dir = crate::core::storage::build_doc_dir(
-            &self.pool,
-            self.uploads_root.as_path(),
-            doc_id,
-        )
-        .await?;
+        let doc_dir =
+            crate::core::storage::build_doc_dir(&self.pool, self.uploads_root.as_path(), doc_id)
+                .await?;
         let uploads_root = self.uploads_root.as_path();
 
         if !doc_dir.starts_with(uploads_root) {
@@ -201,12 +180,9 @@ impl StorageResolverPort for FsStoragePort {
     ) -> anyhow::Result<StoredAttachment> {
         use tokio::fs;
 
-        let base_dir = crate::core::storage::build_doc_dir(
-            &self.pool,
-            self.uploads_root.as_path(),
-            doc_id,
-        )
-        .await?;
+        let base_dir =
+            crate::core::storage::build_doc_dir(&self.pool, self.uploads_root.as_path(), doc_id)
+                .await?;
         let attachments_dir = base_dir.join("attachments");
         let _ = fs::create_dir_all(&attachments_dir).await;
 
@@ -253,11 +229,9 @@ impl StorageResolverPort for FsStoragePort {
         }
 
         fs::write(&candidate, bytes).await?;
-        let relative = crate::core::storage::relative_from_uploads(
-            self.uploads_root.as_path(),
-            &candidate,
-        )
-        .replace('\\', "/");
+        let relative =
+            crate::core::storage::relative_from_uploads(self.uploads_root.as_path(), &candidate)
+                .replace('\\', "/");
         let size = bytes.len() as i64;
 
         let content_hash = sha256_hex(bytes);

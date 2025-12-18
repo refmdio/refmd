@@ -2,9 +2,19 @@ use crate::core::services::errors::ServiceError;
 
 #[derive(Debug, Clone)]
 pub enum DocumentPatchOperation {
-    Insert { offset: usize, text: String },
-    Delete { offset: usize, length: usize },
-    Replace { offset: usize, length: usize, text: String },
+    Insert {
+        offset: usize,
+        text: String,
+    },
+    Delete {
+        offset: usize,
+        length: usize,
+    },
+    Replace {
+        offset: usize,
+        length: usize,
+        text: String,
+    },
 }
 
 pub(super) fn apply_patch_operations(
@@ -50,4 +60,3 @@ fn splice_chars(
     chars.splice(offset..end, replacement.chars());
     Ok(())
 }
-

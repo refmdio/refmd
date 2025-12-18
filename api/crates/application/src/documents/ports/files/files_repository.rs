@@ -34,10 +34,7 @@ pub trait FilesRepository: Send + Sync {
         storage_path: &str,
         content_hash: &str,
     ) -> anyhow::Result<Uuid>;
-    async fn get_file_meta(
-        &self,
-        file_id: Uuid,
-    ) -> anyhow::Result<Option<FileMeta>>;
+    async fn get_file_meta(&self, file_id: Uuid) -> anyhow::Result<Option<FileMeta>>;
     async fn get_file_path_by_doc_and_name(
         &self,
         doc_id: Uuid,
@@ -72,7 +69,10 @@ pub trait FilesRepository: Send + Sync {
 
 #[async_trait]
 pub trait FilesRepositoryTx: Send {
-    async fn list_storage_paths_for_document(&mut self, doc_id: Uuid) -> anyhow::Result<Vec<String>>;
+    async fn list_storage_paths_for_document(
+        &mut self,
+        doc_id: Uuid,
+    ) -> anyhow::Result<Vec<String>>;
 }
 
 #[derive(Debug, Clone)]

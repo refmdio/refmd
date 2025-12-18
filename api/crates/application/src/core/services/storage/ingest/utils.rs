@@ -14,4 +14,3 @@ pub(super) fn is_not_found_error(err: &anyhow::Error) -> bool {
             .is_some_and(|io_err| io_err.kind() == io::ErrorKind::NotFound)
     })
 }
-

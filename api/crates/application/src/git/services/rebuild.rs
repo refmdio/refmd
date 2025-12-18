@@ -5,17 +5,17 @@ use tracing::{error, info, warn};
 #[cfg(test)]
 use uuid::Uuid;
 
+use crate::core::services::metrics::MetricsRegistry;
 use crate::git::dtos::GitSyncRequestDto;
 use crate::git::ports::git_rebuild_job_queue::{GitRebuildJob, GitRebuildJobQueue};
 use crate::git::ports::git_repository::GitRepository;
 use crate::git::ports::git_workspace::GitWorkspacePort;
-use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};
-use crate::core::services::metrics::MetricsRegistry;
+use crate::git::use_cases::helpers::needs_force_retry;
 use crate::workspaces::services::WorkspacePermissionResolver;
 use crate::workspaces::services::permission_snapshot::permission_set_from_snapshot;
-use crate::git::use_cases::helpers::needs_force_retry;
 use domain::git::policy;
-use domain::workspaces::permissions::{PermissionSet, PERM_GIT_SYNC};
+use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};
+use domain::workspaces::permissions::{PERM_GIT_SYNC, PermissionSet};
 
 pub struct GitRebuildService {
     jobs: Arc<dyn GitRebuildJobQueue>,

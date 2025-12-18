@@ -2,23 +2,23 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::identity::dtos::UserDto;
+use crate::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
+use crate::core::services::errors::ServiceError;
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::ports::git_repository::GitRepository;
 use crate::git::ports::git_workspace::GitWorkspacePort;
-use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
-use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
-use crate::plugins::ports::plugin_repository::PluginRepository;
-use crate::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
+use crate::identity::dtos::UserDto;
 use crate::identity::ports::user_repository::UserRepository;
 use crate::identity::services::auth::external::ExternalAuthIdentity;
-use crate::core::services::errors::ServiceError;
-use crate::workspaces::services::WorkspaceService;
 use crate::identity::use_cases::auth::delete_account::DeleteAccount;
 use crate::identity::use_cases::auth::login::{Login as LoginUc, LoginRequest};
 use crate::identity::use_cases::auth::me::GetMe;
 use crate::identity::use_cases::auth::register::{Register as RegisterUc, RegisterRequest};
+use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
+use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
+use crate::plugins::ports::plugin_repository::PluginRepository;
+use crate::workspaces::services::WorkspaceService;
 
 pub struct AccountService {
     user_repo: Arc<dyn UserRepository>,

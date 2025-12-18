@@ -5,14 +5,14 @@ use axum::{
 };
 use uuid::Uuid;
 
-use application::git::dtos::{GitPullRequestDto, GitPullResolutionDto};
+use crate::context::AppContext;
+use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;
+use application::git::dtos::{GitPullRequestDto, GitPullResolutionDto};
 use application::git::services::FinalizePullSessionResult;
 use domain::git::pull_session::GitPullSessionStatus;
 use domain::workspaces::permissions::PERM_GIT_SYNC;
-use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
-use crate::http::workspaces::scope as workspace_scope;
 
 use super::types::{
     GitPullConflictItem, GitPullRequest, GitPullResolution, GitPullResponse,

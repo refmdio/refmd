@@ -7,14 +7,16 @@ use tokio::{self, sync::Mutex, time::sleep};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use application::core::ports::storage::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
+use crate::core::db::PgPool;
+use application::core::ports::storage::storage_ingest_queue::{
+    StorageIngestKind, StorageIngestQueue,
+};
 use application::core::ports::storage::storage_port::StorageResolverPort;
 use application::core::ports::storage::storage_projection_queue::{
     StorageProjectionJobKind, StorageProjectionQueue,
 };
 use domain::storage::ingest_backend::StorageIngestBackend;
 use domain::workspaces::permissions::PermissionSet;
-use crate::core::db::PgPool;
 
 /// Periodically verifies that metadata entries in `documents` / `files`
 /// still have a corresponding object in the configured storage backend.

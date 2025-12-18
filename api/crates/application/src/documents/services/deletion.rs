@@ -98,7 +98,7 @@ impl DocumentService {
                 entry.reason,
                 Some(metadata),
             )
-                .await
+            .await
         }
     }
 
@@ -111,8 +111,9 @@ impl DocumentService {
         let repo_path = doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref())
             .map(|p| p.into_string())
             .unwrap_or_else(|| entry.meta.desired_path.as_str().to_string());
-        let previous_repo_path = doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref())
-            .map(|p| p.into_string());
+        let previous_repo_path =
+            doc_path::workspace_repo_relative(workspace_id, entry.meta.path.as_deref())
+                .map(|p| p.into_string());
         let mut payload = json!({
             "doc_type": entry.doc_type.as_str(),
             "repo_path": repo_path,

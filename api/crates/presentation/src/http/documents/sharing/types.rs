@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::context::PresentationConfig;
+use application::core::services::errors::ServiceError;
 use application::documents::dtos::{
     ActiveShareItemDto, ApplicableShareDto, ShareBrowseResponseDto, ShareBrowseTreeItemDto,
     ShareDocumentDto, ShareItemDto, ShareMountDto,
 };
-use application::core::services::errors::ServiceError;
-use crate::context::PresentationConfig;
 use domain::documents::doc_type::{DOC_TYPE_DOCUMENT, DOC_TYPE_FOLDER};
 
 pub fn frontend_base(cfg: &PresentationConfig) -> String {

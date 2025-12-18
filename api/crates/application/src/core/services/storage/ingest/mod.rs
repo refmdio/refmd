@@ -8,20 +8,20 @@ use serde_json::{Value, json};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::core::ports::storage::storage_ingest_queue::{StorageIngestEvent, StorageIngestKind};
+use crate::core::ports::storage::storage_port::{StorageProjectionPort, StorageResolverPort};
+use crate::core::services::errors::ServiceError;
+use crate::core::services::storage::projection_cache::RecentProjectionCache;
+use crate::core::services::utils::hash::sha256_hex;
 use crate::documents::ports::doc_event_log::DocEventLog;
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::realtime::realtime_port::RealtimeEngine;
-use crate::core::ports::storage::storage_ingest_queue::{StorageIngestEvent, StorageIngestKind};
-use crate::core::ports::storage::storage_port::{StorageProjectionPort, StorageResolverPort};
 use crate::documents::services::DocumentService;
-use crate::core::services::errors::ServiceError;
 use crate::documents::services::realtime::snapshot::snapshot_from_markdown;
-use crate::core::services::storage::projection_cache::RecentProjectionCache;
 use crate::workspaces::services::{
     WorkspacePermissionResolver, permission_snapshot::permission_set_from_snapshot,
 };
-use crate::core::services::utils::hash::sha256_hex;
 use domain::documents::document::Document as DomainDocument;
 use domain::workspaces::permissions::PermissionSet;
 

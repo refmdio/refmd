@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use crate::core::db::PgPool;
 use application::identity::ports::api_token_repository::{
     ApiToken, ApiTokenRepository, ApiTokenSecret,
 };
-use crate::core::db::PgPool;
 
 pub struct SqlxApiTokenRepository {
     pool: PgPool,

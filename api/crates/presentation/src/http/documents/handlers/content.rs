@@ -7,11 +7,11 @@ use axum::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use application::core::services::access;
-use application::documents::services::DocumentPatchOperation;
-use application::core::services::errors::ServiceError;
 use crate::context::AppContext;
 use crate::security::token::{self, Bearer};
+use application::core::services::access;
+use application::core::services::errors::ServiceError;
+use application::documents::services::DocumentPatchOperation;
 
 #[allow(unused_imports)]
 use crate::http::documents::types::{

@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
-use application::documents::ports::tagging::tag_repository::{TagRepository, TagSummary};
 use crate::core::db::PgPool;
+use application::documents::ports::tagging::tag_repository::{TagRepository, TagSummary};
 
 pub struct SqlxTagRepository {
     pub pool: PgPool,

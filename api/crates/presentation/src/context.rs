@@ -2,31 +2,33 @@ use std::sync::Arc;
 
 use futures_util::stream::BoxStream;
 
-use application::plugins::ports::plugin_event_publisher::PluginScopedEvent;
-use application::plugins::ports::plugin_event_subscriber::PluginEventSubscriber;
-use application::documents::ports::realtime::realtime_port::RealtimeEngine;
-pub use application::documents::ports::realtime::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
+use application::core::services::authorization::AuthorizationService;
+use application::core::services::health::HealthService;
+use application::core::services::markdown_render::MarkdownRenderService;
+use application::core::services::metrics::MetricsRegistry;
+use application::documents::ports::realtime::realtime_port::RealtimeEngine;
+pub use application::documents::ports::realtime::realtime_types::{
+    DynRealtimeSink, DynRealtimeStream,
+};
+use application::documents::services::DocumentService;
+use application::documents::services::files::FileService;
+use application::documents::services::publishing::PublicService;
+use application::documents::services::sharing::ShareService;
+use application::documents::services::tagging::TagService;
+use application::git::services::GitService;
 use application::identity::services::api_tokens::ApiTokenService;
 use application::identity::services::auth::account::AccountService;
 use application::identity::services::auth::external::ExternalAuthRegistry;
 use application::identity::services::auth::service::AuthService;
 use application::identity::services::auth::user_sessions::UserSessionService;
-use application::core::services::authorization::AuthorizationService;
-use application::documents::services::DocumentService;
-use application::documents::services::files::FileService;
-use application::git::services::GitService;
-use application::core::services::health::HealthService;
-use application::core::services::markdown_render::MarkdownRenderService;
-use application::core::services::metrics::MetricsRegistry;
+use application::identity::services::user_shortcuts::UserShortcutService;
+use application::plugins::ports::plugin_event_publisher::PluginScopedEvent;
+use application::plugins::ports::plugin_event_subscriber::PluginEventSubscriber;
 use application::plugins::services::data::PluginDataService;
 use application::plugins::services::execution::PluginExecutionService;
 use application::plugins::services::management::PluginManagementService;
 use application::plugins::services::permissions::PluginPermissionService;
-use application::documents::services::publishing::PublicService;
-use application::documents::services::sharing::ShareService;
-use application::documents::services::tagging::TagService;
-use application::identity::services::user_shortcuts::UserShortcutService;
 use application::workspaces::services::WorkspaceService;
 
 #[derive(Debug, Clone)]

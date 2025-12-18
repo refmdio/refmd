@@ -4,8 +4,8 @@ use domain::workspaces::permissions::PermissionSet;
 
 use crate::core::services::errors::ServiceError;
 
-use super::guards::ensure_share_create_permission;
 use super::ShareService;
+use super::guards::ensure_share_create_permission;
 
 impl ShareService {
     pub async fn materialize_folder_share(

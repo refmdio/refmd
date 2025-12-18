@@ -18,4 +18,3 @@ fn snapshot_diff_side_from_use_case(side: SnapshotDiffSide) -> SnapshotDiffSideD
         },
     }
 }
-

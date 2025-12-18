@@ -1,14 +1,14 @@
 use uuid::Uuid;
 
-use domain::workspaces::permissions::PermissionSet;
 use domain::documents::share;
 use domain::documents::title::Title;
+use domain::workspaces::permissions::PermissionSet;
 
 use crate::core::services::errors::ServiceError;
 use crate::documents::dtos::ShareMountDto;
 
-use super::guards::ensure_doc_view_permission;
 use super::ShareService;
+use super::guards::ensure_doc_view_permission;
 
 impl ShareService {
     pub async fn save_share_mount(

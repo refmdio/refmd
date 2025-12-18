@@ -1,4 +1,4 @@
-use crate::workspaces::permissions::{PermissionSet, PERM_GIT_SYNC};
+use crate::workspaces::permissions::{PERM_GIT_SYNC, PermissionSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GitPolicyError {
@@ -29,4 +29,3 @@ mod tests {
         assert_eq!(ensure_git_sync_allowed(&perms), Ok(()));
     }
 }
-

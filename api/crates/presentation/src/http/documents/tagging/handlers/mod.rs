@@ -5,11 +5,11 @@ use axum::{
 };
 use tracing::error;
 
+use crate::context::AppContext;
+use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;
 use domain::workspaces::permissions::PERM_DOC_VIEW;
-use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
-use crate::http::workspaces::scope as workspace_scope;
 
 use super::types::TagItem;
 
