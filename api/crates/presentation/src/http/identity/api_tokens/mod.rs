@@ -6,8 +6,12 @@ use axum::routing::{delete, get};
 
 use crate::context::AppContext;
 
-pub use handlers::*;
+pub use handlers::{create_api_token, list_api_tokens, revoke_api_token};
 pub use types::*;
+
+pub mod openapi {
+    pub use super::handlers::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

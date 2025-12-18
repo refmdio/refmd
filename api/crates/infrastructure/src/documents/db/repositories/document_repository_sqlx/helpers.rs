@@ -5,7 +5,9 @@ use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
 use uuid::Uuid;
 
-use application::documents::ports::document_repository::{DocMeta, DocumentPathConflictError, SubtreeDocument};
+use application::documents::ports::document_repository::{
+    DocMeta, DocumentPathConflictError, SubtreeDocument,
+};
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
 use domain::documents::path as doc_path;
@@ -407,7 +409,9 @@ impl SqlxDocumentRepository {
         .bind(workspace_id)
         .fetch_optional(tx.as_mut())
         .await?;
-        row.as_ref().map(SqlxDocumentRepository::map_row_to_meta).transpose()
+        row.as_ref()
+            .map(SqlxDocumentRepository::map_row_to_meta)
+            .transpose()
     }
 
     pub(crate) async fn archive_subtree_tx(
@@ -542,11 +546,13 @@ impl SqlxDocumentRepository {
         rows.into_iter()
             .map(|r| {
                 let doc_type_str: String = r.get("type");
-                let doc_type =
-                    DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
-                Ok(SubtreeDocument { id: r.get("id"), doc_type })
+                let doc_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
+                Ok(SubtreeDocument {
+                    id: r.get("id"),
+                    doc_type,
+                })
             })
             .collect()
     }
 }
-

@@ -103,7 +103,10 @@ impl DocumentRepository for SqlxDocumentRepository {
             .collect())
     }
 
-    async fn list_workspace_documents(&self, workspace_id: Uuid) -> anyhow::Result<Vec<DomainDocument>> {
+    async fn list_workspace_documents(
+        &self,
+        workspace_id: Uuid,
+    ) -> anyhow::Result<Vec<DomainDocument>> {
         let rows = sqlx::query("SELECT * FROM documents WHERE workspace_id = $1")
             .bind(workspace_id)
             .fetch_all(&self.pool)
@@ -159,8 +162,8 @@ impl DocumentRepository for SqlxDocumentRepository {
         rows.into_iter()
             .map(|r| {
                 let doc_type_str: String = r.get("type");
-                let doc_type =
-                    DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+                let doc_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
                 let title: String = r.get("title");
                 Ok(SearchHit {
                     id: r.get("id"),
@@ -349,7 +352,9 @@ impl DocumentRepository for SqlxDocumentRepository {
         workspace_id: Uuid,
     ) -> anyhow::Result<Option<DomainDocument>> {
         let mut tx = self.pool.begin().await?;
-        let doc = self.unarchive_subtree_tx(&mut tx, doc_id, workspace_id).await?;
+        let doc = self
+            .unarchive_subtree_tx(&mut tx, doc_id, workspace_id)
+            .await?;
         tx.commit().await?;
         Ok(doc)
     }
@@ -453,4 +458,3 @@ impl DocumentRepository for SqlxDocumentRepository {
         Ok(())
     }
 }
-

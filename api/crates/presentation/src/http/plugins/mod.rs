@@ -15,14 +15,24 @@ use axum::{
 
 use crate::context::AppContext;
 
-pub use assets::*;
-pub use exec::*;
-pub use install::*;
-pub use kv::*;
-pub use manifest::*;
-pub use records::*;
+pub use assets::get_plugin_asset;
+pub use exec::exec_action;
+pub use install::{install_from_url, uninstall};
+pub use kv::{get_kv_value, put_kv_value};
+pub use manifest::get_manifest;
+pub use records::{create_record, delete_record, list_records, update_record};
 pub use types::*;
-pub use updates::*;
+pub use updates::sse_updates;
+
+pub mod openapi {
+    pub use super::assets::*;
+    pub use super::exec::*;
+    pub use super::install::*;
+    pub use super::kv::*;
+    pub use super::manifest::*;
+    pub use super::records::*;
+    pub use super::updates::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

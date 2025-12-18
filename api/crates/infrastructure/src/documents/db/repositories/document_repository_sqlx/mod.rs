@@ -15,4 +15,3 @@ impl SqlxDocumentRepository {
         Self { pool }
     }
 }
-

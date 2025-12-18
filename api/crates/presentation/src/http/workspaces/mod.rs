@@ -11,12 +11,23 @@ use axum::routing::{delete, get, patch, post};
 
 use crate::context::AppContext;
 
-pub use core::*;
-pub use invitations::*;
-pub use members::*;
-pub use permissions::*;
-pub use roles::*;
+pub use core::{
+    create_workspace, delete_workspace, download_workspace_archive, get_workspace_detail,
+    leave_workspace, list_workspaces, switch_workspace, update_workspace,
+};
+pub use invitations::{accept_invitation, create_invitation, list_invitations, revoke_invitation};
+pub use members::{list_members, remove_member, update_member_role};
+pub use permissions::get_workspace_permissions;
+pub use roles::{create_role, delete_role, list_roles, update_role};
 pub use types::*;
+
+pub mod openapi {
+    pub use super::core::*;
+    pub use super::invitations::*;
+    pub use super::members::*;
+    pub use super::permissions::*;
+    pub use super::roles::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

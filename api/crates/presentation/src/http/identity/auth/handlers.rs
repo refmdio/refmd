@@ -1,7 +1,9 @@
 use application::core::services::errors::ServiceError;
 use application::identity::dtos::UserDto;
 use application::identity::ports::user_session_repository::UserSessionRecord;
-use application::identity::services::auth::external::{ExternalAuthPayload, ExternalAuthProviderKind};
+use application::identity::services::auth::external::{
+    ExternalAuthPayload, ExternalAuthProviderKind,
+};
 use application::identity::services::auth::user_sessions::SessionMetadata;
 use application::workspaces::ports::workspace_repository::WorkspaceListItem;
 use axum::{
@@ -22,7 +24,11 @@ use super::cookies::{
     extract_refresh_token, extract_user_agent, generate_oauth_state, validate_oauth_state_cookie,
 };
 use super::security::{RefreshedSession, map_auth_error, validate_bearer, validate_bearer_str};
-use super::{AuthProviderInfoResponse, AuthProvidersResponse, LoginRequest, LoginResponse, OAuthLoginRequest, OAuthStateResponse, RefreshResponse, RegisterRequest, SessionResponse, UserResponse, apply_session_cookies, clear_auth_cookies};
+use super::{
+    AuthProviderInfoResponse, AuthProvidersResponse, LoginRequest, LoginResponse,
+    OAuthLoginRequest, OAuthStateResponse, RefreshResponse, RegisterRequest, SessionResponse,
+    UserResponse, apply_session_cookies, clear_auth_cookies,
+};
 
 #[utoipa::path(
     post,
@@ -68,7 +74,9 @@ pub async fn oauth_login(
     let provider_kind =
         ExternalAuthProviderKind::try_from(provider.as_str()).map_err(|_| StatusCode::NOT_FOUND)?;
     let registry = ctx.external_auth();
-    let verifier = registry.get(provider_kind).ok_or(StatusCode::NOT_IMPLEMENTED)?;
+    let verifier = registry
+        .get(provider_kind)
+        .ok_or(StatusCode::NOT_IMPLEMENTED)?;
     let mut response_headers = HeaderMap::new();
     if provider_kind.requires_state() {
         let provided_state = req.state.as_deref().ok_or(StatusCode::BAD_REQUEST)?;
@@ -187,7 +195,10 @@ fn workspace_response_from(item: WorkspaceListItem) -> super::WorkspaceMembershi
     }
 }
 
-fn session_response_from(record: UserSessionRecord, current_session_id: Option<Uuid>) -> SessionResponse {
+fn session_response_from(
+    record: UserSessionRecord,
+    current_session_id: Option<Uuid>,
+) -> SessionResponse {
     SessionResponse {
         id: record.id,
         workspace_id: record.workspace_id,
@@ -426,7 +437,11 @@ pub async fn list_sessions(
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let current_session_id = if let Some(refresh_token) = extract_refresh_token(&headers) {
-        match ctx.session_service().find_session_by_token(&refresh_token).await {
+        match ctx
+            .session_service()
+            .find_session_by_token(&refresh_token)
+            .await
+        {
             Ok(Some(session)) => Some(session.id),
             Ok(None) => None,
             Err(err) => {
@@ -467,7 +482,11 @@ pub async fn revoke_session(
     let sub = validate_bearer(&ctx, bearer).await?;
     let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let current_session_id = if let Some(refresh_token) = extract_refresh_token(&headers) {
-        match ctx.session_service().find_session_by_token(&refresh_token).await {
+        match ctx
+            .session_service()
+            .find_session_by_token(&refresh_token)
+            .await
+        {
             Ok(Some(session)) => Some(session.id),
             Ok(None) => None,
             Err(err) => {

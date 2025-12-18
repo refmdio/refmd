@@ -6,8 +6,15 @@ use axum::routing::{get, post};
 
 use crate::context::AppContext;
 
-pub use handlers::*;
+pub use handlers::{
+    get_public_by_workspace_and_id, get_public_content_by_workspace_and_id, get_publish_status,
+    list_workspace_public_documents, publish_document, unpublish_document,
+};
 pub use types::*;
+
+pub mod openapi {
+    pub use super::handlers::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

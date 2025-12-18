@@ -22,4 +22,3 @@ impl StorageProjectionWorker {
         Ok(())
     }
 }
-

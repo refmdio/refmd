@@ -5,8 +5,12 @@ use axum::{Router, routing::get};
 
 use crate::context::AppContext;
 
-pub use handlers::*;
+pub use handlers::{get_user_shortcuts, update_user_shortcuts};
 pub use types::*;
+
+pub mod openapi {
+    pub use super::handlers::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

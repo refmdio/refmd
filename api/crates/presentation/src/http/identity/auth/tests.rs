@@ -37,4 +37,3 @@ fn oauth_state_cookie_rejects_expired() {
     let headers = cookie_headers(provider, state, issued);
     assert!(validate_oauth_state_cookie(&headers, provider, state).is_err());
 }
-

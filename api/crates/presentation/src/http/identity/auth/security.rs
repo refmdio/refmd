@@ -63,11 +63,17 @@ fn should_skip_refresh(path: &str) -> bool {
     path.starts_with("/api/public") || path.starts_with("/api/health") || path == "/metrics"
 }
 
-pub(crate) async fn validate_bearer(ctx: &AppContext, bearer: Bearer) -> Result<String, StatusCode> {
+pub(crate) async fn validate_bearer(
+    ctx: &AppContext,
+    bearer: Bearer,
+) -> Result<String, StatusCode> {
     validate_bearer_str(ctx, &bearer.0).await
 }
 
-pub async fn validate_bearer_public(ctx: &AppContext, bearer: Bearer) -> Result<String, StatusCode> {
+pub async fn validate_bearer_public(
+    ctx: &AppContext,
+    bearer: Bearer,
+) -> Result<String, StatusCode> {
     validate_bearer(ctx, bearer).await
 }
 
@@ -185,4 +191,3 @@ pub(crate) fn map_auth_error(err: ServiceError) -> StatusCode {
         StatusCode::UNAUTHORIZED
     }
 }
-

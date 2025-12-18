@@ -12,9 +12,18 @@ use axum::{
 
 use crate::context::AppContext;
 
-// Re-export handlers and schemas so OpenAPI can locate generated __path_* items.
-pub use handlers::*;
+pub use handlers::{
+    archive_document, create_document, delete_document, download_document,
+    download_document_snapshot, duplicate_document, get_backlinks, get_document,
+    get_document_content, get_document_snapshot_diff, get_outgoing_links, list_document_snapshots,
+    list_documents, patch_document_content, restore_document_snapshot, search_documents,
+    unarchive_document, update_document, update_document_content,
+};
 pub use types::*;
+
+pub mod openapi {
+    pub use super::handlers::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

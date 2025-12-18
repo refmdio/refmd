@@ -10,10 +10,15 @@ use axum::{
 
 use crate::context::AppContext;
 
-pub use download::*;
-pub use serve::*;
+pub use download::{get_file, get_file_by_name};
+pub use serve::serve_upload;
 pub use types::*;
-pub use upload::*;
+pub use upload::upload_file;
+
+pub mod openapi {
+    pub use super::download::*;
+    pub use super::upload::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

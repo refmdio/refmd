@@ -90,7 +90,9 @@ pub(crate) fn extract_refresh_token(headers: &HeaderMap) -> Option<String> {
 }
 
 pub(crate) fn extract_user_agent<'a>(headers: &'a HeaderMap) -> Option<&'a str> {
-    headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok())
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
 }
 
 pub(crate) fn extract_client_ip(headers: &HeaderMap) -> Option<String> {

@@ -25,6 +25,10 @@ pub async fn health(State(ctx): State<AppContext>) -> Json<HealthResp> {
     Json(HealthResp { status })
 }
 
+pub mod openapi {
+    pub use super::*;
+}
+
 pub fn routes(ctx: AppContext) -> Router {
     Router::new().route("/health", get(health)).with_state(ctx)
 }

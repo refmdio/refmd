@@ -84,6 +84,10 @@ pub async fn axum_ws_entry(
     Ok(ws.on_upgrade(move |socket| peer_axum(doc_id, socket, ctx, can_edit)))
 }
 
+pub mod openapi {
+    pub use super::*;
+}
+
 // WebSocket <-> Vec<u8> sink adapter
 struct WsBinarySink {
     inner: futures_util::stream::SplitSink<WebSocket, AxumMessage>,

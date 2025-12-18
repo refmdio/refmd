@@ -6,8 +6,12 @@ use axum::{Router, routing::post};
 
 use crate::context::AppContext;
 
-pub use handlers::*;
+pub use handlers::{render_markdown, render_markdown_many};
 pub use types::*;
+
+pub mod openapi {
+    pub use super::handlers::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

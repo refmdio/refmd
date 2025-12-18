@@ -12,13 +12,26 @@ use axum::{
 
 use crate::context::AppContext;
 
-// Re-export handlers and types so OpenAPI derives continue to work.
-pub use config::*;
-pub use ignore::*;
-pub use pull::*;
-pub use status::*;
-pub use sync::*;
+pub use config::{create_or_update_config, delete_config, get_config};
+pub use ignore::{
+    add_gitignore_patterns, check_path_ignored, get_gitignore_patterns, ignore_document,
+    ignore_folder,
+};
+pub use pull::{
+    finalize_pull_session, get_pull_session, pull_repository, resolve_pull_session,
+    start_pull_session,
+};
+pub use status::{get_changes, get_commit_diff, get_history, get_status, get_working_diff};
+pub use sync::{deinit_repository, import_repository, init_repository, sync_now};
 pub use types::*;
+
+pub mod openapi {
+    pub use super::config::*;
+    pub use super::ignore::*;
+    pub use super::pull::*;
+    pub use super::status::*;
+    pub use super::sync::*;
+}
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()

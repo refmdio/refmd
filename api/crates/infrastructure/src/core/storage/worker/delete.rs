@@ -14,7 +14,9 @@ use domain::workspaces::permissions::{
 
 use super::StorageProjectionWorker;
 
-pub(super) fn parse_delete_job_metadata(reason: Option<&String>) -> Option<StorageDeleteJobMetadata> {
+pub(super) fn parse_delete_job_metadata(
+    reason: Option<&String>,
+) -> Option<StorageDeleteJobMetadata> {
     reason.and_then(|raw| {
         serde_json::from_str::<StorageJobReason<StorageDeleteJobMetadata>>(raw)
             .ok()
@@ -177,4 +179,3 @@ impl StorageProjectionWorker {
         Ok(PermissionSet::from_slice(FALLBACK_DELETE_PERMISSIONS))
     }
 }
-

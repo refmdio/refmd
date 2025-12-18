@@ -14,7 +14,10 @@ use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceS
 use super::SqlxWorkspaceRepository;
 
 impl SqlxWorkspaceRepository {
-    pub(super) fn collect_roles(&self, rows: Vec<PgRow>) -> anyhow::Result<Vec<WorkspaceRoleRecord>> {
+    pub(super) fn collect_roles(
+        &self,
+        rows: Vec<PgRow>,
+    ) -> anyhow::Result<Vec<WorkspaceRoleRecord>> {
         let mut map: HashMap<Uuid, WorkspaceRoleRecord> = HashMap::new();
         for row in rows {
             let role_id: Uuid = row.get("id");
