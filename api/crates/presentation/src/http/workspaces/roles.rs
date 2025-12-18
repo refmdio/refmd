@@ -14,7 +14,7 @@ use crate::security::token::{self, Bearer};
 use super::types::{
     CreateWorkspaceRoleRequest, UpdateWorkspaceRoleRequest, WorkspaceRoleResponse,
     map_service_error, normalize_overrides, require_any_permission, require_permission,
-    role_response_from, validate_base_role,
+    parse_base_role, parse_optional_base_role, role_response_from, validate_base_role,
 };
 
 #[utoipa::path(
@@ -71,6 +71,7 @@ pub async fn create_role(
     if body.name.trim().is_empty() || !validate_base_role(body.base_role.as_str()) {
         return Err(StatusCode::BAD_REQUEST);
     }
+    let base_role = parse_base_role(body.base_role.as_str())?;
     let overrides = normalize_overrides(body.overrides)?;
     let user_id = token::require_user_id(&ctx, bearer)
         .await
@@ -82,7 +83,7 @@ pub async fn create_role(
             id,
             user_id,
             body.name.trim(),
-            body.base_role.trim(),
+            base_role,
             body.description.as_deref(),
             body.priority.unwrap_or(0),
             &overrides,
@@ -114,6 +115,7 @@ pub async fn update_role(
             return Err(StatusCode::BAD_REQUEST);
         }
     }
+    let base_role = parse_optional_base_role(body.base_role.as_deref())?;
     let overrides_vec = normalize_overrides(body.overrides.clone())?;
     let overrides_opt = if body.overrides.is_some() {
         Some(overrides_vec.as_slice())
@@ -131,7 +133,7 @@ pub async fn update_role(
             user_id,
             role_id,
             body.name.as_deref(),
-            body.base_role.as_deref(),
+            base_role,
             body.description.as_deref(),
             body.priority,
             overrides_opt,

@@ -109,10 +109,11 @@ pub async fn build_runtime(cfg: Config, spawn_background_tasks: bool) -> anyhow:
     let doc_event_subscriber: Arc<dyn DocEventSubscriber> =
         FanoutDocEventSubscriber::new(vec![logging_subscriber.clone(), git_dirty_subscriber]);
     if matches!(cfg.storage_backend, StorageBackend::Filesystem) {
+        use domain::storage::ingest_backend::StorageIngestBackend;
         let watcher = Arc::new(FsIngestWatcher::new(
             uploads_root.clone(),
             storage_ingest_queue.clone(),
-            "fs_watcher",
+            StorageIngestBackend::FsWatcher,
         ));
         jobs::spawn_fs_ingest_watcher(&mut jobs, spawn_background_tasks, watcher);
     }

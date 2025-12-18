@@ -26,13 +26,13 @@ pub(in super::super) fn default_token_username_for(host: Option<&str>) -> &'stat
 }
 
 pub(in super::super) fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallbacks<'static> {
-    let auth_type = cfg.auth_type.clone().unwrap_or_default();
+    let auth_type = cfg.auth_type;
     let auth_data = cfg.auth_data.clone();
     let host_hint = extract_host(&cfg.repository_url);
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(
-        move |_url, username_from_url, _allowed| match auth_type.as_str() {
-            "token" => {
+        move |_url, username_from_url, _allowed| match auth_type {
+            Some(domain::git::auth::GitAuthType::Token) => {
                 if let Some(token) = auth_data
                     .as_ref()
                     .and_then(|v| v.get("token"))
@@ -45,7 +45,7 @@ pub(in super::super) fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallba
                     Cred::default()
                 }
             }
-            "ssh" => {
+            Some(domain::git::auth::GitAuthType::Ssh) => {
                 if let Some(key) = auth_data
                     .as_ref()
                     .and_then(|v| v.get("private_key"))
@@ -79,7 +79,7 @@ pub(in super::super) fn build_remote_callbacks(cfg: &UserGitCfg) -> RemoteCallba
                     Cred::default()
                 }
             }
-            _ => Cred::default(),
+            None => Cred::default(),
         },
     );
     callbacks.certificate_check(|_, _| Ok(CertificateCheckStatus::CertificateOk));

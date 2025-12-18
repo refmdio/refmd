@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use application::plugins::ports::plugin_repository::{PluginRecord, PluginRepository};
 use crate::core::db::PgPool;
+use domain::plugins::scope::{PluginRecordScope, PluginScope};
 
 pub struct SqlxPluginRepository {
     pub pool: PgPool,
@@ -21,7 +22,7 @@ impl PluginRepository for SqlxPluginRepository {
     async fn kv_get(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
     ) -> anyhow::Result<Option<JsonValue>> {
@@ -29,7 +30,7 @@ impl PluginRepository for SqlxPluginRepository {
             r#"SELECT value FROM plugin_kv WHERE plugin = $1 AND scope = $2 AND scope_id IS NOT DISTINCT FROM $3 AND key = $4"#,
         )
         .bind(plugin)
-        .bind(scope)
+        .bind(scope.as_str())
         .bind(scope_id)
         .bind(key)
         .fetch_optional(&self.pool)
@@ -40,7 +41,7 @@ impl PluginRepository for SqlxPluginRepository {
     async fn kv_set(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
         value: &JsonValue,
@@ -52,7 +53,7 @@ impl PluginRepository for SqlxPluginRepository {
                DO UPDATE SET value = EXCLUDED.value, updated_at = now()"#,
         )
         .bind(plugin)
-        .bind(scope)
+        .bind(scope.as_str())
         .bind(scope_id)
         .bind(key)
         .bind(value)
@@ -64,7 +65,7 @@ impl PluginRepository for SqlxPluginRepository {
     async fn insert_record(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginRecordScope,
         scope_id: Uuid,
         kind: &str,
         data: &JsonValue,
@@ -75,16 +76,19 @@ impl PluginRepository for SqlxPluginRepository {
                RETURNING id, plugin, scope, scope_id, kind, data, created_at, updated_at"#,
         )
         .bind(plugin)
-        .bind(scope)
+        .bind(scope.as_str())
         .bind(scope_id)
         .bind(kind)
         .bind(data)
         .fetch_one(&self.pool)
         .await?;
+        let scope_raw: String = row.get("scope");
+        let scope = PluginRecordScope::from_str(&scope_raw)
+            .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
         Ok(PluginRecord {
             id: row.get("id"),
             plugin: row.get("plugin"),
-            scope: row.get("scope"),
+            scope,
             scope_id: row.get("scope_id"),
             kind: row.get("kind"),
             data: row.get("data"),
@@ -107,16 +111,22 @@ impl PluginRepository for SqlxPluginRepository {
         .bind(patch)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| PluginRecord {
-            id: r.get("id"),
-            plugin: r.get("plugin"),
-            scope: r.get("scope"),
-            scope_id: r.get("scope_id"),
-            kind: r.get("kind"),
-            data: r.get("data"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
-        }))
+        row.map(|r| {
+            let scope_raw: String = r.get("scope");
+            let scope = PluginRecordScope::from_str(&scope_raw)
+                .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
+            Ok(PluginRecord {
+                id: r.get("id"),
+                plugin: r.get("plugin"),
+                scope,
+                scope_id: r.get("scope_id"),
+                kind: r.get("kind"),
+                data: r.get("data"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            })
+        })
+        .transpose()
     }
 
     async fn delete_record(&self, record_id: Uuid) -> anyhow::Result<bool> {
@@ -135,22 +145,28 @@ impl PluginRepository for SqlxPluginRepository {
         .bind(record_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| PluginRecord {
-            id: r.get("id"),
-            plugin: r.get("plugin"),
-            scope: r.get("scope"),
-            scope_id: r.get("scope_id"),
-            kind: r.get("kind"),
-            data: r.get("data"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
-        }))
+        row.map(|r| {
+            let scope_raw: String = r.get("scope");
+            let scope = PluginRecordScope::from_str(&scope_raw)
+                .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
+            Ok(PluginRecord {
+                id: r.get("id"),
+                plugin: r.get("plugin"),
+                scope,
+                scope_id: r.get("scope_id"),
+                kind: r.get("kind"),
+                data: r.get("data"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            })
+        })
+        .transpose()
     }
 
     async fn list_records(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginRecordScope,
         scope_id: Uuid,
         kind: &str,
         limit: i64,
@@ -164,7 +180,7 @@ impl PluginRepository for SqlxPluginRepository {
                LIMIT $5 OFFSET $6"#,
         )
         .bind(plugin)
-        .bind(scope)
+        .bind(scope.as_str())
         .bind(scope_id)
         .bind(kind)
         .bind(limit)
@@ -174,10 +190,13 @@ impl PluginRepository for SqlxPluginRepository {
 
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
+            let scope_raw: String = r.get("scope");
+            let parsed_scope = PluginRecordScope::from_str(&scope_raw)
+                .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
             out.push(PluginRecord {
                 id: r.get("id"),
                 plugin: r.get("plugin"),
-                scope: r.get("scope"),
+                scope: parsed_scope,
                 scope_id: r.get("scope_id"),
                 kind: r.get("kind"),
                 data: r.get("data"),
@@ -188,24 +207,28 @@ impl PluginRepository for SqlxPluginRepository {
         Ok(out)
     }
 
-    async fn delete_scoped_kv(&self, scope: &str, scope_ids: &[Uuid]) -> anyhow::Result<()> {
+    async fn delete_scoped_kv(&self, scope: PluginScope, scope_ids: &[Uuid]) -> anyhow::Result<()> {
         if scope_ids.is_empty() {
             return Ok(());
         }
         sqlx::query("DELETE FROM plugin_kv WHERE scope = $1 AND scope_id = ANY($2)")
-            .bind(scope)
+            .bind(scope.as_str())
             .bind(scope_ids)
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 
-    async fn delete_scoped_records(&self, scope: &str, scope_ids: &[Uuid]) -> anyhow::Result<()> {
+    async fn delete_scoped_records(
+        &self,
+        scope: PluginRecordScope,
+        scope_ids: &[Uuid],
+    ) -> anyhow::Result<()> {
         if scope_ids.is_empty() {
             return Ok(());
         }
         sqlx::query("DELETE FROM plugin_records WHERE scope = $1 AND scope_id = ANY($2)")
-            .bind(scope)
+            .bind(scope.as_str())
             .bind(scope_ids)
             .execute(&self.pool)
             .await?;

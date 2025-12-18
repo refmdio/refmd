@@ -8,6 +8,7 @@ use application::core::ports::storage::storage_ingest_queue::{
     StorageIngestEvent, StorageIngestKind, StorageIngestQueue, StorageIngestQueueStats,
 };
 use crate::core::db::PgPool;
+use domain::storage::ingest_backend::StorageIngestBackend;
 
 pub struct PgStorageIngestQueue {
     pool: PgPool,
@@ -52,7 +53,7 @@ impl StorageIngestQueue for PgStorageIngestQueue {
         user_id: Uuid,
         actor_id: Option<Uuid>,
         repo_path: &str,
-        backend: &str,
+        backend: StorageIngestBackend,
         kind: StorageIngestKind,
         content_hash: Option<&str>,
         payload: Option<Value>,
@@ -106,7 +107,7 @@ impl StorageIngestQueue for PgStorageIngestQueue {
         .bind(user_id)
         .bind(actor_id)
         .bind(repo_path)
-        .bind(backend)
+        .bind(backend.as_str())
         .bind(kind_str)
         .bind(content_hash)
         .bind(payload)
@@ -153,7 +154,7 @@ impl StorageIngestQueue for PgStorageIngestQueue {
             user_id: row.get("user_id"),
             actor_id: row.try_get("actor_id").ok(),
             repo_path: row.get("repo_path"),
-            backend: row.get("backend"),
+            backend: StorageIngestBackend::parse(&row.get::<String, _>("backend")),
             kind,
             content_hash: row.try_get("content_hash").ok(),
             payload: row.try_get::<Option<Value>, _>("payload").unwrap_or(None),

@@ -25,11 +25,12 @@ where
     W: GitWorkspacePort + ?Sized,
 {
     pub async fn execute(&self, workspace_id: Uuid) -> anyhow::Result<()> {
-        let default_branch = if let Some(row) = self.repo.get_config(workspace_id).await? {
-            row.2
-        } else {
-            "main".to_string()
-        };
+        let default_branch = self
+            .repo
+            .get_config(workspace_id)
+            .await?
+            .map(|row| row.branch_name)
+            .unwrap_or_else(|| "main".to_string());
 
         self.workspace
             .ensure_repository(workspace_id, &default_branch)

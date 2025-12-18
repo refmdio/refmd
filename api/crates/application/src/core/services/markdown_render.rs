@@ -12,6 +12,7 @@ use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;
 use crate::core::services::errors::ServiceError;
+use domain::plugins::scope::PluginInstallationStatus;
 use crate::core::services::markdown::{
     PlaceholderItem, RenderOptions, RenderResponse, render,
 };
@@ -116,12 +117,12 @@ impl MarkdownRenderService {
             .list_latest_global_manifests()
             .await
             .map_err(ServiceError::from)?;
-        for (plugin_id, version, manifest) in manifests {
+        for item in manifests {
             push_renderers_from_manifest(
                 &mut specs,
-                &manifest,
-                &plugin_id,
-                &version,
+                &item.manifest,
+                &item.plugin_id,
+                &item.version,
                 RendererScope::Global,
             );
         }
@@ -132,7 +133,10 @@ impl MarkdownRenderService {
                 .list_for_workspace(workspace_id)
                 .await
                 .map_err(ServiceError::from)?;
-            for inst in installs.into_iter().filter(|i| i.status == "enabled") {
+            for inst in installs
+                .into_iter()
+                .filter(|i| i.status == PluginInstallationStatus::Enabled)
+            {
                 match self
                     .assets
                     .load_user_manifest(&workspace_id, &inst.plugin_id, &inst.version)

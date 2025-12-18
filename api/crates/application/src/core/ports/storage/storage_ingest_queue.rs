@@ -3,6 +3,8 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use uuid::Uuid;
 
+use domain::storage::ingest_backend::StorageIngestBackend;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageIngestKind {
     Upsert,
@@ -25,7 +27,7 @@ pub struct StorageIngestEvent {
     pub user_id: Uuid,
     pub actor_id: Option<Uuid>,
     pub repo_path: String,
-    pub backend: String,
+    pub backend: StorageIngestBackend,
     pub kind: StorageIngestKind,
     pub content_hash: Option<String>,
     pub payload: Option<Value>,
@@ -50,7 +52,7 @@ pub trait StorageIngestQueue: Send + Sync {
         user_id: Uuid,
         actor_id: Option<Uuid>,
         repo_path: &str,
-        backend: &str,
+        backend: StorageIngestBackend,
         kind: StorageIngestKind,
         content_hash: Option<&str>,
         payload: Option<Value>,

@@ -10,3 +10,4 @@ pub mod delete_plan;
 pub mod title;
 pub mod public_policy;
 pub mod sharing_policy;
+pub mod access_policy;

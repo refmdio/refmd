@@ -11,9 +11,9 @@ use crate::core::services::authorization::AuthorizationService;
 use crate::core::services::access;
 use domain::documents::doc_type::DocumentType;
 use domain::documents::title::Title;
-use domain::workspaces::permissions::{PERM_DOC_CREATE, PERM_DOC_EDIT, PermissionSet};
-
-const PERMISSION_DOC_WRITE: &str = "doc.write";
+use domain::plugins::policy;
+use domain::plugins::scope::{PluginRecordScope, PluginScope};
+use domain::workspaces::permissions::{PermissionSet, PERM_DOC_EDIT};
 
 enum PluginEffectError {
     PermissionDenied { permission: String },
@@ -23,6 +23,16 @@ enum PluginEffectError {
 impl From<anyhow::Error> for PluginEffectError {
     fn from(err: anyhow::Error) -> Self {
         Self::Other(err)
+    }
+}
+
+impl From<policy::PluginPolicyError> for PluginEffectError {
+    fn from(err: policy::PluginPolicyError) -> Self {
+        match err {
+            policy::PluginPolicyError::PermissionDenied { permission } => {
+                PluginEffectError::PermissionDenied { permission }
+            }
+        }
     }
 }
 
@@ -142,12 +152,8 @@ where
                     self.log_effect(effect);
                 }
                 "createDocument" => {
-                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
-                    if !workspace_permissions.allows(PERM_DOC_CREATE) {
-                        return Err(PluginEffectError::PermissionDenied {
-                            permission: PERM_DOC_CREATE.to_string(),
-                        });
-                    }
+                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_workspace_can_create_documents(workspace_permissions)?;
                     let title = effect
                         .get("title")
                         .and_then(|v| v.as_str())
@@ -201,12 +207,8 @@ where
                     doc_id_created = Some(doc.id);
                 }
                 "putKv" => {
-                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
-                    if !workspace_permissions.allows(PERM_DOC_EDIT) {
-                        return Err(PluginEffectError::PermissionDenied {
-                            permission: PERM_DOC_EDIT.to_string(),
-                        });
-                    }
+                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
                     let Some(key) = effect.get("key").and_then(|v| v.as_str()) else {
                         continue;
                     };
@@ -230,18 +232,14 @@ where
                         .await?;
                     if let Some(did) = doc_id {
                         self.plugin_repo
-                            .kv_set(plugin, "doc", Some(did), key, &value)
+                            .kv_set(plugin, PluginScope::Doc, Some(did), key, &value)
                             .await
                             .map_err(PluginEffectError::from)?;
                     }
                 }
                 "createRecord" => {
-                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
-                    if !workspace_permissions.allows(PERM_DOC_EDIT) {
-                        return Err(PluginEffectError::PermissionDenied {
-                            permission: PERM_DOC_EDIT.to_string(),
-                        });
-                    }
+                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
                     let Some(kind) = effect.get("kind").and_then(|v| v.as_str()) else {
                         continue;
                     };
@@ -266,18 +264,14 @@ where
                     if let Some(did) = doc_id {
                         let _ = self
                             .plugin_repo
-                            .insert_record(plugin, "doc", did, kind, &data)
+                            .insert_record(plugin, PluginRecordScope::Doc, did, kind, &data)
                             .await
                             .map_err(PluginEffectError::from)?;
                     }
                 }
                 "updateRecord" => {
-                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
-                    if !workspace_permissions.allows(PERM_DOC_EDIT) {
-                        return Err(PluginEffectError::PermissionDenied {
-                            permission: PERM_DOC_EDIT.to_string(),
-                        });
-                    }
+                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
                     if let Some(record_id) = effect
                         .get("recordId")
                         .and_then(|v| v.as_str())
@@ -289,10 +283,9 @@ where
                             .await
                             .map_err(PluginEffectError::from)?
                         {
-                            if rec.plugin != plugin {
-                                return Err(PluginEffectError::PermissionDenied {
-                                    permission: PERM_DOC_EDIT.to_string(),
-                                });
+                            policy::ensure_record_owned_by_plugin(&rec.plugin, plugin)?;
+                            if rec.scope != PluginRecordScope::Doc {
+                                continue;
                             }
                             self.validate_doc_scope(
                                 workspace_id,
@@ -316,12 +309,8 @@ where
                     }
                 }
                 "deleteRecord" => {
-                    self.ensure_permission(permissions, PERMISSION_DOC_WRITE)?;
-                    if !workspace_permissions.allows(PERM_DOC_EDIT) {
-                        return Err(PluginEffectError::PermissionDenied {
-                            permission: PERM_DOC_EDIT.to_string(),
-                        });
-                    }
+                    policy::ensure_plugin_permission(permissions, policy::PLUGIN_PERMISSION_DOC_WRITE)?;
+                    policy::ensure_workspace_can_edit_documents(workspace_permissions)?;
                     if let Some(record_id) = effect
                         .get("recordId")
                         .and_then(|v| v.as_str())
@@ -333,10 +322,9 @@ where
                             .await
                             .map_err(PluginEffectError::from)?
                         {
-                            if rec.plugin != plugin {
-                                return Err(PluginEffectError::PermissionDenied {
-                                    permission: PERM_DOC_EDIT.to_string(),
-                                });
+                            policy::ensure_record_owned_by_plugin(&rec.plugin, plugin)?;
+                            if rec.scope != PluginRecordScope::Doc {
+                                continue;
                             }
                             self.validate_doc_scope(
                                 workspace_id,
@@ -400,11 +388,7 @@ where
             return Ok(None);
         };
         if let Some(allowed) = allowed_doc_id {
-            if doc_id != allowed {
-                return Err(PluginEffectError::PermissionDenied {
-                    permission: PERM_DOC_EDIT.to_string(),
-                });
-            }
+            policy::ensure_doc_id_within_allowed_scope(doc_id, allowed)?;
         }
         if Some(doc_id) == doc_id_created {
             return Ok(Some(doc_id));
@@ -420,20 +404,6 @@ where
         } else {
             Err(PluginEffectError::PermissionDenied {
                 permission: PERM_DOC_EDIT.to_string(),
-            })
-        }
-    }
-
-    fn ensure_permission(
-        &self,
-        permissions: &HashSet<String>,
-        permission: &str,
-    ) -> Result<(), PluginEffectError> {
-        if permissions.iter().any(|p| p == permission) {
-            Ok(())
-        } else {
-            Err(PluginEffectError::PermissionDenied {
-                permission: permission.to_string(),
             })
         }
     }

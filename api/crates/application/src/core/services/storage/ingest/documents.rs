@@ -9,7 +9,7 @@ impl StorageIngestService {
         payload: MarkdownIngestPayload,
         previous_repo_path: Option<&str>,
     ) -> anyhow::Result<()> {
-        if event.backend == "fs_watcher"
+        if event.backend.is_fs_watcher()
             && event.actor_id.is_none()
             && self.recent_exports.is_recent_match(
                 event.workspace_id,
@@ -41,7 +41,7 @@ impl StorageIngestService {
         }
         let mut payload_obj = serde_json::Map::new();
         payload_obj.insert("repo_path".into(), json!(repo_path));
-        payload_obj.insert("backend".into(), json!(event.backend));
+        payload_obj.insert("backend".into(), json!(event.backend.as_str()));
         payload_obj.insert("content_hash".into(), json!(payload.content_hash));
         payload_obj.insert("doc_type".into(), json!(doc.doc_type.as_str()));
         if let Some(prev) = previous_repo_path {
@@ -58,7 +58,7 @@ impl StorageIngestService {
         info!(
             doc_id = %doc.id,
             repo_path = repo_path,
-            backend = event.backend,
+            backend = event.backend.as_str(),
             "storage_ingest_doc_upsert_applied"
         );
         Ok(())
@@ -113,7 +113,7 @@ impl StorageIngestService {
                 info!(
                     doc_id = %doc.id,
                     repo_path = repo_path,
-                    backend = event.backend,
+                    backend = event.backend.as_str(),
                     "storage_ingest_doc_delete_applied"
                 );
                 Ok(())
@@ -147,7 +147,7 @@ impl StorageIngestService {
         payload_obj.insert("repo_path".into(), json!(repo_path));
         payload_obj.insert("doc_type".into(), json!(doc.doc_type.as_str()));
         payload_obj.insert("owner_id".into(), json!(event.workspace_id));
-        payload_obj.insert("backend".into(), json!(event.backend));
+        payload_obj.insert("backend".into(), json!(event.backend.as_str()));
         if let Some(prev) = previous_repo_path {
             payload_obj.insert("previous_path".into(), json!(prev));
         }
@@ -162,7 +162,7 @@ impl StorageIngestService {
         info!(
             doc_id = %doc.id,
             repo_path = repo_path,
-            backend = event.backend,
+            backend = event.backend.as_str(),
             "storage_ingest_folder_upsert_applied"
         );
         Ok(())

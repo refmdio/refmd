@@ -139,7 +139,7 @@ pub struct GitPullResultDto {
 pub struct GitPullSessionDto {
     pub id: uuid::Uuid,
     pub workspace_id: uuid::Uuid,
-    pub status: String,
+    pub status: domain::git::pull_session::GitPullSessionStatus,
     pub conflicts: Vec<GitPullConflictItemDto>,
     pub resolutions: Vec<GitPullResolutionDto>,
     pub message: Option<String>,

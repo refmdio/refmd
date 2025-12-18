@@ -18,6 +18,7 @@ use super::util::{
     PERMISSION_DOC_READ, PERMISSION_DOC_WRITE, map_plugin_service_error,
     resolve_plugin_user_context,
 };
+use domain::plugins::scope::PluginRecordScope;
 
 #[utoipa::path(
     get,
@@ -72,7 +73,14 @@ pub async fn list_records(
 
     let plugin_data = ctx.plugin_data_service();
     let rows = plugin_data
-        .list_records(&p.plugin, "doc", p.doc_id, &p.kind, limit, offset)
+        .list_records(
+            &p.plugin,
+            PluginRecordScope::Doc,
+            p.doc_id,
+            &p.kind,
+            limit,
+            offset,
+        )
         .await
         .map_err(map_plugin_service_error)?;
     let mut items = Vec::with_capacity(rows.len());
@@ -134,7 +142,7 @@ pub async fn create_record(
 
     let plugin_data = ctx.plugin_data_service();
     let rec = plugin_data
-        .create_record(&p.plugin, "doc", p.doc_id, &p.kind, &data)
+        .create_record(&p.plugin, PluginRecordScope::Doc, p.doc_id, &p.kind, &data)
         .await
         .map_err(map_plugin_service_error)?;
     Ok(Json(json!({
@@ -180,6 +188,9 @@ pub async fn update_record(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     if rec.plugin != p.plugin {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if rec.scope != PluginRecordScope::Doc {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -242,6 +253,9 @@ pub async fn delete_record(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     if rec.plugin != p.plugin {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if rec.scope != PluginRecordScope::Doc {
         return Err(StatusCode::NOT_FOUND);
     }
 

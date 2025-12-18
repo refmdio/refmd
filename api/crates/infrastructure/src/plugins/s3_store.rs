@@ -22,7 +22,7 @@ use walkdir::WalkDir;
 
 use application::plugins::dtos::ExecResult;
 use application::plugins::ports::plugin_asset_store::{
-    PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
+    LatestGlobalManifest, PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
 };
 use application::plugins::ports::plugin_event_publisher::PluginScopedEvent;
 use application::plugins::ports::plugin_installer::{
@@ -33,6 +33,7 @@ use crate::plugins::event_bus_pg::PgPluginEventBus;
 use crate::plugins::filesystem_store::{
     FilesystemPluginStore, PluginExecutionLimits,
 };
+use domain::plugins::events::PluginEventKind;
 
 const PLUGINS_PREFIX: &str = "plugins";
 const GLOBAL_MANIFEST_CACHE_TTL_SECS: u64 = 300;
@@ -85,14 +86,12 @@ impl UserPluginKey {
 }
 
 fn is_manifest_affecting_event(event: &PluginScopedEvent) -> bool {
-    if let Some(kind) = event.payload.get("event").and_then(|value| value.as_str()) {
-        matches!(
-            kind,
-            "installed" | "uninstalled" | "updated" | "publish" | "unpublish"
-        )
-    } else {
-        false
-    }
+    event
+        .payload
+        .get("event")
+        .and_then(|value| value.as_str())
+        .and_then(PluginEventKind::from_str)
+        .is_some_and(|kind| kind.affects_manifests())
 }
 
 fn epoch_secs_now() -> u64 {
@@ -460,7 +459,7 @@ impl S3BackedPluginStore {
             .payload
             .get("event")
             .and_then(|value| value.as_str())
-            .unwrap_or("");
+            .and_then(PluginEventKind::from_str);
 
         if is_manifest_affecting_event(event) {
             self.global_cache.invalidate();
@@ -469,7 +468,7 @@ impl S3BackedPluginStore {
         if let Some(owner_id) = event.workspace_id.or(event.user_id) {
             if let Some(plugin_id) = event.payload.get("id").and_then(|v| v.as_str()) {
                 let key = UserPluginKey::new(owner_id, plugin_id);
-                if kind == "uninstalled" {
+                if kind == Some(PluginEventKind::Uninstalled) {
                     self.schedule_remove_user_plugin(key);
                 } else {
                     self.schedule_refresh_user_plugin(key);
@@ -531,7 +530,7 @@ impl PluginAssetStore for S3BackedPluginStore {
 
     async fn list_latest_global_manifests(
         &self,
-    ) -> anyhow::Result<Vec<(String, String, serde_json::Value)>> {
+    ) -> anyhow::Result<Vec<LatestGlobalManifest>> {
         let now = epoch_secs_now();
         if self.global_cache.needs_refresh(now) {
             let _guard = self.global_cache.refresh_lock.lock().await;

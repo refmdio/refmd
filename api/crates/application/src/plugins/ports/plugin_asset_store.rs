@@ -14,6 +14,13 @@ pub enum PluginAssetStoreScope<'a> {
     User { owner_id: &'a Uuid },
 }
 
+#[derive(Debug, Clone)]
+pub struct LatestGlobalManifest {
+    pub plugin_id: String,
+    pub version: String,
+    pub manifest: Value,
+}
+
 #[async_trait]
 pub trait PluginAssetStore: Send + Sync {
     async fn fetch_asset(
@@ -26,7 +33,7 @@ pub trait PluginAssetStore: Send + Sync {
 
     async fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> anyhow::Result<()>;
 
-    async fn list_latest_global_manifests(&self) -> anyhow::Result<Vec<(String, String, Value)>>;
+    async fn list_latest_global_manifests(&self) -> anyhow::Result<Vec<LatestGlobalManifest>>;
 
     async fn load_user_manifest(
         &self,

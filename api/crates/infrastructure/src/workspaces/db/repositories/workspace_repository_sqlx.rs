@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row, postgres::PgRow};
@@ -12,6 +12,8 @@ use application::workspaces::ports::workspace_repository::{
     WorkspaceSetDefaultError,
 };
 use crate::core::db::PgPool;
+use domain::workspaces::permissions::PermissionOverride;
+use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
 
 pub struct SqlxWorkspaceRepository {
     pub pool: PgPool,
@@ -22,61 +24,67 @@ impl SqlxWorkspaceRepository {
         Self { pool }
     }
 
-    fn collect_roles(&self, rows: Vec<PgRow>) -> Vec<WorkspaceRoleRecord> {
+    fn collect_roles(&self, rows: Vec<PgRow>) -> anyhow::Result<Vec<WorkspaceRoleRecord>> {
         let mut map: HashMap<Uuid, WorkspaceRoleRecord> = HashMap::new();
         for row in rows {
             let role_id: Uuid = row.get("id");
+            let base_role_raw: String = row.get("base_role");
             let entry = map.entry(role_id).or_insert_with(|| WorkspaceRoleRecord {
                 id: role_id,
                 workspace_id: row.get("workspace_id"),
                 name: row.get("name"),
                 description: row.try_get("description").ok(),
-                base_role: row.get("base_role"),
+                base_role: WorkspaceBaseRole::Viewer,
                 priority: row.get("priority"),
                 overrides: Vec::new(),
             });
+            entry.base_role = Self::parse_base_role(&base_role_raw)
+                .with_context(|| format!("invalid workspace_roles.base_role for role_id={role_id}"))?;
             if let (Some(permission), Some(allowed)) = (
                 row.try_get::<Option<String>, _>("permission")
                     .ok()
                     .flatten(),
                 row.try_get::<Option<bool>, _>("allowed").ok().flatten(),
             ) {
-                entry.overrides.push((permission, allowed));
+                entry.overrides.push(PermissionOverride::new(permission, allowed));
             }
         }
-        map.into_values()
+        Ok(map
+            .into_values()
             .map(|mut record| {
-                record.overrides.sort_by(|a, b| a.0.cmp(&b.0));
+                record
+                    .overrides
+                    .sort_by(|a, b| a.permission.cmp(&b.permission));
                 record
             })
-            .collect()
+            .collect())
     }
 
     async fn replace_role_permissions_tx(
         &self,
         tx: &mut PgConnection,
         role_id: Uuid,
-        overrides: &[(String, bool)],
+        overrides: &[PermissionOverride],
     ) -> anyhow::Result<()> {
         sqlx::query("DELETE FROM workspace_role_permissions WHERE workspace_role_id = $1")
             .bind(role_id)
             .execute(&mut *tx)
             .await?;
-        for (permission, allowed) in overrides {
+        for item in overrides {
             sqlx::query(
                 r#"INSERT INTO workspace_role_permissions (workspace_role_id, permission, allowed)
                    VALUES ($1, $2, $3)"#,
             )
             .bind(role_id)
-            .bind(permission)
-            .bind(allowed)
+            .bind(item.permission.as_str())
+            .bind(item.allowed)
             .execute(&mut *tx)
             .await?;
         }
         Ok(())
     }
 
-    async fn fetch_role_overrides(&self, role_id: Uuid) -> anyhow::Result<Vec<(String, bool)>> {
+    async fn fetch_role_overrides(&self, role_id: Uuid) -> anyhow::Result<Vec<PermissionOverride>> {
         let rows = sqlx::query(
             r#"SELECT permission, allowed
                FROM workspace_role_permissions
@@ -91,18 +99,20 @@ impl SqlxWorkspaceRepository {
                 row.try_get::<Option<String>, _>("permission")
                     .ok()
                     .flatten()
-                    .map(|perm| (perm, row.get("allowed")))
+                    .map(|perm| PermissionOverride::new(perm, row.get("allowed")))
             })
             .collect())
     }
 
-    fn map_invitation_row(&self, row: &PgRow) -> WorkspaceInvitationRecord {
-        WorkspaceInvitationRecord {
+    fn map_invitation_row(&self, row: &PgRow) -> anyhow::Result<WorkspaceInvitationRecord> {
+        let role_kind_raw: String = row.get("role_kind");
+        let system_role_raw: Option<String> = row.try_get("system_role").ok();
+        Ok(WorkspaceInvitationRecord {
             id: row.get("id"),
             workspace_id: row.get("workspace_id"),
             email: row.get("email"),
-            role_kind: row.get("role_kind"),
-            system_role: row.try_get("system_role").ok().flatten(),
+            role_kind: Self::parse_role_kind(&role_kind_raw)?,
+            system_role: Self::parse_system_role(system_role_raw.as_deref())?,
             custom_role_id: row.try_get("custom_role_id").ok().flatten(),
             invited_by: row.get("invited_by"),
             token: row.get("token"),
@@ -120,7 +130,24 @@ impl SqlxWorkspaceRepository {
                 .ok()
                 .flatten(),
             created_at: row.get("created_at"),
-        }
+        })
+    }
+
+    fn parse_role_kind(raw: &str) -> anyhow::Result<WorkspaceRoleKind> {
+        WorkspaceRoleKind::from_str(raw).ok_or_else(|| anyhow::anyhow!("invalid_role_kind"))
+    }
+
+    fn parse_system_role(raw: Option<&str>) -> anyhow::Result<Option<WorkspaceSystemRole>> {
+        let Some(raw) = raw else {
+            return Ok(None);
+        };
+        WorkspaceSystemRole::from_str(raw)
+            .ok_or_else(|| anyhow::anyhow!("invalid_system_role"))
+            .map(Some)
+    }
+
+    fn parse_base_role(raw: &str) -> anyhow::Result<WorkspaceBaseRole> {
+        WorkspaceBaseRole::from_str(raw).ok_or_else(|| anyhow::anyhow!("invalid_base_role"))
     }
 }
 
@@ -146,21 +173,24 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| WorkspaceListItem {
-                id: r.get("id"),
-                name: r.get("name"),
-                slug: r.get("slug"),
-                icon: r.try_get("icon").ok(),
-                description: r.try_get("description").ok(),
-                is_personal: r.get("is_personal"),
-                role_kind: r.get("role_kind"),
-                system_role: r.try_get("system_role").ok(),
-                custom_role_id: r.try_get("custom_role_id").ok(),
-                is_default: r.get("is_default"),
+        rows.into_iter()
+            .map(|r| {
+                let role_kind_raw: String = r.get("role_kind");
+                let system_role_raw: Option<String> = r.try_get("system_role").ok();
+                Ok(WorkspaceListItem {
+                    id: r.get("id"),
+                    name: r.get("name"),
+                    slug: r.get("slug"),
+                    icon: r.try_get("icon").ok(),
+                    description: r.try_get("description").ok(),
+                    is_personal: r.get("is_personal"),
+                    role_kind: Self::parse_role_kind(&role_kind_raw)?,
+                    system_role: Self::parse_system_role(system_role_raw.as_deref())?,
+                    custom_role_id: r.try_get("custom_role_id").ok(),
+                    is_default: r.get("is_default"),
+                })
             })
-            .collect())
+            .collect::<anyhow::Result<Vec<_>>>()
     }
 
     async fn create_workspace(
@@ -252,8 +282,8 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         &self,
         workspace_id: Uuid,
         user_id: Uuid,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
     ) -> anyhow::Result<WorkspaceMemberRow> {
         let row = sqlx::query(
@@ -267,16 +297,18 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         )
         .bind(workspace_id)
         .bind(user_id)
-        .bind(role_kind)
-        .bind(system_role)
+        .bind(role_kind.as_str())
+        .bind(system_role.map(|r| r.as_str()))
         .bind(custom_role_id)
         .fetch_one(&self.pool)
         .await?;
+        let role_kind_raw: String = row.get("role_kind");
+        let system_role_raw: Option<String> = row.try_get("system_role").ok();
         Ok(WorkspaceMemberRow {
             workspace_id: row.get("workspace_id"),
             user_id: row.get("user_id"),
-            role_kind: row.get("role_kind"),
-            system_role: row.try_get("system_role").ok(),
+            role_kind: Self::parse_role_kind(&role_kind_raw)?,
+            system_role: Self::parse_system_role(system_role_raw.as_deref())?,
             custom_role_id: row.try_get("custom_role_id").ok(),
             is_default: row.get("is_default"),
         })
@@ -325,11 +357,15 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         tx.commit()
             .await
             .map_err(|err| WorkspaceSetDefaultError::Unexpected(err.into()))?;
+        let role_kind_raw: String = row.get("role_kind");
+        let system_role_raw: Option<String> = row.try_get("system_role").ok();
         Ok(WorkspaceMemberRow {
             workspace_id: row.get("workspace_id"),
             user_id: row.get("user_id"),
-            role_kind: row.get("role_kind"),
-            system_role: row.try_get("system_role").ok(),
+            role_kind: Self::parse_role_kind(&role_kind_raw)
+                .map_err(|e| WorkspaceSetDefaultError::Unexpected(e.into()))?,
+            system_role: Self::parse_system_role(system_role_raw.as_deref())
+                .map_err(|e| WorkspaceSetDefaultError::Unexpected(e.into()))?,
             custom_role_id: row.try_get("custom_role_id").ok(),
             is_default: row.get("is_default"),
         })
@@ -355,17 +391,21 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|row| WorkspaceMemberDetail {
-                workspace_id: row.get("workspace_id"),
-                user_id: row.get("user_id"),
-                role_kind: row.get("role_kind"),
-                system_role: row.try_get("system_role").ok(),
-                custom_role_id: row.try_get("custom_role_id").ok(),
-                is_default: row.get("is_default"),
-                user_email: row.get("email"),
-                user_name: row.get("name"),
+            .map(|row| {
+                let role_kind_raw: String = row.get("role_kind");
+                let system_role_raw: Option<String> = row.try_get("system_role").ok();
+                Ok(WorkspaceMemberDetail {
+                    workspace_id: row.get("workspace_id"),
+                    user_id: row.get("user_id"),
+                    role_kind: Self::parse_role_kind(&role_kind_raw)?,
+                    system_role: Self::parse_system_role(system_role_raw.as_deref())?,
+                    custom_role_id: row.try_get("custom_role_id").ok(),
+                    is_default: row.get("is_default"),
+                    user_email: row.get("email"),
+                    user_name: row.get("name"),
+                })
             })
-            .collect())
+            .collect::<anyhow::Result<Vec<_>>>()?)
     }
 
     async fn get_member_detail(
@@ -390,24 +430,31 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .bind(user_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|row| WorkspaceMemberDetail {
-            workspace_id: row.get("workspace_id"),
-            user_id: row.get("user_id"),
-            role_kind: row.get("role_kind"),
-            system_role: row.try_get("system_role").ok(),
-            custom_role_id: row.try_get("custom_role_id").ok(),
-            is_default: row.get("is_default"),
-            user_email: row.get("email"),
-            user_name: row.get("name"),
-        }))
+        match row {
+            None => Ok(None),
+            Some(row) => {
+                let role_kind_raw: String = row.get("role_kind");
+                let system_role_raw: Option<String> = row.try_get("system_role").ok();
+                Ok(Some(WorkspaceMemberDetail {
+                    workspace_id: row.get("workspace_id"),
+                    user_id: row.get("user_id"),
+                    role_kind: Self::parse_role_kind(&role_kind_raw)?,
+                    system_role: Self::parse_system_role(system_role_raw.as_deref())?,
+                    custom_role_id: row.try_get("custom_role_id").ok(),
+                    is_default: row.get("is_default"),
+                    user_email: row.get("email"),
+                    user_name: row.get("name"),
+                }))
+            }
+        }
     }
 
     async fn update_member_role(
         &self,
         workspace_id: Uuid,
         user_id: Uuid,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
     ) -> anyhow::Result<WorkspaceMemberRow> {
         let row = sqlx::query(
@@ -420,19 +467,21 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         )
         .bind(workspace_id)
         .bind(user_id)
-        .bind(role_kind)
-        .bind(system_role)
+        .bind(role_kind.as_str())
+        .bind(system_role.map(|r| r.as_str()))
         .bind(custom_role_id)
         .fetch_optional(&self.pool)
         .await?;
         let Some(row) = row else {
             bail!("membership_not_found");
         };
+        let role_kind_raw: String = row.get("role_kind");
+        let system_role_raw: Option<String> = row.try_get("system_role").ok();
         Ok(WorkspaceMemberRow {
             workspace_id: row.get("workspace_id"),
             user_id: row.get("user_id"),
-            role_kind: row.get("role_kind"),
-            system_role: row.try_get("system_role").ok(),
+            role_kind: Self::parse_role_kind(&role_kind_raw)?,
+            system_role: Self::parse_system_role(system_role_raw.as_deref())?,
             custom_role_id: row.try_get("custom_role_id").ok(),
             is_default: row.get("is_default"),
         })
@@ -467,13 +516,19 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         }
 
         let first = &rows[0];
+        let role_kind_raw: String = first.get("role_kind");
+        let system_role_raw: Option<String> = first.try_get("system_role").ok();
+        let custom_base_role_raw: Option<String> = first.try_get("base_role").ok();
         let mut record = WorkspacePermissionRecord {
             workspace_id: first.get("workspace_id"),
             user_id: first.get("user_id"),
-            role_kind: first.get("role_kind"),
-            system_role: first.try_get("system_role").ok(),
+            role_kind: Self::parse_role_kind(&role_kind_raw)?,
+            system_role: Self::parse_system_role(system_role_raw.as_deref())?,
             custom_role_id: first.try_get("custom_role_id").ok(),
-            custom_base_role: first.try_get("base_role").ok(),
+            custom_base_role: match custom_base_role_raw {
+                None => None,
+                Some(raw) => Some(Self::parse_base_role(&raw)?),
+            },
             overrides: Vec::new(),
         };
 
@@ -484,7 +539,9 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
                     .flatten(),
                 row.try_get::<Option<bool>, _>("allowed").ok().flatten(),
             ) {
-                record.overrides.push((permission, allowed));
+                record
+                    .overrides
+                    .push(PermissionOverride::new(permission, allowed));
             }
         }
 
@@ -494,7 +551,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
     async fn count_system_role_members(
         &self,
         workspace_id: Uuid,
-        system_role: &str,
+        system_role: WorkspaceSystemRole,
     ) -> anyhow::Result<i64> {
         let count = sqlx::query_scalar(
             r#"SELECT COUNT(1)::BIGINT
@@ -504,7 +561,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
                  AND system_role = $2"#,
         )
         .bind(workspace_id)
-        .bind(system_role)
+        .bind(system_role.as_str())
         .fetch_one(&self.pool)
         .await?;
         Ok(count)
@@ -528,17 +585,17 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(self.collect_roles(rows))
+        self.collect_roles(rows)
     }
 
     async fn create_role(
         &self,
         workspace_id: Uuid,
         name: &str,
-        base_role: &str,
+        base_role: WorkspaceBaseRole,
         description: Option<&str>,
         priority: i32,
-        overrides: &[(String, bool)],
+        overrides: &[PermissionOverride],
     ) -> anyhow::Result<WorkspaceRoleRecord> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
@@ -548,7 +605,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         )
         .bind(workspace_id)
         .bind(name)
-        .bind(base_role)
+        .bind(base_role.as_str())
         .bind(description)
         .bind(priority)
         .fetch_one(tx.as_mut())
@@ -562,7 +619,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
             workspace_id: row.get("workspace_id"),
             name: row.get("name"),
             description: row.try_get("description").ok(),
-            base_role: row.get("base_role"),
+            base_role,
             priority: row.get("priority"),
             overrides: overrides.to_vec(),
         })
@@ -573,10 +630,10 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         workspace_id: Uuid,
         role_id: Uuid,
         name: Option<&str>,
-        base_role: Option<&str>,
+        base_role: Option<WorkspaceBaseRole>,
         description: Option<&str>,
         priority: Option<i32>,
-        overrides: Option<&[(String, bool)]>,
+        overrides: Option<&[PermissionOverride]>,
     ) -> anyhow::Result<WorkspaceRoleRecord> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
@@ -591,7 +648,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .bind(workspace_id)
         .bind(role_id)
         .bind(name)
-        .bind(base_role)
+        .bind(base_role.map(|b| b.as_str()))
         .bind(description)
         .bind(priority)
         .fetch_optional(tx.as_mut())
@@ -614,7 +671,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
             workspace_id: row.get("workspace_id"),
             name: row.get("name"),
             description: row.try_get("description").ok(),
-            base_role: row.get("base_role"),
+            base_role: Self::parse_base_role(&row.get::<String, _>("base_role"))?,
             priority: row.get("priority"),
             overrides: overrides_vec,
         })
@@ -662,7 +719,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .bind(role_id)
         .fetch_all(&self.pool)
         .await?;
-        let mut roles = self.collect_roles(rows);
+        let mut roles = self.collect_roles(rows)?;
         Ok(roles.pop())
     }
 
@@ -714,8 +771,8 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         &self,
         workspace_id: Uuid,
         email: &str,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
         invited_by: Uuid,
         token: &str,
@@ -739,15 +796,15 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         )
         .bind(workspace_id)
         .bind(email)
-        .bind(role_kind)
-        .bind(system_role)
+        .bind(role_kind.as_str())
+        .bind(system_role.map(|r| r.as_str()))
         .bind(custom_role_id)
         .bind(invited_by)
         .bind(token)
         .bind(expires_at)
         .fetch_one(&self.pool)
         .await?;
-        Ok(self.map_invitation_row(&row))
+        self.map_invitation_row(&row)
     }
 
     async fn list_invitations(
@@ -765,10 +822,9 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
+        rows.into_iter()
             .map(|row| self.map_invitation_row(&row))
-            .collect())
+            .collect::<anyhow::Result<Vec<_>>>()
     }
 
     async fn accept_invitation(
@@ -793,7 +849,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         let Some(row) = row else {
             bail!("invitation_not_found");
         };
-        let mut record = self.map_invitation_row(&row);
+        let mut record = self.map_invitation_row(&row)?;
         if record.revoked_at.is_some() {
             bail!("invitation_revoked");
         }
@@ -840,8 +896,8 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         )
         .bind(record.workspace_id)
         .bind(user_id)
-        .bind(record.role_kind.clone())
-        .bind(record.system_role.clone())
+        .bind(record.role_kind.as_str())
+        .bind(record.system_role.map(|role| role.as_str()))
         .bind(record.custom_role_id)
         .bind(record.invited_by)
         .execute(tx.as_mut())
@@ -870,7 +926,7 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
         .bind(workspace_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|row| self.map_invitation_row(&row)))
+        row.map(|row| self.map_invitation_row(&row)).transpose()
     }
 
     async fn list_all_workspace_ids(&self) -> anyhow::Result<Vec<Uuid>> {

@@ -17,7 +17,7 @@ impl StorageIngestHandler for LoggingStorageIngestHandler {
             workspace_id = %event.workspace_id,
             actor_id = ?event.actor_id,
             repo_path = event.repo_path,
-            backend = event.backend,
+            backend = event.backend.as_str(),
             kind = ?event.kind,
             "storage_ingest_event_received"
         );
@@ -96,6 +96,7 @@ mod tests {
     use super::*;
     use application::core::ports::storage::storage_ingest_queue::StorageIngestKind;
     use chrono::Utc;
+    use domain::storage::ingest_backend::StorageIngestBackend;
     use std::sync::Mutex;
     use uuid::Uuid;
 
@@ -123,7 +124,7 @@ mod tests {
             _user_id: Uuid,
             _actor_id: Option<Uuid>,
             _repo_path: &str,
-            _backend: &str,
+            _backend: StorageIngestBackend,
             _kind: StorageIngestKind,
             _content_hash: Option<&str>,
             _payload: Option<serde_json::Value>,
@@ -185,7 +186,7 @@ mod tests {
             user_id: Uuid::new_v4(),
             actor_id: None,
             repo_path: "docs/foo.md".into(),
-            backend: "fs".into(),
+            backend: StorageIngestBackend::parse("fs"),
             kind: StorageIngestKind::Upsert,
             content_hash: None,
             payload: None,

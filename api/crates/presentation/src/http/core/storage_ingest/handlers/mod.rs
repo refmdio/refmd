@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
 use application::core::services::storage::ingest::normalize_repo_path;
+use domain::storage::ingest_backend::StorageIngestBackend;
 use crate::context::AppContext;
 use crate::security::token::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
@@ -68,13 +69,14 @@ async fn enqueue_batch(
             tracing::warn!(repo_path, "storage_ingest_invalid_repo_path_request");
             continue;
         };
+        let backend = StorageIngestBackend::parse(event.backend.as_deref().unwrap_or("api"));
         queue
             .enqueue_event(
                 workspace_id,
                 actor_id,
                 Some(actor_id),
                 &clean_repo,
-                event.backend.as_deref().unwrap_or("api"),
+                backend,
                 event.kind.clone().into(),
                 event.content_hash.as_deref(),
                 event.payload.clone(),

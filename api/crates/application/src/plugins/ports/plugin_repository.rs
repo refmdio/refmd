@@ -2,11 +2,13 @@ use async_trait::async_trait;
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
+use domain::plugins::scope::{PluginRecordScope, PluginScope};
+
 #[derive(Debug, Clone)]
 pub struct PluginRecord {
     pub id: Uuid,
     pub plugin: String,
-    pub scope: String,
+    pub scope: PluginRecordScope,
     pub scope_id: Uuid,
     pub kind: String,
     pub data: JsonValue,
@@ -20,14 +22,14 @@ pub trait PluginRepository: Send + Sync {
     async fn kv_get(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
     ) -> anyhow::Result<Option<JsonValue>>;
     async fn kv_set(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
         value: &JsonValue,
@@ -37,7 +39,7 @@ pub trait PluginRepository: Send + Sync {
     async fn insert_record(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginRecordScope,
         scope_id: Uuid,
         kind: &str,
         data: &JsonValue,
@@ -56,14 +58,19 @@ pub trait PluginRepository: Send + Sync {
     async fn list_records(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginRecordScope,
         scope_id: Uuid,
         kind: &str,
         limit: i64,
         offset: i64,
     ) -> anyhow::Result<Vec<PluginRecord>>;
 
-    async fn delete_scoped_kv(&self, scope: &str, scope_ids: &[Uuid]) -> anyhow::Result<()>;
+    async fn delete_scoped_kv(&self, scope: PluginScope, scope_ids: &[Uuid])
+        -> anyhow::Result<()>;
 
-    async fn delete_scoped_records(&self, scope: &str, scope_ids: &[Uuid]) -> anyhow::Result<()>;
+    async fn delete_scoped_records(
+        &self,
+        scope: PluginRecordScope,
+        scope_ids: &[Uuid],
+    ) -> anyhow::Result<()>;
 }

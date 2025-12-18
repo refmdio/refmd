@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use crate::plugins::ports::plugin_repository::{PluginRecord, PluginRepository};
+use domain::plugins::scope::PluginRecordScope;
 
 pub struct ListPluginRecords<'a, R: PluginRepository + ?Sized> {
     pub repo: &'a R,
@@ -10,7 +11,7 @@ impl<'a, R: PluginRepository + ?Sized> ListPluginRecords<'a, R> {
     pub async fn execute(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginRecordScope,
         scope_id: Uuid,
         kind: &str,
         limit: i64,
@@ -30,7 +31,7 @@ impl<'a, R: PluginRepository + ?Sized> CreatePluginRecord<'a, R> {
     pub async fn execute(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginRecordScope,
         scope_id: Uuid,
         kind: &str,
         data: &serde_json::Value,

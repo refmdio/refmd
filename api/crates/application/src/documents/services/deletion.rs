@@ -72,7 +72,7 @@ impl DocumentService {
         let metadata = StorageDeleteJobMetadata {
             workspace_id,
             repo_path: Some(repo_path),
-            doc_type: entry.doc_type.as_str().to_string(),
+            doc_type: entry.doc_type,
             attachment_paths: if entry.attachments.is_empty() {
                 None
             } else {

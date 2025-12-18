@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use application::plugins::dtos::ExecResult;
 use application::plugins::ports::plugin_asset_store::{
-    PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
+    LatestGlobalManifest, PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
 };
 use application::plugins::ports::plugin_installer::{
     InstalledPlugin, PluginInstallError, PluginInstaller,
@@ -631,7 +631,7 @@ impl PluginAssetStore for FilesystemPluginStore {
 
     async fn list_latest_global_manifests(
         &self,
-    ) -> anyhow::Result<Vec<(String, String, serde_json::Value)>> {
+    ) -> anyhow::Result<Vec<LatestGlobalManifest>> {
         use std::io::ErrorKind;
         let mut items = Vec::new();
         let root = self.global_root();
@@ -684,7 +684,11 @@ impl PluginAssetStore for FilesystemPluginStore {
             };
 
             match serde_json::from_str::<serde_json::Value>(&contents) {
-                Ok(json) => items.push((plugin_id.clone(), version.clone(), json)),
+                Ok(json) => items.push(LatestGlobalManifest {
+                    plugin_id: plugin_id.clone(),
+                    version: version.clone(),
+                    manifest: json,
+                }),
                 Err(err) => tracing::warn!(
                     error = ?err,
                     plugin_id = plugin_id.as_str(),

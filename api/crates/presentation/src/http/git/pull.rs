@@ -8,6 +8,7 @@ use uuid::Uuid;
 use application::git::dtos::{GitPullRequestDto, GitPullResolutionDto};
 use application::core::services::errors::ServiceError;
 use application::git::services::FinalizePullSessionResult;
+use domain::git::pull_session::GitPullSessionStatus;
 use domain::workspaces::permissions::PERM_GIT_SYNC;
 use crate::context::AppContext;
 use crate::security::token::{self, Bearer};
@@ -165,12 +166,12 @@ pub async fn start_pull_session(
             ));
         }
     };
-    if session.status == "error" {
+    if session.status == GitPullSessionStatus::Error {
         return Ok((
             StatusCode::BAD_REQUEST,
             Json(GitPullSessionResponse {
                 session_id: session.id,
-                status: session.status,
+                status: session.status.as_str().to_string(),
                 conflicts: Vec::new(),
                 resolutions: Vec::new(),
                 message: session.message,
@@ -193,7 +194,7 @@ pub async fn start_pull_session(
         status,
         Json(GitPullSessionResponse {
             session_id: session.id,
-            status: session.status,
+            status: session.status.as_str().to_string(),
             conflicts,
             resolutions: Vec::new(),
             message: session.message,
@@ -235,7 +236,7 @@ pub async fn get_pull_session(
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(GitPullSessionResponse {
         session_id: state.id,
-        status: state.status,
+        status: state.status.as_str().to_string(),
         conflicts: state.conflicts.into_iter().map(Into::into).collect(),
         resolutions: state
             .resolutions
@@ -352,24 +353,26 @@ pub async fn resolve_pull_session(
     if !conflicts.is_empty() {
         status_code = StatusCode::CONFLICT;
     }
-    if session.status == "stale" {
+    if session.status == GitPullSessionStatus::Stale {
         status_code = StatusCode::CONFLICT;
     }
-    if session.status == "error" {
+    if session.status == GitPullSessionStatus::Error {
         status_code = StatusCode::BAD_REQUEST;
     }
-    let session_status = session.status.clone();
+    let session_status = session.status;
 
     Ok((
         status_code,
         Json(GitPullSessionResponse {
             session_id: id,
-            status: session_status.clone(),
+            status: session_status.as_str().to_string(),
             conflicts,
             resolutions,
-            message: if session_status == "error" {
+            message: if session_status == GitPullSessionStatus::Error {
                 session.message
-            } else if status_code == StatusCode::CONFLICT && session_status == "stale" {
+            } else if status_code == StatusCode::CONFLICT
+                && session_status == GitPullSessionStatus::Stale
+            {
                 Some("Pull session is stale. Please start a new pull.".to_string())
             } else {
                 session.message
@@ -416,7 +419,7 @@ pub async fn finalize_pull_session(
         .finalize_pull_session_flow(workspace_id, id)
         .await
         .map_err(map_git_error)?;
-    if session.status == "error" {
+    if session.status == GitPullSessionStatus::Error {
         return Ok((
             StatusCode::BAD_REQUEST,
             Json(GitPullResponse {
@@ -432,7 +435,7 @@ pub async fn finalize_pull_session(
             }),
         ));
     }
-    if session.status == "stale" {
+    if session.status == GitPullSessionStatus::Stale {
         return Ok((
             StatusCode::CONFLICT,
             Json(GitPullResponse {

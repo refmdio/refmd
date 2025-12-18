@@ -12,24 +12,25 @@ use uuid::Uuid;
 use application::core::ports::storage::storage_ingest_queue::{StorageIngestKind, StorageIngestQueue};
 use application::core::services::storage::ingest::normalize_repo_path;
 use application::core::services::utils::hash::sha256_hex;
+use domain::storage::ingest_backend::StorageIngestBackend;
 use domain::workspaces::permissions::PermissionSet;
 
 pub struct FsIngestWatcher {
     uploads_root: PathBuf,
     queue: Arc<dyn StorageIngestQueue>,
-    backend_name: String,
+    backend: StorageIngestBackend,
 }
 
 impl FsIngestWatcher {
     pub fn new(
         uploads_root: PathBuf,
         queue: Arc<dyn StorageIngestQueue>,
-        backend_name: &str,
+        backend: StorageIngestBackend,
     ) -> Self {
         Self {
             uploads_root,
             queue,
-            backend_name: backend_name.to_string(),
+            backend,
         }
     }
 
@@ -115,7 +116,7 @@ impl FsIngestWatcher {
                 user_id,
                 None,
                 &clean_repo,
-                &self.backend_name,
+                self.backend.clone(),
                 kind,
                 content_hash.as_deref(),
                 payload,
@@ -158,7 +159,7 @@ impl FsIngestWatcher {
                 to_user,
                 None,
                 &clean_to,
-                &self.backend_name,
+                self.backend.clone(),
                 StorageIngestKind::Upsert,
                 content_hash.as_deref(),
                 payload,

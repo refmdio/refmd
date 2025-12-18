@@ -28,6 +28,7 @@ use application::identity::use_cases::auth::register::{Register, RegisterRequest
 use bootstrap::app::AppBuilder;
 use bootstrap::git::git_storage_driver_config;
 use bootstrap::config::Config;
+use domain::storage::ingest_backend::StorageIngestBackend;
 use domain::workspaces::permissions::PermissionSet;
 use infrastructure::core::db::PgPool;
 use infrastructure::identity::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository;
@@ -967,12 +968,12 @@ async fn handle_plugins(deps: &Deps, cmd: PluginCommand) -> Result<()> {
         PluginCommand::ListGlobal => {
             let manifests = deps.plugin_assets.list_latest_global_manifests().await?;
             println!("{} global plugin(s)", manifests.len());
-            for (plugin_id, version, manifest) in manifests {
+            for item in manifests {
                 println!(
                     "{}@{} manifest={}",
-                    plugin_id,
-                    version,
-                    serde_json::to_string(&manifest)?
+                    item.plugin_id,
+                    item.version,
+                    serde_json::to_string(&item.manifest)?
                 );
             }
             Ok(())
@@ -1316,7 +1317,7 @@ async fn enqueue_ingest(
             user_id,
             actor_id.or(Some(user_id)),
             repo_path.trim(),
-            backend.trim(),
+            StorageIngestBackend::parse(backend.trim()),
             kind.into(),
             content_hash.as_deref(),
             None,

@@ -14,7 +14,8 @@ use crate::identity::use_cases::api_tokens::create_token::CreateApiToken;
 use crate::identity::use_cases::api_tokens::list_tokens::ListApiTokens;
 use crate::identity::use_cases::api_tokens::revoke_token::RevokeApiToken;
 use crate::core::services::utils::hash::sha256_hex_str;
-use domain::workspaces::permissions::{PERM_API_TOKEN_MANAGE, PermissionSet};
+use domain::identity::policy;
+use domain::workspaces::permissions::PermissionSet;
 
 pub struct ApiTokenService {
     repo: Arc<dyn ApiTokenRepository>,
@@ -73,11 +74,7 @@ fn ensure_api_token_permission(
     _workspace_id: Uuid,
     permissions: &PermissionSet,
 ) -> Result<(), ServiceError> {
-    if permissions.allows(PERM_API_TOKEN_MANAGE) {
-        Ok(())
-    } else {
-        Err(ServiceError::Forbidden)
-    }
+    policy::ensure_api_token_manage_allowed(permissions).map_err(|_| ServiceError::Forbidden)
 }
 
 pub struct GeneratedApiToken {

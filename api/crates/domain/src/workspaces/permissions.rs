@@ -65,6 +65,21 @@ pub struct PermissionSet {
     allowed: BTreeSet<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionOverride {
+    pub permission: String,
+    pub allowed: bool,
+}
+
+impl PermissionOverride {
+    pub fn new(permission: impl Into<String>, allowed: bool) -> Self {
+        Self {
+            permission: permission.into(),
+            allowed,
+        }
+    }
+}
+
 impl PermissionSet {
     pub fn is_empty(&self) -> bool {
         self.allowed.is_empty()
@@ -166,17 +181,15 @@ pub fn system_role_permissions(role: &str) -> PermissionSet {
     }
 }
 
-pub fn apply_custom_overrides<I, S>(mut base: PermissionSet, overrides: I) -> PermissionSet
+pub fn apply_custom_overrides<I>(mut base: PermissionSet, overrides: I) -> PermissionSet
 where
-    I: IntoIterator<Item = (S, bool)>,
-    S: AsRef<str>,
+    I: IntoIterator<Item = PermissionOverride>,
 {
-    for (permission, allowed) in overrides {
-        let key = permission.as_ref();
-        if allowed {
-            base.insert(key.to_string());
+    for item in overrides {
+        if item.allowed {
+            base.insert(item.permission);
         } else {
-            base.remove(key);
+            base.remove(&item.permission);
         }
     }
     base

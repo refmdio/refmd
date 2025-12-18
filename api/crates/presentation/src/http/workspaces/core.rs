@@ -14,6 +14,7 @@ use application::core::services::errors::ServiceError;
 use domain::workspaces::permissions::{
     PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
 };
+use domain::workspaces::roles::{WorkspaceRoleKind, WorkspaceSystemRole};
 use crate::context::AppContext;
 use crate::http::identity::auth::{
     self, apply_session_cookies, extract_client_ip, extract_refresh_token, extract_user_agent,
@@ -84,8 +85,8 @@ pub async fn create_workspace(
             icon: workspace.icon,
             description: workspace.description,
             is_personal: workspace.is_personal,
-            role_kind: "system".to_string(),
-            system_role: Some("owner".to_string()),
+            role_kind: WorkspaceRoleKind::System,
+            system_role: Some(WorkspaceSystemRole::Owner),
             custom_role_id: None,
             is_default: false,
         });

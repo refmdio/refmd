@@ -73,7 +73,7 @@ impl AuthService {
         self.tokens
             .validate(token)
             .await
-            .map(|opt| opt.map(|(user_id, _)| user_id.to_string()))
+            .map(|opt| opt.map(|subject| subject.owner_id.to_string()))
     }
 
     pub fn workspace_from_token_claim(&self, token: &str) -> Option<Uuid> {
@@ -100,7 +100,7 @@ impl AuthService {
         self.tokens
             .validate(token)
             .await
-            .map(|opt| opt.map(|(_, workspace_id)| workspace_id))
+            .map(|opt| opt.map(|subject| subject.workspace_id))
     }
 
     pub fn issue_session(

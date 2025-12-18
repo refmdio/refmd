@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use crate::plugins::ports::plugin_repository::PluginRepository;
+use domain::plugins::scope::PluginScope;
 
 pub struct GetPluginKv<'a, R: PluginRepository + ?Sized> {
     pub repo: &'a R,
@@ -10,7 +11,7 @@ impl<'a, R: PluginRepository + ?Sized> GetPluginKv<'a, R> {
     pub async fn execute(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
     ) -> anyhow::Result<Option<serde_json::Value>> {
@@ -26,7 +27,7 @@ impl<'a, R: PluginRepository + ?Sized> PutPluginKv<'a, R> {
     pub async fn execute(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
         value: &serde_json::Value,

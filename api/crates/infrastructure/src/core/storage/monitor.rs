@@ -12,6 +12,7 @@ use application::core::ports::storage::storage_port::StorageResolverPort;
 use application::core::ports::storage::storage_projection_queue::{
     StorageProjectionJobKind, StorageProjectionQueue,
 };
+use domain::storage::ingest_backend::StorageIngestBackend;
 use domain::workspaces::permissions::PermissionSet;
 use crate::core::db::PgPool;
 
@@ -211,7 +212,7 @@ impl StorageConsistencyMonitor {
                 workspace_id,
                 None,
                 &repo_path,
-                "consistency",
+                StorageIngestBackend::Consistency,
                 StorageIngestKind::Delete,
                 None,
                 Some(json!({

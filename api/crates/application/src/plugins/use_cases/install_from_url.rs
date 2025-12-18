@@ -5,6 +5,8 @@ use crate::plugins::ports::plugin_installer::{
 };
 use crate::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
 use uuid::Uuid;
+use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
+use domain::plugins::events::PluginEventKind;
 
 #[derive(thiserror::Error, Debug)]
 pub enum InstallPluginError {
@@ -61,9 +63,9 @@ where
                 workspace_id,
                 &installed.id,
                 &installed.version,
-                "user",
+                PluginScope::User,
                 Some(url),
-                "enabled",
+                PluginInstallationStatus::Enabled,
             )
             .await
             .map_err(InstallPluginError::Persist)?;
@@ -72,7 +74,7 @@ where
             user_id: Some(user_id),
             workspace_id: Some(workspace_id),
             payload: serde_json::json!({
-                "event": "installed",
+                "event": PluginEventKind::Installed.as_str(),
                 "id": installed.id,
                 "version": installed.version,
                 "workspace_id": workspace_id,

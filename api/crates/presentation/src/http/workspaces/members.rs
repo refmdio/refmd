@@ -13,7 +13,7 @@ use crate::security::token::{self, Bearer};
 
 use super::types::{
     UpdateMemberRoleRequest, WorkspaceMemberResponse, map_service_error, member_response_from,
-    require_permission,
+    parse_role_kind, parse_system_role, require_permission,
 };
 
 #[utoipa::path(
@@ -60,17 +60,19 @@ pub async fn update_member_role(
     Path((workspace_id, member_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateMemberRoleRequest>,
 ) -> Result<Json<WorkspaceMemberResponse>, StatusCode> {
-    if body.role_kind != "system" && body.role_kind != "custom" {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    if body.role_kind == "system" {
-        match body.system_role.as_deref() {
-            Some("owner" | "admin" | "editor" | "viewer") => {}
-            _ => return Err(StatusCode::BAD_REQUEST),
+    let role_kind = parse_role_kind(body.role_kind.as_str())?;
+    let system_role = parse_system_role(body.system_role.as_deref())?;
+    match role_kind {
+        domain::workspaces::roles::WorkspaceRoleKind::System => {
+            if system_role.is_none() || body.custom_role_id.is_some() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
         }
-    }
-    if body.role_kind == "custom" && body.custom_role_id.is_none() {
-        return Err(StatusCode::BAD_REQUEST);
+        domain::workspaces::roles::WorkspaceRoleKind::Custom => {
+            if system_role.is_some() || body.custom_role_id.is_none() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
     }
 
     let user_id = token::require_user_id(&ctx, bearer)
@@ -83,8 +85,8 @@ pub async fn update_member_role(
             workspace_id,
             member_id,
             user_id,
-            &body.role_kind,
-            body.system_role.as_deref(),
+            role_kind,
+            system_role,
             body.custom_role_id,
         )
         .await

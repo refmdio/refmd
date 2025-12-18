@@ -61,7 +61,7 @@ impl From<PluginManifestItem> for ManifestItem {
             id: value.id,
             name: value.name,
             version: value.version,
-            scope: value.scope,
+            scope: value.scope.as_str().to_string(),
             mounts: value.mounts,
             frontend: value.frontend,
             permissions: value.permissions,

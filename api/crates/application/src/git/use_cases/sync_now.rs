@@ -3,6 +3,7 @@ use uuid::Uuid;
 use crate::git::dtos::{GitSyncRequestDto, GitSyncResponseDto};
 use crate::git::ports::git_repository::GitRepository;
 use crate::git::ports::git_workspace::GitWorkspacePort;
+use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};
 
 pub struct SyncNow<'a, R, W>
 where
@@ -37,8 +38,8 @@ where
                         .repo
                         .log_sync_operation(
                             workspace_id,
-                            "commit",
-                            "success",
+                            GitSyncOperation::Commit,
+                            GitSyncStatus::Success,
                             Some(&outcome.message),
                             outcome.commit_hash.as_deref(),
                         )
@@ -46,15 +47,15 @@ where
                 } else {
                     // Treat "nothing to commit" as success even if no push occurred.
                     let status = if outcome.files_changed == 0 || outcome.pushed {
-                        "success"
+                        GitSyncStatus::Success
                     } else {
-                        "error"
+                        GitSyncStatus::Error
                     };
                     let _ = self
                         .repo
                         .log_sync_operation(
                             workspace_id,
-                            "push",
+                            GitSyncOperation::Push,
                             status,
                             Some(&outcome.message),
                             outcome.commit_hash.as_deref(),

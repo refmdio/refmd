@@ -24,6 +24,7 @@ use application::plugins::ports::plugin_installation_repository::PluginInstallat
 use application::identity::ports::user_session_repository::UserSessionRepository;
 use application::core::services::storage::reconcile::StorageReconcileService;
 use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
+use domain::plugins::scope::PluginInstallationStatus;
 
 /// Handle to a background task.
 pub struct JobHandle {
@@ -219,7 +220,10 @@ pub fn spawn_plugin_prefetch(
         jobs.spawn("plugin_prefetch", async move {
             match installations.list_all().await {
                 Ok(installs) => {
-                    for inst in installs.into_iter().filter(|i| i.status == "enabled") {
+                    for inst in installs
+                        .into_iter()
+                        .filter(|i| i.status == PluginInstallationStatus::Enabled)
+                    {
                         if let Err(err) = assets
                             .load_user_manifest(&inst.workspace_id, &inst.plugin_id, &inst.version)
                             .await

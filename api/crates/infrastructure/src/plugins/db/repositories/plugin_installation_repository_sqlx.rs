@@ -6,6 +6,7 @@ use application::plugins::ports::plugin_installation_repository::{
     PluginInstallation, PluginInstallationRepository,
 };
 use crate::core::db::PgPool;
+use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
 
 pub struct SqlxPluginInstallationRepository {
     pub pool: PgPool,
@@ -24,9 +25,9 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
         workspace_id: Uuid,
         plugin_id: &str,
         version: &str,
-        scope: &str,
+        scope: PluginScope,
         origin_url: Option<&str>,
-        status: &str,
+        status: PluginInstallationStatus,
     ) -> anyhow::Result<()> {
         sqlx::query(
             r#"INSERT INTO plugin_installations
@@ -43,9 +44,9 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
         .bind(workspace_id)
         .bind(plugin_id)
         .bind(version)
-        .bind(scope)
+        .bind(scope.as_str())
         .bind(origin_url)
-        .bind(status)
+        .bind(status.as_str())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -66,13 +67,17 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
 
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
+            let scope_raw: String = row.get("scope");
+            let status_raw: String = row.get("status");
             out.push(PluginInstallation {
                 workspace_id: row.get("workspace_id"),
                 plugin_id: row.get("plugin_id"),
                 version: row.get("version"),
-                scope: row.get("scope"),
+                scope: PluginScope::from_str(&scope_raw)
+                    .ok_or_else(|| anyhow::anyhow!("invalid_plugin_scope"))?,
                 origin_url: row.try_get("origin_url").ok(),
-                status: row.get("status"),
+                status: PluginInstallationStatus::from_str(&status_raw)
+                    .ok_or_else(|| anyhow::anyhow!("invalid_plugin_installation_status"))?,
                 installed_at: row.get("installed_at"),
                 updated_at: row.get("updated_at"),
             });
@@ -91,13 +96,17 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
 
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
+            let scope_raw: String = row.get("scope");
+            let status_raw: String = row.get("status");
             out.push(PluginInstallation {
                 workspace_id: row.get("workspace_id"),
                 plugin_id: row.get("plugin_id"),
                 version: row.get("version"),
-                scope: row.get("scope"),
+                scope: PluginScope::from_str(&scope_raw)
+                    .ok_or_else(|| anyhow::anyhow!("invalid_plugin_scope"))?,
                 origin_url: row.try_get("origin_url").ok(),
-                status: row.get("status"),
+                status: PluginInstallationStatus::from_str(&status_raw)
+                    .ok_or_else(|| anyhow::anyhow!("invalid_plugin_installation_status"))?,
                 installed_at: row.get("installed_at"),
                 updated_at: row.get("updated_at"),
             });

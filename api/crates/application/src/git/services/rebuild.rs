@@ -9,11 +9,13 @@ use crate::git::dtos::GitSyncRequestDto;
 use crate::git::ports::git_rebuild_job_queue::{GitRebuildJob, GitRebuildJobQueue};
 use crate::git::ports::git_repository::GitRepository;
 use crate::git::ports::git_workspace::GitWorkspacePort;
+use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};
 use crate::core::services::metrics::MetricsRegistry;
 use crate::workspaces::services::WorkspacePermissionResolver;
 use crate::workspaces::services::permission_snapshot::permission_set_from_snapshot;
 use crate::git::use_cases::helpers::needs_force_retry;
-use domain::workspaces::permissions::{PERM_GIT_SYNC, PermissionSet};
+use domain::git::policy;
+use domain::workspaces::permissions::{PermissionSet, PERM_GIT_SYNC};
 
 pub struct GitRebuildService {
     jobs: Arc<dyn GitRebuildJobQueue>,
@@ -80,7 +82,7 @@ impl GitRebuildService {
 
     async fn process_job(&self, job: &GitRebuildJob) -> anyhow::Result<()> {
         let permissions = self.permissions_for_job(job).await;
-        if !permissions.allows(PERM_GIT_SYNC) {
+        if policy::ensure_git_sync_allowed(&permissions).is_err() {
             warn!(
                 workspace_id = %job.workspace_id,
                 "git_rebuild_missing_permission"
@@ -142,8 +144,8 @@ impl GitRebuildService {
             .git_repo
             .log_sync_operation(
                 job.workspace_id,
-                "commit",
-                "success",
+                GitSyncOperation::Commit,
+                GitSyncStatus::Success,
                 Some(&outcome.message),
                 outcome.commit_hash.as_deref(),
             )
@@ -171,7 +173,13 @@ impl GitRebuildService {
             );
             if let Err(log_err) = self
                 .git_repo
-                .log_sync_operation(job.workspace_id, "commit", "error", Some(&msg), None)
+                .log_sync_operation(
+                    job.workspace_id,
+                    GitSyncOperation::Commit,
+                    GitSyncStatus::Error,
+                    Some(&msg),
+                    None,
+                )
                 .await
             {
                 warn!(
@@ -471,17 +479,7 @@ mod tests {
         async fn get_config(
             &self,
             _user_id: Uuid,
-        ) -> anyhow::Result<
-            Option<(
-                Uuid,
-                String,
-                String,
-                String,
-                bool,
-                chrono::DateTime<chrono::Utc>,
-                chrono::DateTime<chrono::Utc>,
-            )>,
-        > {
+        ) -> anyhow::Result<Option<crate::git::ports::git_repository::GitConfigRecord>> {
             unimplemented!()
         }
 
@@ -490,18 +488,10 @@ mod tests {
             _user_id: Uuid,
             _repository_url: &str,
             _branch_name: Option<&str>,
-            _auth_type: &str,
+            _auth_type: domain::git::auth::GitAuthType,
             _auth_data: &serde_json::Value,
             _auto_sync: Option<bool>,
-        ) -> anyhow::Result<(
-            Uuid,
-            String,
-            String,
-            String,
-            bool,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-        )> {
+        ) -> anyhow::Result<crate::git::ports::git_repository::GitConfigRecord> {
             unimplemented!()
         }
 
@@ -519,26 +509,19 @@ mod tests {
         async fn get_last_sync_log(
             &self,
             _user_id: Uuid,
-        ) -> anyhow::Result<
-            Option<(
-                Option<chrono::DateTime<chrono::Utc>>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-            )>,
-        > {
+        ) -> anyhow::Result<Option<crate::git::ports::git_repository::GitLastSyncLog>> {
             Ok(None)
         }
 
         async fn log_sync_operation(
             &self,
             _workspace_id: Uuid,
-            _operation: &str,
-            status: &str,
+            _operation: domain::git::sync_log::GitSyncOperation,
+            status: domain::git::sync_log::GitSyncStatus,
             _message: Option<&str>,
             _commit_hash: Option<&str>,
         ) -> anyhow::Result<()> {
-            *self.last_status.lock().unwrap() = Some(status.to_string());
+            *self.last_status.lock().unwrap() = Some(status.as_str().to_string());
             Ok(())
         }
 

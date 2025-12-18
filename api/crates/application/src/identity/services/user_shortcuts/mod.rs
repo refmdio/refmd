@@ -10,7 +10,8 @@ use crate::identity::use_cases::user_shortcuts::get_shortcuts::GetUserShortcuts;
 use crate::identity::use_cases::user_shortcuts::update_shortcuts::{
     UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,
 };
-use domain::workspaces::permissions::{PERM_SHORTCUT_UPDATE, PermissionSet};
+use domain::identity::policy;
+use domain::workspaces::permissions::PermissionSet;
 
 pub struct UserShortcutService {
     repo: Arc<dyn UserShortcutRepository>,
@@ -72,9 +73,5 @@ fn ensure_shortcut_permission(
     _workspace_id: Uuid,
     permissions: &PermissionSet,
 ) -> Result<(), ServiceError> {
-    if permissions.allows(PERM_SHORTCUT_UPDATE) {
-        Ok(())
-    } else {
-        Err(ServiceError::Forbidden)
-    }
+    policy::ensure_shortcut_update_allowed(permissions).map_err(|_| ServiceError::Forbidden)
 }

@@ -3,6 +3,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use domain::workspaces::permissions::PermissionOverride;
+use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
+
 #[derive(Debug, Clone)]
 pub struct WorkspaceRow {
     pub id: Uuid,
@@ -21,8 +24,8 @@ pub struct WorkspaceListItem {
     pub icon: Option<String>,
     pub description: Option<String>,
     pub is_personal: bool,
-    pub role_kind: String,
-    pub system_role: Option<String>,
+    pub role_kind: WorkspaceRoleKind,
+    pub system_role: Option<WorkspaceSystemRole>,
     pub custom_role_id: Option<Uuid>,
     pub is_default: bool,
 }
@@ -31,8 +34,8 @@ pub struct WorkspaceListItem {
 pub struct WorkspaceMemberRow {
     pub workspace_id: Uuid,
     pub user_id: Uuid,
-    pub role_kind: String,
-    pub system_role: Option<String>,
+    pub role_kind: WorkspaceRoleKind,
+    pub system_role: Option<WorkspaceSystemRole>,
     pub custom_role_id: Option<Uuid>,
     pub is_default: bool,
 }
@@ -41,8 +44,8 @@ pub struct WorkspaceMemberRow {
 pub struct WorkspaceMemberDetail {
     pub workspace_id: Uuid,
     pub user_id: Uuid,
-    pub role_kind: String,
-    pub system_role: Option<String>,
+    pub role_kind: WorkspaceRoleKind,
+    pub system_role: Option<WorkspaceSystemRole>,
     pub custom_role_id: Option<Uuid>,
     pub is_default: bool,
     pub user_email: String,
@@ -53,11 +56,11 @@ pub struct WorkspaceMemberDetail {
 pub struct WorkspacePermissionRecord {
     pub workspace_id: Uuid,
     pub user_id: Uuid,
-    pub role_kind: String,
-    pub system_role: Option<String>,
+    pub role_kind: WorkspaceRoleKind,
+    pub system_role: Option<WorkspaceSystemRole>,
     pub custom_role_id: Option<Uuid>,
-    pub custom_base_role: Option<String>,
-    pub overrides: Vec<(String, bool)>,
+    pub custom_base_role: Option<WorkspaceBaseRole>,
+    pub overrides: Vec<PermissionOverride>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,9 +69,9 @@ pub struct WorkspaceRoleRecord {
     pub workspace_id: Uuid,
     pub name: String,
     pub description: Option<String>,
-    pub base_role: String,
+    pub base_role: WorkspaceBaseRole,
     pub priority: i32,
-    pub overrides: Vec<(String, bool)>,
+    pub overrides: Vec<PermissionOverride>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,8 +79,8 @@ pub struct WorkspaceInvitationRecord {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub email: String,
-    pub role_kind: String,
-    pub system_role: Option<String>,
+    pub role_kind: WorkspaceRoleKind,
+    pub system_role: Option<WorkspaceSystemRole>,
     pub custom_role_id: Option<Uuid>,
     pub invited_by: Uuid,
     pub token: String,
@@ -121,8 +124,8 @@ pub trait WorkspaceRepository: Send + Sync {
         &self,
         workspace_id: Uuid,
         user_id: Uuid,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
     ) -> anyhow::Result<WorkspaceMemberRow>;
     async fn set_default_workspace(
@@ -143,8 +146,8 @@ pub trait WorkspaceRepository: Send + Sync {
         &self,
         workspace_id: Uuid,
         user_id: Uuid,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
     ) -> anyhow::Result<WorkspaceMemberRow>;
 
@@ -157,7 +160,7 @@ pub trait WorkspaceRepository: Send + Sync {
     async fn count_system_role_members(
         &self,
         workspace_id: Uuid,
-        system_role: &str,
+        system_role: WorkspaceSystemRole,
     ) -> anyhow::Result<i64>;
 
     async fn list_roles(&self, workspace_id: Uuid) -> anyhow::Result<Vec<WorkspaceRoleRecord>>;
@@ -166,10 +169,10 @@ pub trait WorkspaceRepository: Send + Sync {
         &self,
         workspace_id: Uuid,
         name: &str,
-        base_role: &str,
+        base_role: WorkspaceBaseRole,
         description: Option<&str>,
         priority: i32,
-        overrides: &[(String, bool)],
+        overrides: &[PermissionOverride],
     ) -> anyhow::Result<WorkspaceRoleRecord>;
 
     async fn update_role(
@@ -177,10 +180,10 @@ pub trait WorkspaceRepository: Send + Sync {
         workspace_id: Uuid,
         role_id: Uuid,
         name: Option<&str>,
-        base_role: Option<&str>,
+        base_role: Option<WorkspaceBaseRole>,
         description: Option<&str>,
         priority: Option<i32>,
-        overrides: Option<&[(String, bool)]>,
+        overrides: Option<&[PermissionOverride]>,
     ) -> anyhow::Result<WorkspaceRoleRecord>;
 
     async fn delete_role(&self, workspace_id: Uuid, role_id: Uuid) -> anyhow::Result<bool>;
@@ -205,8 +208,8 @@ pub trait WorkspaceRepository: Send + Sync {
         &self,
         workspace_id: Uuid,
         email: &str,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
         invited_by: Uuid,
         token: &str,

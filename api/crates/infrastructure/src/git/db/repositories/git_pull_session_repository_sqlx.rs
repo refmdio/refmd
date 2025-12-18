@@ -7,6 +7,7 @@ use application::git::dtos::{
     GitPullConflictItemDto, GitPullResolutionDto, GitPullSessionDto,
 };
 use application::git::ports::git_pull_session_repository::GitPullSessionRepository;
+use domain::git::pull_session::GitPullSessionStatus;
 
 pub struct GitPullSessionRepositorySqlx {
     pool: PgPool,
@@ -45,7 +46,7 @@ impl GitPullSessionRepository for GitPullSessionRepositorySqlx {
         )
         .bind(id)
         .bind(workspace_id)
-        .bind(status)
+        .bind(status.as_str())
         .bind(Json(conflicts))
         .bind(Json(resolutions))
         .bind(message.clone())
@@ -75,10 +76,13 @@ impl GitPullSessionRepository for GitPullSessionRepositorySqlx {
         let resolutions: Vec<GitPullResolutionDto> = row
             .get::<Json<Vec<GitPullResolutionDto>>, _>("resolutions")
             .0;
+        let status_raw: String = row.get::<String, _>("status");
+        let status = GitPullSessionStatus::from_str(&status_raw)
+            .ok_or_else(|| anyhow::anyhow!("invalid_git_pull_session_status"))?;
         Ok(Some(GitPullSessionDto {
             id,
             workspace_id,
-            status: row.get::<String, _>("status"),
+            status,
             conflicts,
             resolutions,
             message: row.try_get::<Option<String>, _>("message").unwrap_or(None),

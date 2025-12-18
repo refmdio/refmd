@@ -6,8 +6,9 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use domain::workspaces::permissions::{
-    PermissionSet, apply_custom_overrides, system_role_permissions,
+    PermissionOverride, PermissionSet, apply_custom_overrides, system_role_permissions,
 };
+use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
 
 pub mod permission_snapshot;
 mod slug;
@@ -31,8 +32,8 @@ pub struct WorkspaceService {
 }
 
 struct NormalizedRoleSelection {
-    role_kind: String,
-    system_role: Option<String>,
+    role_kind: WorkspaceRoleKind,
+    system_role: Option<WorkspaceSystemRole>,
     custom_role_id: Option<Uuid>,
     permissions: PermissionSet,
 }
@@ -68,7 +69,13 @@ impl WorkspaceService {
         // Creator becomes owner in the new workspace (default selection handled separately)
         let _member = self
             .repo
-            .add_member(workspace.id, creator_id, "system", Some("owner"), None)
+            .add_member(
+                workspace.id,
+                creator_id,
+                WorkspaceRoleKind::System,
+                Some(WorkspaceSystemRole::Owner),
+                None,
+            )
             .await
             .map_err(ServiceError::from)?;
         Ok(workspace)
@@ -102,7 +109,13 @@ impl WorkspaceService {
         user_id: Uuid,
     ) -> Result<(), ServiceError> {
         self.repo
-            .add_member(workspace_id, user_id, "system", Some("owner"), None)
+            .add_member(
+                workspace_id,
+                user_id,
+                WorkspaceRoleKind::System,
+                Some(WorkspaceSystemRole::Owner),
+                None,
+            )
             .await
             .map_err(ServiceError::from)?;
         self.repo
@@ -137,8 +150,8 @@ impl WorkspaceService {
         workspace_id: Uuid,
         invited_by: Uuid,
         email: &str,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<WorkspaceInvitationRecord, ServiceError> {
@@ -159,8 +172,8 @@ impl WorkspaceService {
             .create_invitation(
                 workspace_id,
                 &normalized_email,
-                &selection.role_kind,
-                selection.system_role.as_deref(),
+                selection.role_kind,
+                selection.system_role,
                 selection.custom_role_id,
                 invited_by,
                 &token,
@@ -242,16 +255,15 @@ impl WorkspaceService {
         let Some(record) = record else {
             return Ok(None);
         };
-        let mut set = match record.role_kind.as_str() {
-            "system" => {
-                let role = record.system_role.as_deref().unwrap_or("viewer");
-                system_role_permissions(role)
+        let mut set = match record.role_kind {
+            WorkspaceRoleKind::System => {
+                let role = record.system_role.unwrap_or(WorkspaceSystemRole::Viewer);
+                system_role_permissions(role.as_str())
             }
-            "custom" => {
-                let base_role = record.custom_base_role.as_deref().unwrap_or("viewer");
-                system_role_permissions(base_role)
+            WorkspaceRoleKind::Custom => {
+                let base_role = record.custom_base_role.unwrap_or(WorkspaceBaseRole::Viewer);
+                system_role_permissions(base_role.as_str())
             }
-            _ => system_role_permissions("viewer"),
         };
         if !record.overrides.is_empty() {
             set = apply_custom_overrides(set, record.overrides.clone());
@@ -307,12 +319,12 @@ impl WorkspaceService {
         if member.workspace_id == member.user_id {
             return Err(ServiceError::BadRequest("cannot_remove_owner"));
         }
-        let removing_owner =
-            member.role_kind == "system" && member.system_role.as_deref() == Some("owner");
+        let removing_owner = member.role_kind == WorkspaceRoleKind::System
+            && member.system_role == Some(WorkspaceSystemRole::Owner);
         if removing_owner {
             let owner_count = self
                 .repo
-                .count_system_role_members(workspace_id, "owner")
+                .count_system_role_members(workspace_id, WorkspaceSystemRole::Owner)
                 .await
                 .map_err(ServiceError::from)?;
             if owner_count <= 1 {
@@ -343,8 +355,8 @@ impl WorkspaceService {
         workspace_id: Uuid,
         user_id: Uuid,
         requested_by: Uuid,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
     ) -> Result<WorkspaceMemberRow, ServiceError> {
         let actor_permissions = self
@@ -359,8 +371,8 @@ impl WorkspaceService {
             .update_member_role(
                 workspace_id,
                 user_id,
-                &selection.role_kind,
-                selection.system_role.as_deref(),
+                selection.role_kind,
+                selection.system_role,
                 selection.custom_role_id,
             )
             .await
@@ -382,24 +394,22 @@ impl WorkspaceService {
         workspace_id: Uuid,
         requested_by: Uuid,
         name: &str,
-        base_role: &str,
+        base_role: WorkspaceBaseRole,
         description: Option<&str>,
         priority: i32,
-        overrides: &[(String, bool)],
+        overrides: &[PermissionOverride],
     ) -> Result<WorkspaceRoleRecord, ServiceError> {
-        let normalized_base_role = base_role.trim();
         let actor_permissions = self
             .resolve_permission_set(workspace_id, requested_by)
             .await?
             .ok_or(ServiceError::Forbidden)?;
-        let role_permissions =
-            Self::permission_set_from_definition(normalized_base_role, overrides)?;
+        let role_permissions = Self::permission_set_from_definition(base_role, overrides)?;
         Self::ensure_role_grant_allowed(&actor_permissions, &role_permissions)?;
         self.repo
             .create_role(
                 workspace_id,
                 name,
-                normalized_base_role,
+                base_role,
                 description,
                 priority,
                 overrides,
@@ -414,10 +424,10 @@ impl WorkspaceService {
         requested_by: Uuid,
         role_id: Uuid,
         name: Option<&str>,
-        base_role: Option<&str>,
+        base_role: Option<WorkspaceBaseRole>,
         description: Option<&str>,
         priority: Option<i32>,
-        overrides: Option<&[(String, bool)]>,
+        overrides: Option<&[PermissionOverride]>,
     ) -> Result<WorkspaceRoleRecord, ServiceError> {
         let actor_permissions = self
             .resolve_permission_set(workspace_id, requested_by)
@@ -429,10 +439,7 @@ impl WorkspaceService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
-        let owned_base_role = base_role.map(|value| value.trim().to_string());
-        let effective_base_role = owned_base_role
-            .as_deref()
-            .unwrap_or(existing.base_role.as_str());
+        let effective_base_role = base_role.unwrap_or(existing.base_role);
         let effective_overrides = overrides
             .map(|items| items.to_vec())
             .unwrap_or_else(|| existing.overrides.clone());
@@ -444,7 +451,7 @@ impl WorkspaceService {
                 workspace_id,
                 role_id,
                 name,
-                owned_base_role.as_deref(),
+                base_role,
                 description,
                 priority,
                 overrides,
@@ -485,26 +492,29 @@ impl WorkspaceService {
     async fn resolve_role_selection(
         &self,
         workspace_id: Uuid,
-        role_kind: &str,
-        system_role: Option<&str>,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
     ) -> Result<NormalizedRoleSelection, ServiceError> {
         match role_kind {
-            "system" => {
+            WorkspaceRoleKind::System => {
+                if custom_role_id.is_some() {
+                    return Err(ServiceError::BadRequest("unexpected_custom_role"));
+                }
                 let Some(role) = system_role else {
                     return Err(ServiceError::BadRequest("missing_system_role"));
                 };
-                if !matches!(role, "owner" | "admin" | "editor" | "viewer") {
-                    return Err(ServiceError::BadRequest("invalid_system_role"));
-                }
                 Ok(NormalizedRoleSelection {
-                    role_kind: "system".to_string(),
-                    system_role: Some(role.to_string()),
+                    role_kind: WorkspaceRoleKind::System,
+                    system_role: Some(role),
                     custom_role_id: None,
-                    permissions: system_role_permissions(role),
+                    permissions: system_role_permissions(role.as_str()),
                 })
             }
-            "custom" => {
+            WorkspaceRoleKind::Custom => {
+                if system_role.is_some() {
+                    return Err(ServiceError::BadRequest("unexpected_system_role"));
+                }
                 let Some(role_id) = custom_role_id else {
                     return Err(ServiceError::BadRequest("missing_custom_role"));
                 };
@@ -521,32 +531,24 @@ impl WorkspaceService {
                     permissions = apply_custom_overrides(permissions, record.overrides.clone());
                 }
                 Ok(NormalizedRoleSelection {
-                    role_kind: "custom".to_string(),
+                    role_kind: WorkspaceRoleKind::Custom,
                     system_role: None,
                     custom_role_id: Some(role_id),
                     permissions,
                 })
             }
-            _ => Err(ServiceError::BadRequest("invalid_role_kind")),
         }
     }
 
     fn permission_set_from_definition(
-        base_role: &str,
-        overrides: &[(String, bool)],
+        base_role: WorkspaceBaseRole,
+        overrides: &[PermissionOverride],
     ) -> Result<PermissionSet, ServiceError> {
-        if !Self::is_valid_base_role(base_role) {
-            return Err(ServiceError::BadRequest("invalid_base_role"));
-        }
-        let mut permissions = system_role_permissions(base_role);
+        let mut permissions = system_role_permissions(base_role.as_str());
         if !overrides.is_empty() {
             permissions = apply_custom_overrides(permissions, overrides.to_vec());
         }
         Ok(permissions)
-    }
-
-    fn is_valid_base_role(base_role: &str) -> bool {
-        matches!(base_role, "viewer" | "editor" | "admin")
     }
 }
 

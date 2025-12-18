@@ -5,7 +5,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::plugins::ports::plugin_asset_store::{
-    PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
+    LatestGlobalManifest, PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
 };
 use crate::plugins::ports::plugin_event_publisher::{PluginEventPublisher, PluginScopedEvent};
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
@@ -17,13 +17,15 @@ use crate::plugins::use_cases::install_from_url::{
     InstallPluginError, InstallPluginFromUrl,
 };
 use domain::workspaces::permissions::PermissionSet;
+use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
+use domain::plugins::events::PluginEventKind;
 
 #[derive(Debug, Clone)]
 pub struct PluginManifestItem {
     pub id: String,
     pub name: Option<String>,
     pub version: String,
-    pub scope: String,
+    pub scope: PluginScope,
     pub mounts: Vec<String>,
     pub frontend: Value,
     pub permissions: Vec<String>,
@@ -112,7 +114,12 @@ impl PluginManagementService {
             .list_latest_global_manifests()
             .await
             .map_err(ServiceError::from)?;
-        for (plugin_id, version, manifest) in global {
+        for LatestGlobalManifest {
+            plugin_id,
+            version,
+            manifest,
+        } in global
+        {
             if let Some(item) = self.build_manifest_item(
                 &plugin_id,
                 &version,
@@ -129,7 +136,10 @@ impl PluginManagementService {
             .list_for_workspace(workspace_id)
             .await
             .map_err(ServiceError::from)?;
-        for inst in installs.into_iter().filter(|i| i.status == "enabled") {
+        for inst in installs
+            .into_iter()
+            .filter(|i| i.status == PluginInstallationStatus::Enabled)
+        {
             match self
                 .assets
                 .load_user_manifest(&workspace_id, &inst.plugin_id, &inst.version)
@@ -160,8 +170,8 @@ impl PluginManagementService {
         }
 
         items.sort_by(|a, b| {
-            let scope_a = if a.scope == "user" { 0 } else { 1 };
-            let scope_b = if b.scope == "user" { 0 } else { 1 };
+            let scope_a = if a.scope == PluginScope::User { 0 } else { 1 };
+            let scope_b = if b.scope == PluginScope::User { 0 } else { 1 };
             scope_a
                 .cmp(&scope_b)
                 .then_with(|| a.id.cmp(&b.id))
@@ -201,7 +211,7 @@ impl PluginManagementService {
             user_id: Some(user_id),
             workspace_id: Some(workspace_id),
             payload: json!({
-                "event": "uninstalled",
+                "event": PluginEventKind::Uninstalled.as_str(),
                 "id": plugin_id,
                 "workspace_id": workspace_id,
             }),
@@ -320,7 +330,6 @@ impl PluginManagementService {
             .and_then(|x| x.as_str())
             .map(|s| s.to_string());
 
-        let scope_label = scope.as_str().to_string();
         let signer_scope = match scope {
             ManifestScope::Global => AssetScope::Global,
             ManifestScope::User { user_id } => AssetScope::User {
@@ -357,7 +366,7 @@ impl PluginManagementService {
             id: id.to_string(),
             name,
             version: version.to_string(),
-            scope: scope_label,
+            scope: scope.as_plugin_scope(),
             mounts,
             frontend,
             permissions,
@@ -376,10 +385,10 @@ enum ManifestScope {
 }
 
 impl ManifestScope {
-    fn as_str(&self) -> &'static str {
+    fn as_plugin_scope(&self) -> PluginScope {
         match self {
-            ManifestScope::Global => "global",
-            ManifestScope::User { .. } => "user",
+            ManifestScope::Global => PluginScope::Global,
+            ManifestScope::User { .. } => PluginScope::User,
         }
     }
 }

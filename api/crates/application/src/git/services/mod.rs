@@ -32,6 +32,7 @@ use crate::git::use_cases::init_repo::{DeinitRepo, InitRepo};
 use crate::git::use_cases::pull::PullRepository;
 use crate::git::use_cases::sync_now::SyncNow;
 use crate::git::use_cases::upsert_config::UpsertGitConfig;
+use domain::git::pull_session::GitPullSessionStatus;
 use tracing::warn;
 
 pub mod rebuild;
@@ -428,11 +429,11 @@ impl GitService {
             dto.base_commit = Some(head);
         }
         let status = if !dto.success && conflicts.is_empty() {
-            "error".to_string()
+            GitPullSessionStatus::Error
         } else if conflicts.is_empty() {
-            "merged".to_string()
+            GitPullSessionStatus::Merged
         } else {
-            "pending".to_string()
+            GitPullSessionStatus::Pending
         };
         let session = GitPullSessionDto {
             id: session_id,
@@ -461,7 +462,7 @@ impl GitService {
             .ok_or(ServiceError::NotFound)?;
         if self.pull_session_is_stale(workspace_id, &existing).await? {
             let mut stale = existing.clone();
-            stale.status = "stale".to_string();
+            stale.status = GitPullSessionStatus::Stale;
             stale.message = Some("Pull session is stale".to_string());
             let _ = self.save_pull_session(stale.clone()).await;
             return Ok(stale);
@@ -478,11 +479,11 @@ impl GitService {
             .await?;
         let conflicts = dto.conflicts.clone().unwrap_or_default();
         let status = if !dto.success && conflicts.is_empty() {
-            "error".to_string()
+            GitPullSessionStatus::Error
         } else if conflicts.is_empty() {
-            "merged".to_string()
+            GitPullSessionStatus::Merged
         } else {
-            "resolving".to_string()
+            GitPullSessionStatus::Resolving
         };
         // When the pull completed (no conflicts), record the latest head as the session base so
         // subsequent finalize calls don't treat the session as stale.
@@ -515,14 +516,14 @@ impl GitService {
             .load_pull_session(workspace_id, session_id)
             .await?
             .ok_or(ServiceError::NotFound)?;
-        if existing.status == "merged" {
+        if existing.status == GitPullSessionStatus::Merged {
             let git_status = self.get_status(workspace_id).await?;
             return Ok(FinalizePullSessionResult {
                 session: existing,
                 git_status: Some(git_status),
             });
         }
-        if existing.status == "stale" {
+        if existing.status == GitPullSessionStatus::Stale {
             let mut stale = existing.clone();
             if stale.message.is_none() {
                 stale.message = Some("Pull session is stale".to_string());
@@ -533,17 +534,17 @@ impl GitService {
                 git_status: None,
             });
         }
-        if existing.status == "error" {
+        if existing.status == GitPullSessionStatus::Error {
             return Ok(FinalizePullSessionResult {
                 session: existing,
                 git_status: None,
             });
         }
-        if matches!(existing.status.as_str(), "pending" | "resolving")
+        if existing.status.is_in_progress()
             && self.pull_session_is_stale(workspace_id, &existing).await?
         {
             let mut stale = existing.clone();
-            stale.status = "stale".to_string();
+            stale.status = GitPullSessionStatus::Stale;
             if stale.message.is_none() {
                 stale.message = Some("Pull session is stale".to_string());
             }
@@ -563,7 +564,7 @@ impl GitService {
         let merged = GitPullSessionDto {
             id: session_id,
             workspace_id,
-            status: "merged".to_string(),
+            status: GitPullSessionStatus::Merged,
             conflicts: Vec::new(),
             resolutions: existing.resolutions.clone(),
             message: Some("merge completed".to_string()),
@@ -586,10 +587,10 @@ impl GitService {
             Some(s) => s,
             None => return Ok(None),
         };
-        if matches!(session.status.as_str(), "pending" | "resolving")
+        if session.status.is_in_progress()
             && self.pull_session_is_stale(workspace_id, &session).await?
         {
-            session.status = "stale".to_string();
+            session.status = GitPullSessionStatus::Stale;
             session.message = Some("Pull session is stale".to_string());
             let _ = self.save_pull_session(session.clone()).await;
         }

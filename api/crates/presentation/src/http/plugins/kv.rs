@@ -12,6 +12,7 @@ use super::util::{
     PERMISSION_DOC_READ, PERMISSION_DOC_WRITE, map_plugin_service_error,
     resolve_plugin_user_context,
 };
+use domain::plugins::scope::PluginScope;
 
 #[utoipa::path(
     get,
@@ -49,7 +50,7 @@ pub async fn get_kv_value(
 
     let plugin_data = ctx.plugin_data_service();
     let val = plugin_data
-        .get_kv(&p.plugin, "doc", Some(p.doc_id), &p.key)
+        .get_kv(&p.plugin, PluginScope::Doc, Some(p.doc_id), &p.key)
         .await
         .map_err(map_plugin_service_error)?
         .unwrap_or(serde_json::Value::Null);
@@ -94,7 +95,7 @@ pub async fn put_kv_value(
 
     let plugin_data = ctx.plugin_data_service();
     plugin_data
-        .put_kv(&p.plugin, "doc", Some(p.doc_id), &p.key, &body.value)
+        .put_kv(&p.plugin, PluginScope::Doc, Some(p.doc_id), &p.key, &body.value)
         .await
         .map_err(map_plugin_service_error)?;
     Ok(StatusCode::NO_CONTENT)

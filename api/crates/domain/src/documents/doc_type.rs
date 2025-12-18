@@ -1,9 +1,12 @@
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 pub const DOC_TYPE_FOLDER: &str = "folder";
 pub const DOC_TYPE_DOCUMENT: &str = "document";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DocumentType {
     Folder,
     Document,

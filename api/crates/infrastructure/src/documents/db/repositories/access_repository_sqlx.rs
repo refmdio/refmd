@@ -77,7 +77,10 @@ impl AccessRepository for SqlxAccessRepository {
                     .flatten(),
                 row.try_get::<Option<bool>, _>("allowed").ok().flatten(),
             ) {
-                overrides.push((permission, allowed));
+                overrides.push(domain::workspaces::permissions::PermissionOverride::new(
+                    permission,
+                    allowed,
+                ));
             }
         }
 
@@ -121,7 +124,7 @@ fn build_permission_set(
     role_kind: &str,
     system_role: Option<&str>,
     custom_base_role: Option<&str>,
-    overrides: Vec<(String, bool)>,
+    overrides: Vec<domain::workspaces::permissions::PermissionOverride>,
 ) -> PermissionSet {
     let set = match role_kind {
         "system" => {

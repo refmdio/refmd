@@ -19,12 +19,9 @@ where
 {
     pub async fn execute(&self, workspace_id: Uuid) -> anyhow::Result<GitStatusDto> {
         let cfg_row = self.repo.get_config(workspace_id).await?;
-        let (repository_url, auto_sync) =
-            if let Some((_id, url, _branch, _auth_type, auto_sync, _c, _u)) = cfg_row {
-                (url, auto_sync)
-            } else {
-                (String::new(), false)
-            };
+        let (repository_url, auto_sync) = cfg_row
+            .map(|cfg| (cfg.repository_url, cfg.auto_sync))
+            .unwrap_or((String::new(), false));
 
         let GitWorkspaceStatus {
             repository_initialized,
@@ -33,11 +30,16 @@ where
             untracked_files,
         } = self.workspace.status(workspace_id).await?;
 
-        let (last_sync, last_sync_status, last_sync_message, last_sync_commit_hash) = self
-            .repo
-            .get_last_sync_log(workspace_id)
-            .await?
-            .unwrap_or((None, None, None, None));
+        let last = self.repo.get_last_sync_log(workspace_id).await?;
+        let (last_sync, last_sync_status, last_sync_message, last_sync_commit_hash) = match last {
+            Some(log) => (
+                log.created_at,
+                log.status.map(|s| s.as_str().to_string()),
+                log.message,
+                log.commit_hash,
+            ),
+            None => (None, None, None, None),
+        };
 
         Ok(GitStatusDto {
             repository_initialized,

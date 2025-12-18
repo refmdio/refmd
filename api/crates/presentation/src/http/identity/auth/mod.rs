@@ -212,8 +212,8 @@ fn workspace_response_from(item: WorkspaceListItem) -> WorkspaceMembershipRespon
         icon: item.icon,
         description: item.description,
         is_personal: item.is_personal,
-        role_kind: item.role_kind,
-        system_role: item.system_role,
+        role_kind: item.role_kind.as_str().to_string(),
+        system_role: item.system_role.map(|role| role.as_str().to_string()),
         custom_role_id: item.custom_role_id,
         is_default: item.is_default,
     }

@@ -8,6 +8,7 @@ use crate::plugins::use_cases::kv::{GetPluginKv, PutPluginKv};
 use crate::plugins::use_cases::records::{
     CreatePluginRecord, DeletePluginRecord, GetPluginRecord, ListPluginRecords, UpdatePluginRecord,
 };
+use domain::plugins::scope::{PluginRecordScope, PluginScope};
 
 pub struct PluginDataService {
     repo: Arc<dyn PluginRepository>,
@@ -21,7 +22,7 @@ impl PluginDataService {
     pub async fn list_records(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginRecordScope,
         scope_id: Uuid,
         kind: &str,
         limit: i64,
@@ -38,7 +39,7 @@ impl PluginDataService {
     pub async fn create_record(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginRecordScope,
         scope_id: Uuid,
         kind: &str,
         data: &serde_json::Value,
@@ -81,7 +82,7 @@ impl PluginDataService {
     pub async fn get_kv(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
     ) -> Result<Option<serde_json::Value>, ServiceError> {
@@ -96,7 +97,7 @@ impl PluginDataService {
     pub async fn put_kv(
         &self,
         plugin: &str,
-        scope: &str,
+        scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
         value: &serde_json::Value,

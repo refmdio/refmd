@@ -9,6 +9,8 @@ use application::workspaces::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceRoleRecord,
 };
 use application::core::services::errors::ServiceError;
+use domain::workspaces::permissions::PermissionOverride;
+use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
 use crate::context::AppContext;
 use crate::http::documents::DownloadFormat;
 
@@ -158,8 +160,8 @@ pub fn to_response(row: WorkspaceListItem) -> WorkspaceResponse {
         icon: row.icon,
         description: row.description,
         is_personal: row.is_personal,
-        role_kind: row.role_kind,
-        system_role: row.system_role,
+        role_kind: row.role_kind.as_str().to_string(),
+        system_role: row.system_role.map(|role| role.as_str().to_string()),
         custom_role_id: row.custom_role_id,
         is_default: row.is_default,
     }
@@ -185,8 +187,8 @@ pub fn member_response_from(detail: WorkspaceMemberDetail) -> WorkspaceMemberRes
         user_id: detail.user_id,
         email: detail.user_email,
         name: detail.user_name,
-        role_kind: detail.role_kind,
-        system_role: detail.system_role,
+        role_kind: detail.role_kind.as_str().to_string(),
+        system_role: detail.system_role.map(|role| role.as_str().to_string()),
         custom_role_id: detail.custom_role_id,
         is_default: detail.is_default,
     }
@@ -198,14 +200,14 @@ pub fn role_response_from(record: WorkspaceRoleRecord) -> WorkspaceRoleResponse 
         workspace_id: record.workspace_id,
         name: record.name,
         description: record.description,
-        base_role: record.base_role,
+        base_role: record.base_role.as_str().to_string(),
         priority: record.priority,
         overrides: record
             .overrides
             .into_iter()
-            .map(|(permission, allowed)| PermissionOverridePayload {
-                permission,
-                allowed,
+            .map(|item| PermissionOverridePayload {
+                permission: item.permission,
+                allowed: item.allowed,
             })
             .collect(),
     }
@@ -216,8 +218,8 @@ pub fn invitation_response_from(record: WorkspaceInvitationRecord) -> WorkspaceI
         id: record.id,
         workspace_id: record.workspace_id,
         email: record.email,
-        role_kind: record.role_kind,
-        system_role: record.system_role,
+        role_kind: record.role_kind.as_str().to_string(),
+        system_role: record.system_role.map(|role| role.as_str().to_string()),
         custom_role_id: record.custom_role_id,
         invited_by: record.invited_by,
         token: record.token,
@@ -271,12 +273,31 @@ pub async fn require_any_permission(
 }
 
 pub fn validate_base_role(role: &str) -> bool {
-    matches!(role, "viewer" | "editor" | "admin")
+    WorkspaceBaseRole::from_str(role).is_some()
+}
+
+pub fn parse_role_kind(role_kind: &str) -> Result<WorkspaceRoleKind, StatusCode> {
+    WorkspaceRoleKind::from_str(role_kind).ok_or(StatusCode::BAD_REQUEST)
+}
+
+pub fn parse_system_role(role: Option<&str>) -> Result<Option<WorkspaceSystemRole>, StatusCode> {
+    role.map(|value| WorkspaceSystemRole::from_str(value).ok_or(StatusCode::BAD_REQUEST))
+        .transpose()
+}
+
+pub fn parse_base_role(role: &str) -> Result<WorkspaceBaseRole, StatusCode> {
+    WorkspaceBaseRole::from_str(role).ok_or(StatusCode::BAD_REQUEST)
+}
+
+pub fn parse_optional_base_role(
+    role: Option<&str>,
+) -> Result<Option<WorkspaceBaseRole>, StatusCode> {
+    role.map(parse_base_role).transpose()
 }
 
 pub fn normalize_overrides(
     overrides: Option<Vec<PermissionOverridePayload>>,
-) -> Result<Vec<(String, bool)>, StatusCode> {
+) -> Result<Vec<PermissionOverride>, StatusCode> {
     let mut out = Vec::new();
     if let Some(items) = overrides {
         for item in items {
@@ -284,7 +305,7 @@ pub fn normalize_overrides(
             if perm.is_empty() {
                 return Err(StatusCode::BAD_REQUEST);
             }
-            out.push((perm.to_string(), item.allowed));
+            out.push(PermissionOverride::new(perm.to_string(), item.allowed));
         }
     }
     Ok(out)

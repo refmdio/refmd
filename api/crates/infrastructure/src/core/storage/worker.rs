@@ -19,7 +19,7 @@ use application::documents::services::realtime::snapshot::MarkdownExportProvider
 use application::core::services::storage::projection_cache::RecentProjectionCache;
 use application::workspaces::services::WorkspacePermissionResolver;
 use application::workspaces::services::permission_snapshot::permission_set_from_snapshot;
-use domain::documents::doc_type::DOC_TYPE_FOLDER;
+use domain::documents::doc_type::DocumentType;
 use domain::workspaces::permissions::{
     PERM_DOC_DELETE, PERM_FILE_DELETE, PERM_FOLDER_DELETE, PermissionSet,
 };
@@ -255,7 +255,7 @@ impl StorageProjectionWorker {
         metadata: &StorageDeleteJobMetadata,
     ) -> anyhow::Result<()> {
         let permissions = self.permission_set_from_metadata(metadata).await?;
-        if metadata.doc_type == DOC_TYPE_FOLDER {
+        if metadata.doc_type == DocumentType::Folder {
             if !permissions.allows(PERM_FOLDER_DELETE) {
                 warn!(
                     workspace_id = %metadata.workspace_id,
@@ -612,7 +612,7 @@ mod tests {
         let metadata = StorageDeleteJobMetadata {
             workspace_id: owner,
             repo_path: Some("docs/foo.md".into()),
-            doc_type: "doc".into(),
+            doc_type: DocumentType::Document,
             attachment_paths: Some(vec![
                 format!("{}/docs/attachments/image.png", owner),
                 format!("{}/docs/attachments/asset.bin", owner),
@@ -655,7 +655,7 @@ mod tests {
         let metadata = StorageDeleteJobMetadata {
             workspace_id: Uuid::new_v4(),
             repo_path: Some("docs/foo.md".into()),
-            doc_type: "doc".into(),
+            doc_type: DocumentType::Document,
             attachment_paths: None,
             permission_snapshot: Vec::new(),
             actor_id: Some(Uuid::new_v4()),
@@ -692,7 +692,7 @@ mod tests {
         let metadata = StorageDeleteJobMetadata {
             workspace_id: Uuid::new_v4(),
             repo_path: Some("docs/foo.md".into()),
-            doc_type: "doc".into(),
+            doc_type: DocumentType::Document,
             attachment_paths: None,
             permission_snapshot: Vec::new(),
             actor_id: None,

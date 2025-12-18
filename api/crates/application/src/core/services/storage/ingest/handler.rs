@@ -212,14 +212,14 @@ impl StorageIngestHandler for StorageIngestService {
             info!(
                 user_id = %event.workspace_id,
                 repo_path = repo_path,
-                backend = event.backend,
+                backend = event.backend.as_str(),
                 "storage_ingest_orphan_deleted"
             );
         } else {
             warn!(
                 user_id = %event.workspace_id,
                 repo_path = repo_path,
-                backend = event.backend,
+                backend = event.backend.as_str(),
                 "storage_ingest_no_target_found"
             );
         }

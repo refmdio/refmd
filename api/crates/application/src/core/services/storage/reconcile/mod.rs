@@ -16,6 +16,7 @@ use crate::core::ports::storage::storage_reconcile_jobs::{
 };
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
+use domain::storage::ingest_backend::StorageIngestBackend;
 use domain::workspaces::permissions::PermissionSet;
 
 mod paths;
@@ -106,7 +107,7 @@ impl StorageReconcileService {
                 workspace_id,
                 None,
                 &repo_path,
-                "reconcile",
+                StorageIngestBackend::Reconcile,
                 StorageIngestKind::Delete,
                 None,
                 Some(json!({
@@ -139,7 +140,7 @@ impl StorageReconcileService {
                 workspace_id,
                 None,
                 &repo_path,
-                "reconcile",
+                StorageIngestBackend::Reconcile,
                 StorageIngestKind::Upsert,
                 None,
                 Some(json!({

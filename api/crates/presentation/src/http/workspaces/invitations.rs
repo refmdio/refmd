@@ -12,7 +12,7 @@ use crate::security::token::{self, Bearer};
 
 use super::types::{
     CreateWorkspaceInvitationRequest, WorkspaceInvitationResponse, invitation_response_from,
-    map_service_error, require_permission,
+    map_service_error, parse_role_kind, parse_system_role, require_permission,
 };
 
 #[utoipa::path(
@@ -59,6 +59,20 @@ pub async fn create_invitation(
     if body.email.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
+    let role_kind = parse_role_kind(body.role_kind.as_str())?;
+    let system_role = parse_system_role(body.system_role.as_deref())?;
+    match role_kind {
+        domain::workspaces::roles::WorkspaceRoleKind::System => {
+            if system_role.is_none() || body.custom_role_id.is_some() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+        domain::workspaces::roles::WorkspaceRoleKind::Custom => {
+            if system_role.is_some() || body.custom_role_id.is_none() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+    }
     let user_id = token::require_user_id(&ctx, bearer)
         .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
@@ -69,8 +83,8 @@ pub async fn create_invitation(
             id,
             user_id,
             &body.email,
-            body.role_kind.as_str(),
-            body.system_role.as_deref(),
+            role_kind,
+            system_role,
             body.custom_role_id,
             body.expires_at,
         )

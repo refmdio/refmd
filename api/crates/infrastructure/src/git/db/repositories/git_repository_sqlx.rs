@@ -5,9 +5,13 @@ use tokio::sync::Mutex;
 use tracing::warn;
 use uuid::Uuid;
 
-use application::git::ports::git_repository::{GitRepository, UserGitCfg};
+use application::git::ports::git_repository::{
+    GitConfigRecord, GitLastSyncLog, GitRepository, UserGitCfg,
+};
 use crate::core::crypto;
 use crate::core::db::PgPool;
+use domain::git::auth::GitAuthType;
+use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};
 
 pub struct SqlxGitRepository {
     pub pool: PgPool,
@@ -116,35 +120,26 @@ impl SqlxGitRepository {
 
 #[async_trait]
 impl GitRepository for SqlxGitRepository {
-    async fn get_config(
-        &self,
-        workspace_id: Uuid,
-    ) -> anyhow::Result<
-        Option<(
-            Uuid,
-            String,
-            String,
-            String,
-            bool,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-        )>,
-    > {
+    async fn get_config(&self, workspace_id: Uuid) -> anyhow::Result<Option<GitConfigRecord>> {
         let row = sqlx::query("SELECT id, repository_url, branch_name, auth_type, auto_sync, created_at, updated_at FROM git_configs WHERE workspace_id = $1 LIMIT 1")
             .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row.map(|r| {
-            (
-                r.get("id"),
-                r.get("repository_url"),
-                r.get("branch_name"),
-                r.get("auth_type"),
-                r.get("auto_sync"),
-                r.get("created_at"),
-                r.get("updated_at"),
-            )
-        }))
+        row.map(|r| {
+            let auth_type_raw: String = r.get("auth_type");
+            let auth_type = GitAuthType::from_str(&auth_type_raw)
+                .ok_or_else(|| anyhow::anyhow!("invalid_git_auth_type"))?;
+            Ok(GitConfigRecord {
+                id: r.get("id"),
+                repository_url: r.get("repository_url"),
+                branch_name: r.get("branch_name"),
+                auth_type,
+                auto_sync: r.get("auto_sync"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            })
+        })
+        .transpose()
     }
 
     async fn upsert_config(
@@ -152,18 +147,10 @@ impl GitRepository for SqlxGitRepository {
         workspace_id: Uuid,
         repository_url: &str,
         branch_name: Option<&str>,
-        auth_type: &str,
+        auth_type: GitAuthType,
         auth_data: &serde_json::Value,
         auto_sync: Option<bool>,
-    ) -> anyhow::Result<(
-        Uuid,
-        String,
-        String,
-        String,
-        bool,
-        chrono::DateTime<chrono::Utc>,
-        chrono::DateTime<chrono::Utc>,
-    )> {
+    ) -> anyhow::Result<GitConfigRecord> {
         self.ensure_workspace_unique_constraint_ready().await?;
         let enc_auth = crypto::encrypt_auth_data(&self.encryption_key, auth_data);
         let mut repaired_constraint = false;
@@ -183,21 +170,24 @@ impl GitRepository for SqlxGitRepository {
             .bind(workspace_id)
             .bind(repository_url)
             .bind(branch_name)
-            .bind(auth_type)
+            .bind(auth_type.as_str())
             .bind(&enc_auth)
             .bind(auto_sync);
 
             match query.fetch_one(&self.pool).await {
                 Ok(row) => {
-                    break Ok((
-                        row.get("id"),
-                        row.get("repository_url"),
-                        row.get("branch_name"),
-                        row.get("auth_type"),
-                        row.get("auto_sync"),
-                        row.get("created_at"),
-                        row.get("updated_at"),
-                    ));
+                    let auth_type_raw: String = row.get("auth_type");
+                    let parsed_auth_type = GitAuthType::from_str(&auth_type_raw)
+                        .ok_or_else(|| anyhow::anyhow!("invalid_git_auth_type"))?;
+                    break Ok(GitConfigRecord {
+                        id: row.get("id"),
+                        repository_url: row.get("repository_url"),
+                        branch_name: row.get("branch_name"),
+                        auth_type: parsed_auth_type,
+                        auto_sync: row.get("auto_sync"),
+                        created_at: row.get("created_at"),
+                        updated_at: row.get("updated_at"),
+                    });
                 }
                 Err(sqlx::Error::Database(db_err)) => {
                     if !repaired_constraint && is_missing_workspace_unique_error(db_err.as_ref()) {
@@ -229,60 +219,70 @@ impl GitRepository for SqlxGitRepository {
             .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row.map(|r| {
+        row.map(|r| {
             let repository_url: String = r.get("repository_url");
             let branch_name: String = r.get("branch_name");
-            let auth_type: Option<String> = r.try_get("auth_type").ok();
+            let auth_type_raw: Option<String> = r.try_get("auth_type").ok();
+            let auth_type = match auth_type_raw.as_deref() {
+                None => None,
+                Some(value) => Some(
+                    GitAuthType::from_str(value)
+                        .ok_or_else(|| anyhow::anyhow!("invalid_git_auth_type"))?,
+                ),
+            };
             let raw_auth: Option<serde_json::Value> = r.try_get("auth_data").ok();
             let auth_data = raw_auth.map(|v| crypto::decrypt_auth_data(&self.encryption_key, &v));
             let auto_sync: bool = r.try_get("auto_sync").unwrap_or(true);
-            UserGitCfg {
+            Ok(UserGitCfg {
                 repository_url,
                 branch_name,
                 auth_type,
                 auth_data,
                 auto_sync,
-            }
-        }))
+            })
+        })
+        .transpose()
     }
 
     async fn get_last_sync_log(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<
-        Option<(
-            Option<chrono::DateTime<chrono::Utc>>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )>,
-    > {
+    ) -> anyhow::Result<Option<GitLastSyncLog>> {
         let row = sqlx::query("SELECT status, message, commit_hash, created_at FROM git_sync_logs WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 1")
             .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row.map(|r| {
-            (
-                r.try_get("created_at").ok(),
-                r.try_get("status").ok(),
-                r.try_get("message").ok(),
-                r.try_get("commit_hash").ok(),
-            )
-        }))
+        row.map(|r| {
+            let status_raw: Option<String> = r.try_get("status").ok();
+            let status = match status_raw.as_deref() {
+                None => None,
+                Some(value) => Some(
+                    GitSyncStatus::from_str(value)
+                        .ok_or_else(|| anyhow::anyhow!("invalid_git_sync_status"))?,
+                ),
+            };
+            Ok(GitLastSyncLog {
+                created_at: r.try_get("created_at").ok(),
+                status,
+                message: r.try_get("message").ok(),
+                commit_hash: r.try_get("commit_hash").ok(),
+            })
+        })
+        .transpose()
     }
 
     async fn log_sync_operation(
         &self,
         workspace_id: Uuid,
-        operation: &str,
-        status: &str,
+        operation: GitSyncOperation,
+        status: GitSyncStatus,
         message: Option<&str>,
         commit_hash: Option<&str>,
     ) -> anyhow::Result<()> {
         let _ = sqlx::query("INSERT INTO git_sync_logs (workspace_id, operation, status, message, commit_hash) VALUES ($1, $2, $3, $4, $5)")
             .bind(workspace_id)
-            .bind(operation)
-            .bind(status)
+            .bind(operation.as_str())
+            .bind(status.as_str())
             .bind(message)
             .bind(commit_hash)
             .execute(&self.pool)

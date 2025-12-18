@@ -3,6 +3,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use domain::documents::doc_type::DocumentType;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageProjectionJobKind {
     DocSync,
@@ -27,7 +29,7 @@ pub struct StorageProjectionJob {
 pub struct StorageDeleteJobMetadata {
     pub workspace_id: Uuid,
     pub repo_path: Option<String>,
-    pub doc_type: String,
+    pub doc_type: DocumentType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_paths: Option<Vec<String>>,
     #[serde(default)]

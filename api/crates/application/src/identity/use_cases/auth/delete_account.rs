@@ -15,6 +15,7 @@ use crate::core::ports::storage::storage_projection_queue::{
 };
 use crate::identity::ports::user_repository::UserRepository;
 use domain::documents::doc_type::DocumentType;
+use domain::plugins::scope::{PluginRecordScope, PluginScope};
 use domain::workspaces::permissions::PermissionSet;
 
 pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
@@ -76,16 +77,18 @@ where
             .await?;
 
         self.plugin_repo
-            .delete_scoped_kv("user", &[user_id])
+            .delete_scoped_kv(PluginScope::User, &[user_id])
             .await?;
         self.plugin_repo
-            .delete_scoped_records("user", &[user_id])
+            .delete_scoped_records(PluginRecordScope::User, &[user_id])
             .await?;
 
         if !doc_ids.is_empty() {
-            self.plugin_repo.delete_scoped_kv("doc", &doc_ids).await?;
             self.plugin_repo
-                .delete_scoped_records("doc", &doc_ids)
+                .delete_scoped_kv(PluginScope::Doc, &doc_ids)
+                .await?;
+            self.plugin_repo
+                .delete_scoped_records(PluginRecordScope::Doc, &doc_ids)
                 .await?;
         }
 
@@ -107,7 +110,7 @@ where
                 let delete_metadata = StorageDeleteJobMetadata {
                     workspace_id: meta.workspace_id,
                     repo_path: Some(meta.desired_path.as_str().to_string()),
-                    doc_type: meta.doc_type.as_str().to_string(),
+                    doc_type: meta.doc_type,
                     attachment_paths,
                     permission_snapshot: PermissionSet::all().to_vec(),
                     actor_id: Some(user_id),

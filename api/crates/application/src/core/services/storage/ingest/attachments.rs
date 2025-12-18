@@ -35,7 +35,7 @@ impl StorageIngestService {
         let mut payload_obj = serde_json::Map::new();
         payload_obj.insert("repo_path".into(), json!(repo_path));
         payload_obj.insert("storage_path".into(), json!(rel_path));
-        payload_obj.insert("backend".into(), json!(event.backend));
+        payload_obj.insert("backend".into(), json!(event.backend.as_str()));
         payload_obj.insert("size".into(), json!(size));
         payload_obj.insert("content_hash".into(), json!(hash));
         if let Some(prev) = previous_repo_path {
@@ -53,7 +53,7 @@ impl StorageIngestService {
             doc_id = %doc_id,
             file_id = %file_id,
             repo_path = repo_path,
-            backend = event.backend,
+            backend = event.backend.as_str(),
             "storage_ingest_attachment_upsert_applied"
         );
         Ok(())
@@ -74,7 +74,7 @@ impl StorageIngestService {
                 "attachment.ingest_delete",
                 Some(json!({
                     "repo_path": repo_path,
-                    "backend": event.backend,
+                    "backend": event.backend.as_str(),
                 })),
             )
             .await?;
@@ -82,7 +82,7 @@ impl StorageIngestService {
             doc_id = %doc_id,
             file_id = %file_id,
             repo_path = repo_path,
-            backend = event.backend,
+            backend = event.backend.as_str(),
             "storage_ingest_attachment_deleted"
         );
         Ok(())

@@ -180,7 +180,7 @@ impl From<GitPullSessionDto> for GitPullSessionResponse {
     fn from(value: GitPullSessionDto) -> Self {
         Self {
             session_id: value.id,
-            status: value.status,
+            status: value.status.as_str().to_string(),
             conflicts: value.conflicts.into_iter().map(Into::into).collect(),
             resolutions: value
                 .resolutions
