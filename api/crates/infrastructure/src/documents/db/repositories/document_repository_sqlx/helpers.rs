@@ -2,11 +2,11 @@ use std::borrow::Cow;
 
 use anyhow::{Context, anyhow};
 use sha2::{Digest, Sha256};
-use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
+use sqlx::{Postgres, QueryBuilder, Row, Transaction, postgres::PgRow};
 use uuid::Uuid;
 
 use application::documents::ports::document_repository::{
-    DocMeta, DocumentPathConflictError, SubtreeDocument,
+    DocMeta, DocumentRepoResult, DocumentRepositoryError, SubtreeDocument,
 };
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
@@ -23,7 +23,8 @@ impl SqlxDocumentRepository {
         let slug_str: String = row.get("slug");
         let slug = doc_path::Slug::new(slug_str).context("invalid_slug")?;
         let desired_path_str: String = row.get("desired_path");
-        let desired_path = doc_path::DesiredPath::new(desired_path_str);
+        let desired_path =
+            doc_path::DesiredPath::new(desired_path_str).context("invalid_desired_path")?;
         let title: String = row.get("title");
         Ok(DocMeta {
             workspace_id: row.get("workspace_id"),
@@ -44,7 +45,8 @@ impl SqlxDocumentRepository {
         let slug_str: String = row.get("slug");
         let slug = doc_path::Slug::new(slug_str).context("invalid_slug")?;
         let desired_path_str: String = row.get("desired_path");
-        let desired_path = doc_path::DesiredPath::new(desired_path_str);
+        let desired_path =
+            doc_path::DesiredPath::new(desired_path_str).context("invalid_desired_path")?;
         Ok(DomainDocument {
             id: row.get("id"),
             owner_id: row.get("owner_id"),
@@ -113,35 +115,73 @@ impl SqlxDocumentRepository {
         &self,
         tx: &mut Transaction<'_, Postgres>,
         root_id: Uuid,
-    ) -> anyhow::Result<()> {
-        sqlx::query(
+    ) -> DocumentRepoResult<()> {
+        let rows = sqlx::query(
             r#"
             WITH RECURSIVE tree AS (
-                SELECT id, desired_path, type
+                SELECT id, desired_path
                 FROM documents
                 WHERE id = $1
                 UNION ALL
                 SELECT d.id,
                        CASE
-                           WHEN d.type = 'folder' THEN tree.desired_path || '/' || d.slug
-                           ELSE tree.desired_path || '/' || d.slug || '.md'
-                       END AS desired_path,
-                       d.type
+                           WHEN tree.desired_path = '' THEN
+                               CASE
+                                   WHEN d.type = 'folder' THEN d.slug
+                                   ELSE d.slug || '.md'
+                               END
+                           ELSE
+                               CASE
+                                   WHEN d.type = 'folder' THEN tree.desired_path || '/' || d.slug
+                                   ELSE tree.desired_path || '/' || d.slug || '.md'
+                               END
+                       END AS desired_path
                 FROM documents d
                 JOIN tree ON d.parent_id = tree.id
             )
-            UPDATE documents AS doc
-            SET desired_path = tree.desired_path,
-                path_digest = digest(tree.desired_path, 'sha256'),
-                updated_at = now()
-            FROM tree
-            WHERE doc.id = tree.id
-              AND doc.id <> $1
+            SELECT id, desired_path FROM tree WHERE id <> $1
             "#,
         )
         .bind(root_id)
-        .execute(tx.as_mut())
-        .await?;
+        .fetch_all(tx.as_mut())
+        .await
+        .map_err(|e| DocumentRepositoryError::Unexpected(e.into()))?;
+
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let mut q = QueryBuilder::new(
+            "UPDATE documents AS d SET desired_path = v.desired_path, \
+             path_digest = v.path_digest, \
+             path = d.workspace_id::text || '/' || v.desired_path, \
+             updated_at = now() \
+             FROM (VALUES ",
+        );
+        let mut values = q.separated(", ");
+        for row in rows {
+            let id: Uuid = row.get("id");
+            let desired_path: String = row.get("desired_path");
+            let path_digest = Self::hash_path(&desired_path);
+            values.push("(");
+            values.push_bind(id);
+            values.push(", ");
+            values.push_bind(desired_path);
+            values.push(", ");
+            values.push_bind(path_digest);
+            values.push(")");
+        }
+        q.push(") AS v(id, desired_path, path_digest) WHERE d.id = v.id");
+        q.build()
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| {
+                if Self::is_unique_violation(&e) {
+                    DocumentRepositoryError::PathConflict
+                } else {
+                    DocumentRepositoryError::Unexpected(e.into())
+                }
+            })?;
         Ok(())
     }
 
@@ -152,11 +192,6 @@ impl SqlxDocumentRepository {
             }
             _ => false,
         }
-    }
-
-    pub(super) fn is_anyhow_unique_violation(err: &anyhow::Error) -> bool {
-        err.downcast_ref::<sqlx::Error>()
-            .is_some_and(|sqlx_err| Self::is_unique_violation(sqlx_err))
     }
 
     pub(crate) async fn create_for_user_tx(
@@ -170,10 +205,11 @@ impl SqlxDocumentRepository {
         created_by_plugin: Option<&str>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<DomainDocument> {
+    ) -> DocumentRepoResult<DomainDocument> {
         sqlx::query("SAVEPOINT document_create")
             .execute(tx.as_mut())
-            .await?;
+            .await
+            .map_err(|e| DocumentRepositoryError::Unexpected(e.into()))?;
         let repo_path = Self::owner_relative_path(workspace_id, desired_path.as_str());
         let path_digest = Self::hash_path(desired_path.as_str());
         let row = sqlx::query(
@@ -213,7 +249,7 @@ impl SqlxDocumentRepository {
                         .execute(tx.as_mut())
                         .await
                         .ok();
-                    return Err(DocumentPathConflictError.into());
+                    return Err(DocumentRepositoryError::PathConflict);
                 }
                 sqlx::query("ROLLBACK TO SAVEPOINT document_create")
                     .execute(tx.as_mut())
@@ -223,7 +259,7 @@ impl SqlxDocumentRepository {
                     .execute(tx.as_mut())
                     .await
                     .ok();
-                Err(err.into())
+                Err(DocumentRepositoryError::Unexpected(err.into()))
             }
         }
     }
@@ -237,10 +273,11 @@ impl SqlxDocumentRepository {
         parent_id: Option<Option<Uuid>>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<Option<DomainDocument>> {
+    ) -> DocumentRepoResult<Option<DomainDocument>> {
         sqlx::query("SAVEPOINT document_update")
             .execute(tx.as_mut())
-            .await?;
+            .await
+            .map_err(|e| DocumentRepositoryError::Unexpected(e.into()))?;
         let path_digest = Self::hash_path(desired_path.as_str());
         let row = match parent_id {
             None => {
@@ -293,17 +330,9 @@ impl SqlxDocumentRepository {
                 if doc.doc_type == DocumentType::Folder {
                     sqlx::query("SAVEPOINT document_update_descendants")
                         .execute(tx.as_mut())
-                        .await?;
-                    let result = self
-                        .update_descendant_paths_tx(tx, doc.id)
                         .await
-                        .map_err(|err| {
-                            if Self::is_anyhow_unique_violation(&err) {
-                                anyhow::Error::new(DocumentPathConflictError)
-                            } else {
-                                err
-                            }
-                        });
+                        .map_err(|e| DocumentRepositoryError::Unexpected(e.into()))?;
+                    let result = self.update_descendant_paths_tx(tx, doc.id).await;
                     match result {
                         Ok(()) => {
                             sqlx::query("RELEASE SAVEPOINT document_update_descendants")
@@ -351,7 +380,7 @@ impl SqlxDocumentRepository {
                         .execute(tx.as_mut())
                         .await
                         .ok();
-                    return Err(DocumentPathConflictError.into());
+                    return Err(DocumentRepositoryError::PathConflict);
                 }
                 sqlx::query("ROLLBACK TO SAVEPOINT document_update")
                     .execute(tx.as_mut())
@@ -361,7 +390,7 @@ impl SqlxDocumentRepository {
                     .execute(tx.as_mut())
                     .await
                     .ok();
-                Err(err.into())
+                Err(DocumentRepositoryError::Unexpected(err.into()))
             }
         }
     }

@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::documents::ports::document_repository::DocumentRepositoryTx;
+use crate::documents::ports::document_repository::{DocumentRepoResult, DocumentRepositoryTx};
 use domain::documents::doc_type::DocumentType;
 
 pub struct DeleteDocument<'a, R>
@@ -18,7 +18,7 @@ where
         &mut self,
         id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocumentType>> {
+    ) -> DocumentRepoResult<Option<DocumentType>> {
         self.repo.delete_owned(id, workspace_id).await
     }
 }

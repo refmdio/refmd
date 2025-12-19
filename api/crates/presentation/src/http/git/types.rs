@@ -6,21 +6,10 @@ use application::git::dtos::{
 };
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use tracing::error;
 use utoipa::ToSchema;
 
 pub fn map_git_error(err: ServiceError) -> StatusCode {
-    match err {
-        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
-        ServiceError::Forbidden => StatusCode::FORBIDDEN,
-        ServiceError::Conflict => StatusCode::CONFLICT,
-        ServiceError::NotFound => StatusCode::NOT_FOUND,
-        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        ServiceError::Unexpected(inner) => {
-            error!(error = ?inner, "git_service_error");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
+    crate::http::error::map_service_error(err, "git_service_error")
 }
 
 #[derive(Debug, Serialize, ToSchema)]

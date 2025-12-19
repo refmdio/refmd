@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use thiserror::Error;
 use uuid::Uuid;
 
 use domain::documents::doc_type::DocumentType;
@@ -8,16 +9,24 @@ pub use domain::documents::meta::DocMeta;
 use domain::documents::path::{DesiredPath, Slug};
 use domain::documents::title::Title;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DocumentPathConflictError;
-
-impl std::fmt::Display for DocumentPathConflictError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "document path conflict")
-    }
+#[derive(Debug, Error)]
+pub enum DocumentRepositoryError {
+    #[error("document path conflict")]
+    PathConflict,
+    #[error(transparent)]
+    Unexpected(#[from] anyhow::Error),
 }
 
-impl std::error::Error for DocumentPathConflictError {}
+pub type DocumentRepoResult<T> = Result<T, DocumentRepositoryError>;
+
+impl From<DocumentRepositoryError> for crate::core::services::errors::ServiceError {
+    fn from(err: DocumentRepositoryError) -> Self {
+        match err {
+            DocumentRepositoryError::PathConflict => Self::Conflict,
+            DocumentRepositoryError::Unexpected(inner) => Self::Unexpected(inner),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentListState {
@@ -40,23 +49,23 @@ pub trait DocumentRepository: Send + Sync {
         query: Option<String>,
         tag: Option<String>,
         state: DocumentListState,
-    ) -> anyhow::Result<Vec<DomainDocument>>;
+    ) -> DocumentRepoResult<Vec<DomainDocument>>;
 
-    async fn list_ids_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
+    async fn list_ids_for_user(&self, workspace_id: Uuid) -> DocumentRepoResult<Vec<Uuid>>;
 
     async fn list_workspace_documents(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<DomainDocument>>;
+    ) -> DocumentRepoResult<Vec<DomainDocument>>;
 
-    async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>>;
+    async fn get_by_id(&self, id: Uuid) -> DocumentRepoResult<Option<DomainDocument>>;
 
     async fn search_for_user(
         &self,
         workspace_id: Uuid,
         query: Option<String>,
         limit: i64,
-    ) -> anyhow::Result<Vec<SearchHit>>;
+    ) -> DocumentRepoResult<Vec<SearchHit>>;
 
     async fn create_for_user(
         &self,
@@ -68,7 +77,7 @@ pub trait DocumentRepository: Send + Sync {
         created_by_plugin: Option<&str>,
         slug: &Slug,
         desired_path: &DesiredPath,
-    ) -> anyhow::Result<DomainDocument>;
+    ) -> DocumentRepoResult<DomainDocument>;
 
     // parent_id: None => not provided; Some(None) => set NULL; Some(Some(uuid)) => set to value
     async fn update_title_and_parent_for_user(
@@ -79,40 +88,40 @@ pub trait DocumentRepository: Send + Sync {
         parent_id: Option<Option<Uuid>>,
         slug: &Slug,
         desired_path: &DesiredPath,
-    ) -> anyhow::Result<Option<DomainDocument>>;
+    ) -> DocumentRepoResult<Option<DomainDocument>>;
 
     // Returns Some(type) if deleted, None if not found/unauthorized
     async fn delete_owned(
         &self,
         id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocumentType>>;
+    ) -> DocumentRepoResult<Option<DocumentType>>;
 
     // Lightweight meta for ownership-scoped queries
     async fn get_meta_for_owner(
         &self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocMeta>>;
+    ) -> DocumentRepoResult<Option<DocMeta>>;
 
     async fn archive_subtree(
         &self,
         doc_id: Uuid,
         workspace_id: Uuid,
         archived_by: Uuid,
-    ) -> anyhow::Result<Option<DomainDocument>>;
+    ) -> DocumentRepoResult<Option<DomainDocument>>;
 
     async fn unarchive_subtree(
         &self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DomainDocument>>;
+    ) -> DocumentRepoResult<Option<DomainDocument>>;
 
     async fn list_owned_subtree_documents(
         &self,
         workspace_id: Uuid,
         root_id: Uuid,
-    ) -> anyhow::Result<Vec<SubtreeDocument>>;
+    ) -> DocumentRepoResult<Vec<SubtreeDocument>>;
 }
 
 #[async_trait]
@@ -127,7 +136,7 @@ pub trait DocumentRepositoryTx: Send {
         created_by_plugin: Option<&str>,
         slug: &Slug,
         desired_path: &DesiredPath,
-    ) -> anyhow::Result<DomainDocument>;
+    ) -> DocumentRepoResult<DomainDocument>;
 
     // parent_id: None => not provided; Some(None) => set NULL; Some(Some(uuid)) => set to value
     async fn update_title_and_parent_for_user(
@@ -138,40 +147,40 @@ pub trait DocumentRepositoryTx: Send {
         parent_id: Option<Option<Uuid>>,
         slug: &Slug,
         desired_path: &DesiredPath,
-    ) -> anyhow::Result<Option<DomainDocument>>;
+    ) -> DocumentRepoResult<Option<DomainDocument>>;
 
     // Returns Some(type) if deleted, None if not found/unauthorized
     async fn delete_owned(
         &mut self,
         id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocumentType>>;
+    ) -> DocumentRepoResult<Option<DocumentType>>;
 
     // Lightweight meta for ownership-scoped queries
     async fn get_meta_for_owner(
         &mut self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocMeta>>;
+    ) -> DocumentRepoResult<Option<DocMeta>>;
 
     async fn archive_subtree(
         &mut self,
         doc_id: Uuid,
         workspace_id: Uuid,
         archived_by: Uuid,
-    ) -> anyhow::Result<Option<DomainDocument>>;
+    ) -> DocumentRepoResult<Option<DomainDocument>>;
 
     async fn unarchive_subtree(
         &mut self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DomainDocument>>;
+    ) -> DocumentRepoResult<Option<DomainDocument>>;
 
     async fn list_owned_subtree_documents(
         &mut self,
         workspace_id: Uuid,
         root_id: Uuid,
-    ) -> anyhow::Result<Vec<SubtreeDocument>>;
+    ) -> DocumentRepoResult<Vec<SubtreeDocument>>;
 }
 
 #[derive(Debug, Clone)]

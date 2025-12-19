@@ -1,7 +1,6 @@
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -168,17 +167,7 @@ pub fn to_response(row: WorkspaceListItem) -> WorkspaceResponse {
 }
 
 pub fn map_service_error(err: ServiceError) -> StatusCode {
-    match err {
-        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
-        ServiceError::Forbidden => StatusCode::FORBIDDEN,
-        ServiceError::Conflict => StatusCode::CONFLICT,
-        ServiceError::NotFound => StatusCode::NOT_FOUND,
-        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        ServiceError::Unexpected(inner) => {
-            error!(error = ?inner, "workspace_service_error");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
+    crate::http::error::map_service_error(err, "workspace_service_error")
 }
 
 pub fn member_response_from(detail: WorkspaceMemberDetail) -> WorkspaceMemberResponse {

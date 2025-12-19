@@ -1,6 +1,7 @@
 use crate::core::services::errors::ServiceError;
 use crate::documents::dtos::DocumentListFilter;
 use crate::documents::ports::document_repository::DocumentListState;
+use crate::documents::ports::document_repository::DocumentRepositoryError;
 use domain::documents::hierarchy;
 use domain::documents::policy::DocumentPolicyError;
 
@@ -32,6 +33,9 @@ pub(super) fn map_parent_error(err: hierarchy::ParentValidationError) -> Service
 pub(super) fn map_tx_error(err: anyhow::Error) -> ServiceError {
     match err.downcast::<ServiceError>() {
         Ok(service_error) => service_error,
-        Err(err) => ServiceError::from(err),
+        Err(err) => match err.downcast::<DocumentRepositoryError>() {
+            Ok(repo_err) => ServiceError::from(repo_err),
+            Err(err) => ServiceError::from(err),
+        },
     }
 }

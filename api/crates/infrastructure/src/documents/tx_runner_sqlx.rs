@@ -7,7 +7,9 @@ use uuid::Uuid;
 use application::core::ports::storage::storage_projection_queue::{
     StorageProjectionJobKind, StorageProjectionQueueTx,
 };
-use application::documents::ports::document_repository::{DocumentRepositoryTx, SubtreeDocument};
+use application::documents::ports::document_repository::{
+    DocumentRepoResult, DocumentRepositoryError, DocumentRepositoryTx, SubtreeDocument,
+};
 use application::documents::ports::files::files_repository::FilesRepositoryTx;
 use application::documents::ports::tx_runner::{
     BoxedTxResult, DocumentsTx, DocumentsTxFn, DocumentsTxRunner,
@@ -72,7 +74,7 @@ impl<'repo, 'tx, 'c> DocumentRepositoryTx for SqlxDocumentsTx<'repo, 'tx, 'c> {
         created_by_plugin: Option<&str>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<domain::documents::document::Document> {
+    ) -> DocumentRepoResult<domain::documents::document::Document> {
         self.documents_repo
             .create_for_user_tx(
                 self.tx,
@@ -96,7 +98,7 @@ impl<'repo, 'tx, 'c> DocumentRepositoryTx for SqlxDocumentsTx<'repo, 'tx, 'c> {
         parent_id: Option<Option<Uuid>>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<Option<domain::documents::document::Document>> {
+    ) -> DocumentRepoResult<Option<domain::documents::document::Document>> {
         self.documents_repo
             .update_title_and_parent_for_user_tx(
                 self.tx,
@@ -114,20 +116,22 @@ impl<'repo, 'tx, 'c> DocumentRepositoryTx for SqlxDocumentsTx<'repo, 'tx, 'c> {
         &mut self,
         id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocumentType>> {
+    ) -> DocumentRepoResult<Option<DocumentType>> {
         self.documents_repo
             .delete_owned_tx(self.tx, id, workspace_id)
             .await
+            .map_err(DocumentRepositoryError::from)
     }
 
     async fn get_meta_for_owner(
         &mut self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<application::documents::ports::document_repository::DocMeta>> {
+    ) -> DocumentRepoResult<Option<application::documents::ports::document_repository::DocMeta>> {
         self.documents_repo
             .get_meta_for_owner_tx(self.tx, doc_id, workspace_id)
             .await
+            .map_err(DocumentRepositoryError::from)
     }
 
     async fn archive_subtree(
@@ -135,30 +139,33 @@ impl<'repo, 'tx, 'c> DocumentRepositoryTx for SqlxDocumentsTx<'repo, 'tx, 'c> {
         doc_id: Uuid,
         workspace_id: Uuid,
         archived_by: Uuid,
-    ) -> anyhow::Result<Option<domain::documents::document::Document>> {
+    ) -> DocumentRepoResult<Option<domain::documents::document::Document>> {
         self.documents_repo
             .archive_subtree_tx(self.tx, doc_id, workspace_id, archived_by)
             .await
+            .map_err(DocumentRepositoryError::from)
     }
 
     async fn unarchive_subtree(
         &mut self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<domain::documents::document::Document>> {
+    ) -> DocumentRepoResult<Option<domain::documents::document::Document>> {
         self.documents_repo
             .unarchive_subtree_tx(self.tx, doc_id, workspace_id)
             .await
+            .map_err(DocumentRepositoryError::from)
     }
 
     async fn list_owned_subtree_documents(
         &mut self,
         workspace_id: Uuid,
         root_id: Uuid,
-    ) -> anyhow::Result<Vec<SubtreeDocument>> {
+    ) -> DocumentRepoResult<Vec<SubtreeDocument>> {
         self.documents_repo
             .list_owned_subtree_documents_tx(self.tx, workspace_id, root_id)
             .await
+            .map_err(DocumentRepositoryError::from)
     }
 }
 

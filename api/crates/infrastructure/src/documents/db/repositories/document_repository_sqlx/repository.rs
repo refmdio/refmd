@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use application::documents::ports::document_path_repository::DocumentPathRepository;
 use application::documents::ports::document_repository::{
-    DocMeta, DocumentListState, DocumentRepository, SubtreeDocument,
+    DocMeta, DocumentListState, DocumentRepoResult, DocumentRepository, DocumentRepositoryError,
+    SubtreeDocument,
 };
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::{Document as DomainDocument, SearchHit};
@@ -13,6 +14,10 @@ use domain::documents::path as doc_path;
 use domain::documents::title::Title;
 
 use super::SqlxDocumentRepository;
+
+fn unexpected_sqlx(err: sqlx::Error) -> DocumentRepositoryError {
+    DocumentRepositoryError::Unexpected(err.into())
+}
 
 #[async_trait]
 impl DocumentRepository for SqlxDocumentRepository {
@@ -22,7 +27,7 @@ impl DocumentRepository for SqlxDocumentRepository {
         query: Option<String>,
         tag: Option<String>,
         state: DocumentListState,
-    ) -> anyhow::Result<Vec<DomainDocument>> {
+    ) -> DocumentRepoResult<Vec<DomainDocument>> {
         let archived_condition = match state {
             DocumentListState::Active => "d.archived_at IS NULL",
             DocumentListState::Archived => "d.archived_at IS NOT NULL",
@@ -42,7 +47,8 @@ impl DocumentRepository for SqlxDocumentRepository {
                 .bind(workspace_id)
                 .bind(t)
                 .fetch_all(&self.pool)
-                .await?
+                .await
+                .map_err(unexpected_sqlx)?
         } else if let Some(ref qq) = query.as_ref().filter(|s| !s.trim().is_empty()) {
             let like = format!("%{}%", qq);
             let sql = format!(
@@ -55,7 +61,8 @@ impl DocumentRepository for SqlxDocumentRepository {
                 .bind(workspace_id)
                 .bind(like)
                 .fetch_all(&self.pool)
-                .await?
+                .await
+                .map_err(unexpected_sqlx)?
         } else {
             let sql = format!(
                 r#"SELECT d.*
@@ -66,41 +73,49 @@ impl DocumentRepository for SqlxDocumentRepository {
             sqlx::query(&sql)
                 .bind(workspace_id)
                 .fetch_all(&self.pool)
-                .await?
+                .await
+                .map_err(unexpected_sqlx)?
         };
 
         rows.into_iter()
             .map(|r| Self::map_row_to_document(&r))
-            .collect()
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map_err(DocumentRepositoryError::from)
     }
 
-    async fn list_ids_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<Uuid>> {
+    async fn list_ids_for_user(&self, workspace_id: Uuid) -> DocumentRepoResult<Vec<Uuid>> {
         let rows = sqlx::query("SELECT id FROM documents WHERE workspace_id = $1")
             .bind(workspace_id)
             .fetch_all(&self.pool)
-            .await?;
+            .await
+            .map_err(unexpected_sqlx)?;
         Ok(rows.into_iter().map(|r| r.get("id")).collect())
     }
 
     async fn list_workspace_documents(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<DomainDocument>> {
+    ) -> DocumentRepoResult<Vec<DomainDocument>> {
         let rows = sqlx::query("SELECT * FROM documents WHERE workspace_id = $1")
             .bind(workspace_id)
             .fetch_all(&self.pool)
-            .await?;
+            .await
+            .map_err(unexpected_sqlx)?;
         rows.into_iter()
             .map(|r| Self::map_row_to_document(&r))
-            .collect()
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map_err(DocumentRepositoryError::from)
     }
 
-    async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<DomainDocument>> {
+    async fn get_by_id(&self, id: Uuid) -> DocumentRepoResult<Option<DomainDocument>> {
         let row = sqlx::query(r#"SELECT * FROM documents WHERE id = $1"#)
             .bind(id)
             .fetch_optional(&self.pool)
-            .await?;
-        row.map(|r| Self::map_row_to_document(&r)).transpose()
+            .await
+            .map_err(unexpected_sqlx)?;
+        row.map(|r| Self::map_row_to_document(&r))
+            .transpose()
+            .map_err(DocumentRepositoryError::from)
     }
 
     async fn search_for_user(
@@ -108,7 +123,7 @@ impl DocumentRepository for SqlxDocumentRepository {
         workspace_id: Uuid,
         query: Option<String>,
         limit: i64,
-    ) -> anyhow::Result<Vec<SearchHit>> {
+    ) -> DocumentRepoResult<Vec<SearchHit>> {
         let q = query.unwrap_or_default();
         let like = format!("%{}%", q);
         let rows = if q.trim().is_empty() {
@@ -122,7 +137,8 @@ impl DocumentRepository for SqlxDocumentRepository {
             .bind(workspace_id)
             .bind(limit)
             .fetch_all(&self.pool)
-            .await?
+            .await
+            .map_err(unexpected_sqlx)?
         } else {
             sqlx::query(
                 r#"SELECT id, title, type, path, updated_at, archived_at FROM documents
@@ -136,7 +152,8 @@ impl DocumentRepository for SqlxDocumentRepository {
             .bind(&q)
             .bind(limit)
             .fetch_all(&self.pool)
-            .await?
+            .await
+            .map_err(unexpected_sqlx)?
         };
         rows.into_iter()
             .map(|r| {
@@ -152,7 +169,8 @@ impl DocumentRepository for SqlxDocumentRepository {
                     updated_at: r.get("updated_at"),
                 })
             })
-            .collect()
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map_err(DocumentRepositoryError::from)
     }
 
     async fn create_for_user(
@@ -165,8 +183,8 @@ impl DocumentRepository for SqlxDocumentRepository {
         created_by_plugin: Option<&str>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<DomainDocument> {
-        let mut tx = self.pool.begin().await?;
+    ) -> DocumentRepoResult<DomainDocument> {
+        let mut tx = self.pool.begin().await.map_err(unexpected_sqlx)?;
         let doc = self
             .create_for_user_tx(
                 &mut tx,
@@ -180,7 +198,7 @@ impl DocumentRepository for SqlxDocumentRepository {
                 desired_path,
             )
             .await?;
-        tx.commit().await?;
+        tx.commit().await.map_err(unexpected_sqlx)?;
         Ok(doc)
     }
 
@@ -192,8 +210,8 @@ impl DocumentRepository for SqlxDocumentRepository {
         parent_id: Option<Option<Uuid>>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<Option<DomainDocument>> {
-        let mut tx = self.pool.begin().await?;
+    ) -> DocumentRepoResult<Option<DomainDocument>> {
+        let mut tx = self.pool.begin().await.map_err(unexpected_sqlx)?;
         let doc = self
             .update_title_and_parent_for_user_tx(
                 &mut tx,
@@ -205,7 +223,7 @@ impl DocumentRepository for SqlxDocumentRepository {
                 desired_path,
             )
             .await?;
-        tx.commit().await?;
+        tx.commit().await.map_err(unexpected_sqlx)?;
         Ok(doc)
     }
 
@@ -213,10 +231,13 @@ impl DocumentRepository for SqlxDocumentRepository {
         &self,
         id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocumentType>> {
-        let mut tx = self.pool.begin().await?;
-        let res = self.delete_owned_tx(&mut tx, id, workspace_id).await?;
-        tx.commit().await?;
+    ) -> DocumentRepoResult<Option<DocumentType>> {
+        let mut tx = self.pool.begin().await.map_err(unexpected_sqlx)?;
+        let res = self
+            .delete_owned_tx(&mut tx, id, workspace_id)
+            .await
+            .map_err(DocumentRepositoryError::from)?;
+        tx.commit().await.map_err(unexpected_sqlx)?;
         Ok(res)
     }
 
@@ -224,17 +245,19 @@ impl DocumentRepository for SqlxDocumentRepository {
         &self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DocMeta>> {
+    ) -> DocumentRepoResult<Option<DocMeta>> {
         let row = sqlx::query(
             "SELECT workspace_id, type, path, slug, desired_path, title, archived_at FROM documents WHERE id = $1 AND workspace_id = $2",
         )
         .bind(doc_id)
         .bind(workspace_id)
         .fetch_optional(&self.pool)
-        .await?;
+        .await
+        .map_err(unexpected_sqlx)?;
         row.as_ref()
             .map(SqlxDocumentRepository::map_row_to_meta)
             .transpose()
+            .map_err(DocumentRepositoryError::from)
     }
 
     async fn archive_subtree(
@@ -242,12 +265,13 @@ impl DocumentRepository for SqlxDocumentRepository {
         doc_id: Uuid,
         workspace_id: Uuid,
         archived_by: Uuid,
-    ) -> anyhow::Result<Option<DomainDocument>> {
-        let mut tx = self.pool.begin().await?;
+    ) -> DocumentRepoResult<Option<DomainDocument>> {
+        let mut tx = self.pool.begin().await.map_err(unexpected_sqlx)?;
         let doc = self
             .archive_subtree_tx(&mut tx, doc_id, workspace_id, archived_by)
-            .await?;
-        tx.commit().await?;
+            .await
+            .map_err(DocumentRepositoryError::from)?;
+        tx.commit().await.map_err(unexpected_sqlx)?;
         Ok(doc)
     }
 
@@ -255,12 +279,13 @@ impl DocumentRepository for SqlxDocumentRepository {
         &self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<DomainDocument>> {
-        let mut tx = self.pool.begin().await?;
+    ) -> DocumentRepoResult<Option<DomainDocument>> {
+        let mut tx = self.pool.begin().await.map_err(unexpected_sqlx)?;
         let doc = self
             .unarchive_subtree_tx(&mut tx, doc_id, workspace_id)
-            .await?;
-        tx.commit().await?;
+            .await
+            .map_err(DocumentRepositoryError::from)?;
+        tx.commit().await.map_err(unexpected_sqlx)?;
         Ok(doc)
     }
 
@@ -268,7 +293,7 @@ impl DocumentRepository for SqlxDocumentRepository {
         &self,
         workspace_id: Uuid,
         root_id: Uuid,
-    ) -> anyhow::Result<Vec<SubtreeDocument>> {
+    ) -> DocumentRepoResult<Vec<SubtreeDocument>> {
         let rows = sqlx::query(
             r#"
             WITH RECURSIVE subtree AS (
@@ -285,7 +310,8 @@ impl DocumentRepository for SqlxDocumentRepository {
         .bind(root_id)
         .bind(workspace_id)
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        .map_err(unexpected_sqlx)?;
         rows.into_iter()
             .map(|r| {
                 let doc_type_str: String = r.get("type");
@@ -296,7 +322,8 @@ impl DocumentRepository for SqlxDocumentRepository {
                     doc_type,
                 })
             })
-            .collect()
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map_err(DocumentRepositoryError::from)
     }
 }
 
@@ -345,17 +372,10 @@ impl DocumentPathRepository for SqlxDocumentRepository {
         workspace_id: Uuid,
         relative_path: &str,
     ) -> anyhow::Result<()> {
-        let trimmed = relative_path.trim_start_matches('/');
-        let owner_prefix = workspace_id.to_string();
-        let desired_path = if let Some(rest) = trimmed.strip_prefix(&owner_prefix) {
-            rest.trim_start_matches('/').to_string()
-        } else {
-            trimmed.to_string()
-        };
-        if desired_path.is_empty() {
-            return Err(anyhow!("invalid_relative_path"));
-        }
-        let desired_path = doc_path::DesiredPath::new(desired_path);
+        let repo_path = doc_path::repo_relative_from_storage(workspace_id, relative_path)
+            .ok_or_else(|| anyhow!("invalid_relative_path"))?;
+        let desired_path =
+            doc_path::DesiredPath::new(repo_path.as_str().to_string()).context("invalid_path")?;
         let slug = doc_path::slug_from_desired_path(&desired_path)?;
         let parent_path = doc_path::parent_desired_path(&desired_path);
         let parent_id = self

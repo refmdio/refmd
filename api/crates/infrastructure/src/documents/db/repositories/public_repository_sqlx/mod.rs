@@ -168,7 +168,8 @@ impl PublicRepository for SqlxPublicRepository {
             let slug_str: String = r.get("slug");
             let slug = doc_path::Slug::new(slug_str).context("invalid_slug")?;
             let desired_path_str: String = r.get("desired_path");
-            let desired_path = doc_path::DesiredPath::new(desired_path_str);
+            let desired_path =
+                doc_path::DesiredPath::new(desired_path_str).context("invalid_desired_path")?;
             Ok(Document {
                 id: r.get("id"),
                 owner_id: r.get("owner_id"),

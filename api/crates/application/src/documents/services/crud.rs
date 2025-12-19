@@ -11,7 +11,6 @@ use domain::documents::{hierarchy, path as doc_path, policy as doc_policy, title
 use crate::core::services::access::{self, Actor};
 use crate::core::services::errors::ServiceError;
 use crate::documents::dtos::DocumentListFilter;
-use crate::documents::ports::document_repository::DocumentPathConflictError;
 use crate::documents::ports::tx_runner::run_in_tx;
 use crate::documents::use_cases::create_document::CreateDocument;
 use crate::documents::use_cases::delete_document::DeleteDocument;
@@ -92,12 +91,12 @@ impl DocumentService {
         .await
         {
             Ok(doc) => doc,
-            Err(err) if err.downcast_ref::<DocumentPathConflictError>().is_some() => {
-                return Err(ServiceError::Conflict);
-            }
             Err(err) => {
-                error!(error = ?err, "document_create_repo_failed");
-                return Err(map_tx_error(err));
+                let service_err = map_tx_error(err);
+                if service_err.is_internal() {
+                    error!(error = ?service_err, "document_create_repo_failed");
+                }
+                return Err(service_err);
             }
         };
         let repo_path = doc.desired_path.as_str().to_string();
@@ -383,12 +382,12 @@ impl DocumentService {
         .await
         {
             Ok(doc) => doc,
-            Err(err) if err.downcast_ref::<DocumentPathConflictError>().is_some() => {
-                return Err(ServiceError::Conflict);
-            }
             Err(err) => {
-                error!(error = ?err, "document_update_repo_failed");
-                return Err(map_tx_error(err));
+                let service_err = map_tx_error(err);
+                if service_err.is_internal() {
+                    error!(error = ?service_err, "document_update_repo_failed");
+                }
+                return Err(service_err);
             }
         };
         let repo_path = doc.desired_path.as_str().to_string();

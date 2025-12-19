@@ -66,6 +66,12 @@ impl Slug {
         if trimmed.is_empty() {
             return Err(InvalidSlug);
         }
+        if matches!(trimmed, "." | "..") {
+            return Err(InvalidSlug);
+        }
+        if trimmed.contains('/') || trimmed.contains('\\') {
+            return Err(InvalidSlug);
+        }
         Ok(Self(trimmed.to_string()))
     }
 
@@ -91,14 +97,36 @@ impl fmt::Display for Slug {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DesiredPath(String);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidDesiredPath;
+
+impl fmt::Display for InvalidDesiredPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid desired path")
+    }
+}
+
+impl std::error::Error for InvalidDesiredPath {}
+
 impl DesiredPath {
     pub fn root() -> Self {
         Self(String::new())
     }
 
-    pub fn new(raw: impl Into<String>) -> Self {
+    pub fn new(raw: impl Into<String>) -> Result<Self, InvalidDesiredPath> {
         let raw = raw.into();
-        Self(raw.trim_start_matches('/').replace('\\', "/"))
+        let normalized = normalize_repo_path_impl(&raw).ok_or(InvalidDesiredPath)?;
+        // Ensure the last segment is not empty (e.g. ".md") after stripping extension.
+        let last = normalized
+            .rsplit('/')
+            .next()
+            .unwrap_or_default()
+            .trim();
+        let base = last.strip_suffix(".md").unwrap_or(last).trim();
+        if base.is_empty() || matches!(base, "." | "..") {
+            return Err(InvalidDesiredPath);
+        }
+        Ok(Self(normalized))
     }
 
     pub fn from_parent_and_slug(
@@ -123,7 +151,7 @@ impl DesiredPath {
         } else {
             format!("{prefix}{}.md", slug.as_str())
         };
-        Self::new(desired)
+        Self(desired)
     }
 
     pub fn as_str(&self) -> &str {
@@ -248,7 +276,9 @@ pub fn desired_path_candidates<'a>(
 pub fn parent_desired_path(desired_path: &DesiredPath) -> Option<DesiredPath> {
     let mut parts = desired_path.as_str().rsplitn(2, '/');
     parts.next()?; // skip current file/folder
-    parts.next().map(DesiredPath::new)
+    parts
+        .next()
+        .and_then(|p| DesiredPath::new(p.to_string()).ok())
 }
 
 pub fn slug_from_desired_path(desired_path: &DesiredPath) -> anyhow::Result<Slug> {
@@ -276,8 +306,10 @@ fn normalize_repo_path_impl(repo_path: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
+    // Treat Windows separators as separators before component parsing.
+    let trimmed = trimmed.replace('\\', "/");
     let mut normalized = PathBuf::new();
-    for component in Path::new(trimmed).components() {
+    for component in Path::new(&trimmed).components() {
         match component {
             Component::Normal(part) => normalized.push(part),
             Component::CurDir => continue,
@@ -377,7 +409,7 @@ mod tests {
     #[test]
     fn desired_path_candidates_yields_slug_and_desired_path() {
         let base = Slug::new("foo".to_string()).unwrap();
-        let parent = DesiredPath::new("bar");
+        let parent = DesiredPath::new("bar").unwrap();
         let candidates: Vec<_> =
             desired_path_candidates(&base, Some(&parent), DocumentType::Document, 2).collect();
         assert_eq!(
@@ -385,11 +417,11 @@ mod tests {
             vec![
                 (
                     Slug::new("foo".to_string()).unwrap(),
-                    DesiredPath::new("bar/foo.md")
+                    DesiredPath::new("bar/foo.md").unwrap()
                 ),
                 (
                     Slug::new("foo-2".to_string()).unwrap(),
-                    DesiredPath::new("bar/foo-2.md")
+                    DesiredPath::new("bar/foo-2.md").unwrap()
                 ),
             ]
         );
@@ -398,7 +430,7 @@ mod tests {
     #[test]
     fn desired_path_candidates_for_folder_omits_md_extension() {
         let base = Slug::new("foo".to_string()).unwrap();
-        let parent = DesiredPath::new("bar/");
+        let parent = DesiredPath::new("bar/").unwrap();
         let candidates: Vec<_> =
             desired_path_candidates(&base, Some(&parent), DocumentType::Folder, 2).collect();
         assert_eq!(
@@ -406,11 +438,11 @@ mod tests {
             vec![
                 (
                     Slug::new("foo".to_string()).unwrap(),
-                    DesiredPath::new("bar/foo")
+                    DesiredPath::new("bar/foo").unwrap()
                 ),
                 (
                     Slug::new("foo-2".to_string()).unwrap(),
-                    DesiredPath::new("bar/foo-2")
+                    DesiredPath::new("bar/foo-2").unwrap()
                 ),
             ]
         );
@@ -430,35 +462,35 @@ mod tests {
         let root = DesiredPath::root();
         assert_eq!(
             DesiredPath::from_parent_and_slug(Some(&root), &slug, DocumentType::Document),
-            DesiredPath::new("foo.md")
+            DesiredPath::new("foo.md").unwrap()
         );
     }
 
     #[test]
     fn parent_desired_path_extracts_parent_segment() {
         assert_eq!(
-            parent_desired_path(&DesiredPath::new("a/b.md")),
-            Some(DesiredPath::new("a"))
+            parent_desired_path(&DesiredPath::new("a/b.md").unwrap()),
+            Some(DesiredPath::new("a").unwrap())
         );
-        assert_eq!(parent_desired_path(&DesiredPath::new("b.md")), None);
+        assert_eq!(parent_desired_path(&DesiredPath::new("b.md").unwrap()), None);
     }
 
     #[test]
     fn slug_from_desired_path_strips_md_extension_only_when_present() {
         assert_eq!(
-            slug_from_desired_path(&DesiredPath::new("a/b.md"))
+            slug_from_desired_path(&DesiredPath::new("a/b.md").unwrap())
                 .unwrap()
                 .as_str(),
             "b"
         );
         assert_eq!(
-            slug_from_desired_path(&DesiredPath::new("a/b"))
+            slug_from_desired_path(&DesiredPath::new("a/b").unwrap())
                 .unwrap()
                 .as_str(),
             "b"
         );
         assert_eq!(
-            slug_from_desired_path(&DesiredPath::new("a/b.md.backup"))
+            slug_from_desired_path(&DesiredPath::new("a/b.md.backup").unwrap())
                 .unwrap()
                 .as_str(),
             "b.md.backup"
@@ -467,8 +499,10 @@ mod tests {
 
     #[test]
     fn slug_from_desired_path_rejects_trailing_slash_and_empty_slug() {
-        assert!(slug_from_desired_path(&DesiredPath::new("a/b/")).is_err());
-        assert!(slug_from_desired_path(&DesiredPath::new(".md")).is_err());
+        let p = DesiredPath::new("a/b/").unwrap();
+        assert_eq!(p.as_str(), "a/b");
+        assert_eq!(slug_from_desired_path(&p).unwrap().as_str(), "b");
+        assert!(DesiredPath::new(".md").is_err());
     }
 
     #[test]
@@ -493,6 +527,7 @@ mod tests {
     fn normalize_repo_path_rejects_traversal_and_empty() {
         assert!(normalize_repo_path("../secret").is_none());
         assert!(normalize_repo_path("foo/../bar").is_none());
+        assert!(normalize_repo_path(r"foo\..\bar").is_none());
         assert!(normalize_repo_path("").is_none());
         assert!(normalize_repo_path("/").is_none());
     }

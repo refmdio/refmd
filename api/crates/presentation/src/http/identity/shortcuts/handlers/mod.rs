@@ -9,22 +9,11 @@ use crate::context::AppContext;
 use crate::http::identity::auth::{self, Bearer};
 use crate::http::workspaces::scope as workspace_scope;
 use application::core::services::errors::ServiceError;
-use tracing::error;
 
 use super::types::{UpdateUserShortcutRequest, UserShortcutResponse};
 
 fn map_shortcut_error(err: ServiceError) -> StatusCode {
-    match err {
-        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
-        ServiceError::Forbidden => StatusCode::FORBIDDEN,
-        ServiceError::Conflict => StatusCode::CONFLICT,
-        ServiceError::NotFound => StatusCode::NOT_FOUND,
-        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        ServiceError::Unexpected(inner) => {
-            error!(error = ?inner, "user_shortcut_service_error");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
+    crate::http::error::map_service_error(err, "user_shortcut_service_error")
 }
 
 #[utoipa::path(

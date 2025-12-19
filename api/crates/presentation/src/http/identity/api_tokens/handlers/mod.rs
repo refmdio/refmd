@@ -3,7 +3,6 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use tracing::error;
 use uuid::Uuid;
 
 use crate::context::AppContext;
@@ -14,17 +13,7 @@ use application::core::services::errors::ServiceError;
 use super::types::{ApiTokenCreateRequest, ApiTokenCreateResponse, ApiTokenItem};
 
 fn map_token_error(err: ServiceError) -> StatusCode {
-    match err {
-        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
-        ServiceError::Forbidden => StatusCode::FORBIDDEN,
-        ServiceError::Conflict => StatusCode::CONFLICT,
-        ServiceError::NotFound => StatusCode::NOT_FOUND,
-        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        ServiceError::Unexpected(inner) => {
-            error!(error = ?inner, "api_token_service_error");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
+    crate::http::error::map_service_error(err, "api_token_service_error")
 }
 
 #[utoipa::path(

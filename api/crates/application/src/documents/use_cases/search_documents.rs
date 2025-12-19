@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::documents::ports::document_repository::DocumentRepository;
+use crate::documents::ports::document_repository::{DocumentRepoResult, DocumentRepository};
 use domain::documents::document::SearchHit;
 
 pub struct SearchDocuments<'a, R: DocumentRepository + ?Sized> {
@@ -13,7 +13,7 @@ impl<'a, R: DocumentRepository + ?Sized> SearchDocuments<'a, R> {
         workspace_id: Uuid,
         q: Option<String>,
         limit: i64,
-    ) -> anyhow::Result<Vec<SearchHit>> {
+    ) -> DocumentRepoResult<Vec<SearchHit>> {
         self.repo.search_for_user(workspace_id, q, limit).await
     }
 }

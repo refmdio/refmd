@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::documents::ports::document_repository::{
-    DocumentPathConflictError, DocumentRepository, DocumentRepositoryTx,
+    DocumentRepoResult, DocumentRepository, DocumentRepositoryError, DocumentRepositoryTx,
 };
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
@@ -22,7 +22,7 @@ pub trait CreateDocumentRepository: Send {
         created_by_plugin: Option<&str>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<DomainDocument>;
+    ) -> DocumentRepoResult<DomainDocument>;
 }
 
 #[async_trait::async_trait]
@@ -37,7 +37,7 @@ impl<R: DocumentRepository + ?Sized> CreateDocumentRepository for &R {
         created_by_plugin: Option<&str>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<DomainDocument> {
+    ) -> DocumentRepoResult<DomainDocument> {
         (*self)
             .create_for_user(
                 workspace_id,
@@ -65,7 +65,7 @@ impl<'a> CreateDocumentRepository for (dyn DocumentRepositoryTx + 'a) {
         created_by_plugin: Option<&str>,
         slug: &doc_path::Slug,
         desired_path: &doc_path::DesiredPath,
-    ) -> anyhow::Result<DomainDocument> {
+    ) -> DocumentRepoResult<DomainDocument> {
         DocumentRepositoryTx::create_for_user(
             self,
             workspace_id,
@@ -95,7 +95,7 @@ impl<'a, R: CreateDocumentRepository + ?Sized> CreateDocument<'a, R> {
         parent_desired_path: Option<&doc_path::DesiredPath>,
         doc_type: DocumentType,
         created_by_plugin: Option<&str>,
-    ) -> anyhow::Result<DomainDocument> {
+    ) -> DocumentRepoResult<DomainDocument> {
         let base_slug = doc_path::Slug::from_title(title.as_str());
         for (slug, desired_path) in doc_path::desired_path_candidates(
             &base_slug,
@@ -118,10 +118,10 @@ impl<'a, R: CreateDocumentRepository + ?Sized> CreateDocument<'a, R> {
                 .await;
             match result {
                 Ok(doc) => return Ok(doc),
-                Err(err) if err.downcast_ref::<DocumentPathConflictError>().is_some() => continue,
+                Err(DocumentRepositoryError::PathConflict) => continue,
                 Err(err) => return Err(err),
             }
         }
-        Err(DocumentPathConflictError.into())
+        Err(DocumentRepositoryError::PathConflict)
     }
 }

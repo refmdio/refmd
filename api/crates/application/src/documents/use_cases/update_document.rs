@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::documents::ports::document_repository::{
-    DocumentPathConflictError, DocumentRepositoryTx,
+    DocumentRepoResult, DocumentRepositoryError, DocumentRepositoryTx,
 };
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
@@ -33,7 +33,7 @@ where
         title: Option<&Title>,
         parent_id: Option<Option<Uuid>>,
         parent_desired_path: Option<&doc_path::DesiredPath>,
-    ) -> anyhow::Result<Option<DomainDocument>> {
+    ) -> DocumentRepoResult<Option<DomainDocument>> {
         let next_title = title.unwrap_or(current_title);
         let base_slug = if title.is_some() {
             doc_path::Slug::from_title(next_title.as_str())
@@ -63,10 +63,10 @@ where
                 .await;
             match result {
                 Ok(doc) => return Ok(doc),
-                Err(err) if err.downcast_ref::<DocumentPathConflictError>().is_some() => continue,
+                Err(DocumentRepositoryError::PathConflict) => continue,
                 Err(err) => return Err(err),
             }
         }
-        Err(DocumentPathConflictError.into())
+        Err(DocumentRepositoryError::PathConflict)
     }
 }

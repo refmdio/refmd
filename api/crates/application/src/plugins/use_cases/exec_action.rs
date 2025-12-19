@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::core::services::access;
 use crate::core::services::authorization::AuthorizationService;
 use crate::documents::ports::document_repository::DocumentRepository;
+use crate::documents::ports::document_repository::DocumentRepositoryError;
 use crate::documents::use_cases::create_document::CreateDocument;
 use crate::plugins::dtos::ExecResult;
 use crate::plugins::ports::plugin_repository::PluginRepository;
@@ -23,6 +24,12 @@ enum PluginEffectError {
 impl From<anyhow::Error> for PluginEffectError {
     fn from(err: anyhow::Error) -> Self {
         Self::Other(err)
+    }
+}
+
+impl From<DocumentRepositoryError> for PluginEffectError {
+    fn from(err: DocumentRepositoryError) -> Self {
+        Self::Other(err.into())
     }
 }
 

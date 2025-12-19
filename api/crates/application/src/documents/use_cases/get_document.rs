@@ -29,6 +29,6 @@ where
         if cap < Capability::View {
             return Ok(None);
         }
-        self.repo.get_by_id(id).await
+        self.repo.get_by_id(id).await.map_err(Into::into)
     }
 }

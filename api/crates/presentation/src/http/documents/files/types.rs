@@ -19,17 +19,7 @@ pub struct UploadFileResponse {
 }
 
 pub fn map_file_error(err: ServiceError) -> StatusCode {
-    match err {
-        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
-        ServiceError::Forbidden => StatusCode::FORBIDDEN,
-        ServiceError::Conflict => StatusCode::CONFLICT,
-        ServiceError::NotFound => StatusCode::NOT_FOUND,
-        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        ServiceError::Unexpected(inner) => {
-            tracing::error!(error = ?inner, "file_service_error");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
+    crate::http::error::map_service_error(err, "file_service_error")
 }
 
 pub fn file_payload_response(payload: FilePayload) -> axum::response::Response {

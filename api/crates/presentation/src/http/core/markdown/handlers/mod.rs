@@ -103,12 +103,5 @@ pub async fn render_markdown_many(
 }
 
 fn map_markdown_error(err: ServiceError) -> StatusCode {
-    match err {
-        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
-        ServiceError::Forbidden => StatusCode::FORBIDDEN,
-        ServiceError::Conflict => StatusCode::CONFLICT,
-        ServiceError::NotFound => StatusCode::NOT_FOUND,
-        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        ServiceError::Unexpected(_) => StatusCode::INTERNAL_SERVER_ERROR,
-    }
+    crate::http::error::map_service_error_no_log(err)
 }

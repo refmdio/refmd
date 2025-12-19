@@ -13,7 +13,7 @@ use axum::{
     response::IntoResponse,
 };
 use chrono::Utc;
-use tracing::{error, warn};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::context::AppContext;
@@ -153,31 +153,11 @@ pub async fn list_oauth_providers(
 }
 
 fn map_account_error(err: ServiceError) -> StatusCode {
-    match err {
-        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
-        ServiceError::Forbidden => StatusCode::FORBIDDEN,
-        ServiceError::Conflict => StatusCode::CONFLICT,
-        ServiceError::NotFound => StatusCode::NOT_FOUND,
-        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        ServiceError::Unexpected(inner) => {
-            error!(error = ?inner, "account_service_error");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
+    crate::http::error::map_service_error(err, "account_service_error")
 }
 
 fn map_workspace_error(err: ServiceError) -> StatusCode {
-    match err {
-        ServiceError::Unauthorized | ServiceError::TokenExpired => StatusCode::UNAUTHORIZED,
-        ServiceError::Forbidden => StatusCode::FORBIDDEN,
-        ServiceError::Conflict => StatusCode::CONFLICT,
-        ServiceError::NotFound => StatusCode::NOT_FOUND,
-        ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
-        ServiceError::Unexpected(inner) => {
-            error!(error = ?inner, "workspace_service_error");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    }
+    crate::http::error::map_service_error(err, "workspace_service_error")
 }
 
 fn workspace_response_from(item: WorkspaceListItem) -> super::WorkspaceMembershipResponse {
