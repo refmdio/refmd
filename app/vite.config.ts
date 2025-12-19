@@ -11,6 +11,15 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
+  optimizeDeps: {
+    exclude: [
+      'nitropack',
+      'nitropack/runtime',
+      '@resvg/resvg-js',
+      '@resvg/resvg-js-linux-x64-gnu',
+      '@resvg/resvg-js-linux-x64-musl',
+    ],
+  },
   plugins: [
     tanstackStart(),
     nitroV2Plugin({
