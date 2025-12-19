@@ -2,17 +2,13 @@
 
 RefMD is a real-time Markdown collaboration platform that lets teams co-author documents, publish anonymous share links, sync changes to Git, and extend the workspace through Extism-powered ESM plugins.
 
-
-
-https://github.com/user-attachments/assets/723b9494-171c-49af-b019-bad379f76e0d
-
-
-
 > [!WARNING]
 > **RefMD is currently in beta.**
 > Content hosted on `refmd.io` may be updated or modified without prior notice.
 > Document persistence is *not* guaranteed.
 > Self-hosting is recommended for users who require stability or long-term data retention.
+
+https://github.com/user-attachments/assets/723b9494-171c-49af-b019-bad379f76e0d
 
 ## Key Features
 - **Real-time co-editing** with presence indicators and a Monaco-based editor.
