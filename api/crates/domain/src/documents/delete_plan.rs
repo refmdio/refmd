@@ -24,20 +24,20 @@ pub fn build_delete_plan(
     root_id: Uuid,
     root_meta: DocMeta,
     nodes: Vec<DeleteNode>,
-) -> anyhow::Result<Vec<DeleteEntry>> {
+) -> Vec<DeleteEntry> {
     if root_meta.doc_type != DocumentType::Folder {
         let attachments = nodes
             .into_iter()
             .find(|n| n.id == root_id)
             .map(|n| n.attachments)
             .unwrap_or_default();
-        return Ok(vec![DeleteEntry {
+        return vec![DeleteEntry {
             doc_id: root_id,
             doc_type: root_meta.doc_type.clone(),
             meta: root_meta,
             attachments,
             reason: "delete_document",
-        }]);
+        }];
     }
 
     let mut entries = Vec::new();
@@ -69,7 +69,7 @@ pub fn build_delete_plan(
             .cmp(&depth_a)
             .then_with(|| is_folder(a.doc_type).cmp(&is_folder(b.doc_type)))
     });
-    Ok(entries)
+    entries
 }
 
 fn path_depth(path: &str) -> usize {
@@ -154,7 +154,7 @@ mod tests {
             },
         ];
 
-        let entries = build_delete_plan(root_id, root_meta, nodes).unwrap();
+        let entries = build_delete_plan(root_id, root_meta, nodes);
 
         // Expected order: deepest doc leaf, sibling doc, folder, root folder last
         assert_eq!(entries[0].doc_id, leaf);

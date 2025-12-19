@@ -110,7 +110,9 @@ pub async fn update_role(
 ) -> Result<Json<WorkspaceRoleResponse>, crate::http::error::ApiError> {
     if let Some(base) = body.base_role.as_deref() {
         if !validate_base_role(base) {
-            return Err(crate::http::error::ApiError::bad_request("invalid_base_role"));
+            return Err(crate::http::error::ApiError::bad_request(
+                "invalid_base_role",
+            ));
         }
     }
     let base_role = parse_optional_base_role(body.base_role.as_deref())?;

@@ -63,8 +63,8 @@ pub async fn get_plugin_asset(
                 .get("owner")
                 .map(|s| s.as_str())
                 .ok_or(ApiError::bad_request("missing_owner"))?;
-            let owner_id = Uuid::parse_str(owner_str)
-                .map_err(|_| ApiError::bad_request("invalid_owner"))?;
+            let owner_id =
+                Uuid::parse_str(owner_str).map_err(|_| ApiError::bad_request("invalid_owner"))?;
             AssetRequestScope::User {
                 owner_id,
                 share_token: share_owned.as_deref(),

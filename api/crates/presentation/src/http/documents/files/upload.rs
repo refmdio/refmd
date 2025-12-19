@@ -105,11 +105,14 @@ pub async fn upload_file(
         )
         .await
         .map_err(map_file_error)?;
-    Ok((StatusCode::CREATED, Json(UploadFileResponse {
-        id: f.id,
-        url: f.url,
-        filename: f.filename,
-        content_type: f.content_type,
-        size: f.size,
-    })))
+    Ok((
+        StatusCode::CREATED,
+        Json(UploadFileResponse {
+            id: f.id,
+            url: f.url,
+            filename: f.filename,
+            content_type: f.content_type,
+            size: f.size,
+        }),
+    ))
 }

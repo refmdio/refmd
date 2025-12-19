@@ -1,17 +1,15 @@
 use std::sync::Arc;
 
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHasher, SaltString},
-};
 use chrono::{DateTime, Duration, Utc};
 use rand::{Rng, distributions::Alphanumeric, rngs::OsRng};
 use uuid::Uuid;
 
 use crate::core::services::errors::ServiceError;
+use crate::identity::ports::secret_hasher::SecretHasher;
 use crate::identity::ports::user_session_repository::{UserSessionRecord, UserSessionRepository};
 use crate::identity::services::api_tokens::{compute_digest, verify_token};
 use crate::identity::services::auth::auth_service::{AuthService, IssuedSession};
+use async_trait::async_trait;
 
 pub struct SessionMetadata<'a> {
     pub user_agent: Option<&'a str>,
@@ -28,20 +26,101 @@ pub struct IssuedSessionBundle {
 
 pub struct UserSessionService {
     repo: Arc<dyn UserSessionRepository>,
+    hasher: Arc<dyn SecretHasher>,
     auth: Arc<AuthService>,
     refresh_ttl_secs: i64,
     refresh_ttl_long_secs: i64,
 }
 
+#[async_trait]
+pub trait UserSessionServiceFacade: Send + Sync {
+    async fn issue_new_session(
+        &self,
+        user_id: Uuid,
+        workspace_id: Uuid,
+        remember_me: bool,
+        meta: SessionMetadata<'_>,
+    ) -> Result<IssuedSessionBundle, ServiceError>;
+
+    async fn refresh_session(
+        &self,
+        token: &str,
+        workspace_override: Option<Uuid>,
+        meta: SessionMetadata<'_>,
+    ) -> Result<IssuedSessionBundle, ServiceError>;
+
+    async fn revoke_by_token(&self, token: &str) -> Result<(), ServiceError>;
+    async fn revoke_session(&self, user_id: Uuid, session_id: Uuid) -> Result<bool, ServiceError>;
+    async fn revoke_all_for_user(&self, user_id: Uuid) -> Result<(), ServiceError>;
+    async fn ensure_session_active(&self, session_id: Uuid) -> Result<(), ServiceError>;
+    async fn list_for_user(&self, user_id: Uuid) -> Result<Vec<UserSessionRecord>, ServiceError>;
+    async fn find_session_by_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<UserSessionRecord>, ServiceError>;
+}
+
+#[async_trait]
+impl UserSessionServiceFacade for UserSessionService {
+    async fn issue_new_session(
+        &self,
+        user_id: Uuid,
+        workspace_id: Uuid,
+        remember_me: bool,
+        meta: SessionMetadata<'_>,
+    ) -> Result<IssuedSessionBundle, ServiceError> {
+        self.issue_new_session(user_id, workspace_id, remember_me, meta)
+            .await
+    }
+
+    async fn refresh_session(
+        &self,
+        token: &str,
+        workspace_override: Option<Uuid>,
+        meta: SessionMetadata<'_>,
+    ) -> Result<IssuedSessionBundle, ServiceError> {
+        self.refresh_session(token, workspace_override, meta).await
+    }
+
+    async fn revoke_by_token(&self, token: &str) -> Result<(), ServiceError> {
+        self.revoke_by_token(token).await
+    }
+
+    async fn revoke_session(&self, user_id: Uuid, session_id: Uuid) -> Result<bool, ServiceError> {
+        self.revoke_session(user_id, session_id).await
+    }
+
+    async fn revoke_all_for_user(&self, user_id: Uuid) -> Result<(), ServiceError> {
+        self.revoke_all_for_user(user_id).await
+    }
+
+    async fn ensure_session_active(&self, session_id: Uuid) -> Result<(), ServiceError> {
+        self.ensure_session_active(session_id).await
+    }
+
+    async fn list_for_user(&self, user_id: Uuid) -> Result<Vec<UserSessionRecord>, ServiceError> {
+        self.list_for_user(user_id).await
+    }
+
+    async fn find_session_by_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<UserSessionRecord>, ServiceError> {
+        self.find_session_by_token(token).await
+    }
+}
+
 impl UserSessionService {
     pub fn new(
         repo: Arc<dyn UserSessionRepository>,
+        hasher: Arc<dyn SecretHasher>,
         auth: Arc<AuthService>,
         refresh_ttl_secs: i64,
         refresh_ttl_long_secs: i64,
     ) -> Self {
         Self {
             repo,
+            hasher,
             auth,
             refresh_ttl_secs,
             refresh_ttl_long_secs,
@@ -77,19 +156,14 @@ impl UserSessionService {
         })
     }
 
-    fn generate_refresh_token() -> anyhow::Result<(String, String, String)> {
+    fn generate_refresh_token(&self) -> anyhow::Result<(String, String, String)> {
         let random: String = OsRng
             .sample_iter(&Alphanumeric)
             .take(48)
             .map(char::from)
             .collect();
         let plaintext = format!("rmds_{random}");
-        let salt = SaltString::generate(&mut OsRng);
-        let argon = Argon2::default();
-        let hash = argon
-            .hash_password(plaintext.as_bytes(), &salt)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?
-            .to_string();
+        let hash = self.hasher.hash_secret(&plaintext)?;
         let digest = compute_digest(&plaintext);
         Ok((plaintext, hash, digest))
     }
@@ -110,8 +184,9 @@ impl UserSessionService {
     ) -> Result<IssuedSessionBundle, ServiceError> {
         let ttl = self.ttl_for(remember_me);
         let expires_at = Utc::now() + ttl;
-        let (refresh_token, token_hash, token_digest) =
-            Self::generate_refresh_token().map_err(ServiceError::Unexpected)?;
+        let (refresh_token, token_hash, token_digest) = self
+            .generate_refresh_token()
+            .map_err(ServiceError::Unexpected)?;
         let (user_agent, ip_address) = self.metadata(&meta);
         let record = self
             .repo
@@ -160,7 +235,9 @@ impl UserSessionService {
             let _ = self.repo.revoke(secret.session.id).await;
             return Err(ServiceError::Unauthorized);
         }
-        if !verify_token(token, &secret.token_hash).map_err(ServiceError::from)? {
+        if !verify_token(self.hasher.as_ref(), token, &secret.token_hash)
+            .map_err(ServiceError::from)?
+        {
             let _ = self.repo.revoke(secret.session.id).await;
             return Err(ServiceError::Unauthorized);
         }
@@ -173,8 +250,9 @@ impl UserSessionService {
         let remember_me = session.remember_me;
         let ttl = self.ttl_for(remember_me);
         let expires_at = now + ttl;
-        let (refresh_token, token_hash, token_digest) =
-            Self::generate_refresh_token().map_err(ServiceError::Unexpected)?;
+        let (refresh_token, token_hash, token_digest) = self
+            .generate_refresh_token()
+            .map_err(ServiceError::Unexpected)?;
         let (user_agent, ip_address) = self.metadata(&meta);
 
         session.expires_at = expires_at;
@@ -298,6 +376,8 @@ mod tests {
     use crate::identity::ports::api_token_repository::{
         ApiToken, ApiTokenRepository, ApiTokenSecret,
     };
+    use crate::identity::ports::jwt_codec::{JwtClaims, JwtCodec, JwtDecodeError, JwtEncodeError};
+    use crate::identity::ports::secret_hasher::SecretHasher;
     use crate::identity::ports::user_session_repository::{
         UserSessionRepository, UserSessionSecret,
     };
@@ -549,11 +629,42 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct NoopSecretHasher;
+
+    impl SecretHasher for NoopSecretHasher {
+        fn hash_secret(&self, secret: &str) -> anyhow::Result<String> {
+            Ok(format!("h:{secret}"))
+        }
+
+        fn verify_secret(&self, secret: &str, secret_hash: &str) -> anyhow::Result<bool> {
+            Ok(secret_hash == format!("h:{secret}"))
+        }
+    }
+
+    #[derive(Debug)]
+    struct NoopJwtCodec;
+
+    impl JwtCodec for NoopJwtCodec {
+        fn decode(&self, _token: &str) -> Result<JwtClaims, JwtDecodeError> {
+            Err(JwtDecodeError::Invalid)
+        }
+
+        fn encode(&self, _claims: &JwtClaims) -> Result<String, JwtEncodeError> {
+            Ok("jwt".to_string())
+        }
+    }
+
     fn build_service() -> UserSessionService {
         let repo = Arc::new(InMemorySessionRepo::default());
-        let token_validation = Arc::new(TokenValidationService::new(Arc::new(NoopApiTokenRepo)));
-        let auth = Arc::new(AuthService::new("secret", token_validation, 60));
-        UserSessionService::new(repo, auth, 120, 600)
+        let hasher: Arc<dyn SecretHasher> = Arc::new(NoopSecretHasher::default());
+        let token_validation = Arc::new(TokenValidationService::new(
+            Arc::new(NoopApiTokenRepo),
+            hasher.clone(),
+        ));
+        let jwt: Arc<dyn JwtCodec> = Arc::new(NoopJwtCodec);
+        let auth = Arc::new(AuthService::new(jwt, token_validation, 60));
+        UserSessionService::new(repo, hasher, auth, 120, 600)
     }
 
     #[tokio::test]

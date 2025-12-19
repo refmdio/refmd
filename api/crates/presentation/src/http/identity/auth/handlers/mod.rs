@@ -78,12 +78,10 @@ pub async fn oauth_login(
     let provider_kind = ExternalAuthProviderKind::try_from(provider.as_str())
         .map_err(|_| ApiError::not_found("oauth_provider_not_found"))?;
     let registry = ctx.external_auth();
-    let verifier = registry
-        .get(provider_kind)
-        .ok_or(ApiError::new(
-            StatusCode::NOT_IMPLEMENTED,
-            "oauth_provider_not_implemented",
-        ))?;
+    let verifier = registry.get(provider_kind).ok_or(ApiError::new(
+        StatusCode::NOT_IMPLEMENTED,
+        "oauth_provider_not_implemented",
+    ))?;
     let mut response_headers = HeaderMap::new();
     if provider_kind.requires_state() {
         let provided_state = req
@@ -365,12 +363,18 @@ pub async fn me(
         .await
         .map_err(crate::security::token::map_actor_error)?;
 
-    let active_workspace_id =
-        match workspace_scope::resolve_active_workspace_id(&ctx, &headers, Some(bearer_token.as_str()), id).await {
-            Ok(id) => Some(id),
-            Err(err) if err.status() == StatusCode::FORBIDDEN => None,
-            Err(err) => return Err(err),
-        };
+    let active_workspace_id = match workspace_scope::resolve_active_workspace_id(
+        &ctx,
+        &headers,
+        Some(bearer_token.as_str()),
+        id,
+    )
+    .await
+    {
+        Ok(id) => Some(id),
+        Err(err) if err.status() == StatusCode::FORBIDDEN => None,
+        Err(err) => return Err(err),
+    };
 
     let service = ctx.account_service();
     let row = service

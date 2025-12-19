@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::http::error::ApiError;
 use application::core::dtos::TextDiffResult;
 use application::core::services::errors::ServiceError;
 use application::documents::dtos::DocumentDownloadFormat;
@@ -10,7 +11,6 @@ use application::documents::dtos::{
 };
 use application::documents::services::DocumentPatchOperation;
 use domain::documents::document as domain;
-use crate::http::error::ApiError;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Document {

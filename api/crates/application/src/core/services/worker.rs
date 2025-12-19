@@ -3,4 +3,3 @@ pub enum WorkerTick {
     Processed,
     Idle,
 }
-

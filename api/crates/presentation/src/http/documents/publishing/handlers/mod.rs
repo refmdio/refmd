@@ -6,8 +6,8 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
-use crate::http::error::ApiError;
 use crate::http::documents::{Document, to_http_document};
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;

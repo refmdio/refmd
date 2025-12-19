@@ -1,9 +1,5 @@
 use std::sync::Arc;
 
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-};
 use rand::{Rng, distributions::Alphanumeric, rngs::OsRng};
 use uuid::Uuid;
 
@@ -11,19 +7,74 @@ use crate::core::services::errors::ServiceError;
 use crate::core::services::utils::hash::sha256_hex_str;
 use crate::identity::dtos::{ApiTokenDto, CreatedApiTokenDto};
 use crate::identity::ports::api_token_repository::ApiTokenRepository;
+use crate::identity::ports::secret_hasher::SecretHasher;
 use crate::identity::use_cases::api_tokens::create_token::CreateApiToken;
 use crate::identity::use_cases::api_tokens::list_tokens::ListApiTokens;
 use crate::identity::use_cases::api_tokens::revoke_token::RevokeApiToken;
+use async_trait::async_trait;
 use domain::access::permissions::PermissionSet;
 use domain::identity::policy;
 
 pub struct ApiTokenService {
     repo: Arc<dyn ApiTokenRepository>,
+    hasher: Arc<dyn SecretHasher>,
+}
+
+#[async_trait]
+pub trait ApiTokenServiceFacade: Send + Sync {
+    async fn list(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+    ) -> Result<Vec<ApiTokenDto>, ServiceError>;
+    async fn create(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        name: Option<&str>,
+    ) -> Result<CreatedApiTokenDto, ServiceError>;
+    async fn revoke(
+        &self,
+        workspace_id: Uuid,
+        id: Uuid,
+        permissions: &PermissionSet,
+    ) -> Result<bool, ServiceError>;
+}
+
+#[async_trait]
+impl ApiTokenServiceFacade for ApiTokenService {
+    async fn list(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+    ) -> Result<Vec<ApiTokenDto>, ServiceError> {
+        self.list(workspace_id, permissions).await
+    }
+
+    async fn create(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        name: Option<&str>,
+    ) -> Result<CreatedApiTokenDto, ServiceError> {
+        self.create(workspace_id, user_id, permissions, name).await
+    }
+
+    async fn revoke(
+        &self,
+        workspace_id: Uuid,
+        id: Uuid,
+        permissions: &PermissionSet,
+    ) -> Result<bool, ServiceError> {
+        self.revoke(workspace_id, id, permissions).await
+    }
 }
 
 impl ApiTokenService {
-    pub fn new(repo: Arc<dyn ApiTokenRepository>) -> Self {
-        Self { repo }
+    pub fn new(repo: Arc<dyn ApiTokenRepository>, hasher: Arc<dyn SecretHasher>) -> Self {
+        Self { repo, hasher }
     }
 
     pub async fn list(
@@ -48,6 +99,7 @@ impl ApiTokenService {
         ensure_api_token_permission(workspace_id, permissions)?;
         let uc = CreateApiToken {
             repo: self.repo.as_ref(),
+            hasher: self.hasher.as_ref(),
         };
         uc.execute(workspace_id, user_id, name)
             .await
@@ -83,7 +135,7 @@ pub struct GeneratedApiToken {
     pub token_digest: String,
 }
 
-pub fn generate_api_token() -> anyhow::Result<GeneratedApiToken> {
+pub fn generate_api_token(hasher: &dyn SecretHasher) -> anyhow::Result<GeneratedApiToken> {
     let random: String = OsRng
         .sample_iter(&Alphanumeric)
         .take(48)
@@ -91,12 +143,7 @@ pub fn generate_api_token() -> anyhow::Result<GeneratedApiToken> {
         .collect();
     let plaintext = format!("rmd_{random}");
 
-    let salt = SaltString::generate(&mut OsRng);
-    let argon = Argon2::default();
-    let hash = argon
-        .hash_password(plaintext.as_bytes(), &salt)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?
-        .to_string();
+    let hash = hasher.hash_secret(&plaintext)?;
     let digest = compute_digest(&plaintext);
 
     Ok(GeneratedApiToken {
@@ -110,9 +157,10 @@ pub fn compute_digest(token: &str) -> String {
     sha256_hex_str(token)
 }
 
-pub fn verify_token(token: &str, token_hash: &str) -> anyhow::Result<bool> {
-    let parsed = PasswordHash::new(token_hash).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    Ok(Argon2::default()
-        .verify_password(token.as_bytes(), &parsed)
-        .is_ok())
+pub fn verify_token(
+    hasher: &dyn SecretHasher,
+    token: &str,
+    token_hash: &str,
+) -> anyhow::Result<bool> {
+    hasher.verify_secret(token, token_hash)
 }

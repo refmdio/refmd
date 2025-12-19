@@ -172,16 +172,13 @@ impl SqlxDocumentRepository {
             values.push(")");
         }
         q.push(") AS v(id, desired_path, path_digest) WHERE d.id = v.id");
-        q.build()
-            .execute(tx.as_mut())
-            .await
-            .map_err(|e| {
-                if Self::is_unique_violation(&e) {
-                    DocumentRepositoryError::PathConflict
-                } else {
-                    DocumentRepositoryError::Unexpected(e.into())
-                }
-            })?;
+        q.build().execute(tx.as_mut()).await.map_err(|e| {
+            if Self::is_unique_violation(&e) {
+                DocumentRepositoryError::PathConflict
+            } else {
+                DocumentRepositoryError::Unexpected(e.into())
+            }
+        })?;
         Ok(())
     }
 

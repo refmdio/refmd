@@ -6,8 +6,8 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
 use crate::http::error::ApiError;
+use crate::security::token::{self, Bearer};
 use domain::access::permissions::{PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW};
 
 use super::types::{

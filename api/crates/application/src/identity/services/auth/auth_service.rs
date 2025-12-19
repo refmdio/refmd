@@ -1,18 +1,16 @@
 use std::sync::Arc;
 
-use anyhow::Error as AnyError;
 use chrono::Utc;
-use jsonwebtoken::errors::ErrorKind;
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::core::services::errors::ServiceError;
+use crate::identity::ports::jwt_codec::{JwtClaims, JwtCodec, JwtDecodeError};
 use crate::identity::services::auth::token_validation::TokenValidationService;
+use async_trait::async_trait;
 
 #[derive(Clone)]
 pub struct AuthService {
-    jwt_secret: String,
+    jwt: Arc<dyn JwtCodec>,
     tokens: Arc<TokenValidationService>,
     jwt_expires_secs: usize,
 }
@@ -23,52 +21,57 @@ pub struct IssuedSession {
     pub expires_at: usize,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Claims {
-    sub: String,
-    #[serde(default)]
-    workspace_id: Option<String>,
-    #[serde(default)]
-    iat: usize,
-    #[allow(dead_code)]
-    exp: usize,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    sid: Option<String>,
+#[async_trait]
+pub trait AuthServiceFacade: Send + Sync {
+    async fn subject_from_token(&self, token: &str) -> Result<Option<String>, ServiceError>;
+    fn workspace_from_token_claim(&self, token: &str) -> Option<Uuid>;
+    fn session_id_from_token_claim(&self, token: &str) -> Option<Uuid>;
+    async fn workspace_from_token_async(&self, token: &str) -> Result<Option<Uuid>, ServiceError>;
+    fn session_ttl_secs(&self) -> usize;
+}
+
+#[async_trait]
+impl AuthServiceFacade for AuthService {
+    async fn subject_from_token(&self, token: &str) -> Result<Option<String>, ServiceError> {
+        self.subject_from_token(token).await
+    }
+
+    fn workspace_from_token_claim(&self, token: &str) -> Option<Uuid> {
+        self.workspace_from_token_claim(token)
+    }
+
+    fn session_id_from_token_claim(&self, token: &str) -> Option<Uuid> {
+        self.session_id_from_token_claim(token)
+    }
+
+    async fn workspace_from_token_async(&self, token: &str) -> Result<Option<Uuid>, ServiceError> {
+        self.workspace_from_token_async(token).await
+    }
+
+    fn session_ttl_secs(&self) -> usize {
+        self.session_ttl_secs()
+    }
 }
 
 impl AuthService {
-    fn decode_claims(&self, token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-        jsonwebtoken::decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(self.jwt_secret.as_bytes()),
-            &Validation::default(),
-        )
-        .map(|data| data.claims)
-    }
-
     pub fn new(
-        jwt_secret: impl Into<String>,
+        jwt: Arc<dyn JwtCodec>,
         tokens: Arc<TokenValidationService>,
         jwt_expires_secs: usize,
     ) -> Self {
         Self {
-            jwt_secret: jwt_secret.into(),
+            jwt,
             tokens,
             jwt_expires_secs,
         }
     }
 
     pub async fn subject_from_token(&self, token: &str) -> Result<Option<String>, ServiceError> {
-        match self.decode_claims(token) {
-            Ok(claims) => {
-                return Ok(Some(claims.sub));
-            }
-            Err(err) => {
-                if matches!(err.kind(), ErrorKind::ExpiredSignature) {
-                    return Err(ServiceError::TokenExpired);
-                }
-            }
-        }
+        match self.jwt.decode(token) {
+            Ok(claims) => return Ok(Some(claims.sub.to_string())),
+            Err(JwtDecodeError::Expired) => return Err(ServiceError::TokenExpired),
+            Err(JwtDecodeError::Invalid) => {}
+        };
 
         self.tokens
             .validate(token)
@@ -77,17 +80,14 @@ impl AuthService {
     }
 
     pub fn workspace_from_token_claim(&self, token: &str) -> Option<Uuid> {
-        self.decode_claims(token)
+        self.jwt
+            .decode(token)
             .ok()
             .and_then(|claims| claims.workspace_id)
-            .and_then(|raw| Uuid::parse_str(&raw).ok())
     }
 
     pub fn session_id_from_token_claim(&self, token: &str) -> Option<Uuid> {
-        self.decode_claims(token)
-            .ok()
-            .and_then(|claims| claims.sid)
-            .and_then(|raw| Uuid::parse_str(&raw).ok())
+        self.jwt.decode(token).ok().and_then(|claims| claims.sid)
     }
 
     pub async fn workspace_from_token_async(
@@ -111,19 +111,17 @@ impl AuthService {
     ) -> Result<IssuedSession, ServiceError> {
         let now = Utc::now().timestamp() as usize;
         let exp = now + self.jwt_expires_secs;
-        let claims = Claims {
-            sub: user_id.to_string(),
-            workspace_id: Some(workspace_id.to_string()),
+        let claims = JwtClaims {
+            sub: user_id,
+            workspace_id: Some(workspace_id),
             iat: now,
             exp,
-            sid: session_id.map(|id| id.to_string()),
+            sid: session_id,
         };
-        let token = jsonwebtoken::encode(
-            &Header::default(),
-            &claims,
-            &EncodingKey::from_secret(self.jwt_secret.as_bytes()),
-        )
-        .map_err(|err| ServiceError::Unexpected(AnyError::new(err)))?;
+        let token = self
+            .jwt
+            .encode(&claims)
+            .map_err(|_| ServiceError::Unexpected(anyhow::anyhow!("jwt_encode_failed")))?;
         Ok(IssuedSession {
             token,
             expires_at: exp,

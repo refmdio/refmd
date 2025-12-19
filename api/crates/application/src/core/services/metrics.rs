@@ -1,5 +1,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+pub trait MetricsRegistryFacade: Send + Sync {
+    fn render(&self) -> String;
+}
+
 #[derive(Default)]
 pub struct MetricsRegistry {
     storage_projection_success: AtomicU64,
@@ -110,5 +114,11 @@ impl MetricsRegistry {
             gr_retry = snap.git_rebuild_retry,
             gr_failure = snap.git_rebuild_failure,
         )
+    }
+}
+
+impl MetricsRegistryFacade for MetricsRegistry {
+    fn render(&self) -> String {
+        MetricsRegistry::render(self)
     }
 }

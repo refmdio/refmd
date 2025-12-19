@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use application::identity::ports::api_token_repository::ApiTokenRepository;
 use application::identity::services::api_tokens::generate_api_token;
+use infrastructure::identity::crypto::Argon2SecretHasher;
 use infrastructure::identity::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository;
 
 use crate::cli::TokenCommand;
@@ -54,7 +55,8 @@ async fn create_token(
     owner_id: Uuid,
     name: Option<&str>,
 ) -> Result<()> {
-    let generated = generate_api_token()?;
+    let hasher = Argon2SecretHasher::default();
+    let generated = generate_api_token(&hasher)?;
     let stored = repo
         .create(
             workspace_id,

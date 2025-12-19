@@ -6,6 +6,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::core::services::metrics::MetricsRegistry;
+use crate::core::services::worker::WorkerTick;
 use crate::git::dtos::GitSyncRequestDto;
 use crate::git::ports::git_rebuild_job_queue::{GitRebuildJob, GitRebuildJobQueue};
 use crate::git::ports::git_repository::GitRepository;
@@ -13,7 +14,6 @@ use crate::git::ports::git_workspace::GitWorkspacePort;
 use crate::git::use_cases::helpers::needs_force_retry;
 use crate::workspaces::services::WorkspacePermissionResolver;
 use crate::workspaces::services::permission_snapshot::permission_set_from_snapshot;
-use crate::core::services::worker::WorkerTick;
 use domain::access::permissions::{PERM_GIT_SYNC, PermissionSet};
 use domain::git::policy;
 use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};

@@ -127,7 +127,8 @@ impl<'repo, 'tx, 'c> DocumentRepositoryTx for SqlxDocumentsTx<'repo, 'tx, 'c> {
         &mut self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> DocumentRepoResult<Option<application::documents::ports::document_repository::DocMeta>> {
+    ) -> DocumentRepoResult<Option<application::documents::ports::document_repository::DocMeta>>
+    {
         self.documents_repo
             .get_meta_for_owner_tx(self.tx, doc_id, workspace_id)
             .await

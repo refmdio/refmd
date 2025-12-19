@@ -1,8 +1,4 @@
-use axum::{
-    Json,
-    extract::State,
-    http::HeaderMap,
-};
+use axum::{Json, extract::State, http::HeaderMap};
 
 use crate::context::AppContext;
 use crate::http::error::ApiError;

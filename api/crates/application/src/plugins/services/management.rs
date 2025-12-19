@@ -14,6 +14,7 @@ use crate::plugins::ports::plugin_installer::{InstalledPlugin, PluginInstaller};
 use crate::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
 use crate::plugins::services::asset_signer::{AssetScope, AssetSigner};
 use crate::plugins::use_cases::install_from_url::{InstallPluginError, InstallPluginFromUrl};
+use async_trait::async_trait;
 use domain::access::permissions::PermissionSet;
 use domain::plugins::events::PluginEventKind;
 use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
@@ -59,6 +60,78 @@ pub struct PluginManagementService {
     manifest_ttl_secs: u64,
     package_fetcher: Arc<dyn PluginPackageFetcher>,
     plugin_installer: Arc<dyn PluginInstaller>,
+}
+
+#[async_trait]
+pub trait PluginManagementServiceFacade: Send + Sync {
+    async fn install_from_url(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        url: &str,
+        token: Option<&str>,
+    ) -> Result<InstalledPlugin, InstallPluginError>;
+
+    async fn uninstall(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        plugin_id: &str,
+    ) -> Result<(), ServiceError>;
+
+    async fn manifests_for_workspace(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Vec<PluginManifestItem>, ServiceError>;
+
+    async fn fetch_asset(
+        &self,
+        request: PluginAssetRequest<'_>,
+    ) -> Result<PluginAssetPayload, ServiceError>;
+}
+
+#[async_trait]
+impl PluginManagementServiceFacade for PluginManagementService {
+    async fn install_from_url(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        url: &str,
+        token: Option<&str>,
+    ) -> Result<InstalledPlugin, InstallPluginError> {
+        self.install_from_url(workspace_id, user_id, permissions, url, token)
+            .await
+    }
+
+    async fn uninstall(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        plugin_id: &str,
+    ) -> Result<(), ServiceError> {
+        self.uninstall(workspace_id, user_id, permissions, plugin_id)
+            .await
+    }
+
+    async fn manifests_for_workspace(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Vec<PluginManifestItem>, ServiceError> {
+        self.manifests_for_workspace(workspace_id, user_id).await
+    }
+
+    async fn fetch_asset(
+        &self,
+        request: PluginAssetRequest<'_>,
+    ) -> Result<PluginAssetPayload, ServiceError> {
+        self.fetch_asset(request).await
+    }
 }
 
 impl PluginManagementService {

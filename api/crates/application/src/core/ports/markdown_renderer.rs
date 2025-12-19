@@ -10,4 +10,3 @@ pub trait MarkdownRenderer: Send + Sync {
         placeholder_kinds: Option<&HashSet<String>>,
     ) -> anyhow::Result<RenderResponse>;
 }
-

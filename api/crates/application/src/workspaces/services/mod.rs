@@ -31,6 +31,355 @@ pub struct WorkspaceService {
     repo: Arc<dyn WorkspaceRepository>,
 }
 
+#[async_trait]
+pub trait WorkspaceServiceFacade: Send + Sync {
+    async fn list_for_user(&self, user_id: Uuid) -> Result<Vec<WorkspaceListItem>, ServiceError>;
+
+    async fn create_workspace(
+        &self,
+        creator_id: Uuid,
+        name: &str,
+        icon: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<WorkspaceRow, ServiceError>;
+
+    async fn create_personal_workspace_shell(
+        &self,
+        user_id: Uuid,
+        name: &str,
+    ) -> Result<WorkspaceRow, ServiceError>;
+
+    async fn get_workspace(&self, workspace_id: Uuid)
+    -> Result<Option<WorkspaceRow>, ServiceError>;
+
+    async fn update_workspace(
+        &self,
+        workspace_id: Uuid,
+        name: Option<&str>,
+        icon: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<Option<WorkspaceRow>, ServiceError>;
+
+    async fn delete_workspace(&self, workspace_id: Uuid) -> Result<bool, ServiceError>;
+
+    async fn list_members(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<WorkspaceMemberDetail>, ServiceError>;
+
+    async fn remove_member(
+        &self,
+        workspace_id: Uuid,
+        member_id: Uuid,
+        requested_by: Option<Uuid>,
+    ) -> Result<(), ServiceError>;
+
+    async fn leave_workspace(&self, workspace_id: Uuid, user_id: Uuid) -> Result<(), ServiceError>;
+
+    async fn set_default_workspace(
+        &self,
+        user_id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<WorkspaceMemberRow, ServiceError>;
+
+    async fn resolve_permission_set(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<PermissionSet>, ServiceError>;
+
+    async fn update_member_role(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        requested_by: Uuid,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
+        custom_role_id: Option<Uuid>,
+    ) -> Result<WorkspaceMemberRow, ServiceError>;
+
+    async fn list_roles(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<WorkspaceRoleRecord>, ServiceError>;
+
+    async fn create_role(
+        &self,
+        workspace_id: Uuid,
+        requested_by: Uuid,
+        name: &str,
+        base_role: WorkspaceBaseRole,
+        description: Option<&str>,
+        priority: i32,
+        overrides: &[PermissionOverride],
+    ) -> Result<WorkspaceRoleRecord, ServiceError>;
+
+    async fn update_role(
+        &self,
+        workspace_id: Uuid,
+        requested_by: Uuid,
+        role_id: Uuid,
+        name: Option<&str>,
+        base_role: Option<WorkspaceBaseRole>,
+        description: Option<&str>,
+        priority: Option<i32>,
+        overrides: Option<&[PermissionOverride]>,
+    ) -> Result<WorkspaceRoleRecord, ServiceError>;
+
+    async fn delete_role(&self, workspace_id: Uuid, role_id: Uuid) -> Result<bool, ServiceError>;
+
+    async fn list_invitations(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<WorkspaceInvitationRecord>, ServiceError>;
+
+    async fn create_invitation(
+        &self,
+        workspace_id: Uuid,
+        invited_by: Uuid,
+        email: &str,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
+        custom_role_id: Option<Uuid>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError>;
+
+    async fn revoke_invitation(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError>;
+
+    async fn accept_invitation(
+        &self,
+        token: &str,
+        user_id: Uuid,
+        user_email: &str,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError>;
+
+    async fn ensure_owner_membership(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), ServiceError>;
+}
+
+#[async_trait]
+impl WorkspaceServiceFacade for WorkspaceService {
+    async fn list_for_user(&self, user_id: Uuid) -> Result<Vec<WorkspaceListItem>, ServiceError> {
+        self.list_for_user(user_id).await
+    }
+
+    async fn create_workspace(
+        &self,
+        creator_id: Uuid,
+        name: &str,
+        icon: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<WorkspaceRow, ServiceError> {
+        self.create_workspace(creator_id, name, icon, description)
+            .await
+    }
+
+    async fn create_personal_workspace_shell(
+        &self,
+        user_id: Uuid,
+        name: &str,
+    ) -> Result<WorkspaceRow, ServiceError> {
+        self.create_personal_workspace_shell(user_id, name).await
+    }
+
+    async fn get_workspace(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Option<WorkspaceRow>, ServiceError> {
+        self.get_workspace(workspace_id).await
+    }
+
+    async fn update_workspace(
+        &self,
+        workspace_id: Uuid,
+        name: Option<&str>,
+        icon: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<Option<WorkspaceRow>, ServiceError> {
+        self.update_workspace(workspace_id, name, icon, description)
+            .await
+    }
+
+    async fn delete_workspace(&self, workspace_id: Uuid) -> Result<bool, ServiceError> {
+        self.delete_workspace(workspace_id).await
+    }
+
+    async fn list_members(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<WorkspaceMemberDetail>, ServiceError> {
+        self.list_members(workspace_id).await
+    }
+
+    async fn remove_member(
+        &self,
+        workspace_id: Uuid,
+        member_id: Uuid,
+        requested_by: Option<Uuid>,
+    ) -> Result<(), ServiceError> {
+        self.remove_member(workspace_id, member_id, requested_by)
+            .await
+    }
+
+    async fn leave_workspace(&self, workspace_id: Uuid, user_id: Uuid) -> Result<(), ServiceError> {
+        self.leave_workspace(workspace_id, user_id).await
+    }
+
+    async fn set_default_workspace(
+        &self,
+        user_id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<WorkspaceMemberRow, ServiceError> {
+        self.set_default_workspace(user_id, workspace_id).await
+    }
+
+    async fn resolve_permission_set(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<PermissionSet>, ServiceError> {
+        self.resolve_permission_set(workspace_id, user_id).await
+    }
+
+    async fn update_member_role(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        requested_by: Uuid,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
+        custom_role_id: Option<Uuid>,
+    ) -> Result<WorkspaceMemberRow, ServiceError> {
+        self.update_member_role(
+            workspace_id,
+            user_id,
+            requested_by,
+            role_kind,
+            system_role,
+            custom_role_id,
+        )
+        .await
+    }
+
+    async fn list_roles(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<WorkspaceRoleRecord>, ServiceError> {
+        self.list_roles(workspace_id).await
+    }
+
+    async fn create_role(
+        &self,
+        workspace_id: Uuid,
+        requested_by: Uuid,
+        name: &str,
+        base_role: WorkspaceBaseRole,
+        description: Option<&str>,
+        priority: i32,
+        overrides: &[PermissionOverride],
+    ) -> Result<WorkspaceRoleRecord, ServiceError> {
+        self.create_role(
+            workspace_id,
+            requested_by,
+            name,
+            base_role,
+            description,
+            priority,
+            overrides,
+        )
+        .await
+    }
+
+    async fn update_role(
+        &self,
+        workspace_id: Uuid,
+        requested_by: Uuid,
+        role_id: Uuid,
+        name: Option<&str>,
+        base_role: Option<WorkspaceBaseRole>,
+        description: Option<&str>,
+        priority: Option<i32>,
+        overrides: Option<&[PermissionOverride]>,
+    ) -> Result<WorkspaceRoleRecord, ServiceError> {
+        self.update_role(
+            workspace_id,
+            requested_by,
+            role_id,
+            name,
+            base_role,
+            description,
+            priority,
+            overrides,
+        )
+        .await
+    }
+
+    async fn delete_role(&self, workspace_id: Uuid, role_id: Uuid) -> Result<bool, ServiceError> {
+        self.delete_role(workspace_id, role_id).await
+    }
+
+    async fn list_invitations(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<WorkspaceInvitationRecord>, ServiceError> {
+        self.list_invitations(workspace_id).await
+    }
+
+    async fn create_invitation(
+        &self,
+        workspace_id: Uuid,
+        invited_by: Uuid,
+        email: &str,
+        role_kind: WorkspaceRoleKind,
+        system_role: Option<WorkspaceSystemRole>,
+        custom_role_id: Option<Uuid>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError> {
+        self.create_invitation(
+            workspace_id,
+            invited_by,
+            email,
+            role_kind,
+            system_role,
+            custom_role_id,
+            expires_at,
+        )
+        .await
+    }
+
+    async fn revoke_invitation(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError> {
+        self.revoke_invitation(workspace_id, invitation_id).await
+    }
+
+    async fn accept_invitation(
+        &self,
+        token: &str,
+        user_id: Uuid,
+        user_email: &str,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError> {
+        self.accept_invitation(token, user_id, user_email).await
+    }
+
+    async fn ensure_owner_membership(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), ServiceError> {
+        self.ensure_owner_membership(workspace_id, user_id).await
+    }
+}
+
 struct NormalizedRoleSelection {
     role_kind: WorkspaceRoleKind,
     system_role: Option<WorkspaceSystemRole>,

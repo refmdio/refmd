@@ -33,4 +33,3 @@ pub struct RenderResponse {
     pub placeholders: Vec<PlaceholderItem>,
     pub hash: String,
 }
-

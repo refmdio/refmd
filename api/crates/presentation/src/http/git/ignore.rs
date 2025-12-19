@@ -1,8 +1,4 @@
-use axum::{
-    Json,
-    extract::State,
-    http::HeaderMap,
-};
+use axum::{Json, extract::State, http::HeaderMap};
 use uuid::Uuid;
 
 use crate::context::AppContext;

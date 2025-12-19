@@ -1,18 +1,15 @@
 use anyhow::{Result, anyhow, bail, ensure};
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHasher, SaltString},
-};
 use chrono::{DateTime, Utc};
-use password_hash::rand_core::OsRng;
 use sqlx::Row;
 use uuid::Uuid;
 
+use application::identity::ports::secret_hasher::SecretHasher;
 use application::identity::ports::user_session_repository::UserSessionRepository;
 use application::identity::use_cases::auth::delete_account::DeleteAccount;
 use application::identity::use_cases::auth::register::{Register, RegisterRequest};
-use application::workspaces::services::WorkspaceService;
+use application::workspaces::services::WorkspaceServiceFacade;
 use infrastructure::core::db::PgPool;
+use infrastructure::identity::crypto::Argon2SecretHasher;
 use infrastructure::identity::db::repositories::user_repository_sqlx::SqlxUserRepository;
 use infrastructure::identity::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository;
 
@@ -20,6 +17,7 @@ use crate::cli::UserCommand;
 use crate::deps::Deps;
 
 pub(crate) async fn handle(deps: &Deps, cmd: UserCommand) -> Result<()> {
+    let hasher = Argon2SecretHasher::default();
     match cmd {
         UserCommand::List => list_users(&deps.pool).await,
         UserCommand::Create {
@@ -31,6 +29,7 @@ pub(crate) async fn handle(deps: &Deps, cmd: UserCommand) -> Result<()> {
             create_user(
                 &deps.user_repo,
                 deps.workspace_service.as_ref(),
+                &hasher,
                 email,
                 name,
                 password,
@@ -46,6 +45,7 @@ pub(crate) async fn handle(deps: &Deps, cmd: UserCommand) -> Result<()> {
             set_password(
                 &deps.pool,
                 &deps.session_repo,
+                &hasher,
                 user_id,
                 password,
                 revoke_sessions,
@@ -107,7 +107,8 @@ async fn list_sessions(repo: &SqlxUserSessionRepository, user_id: Uuid) -> Resul
 
 async fn create_user(
     user_repo: &SqlxUserRepository,
-    workspace_service: &WorkspaceService,
+    workspace_service: &dyn WorkspaceServiceFacade,
+    hasher: &dyn SecretHasher,
     email: String,
     name: String,
     password: String,
@@ -122,7 +123,10 @@ async fn create_user(
         .create_personal_workspace_shell(user_id, name.trim())
         .await?;
 
-    let register = Register { repo: user_repo };
+    let register = Register {
+        repo: user_repo,
+        hasher,
+    };
     let req = RegisterRequest {
         id: user_id,
         email: normalized_email.to_string(),
@@ -171,17 +175,16 @@ async fn delete_user(deps: &Deps, user_id: Uuid) -> Result<()> {
 async fn set_password(
     pool: &PgPool,
     session_repo: &SqlxUserSessionRepository,
+    hasher: &dyn SecretHasher,
     user_id: Uuid,
     password: String,
     revoke_sessions: bool,
 ) -> Result<()> {
     ensure!(!password.trim().is_empty(), "password must not be empty");
 
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| anyhow!(e.to_string()))?
-        .to_string();
+    let hash = hasher
+        .hash_secret(&password)
+        .map_err(|e| anyhow!(e.to_string()))?;
 
     let res = sqlx::query("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1")
         .bind(user_id)

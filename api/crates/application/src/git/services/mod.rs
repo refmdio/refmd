@@ -8,9 +8,10 @@ use crate::core::services::errors::ServiceError;
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::dtos::{
-    GitChangeItem, GitCommitInfo, GitConfigDto, GitPullConflictItemDto, GitPullRequestDto,
-    GitPullResolutionDto, GitPullResultDto, GitPullSessionDto, GitRemoteCheckDto, GitStatusDto,
-    GitSyncRequestDto, GitSyncResponseDto, GitignoreUpdateDto, UpsertGitConfigInput,
+    GitChangeItem, GitCommitInfo, GitConfigDto, GitImportOutcome, GitPullConflictItemDto,
+    GitPullRequestDto, GitPullResolutionDto, GitPullResultDto, GitPullSessionDto,
+    GitRemoteCheckDto, GitStatusDto, GitSyncRequestDto, GitSyncResponseDto, GitignoreUpdateDto,
+    UpsertGitConfigInput,
 };
 use crate::git::ports::git_pull_session_repository::GitPullSessionRepository;
 use crate::git::ports::git_repository::GitRepository;
@@ -32,6 +33,7 @@ use crate::git::use_cases::init_repo::{DeinitRepo, InitRepo};
 use crate::git::use_cases::pull::PullRepository;
 use crate::git::use_cases::sync_now::SyncNow;
 use crate::git::use_cases::upsert_config::UpsertGitConfig;
+use async_trait::async_trait;
 use domain::git::pull_session::GitPullSessionStatus;
 use tracing::warn;
 
@@ -51,6 +53,261 @@ pub struct GitService {
 pub struct FinalizePullSessionResult {
     pub session: GitPullSessionDto,
     pub git_status: Option<GitStatusDto>,
+}
+
+#[async_trait]
+pub trait GitServiceFacade: Send + Sync {
+    async fn get_config(&self, workspace_id: Uuid) -> Result<Option<GitConfigDto>, ServiceError>;
+    async fn check_remote(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Option<GitRemoteCheckDto>, ServiceError>;
+    async fn upsert_config(
+        &self,
+        workspace_id: Uuid,
+        input: &UpsertGitConfigInput,
+    ) -> Result<GitConfigDto, ServiceError>;
+    async fn delete_config(&self, workspace_id: Uuid) -> Result<(), ServiceError>;
+    async fn get_status(&self, workspace_id: Uuid) -> Result<GitStatusDto, ServiceError>;
+    async fn sync_now(
+        &self,
+        workspace_id: Uuid,
+        payload: GitSyncRequestDto,
+    ) -> Result<GitSyncResponseDto, ServiceError>;
+    async fn init_repository(&self, workspace_id: Uuid) -> Result<(), ServiceError>;
+    async fn deinit_repository(&self, workspace_id: Uuid) -> Result<(), ServiceError>;
+    async fn get_changes(&self, workspace_id: Uuid) -> Result<Vec<GitChangeItem>, ServiceError>;
+    async fn get_history(&self, workspace_id: Uuid) -> Result<Vec<GitCommitInfo>, ServiceError>;
+    async fn get_working_diff(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<TextDiffResult>, ServiceError>;
+    async fn get_commit_diff(
+        &self,
+        workspace_id: Uuid,
+        from: &str,
+        to: &str,
+    ) -> Result<Vec<TextDiffResult>, ServiceError>;
+    async fn import_repository(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        input: &UpsertGitConfigInput,
+    ) -> Result<GitImportOutcome, ServiceError>;
+    async fn ignore_document(
+        &self,
+        workspace_id: Uuid,
+        doc_id: Uuid,
+    ) -> Result<GitignoreUpdateDto, ServiceError>;
+    async fn ignore_folder(
+        &self,
+        workspace_id: Uuid,
+        folder_id: Uuid,
+    ) -> Result<GitignoreUpdateDto, ServiceError>;
+    async fn add_gitignore_patterns(
+        &self,
+        workspace_id: Uuid,
+        patterns: Vec<String>,
+    ) -> Result<i64, ServiceError>;
+    async fn get_gitignore_patterns(&self, workspace_id: Uuid)
+    -> Result<Vec<String>, ServiceError>;
+    async fn check_path_ignored(
+        &self,
+        workspace_id: Uuid,
+        path: &str,
+    ) -> Result<bool, ServiceError>;
+    async fn pull_repository(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        req: GitPullRequestDto,
+    ) -> Result<GitPullResultDto, ServiceError>;
+    async fn start_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+    ) -> Result<GitPullSessionDto, ServiceError>;
+    async fn load_pull_session_with_stale_check(
+        &self,
+        workspace_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<Option<GitPullSessionDto>, ServiceError>;
+    async fn resolve_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        session_id: Uuid,
+        resolutions: Vec<GitPullResolutionDto>,
+    ) -> Result<GitPullSessionDto, ServiceError>;
+    async fn finalize_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<FinalizePullSessionResult, ServiceError>;
+}
+
+#[async_trait]
+impl GitServiceFacade for GitService {
+    async fn get_config(&self, workspace_id: Uuid) -> Result<Option<GitConfigDto>, ServiceError> {
+        self.get_config(workspace_id).await
+    }
+
+    async fn check_remote(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Option<GitRemoteCheckDto>, ServiceError> {
+        self.check_remote(workspace_id).await
+    }
+
+    async fn upsert_config(
+        &self,
+        workspace_id: Uuid,
+        input: &UpsertGitConfigInput,
+    ) -> Result<GitConfigDto, ServiceError> {
+        self.upsert_config(workspace_id, input).await
+    }
+
+    async fn delete_config(&self, workspace_id: Uuid) -> Result<(), ServiceError> {
+        self.delete_config(workspace_id).await
+    }
+
+    async fn get_status(&self, workspace_id: Uuid) -> Result<GitStatusDto, ServiceError> {
+        self.get_status(workspace_id).await
+    }
+
+    async fn sync_now(
+        &self,
+        workspace_id: Uuid,
+        payload: GitSyncRequestDto,
+    ) -> Result<GitSyncResponseDto, ServiceError> {
+        self.sync_now(workspace_id, payload).await
+    }
+
+    async fn init_repository(&self, workspace_id: Uuid) -> Result<(), ServiceError> {
+        self.init_repository(workspace_id).await
+    }
+
+    async fn deinit_repository(&self, workspace_id: Uuid) -> Result<(), ServiceError> {
+        self.deinit_repository(workspace_id).await
+    }
+
+    async fn get_changes(&self, workspace_id: Uuid) -> Result<Vec<GitChangeItem>, ServiceError> {
+        self.get_changes(workspace_id).await
+    }
+
+    async fn get_history(&self, workspace_id: Uuid) -> Result<Vec<GitCommitInfo>, ServiceError> {
+        self.get_history(workspace_id).await
+    }
+
+    async fn get_working_diff(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<TextDiffResult>, ServiceError> {
+        self.get_working_diff(workspace_id).await
+    }
+
+    async fn get_commit_diff(
+        &self,
+        workspace_id: Uuid,
+        from: &str,
+        to: &str,
+    ) -> Result<Vec<TextDiffResult>, ServiceError> {
+        self.get_commit_diff(workspace_id, from, to).await
+    }
+
+    async fn import_repository(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        input: &UpsertGitConfigInput,
+    ) -> Result<GitImportOutcome, ServiceError> {
+        self.import_repository(workspace_id, actor_id, input).await
+    }
+
+    async fn ignore_document(
+        &self,
+        workspace_id: Uuid,
+        doc_id: Uuid,
+    ) -> Result<GitignoreUpdateDto, ServiceError> {
+        self.ignore_document(workspace_id, doc_id).await
+    }
+
+    async fn ignore_folder(
+        &self,
+        workspace_id: Uuid,
+        folder_id: Uuid,
+    ) -> Result<GitignoreUpdateDto, ServiceError> {
+        self.ignore_folder(workspace_id, folder_id).await
+    }
+
+    async fn add_gitignore_patterns(
+        &self,
+        workspace_id: Uuid,
+        patterns: Vec<String>,
+    ) -> Result<i64, ServiceError> {
+        self.add_gitignore_patterns(workspace_id, patterns).await
+    }
+
+    async fn get_gitignore_patterns(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<String>, ServiceError> {
+        self.get_gitignore_patterns(workspace_id).await
+    }
+
+    async fn check_path_ignored(
+        &self,
+        workspace_id: Uuid,
+        path: &str,
+    ) -> Result<bool, ServiceError> {
+        self.check_path_ignored(workspace_id, path).await
+    }
+
+    async fn pull_repository(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        req: GitPullRequestDto,
+    ) -> Result<GitPullResultDto, ServiceError> {
+        self.pull_repository(workspace_id, actor_id, req).await
+    }
+
+    async fn start_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+    ) -> Result<GitPullSessionDto, ServiceError> {
+        self.start_pull_session_flow(workspace_id, actor_id).await
+    }
+
+    async fn load_pull_session_with_stale_check(
+        &self,
+        workspace_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<Option<GitPullSessionDto>, ServiceError> {
+        self.load_pull_session_with_stale_check(workspace_id, session_id)
+            .await
+    }
+
+    async fn resolve_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        session_id: Uuid,
+        resolutions: Vec<GitPullResolutionDto>,
+    ) -> Result<GitPullSessionDto, ServiceError> {
+        self.resolve_pull_session_flow(workspace_id, actor_id, session_id, resolutions)
+            .await
+    }
+
+    async fn finalize_pull_session_flow(
+        &self,
+        workspace_id: Uuid,
+        session_id: Uuid,
+    ) -> Result<FinalizePullSessionResult, ServiceError> {
+        self.finalize_pull_session_flow(workspace_id, session_id)
+            .await
+    }
 }
 
 impl GitService {

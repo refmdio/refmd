@@ -9,6 +9,7 @@ use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::ports::git_repository::GitRepository;
 use crate::git::ports::git_workspace::GitWorkspacePort;
 use crate::identity::dtos::UserDto;
+use crate::identity::ports::secret_hasher::SecretHasher;
 use crate::identity::ports::user_repository::UserRepository;
 use crate::identity::services::auth::external::ExternalAuthIdentity;
 use crate::identity::use_cases::auth::delete_account::DeleteAccount;
@@ -19,9 +20,11 @@ use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::plugins::ports::plugin_repository::PluginRepository;
 use crate::workspaces::services::WorkspaceService;
+use async_trait::async_trait;
 
 pub struct AccountService {
     user_repo: Arc<dyn UserRepository>,
+    secret_hasher: Arc<dyn SecretHasher>,
     document_repo: Arc<dyn DocumentRepository>,
     files_repo: Arc<dyn FilesRepository>,
     plugin_installations: Arc<dyn PluginInstallationRepository>,
@@ -33,10 +36,59 @@ pub struct AccountService {
     workspace_service: Arc<WorkspaceService>,
 }
 
+#[async_trait]
+pub trait AccountServiceFacade: Send + Sync {
+    async fn register(
+        &self,
+        email: &str,
+        name: &str,
+        password: &str,
+    ) -> Result<UserDto, ServiceError>;
+    async fn login(&self, email: &str, password: &str) -> Result<Option<UserDto>, ServiceError>;
+    async fn get_me(&self, user_id: Uuid) -> Result<Option<UserDto>, ServiceError>;
+    async fn delete_account(&self, user_id: Uuid) -> Result<(), ServiceError>;
+    async fn sign_in_with_external(
+        &self,
+        identity: ExternalAuthIdentity,
+    ) -> Result<UserDto, ServiceError>;
+}
+
+#[async_trait]
+impl AccountServiceFacade for AccountService {
+    async fn register(
+        &self,
+        email: &str,
+        name: &str,
+        password: &str,
+    ) -> Result<UserDto, ServiceError> {
+        self.register(email, name, password).await
+    }
+
+    async fn login(&self, email: &str, password: &str) -> Result<Option<UserDto>, ServiceError> {
+        self.login(email, password).await
+    }
+
+    async fn get_me(&self, user_id: Uuid) -> Result<Option<UserDto>, ServiceError> {
+        self.get_me(user_id).await
+    }
+
+    async fn delete_account(&self, user_id: Uuid) -> Result<(), ServiceError> {
+        self.delete_account(user_id).await
+    }
+
+    async fn sign_in_with_external(
+        &self,
+        identity: ExternalAuthIdentity,
+    ) -> Result<UserDto, ServiceError> {
+        self.sign_in_with_external(identity).await
+    }
+}
+
 impl AccountService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         user_repo: Arc<dyn UserRepository>,
+        secret_hasher: Arc<dyn SecretHasher>,
         document_repo: Arc<dyn DocumentRepository>,
         files_repo: Arc<dyn FilesRepository>,
         plugin_installations: Arc<dyn PluginInstallationRepository>,
@@ -49,6 +101,7 @@ impl AccountService {
     ) -> Self {
         Self {
             user_repo,
+            secret_hasher,
             document_repo,
             files_repo,
             plugin_installations,
@@ -74,6 +127,7 @@ impl AccountService {
             .await?;
         let uc = RegisterUc {
             repo: self.user_repo.as_ref(),
+            hasher: self.secret_hasher.as_ref(),
         };
         let register_request = RegisterRequest {
             id: user_id,
@@ -111,6 +165,7 @@ impl AccountService {
     ) -> Result<Option<UserDto>, ServiceError> {
         let uc = LoginUc {
             repo: self.user_repo.as_ref(),
+            hasher: self.secret_hasher.as_ref(),
         };
         uc.execute(&LoginRequest {
             email: email.to_string(),

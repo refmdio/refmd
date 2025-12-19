@@ -11,6 +11,7 @@ use crate::documents::use_cases::publishing::get_status::{GetPublishStatus, Publ
 use crate::documents::use_cases::publishing::list_workspace::ListWorkspacePublic;
 use crate::documents::use_cases::publishing::publish::{PublishDocument, PublishResponseDto};
 use crate::documents::use_cases::publishing::unpublish::UnpublishDocument;
+use async_trait::async_trait;
 use domain::access::permissions::PermissionSet;
 use domain::documents::document::Document;
 use domain::documents::public_policy;
@@ -18,6 +19,105 @@ use domain::documents::public_policy;
 pub struct PublicService {
     repo: Arc<dyn PublicRepository>,
     realtime: Arc<dyn RealtimeEngine>,
+}
+
+#[async_trait]
+pub trait PublicServiceFacade: Send + Sync {
+    async fn publish_document(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+    ) -> Result<PublishResponseDto, ServiceError>;
+
+    async fn unpublish_document(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+    ) -> Result<bool, ServiceError>;
+
+    async fn get_publish_status(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+    ) -> Result<PublishResponseDto, ServiceError>;
+
+    async fn list_workspace_public_documents(
+        &self,
+        workspace_slug: &str,
+    ) -> Result<Vec<PublicDocumentSummaryDto>, ServiceError>;
+
+    async fn get_public_by_workspace_and_id(
+        &self,
+        workspace_slug: &str,
+        doc_id: Uuid,
+    ) -> Result<Document, ServiceError>;
+
+    async fn get_public_content_by_workspace_and_id(
+        &self,
+        workspace_slug: &str,
+        doc_id: Uuid,
+    ) -> Result<String, ServiceError>;
+}
+
+#[async_trait]
+impl PublicServiceFacade for PublicService {
+    async fn publish_document(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+    ) -> Result<PublishResponseDto, ServiceError> {
+        self.publish_document(workspace_id, permissions, doc_id)
+            .await
+    }
+
+    async fn unpublish_document(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+    ) -> Result<bool, ServiceError> {
+        self.unpublish_document(workspace_id, permissions, doc_id)
+            .await
+    }
+
+    async fn get_publish_status(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+    ) -> Result<PublishResponseDto, ServiceError> {
+        self.get_publish_status(workspace_id, permissions, doc_id)
+            .await
+    }
+
+    async fn list_workspace_public_documents(
+        &self,
+        workspace_slug: &str,
+    ) -> Result<Vec<PublicDocumentSummaryDto>, ServiceError> {
+        self.list_workspace_public_documents(workspace_slug).await
+    }
+
+    async fn get_public_by_workspace_and_id(
+        &self,
+        workspace_slug: &str,
+        doc_id: Uuid,
+    ) -> Result<Document, ServiceError> {
+        self.get_public_by_workspace_and_id(workspace_slug, doc_id)
+            .await
+    }
+
+    async fn get_public_content_by_workspace_and_id(
+        &self,
+        workspace_slug: &str,
+        doc_id: Uuid,
+    ) -> Result<String, ServiceError> {
+        self.get_public_content_by_workspace_and_id(workspace_slug, doc_id)
+            .await
+    }
 }
 
 impl PublicService {

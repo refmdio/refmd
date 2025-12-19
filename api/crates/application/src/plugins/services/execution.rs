@@ -8,6 +8,7 @@ use crate::plugins::dtos::ExecResult;
 use crate::plugins::ports::plugin_repository::PluginRepository;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;
 use crate::plugins::use_cases::exec_action::ExecutePluginAction;
+use async_trait::async_trait;
 use domain::access::permissions::PermissionSet;
 
 pub struct PluginExecutionService {
@@ -15,6 +16,48 @@ pub struct PluginExecutionService {
     document_repo: Arc<dyn DocumentRepository>,
     runtime: Arc<dyn PluginRuntime>,
     authorization: Arc<crate::core::services::authorization::AuthorizationService>,
+}
+
+#[async_trait]
+pub trait PluginExecutionServiceFacade: Send + Sync {
+    async fn execute_action(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        plugin: &str,
+        action: &str,
+        payload: Option<serde_json::Value>,
+        allowed_doc_id: Option<Uuid>,
+        actor: &crate::core::services::access::Actor,
+    ) -> Result<Option<ExecResult>, ServiceError>;
+}
+
+#[async_trait]
+impl PluginExecutionServiceFacade for PluginExecutionService {
+    async fn execute_action(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        plugin: &str,
+        action: &str,
+        payload: Option<serde_json::Value>,
+        allowed_doc_id: Option<Uuid>,
+        actor: &crate::core::services::access::Actor,
+    ) -> Result<Option<ExecResult>, ServiceError> {
+        self.execute_action(
+            workspace_id,
+            user_id,
+            permissions,
+            plugin,
+            action,
+            payload,
+            allowed_doc_id,
+            actor,
+        )
+        .await
+    }
 }
 
 impl PluginExecutionService {

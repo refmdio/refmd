@@ -10,12 +10,56 @@ use crate::identity::use_cases::user_shortcuts::get_shortcuts::GetUserShortcuts;
 use crate::identity::use_cases::user_shortcuts::update_shortcuts::{
     UpdateUserShortcuts, UpdateUserShortcutsError, UpdateUserShortcutsPayload,
 };
+use async_trait::async_trait;
 use domain::access::permissions::PermissionSet;
 use domain::identity::policy;
 
 pub struct UserShortcutService {
     repo: Arc<dyn UserShortcutRepository>,
     max_payload_bytes: usize,
+}
+
+#[async_trait]
+pub trait UserShortcutServiceFacade: Send + Sync {
+    async fn get_profile(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+    ) -> Result<Option<UserShortcutProfileDto>, ServiceError>;
+
+    async fn update_profile(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        bindings: Value,
+        leader_key: Option<String>,
+    ) -> Result<UserShortcutProfileDto, ServiceError>;
+}
+
+#[async_trait]
+impl UserShortcutServiceFacade for UserShortcutService {
+    async fn get_profile(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+    ) -> Result<Option<UserShortcutProfileDto>, ServiceError> {
+        self.get_profile(workspace_id, user_id, permissions).await
+    }
+
+    async fn update_profile(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        permissions: &PermissionSet,
+        bindings: Value,
+        leader_key: Option<String>,
+    ) -> Result<UserShortcutProfileDto, ServiceError> {
+        self.update_profile(workspace_id, user_id, permissions, bindings, leader_key)
+            .await
+    }
 }
 
 impl UserShortcutService {

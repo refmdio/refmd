@@ -7,7 +7,7 @@ use application::core::ports::storage::storage_projection_queue::StorageProjecti
 use application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
 use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
 use application::plugins::ports::plugin_asset_store::PluginAssetStore;
-use application::workspaces::services::WorkspaceService;
+use application::workspaces::services::WorkspaceServiceFacade;
 use bootstrap::app::AppBuilder;
 use bootstrap::config::Config;
 use bootstrap::git::git_storage_driver_config;
@@ -27,7 +27,7 @@ use crate::git_workspace::CliGitWorkspace;
 pub(crate) struct Deps {
     pub(crate) pool: PgPool,
     pub(crate) user_repo: SqlxUserRepository,
-    pub(crate) workspace_service: Arc<WorkspaceService>,
+    pub(crate) workspace_service: Arc<dyn WorkspaceServiceFacade>,
     pub(crate) ingest_queue: Arc<dyn StorageIngestQueue>,
     pub(crate) reconcile_jobs: Arc<dyn StorageReconcileJobs>,
     pub(crate) git_rebuild_jobs: Arc<dyn GitRebuildJobQueue>,

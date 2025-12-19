@@ -95,6 +95,12 @@ pub struct ExternalAuthRegistry {
     providers: HashMap<ExternalAuthProviderKind, Arc<dyn ExternalAuthVerifier>>,
 }
 
+pub trait ExternalAuthRegistryFacade: Send + Sync {
+    fn get(&self, provider: ExternalAuthProviderKind) -> Option<Arc<dyn ExternalAuthVerifier>>;
+    fn is_empty(&self) -> bool;
+    fn list_descriptors(&self) -> Vec<ExternalAuthProviderDescriptor>;
+}
+
 impl ExternalAuthRegistry {
     pub fn new(providers: Vec<Arc<dyn ExternalAuthVerifier>>) -> Self {
         let mut map = HashMap::new();
@@ -117,5 +123,19 @@ impl ExternalAuthRegistry {
             .values()
             .map(|provider| provider.descriptor())
             .collect()
+    }
+}
+
+impl ExternalAuthRegistryFacade for ExternalAuthRegistry {
+    fn get(&self, provider: ExternalAuthProviderKind) -> Option<Arc<dyn ExternalAuthVerifier>> {
+        self.get(provider)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn list_descriptors(&self) -> Vec<ExternalAuthProviderDescriptor> {
+        self.list_descriptors()
     }
 }

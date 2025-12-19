@@ -2,8 +2,8 @@ use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use crate::context::AppContext;
-use crate::http::workspaces::map_service_error;
 use crate::http::error::ApiError;
+use crate::http::workspaces::map_service_error;
 use domain::access::permissions::PermissionSet;
 
 const WORKSPACE_HEADER: &str = "X-Workspace-ID";
@@ -19,7 +19,9 @@ pub async fn resolve_active_workspace_id(
         .and_then(|v| v.to_str().ok())
         .map(|raw| raw.trim())
         .filter(|value| !value.is_empty())
-        .map(|value| Uuid::parse_str(value).map_err(|_| ApiError::bad_request("invalid_workspace_id")))
+        .map(|value| {
+            Uuid::parse_str(value).map_err(|_| ApiError::bad_request("invalid_workspace_id"))
+        })
         .transpose()?;
 
     let workspaces = ctx

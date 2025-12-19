@@ -60,10 +60,13 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(ApiErrorBody {
-            code: self.code,
-            message: self.message,
-        }))
+        (
+            self.status,
+            Json(ApiErrorBody {
+                code: self.code,
+                message: self.message,
+            }),
+        )
             .into_response()
     }
 }
@@ -91,6 +94,8 @@ pub fn map_service_error_no_log(err: ServiceError) -> ApiError {
         ServiceError::Conflict => ApiError::conflict("conflict"),
         ServiceError::NotFound => ApiError::not_found("not_found"),
         ServiceError::BadRequest(code) => ApiError::bad_request(code).with_message(code),
-        ServiceError::Unexpected(_) => ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
+        ServiceError::Unexpected(_) => {
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+        }
     }
 }

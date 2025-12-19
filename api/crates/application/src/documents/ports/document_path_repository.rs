@@ -20,4 +20,3 @@ pub trait DocumentPathRepository: Send + Sync {
         relative_path: &str,
     ) -> anyhow::Result<()>;
 }
-

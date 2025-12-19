@@ -3,33 +3,33 @@ use std::sync::Arc;
 use futures_util::stream::BoxStream;
 
 use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
-use application::core::services::authorization::AuthorizationService;
-use application::core::services::health::HealthService;
-use application::core::services::markdown_render::MarkdownRenderService;
-use application::core::services::metrics::MetricsRegistry;
+use application::core::services::authorization::AuthorizationServiceFacade;
+use application::core::services::health::HealthServiceFacade;
+use application::core::services::markdown_render::MarkdownRenderServiceFacade;
+use application::core::services::metrics::MetricsRegistryFacade;
 use application::documents::ports::realtime::realtime_port::RealtimeEngine;
 pub use application::documents::ports::realtime::realtime_types::{
     DynRealtimeSink, DynRealtimeStream,
 };
-use application::documents::services::DocumentService;
-use application::documents::services::files::FileService;
-use application::documents::services::publishing::PublicService;
-use application::documents::services::sharing::ShareService;
-use application::documents::services::tagging::TagService;
-use application::git::services::GitService;
-use application::identity::services::api_tokens::ApiTokenService;
-use application::identity::services::auth::account::AccountService;
-use application::identity::services::auth::auth_service::AuthService;
-use application::identity::services::auth::external::ExternalAuthRegistry;
-use application::identity::services::auth::user_sessions::UserSessionService;
-use application::identity::services::user_shortcuts::UserShortcutService;
+use application::documents::services::DocumentServiceFacade;
+use application::documents::services::files::FileServiceFacade;
+use application::documents::services::publishing::PublicServiceFacade;
+use application::documents::services::sharing::ShareServiceFacade;
+use application::documents::services::tagging::TagServiceFacade;
+use application::git::services::GitServiceFacade;
+use application::identity::services::api_tokens::ApiTokenServiceFacade;
+use application::identity::services::auth::account::AccountServiceFacade;
+use application::identity::services::auth::auth_service::AuthServiceFacade;
+use application::identity::services::auth::external::ExternalAuthRegistryFacade;
+use application::identity::services::auth::user_sessions::UserSessionServiceFacade;
+use application::identity::services::user_shortcuts::UserShortcutServiceFacade;
 use application::plugins::ports::plugin_event_publisher::PluginScopedEvent;
 use application::plugins::ports::plugin_event_subscriber::PluginEventSubscriber;
-use application::plugins::services::data::PluginDataService;
-use application::plugins::services::execution::PluginExecutionService;
-use application::plugins::services::management::PluginManagementService;
-use application::plugins::services::permissions::PluginPermissionService;
-use application::workspaces::services::WorkspaceService;
+use application::plugins::services::data::PluginDataServiceFacade;
+use application::plugins::services::execution::PluginExecutionServiceFacade;
+use application::plugins::services::management::PluginManagementServiceFacade;
+use application::plugins::services::permissions::PluginPermissionServiceFacade;
+use application::workspaces::services::WorkspaceServiceFacade;
 
 #[derive(Debug, Clone)]
 pub struct PresentationConfig {
@@ -43,7 +43,7 @@ pub struct PresentationConfig {
 pub struct AppContext {
     pub cfg: PresentationConfig,
     services: Arc<AppServices>,
-    metrics: Arc<MetricsRegistry>,
+    metrics: Arc<dyn MetricsRegistryFacade>,
 }
 
 #[derive(Clone)]
@@ -58,77 +58,77 @@ pub struct AppServices {
 
 #[derive(Clone)]
 struct CoreServices {
-    authorization: Arc<AuthorizationService>,
-    markdown_render_service: Arc<MarkdownRenderService>,
+    authorization: Arc<dyn AuthorizationServiceFacade>,
+    markdown_render_service: Arc<dyn MarkdownRenderServiceFacade>,
     storage_ingest_queue: Arc<dyn StorageIngestQueue>,
-    health_service: Arc<HealthService>,
+    health_service: Arc<dyn HealthServiceFacade>,
 }
 
 #[derive(Clone)]
 struct DocumentServices {
-    document_service: Arc<DocumentService>,
-    share_service: Arc<ShareService>,
-    file_service: Arc<FileService>,
-    public_service: Arc<PublicService>,
-    tag_service: Arc<TagService>,
+    document_service: Arc<dyn DocumentServiceFacade>,
+    share_service: Arc<dyn ShareServiceFacade>,
+    file_service: Arc<dyn FileServiceFacade>,
+    public_service: Arc<dyn PublicServiceFacade>,
+    tag_service: Arc<dyn TagServiceFacade>,
     realtime_engine: Arc<dyn RealtimeEngine>,
 }
 
 #[derive(Clone)]
 struct GitServices {
-    git_service: Arc<GitService>,
+    git_service: Arc<dyn GitServiceFacade>,
 }
 
 #[derive(Clone)]
 struct IdentityServices {
-    api_token_service: Arc<ApiTokenService>,
-    user_shortcut_service: Arc<UserShortcutService>,
-    account_service: Arc<AccountService>,
-    auth_service: Arc<AuthService>,
-    session_service: Arc<UserSessionService>,
-    external_auth: Arc<ExternalAuthRegistry>,
+    api_token_service: Arc<dyn ApiTokenServiceFacade>,
+    user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
+    account_service: Arc<dyn AccountServiceFacade>,
+    auth_service: Arc<dyn AuthServiceFacade>,
+    session_service: Arc<dyn UserSessionServiceFacade>,
+    external_auth: Arc<dyn ExternalAuthRegistryFacade>,
 }
 
 #[derive(Clone)]
 struct PluginServices {
-    plugin_execution_service: Arc<PluginExecutionService>,
-    plugin_management_service: Arc<PluginManagementService>,
-    plugin_permission_service: Arc<PluginPermissionService>,
-    plugin_data_service: Arc<PluginDataService>,
+    plugin_execution_service: Arc<dyn PluginExecutionServiceFacade>,
+    plugin_management_service: Arc<dyn PluginManagementServiceFacade>,
+    plugin_permission_service: Arc<dyn PluginPermissionServiceFacade>,
+    plugin_data_service: Arc<dyn PluginDataServiceFacade>,
     plugin_event_subscriber: Arc<dyn PluginEventSubscriber>,
 }
 
 #[derive(Clone)]
 struct WorkspaceServices {
-    workspace_service: Arc<WorkspaceService>,
+    workspace_service: Arc<dyn WorkspaceServiceFacade>,
 }
 
 impl AppServices {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        authorization: Arc<AuthorizationService>,
-        document_service: Arc<DocumentService>,
-        share_service: Arc<ShareService>,
-        file_service: Arc<FileService>,
-        public_service: Arc<PublicService>,
-        tag_service: Arc<TagService>,
-        api_token_service: Arc<ApiTokenService>,
-        user_shortcut_service: Arc<UserShortcutService>,
-        git_service: Arc<GitService>,
-        markdown_render_service: Arc<MarkdownRenderService>,
-        workspace_service: Arc<WorkspaceService>,
-        plugin_execution_service: Arc<PluginExecutionService>,
-        plugin_management_service: Arc<PluginManagementService>,
-        plugin_permission_service: Arc<PluginPermissionService>,
-        plugin_data_service: Arc<PluginDataService>,
+        authorization: Arc<dyn AuthorizationServiceFacade>,
+        document_service: Arc<dyn DocumentServiceFacade>,
+        share_service: Arc<dyn ShareServiceFacade>,
+        file_service: Arc<dyn FileServiceFacade>,
+        public_service: Arc<dyn PublicServiceFacade>,
+        tag_service: Arc<dyn TagServiceFacade>,
+        api_token_service: Arc<dyn ApiTokenServiceFacade>,
+        user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
+        git_service: Arc<dyn GitServiceFacade>,
+        markdown_render_service: Arc<dyn MarkdownRenderServiceFacade>,
+        workspace_service: Arc<dyn WorkspaceServiceFacade>,
+        plugin_execution_service: Arc<dyn PluginExecutionServiceFacade>,
+        plugin_management_service: Arc<dyn PluginManagementServiceFacade>,
+        plugin_permission_service: Arc<dyn PluginPermissionServiceFacade>,
+        plugin_data_service: Arc<dyn PluginDataServiceFacade>,
         plugin_event_subscriber: Arc<dyn PluginEventSubscriber>,
-        health_service: Arc<HealthService>,
-        account_service: Arc<AccountService>,
-        auth_service: Arc<AuthService>,
-        session_service: Arc<UserSessionService>,
+        health_service: Arc<dyn HealthServiceFacade>,
+        account_service: Arc<dyn AccountServiceFacade>,
+        auth_service: Arc<dyn AuthServiceFacade>,
+        session_service: Arc<dyn UserSessionServiceFacade>,
         realtime_engine: Arc<dyn RealtimeEngine>,
         storage_ingest_queue: Arc<dyn StorageIngestQueue>,
-        external_auth: Arc<ExternalAuthRegistry>,
+        external_auth: Arc<dyn ExternalAuthRegistryFacade>,
     ) -> Self {
         Self {
             core: CoreServices {
@@ -170,7 +170,7 @@ impl AppContext {
     pub fn new(
         cfg: PresentationConfig,
         services: AppServices,
-        metrics: Arc<MetricsRegistry>,
+        metrics: Arc<dyn MetricsRegistryFacade>,
     ) -> Self {
         Self {
             cfg,
@@ -179,43 +179,43 @@ impl AppContext {
         }
     }
 
-    pub fn authorization(&self) -> Arc<AuthorizationService> {
+    pub fn authorization(&self) -> Arc<dyn AuthorizationServiceFacade> {
         self.services.core.authorization.clone()
     }
 
-    pub fn document_service(&self) -> Arc<DocumentService> {
+    pub fn document_service(&self) -> Arc<dyn DocumentServiceFacade> {
         self.services.documents.document_service.clone()
     }
 
-    pub fn share_service(&self) -> Arc<ShareService> {
+    pub fn share_service(&self) -> Arc<dyn ShareServiceFacade> {
         self.services.documents.share_service.clone()
     }
 
-    pub fn file_service(&self) -> Arc<FileService> {
+    pub fn file_service(&self) -> Arc<dyn FileServiceFacade> {
         self.services.documents.file_service.clone()
     }
 
-    pub fn public_service(&self) -> Arc<PublicService> {
+    pub fn public_service(&self) -> Arc<dyn PublicServiceFacade> {
         self.services.documents.public_service.clone()
     }
 
-    pub fn tag_service(&self) -> Arc<TagService> {
+    pub fn tag_service(&self) -> Arc<dyn TagServiceFacade> {
         self.services.documents.tag_service.clone()
     }
 
-    pub fn user_shortcut_service(&self) -> Arc<UserShortcutService> {
+    pub fn user_shortcut_service(&self) -> Arc<dyn UserShortcutServiceFacade> {
         self.services.identity.user_shortcut_service.clone()
     }
 
-    pub fn git_service(&self) -> Arc<GitService> {
+    pub fn git_service(&self) -> Arc<dyn GitServiceFacade> {
         self.services.git.git_service.clone()
     }
 
-    pub fn markdown_renderer(&self) -> Arc<MarkdownRenderService> {
+    pub fn markdown_renderer(&self) -> Arc<dyn MarkdownRenderServiceFacade> {
         self.services.core.markdown_render_service.clone()
     }
 
-    pub fn workspace_service(&self) -> Arc<WorkspaceService> {
+    pub fn workspace_service(&self) -> Arc<dyn WorkspaceServiceFacade> {
         self.services.workspaces.workspace_service.clone()
     }
 
@@ -223,53 +223,57 @@ impl AppContext {
         self.services.core.storage_ingest_queue.clone()
     }
 
-    pub fn plugin_execution_service(&self) -> Arc<PluginExecutionService> {
+    pub fn plugin_execution_service(&self) -> Arc<dyn PluginExecutionServiceFacade> {
         self.services.plugins.plugin_execution_service.clone()
     }
 
-    pub fn plugin_management(&self) -> Arc<PluginManagementService> {
+    pub fn plugin_management(&self) -> Arc<dyn PluginManagementServiceFacade> {
         self.services.plugins.plugin_management_service.clone()
     }
 
-    pub fn plugin_permissions(&self) -> Arc<PluginPermissionService> {
+    pub fn plugin_permissions(&self) -> Arc<dyn PluginPermissionServiceFacade> {
         self.services.plugins.plugin_permission_service.clone()
     }
 
-    pub fn plugin_data_service(&self) -> Arc<PluginDataService> {
+    pub fn plugin_data_service(&self) -> Arc<dyn PluginDataServiceFacade> {
         self.services.plugins.plugin_data_service.clone()
     }
 
-    pub fn health_service(&self) -> Arc<HealthService> {
+    pub fn health_service(&self) -> Arc<dyn HealthServiceFacade> {
         self.services.core.health_service.clone()
     }
 
-    pub fn account_service(&self) -> Arc<AccountService> {
+    pub fn account_service(&self) -> Arc<dyn AccountServiceFacade> {
         self.services.identity.account_service.clone()
     }
 
-    pub fn auth_service(&self) -> Arc<AuthService> {
+    pub fn auth_service(&self) -> Arc<dyn AuthServiceFacade> {
         self.services.identity.auth_service.clone()
     }
 
-    pub fn session_service(&self) -> Arc<UserSessionService> {
+    pub fn session_service(&self) -> Arc<dyn UserSessionServiceFacade> {
         self.services.identity.session_service.clone()
     }
 
-    pub fn external_auth(&self) -> Arc<ExternalAuthRegistry> {
+    pub fn external_auth(&self) -> Arc<dyn ExternalAuthRegistryFacade> {
         self.services.identity.external_auth.clone()
     }
 
-    pub fn metrics(&self) -> Arc<MetricsRegistry> {
+    pub fn metrics(&self) -> Arc<dyn MetricsRegistryFacade> {
         self.metrics.clone()
     }
 
     pub async fn subscribe_plugin_events(
         &self,
     ) -> anyhow::Result<BoxStream<'static, PluginScopedEvent>> {
-        self.services.plugins.plugin_event_subscriber.subscribe().await
+        self.services
+            .plugins
+            .plugin_event_subscriber
+            .subscribe()
+            .await
     }
 
-    pub fn api_token_service(&self) -> Arc<ApiTokenService> {
+    pub fn api_token_service(&self) -> Arc<dyn ApiTokenServiceFacade> {
         self.services.identity.api_token_service.clone()
     }
 

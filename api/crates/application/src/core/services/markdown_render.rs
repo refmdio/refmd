@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Deserialize;
@@ -8,8 +9,8 @@ use serde_json::{Value, json};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::core::services::errors::ServiceError;
 use crate::core::ports::markdown_renderer::MarkdownRenderer;
+use crate::core::services::errors::ServiceError;
 use crate::core::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
@@ -31,6 +32,40 @@ pub struct MarkdownRenderService {
     renderer: Arc<dyn MarkdownRenderer>,
     asset_signer: Arc<AssetSigner>,
     asset_ttl_secs: u64,
+}
+
+#[async_trait]
+pub trait MarkdownRenderServiceFacade: Send + Sync {
+    async fn render_single(
+        &self,
+        text: String,
+        options: RenderOptions,
+        user_scope: Option<Uuid>,
+    ) -> Result<RenderResponse, ServiceError>;
+
+    async fn render_many(
+        &self,
+        tasks: Vec<MarkdownRenderTask>,
+    ) -> Result<Vec<RenderResponse>, ServiceError>;
+}
+
+#[async_trait]
+impl MarkdownRenderServiceFacade for MarkdownRenderService {
+    async fn render_single(
+        &self,
+        text: String,
+        options: RenderOptions,
+        user_scope: Option<Uuid>,
+    ) -> Result<RenderResponse, ServiceError> {
+        self.render_single(text, options, user_scope).await
+    }
+
+    async fn render_many(
+        &self,
+        tasks: Vec<MarkdownRenderTask>,
+    ) -> Result<Vec<RenderResponse>, ServiceError> {
+        self.render_many(tasks).await
+    }
 }
 
 impl MarkdownRenderService {

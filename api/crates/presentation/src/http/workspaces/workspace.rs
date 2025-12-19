@@ -339,8 +339,7 @@ pub async fn download_workspace_archive(
         .await
         .map_err(security_token::map_actor_error)?;
 
-    require_permission(&ctx, id, user_id, PERM_DOC_VIEW)
-        .await?;
+    require_permission(&ctx, id, user_id, PERM_DOC_VIEW).await?;
 
     let workspace = ctx
         .workspace_service()

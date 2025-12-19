@@ -1,5 +1,4 @@
 use serde_json::json;
-use tracing::error;
 use uuid::Uuid;
 
 use domain::documents::doc_type::DocumentType;
@@ -52,11 +51,7 @@ impl DocumentService {
             });
         }
 
-        let entries = delete_plan::build_delete_plan(doc_id, root_meta, nodes).map_err(|err| {
-            error!(error = ?err, "build_delete_entries_failed");
-            ServiceError::Unexpected(err.into())
-        })?;
-        Ok(entries)
+        Ok(delete_plan::build_delete_plan(doc_id, root_meta, nodes))
     }
 
     pub(super) async fn enqueue_delete_job_for_entry(

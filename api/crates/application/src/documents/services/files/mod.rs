@@ -13,11 +13,97 @@ use crate::documents::ports::doc_event_log::DocEventLog;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
 use crate::documents::use_cases::files::upload_file::{UploadFile, UploadedFile};
+use async_trait::async_trait;
 use domain::documents::path as doc_path;
 
 pub struct FilePayload {
     pub bytes: Vec<u8>,
     pub content_type: Option<String>,
+}
+
+#[async_trait]
+pub trait FileServiceFacade: Send + Sync {
+    async fn upload_file(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        doc_id: Uuid,
+        bytes: Vec<u8>,
+        orig_filename: Option<String>,
+        content_type: Option<String>,
+        public_base_url: Option<String>,
+    ) -> Result<UploadedFile, ServiceError>;
+
+    async fn download_owned_file(
+        &self,
+        workspace_id: Uuid,
+        file_id: Uuid,
+    ) -> Result<FilePayload, ServiceError>;
+
+    async fn get_file_by_name(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+        filename: &str,
+    ) -> Result<FilePayload, ServiceError>;
+
+    async fn serve_upload(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+        attachment_path: &str,
+    ) -> Result<FilePayload, ServiceError>;
+}
+
+#[async_trait]
+impl FileServiceFacade for FileService {
+    async fn upload_file(
+        &self,
+        workspace_id: Uuid,
+        actor_id: Uuid,
+        doc_id: Uuid,
+        bytes: Vec<u8>,
+        orig_filename: Option<String>,
+        content_type: Option<String>,
+        public_base_url: Option<String>,
+    ) -> Result<UploadedFile, ServiceError> {
+        self.upload_file(
+            workspace_id,
+            actor_id,
+            doc_id,
+            bytes,
+            orig_filename,
+            content_type,
+            public_base_url,
+        )
+        .await
+    }
+
+    async fn download_owned_file(
+        &self,
+        workspace_id: Uuid,
+        file_id: Uuid,
+    ) -> Result<FilePayload, ServiceError> {
+        self.download_owned_file(workspace_id, file_id).await
+    }
+
+    async fn get_file_by_name(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+        filename: &str,
+    ) -> Result<FilePayload, ServiceError> {
+        self.get_file_by_name(actor, doc_id, filename).await
+    }
+
+    async fn serve_upload(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+        attachment_path: &str,
+    ) -> Result<FilePayload, ServiceError> {
+        self.serve_upload(actor, doc_id, attachment_path).await
+    }
 }
 
 pub struct FileService {

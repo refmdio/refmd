@@ -2,16 +2,18 @@ use std::sync::Arc;
 
 use crate::core::services::errors::ServiceError;
 use crate::identity::ports::api_token_repository::ApiTokenRepository;
+use crate::identity::ports::secret_hasher::SecretHasher;
 use crate::identity::services::api_tokens::{compute_digest, verify_token};
 use domain::identity::api_token::ApiTokenSubject;
 
 pub struct TokenValidationService {
     repo: Arc<dyn ApiTokenRepository>,
+    hasher: Arc<dyn SecretHasher>,
 }
 
 impl TokenValidationService {
-    pub fn new(repo: Arc<dyn ApiTokenRepository>) -> Self {
-        Self { repo }
+    pub fn new(repo: Arc<dyn ApiTokenRepository>, hasher: Arc<dyn SecretHasher>) -> Self {
+        Self { repo, hasher }
     }
 
     pub async fn validate(&self, token: &str) -> Result<Option<ApiTokenSubject>, ServiceError> {
@@ -27,7 +29,8 @@ impl TokenValidationService {
         if secret.token.revoked_at.is_some() {
             return Ok(None);
         }
-        let ok = verify_token(token, &secret.token_hash).map_err(ServiceError::from)?;
+        let ok = verify_token(self.hasher.as_ref(), token, &secret.token_hash)
+            .map_err(ServiceError::from)?;
         if !ok {
             return Ok(None);
         }

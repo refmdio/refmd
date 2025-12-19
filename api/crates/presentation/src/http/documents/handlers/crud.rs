@@ -85,8 +85,8 @@ pub async fn create_document(
     let dtype = req
         .r#type
         .unwrap_or_else(|| DocumentType::Document.as_str().to_string());
-    let doc_type =
-        DocumentType::try_from(dtype.as_str()).map_err(|_| ApiError::bad_request("invalid_document_type"))?;
+    let doc_type = DocumentType::try_from(dtype.as_str())
+        .map_err(|_| ApiError::bad_request("invalid_document_type"))?;
     let service = ctx.document_service();
     let doc = service
         .create_for_user(

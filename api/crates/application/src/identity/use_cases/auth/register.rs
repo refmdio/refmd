@@ -1,14 +1,11 @@
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHasher, SaltString},
-};
-use password_hash::rand_core::OsRng;
 use uuid::Uuid;
 
+use crate::identity::ports::secret_hasher::SecretHasher;
 use crate::identity::ports::user_repository::{UserRepository, UserRow};
 
 pub struct Register<'a, R: UserRepository + ?Sized> {
     pub repo: &'a R,
+    pub hasher: &'a dyn SecretHasher,
 }
 
 #[derive(Debug, Clone)]
@@ -22,11 +19,7 @@ pub struct RegisterRequest {
 
 impl<'a, R: UserRepository + ?Sized> Register<'a, R> {
     pub async fn execute(&self, req: &RegisterRequest) -> anyhow::Result<UserRow> {
-        let salt = SaltString::generate(&mut OsRng);
-        let hash = Argon2::default()
-            .hash_password(req.password.as_bytes(), &salt)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?
-            .to_string();
+        let hash = self.hasher.hash_secret(&req.password)?;
         let user = self
             .repo
             .create_user(

@@ -3,6 +3,8 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::config::Config;
+use application::identity::ports::jwt_codec::JwtCodec;
+use application::identity::ports::secret_hasher::SecretHasher;
 use application::identity::services::auth::auth_service::AuthService;
 use application::identity::services::auth::external::{ExternalAuthRegistry, ExternalAuthVerifier};
 use application::identity::services::auth::token_validation::TokenValidationService;
@@ -10,6 +12,7 @@ use application::identity::services::auth::user_sessions::UserSessionService;
 use infrastructure::identity::auth::github::GithubOAuthProvider;
 use infrastructure::identity::auth::google::GoogleIdentityProvider;
 use infrastructure::identity::auth::oidc::{OidcIdentityProvider, OidcOAuthProviderConfig};
+use infrastructure::identity::jwt::Hs256JwtCodec;
 
 pub struct AuthStack {
     pub auth_service: Arc<AuthService>,
@@ -21,6 +24,7 @@ pub struct AuthStack {
 pub async fn build_auth_stack(
     cfg: &Config,
     token_validation_service: Arc<TokenValidationService>,
+    secret_hasher: Arc<dyn SecretHasher>,
     user_session_repo: Arc<
         dyn application::identity::ports::user_session_repository::UserSessionRepository,
     >,
@@ -33,13 +37,15 @@ pub async fn build_auth_stack(
         .map(|u| u.starts_with("https://"))
         .unwrap_or(false);
 
+    let jwt: Arc<dyn JwtCodec> = Arc::new(Hs256JwtCodec::new(cfg.jwt_secret_pem.clone()));
     let auth_service = Arc::new(AuthService::new(
-        cfg.jwt_secret_pem.clone(),
+        jwt,
         token_validation_service,
         cfg.jwt_expires_secs as usize,
     ));
     let session_service = Arc::new(UserSessionService::new(
         user_session_repo,
+        secret_hasher,
         auth_service.clone(),
         cfg.session_refresh_ttl_secs,
         cfg.session_refresh_remember_ttl_secs,

@@ -111,8 +111,8 @@ impl LinkGraphRepository for SqlxLinkGraphRepository {
         rows.into_iter()
             .map(|r| {
                 let doc_type_str: String = r.get("document_type");
-                let document_type =
-                    DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+                let document_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
                 let title: String = r.get("title");
                 Ok(BacklinkInfo {
                     document_id: r.get("document_id"),
@@ -148,8 +148,8 @@ impl LinkGraphRepository for SqlxLinkGraphRepository {
         rows.into_iter()
             .map(|r| {
                 let doc_type_str: String = r.get("document_type");
-                let document_type =
-                    DocumentType::try_from(doc_type_str.as_str()).context("invalid_document_type")?;
+                let document_type = DocumentType::try_from(doc_type_str.as_str())
+                    .context("invalid_document_type")?;
                 let title: String = r.get("title");
                 Ok(OutgoingLink {
                     document_id: r.get("document_id"),

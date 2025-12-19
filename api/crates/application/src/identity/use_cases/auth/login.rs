@@ -1,12 +1,9 @@
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHash, PasswordVerifier},
-};
-
+use crate::identity::ports::secret_hasher::SecretHasher;
 use crate::identity::ports::user_repository::{UserRepository, UserRow};
 
 pub struct Login<'a, R: UserRepository + ?Sized> {
     pub repo: &'a R,
+    pub hasher: &'a dyn SecretHasher,
 }
 
 #[derive(Debug, Clone)]
@@ -25,11 +22,7 @@ impl<'a, R: UserRepository + ?Sized> Login<'a, R> {
             Some(hash) if !hash.is_empty() => hash,
             _ => return Ok(None),
         };
-        let parsed = PasswordHash::new(hash).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        if Argon2::default()
-            .verify_password(req.password.as_bytes(), &parsed)
-            .is_ok()
-        {
+        if self.hasher.verify_secret(&req.password, hash)? {
             Ok(Some(UserRow {
                 id: row.id,
                 email: row.email,

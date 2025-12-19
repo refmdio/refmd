@@ -164,7 +164,10 @@ pub async fn download_document(
                 error = ?error,
                 "document_download_failed"
             );
-            return Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"));
+            return Err(ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+            ));
         }
     };
 

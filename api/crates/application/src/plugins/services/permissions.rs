@@ -4,9 +4,32 @@ use uuid::Uuid;
 
 use crate::core::services::errors::ServiceError;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;
+use async_trait::async_trait;
 
 pub struct PluginPermissionService {
     runtime: Arc<dyn PluginRuntime>,
+}
+
+#[async_trait]
+pub trait PluginPermissionServiceFacade: Send + Sync {
+    async fn ensure(
+        &self,
+        workspace_id: Option<Uuid>,
+        plugin_id: &str,
+        permission: &str,
+    ) -> Result<(), ServiceError>;
+}
+
+#[async_trait]
+impl PluginPermissionServiceFacade for PluginPermissionService {
+    async fn ensure(
+        &self,
+        workspace_id: Option<Uuid>,
+        plugin_id: &str,
+        permission: &str,
+    ) -> Result<(), ServiceError> {
+        self.ensure(workspace_id, plugin_id, permission).await
+    }
 }
 
 impl PluginPermissionService {

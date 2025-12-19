@@ -1,8 +1,8 @@
 use uuid::Uuid;
 
+use crate::core::services::errors::ServiceError;
 use crate::documents::ports::access_repository::AccessRepository;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
-use crate::core::services::errors::ServiceError;
 use domain::documents::access_policy;
 use domain::documents::doc_type::DocumentType;
 

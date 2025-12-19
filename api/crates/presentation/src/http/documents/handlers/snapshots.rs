@@ -174,9 +174,8 @@ pub async fn download_document_snapshot(
         HeaderValue::from_static("application/zip"),
     );
     let disposition = format!("attachment; filename=\"{}\"", download.filename);
-    let content_disposition = HeaderValue::from_str(&disposition).map_err(|_| {
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
-    })?;
+    let content_disposition = HeaderValue::from_str(&disposition)
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
 
     Ok((headers, download.bytes).into_response())

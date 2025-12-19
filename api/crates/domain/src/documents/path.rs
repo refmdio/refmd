@@ -1,4 +1,3 @@
-use anyhow::{anyhow, bail};
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
@@ -117,11 +116,7 @@ impl DesiredPath {
         let raw = raw.into();
         let normalized = normalize_repo_path_impl(&raw).ok_or(InvalidDesiredPath)?;
         // Ensure the last segment is not empty (e.g. ".md") after stripping extension.
-        let last = normalized
-            .rsplit('/')
-            .next()
-            .unwrap_or_default()
-            .trim();
+        let last = normalized.rsplit('/').next().unwrap_or_default().trim();
         let base = last.strip_suffix(".md").unwrap_or(last).trim();
         if base.is_empty() || matches!(base, "." | "..") {
             return Err(InvalidDesiredPath);
@@ -281,24 +276,37 @@ pub fn parent_desired_path(desired_path: &DesiredPath) -> Option<DesiredPath> {
         .and_then(|p| DesiredPath::new(p.to_string()).ok())
 }
 
-pub fn slug_from_desired_path(desired_path: &DesiredPath) -> anyhow::Result<Slug> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidSlugFromDesiredPath;
+
+impl fmt::Display for InvalidSlugFromDesiredPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid slug from desired path")
+    }
+}
+
+impl std::error::Error for InvalidSlugFromDesiredPath {}
+
+pub fn slug_from_desired_path(
+    desired_path: &DesiredPath,
+) -> Result<Slug, InvalidSlugFromDesiredPath> {
     let segment = desired_path
         .as_str()
         .rsplit('/')
         .next()
-        .ok_or_else(|| anyhow!("invalid_desired_path"))?;
+        .ok_or(InvalidSlugFromDesiredPath)?;
     let trimmed = segment.trim();
     if trimmed.is_empty() {
-        bail!("invalid_desired_path_segment");
+        return Err(InvalidSlugFromDesiredPath);
     }
     let slug = trimmed
         .strip_suffix(".md")
         .unwrap_or(trimmed)
         .trim_matches('/');
     if slug.is_empty() {
-        bail!("invalid_slug_from_path");
+        return Err(InvalidSlugFromDesiredPath);
     }
-    Slug::new(slug.to_string()).map_err(|_| anyhow!("invalid_slug_from_path"))
+    Slug::new(slug.to_string()).map_err(|_| InvalidSlugFromDesiredPath)
 }
 
 fn normalize_repo_path_impl(repo_path: &str) -> Option<String> {
@@ -472,7 +480,10 @@ mod tests {
             parent_desired_path(&DesiredPath::new("a/b.md").unwrap()),
             Some(DesiredPath::new("a").unwrap())
         );
-        assert_eq!(parent_desired_path(&DesiredPath::new("b.md").unwrap()), None);
+        assert_eq!(
+            parent_desired_path(&DesiredPath::new("b.md").unwrap()),
+            None
+        );
     }
 
     #[test]

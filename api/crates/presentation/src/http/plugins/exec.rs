@@ -6,8 +6,8 @@ use axum::{
 use serde_json::json;
 
 use crate::context::AppContext;
-use crate::http::identity::auth::Bearer;
 use crate::http::error::ApiError;
+use crate::http::identity::auth::Bearer;
 use application::core::services::access;
 use domain::access::permissions::PERM_PLUGIN_RUN;
 use domain::documents::doc_type::DocumentType;

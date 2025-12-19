@@ -23,6 +23,7 @@ use application::documents::services::publishing::PublicService;
 use application::documents::services::realtime::snapshot::MarkdownExportProvider;
 use application::documents::services::sharing::ShareService;
 use application::documents::services::tagging::TagService;
+use application::identity::ports::secret_hasher::SecretHasher;
 use application::identity::services::api_tokens::ApiTokenService;
 use application::identity::services::auth::account::AccountService;
 use application::identity::services::auth::token_validation::TokenValidationService;
@@ -43,6 +44,7 @@ use infrastructure::documents::doc_event_log::PgDocEventLog;
 use infrastructure::documents::event_poller::DocEventPoller;
 use infrastructure::documents::exporter::DefaultDocumentExporter;
 use infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
+use infrastructure::identity::crypto::Argon2SecretHasher;
 use presentation::context::{AppContext, AppServices, PresentationConfig};
 
 use crate::app::AppRuntime;
@@ -59,6 +61,8 @@ pub async fn build_runtime(
     // Database
     let pool = infrastructure::core::db::connect_pool(&cfg.database_url).await?;
     infrastructure::core::db::migrate(&pool).await?;
+
+    let secret_hasher: Arc<dyn SecretHasher> = Arc::new(Argon2SecretHasher::default());
 
     let asset_signer = Arc::new(AssetSigner::new(&cfg.plugin_asset_sign_key));
     let uploads_root = std::path::PathBuf::from(&cfg.storage_root);
@@ -212,15 +216,26 @@ pub async fn build_runtime(
             pool.clone(),
         ),
     );
-    let api_token_service = Arc::new(ApiTokenService::new(api_token_repo.clone()));
-    let token_validation_service = Arc::new(TokenValidationService::new(api_token_repo.clone()));
+    let api_token_service = Arc::new(ApiTokenService::new(
+        api_token_repo.clone(),
+        secret_hasher.clone(),
+    ));
+    let token_validation_service = Arc::new(TokenValidationService::new(
+        api_token_repo.clone(),
+        secret_hasher.clone(),
+    ));
     let user_session_repo = Arc::new(
         infrastructure::identity::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository::new(
             pool.clone(),
         ),
     );
-    let auth_stack =
-        auth::build_auth_stack(&cfg, token_validation_service, user_session_repo.clone()).await?;
+    let auth_stack = auth::build_auth_stack(
+        &cfg,
+        token_validation_service,
+        secret_hasher.clone(),
+        user_session_repo.clone(),
+    )
+    .await?;
 
     jobs::spawn_session_cleanup(
         &mut jobs,
@@ -313,6 +328,7 @@ pub async fn build_runtime(
     ));
     let account_service = Arc::new(AccountService::new(
         user_repo.clone(),
+        secret_hasher.clone(),
         document_repo.clone(),
         files_repo.clone(),
         plugin_installations.clone(),

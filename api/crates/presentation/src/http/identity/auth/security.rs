@@ -64,17 +64,11 @@ fn should_skip_refresh(path: &str) -> bool {
     path.starts_with("/api/public") || path.starts_with("/api/health") || path == "/metrics"
 }
 
-pub(crate) async fn validate_bearer(
-    ctx: &AppContext,
-    bearer: Bearer,
-) -> Result<String, ApiError> {
+pub(crate) async fn validate_bearer(ctx: &AppContext, bearer: Bearer) -> Result<String, ApiError> {
     validate_bearer_str(ctx, &bearer.0).await
 }
 
-pub async fn validate_bearer_public(
-    ctx: &AppContext,
-    bearer: Bearer,
-) -> Result<String, ApiError> {
+pub async fn validate_bearer_public(ctx: &AppContext, bearer: Bearer) -> Result<String, ApiError> {
     validate_bearer(ctx, bearer).await
 }
 

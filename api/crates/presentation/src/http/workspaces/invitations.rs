@@ -6,8 +6,8 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
-use crate::security::token::{self, Bearer};
 use crate::http::error::ApiError;
+use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;
 use domain::access::permissions::PERM_MEMBER_INVITE;
 
@@ -141,12 +141,16 @@ pub async fn accept_invitation(
         .get_me(user_id)
         .await
         .map_err(|err| match err {
-            ServiceError::Unauthorized | ServiceError::TokenExpired => ApiError::unauthorized("unauthorized"),
+            ServiceError::Unauthorized | ServiceError::TokenExpired => {
+                ApiError::unauthorized("unauthorized")
+            }
             ServiceError::Forbidden => ApiError::forbidden("forbidden"),
             ServiceError::NotFound => ApiError::unauthorized("unauthorized"),
             ServiceError::BadRequest(code) => ApiError::bad_request(code).with_message(code),
             ServiceError::Conflict => ApiError::conflict("conflict"),
-            ServiceError::Unexpected(_) => ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
+            ServiceError::Unexpected(_) => {
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+            }
         })?
         .ok_or(ApiError::unauthorized("unauthorized"))?;
 
