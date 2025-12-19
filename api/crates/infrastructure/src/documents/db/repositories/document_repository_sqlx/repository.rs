@@ -69,7 +69,7 @@ impl DocumentRepository for SqlxDocumentRepository {
                 r#"SELECT d.*
                    FROM documents d
                    WHERE d.workspace_id = $1 AND {archived_condition}
-                   ORDER BY d.updated_at DESC LIMIT 100"#,
+                   ORDER BY d.updated_at DESC"#,
             );
             sqlx::query(&sql)
                 .bind(workspace_id)
