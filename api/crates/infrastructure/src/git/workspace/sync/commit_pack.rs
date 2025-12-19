@@ -1,3 +1,16 @@
+enum SyncBuildCommitPackOutcome {
+    Committed {
+        meta: Box<CommitMeta>,
+        pack_bytes: Vec<u8>,
+        commit_hex: String,
+        pushed: bool,
+    },
+    NoChanges {
+        commit_hex: String,
+        pushed: bool,
+    },
+}
+
 impl GitWorkspaceService {
     #[allow(clippy::too_many_arguments)]
     fn sync_build_commit_pack(
@@ -17,7 +30,7 @@ impl GitWorkspaceService {
         cfg: Option<&UserGitCfg>,
         skip_push: bool,
         force_push: bool,
-    ) -> anyhow::Result<(CommitMeta, Vec<u8>, String, bool)> {
+    ) -> anyhow::Result<SyncBuildCommitPackOutcome> {
         // Skip pre-fetch/verify to avoid remote redirect/auth loops; rely on push outcome.
         // Build sources from either full scan or dirty set (no awaits here).
         let tree_oid = if use_full_scan {
@@ -40,7 +53,6 @@ impl GitWorkspaceService {
             }
             build_tree_from_sources(repo, &sources)?
         };
-        let tree = repo.find_tree(tree_oid)?;
 
         let mut parent_commits = Vec::new();
         if let Some(prev_meta) = latest_meta {
@@ -49,6 +61,24 @@ impl GitWorkspaceService {
         }
         let parent_refs: Vec<&Commit> = parent_commits.iter().collect();
 
+        if let Some(parent) = parent_commits.first()
+            && parent.tree_id() == tree_oid
+        {
+            // libgit2 allows creating a new commit even if the tree is identical to the parent.
+            // Avoid generating empty/no-op commits (notably during automated rebuild full scans).
+            let mut pushed = false;
+            if let Some(cfg) = cfg {
+                if !cfg.repository_url.is_empty() && !skip_push {
+                    pushed = perform_push(repo, cfg, branch_name, parent.id(), force_push)?;
+                }
+            }
+            return Ok(SyncBuildCommitPackOutcome::NoChanges {
+                commit_hex: encode_commit_id(parent.id().as_bytes()),
+                pushed,
+            });
+        }
+
+        let tree = repo.find_tree(tree_oid)?;
         let branch_ref = format!("refs/heads/{}", branch_name);
         let author_sig = signature_from_parts(author_name, author_email, committed_at)?;
         let commit_oid = repo.commit(
@@ -96,6 +126,11 @@ impl GitWorkspaceService {
             }
         }
 
-        Ok((meta, pack_bytes, commit_hex, pushed))
+        Ok(SyncBuildCommitPackOutcome::Committed {
+            meta: Box::new(meta),
+            pack_bytes,
+            commit_hex,
+            pushed,
+        })
     }
 }

@@ -270,7 +270,7 @@ impl GitWorkspaceService {
             .sync_load_previous_pack_chain(workspace_id, cfg, &mut latest_meta)
             .await?;
 
-        let (meta, pack_bytes, commit_hex, pushed) = {
+        let commit_build = {
             let temp_dir = TempDirBuilder::new()
                 .prefix("git-sync-")
                 .tempdir()
@@ -351,7 +351,7 @@ impl GitWorkspaceService {
             } else {
                 None
             };
-            let (meta, pack_bytes, commit_hex, pushed) = Self::sync_build_commit_pack(
+            let commit_build = Self::sync_build_commit_pack(
                 workspace_id,
                 &repo,
                 latest_meta.as_ref(),
@@ -373,48 +373,57 @@ impl GitWorkspaceService {
             drop(repo);
             let _ = temp_dir.close();
 
-            // files_changed_for_response computed earlier
-
-            (meta, pack_bytes, commit_hex, pushed)
+            commit_build
         };
 
         if let Some((dir, _)) = previous_pack {
             drop(dir);
         }
 
-        // If push to a configured remote failed, do not advance local commit pointers or clear dirty state.
-        // Leave files as-is so the next sync attempt will retry the push instead of treating the workspace as clean.
-        if push_required && !pushed {
-            return Ok(GitSyncOutcome {
-                files_changed: files_changed_for_response,
-                commit_hash: None,
-                pushed: false,
-                message: "commit created (push failed)".to_string(),
-            });
+        match commit_build {
+            SyncBuildCommitPackOutcome::NoChanges { commit_hex, pushed } => {
+                let _ = self.clear_dirty(workspace_id).await;
+                Ok(GitSyncOutcome {
+                    files_changed: 0,
+                    commit_hash: Some(commit_hex),
+                    pushed,
+                    message: if push_required && pushed {
+                        "push completed".to_string()
+                    } else {
+                        "nothing to commit".to_string()
+                    },
+                })
+            }
+            SyncBuildCommitPackOutcome::Committed {
+                meta,
+                pack_bytes,
+                commit_hex,
+                pushed,
+            } => {
+                self.sync_persist_commit(
+                    workspace_id,
+                    use_full_scan,
+                    meta.as_ref(),
+                    &pack_bytes,
+                    &changed_text_snapshots,
+                    latest_meta.as_ref(),
+                )
+                .await?;
+                let outcome_message = if skip_push {
+                    "sync completed (push skipped)".to_string()
+                } else if push_required && !pushed {
+                    "sync completed (push not performed)".to_string()
+                } else {
+                    "sync completed".to_string()
+                };
+
+                Ok(GitSyncOutcome {
+                    files_changed: files_changed_for_response,
+                    commit_hash: Some(commit_hex),
+                    pushed,
+                    message: outcome_message,
+                })
+            }
         }
-
-        self.sync_persist_commit(
-            workspace_id,
-            use_full_scan,
-            &meta,
-            &pack_bytes,
-            &changed_text_snapshots,
-            latest_meta.as_ref(),
-        )
-        .await?;
-        let outcome_message = if pushed {
-            "sync completed".to_string()
-        } else if skip_push {
-            "sync completed (push skipped)".to_string()
-        } else {
-            "commit created (push failed)".to_string()
-        };
-
-        Ok(GitSyncOutcome {
-            files_changed: files_changed_for_response,
-            commit_hash: Some(commit_hex),
-            pushed,
-            message: outcome_message,
-        })
     }
 }

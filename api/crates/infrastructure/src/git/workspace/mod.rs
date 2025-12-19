@@ -60,3 +60,64 @@ include!("import.rs");
 include!("remote.rs");
 include!("port.rs");
 include!("pull.rs");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_build_commit_pack_skips_noop_commit_on_full_scan() -> anyhow::Result<()> {
+        let temp_dir = TempDirBuilder::new().prefix("git-sync-test-").tempdir()?;
+        let repo = Repository::init_bare(temp_dir.path())?;
+
+        let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        entries.insert("doc.md".to_string(), b"hello".to_vec());
+
+        let base_tree_oid = build_tree_from_entries(&repo, &entries)?;
+        let base_tree = repo.find_tree(base_tree_oid)?;
+        let sig = signature_from_parts("RefMD", "refmd@example.com", Utc::now())?;
+        let base_oid = repo.commit(Some("refs/heads/main"), &sig, &sig, "base", &base_tree, &[])?;
+
+        let latest_meta = CommitMeta {
+            commit_id: base_oid.as_bytes().to_vec(),
+            parent_commit_id: None,
+            message: None,
+            author_name: None,
+            author_email: None,
+            committed_at: Utc::now(),
+            pack_key: String::new(),
+            file_hash_index: HashMap::new(),
+        };
+
+        let outcome = GitWorkspaceService::sync_build_commit_pack(
+            Uuid::new_v4(),
+            &repo,
+            Some(&latest_meta),
+            "main",
+            "RefMD",
+            "refmd@example.com",
+            Utc::now(),
+            "Automated Git rebuild",
+            true,
+            Some(&entries),
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            HashMap::new(),
+            None,
+            true,
+            false,
+        )?;
+
+        match outcome {
+            SyncBuildCommitPackOutcome::NoChanges { commit_hex, pushed } => {
+                assert_eq!(commit_hex, encode_commit_id(base_oid.as_bytes()));
+                assert!(!pushed);
+            }
+            SyncBuildCommitPackOutcome::Committed { .. } => {
+                anyhow::bail!("expected NoChanges, got Committed")
+            }
+        }
+
+        Ok(())
+    }
+}
