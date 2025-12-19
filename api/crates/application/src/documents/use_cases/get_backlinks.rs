@@ -13,6 +13,9 @@ impl<'a, R: LinkGraphRepository + ?Sized> GetBacklinks<'a, R> {
         workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Vec<BacklinkInfo>> {
-        self.repo.backlinks_for(workspace_id, doc_id).await
+        self.repo
+            .backlinks_for(workspace_id, doc_id)
+            .await
+            .map_err(Into::into)
     }
 }

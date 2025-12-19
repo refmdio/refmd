@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 application = { path = "../application" }
 contracts = { path = "../contracts", features = ["openapi"] }
-domain = { path = "../domain" }
 
 anyhow = "1"
 axum = { version = "0.7", features = ["macros", "json", "multipart", "ws"] }

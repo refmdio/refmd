@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_projection_queue::{
     StorageProjectionJobKind, StorageProjectionQueueTx,
 };
@@ -175,10 +176,11 @@ impl<'repo, 'tx, 'c> FilesRepositoryTx for SqlxDocumentsTx<'repo, 'tx, 'c> {
     async fn list_storage_paths_for_document(
         &mut self,
         doc_id: Uuid,
-    ) -> anyhow::Result<Vec<String>> {
+    ) -> PortResult<Vec<String>> {
         self.files_repo
             .list_storage_paths_for_document_tx(self.tx, doc_id)
             .await
+            .map_err(Into::into)
     }
 }
 
@@ -190,15 +192,16 @@ impl<'repo, 'tx, 'c> StorageProjectionQueueTx for SqlxDocumentsTx<'repo, 'tx, 'c
         doc_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
-    ) -> anyhow::Result<()> {
-        match kind {
-            StorageProjectionJobKind::DocSync | StorageProjectionJobKind::DeleteDoc => {}
-            other => anyhow::bail!("job_kind {other:?} requires a folder_id"),
-        }
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            match kind {
+                StorageProjectionJobKind::DocSync | StorageProjectionJobKind::DeleteDoc => {}
+                other => anyhow::bail!("job_kind {other:?} requires a folder_id"),
+            }
 
-        let job_type = kind_to_str(kind);
-        sqlx::query(
-            r#"
+            let job_type = kind_to_str(kind);
+            sqlx::query(
+                r#"
             INSERT INTO storage_projection_jobs (workspace_id, job_type, doc_id, reason, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, $4, 0, NULL, NULL)
             ON CONFLICT (job_type, doc_id) WHERE doc_id IS NOT NULL
@@ -222,14 +225,17 @@ impl<'repo, 'tx, 'c> StorageProjectionQueueTx for SqlxDocumentsTx<'repo, 'tx, 'c
                           END,
                           updated_at = now()
             "#,
-        )
-        .bind(workspace_id)
-        .bind(job_type)
-        .bind(doc_id)
-        .bind(reason)
-        .execute(self.tx.as_mut())
-        .await?;
-        Ok(())
+            )
+            .bind(workspace_id)
+            .bind(job_type)
+            .bind(doc_id)
+            .bind(reason)
+            .execute(self.tx.as_mut())
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn enqueue_folder_job(
@@ -238,15 +244,16 @@ impl<'repo, 'tx, 'c> StorageProjectionQueueTx for SqlxDocumentsTx<'repo, 'tx, 'c
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
-    ) -> anyhow::Result<()> {
-        match kind {
-            StorageProjectionJobKind::FolderSync | StorageProjectionJobKind::DeleteFolder => {}
-            other => anyhow::bail!("job_kind {other:?} requires a doc_id"),
-        }
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            match kind {
+                StorageProjectionJobKind::FolderSync | StorageProjectionJobKind::DeleteFolder => {}
+                other => anyhow::bail!("job_kind {other:?} requires a doc_id"),
+            }
 
-        let job_type = kind_to_str(kind);
-        sqlx::query(
-            r#"
+            let job_type = kind_to_str(kind);
+            sqlx::query(
+                r#"
             INSERT INTO storage_projection_jobs (workspace_id, job_type, folder_id, reason, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, $4, 0, NULL, NULL)
             ON CONFLICT (job_type, folder_id) WHERE folder_id IS NOT NULL
@@ -270,14 +277,17 @@ impl<'repo, 'tx, 'c> StorageProjectionQueueTx for SqlxDocumentsTx<'repo, 'tx, 'c
                           END,
                           updated_at = now()
             "#,
-        )
-        .bind(workspace_id)
-        .bind(job_type)
-        .bind(folder_id)
-        .bind(reason)
-        .execute(self.tx.as_mut())
-        .await?;
-        Ok(())
+            )
+            .bind(workspace_id)
+            .bind(job_type)
+            .bind(folder_id)
+            .bind(reason)
+            .execute(self.tx.as_mut())
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }
 

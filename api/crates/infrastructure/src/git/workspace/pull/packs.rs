@@ -197,7 +197,7 @@ impl GitWorkspaceService {
                             return Ok(None);
                         }
                     }
-                    return Err(err);
+                    return Err(err.into());
                 }
             }
         }

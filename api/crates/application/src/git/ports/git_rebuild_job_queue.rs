@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Clone)]
 pub struct GitRebuildJob {
     pub id: i64,
@@ -17,8 +19,8 @@ pub trait GitRebuildJobQueue: Send + Sync {
         workspace_id: Uuid,
         actor_id: Option<Uuid>,
         permission_snapshot: &[String],
-    ) -> anyhow::Result<()>;
-    async fn fetch_next(&self, lock_timeout_secs: i64) -> anyhow::Result<Option<GitRebuildJob>>;
-    async fn complete(&self, job_id: i64) -> anyhow::Result<()>;
-    async fn fail(&self, job_id: i64, error: &str) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
+    async fn fetch_next(&self, lock_timeout_secs: i64) -> PortResult<Option<GitRebuildJob>>;
+    async fn complete(&self, job_id: i64) -> PortResult<()>;
+    async fn fail(&self, job_id: i64, error: &str) -> PortResult<()>;
 }

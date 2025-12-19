@@ -12,6 +12,7 @@ use tokio::task;
 use zip::write::FileOptions;
 use zip::{self, CompressionMethod};
 
+use application::core::ports::errors::PortResult;
 use application::documents::dtos::{DocumentDownload, DocumentDownloadFormat};
 use application::documents::ports::document_exporter::{
     DocumentExportAssets, DocumentExportAttachment, DocumentExporter,
@@ -50,19 +51,23 @@ impl DocumentExporter for DefaultDocumentExporter {
         &self,
         assets: DocumentExportAssets,
         format: DocumentDownloadFormat,
-    ) -> anyhow::Result<DocumentDownload> {
-        let bytes = match format {
-            DocumentDownloadFormat::Archive => build_archive(&assets)?,
-            DocumentDownloadFormat::Markdown => assets.markdown.clone(),
-            _ if needs_pandoc(&format) => render_with_pandoc(format, &assets).await?,
-            _ => unreachable!("unsupported format"),
-        };
+    ) -> PortResult<DocumentDownload> {
+        let out: anyhow::Result<DocumentDownload> = async {
+            let bytes = match format {
+                DocumentDownloadFormat::Archive => build_archive(&assets)?,
+                DocumentDownloadFormat::Markdown => assets.markdown.clone(),
+                _ if needs_pandoc(&format) => render_with_pandoc(format, &assets).await?,
+                _ => unreachable!("unsupported format"),
+            };
 
-        Ok(DocumentDownload {
-            filename: format.file_name(&assets.safe_title),
-            content_type: format.content_type().to_string(),
-            bytes,
-        })
+            Ok(DocumentDownload {
+                filename: format.file_name(&assets.safe_title),
+                content_type: format.content_type().to_string(),
+                bytes,
+            })
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }
 

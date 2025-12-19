@@ -299,7 +299,7 @@ impl GitWorkspaceService {
                 for key in snapshot_keys.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
-                return Err(err);
+                return Err(err.into());
             }
 
             if let Err(err) = self
@@ -318,7 +318,7 @@ impl GitWorkspaceService {
                     .git_storage
                     .set_latest_commit(workspace_id, prev_latest.as_ref())
                     .await;
-                return Err(err);
+                return Err(err.into());
             }
 
             let mut tx = self.pool.begin().await?;
@@ -413,7 +413,10 @@ impl GitWorkspaceService {
 
         drop(repo);
         let _ = temp_dir.close();
-        self.git_storage.latest_commit(workspace_id).await
+        self.git_storage
+            .latest_commit(workspace_id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn backfill_commits_from_storage(

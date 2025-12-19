@@ -51,7 +51,7 @@ where
             .fetcher
             .fetch(url, token)
             .await
-            .map_err(InstallPluginError::Download)?;
+            .map_err(|err| InstallPluginError::Download(err.into()))?;
         let installed = self
             .installer
             .install_for_user(workspace_id, &bytes)
@@ -68,7 +68,7 @@ where
                 PluginInstallationStatus::Enabled,
             )
             .await
-            .map_err(InstallPluginError::Persist)?;
+            .map_err(|err| InstallPluginError::Persist(err.into()))?;
 
         let event = PluginScopedEvent {
             user_id: Some(user_id),
@@ -83,7 +83,7 @@ where
         self.events
             .publish(&event)
             .await
-            .map_err(InstallPluginError::Event)?;
+            .map_err(|err| InstallPluginError::Event(err.into()))?;
         Ok(installed)
     }
 }

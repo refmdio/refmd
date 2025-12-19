@@ -3,6 +3,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::documents::ports::doc_event_log::DocEventLog;
 
 pub struct PgDocEventLog {
@@ -23,19 +24,23 @@ impl DocEventLog for PgDocEventLog {
         doc_id: Uuid,
         event_type: &str,
         payload: Option<Value>,
-    ) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"
             INSERT INTO doc_events (workspace_id, doc_id, event_type, payload)
             VALUES ($1, $2, $3, $4)
             "#,
-        )
-        .bind(workspace_id)
-        .bind(doc_id)
-        .bind(event_type)
-        .bind(payload)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(workspace_id)
+            .bind(doc_id)
+            .bind(event_type)
+            .bind(payload)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

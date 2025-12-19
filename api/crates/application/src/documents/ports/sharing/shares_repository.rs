@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use chrono::{DateTime, Utc};
+use crate::core::ports::errors::PortResult;
 use domain::documents::doc_type::DocumentType;
 use domain::documents::share::{ShareContext, SharePermission};
 use domain::documents::title::Title;
@@ -79,32 +80,32 @@ pub trait SharesRepository: Send + Sync {
         document_id: Uuid,
         permission: SharePermission,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> anyhow::Result<CreatedShare>;
+    ) -> PortResult<CreatedShare>;
 
     async fn list_document_shares(
         &self,
         workspace_id: Uuid,
         document_id: Uuid,
-    ) -> anyhow::Result<Vec<ShareRow>>;
+    ) -> PortResult<Vec<ShareRow>>;
 
-    async fn delete_share(&self, workspace_id: Uuid, token: &str) -> anyhow::Result<bool>;
+    async fn delete_share(&self, workspace_id: Uuid, token: &str) -> PortResult<bool>;
 
     async fn validate_share_token(
         &self,
         token: &str,
-    ) -> anyhow::Result<Option<ShareTokenValidation>>;
+    ) -> PortResult<Option<ShareTokenValidation>>;
 
     async fn list_applicable_shares_for_doc(
         &self,
         workspace_id: Uuid,
         doc_id: Uuid,
-    ) -> anyhow::Result<Vec<ApplicableShareRow>>;
+    ) -> PortResult<Vec<ApplicableShareRow>>;
 
-    async fn list_active_shares(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareRow>>;
+    async fn list_active_shares(&self, workspace_id: Uuid) -> PortResult<Vec<ShareRow>>;
 
-    async fn resolve_share_by_token(&self, token: &str) -> anyhow::Result<Option<ShareContext>>;
+    async fn resolve_share_by_token(&self, token: &str) -> PortResult<Option<ShareContext>>;
 
-    async fn list_share_mounts(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareMountRow>>;
+    async fn list_share_mounts(&self, workspace_id: Uuid) -> PortResult<Vec<ShareMountRow>>;
 
     #[allow(clippy::too_many_arguments)]
     async fn create_share_mount(
@@ -117,26 +118,25 @@ pub trait SharesRepository: Send + Sync {
         target_title: Title,
         permission: SharePermission,
         parent_folder_id: Option<Uuid>,
-    ) -> anyhow::Result<ShareMountRow>;
+    ) -> PortResult<ShareMountRow>;
 
-    async fn delete_share_mount(&self, workspace_id: Uuid, mount_id: Uuid) -> anyhow::Result<bool>;
+    async fn delete_share_mount(&self, workspace_id: Uuid, mount_id: Uuid) -> PortResult<bool>;
 
     async fn get_share_document_meta(
         &self,
         token: &str,
-    ) -> anyhow::Result<Option<ShareDocumentMeta>>;
+    ) -> PortResult<Option<ShareDocumentMeta>>;
 
-    async fn list_subtree_nodes(&self, root_id: Uuid) -> anyhow::Result<Vec<ShareSubtreeNode>>;
+    async fn list_subtree_nodes(&self, root_id: Uuid) -> PortResult<Vec<ShareSubtreeNode>>;
 
-    async fn list_materialized_children(&self, parent_share_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
+    async fn list_materialized_children(&self, parent_share_id: Uuid) -> PortResult<Vec<Uuid>>;
 
     async fn materialize_folder_share(
         &self,
         workspace_id: Uuid,
         actor_id: Uuid,
         token: &str,
-    ) -> anyhow::Result<i64>;
+    ) -> PortResult<i64>;
 
-    async fn revoke_subtree_shares(&self, workspace_id: Uuid, root_id: Uuid)
-    -> anyhow::Result<i64>;
+    async fn revoke_subtree_shares(&self, workspace_id: Uuid, root_id: Uuid) -> PortResult<i64>;
 }

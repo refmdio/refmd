@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
 use domain::plugins::scope::{PluginRecordScope, PluginScope};
 
 #[derive(Debug, Clone)]
@@ -25,7 +26,7 @@ pub trait PluginRepository: Send + Sync {
         scope: PluginScope,
         scope_id: Option<Uuid>,
         key: &str,
-    ) -> anyhow::Result<Option<JsonValue>>;
+    ) -> PortResult<Option<JsonValue>>;
     async fn kv_set(
         &self,
         plugin: &str,
@@ -33,7 +34,7 @@ pub trait PluginRepository: Send + Sync {
         scope_id: Option<Uuid>,
         key: &str,
         value: &JsonValue,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
     // Records
     async fn insert_record(
@@ -43,17 +44,17 @@ pub trait PluginRepository: Send + Sync {
         scope_id: Uuid,
         kind: &str,
         data: &JsonValue,
-    ) -> anyhow::Result<PluginRecord>;
+    ) -> PortResult<PluginRecord>;
 
     async fn update_record_data(
         &self,
         record_id: Uuid,
         patch: &JsonValue,
-    ) -> anyhow::Result<Option<PluginRecord>>;
+    ) -> PortResult<Option<PluginRecord>>;
 
-    async fn delete_record(&self, record_id: Uuid) -> anyhow::Result<bool>;
+    async fn delete_record(&self, record_id: Uuid) -> PortResult<bool>;
 
-    async fn get_record(&self, record_id: Uuid) -> anyhow::Result<Option<PluginRecord>>;
+    async fn get_record(&self, record_id: Uuid) -> PortResult<Option<PluginRecord>>;
 
     async fn list_records(
         &self,
@@ -63,13 +64,13 @@ pub trait PluginRepository: Send + Sync {
         kind: &str,
         limit: i64,
         offset: i64,
-    ) -> anyhow::Result<Vec<PluginRecord>>;
+    ) -> PortResult<Vec<PluginRecord>>;
 
-    async fn delete_scoped_kv(&self, scope: PluginScope, scope_ids: &[Uuid]) -> anyhow::Result<()>;
+    async fn delete_scoped_kv(&self, scope: PluginScope, scope_ids: &[Uuid]) -> PortResult<()>;
 
     async fn delete_scoped_records(
         &self,
         scope: PluginRecordScope,
         scope_ids: &[Uuid],
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 }

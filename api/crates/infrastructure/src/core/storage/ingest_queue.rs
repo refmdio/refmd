@@ -5,6 +5,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_ingest_queue::{
     StorageIngestEvent, StorageIngestKind, StorageIngestQueue, StorageIngestQueueStats,
 };
@@ -58,10 +59,11 @@ impl StorageIngestQueue for PgStorageIngestQueue {
         content_hash: Option<&str>,
         payload: Option<Value>,
         permission_snapshot: &[String],
-    ) -> anyhow::Result<()> {
-        let kind_str = Self::kind_to_str(kind);
-        sqlx::query(
-            r#"
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let kind_str = Self::kind_to_str(kind);
+            sqlx::query(
+                r#"
             INSERT INTO storage_ingest_queue (workspace_id, user_id, actor_id, repo_path, backend, event_kind, content_hash, payload, permission_snapshot, attempts, locked_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, NULL)
             ON CONFLICT ON CONSTRAINT storage_ingest_queue_workspace_repo_backend_unique
@@ -102,24 +104,28 @@ impl StorageIngestQueue for PgStorageIngestQueue {
                               ELSE storage_ingest_queue.created_at
                           END
             "#,
-        )
-        .bind(workspace_id)
-        .bind(user_id)
-        .bind(actor_id)
-        .bind(repo_path)
-        .bind(backend.as_str())
-        .bind(kind_str)
-        .bind(content_hash)
-        .bind(payload)
-        .bind(json!(permission_snapshot))
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(workspace_id)
+            .bind(user_id)
+            .bind(actor_id)
+            .bind(repo_path)
+            .bind(backend.as_str())
+            .bind(kind_str)
+            .bind(content_hash)
+            .bind(payload)
+            .bind(json!(permission_snapshot))
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn fetch_next_event(&self) -> anyhow::Result<Option<StorageIngestEvent>> {
-        let row = sqlx::query(
-            r#"
+    async fn fetch_next_event(&self) -> PortResult<Option<StorageIngestEvent>> {
+        let out: anyhow::Result<Option<StorageIngestEvent>> = async {
+            let row = sqlx::query(
+                r#"
             WITH next_event AS (
                 SELECT id FROM storage_ingest_queue
                 WHERE locked_at IS NULL
@@ -134,62 +140,69 @@ impl StorageIngestQueue for PgStorageIngestQueue {
             WHERE q.id IN (SELECT id FROM next_event)
             RETURNING q.*
             "#,
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .fetch_optional(&self.pool)
+            .await?;
 
-        let Some(row) = row else {
-            return Ok(None);
-        };
+            let Some(row) = row else {
+                return Ok(None);
+            };
 
-        let kind: String = row.get("event_kind");
-        let kind = Self::str_to_kind(&kind)?;
+            let kind: String = row.get("event_kind");
+            let kind = Self::str_to_kind(&kind)?;
 
-        let locked_at: DateTime<Utc> = row.get("locked_at");
+            let locked_at: DateTime<Utc> = row.get("locked_at");
 
-        let snapshot_value: Option<Value> = row.try_get("permission_snapshot").ok();
-        Ok(Some(StorageIngestEvent {
-            id: row.get("id"),
-            workspace_id: row.get("workspace_id"),
-            user_id: row.get("user_id"),
-            actor_id: row.try_get("actor_id").ok(),
-            repo_path: row.get("repo_path"),
-            backend: StorageIngestBackend::parse(&row.get::<String, _>("backend")),
-            kind,
-            content_hash: row.try_get("content_hash").ok(),
-            payload: row.try_get::<Option<Value>, _>("payload").unwrap_or(None),
-            attempts: row.try_get("attempts").unwrap_or_default(),
-            locked_at,
-            permission_snapshot: parse_permission_snapshot(snapshot_value),
-        }))
+            let snapshot_value: Option<Value> = row.try_get("permission_snapshot").ok();
+            Ok(Some(StorageIngestEvent {
+                id: row.get("id"),
+                workspace_id: row.get("workspace_id"),
+                user_id: row.get("user_id"),
+                actor_id: row.try_get("actor_id").ok(),
+                repo_path: row.get("repo_path"),
+                backend: StorageIngestBackend::parse(&row.get::<String, _>("backend")),
+                kind,
+                content_hash: row.try_get("content_hash").ok(),
+                payload: row.try_get::<Option<Value>, _>("payload").unwrap_or(None),
+                attempts: row.try_get("attempts").unwrap_or_default(),
+                locked_at,
+                permission_snapshot: parse_permission_snapshot(snapshot_value),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn complete_event(&self, event_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()> {
-        let mut tx = self.pool.begin().await?;
-        let updated = sqlx::query(
-            r#"
+    async fn complete_event(&self, event_id: i64, locked_at: DateTime<Utc>) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let mut tx = self.pool.begin().await?;
+            let updated = sqlx::query(
+                r#"
             UPDATE storage_ingest_queue
             SET locked_at = NULL,
                 attempts = 0,
                 pending_retry = false
             WHERE id = $1 AND locked_at = $2 AND pending_retry = true
             "#,
-        )
-        .bind(event_id)
-        .bind(locked_at)
-        .execute(&mut *tx)
-        .await?;
-        if updated.rows_affected() == 0 {
-            sqlx::query(
-                "DELETE FROM storage_ingest_queue WHERE id = $1 AND locked_at = $2 AND pending_retry = false",
             )
             .bind(event_id)
             .bind(locked_at)
             .execute(&mut *tx)
             .await?;
+            if updated.rows_affected() == 0 {
+                sqlx::query(
+                    "DELETE FROM storage_ingest_queue WHERE id = $1 AND locked_at = $2 AND pending_retry = false",
+                )
+                .bind(event_id)
+                .bind(locked_at)
+                .execute(&mut *tx)
+                .await?;
+            }
+            tx.commit().await?;
+            Ok(())
         }
-        tx.commit().await?;
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn fail_event(
@@ -197,9 +210,10 @@ impl StorageIngestQueue for PgStorageIngestQueue {
         event_id: i64,
         locked_at: DateTime<Utc>,
         error: &str,
-    ) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"
             UPDATE storage_ingest_queue
             SET locked_at = NULL,
                 attempts = attempts,
@@ -212,18 +226,22 @@ impl StorageIngestQueue for PgStorageIngestQueue {
                 pending_retry = false
             WHERE id = $1 AND locked_at = $3
             "#,
-        )
-        .bind(event_id)
-        .bind(error)
-        .bind(locked_at)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(event_id)
+            .bind(error)
+            .bind(locked_at)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn stats(&self) -> anyhow::Result<StorageIngestQueueStats> {
-        let row = sqlx::query(
-            r#"
+    async fn stats(&self) -> PortResult<StorageIngestQueueStats> {
+        let out: anyhow::Result<StorageIngestQueueStats> = async {
+            let row = sqlx::query(
+                r#"
             SELECT
                 COUNT(*) FILTER (WHERE locked_at IS NULL) AS pending,
                 COUNT(*) FILTER (WHERE locked_at IS NOT NULL) AS locked,
@@ -231,15 +249,18 @@ impl StorageIngestQueue for PgStorageIngestQueue {
                 MIN(created_at) FILTER (WHERE locked_at IS NULL) AS oldest_created_at
             FROM storage_ingest_queue
             "#,
-        )
-        .fetch_one(&self.pool)
-        .await?;
+            )
+            .fetch_one(&self.pool)
+            .await?;
 
-        Ok(StorageIngestQueueStats {
-            pending: row.try_get("pending").unwrap_or(0),
-            locked: row.try_get("locked").unwrap_or(0),
-            distinct_users: row.try_get("distinct_users").unwrap_or(0),
-            oldest_created_at: row.try_get("oldest_created_at").ok(),
-        })
+            Ok(StorageIngestQueueStats {
+                pending: row.try_get("pending").unwrap_or(0),
+                locked: row.try_get("locked").unwrap_or(0),
+                distinct_users: row.try_get("distinct_users").unwrap_or(0),
+                oldest_created_at: row.try_get("oldest_created_at").ok(),
+            })
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

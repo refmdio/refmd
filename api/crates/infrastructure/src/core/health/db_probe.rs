@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use sqlx::Row;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::core::ports::health_probe::{HealthProbe, HealthStatus};
 
 pub struct DatabaseHealthProbe {
@@ -18,7 +19,7 @@ impl DatabaseHealthProbe {
 
 #[async_trait]
 impl HealthProbe for DatabaseHealthProbe {
-    async fn probe(&self) -> anyhow::Result<HealthStatus> {
+    async fn probe(&self) -> PortResult<HealthStatus> {
         let ok = sqlx::query("SELECT 1")
             .map(|row: sqlx::postgres::PgRow| row.get::<i32, _>(0))
             .fetch_one(&self.pool)

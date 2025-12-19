@@ -88,7 +88,7 @@ impl GitWorkspaceService {
                 let _ = self.git_storage.delete_blob(key).await;
             }
             tx.rollback().await.ok();
-            return Err(err);
+            return Err(err.into());
         }
 
         if let Err(err) = self
@@ -104,7 +104,7 @@ impl GitWorkspaceService {
                 let _ = self.git_storage.delete_blob(key).await;
             }
             tx.rollback().await.ok();
-            return Err(err);
+            return Err(err.into());
         }
 
         if let Err(err) = tx.commit().await {

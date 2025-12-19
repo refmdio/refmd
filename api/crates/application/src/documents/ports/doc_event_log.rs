@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[async_trait]
 pub trait DocEventLog: Send + Sync {
     async fn append(
@@ -10,5 +12,5 @@ pub trait DocEventLog: Send + Sync {
         doc_id: Uuid,
         event_type: &str,
         payload: Option<Value>,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 }

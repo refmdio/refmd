@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Clone)]
 pub struct ApiToken {
     pub id: Uuid,
@@ -28,13 +30,13 @@ pub trait ApiTokenRepository: Send + Sync {
         name: &str,
         token_hash: &str,
         token_digest: &str,
-    ) -> anyhow::Result<ApiToken>;
+    ) -> PortResult<ApiToken>;
 
-    async fn list_active(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ApiToken>>;
+    async fn list_active(&self, workspace_id: Uuid) -> PortResult<Vec<ApiToken>>;
 
-    async fn revoke(&self, workspace_id: Uuid, token_id: Uuid) -> anyhow::Result<bool>;
+    async fn revoke(&self, workspace_id: Uuid, token_id: Uuid) -> PortResult<bool>;
 
-    async fn find_by_digest(&self, digest: &str) -> anyhow::Result<Option<ApiTokenSecret>>;
+    async fn find_by_digest(&self, digest: &str) -> PortResult<Option<ApiTokenSecret>>;
 
-    async fn touch_last_used(&self, token_id: Uuid) -> anyhow::Result<()>;
+    async fn touch_last_used(&self, token_id: Uuid) -> PortResult<()>;
 }

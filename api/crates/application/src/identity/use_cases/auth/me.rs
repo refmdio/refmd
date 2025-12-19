@@ -8,6 +8,6 @@ pub struct GetMe<'a, R: UserRepository + ?Sized> {
 
 impl<'a, R: UserRepository + ?Sized> GetMe<'a, R> {
     pub async fn execute(&self, id: Uuid) -> anyhow::Result<Option<UserRow>> {
-        self.repo.find_by_id(id).await
+        self.repo.find_by_id(id).await.map_err(Into::into)
     }
 }

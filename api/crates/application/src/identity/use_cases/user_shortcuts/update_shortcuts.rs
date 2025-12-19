@@ -65,7 +65,7 @@ where
             .repo
             .upsert(user_id, bindings, payload.leader_key)
             .await
-            .map_err(UpdateUserShortcutsError::Storage)?;
+            .map_err(|err| UpdateUserShortcutsError::Storage(anyhow::Error::from(err)))?;
         Ok(UserShortcutProfileDto::from(profile))
     }
 }

@@ -78,7 +78,10 @@ impl StorageReconcileService {
     }
 
     async fn enumerate_storage_paths(&self, workspace_id: Uuid) -> anyhow::Result<Vec<String>> {
-        self.backend.list_paths(workspace_id).await
+        self.backend
+            .list_paths(workspace_id)
+            .await
+            .map_err(Into::into)
     }
 
     fn repo_relative_path(workspace_id: Uuid, storage_path: &str) -> Option<String> {
@@ -119,6 +122,7 @@ impl StorageReconcileService {
                 &permissions,
             )
             .await
+            .map_err(Into::into)
     }
 
     async fn enqueue_upsert(&self, workspace_id: Uuid, storage_path: &str) -> anyhow::Result<()> {
@@ -152,6 +156,7 @@ impl StorageReconcileService {
                 &permissions,
             )
             .await
+            .map_err(Into::into)
     }
 
     async fn process_job(&self, job: &StorageReconcileJob) -> anyhow::Result<()> {
@@ -254,7 +259,7 @@ impl StorageReconcileService {
                 Ok(WorkerTick::Processed)
             }
             Ok(None) => Ok(WorkerTick::Idle),
-            Err(err) => Err(err),
+            Err(err) => Err(err.into()),
         }
     }
 }

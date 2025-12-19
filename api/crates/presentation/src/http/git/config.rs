@@ -6,7 +6,7 @@ use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 use application::git::dtos::GitConfigDto;
 use application::git::dtos::UpsertGitConfigInput;
-use domain::access::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
+use application::domain::access::permissions::{PERM_GIT_CONFIGURE, PERM_GIT_INIT, PERM_GIT_SYNC};
 
 use super::types::{
     CreateGitConfigRequest, GitConfigResponse, GitRemoteCheckResponse, map_git_error,

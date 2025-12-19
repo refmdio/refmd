@@ -50,7 +50,7 @@ impl DocumentService {
                     doc_id = %doc_id,
                     "storage_projection_enqueue_failed"
                 );
-                ServiceError::Unexpected(err)
+                ServiceError::Unexpected(err.into())
             })
     }
 
@@ -83,7 +83,7 @@ impl DocumentService {
                     doc_id = %doc_id,
                     "storage_projection_enqueue_failed"
                 );
-                ServiceError::Unexpected(err)
+                ServiceError::Unexpected(err.into())
             })
     }
 
@@ -107,7 +107,7 @@ impl DocumentService {
                     folder_id = %folder_id,
                     "storage_projection_enqueue_failed"
                 );
-                ServiceError::Unexpected(err)
+                ServiceError::Unexpected(err.into())
             })
     }
 
@@ -140,7 +140,7 @@ impl DocumentService {
                     folder_id = %folder_id,
                     "storage_projection_enqueue_failed"
                 );
-                ServiceError::Unexpected(err)
+                ServiceError::Unexpected(err.into())
             })
     }
 }

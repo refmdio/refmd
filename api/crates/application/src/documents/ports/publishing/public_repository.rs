@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
 use domain::documents::document::Document;
 
 #[derive(Debug, Clone)]
@@ -29,29 +30,29 @@ pub trait PublicRepository: Send + Sync {
         &self,
         doc_id: Uuid,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Option<WorkspaceTitleAndSlug>>;
-    async fn upsert_public_document(&self, doc_id: Uuid, slug: &str) -> anyhow::Result<()>;
-    async fn slug_exists(&self, slug: &str) -> anyhow::Result<bool>;
+    ) -> PortResult<Option<WorkspaceTitleAndSlug>>;
+    async fn upsert_public_document(&self, doc_id: Uuid, slug: &str) -> PortResult<()>;
+    async fn slug_exists(&self, slug: &str) -> PortResult<bool>;
     async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid)
-    -> anyhow::Result<bool>;
-    async fn delete_public_document(&self, doc_id: Uuid) -> anyhow::Result<bool>;
+    -> PortResult<bool>;
+    async fn delete_public_document(&self, doc_id: Uuid) -> PortResult<bool>;
     async fn get_publish_status(
         &self,
         workspace_id: Uuid,
         doc_id: Uuid,
-    ) -> anyhow::Result<Option<PublishStatusRow>>;
+    ) -> PortResult<Option<PublishStatusRow>>;
     async fn list_workspace_public_documents(
         &self,
         workspace_slug: &str,
-    ) -> anyhow::Result<Vec<PublicDocumentSummaryRow>>;
+    ) -> PortResult<Vec<PublicDocumentSummaryRow>>;
     async fn get_public_meta_by_workspace_and_id(
         &self,
         workspace_slug: &str,
         doc_id: Uuid,
-    ) -> anyhow::Result<Option<Document>>;
+    ) -> PortResult<Option<Document>>;
     async fn public_exists_by_workspace_and_id(
         &self,
         workspace_slug: &str,
         doc_id: Uuid,
-    ) -> anyhow::Result<bool>;
+    ) -> PortResult<bool>;
 }

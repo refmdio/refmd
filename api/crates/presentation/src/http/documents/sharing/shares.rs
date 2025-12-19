@@ -9,7 +9,7 @@ use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use application::core::services::access;
-use domain::documents::share::SHARE_PERMISSION_VIEW;
+use application::domain::documents::share::SHARE_PERMISSION_VIEW;
 
 use application::documents::dtos::ShareItemDto;
 

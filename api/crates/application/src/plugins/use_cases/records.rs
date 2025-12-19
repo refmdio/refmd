@@ -20,6 +20,7 @@ impl<'a, R: PluginRepository + ?Sized> ListPluginRecords<'a, R> {
         self.repo
             .list_records(plugin, scope, scope_id, kind, limit, offset)
             .await
+            .map_err(Into::into)
     }
 }
 
@@ -39,6 +40,7 @@ impl<'a, R: PluginRepository + ?Sized> CreatePluginRecord<'a, R> {
         self.repo
             .insert_record(plugin, scope, scope_id, kind, data)
             .await
+            .map_err(Into::into)
     }
 }
 
@@ -52,7 +54,10 @@ impl<'a, R: PluginRepository + ?Sized> UpdatePluginRecord<'a, R> {
         record_id: Uuid,
         patch: &serde_json::Value,
     ) -> anyhow::Result<Option<PluginRecord>> {
-        self.repo.update_record_data(record_id, patch).await
+        self.repo
+            .update_record_data(record_id, patch)
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -62,7 +67,7 @@ pub struct DeletePluginRecord<'a, R: PluginRepository + ?Sized> {
 
 impl<'a, R: PluginRepository + ?Sized> DeletePluginRecord<'a, R> {
     pub async fn execute(&self, record_id: Uuid) -> anyhow::Result<bool> {
-        self.repo.delete_record(record_id).await
+        self.repo.delete_record(record_id).await.map_err(Into::into)
     }
 }
 
@@ -72,6 +77,6 @@ pub struct GetPluginRecord<'a, R: PluginRepository + ?Sized> {
 
 impl<'a, R: PluginRepository + ?Sized> GetPluginRecord<'a, R> {
     pub async fn execute(&self, record_id: Uuid) -> anyhow::Result<Option<PluginRecord>> {
-        self.repo.get_record(record_id).await
+        self.repo.get_record(record_id).await.map_err(Into::into)
     }
 }

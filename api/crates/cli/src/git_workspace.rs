@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use anyhow::bail;
 use chrono::{DateTime, Utc};
 use sqlx::{Row, types::Json};
 use uuid::Uuid;
 
+use application::core::ports::errors::PortResult;
 use application::git::ports::git_storage::GitStorage;
 use application::git::ports::git_workspace::GitWorkspacePort;
 use infrastructure::core::db::PgPool;
@@ -89,136 +89,148 @@ impl GitWorkspacePort for CliGitWorkspace {
         &self,
         _workspace_id: Uuid,
         _default_branch: &str,
-    ) -> anyhow::Result<()> {
-        bail!("ensure_repository not supported in refmd CLI");
+    ) -> PortResult<()> {
+        Err(anyhow::anyhow!("ensure_repository not supported in refmd CLI").into())
     }
 
-    async fn remove_repository(&self, workspace_id: Uuid) -> anyhow::Result<()> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM git_dirty_files WHERE workspace_id = $1")
+    async fn remove_repository(&self, workspace_id: Uuid) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let mut tx = self.pool.begin().await?;
+            sqlx::query("DELETE FROM git_dirty_files WHERE workspace_id = $1")
+                .bind(workspace_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM git_commits WHERE workspace_id = $1")
+                .bind(workspace_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "UPDATE git_repository_state SET initialized = false, updated_at = now() WHERE workspace_id = $1",
+            )
             .bind(workspace_id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM git_commits WHERE workspace_id = $1")
-            .bind(workspace_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "UPDATE git_repository_state SET initialized = false, updated_at = now() WHERE workspace_id = $1",
-        )
-        .bind(workspace_id)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        self.git_storage.delete_all(workspace_id).await?;
-        Ok(())
+            tx.commit().await?;
+            self.git_storage.delete_all(workspace_id).await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn status(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<application::git::dtos::GitWorkspaceStatus> {
-        let state = self.load_repository_state(workspace_id).await?;
-        let Some((initialized, branch)) = state else {
-            return Ok(application::git::dtos::GitWorkspaceStatus {
-                repository_initialized: false,
-                current_branch: None,
-                uncommitted_changes: 0,
-                untracked_files: 0,
-            });
-        };
-        if !initialized {
-            return Ok(application::git::dtos::GitWorkspaceStatus {
-                repository_initialized: false,
-                current_branch: Some(branch),
-                uncommitted_changes: 0,
-                untracked_files: 0,
-            });
-        }
-
-        let latest = self.latest_commit_meta(workspace_id).await?;
-        let previous_index: std::collections::HashMap<String, String> = latest
-            .as_ref()
-            .map(|c| c.file_hash_index.clone())
-            .unwrap_or_default();
-
-        let dirty = self.fetch_dirty(workspace_id).await?;
-        let mut added: u32 = 0;
-        let mut modified: u32 = 0;
-        let mut deleted: u32 = 0;
-
-        for d in dirty.iter() {
-            match d.op.as_str() {
-                "upsert" => {
-                    if let Some(prev_hash) = previous_index.get(&d.path) {
-                        match d.content_hash.as_ref() {
-                            Some(h) if h == prev_hash => {}
-                            _ => modified += 1,
-                        }
-                    } else {
-                        added += 1;
-                    }
-                }
-                "delete" => {
-                    deleted += 1;
-                }
-                _ => {}
+    ) -> PortResult<application::git::dtos::GitWorkspaceStatus> {
+        let out: anyhow::Result<application::git::dtos::GitWorkspaceStatus> = async {
+            let state = self.load_repository_state(workspace_id).await?;
+            let Some((initialized, branch)) = state else {
+                return Ok(application::git::dtos::GitWorkspaceStatus {
+                    repository_initialized: false,
+                    current_branch: None,
+                    uncommitted_changes: 0,
+                    untracked_files: 0,
+                });
+            };
+            if !initialized {
+                return Ok(application::git::dtos::GitWorkspaceStatus {
+                    repository_initialized: false,
+                    current_branch: Some(branch),
+                    uncommitted_changes: 0,
+                    untracked_files: 0,
+                });
             }
-        }
 
-        Ok(application::git::dtos::GitWorkspaceStatus {
-            repository_initialized: true,
-            current_branch: Some(branch),
-            uncommitted_changes: modified + deleted,
-            untracked_files: added,
-        })
+            let latest = self.latest_commit_meta(workspace_id).await?;
+            let previous_index: std::collections::HashMap<String, String> = latest
+                .as_ref()
+                .map(|c| c.file_hash_index.clone())
+                .unwrap_or_default();
+
+            let dirty = self.fetch_dirty(workspace_id).await?;
+            let mut added: u32 = 0;
+            let mut modified: u32 = 0;
+            let mut deleted: u32 = 0;
+
+            for d in dirty.iter() {
+                match d.op.as_str() {
+                    "upsert" => {
+                        if let Some(prev_hash) = previous_index.get(&d.path) {
+                            match d.content_hash.as_ref() {
+                                Some(h) if h == prev_hash => {}
+                                _ => modified += 1,
+                            }
+                        } else {
+                            added += 1;
+                        }
+                    }
+                    "delete" => {
+                        deleted += 1;
+                    }
+                    _ => {}
+                }
+            }
+
+            Ok(application::git::dtos::GitWorkspaceStatus {
+                repository_initialized: true,
+                current_branch: Some(branch),
+                uncommitted_changes: modified + deleted,
+                untracked_files: added,
+            })
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn list_changes(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<application::git::dtos::GitChangeItem>> {
-        if let Some((initialized, _)) = self.load_repository_state(workspace_id).await? {
-            if !initialized {
+    ) -> PortResult<Vec<application::git::dtos::GitChangeItem>> {
+        let out: anyhow::Result<Vec<application::git::dtos::GitChangeItem>> = async {
+            if let Some((initialized, _)) = self.load_repository_state(workspace_id).await? {
+                if !initialized {
+                    return Ok(Vec::new());
+                }
+            } else {
                 return Ok(Vec::new());
             }
-        } else {
-            return Ok(Vec::new());
-        }
 
-        let latest = self.latest_commit_meta(workspace_id).await?;
-        let previous_index: std::collections::HashMap<String, String> = latest
-            .as_ref()
-            .map(|c| c.file_hash_index.clone())
-            .unwrap_or_default();
-        let dirty = self.fetch_dirty(workspace_id).await?;
+            let latest = self.latest_commit_meta(workspace_id).await?;
+            let previous_index: std::collections::HashMap<String, String> = latest
+                .as_ref()
+                .map(|c| c.file_hash_index.clone())
+                .unwrap_or_default();
+            let dirty = self.fetch_dirty(workspace_id).await?;
 
-        let mut out = Vec::new();
-        for d in dirty {
-            let status = match d.op.as_str() {
-                "delete" => "deleted",
-                "upsert" => {
-                    if previous_index.contains_key(&d.path) {
-                        "modified"
-                    } else {
-                        "added"
+            let mut out = Vec::new();
+            for d in dirty {
+                let status = match d.op.as_str() {
+                    "delete" => "deleted",
+                    "upsert" => {
+                        if previous_index.contains_key(&d.path) {
+                            "modified"
+                        } else {
+                            "added"
+                        }
                     }
-                }
-                _ => "unknown",
-            };
-            out.push(application::git::dtos::GitChangeItem {
-                path: d.path,
-                status: status.to_string(),
-            });
+                    _ => "unknown",
+                };
+                out.push(application::git::dtos::GitChangeItem {
+                    path: d.path,
+                    status: status.to_string(),
+                });
+            }
+            Ok(out)
         }
-        Ok(out)
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn working_diff(
         &self,
         _workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<application::core::dtos::TextDiffResult>> {
-        bail!("working_diff not supported in refmd CLI");
+    ) -> PortResult<Vec<application::core::dtos::TextDiffResult>> {
+        Err(anyhow::anyhow!("working_diff not supported in refmd CLI").into())
     }
 
     async fn commit_diff(
@@ -226,15 +238,15 @@ impl GitWorkspacePort for CliGitWorkspace {
         _workspace_id: Uuid,
         _from: &str,
         _to: &str,
-    ) -> anyhow::Result<Vec<application::core::dtos::TextDiffResult>> {
-        bail!("commit_diff not supported in refmd CLI");
+    ) -> PortResult<Vec<application::core::dtos::TextDiffResult>> {
+        Err(anyhow::anyhow!("commit_diff not supported in refmd CLI").into())
     }
 
     async fn history(
         &self,
         _workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<application::git::dtos::GitCommitInfo>> {
-        bail!("history not supported in refmd CLI");
+    ) -> PortResult<Vec<application::git::dtos::GitCommitInfo>> {
+        Err(anyhow::anyhow!("history not supported in refmd CLI").into())
     }
 
     async fn sync(
@@ -242,8 +254,8 @@ impl GitWorkspacePort for CliGitWorkspace {
         _workspace_id: Uuid,
         _req: &application::git::dtos::GitSyncRequestDto,
         _cfg: Option<&application::git::ports::git_repository::UserGitCfg>,
-    ) -> anyhow::Result<application::git::dtos::GitSyncOutcome> {
-        bail!("sync not supported in refmd CLI");
+    ) -> PortResult<application::git::dtos::GitSyncOutcome> {
+        Err(anyhow::anyhow!("sync not supported in refmd CLI").into())
     }
 
     async fn pull(
@@ -252,8 +264,8 @@ impl GitWorkspacePort for CliGitWorkspace {
         _actor_id: Uuid,
         _req: &application::git::dtos::GitPullRequestDto,
         _cfg: &application::git::ports::git_repository::UserGitCfg,
-    ) -> anyhow::Result<application::git::dtos::GitPullResultDto> {
-        bail!("pull not supported in refmd CLI");
+    ) -> PortResult<application::git::dtos::GitPullResultDto> {
+        Err(anyhow::anyhow!("pull not supported in refmd CLI").into())
     }
 
     async fn import_repository(
@@ -261,54 +273,66 @@ impl GitWorkspacePort for CliGitWorkspace {
         _workspace_id: Uuid,
         _actor_id: Uuid,
         _cfg: &application::git::ports::git_repository::UserGitCfg,
-    ) -> anyhow::Result<application::git::dtos::GitImportOutcome> {
-        bail!("import not supported in refmd CLI");
+    ) -> PortResult<application::git::dtos::GitImportOutcome> {
+        Err(anyhow::anyhow!("import not supported in refmd CLI").into())
     }
 
-    async fn head_commit(&self, workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
-        Ok(self
-            .latest_commit_meta(workspace_id)
-            .await?
-            .map(|m| m.commit_id))
+    async fn head_commit(&self, workspace_id: Uuid) -> PortResult<Option<Vec<u8>>> {
+        let out: anyhow::Result<Option<Vec<u8>>> = async {
+            Ok(self
+                .latest_commit_meta(workspace_id)
+                .await?
+                .map(|m| m.commit_id))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn remote_head(
         &self,
         _workspace_id: Uuid,
         _cfg: &application::git::ports::git_repository::UserGitCfg,
-    ) -> anyhow::Result<Option<Vec<u8>>> {
+    ) -> PortResult<Option<Vec<u8>>> {
         Ok(None)
     }
 
-    async fn has_pending_changes(&self, workspace_id: Uuid) -> anyhow::Result<bool> {
-        let dirty_rows = self.fetch_dirty(workspace_id).await?;
-        Ok(!dirty_rows.is_empty())
+    async fn has_pending_changes(&self, workspace_id: Uuid) -> PortResult<bool> {
+        let out: anyhow::Result<bool> = async {
+            let dirty_rows = self.fetch_dirty(workspace_id).await?;
+            Ok(!dirty_rows.is_empty())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn drift_since_commit(
         &self,
         workspace_id: Uuid,
         base_commit: &[u8],
-    ) -> anyhow::Result<bool> {
-        // CLI helper: fallback to dirty check when full state comparison is not available.
-        if self.has_pending_changes(workspace_id).await? {
-            return Ok(true);
+    ) -> PortResult<bool> {
+        let out: anyhow::Result<bool> = async {
+            // CLI helper: fallback to dirty check when full state comparison is not available.
+            if self.has_pending_changes(workspace_id).await? {
+                return Ok(true);
+            }
+            // If the base commit is not the latest, consider it stale.
+            let latest = self.latest_commit_meta(workspace_id).await?;
+            if let Some(meta) = latest
+                && meta.commit_id.as_slice() != base_commit
+            {
+                return Ok(true);
+            }
+            Ok(false)
         }
-        // If the base commit is not the latest, consider it stale.
-        let latest = self.latest_commit_meta(workspace_id).await?;
-        if let Some(meta) = latest
-            && meta.commit_id.as_slice() != base_commit
-        {
-            return Ok(true);
-        }
-        Ok(false)
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn check_remote(
         &self,
         _workspace_id: Uuid,
         _cfg: &application::git::ports::git_repository::UserGitCfg,
-    ) -> anyhow::Result<application::git::dtos::GitRemoteCheckDto> {
+    ) -> PortResult<application::git::dtos::GitRemoteCheckDto> {
         Ok(application::git::dtos::GitRemoteCheckDto {
             ok: false,
             message: "remote check not supported in CLI".to_string(),

@@ -7,7 +7,7 @@ use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
-use domain::access::permissions::PERM_DOC_VIEW;
+use application::domain::access::permissions::PERM_DOC_VIEW;
 
 use super::types::TagItem;
 

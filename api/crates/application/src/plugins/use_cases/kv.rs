@@ -15,7 +15,10 @@ impl<'a, R: PluginRepository + ?Sized> GetPluginKv<'a, R> {
         scope_id: Option<Uuid>,
         key: &str,
     ) -> anyhow::Result<Option<serde_json::Value>> {
-        self.repo.kv_get(plugin, scope, scope_id, key).await
+        self.repo
+            .kv_get(plugin, scope, scope_id, key)
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -32,6 +35,9 @@ impl<'a, R: PluginRepository + ?Sized> PutPluginKv<'a, R> {
         key: &str,
         value: &serde_json::Value,
     ) -> anyhow::Result<()> {
-        self.repo.kv_set(plugin, scope, scope_id, key, value).await
+        self.repo
+            .kv_set(plugin, scope, scope_id, key, value)
+            .await
+            .map_err(Into::into)
     }
 }

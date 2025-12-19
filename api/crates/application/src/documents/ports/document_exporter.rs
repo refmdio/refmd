@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use crate::core::ports::errors::PortResult;
 use crate::documents::dtos::{DocumentDownload, DocumentDownloadFormat};
 
 #[derive(Debug, Clone)]
@@ -22,5 +23,5 @@ pub trait DocumentExporter: Send + Sync {
         &self,
         assets: DocumentExportAssets,
         format: DocumentDownloadFormat,
-    ) -> anyhow::Result<DocumentDownload>;
+    ) -> PortResult<DocumentDownload>;
 }

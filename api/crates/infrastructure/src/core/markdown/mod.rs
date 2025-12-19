@@ -2,6 +2,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
+use application::core::ports::errors::PortResult;
 use application::core::ports::markdown_renderer::MarkdownRenderer;
 use application::core::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use application::core::services::utils::hash::sha256_hex;
@@ -26,8 +27,8 @@ impl MarkdownRenderer for ComrakMarkdownRenderer {
         text: String,
         opts: RenderOptions,
         placeholder_kinds: Option<&HashSet<String>>,
-    ) -> anyhow::Result<RenderResponse> {
-        render(text, opts, placeholder_kinds)
+    ) -> PortResult<RenderResponse> {
+        render(text, opts, placeholder_kinds).map_err(Into::into)
     }
 }
 

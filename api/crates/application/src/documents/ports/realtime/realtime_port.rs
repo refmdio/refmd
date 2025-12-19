@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use std::fmt;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug)]
 pub struct RealtimeError(Box<dyn std::error::Error + Send + Sync + 'static>);
 
@@ -31,19 +33,19 @@ pub trait RealtimeEngine: Send + Sync {
         sink: DynRealtimeSink,
         stream: DynRealtimeStream,
         can_edit: bool,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
-    async fn get_content(&self, doc_id: &str) -> anyhow::Result<Option<String>>;
+    async fn get_content(&self, doc_id: &str) -> PortResult<Option<String>>;
 
-    async fn force_persist(&self, doc_id: &str) -> anyhow::Result<()>;
+    async fn force_persist(&self, doc_id: &str) -> PortResult<()>;
 
-    async fn force_save_to_fs(&self, doc_id: &str) -> anyhow::Result<()> {
+    async fn force_save_to_fs(&self, doc_id: &str) -> PortResult<()> {
         self.force_persist(doc_id).await
     }
 
-    async fn apply_snapshot(&self, doc_id: &str, snapshot: &[u8]) -> anyhow::Result<()>;
+    async fn apply_snapshot(&self, doc_id: &str, snapshot: &[u8]) -> PortResult<()>;
 
-    async fn set_document_editable(&self, _doc_id: &str, _editable: bool) -> anyhow::Result<()> {
+    async fn set_document_editable(&self, _doc_id: &str, _editable: bool) -> PortResult<()> {
         Ok(())
     }
 }

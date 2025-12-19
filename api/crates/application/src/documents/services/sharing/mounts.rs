@@ -51,7 +51,7 @@ impl ShareService {
             .await
             .map_err(|err| match err.to_string().as_str() {
                 "invalid_parent" => ServiceError::BadRequest("invalid_parent"),
-                _ => ServiceError::Unexpected(err),
+                _ => ServiceError::Unexpected(err.into()),
             })?;
         Ok(ShareMountDto {
             id: row.id,

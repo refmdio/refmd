@@ -25,6 +25,7 @@ use crate::documents::db::repositories::tagging_repository_sqlx::SqlxTaggingRepo
 use crate::documents::realtime::awareness::{AwarenessService, encode_awareness_state};
 use crate::documents::realtime::utils::{analyse_frame, wrap_stream_with_edit_guard};
 use crate::documents::realtime::{SqlxDocPersistenceAdapter, SqlxDocStateReader};
+use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_port::StorageResolverPort;
 use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::documents::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository;
@@ -240,9 +241,9 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         sink: DynRealtimeSink,
         stream: DynRealtimeStream,
         can_edit: bool,
-    ) -> anyhow::Result<()> {
+    ) -> PortResult<()> {
         let sink: SharedRealtimeSink = Arc::new(Mutex::new(sink));
-        let doc_uuid = Uuid::parse_str(doc_id)?;
+        let doc_uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
         let hydrated = self
             .hydration_service
             .hydrate(&doc_uuid, HydrationOptions::default())
@@ -383,11 +384,11 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         }
         ttl_handle.abort();
 
-        result
+        result.map_err(Into::into)
     }
 
-    async fn get_content(&self, doc_id: &str) -> anyhow::Result<Option<String>> {
-        let uuid = Uuid::parse_str(doc_id)?;
+    async fn get_content(&self, doc_id: &str) -> PortResult<Option<String>> {
+        let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
         let hydrated = self
             .hydration_service
             .hydrate(&uuid, HydrationOptions::default())
@@ -397,8 +398,8 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         Ok(Some(txt.get_string(&txn)))
     }
 
-    async fn force_persist(&self, doc_id: &str) -> anyhow::Result<()> {
-        let uuid = Uuid::parse_str(doc_id)?;
+    async fn force_persist(&self, doc_id: &str) -> PortResult<()> {
+        let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
         let hydrated = self
             .hydration_service
             .hydrate(&uuid, HydrationOptions::default())
@@ -419,9 +420,9 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         Ok(())
     }
 
-    async fn apply_snapshot(&self, doc_id: &str, snapshot: &[u8]) -> anyhow::Result<()> {
+    async fn apply_snapshot(&self, doc_id: &str, snapshot: &[u8]) -> PortResult<()> {
         let doc = doc_from_snapshot_bytes(snapshot)?;
-        let uuid = Uuid::parse_str(doc_id)?;
+        let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
         let hydrated = self
             .hydration_service
             .hydrate(&uuid, HydrationOptions::default())
@@ -455,7 +456,7 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         Ok(())
     }
 
-    async fn set_document_editable(&self, doc_id: &str, editable: bool) -> anyhow::Result<()> {
+    async fn set_document_editable(&self, doc_id: &str, editable: bool) -> PortResult<()> {
         let flag = self.ensure_edit_flag(doc_id).await;
         flag.store(editable, Ordering::SeqCst);
         Ok(())

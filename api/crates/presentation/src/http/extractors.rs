@@ -1,6 +1,6 @@
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use domain::access::permissions::PermissionSet;
+use application::domain::access::permissions::PermissionSet;
 use uuid::Uuid;
 
 use crate::context::AppContext;

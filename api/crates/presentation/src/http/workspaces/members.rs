@@ -8,7 +8,9 @@ use uuid::Uuid;
 use crate::context::WorkspacesContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::AuthedUser;
-use domain::access::permissions::{PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW};
+use application::domain::access::permissions::{
+    PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW,
+};
 
 use super::types::{
     UpdateMemberRoleRequest, WorkspaceMemberResponse, map_service_error, member_response_from,
@@ -59,12 +61,12 @@ pub async fn update_member_role(
     let role_kind = parse_role_kind(body.role_kind.as_str())?;
     let system_role = parse_system_role(body.system_role.as_deref())?;
     match role_kind {
-        domain::workspaces::roles::WorkspaceRoleKind::System => {
+        application::domain::workspaces::roles::WorkspaceRoleKind::System => {
             if system_role.is_none() || body.custom_role_id.is_some() {
                 return Err(ApiError::bad_request("invalid_role"));
             }
         }
-        domain::workspaces::roles::WorkspaceRoleKind::Custom => {
+        application::domain::workspaces::roles::WorkspaceRoleKind::Custom => {
             if system_role.is_some() || body.custom_role_id.is_none() {
                 return Err(ApiError::bad_request("invalid_role"));
             }

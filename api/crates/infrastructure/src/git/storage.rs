@@ -9,6 +9,7 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use application::core::ports::errors::PortResult;
 use application::git::ports::git_storage::{
     BlobKey, CommitMeta, GitStorage, PackBlob, PackStream, encode_commit_id,
 };
@@ -142,9 +143,13 @@ impl FilesystemGitStorage {
 
 #[async_trait]
 impl GitStorage for FilesystemGitStorage {
-    async fn latest_commit(&self, user_id: Uuid) -> anyhow::Result<Option<CommitMeta>> {
-        let path = self.latest_path(user_id);
-        self.read_meta(path.as_path()).await
+    async fn latest_commit(&self, user_id: Uuid) -> PortResult<Option<CommitMeta>> {
+        let out: anyhow::Result<Option<CommitMeta>> = async {
+            let path = self.latest_path(user_id);
+            self.read_meta(path.as_path()).await
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn store_pack(
@@ -152,145 +157,191 @@ impl GitStorage for FilesystemGitStorage {
         user_id: Uuid,
         pack: &[u8],
         meta: &CommitMeta,
-    ) -> anyhow::Result<()> {
-        let commit_hex = encode_commit_id(&meta.commit_id);
-        let pack_path = self.pack_path(user_id, &commit_hex);
-        if let Some(parent) = pack_path.parent() {
-            fs::create_dir_all(parent).await?;
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let commit_hex = encode_commit_id(&meta.commit_id);
+            let pack_path = self.pack_path(user_id, &commit_hex);
+            if let Some(parent) = pack_path.parent() {
+                fs::create_dir_all(parent).await?;
+            }
+            fs::write(&pack_path, pack).await?;
+            let meta_path = self.meta_path(user_id, &commit_hex);
+            self.write_meta(meta_path.as_path(), meta).await?;
+            Ok(())
         }
-        fs::write(&pack_path, pack).await?;
-        let meta_path = self.meta_path(user_id, &commit_hex);
-        self.write_meta(meta_path.as_path(), meta).await?;
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn load_pack_chain(
         &self,
         user_id: Uuid,
         until: Option<&[u8]>,
-    ) -> anyhow::Result<PackStream> {
-        let metas = self.collect_meta_chain(user_id, until).await?;
-        if metas.is_empty() {
-            return Ok(Box::pin(stream::empty()));
-        }
-        let storage = self.clone();
-        let storage_for_stream = storage.clone();
-        let stream = stream::iter(metas).then(move |meta| {
-            let storage = storage_for_stream.clone();
-            async move {
-                let commit_hex = encode_commit_id(&meta.commit_id);
-                let pack_path = storage.pack_path(user_id, &commit_hex);
-                if !fs::try_exists(&pack_path).await.unwrap_or(false) {
-                    anyhow::bail!("pack not found for commit {}", commit_hex);
-                }
-                let bytes = fs::read(&pack_path).await?;
-                Ok(PackBlob {
-                    commit_id: meta.commit_id.clone(),
-                    bytes,
-                    pack_key: meta.pack_key.clone(),
-                })
+    ) -> PortResult<PackStream> {
+        let out: anyhow::Result<PackStream> = async {
+            let metas = self.collect_meta_chain(user_id, until).await?;
+            if metas.is_empty() {
+                return Ok(Box::pin(stream::empty::<PortResult<PackBlob>>()) as PackStream);
             }
-        });
-        Ok(Box::pin(stream))
-    }
-
-    async fn put_blob(&self, key: &BlobKey, data: &[u8]) -> anyhow::Result<()> {
-        let root = self.blobs_root();
-        let path = sanitize_blob_path(root.as_path(), &key.path)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await?;
+            let storage = self.clone();
+            let storage_for_stream = storage.clone();
+            let stream = stream::iter(metas)
+                .then(move |meta| {
+                    let storage = storage_for_stream.clone();
+                    async move {
+                        let commit_hex = encode_commit_id(&meta.commit_id);
+                        let pack_path = storage.pack_path(user_id, &commit_hex);
+                        if !fs::try_exists(&pack_path).await.unwrap_or(false) {
+                            anyhow::bail!("pack not found for commit {}", commit_hex);
+                        }
+                        let bytes = fs::read(&pack_path).await?;
+                        Ok(PackBlob {
+                            commit_id: meta.commit_id.clone(),
+                            bytes,
+                            pack_key: meta.pack_key.clone(),
+                        })
+                    }
+                })
+                .map(|r: anyhow::Result<PackBlob>| r.map_err(Into::into));
+            Ok(Box::pin(stream) as PackStream)
         }
-        fs::write(path, data).await?;
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn fetch_blob(&self, key: &BlobKey) -> anyhow::Result<Vec<u8>> {
-        let root = self.blobs_root();
-        let path = sanitize_blob_path(root.as_path(), &key.path)?;
-        let bytes = fs::read(path).await?;
-        Ok(bytes)
+    async fn put_blob(&self, key: &BlobKey, data: &[u8]) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let root = self.blobs_root();
+            let path = sanitize_blob_path(root.as_path(), &key.path)?;
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).await?;
+            }
+            fs::write(path, data).await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn fetch_blob(&self, key: &BlobKey) -> PortResult<Vec<u8>> {
+        let out: anyhow::Result<Vec<u8>> = async {
+            let root = self.blobs_root();
+            let path = sanitize_blob_path(root.as_path(), &key.path)?;
+            let bytes = fs::read(path).await?;
+            Ok(bytes)
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn commit_meta(
         &self,
         user_id: Uuid,
         commit_id: &[u8],
-    ) -> anyhow::Result<Option<CommitMeta>> {
-        let commit_hex = encode_commit_id(commit_id);
-        let meta_path = self.meta_path(user_id, &commit_hex);
-        self.read_meta(meta_path.as_path()).await
+    ) -> PortResult<Option<CommitMeta>> {
+        let out: anyhow::Result<Option<CommitMeta>> = async {
+            let commit_hex = encode_commit_id(commit_id);
+            let meta_path = self.meta_path(user_id, &commit_hex);
+            self.read_meta(meta_path.as_path()).await
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> anyhow::Result<()> {
-        let commit_hex = encode_commit_id(&meta.commit_id);
-        let meta_path = self.meta_path(user_id, &commit_hex);
-        self.write_meta(meta_path.as_path(), meta).await
+    async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let commit_hex = encode_commit_id(&meta.commit_id);
+            let meta_path = self.meta_path(user_id, &commit_hex);
+            self.write_meta(meta_path.as_path(), meta).await
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn fetch_pack_for_commit(
         &self,
         user_id: Uuid,
         commit_id: &[u8],
-    ) -> anyhow::Result<Option<Vec<u8>>> {
-        let commit_hex = encode_commit_id(commit_id);
-        let pack_path = self.pack_path(user_id, &commit_hex);
-        if !fs::try_exists(&pack_path).await.unwrap_or(false) {
-            return Ok(None);
+    ) -> PortResult<Option<Vec<u8>>> {
+        let out: anyhow::Result<Option<Vec<u8>>> = async {
+            let commit_hex = encode_commit_id(commit_id);
+            let pack_path = self.pack_path(user_id, &commit_hex);
+            if !fs::try_exists(&pack_path).await.unwrap_or(false) {
+                return Ok(None);
+            }
+            let bytes = fs::read(&pack_path).await?;
+            Ok(Some(bytes))
         }
-        let bytes = fs::read(&pack_path).await?;
-        Ok(Some(bytes))
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
-        let root = self.blobs_root();
-        let path = sanitize_blob_path(root.as_path(), &key.path)?;
-        if fs::try_exists(&path).await.unwrap_or(false) {
-            fs::remove_file(path).await?;
+    async fn delete_blob(&self, key: &BlobKey) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let root = self.blobs_root();
+            let path = sanitize_blob_path(root.as_path(), &key.path)?;
+            if fs::try_exists(&path).await.unwrap_or(false) {
+                fs::remove_file(path).await?;
+            }
+            Ok(())
         }
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> anyhow::Result<()> {
-        let commit_hex = encode_commit_id(commit_id);
-        let pack_path = self.pack_path(user_id, &commit_hex);
-        if fs::try_exists(&pack_path).await.unwrap_or(false) {
-            fs::remove_file(&pack_path).await?;
+    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let commit_hex = encode_commit_id(commit_id);
+            let pack_path = self.pack_path(user_id, &commit_hex);
+            if fs::try_exists(&pack_path).await.unwrap_or(false) {
+                fs::remove_file(&pack_path).await?;
+            }
+            let meta_path = self.meta_path(user_id, &commit_hex);
+            if fs::try_exists(&meta_path).await.unwrap_or(false) {
+                fs::remove_file(&meta_path).await?;
+            }
+            Ok(())
         }
-        let meta_path = self.meta_path(user_id, &commit_hex);
-        if fs::try_exists(&meta_path).await.unwrap_or(false) {
-            fs::remove_file(&meta_path).await?;
-        }
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn set_latest_commit(
         &self,
         user_id: Uuid,
         meta: Option<&CommitMeta>,
-    ) -> anyhow::Result<()> {
-        let latest_path = self.latest_path(user_id);
-        if let Some(meta) = meta {
-            self.write_meta(latest_path.as_path(), meta).await?
-        } else if fs::try_exists(&latest_path).await.unwrap_or(false) {
-            fs::remove_file(&latest_path).await?;
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let latest_path = self.latest_path(user_id);
+            if let Some(meta) = meta {
+                self.write_meta(latest_path.as_path(), meta).await?
+            } else if fs::try_exists(&latest_path).await.unwrap_or(false) {
+                fs::remove_file(&latest_path).await?;
+            }
+            Ok(())
         }
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn delete_all(&self, user_id: Uuid) -> anyhow::Result<()> {
-        let dir = self.user_dir(user_id);
-        if fs::try_exists(&dir).await.unwrap_or(false) {
-            fs::remove_dir_all(&dir).await?;
+    async fn delete_all(&self, user_id: Uuid) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let dir = self.user_dir(user_id);
+            if fs::try_exists(&dir).await.unwrap_or(false) {
+                fs::remove_dir_all(&dir).await?;
+            }
+            let blobs_root = self.blobs_root().join(user_id.to_string());
+            if fs::try_exists(&blobs_root).await.unwrap_or(false) {
+                fs::remove_dir_all(&blobs_root).await?;
+            }
+            let latest_path = self.latest_path(user_id);
+            if fs::try_exists(&latest_path).await.unwrap_or(false) {
+                fs::remove_file(&latest_path).await?;
+            }
+            Ok(())
         }
-        let blobs_root = self.blobs_root().join(user_id.to_string());
-        if fs::try_exists(&blobs_root).await.unwrap_or(false) {
-            fs::remove_dir_all(&blobs_root).await?;
-        }
-        let latest_path = self.latest_path(user_id);
-        if fs::try_exists(&latest_path).await.unwrap_or(false) {
-            fs::remove_file(&latest_path).await?;
-        }
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 }
 
@@ -548,9 +599,13 @@ impl S3GitStorage {
 
 #[async_trait]
 impl GitStorage for S3GitStorage {
-    async fn latest_commit(&self, user_id: Uuid) -> anyhow::Result<Option<CommitMeta>> {
-        let key = self.key_for_latest(user_id);
-        self.fetch_meta(&key).await
+    async fn latest_commit(&self, user_id: Uuid) -> PortResult<Option<CommitMeta>> {
+        let out: anyhow::Result<Option<CommitMeta>> = async {
+            let key = self.key_for_latest(user_id);
+            self.fetch_meta(&key).await
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn store_pack(
@@ -558,152 +613,199 @@ impl GitStorage for S3GitStorage {
         user_id: Uuid,
         pack: &[u8],
         meta: &CommitMeta,
-    ) -> anyhow::Result<()> {
-        let commit_hex = encode_commit_id(&meta.commit_id);
-        let pack_key = self.key_for_pack(user_id, &commit_hex);
-        self.put_object(&pack_key, pack).await?;
-        let meta_key = self.key_for_meta(user_id, &commit_hex);
-        let stored = StoredCommitMeta::from_meta(meta);
-        let data = serde_json::to_vec_pretty(&stored)?;
-        self.put_object(&meta_key, &data).await
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let commit_hex = encode_commit_id(&meta.commit_id);
+            let pack_key = self.key_for_pack(user_id, &commit_hex);
+            self.put_object(&pack_key, pack).await?;
+            let meta_key = self.key_for_meta(user_id, &commit_hex);
+            let stored = StoredCommitMeta::from_meta(meta);
+            let data = serde_json::to_vec_pretty(&stored)?;
+            self.put_object(&meta_key, &data).await
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn load_pack_chain(
         &self,
         user_id: Uuid,
         until: Option<&[u8]>,
-    ) -> anyhow::Result<PackStream> {
-        let metas = self.collect_meta_chain(user_id, until).await?;
-        if metas.is_empty() {
-            return Ok(Box::pin(stream::empty()));
-        }
-        let storage = self.clone();
-        let storage_for_stream = storage.clone();
-        let stream = stream::iter(metas).then(move |meta| {
-            let storage = storage_for_stream.clone();
-            async move {
-                let commit_hex = encode_commit_id(&meta.commit_id);
-                let pack_key = storage.key_for_pack(user_id, &commit_hex);
-                let bytes = match storage.get_object(&pack_key).await? {
-                    Some(b) => b,
-                    None => anyhow::bail!("pack missing for commit {commit_hex}"),
-                };
-                Ok(PackBlob {
-                    commit_id: meta.commit_id.clone(),
-                    bytes,
-                    pack_key: meta.pack_key.clone(),
-                })
+    ) -> PortResult<PackStream> {
+        let out: anyhow::Result<PackStream> = async {
+            let metas = self.collect_meta_chain(user_id, until).await?;
+            if metas.is_empty() {
+                return Ok(Box::pin(stream::empty::<PortResult<PackBlob>>()) as PackStream);
             }
-        });
-        Ok(Box::pin(stream))
-    }
-
-    async fn put_blob(&self, key: &BlobKey, data: &[u8]) -> anyhow::Result<()> {
-        let key = self.key_for_blob(&key.path);
-        self.put_object(&key, data).await
-    }
-
-    async fn fetch_blob(&self, key: &BlobKey) -> anyhow::Result<Vec<u8>> {
-        let key = self.key_for_blob(&key.path);
-        match self.get_object(&key).await? {
-            Some(bytes) => Ok(bytes),
-            None => anyhow::bail!("blob not found"),
+            let storage = self.clone();
+            let storage_for_stream = storage.clone();
+            let stream = stream::iter(metas)
+                .then(move |meta| {
+                    let storage = storage_for_stream.clone();
+                    async move {
+                        let commit_hex = encode_commit_id(&meta.commit_id);
+                        let pack_key = storage.key_for_pack(user_id, &commit_hex);
+                        let bytes = match storage.get_object(&pack_key).await? {
+                            Some(b) => b,
+                            None => anyhow::bail!("pack missing for commit {commit_hex}"),
+                        };
+                        Ok(PackBlob {
+                            commit_id: meta.commit_id.clone(),
+                            bytes,
+                            pack_key: meta.pack_key.clone(),
+                        })
+                    }
+                })
+                .map(|r: anyhow::Result<PackBlob>| r.map_err(Into::into));
+            Ok(Box::pin(stream) as PackStream)
         }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn put_blob(&self, key: &BlobKey, data: &[u8]) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let key = self.key_for_blob(&key.path);
+            self.put_object(&key, data).await
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn fetch_blob(&self, key: &BlobKey) -> PortResult<Vec<u8>> {
+        let out: anyhow::Result<Vec<u8>> = async {
+            let key = self.key_for_blob(&key.path);
+            match self.get_object(&key).await? {
+                Some(bytes) => Ok(bytes),
+                None => anyhow::bail!("blob not found"),
+            }
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn commit_meta(
         &self,
         user_id: Uuid,
         commit_id: &[u8],
-    ) -> anyhow::Result<Option<CommitMeta>> {
-        let commit_hex = encode_commit_id(commit_id);
-        let meta_key = self.key_for_meta(user_id, &commit_hex);
-        self.fetch_meta(&meta_key).await
+    ) -> PortResult<Option<CommitMeta>> {
+        let out: anyhow::Result<Option<CommitMeta>> = async {
+            let commit_hex = encode_commit_id(commit_id);
+            let meta_key = self.key_for_meta(user_id, &commit_hex);
+            self.fetch_meta(&meta_key).await
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> anyhow::Result<()> {
-        let commit_hex = encode_commit_id(&meta.commit_id);
-        let meta_key = self.key_for_meta(user_id, &commit_hex);
-        let stored = StoredCommitMeta::from_meta(meta);
-        let data = serde_json::to_vec_pretty(&stored)?;
-        self.put_object(&meta_key, &data).await
+    async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let commit_hex = encode_commit_id(&meta.commit_id);
+            let meta_key = self.key_for_meta(user_id, &commit_hex);
+            let stored = StoredCommitMeta::from_meta(meta);
+            let data = serde_json::to_vec_pretty(&stored)?;
+            self.put_object(&meta_key, &data).await
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn fetch_pack_for_commit(
         &self,
         user_id: Uuid,
         commit_id: &[u8],
-    ) -> anyhow::Result<Option<Vec<u8>>> {
-        let commit_hex = encode_commit_id(commit_id);
-        let pack_key = self.key_for_pack(user_id, &commit_hex);
-        self.get_object(&pack_key).await
+    ) -> PortResult<Option<Vec<u8>>> {
+        let out: anyhow::Result<Option<Vec<u8>>> = async {
+            let commit_hex = encode_commit_id(commit_id);
+            let pack_key = self.key_for_pack(user_id, &commit_hex);
+            self.get_object(&pack_key).await
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()> {
-        let key = self.key_for_blob(&key.path);
-        let _ = self
-            .client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(&key)
-            .send()
-            .await;
-        Ok(())
+    async fn delete_blob(&self, key: &BlobKey) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let key = self.key_for_blob(&key.path);
+            let _ = self
+                .client
+                .delete_object()
+                .bucket(&self.bucket)
+                .key(&key)
+                .send()
+                .await;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> anyhow::Result<()> {
-        let commit_hex = encode_commit_id(commit_id);
-        let pack_key = self.key_for_pack(user_id, &commit_hex);
-        let meta_key = self.key_for_meta(user_id, &commit_hex);
-        let _ = self
-            .client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(&pack_key)
-            .send()
-            .await;
-        let _ = self
-            .client
-            .delete_object()
-            .bucket(&self.bucket)
-            .key(&meta_key)
-            .send()
-            .await;
-        Ok(())
+    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let commit_hex = encode_commit_id(commit_id);
+            let pack_key = self.key_for_pack(user_id, &commit_hex);
+            let meta_key = self.key_for_meta(user_id, &commit_hex);
+            let _ = self
+                .client
+                .delete_object()
+                .bucket(&self.bucket)
+                .key(&pack_key)
+                .send()
+                .await;
+            let _ = self
+                .client
+                .delete_object()
+                .bucket(&self.bucket)
+                .key(&meta_key)
+                .send()
+                .await;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn set_latest_commit(
         &self,
         user_id: Uuid,
         meta: Option<&CommitMeta>,
-    ) -> anyhow::Result<()> {
-        let latest_key = self.key_for_latest(user_id);
-        match meta {
-            Some(meta) => {
-                let stored = StoredCommitMeta::from_meta(meta);
-                let data = serde_json::to_vec_pretty(&stored)?;
-                let _guard = self.latest_lock.lock().await;
-                self.put_object(&latest_key, &data).await
-            }
-            None => {
-                let _guard = self.latest_lock.lock().await;
-                let _ = self
-                    .client
-                    .delete_object()
-                    .bucket(&self.bucket)
-                    .key(&latest_key)
-                    .send()
-                    .await;
-                Ok(())
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let latest_key = self.key_for_latest(user_id);
+            match meta {
+                Some(meta) => {
+                    let stored = StoredCommitMeta::from_meta(meta);
+                    let data = serde_json::to_vec_pretty(&stored)?;
+                    let _guard = self.latest_lock.lock().await;
+                    self.put_object(&latest_key, &data).await
+                }
+                None => {
+                    let _guard = self.latest_lock.lock().await;
+                    let _ = self
+                        .client
+                        .delete_object()
+                        .bucket(&self.bucket)
+                        .key(&latest_key)
+                        .send()
+                        .await;
+                    Ok(())
+                }
             }
         }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn delete_all(&self, user_id: Uuid) -> anyhow::Result<()> {
-        let pack_prefix = format!("{}/git/packs/{}/", self.root_prefix, user_id);
-        self.delete_prefix(&pack_prefix).await?;
-        let blob_prefix = format!("{}/git/blobs/{}/", self.root_prefix, user_id);
-        self.delete_prefix(&blob_prefix).await?;
-        self.set_latest_commit(user_id, None).await
+    async fn delete_all(&self, user_id: Uuid) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let pack_prefix = format!("{}/git/packs/{}/", self.root_prefix, user_id);
+            self.delete_prefix(&pack_prefix).await?;
+            let blob_prefix = format!("{}/git/blobs/{}/", self.root_prefix, user_id);
+            self.delete_prefix(&blob_prefix).await?;
+            self.set_latest_commit(user_id, None).await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use application::core::ports::errors::PortResult;
 use application::documents::ports::realtime::awareness_port::AwarenessPublisher;
 use application::documents::ports::realtime::realtime_hydration_port::{
     RealtimeBacklogReader, StreamFrame,
@@ -17,7 +18,7 @@ impl RealtimeBacklogReader for NoopBacklogReader {
         &self,
         _doc_id: &str,
         _last_stream_id: Option<&str>,
-    ) -> anyhow::Result<Vec<StreamFrame>> {
+    ) -> PortResult<Vec<StreamFrame>> {
         Ok(Vec::new())
     }
 
@@ -25,14 +26,14 @@ impl RealtimeBacklogReader for NoopBacklogReader {
         &self,
         _doc_id: &str,
         _last_stream_id: Option<&str>,
-    ) -> anyhow::Result<Vec<StreamFrame>> {
+    ) -> PortResult<Vec<StreamFrame>> {
         Ok(Vec::new())
     }
 }
 
 #[async_trait]
 impl AwarenessPublisher for NoopAwarenessPublisher {
-    async fn publish_awareness(&self, _doc_id: &str, _frame: Vec<u8>) -> anyhow::Result<()> {
+    async fn publish_awareness(&self, _doc_id: &str, _frame: Vec<u8>) -> PortResult<()> {
         Ok(())
     }
 }

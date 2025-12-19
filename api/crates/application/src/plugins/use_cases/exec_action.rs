@@ -249,7 +249,7 @@ where
                         self.plugin_repo
                             .kv_set(plugin, PluginScope::Doc, Some(did), key, &value)
                             .await
-                            .map_err(PluginEffectError::from)?;
+                            .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?;
                     }
                 }
                 "createRecord" => {
@@ -284,7 +284,7 @@ where
                             .plugin_repo
                             .insert_record(plugin, PluginRecordScope::Doc, did, kind, &data)
                             .await
-                            .map_err(PluginEffectError::from)?;
+                            .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?;
                     }
                 }
                 "updateRecord" => {
@@ -302,7 +302,7 @@ where
                             .plugin_repo
                             .get_record(record_id)
                             .await
-                            .map_err(PluginEffectError::from)?
+                            .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?
                         {
                             policy::ensure_record_owned_by_plugin(&rec.plugin, plugin)?;
                             if rec.scope != PluginRecordScope::Doc {
@@ -326,7 +326,7 @@ where
                             .plugin_repo
                             .update_record_data(record_id, &patch)
                             .await
-                            .map_err(PluginEffectError::from)?;
+                            .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?;
                     }
                 }
                 "deleteRecord" => {
@@ -344,7 +344,7 @@ where
                             .plugin_repo
                             .get_record(record_id)
                             .await
-                            .map_err(PluginEffectError::from)?
+                            .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?
                         {
                             policy::ensure_record_owned_by_plugin(&rec.plugin, plugin)?;
                             if rec.scope != PluginRecordScope::Doc {
@@ -364,7 +364,7 @@ where
                             .plugin_repo
                             .delete_record(record_id)
                             .await
-                            .map_err(PluginEffectError::from)?;
+                            .map_err(|err| PluginEffectError::from(anyhow::Error::from(err)))?;
                     }
                 }
                 "navigate" => {

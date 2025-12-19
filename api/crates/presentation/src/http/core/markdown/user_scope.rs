@@ -3,7 +3,7 @@ use uuid::Uuid;
 use crate::context::{HasAuthServices, HasShareService, HasWorkspaceService};
 use crate::security::{request_status, token};
 use application::core::services::access;
-use domain::documents::share;
+use application::domain::documents::share;
 
 pub(super) async fn resolve_user_scope_from_inputs(
     ctx: &(impl HasAuthServices + HasWorkspaceService + HasShareService),

@@ -15,6 +15,9 @@ impl<'a, R: PublicRepository + ?Sized> UnpublishDocument<'a, R> {
         {
             return Ok(false);
         }
-        self.repo.delete_public_document(doc_id).await
+        self.repo
+            .delete_public_document(doc_id)
+            .await
+            .map_err(Into::into)
     }
 }

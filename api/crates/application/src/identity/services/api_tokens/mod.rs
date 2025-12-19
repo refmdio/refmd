@@ -162,5 +162,5 @@ pub fn verify_token(
     token: &str,
     token_hash: &str,
 ) -> anyhow::Result<bool> {
-    hasher.verify_secret(token, token_hash)
+    Ok(hasher.verify_secret(token, token_hash)?)
 }

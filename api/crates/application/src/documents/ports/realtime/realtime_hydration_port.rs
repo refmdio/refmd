@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
 use domain::documents::doc_type::DocumentType;
 
 #[derive(Debug, Clone)]
@@ -33,11 +34,11 @@ pub struct DocumentRecord {
 
 #[async_trait]
 pub trait DocStateReader: Send + Sync {
-    async fn latest_snapshot(&self, doc_id: &Uuid) -> anyhow::Result<Option<DocSnapshot>>;
+    async fn latest_snapshot(&self, doc_id: &Uuid) -> PortResult<Option<DocSnapshot>>;
 
-    async fn updates_since(&self, doc_id: &Uuid, from_seq: i64) -> anyhow::Result<Vec<DocUpdate>>;
+    async fn updates_since(&self, doc_id: &Uuid, from_seq: i64) -> PortResult<Vec<DocUpdate>>;
 
-    async fn document_record(&self, doc_id: &Uuid) -> anyhow::Result<Option<DocumentRecord>>;
+    async fn document_record(&self, doc_id: &Uuid) -> PortResult<Option<DocumentRecord>>;
 }
 
 #[async_trait]
@@ -46,11 +47,11 @@ pub trait RealtimeBacklogReader: Send + Sync {
         &self,
         doc_id: &str,
         last_stream_id: Option<&str>,
-    ) -> anyhow::Result<Vec<StreamFrame>>;
+    ) -> PortResult<Vec<StreamFrame>>;
 
     async fn read_awareness_backlog(
         &self,
         doc_id: &str,
         last_stream_id: Option<&str>,
-    ) -> anyhow::Result<Vec<StreamFrame>>;
+    ) -> PortResult<Vec<StreamFrame>>;
 }

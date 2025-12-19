@@ -4,7 +4,7 @@ use crate::context::GitContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::{WorkspaceAuth, WorkspaceUser};
 use application::git::dtos::{GitSyncRequestDto, UpsertGitConfigInput};
-use domain::access::permissions::PERM_GIT_INIT;
+use application::domain::access::permissions::PERM_GIT_INIT;
 
 use super::types::{
     CreateGitConfigRequest, GitImportResponse, GitSyncRequest, GitSyncResponse, map_git_error,

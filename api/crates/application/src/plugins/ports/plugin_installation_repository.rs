@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
 use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
 
 #[derive(Debug, Clone)]
@@ -25,16 +26,16 @@ pub trait PluginInstallationRepository: Send + Sync {
         scope: PluginScope,
         origin_url: Option<&str>,
         status: PluginInstallationStatus,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
     async fn list_for_workspace(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<PluginInstallation>>;
+    ) -> PortResult<Vec<PluginInstallation>>;
 
-    async fn list_all(&self) -> anyhow::Result<Vec<PluginInstallation>>;
+    async fn list_all(&self) -> PortResult<Vec<PluginInstallation>>;
 
-    async fn remove(&self, workspace_id: Uuid, plugin_id: &str) -> anyhow::Result<bool>;
+    async fn remove(&self, workspace_id: Uuid, plugin_id: &str) -> PortResult<bool>;
 
-    async fn remove_all_for_workspace(&self, workspace_id: Uuid) -> anyhow::Result<()>;
+    async fn remove_all_for_workspace(&self, workspace_id: Uuid) -> PortResult<()>;
 }

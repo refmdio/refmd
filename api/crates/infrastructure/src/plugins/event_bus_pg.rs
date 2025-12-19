@@ -9,6 +9,7 @@ use tokio::time::sleep;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::plugins::ports::plugin_event_publisher::{
     PluginEventPublisher, PluginScopedEvent,
 };
@@ -101,28 +102,32 @@ struct EventEnvelope {
 
 #[async_trait]
 impl PluginEventPublisher for PgPluginEventBus {
-    async fn publish(&self, event: &PluginScopedEvent) -> anyhow::Result<()> {
-        let envelope = EventEnvelope {
-            user_id: event.user_id,
-            workspace_id: event.workspace_id,
-            payload: event.payload.clone(),
-        };
-        let payload = serde_json::to_string(&envelope).context("plugin_event_serialize")?;
+    async fn publish(&self, event: &PluginScopedEvent) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let envelope = EventEnvelope {
+                user_id: event.user_id,
+                workspace_id: event.workspace_id,
+                payload: event.payload.clone(),
+            };
+            let payload = serde_json::to_string(&envelope).context("plugin_event_serialize")?;
 
-        sqlx::query("SELECT pg_notify($1, $2)")
-            .bind(&self.channel)
-            .bind(payload)
-            .execute(&self.pool)
-            .await
-            .context("plugin_event_pg_notify")?;
+            sqlx::query("SELECT pg_notify($1, $2)")
+                .bind(&self.channel)
+                .bind(payload)
+                .execute(&self.pool)
+                .await
+                .context("plugin_event_pg_notify")?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }
 
 #[async_trait]
 impl PluginEventSubscriber for PgPluginEventBus {
-    async fn subscribe(&self) -> anyhow::Result<BoxStream<'static, PluginScopedEvent>> {
-        self.subscribe_stream().await
+    async fn subscribe(&self) -> PortResult<BoxStream<'static, PluginScopedEvent>> {
+        self.subscribe_stream().await.map_err(Into::into)
     }
 }

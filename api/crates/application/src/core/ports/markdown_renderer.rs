@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::core::ports::errors::PortResult;
 use crate::core::services::markdown::{RenderOptions, RenderResponse};
 
 pub trait MarkdownRenderer: Send + Sync {
@@ -8,5 +9,5 @@ pub trait MarkdownRenderer: Send + Sync {
         text: String,
         opts: RenderOptions,
         placeholder_kinds: Option<&HashSet<String>>,
-    ) -> anyhow::Result<RenderResponse>;
+    ) -> PortResult<RenderResponse>;
 }

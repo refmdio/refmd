@@ -3,6 +3,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::documents::ports::document_snapshot_archive_repository::{
     DocumentSnapshotArchiveRepository, SnapshotArchiveEntry, SnapshotArchiveInsert,
     SnapshotArchiveRecord,
@@ -23,9 +24,10 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
     async fn insert(
         &self,
         input: SnapshotArchiveInsert<'_>,
-    ) -> anyhow::Result<SnapshotArchiveRecord> {
-        let inserted = sqlx::query(
-            r#"INSERT INTO document_snapshot_archives (
+    ) -> PortResult<SnapshotArchiveRecord> {
+        let out: anyhow::Result<SnapshotArchiveRecord> = async {
+            let inserted = sqlx::query(
+                r#"INSERT INTO document_snapshot_archives (
                     document_id,
                     version,
                     snapshot,
@@ -49,24 +51,24 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     created_by,
                     byte_size,
                     content_hash"#,
-        )
-        .bind(input.document_id)
-        .bind(input.version as i32)
-        .bind(input.snapshot)
-        .bind(input.label)
-        .bind(input.notes)
-        .bind(input.kind)
-        .bind(input.created_by)
-        .bind(input.byte_size)
-        .bind(input.content_hash)
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(input.document_id)
+            .bind(input.version as i32)
+            .bind(input.snapshot)
+            .bind(input.label)
+            .bind(input.notes)
+            .bind(input.kind)
+            .bind(input.created_by)
+            .bind(input.byte_size)
+            .bind(input.content_hash)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        let row = match inserted {
-            Some(row) => row,
-            None => {
-                sqlx::query(
-                    r#"SELECT
+            let row = match inserted {
+                Some(row) => row,
+                None => {
+                    sqlx::query(
+                        r#"SELECT
                             id,
                             document_id,
                             version,
@@ -79,31 +81,35 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                             content_hash
                        FROM document_snapshot_archives
                        WHERE document_id = $1 AND version = $2"#,
-                )
-                .bind(input.document_id)
-                .bind(input.version as i32)
-                .fetch_one(&self.pool)
-                .await?
-            }
-        };
+                    )
+                    .bind(input.document_id)
+                    .bind(input.version as i32)
+                    .fetch_one(&self.pool)
+                    .await?
+                }
+            };
 
-        Ok(SnapshotArchiveRecord {
-            id: row.get("id"),
-            document_id: row.get("document_id"),
-            version: row.get::<i32, _>("version") as i64,
-            label: row.get("label"),
-            notes: row.try_get("notes").ok(),
-            kind: row.get("kind"),
-            created_at: row.get("created_at"),
-            created_by: row.try_get("created_by").ok(),
-            byte_size: row.get("byte_size"),
-            content_hash: row.get("content_hash"),
-        })
+            Ok(SnapshotArchiveRecord {
+                id: row.get("id"),
+                document_id: row.get("document_id"),
+                version: row.get::<i32, _>("version") as i64,
+                label: row.get("label"),
+                notes: row.try_get("notes").ok(),
+                kind: row.get("kind"),
+                created_at: row.get("created_at"),
+                created_by: row.try_get("created_by").ok(),
+                byte_size: row.get("byte_size"),
+                content_hash: row.get("content_hash"),
+            })
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn get_by_id(&self, id: Uuid) -> anyhow::Result<Option<SnapshotArchiveEntry>> {
-        let row = sqlx::query(
-            r#"SELECT
+    async fn get_by_id(&self, id: Uuid) -> PortResult<Option<SnapshotArchiveEntry>> {
+        let out: anyhow::Result<Option<SnapshotArchiveEntry>> = async {
+            let row = sqlx::query(
+                r#"SELECT
                     id,
                     document_id,
                     version,
@@ -117,26 +123,29 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     content_hash
                FROM document_snapshot_archives
                WHERE id = $1"#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(row.map(|row| SnapshotArchiveEntry {
-            record: SnapshotArchiveRecord {
-                id: row.get("id"),
-                document_id: row.get("document_id"),
-                version: row.get::<i32, _>("version") as i64,
-                label: row.get("label"),
-                notes: row.try_get("notes").ok(),
-                kind: row.get("kind"),
-                created_at: row.get("created_at"),
-                created_by: row.try_get("created_by").ok(),
-                byte_size: row.get("byte_size"),
-                content_hash: row.get("content_hash"),
-            },
-            bytes: row.get("snapshot"),
-        }))
+            Ok(row.map(|row| SnapshotArchiveEntry {
+                record: SnapshotArchiveRecord {
+                    id: row.get("id"),
+                    document_id: row.get("document_id"),
+                    version: row.get::<i32, _>("version") as i64,
+                    label: row.get("label"),
+                    notes: row.try_get("notes").ok(),
+                    kind: row.get("kind"),
+                    created_at: row.get("created_at"),
+                    created_by: row.try_get("created_by").ok(),
+                    byte_size: row.get("byte_size"),
+                    content_hash: row.get("content_hash"),
+                },
+                bytes: row.get("snapshot"),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn list_for_document(
@@ -144,9 +153,10 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
         doc_id: Uuid,
         limit: i64,
         offset: i64,
-    ) -> anyhow::Result<Vec<SnapshotArchiveRecord>> {
-        let rows = sqlx::query(
-            r#"SELECT
+    ) -> PortResult<Vec<SnapshotArchiveRecord>> {
+        let out: anyhow::Result<Vec<SnapshotArchiveRecord>> = async {
+            let rows = sqlx::query(
+                r#"SELECT
                     id,
                     document_id,
                     version,
@@ -161,37 +171,41 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                WHERE document_id = $1
                ORDER BY created_at DESC
                LIMIT $2 OFFSET $3"#,
-        )
-        .bind(doc_id)
-        .bind(limit.max(1))
-        .bind(offset.max(0))
-        .fetch_all(&self.pool)
-        .await?;
+            )
+            .bind(doc_id)
+            .bind(limit.max(1))
+            .bind(offset.max(0))
+            .fetch_all(&self.pool)
+            .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| SnapshotArchiveRecord {
-                id: row.get("id"),
-                document_id: row.get("document_id"),
-                version: row.get::<i32, _>("version") as i64,
-                label: row.get("label"),
-                notes: row.try_get("notes").ok(),
-                kind: row.get("kind"),
-                created_at: row.get("created_at"),
-                created_by: row.try_get("created_by").ok(),
-                byte_size: row.get("byte_size"),
-                content_hash: row.get("content_hash"),
-            })
-            .collect())
+            Ok(rows
+                .into_iter()
+                .map(|row| SnapshotArchiveRecord {
+                    id: row.get("id"),
+                    document_id: row.get("document_id"),
+                    version: row.get::<i32, _>("version") as i64,
+                    label: row.get("label"),
+                    notes: row.try_get("notes").ok(),
+                    kind: row.get("kind"),
+                    created_at: row.get("created_at"),
+                    created_by: row.try_get("created_by").ok(),
+                    byte_size: row.get("byte_size"),
+                    content_hash: row.get("content_hash"),
+                })
+                .collect())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn latest_before(
         &self,
         doc_id: Uuid,
         version: i64,
-    ) -> anyhow::Result<Option<SnapshotArchiveEntry>> {
-        let row = sqlx::query(
-            r#"SELECT
+    ) -> PortResult<Option<SnapshotArchiveEntry>> {
+        let out: anyhow::Result<Option<SnapshotArchiveEntry>> = async {
+            let row = sqlx::query(
+                r#"SELECT
                     id,
                     document_id,
                     version,
@@ -207,26 +221,29 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                WHERE document_id = $1 AND version < $2
                ORDER BY version DESC
                LIMIT 1"#,
-        )
-        .bind(doc_id)
-        .bind(version as i32)
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(doc_id)
+            .bind(version as i32)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(row.map(|row| SnapshotArchiveEntry {
-            record: SnapshotArchiveRecord {
-                id: row.get("id"),
-                document_id: row.get("document_id"),
-                version: row.get::<i32, _>("version") as i64,
-                label: row.get("label"),
-                notes: row.try_get("notes").ok(),
-                kind: row.get("kind"),
-                created_at: row.get("created_at"),
-                created_by: row.try_get("created_by").ok(),
-                byte_size: row.get("byte_size"),
-                content_hash: row.get("content_hash"),
-            },
-            bytes: row.get("snapshot"),
-        }))
+            Ok(row.map(|row| SnapshotArchiveEntry {
+                record: SnapshotArchiveRecord {
+                    id: row.get("id"),
+                    document_id: row.get("document_id"),
+                    version: row.get::<i32, _>("version") as i64,
+                    label: row.get("label"),
+                    notes: row.try_get("notes").ok(),
+                    kind: row.get("kind"),
+                    created_at: row.get("created_at"),
+                    created_by: row.try_get("created_by").ok(),
+                    byte_size: row.get("byte_size"),
+                    content_hash: row.get("content_hash"),
+                },
+                bytes: row.get("snapshot"),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

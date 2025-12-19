@@ -3,6 +3,8 @@ use futures_util::stream::BoxStream;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Error)]
 #[error("document_missing")]
 pub struct DocumentMissingError {
@@ -28,26 +30,26 @@ pub trait DocPersistencePort: Send + Sync {
         doc_id: &Uuid,
         seq: i64,
         update: &[u8],
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
-    async fn latest_update_seq(&self, doc_id: &Uuid) -> anyhow::Result<Option<i64>>;
+    async fn latest_update_seq(&self, doc_id: &Uuid) -> PortResult<Option<i64>>;
 
     async fn persist_snapshot(
         &self,
         doc_id: &Uuid,
         version: i64,
         snapshot: &[u8],
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
-    async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> anyhow::Result<Option<SnapshotEntry>>;
+    async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> PortResult<Option<SnapshotEntry>>;
 
-    async fn latest_snapshot_version(&self, doc_id: &Uuid) -> anyhow::Result<Option<i64>>;
+    async fn latest_snapshot_version(&self, doc_id: &Uuid) -> PortResult<Option<i64>>;
 
-    async fn prune_snapshots(&self, doc_id: &Uuid, keep_latest: i64) -> anyhow::Result<()>;
+    async fn prune_snapshots(&self, doc_id: &Uuid, keep_latest: i64) -> PortResult<()>;
 
-    async fn prune_updates_before(&self, doc_id: &Uuid, seq_inclusive: i64) -> anyhow::Result<()>;
+    async fn prune_updates_before(&self, doc_id: &Uuid, seq_inclusive: i64) -> PortResult<()>;
 
-    async fn clear_updates(&self, doc_id: &Uuid) -> anyhow::Result<()>;
+    async fn clear_updates(&self, doc_id: &Uuid) -> PortResult<()>;
 }
 
 #[async_trait]
@@ -55,7 +57,7 @@ pub trait PersistenceTaskConsumerPort: Send + Sync {
     async fn subscribe_tasks(
         &self,
         start_id: Option<String>,
-    ) -> anyhow::Result<BoxStream<'static, anyhow::Result<PersistenceTask>>>;
+    ) -> PortResult<BoxStream<'static, PortResult<PersistenceTask>>>;
 
-    async fn ack_task(&self, entry_id: &str) -> anyhow::Result<()>;
+    async fn ack_task(&self, entry_id: &str) -> PortResult<()>;
 }

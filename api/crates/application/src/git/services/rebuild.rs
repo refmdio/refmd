@@ -73,7 +73,7 @@ impl GitRebuildService {
                 Ok(WorkerTick::Processed)
             }
             Ok(None) => Ok(WorkerTick::Idle),
-            Err(err) => Err(err),
+            Err(err) => Err(err.into()),
         }
     }
 
@@ -122,10 +122,10 @@ impl GitRebuildService {
                         .await
                     {
                         Ok(outcome) => outcome,
-                        Err(err) => return self.on_job_error(job, err).await,
+                        Err(err) => return self.on_job_error(job, err.into()).await,
                     }
                 } else {
-                    return self.on_job_error(job, err).await;
+                    return self.on_job_error(job, err.into()).await;
                 }
             }
         };
@@ -247,6 +247,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
+    use crate::core::ports::errors::PortResult;
     use crate::core::services::errors::ServiceError;
 
     struct RecordingWorkspace {
@@ -277,18 +278,18 @@ mod tests {
             &self,
             _workspace_id: Uuid,
             _default_branch: &str,
-        ) -> anyhow::Result<()> {
+        ) -> PortResult<()> {
             unimplemented!()
         }
 
-        async fn remove_repository(&self, _workspace_id: Uuid) -> anyhow::Result<()> {
+        async fn remove_repository(&self, _workspace_id: Uuid) -> PortResult<()> {
             unimplemented!()
         }
 
         async fn status(
             &self,
             _workspace_id: Uuid,
-        ) -> anyhow::Result<crate::git::dtos::GitWorkspaceStatus> {
+        ) -> PortResult<crate::git::dtos::GitWorkspaceStatus> {
             Ok(crate::git::dtos::GitWorkspaceStatus {
                 repository_initialized: true,
                 current_branch: Some("main".into()),
@@ -300,14 +301,14 @@ mod tests {
         async fn list_changes(
             &self,
             _workspace_id: Uuid,
-        ) -> anyhow::Result<Vec<crate::git::dtos::GitChangeItem>> {
+        ) -> PortResult<Vec<crate::git::dtos::GitChangeItem>> {
             unimplemented!()
         }
 
         async fn working_diff(
             &self,
             _workspace_id: Uuid,
-        ) -> anyhow::Result<Vec<crate::core::dtos::TextDiffResult>> {
+        ) -> PortResult<Vec<crate::core::dtos::TextDiffResult>> {
             unimplemented!()
         }
 
@@ -316,14 +317,14 @@ mod tests {
             _workspace_id: Uuid,
             _from: &str,
             _to: &str,
-        ) -> anyhow::Result<Vec<crate::core::dtos::TextDiffResult>> {
+        ) -> PortResult<Vec<crate::core::dtos::TextDiffResult>> {
             unimplemented!()
         }
 
         async fn history(
             &self,
             _workspace_id: Uuid,
-        ) -> anyhow::Result<Vec<crate::git::dtos::GitCommitInfo>> {
+        ) -> PortResult<Vec<crate::git::dtos::GitCommitInfo>> {
             unimplemented!()
         }
 
@@ -332,10 +333,10 @@ mod tests {
             _workspace_id: Uuid,
             req: &GitSyncRequestDto,
             _cfg: Option<&crate::git::ports::git_repository::UserGitCfg>,
-        ) -> anyhow::Result<crate::git::dtos::GitSyncOutcome> {
+        ) -> PortResult<crate::git::dtos::GitSyncOutcome> {
             self.outcomes.lock().unwrap().push(req.clone());
             if let Some(err) = self.failures.lock().unwrap().pop_front() {
-                Err(err)
+                Err(err.into())
             } else {
                 Ok(crate::git::dtos::GitSyncOutcome {
                     files_changed: 1,
@@ -351,7 +352,7 @@ mod tests {
             _workspace_id: Uuid,
             _actor_id: Uuid,
             _cfg: &crate::git::ports::git_repository::UserGitCfg,
-        ) -> anyhow::Result<crate::git::dtos::GitImportOutcome> {
+        ) -> PortResult<crate::git::dtos::GitImportOutcome> {
             Ok(crate::git::dtos::GitImportOutcome {
                 files_changed: 0,
                 commit_hash: None,
@@ -367,7 +368,7 @@ mod tests {
             _actor_id: Uuid,
             _req: &crate::git::dtos::GitPullRequestDto,
             _cfg: &crate::git::ports::git_repository::UserGitCfg,
-        ) -> anyhow::Result<crate::git::dtos::GitPullResultDto> {
+        ) -> PortResult<crate::git::dtos::GitPullResultDto> {
             Ok(crate::git::dtos::GitPullResultDto {
                 success: true,
                 message: "ok".to_string(),
@@ -383,7 +384,7 @@ mod tests {
             &self,
             _workspace_id: Uuid,
             _cfg: &crate::git::ports::git_repository::UserGitCfg,
-        ) -> anyhow::Result<crate::git::dtos::GitRemoteCheckDto> {
+        ) -> PortResult<crate::git::dtos::GitRemoteCheckDto> {
             Ok(crate::git::dtos::GitRemoteCheckDto {
                 ok: true,
                 message: "ok".into(),
@@ -391,7 +392,7 @@ mod tests {
             })
         }
 
-        async fn head_commit(&self, _workspace_id: Uuid) -> anyhow::Result<Option<Vec<u8>>> {
+        async fn head_commit(&self, _workspace_id: Uuid) -> PortResult<Option<Vec<u8>>> {
             Ok(None)
         }
 
@@ -399,11 +400,11 @@ mod tests {
             &self,
             _workspace_id: Uuid,
             _cfg: &crate::git::ports::git_repository::UserGitCfg,
-        ) -> anyhow::Result<Option<Vec<u8>>> {
+        ) -> PortResult<Option<Vec<u8>>> {
             Ok(None)
         }
 
-        async fn has_pending_changes(&self, _workspace_id: Uuid) -> anyhow::Result<bool> {
+        async fn has_pending_changes(&self, _workspace_id: Uuid) -> PortResult<bool> {
             Ok(false)
         }
 
@@ -411,7 +412,7 @@ mod tests {
             &self,
             _workspace_id: Uuid,
             _base_commit: &[u8],
-        ) -> anyhow::Result<bool> {
+        ) -> PortResult<bool> {
             Ok(false)
         }
     }
@@ -437,23 +438,23 @@ mod tests {
             _workspace_id: Uuid,
             _actor_id: Option<Uuid>,
             _permission_snapshot: &[String],
-        ) -> anyhow::Result<()> {
+        ) -> PortResult<()> {
             Ok(())
         }
 
         async fn fetch_next(
             &self,
             _lock_timeout_secs: i64,
-        ) -> anyhow::Result<Option<GitRebuildJob>> {
+        ) -> PortResult<Option<GitRebuildJob>> {
             Ok(None)
         }
 
-        async fn complete(&self, job_id: i64) -> anyhow::Result<()> {
+        async fn complete(&self, job_id: i64) -> PortResult<()> {
             self.complete.lock().unwrap().push(job_id);
             Ok(())
         }
 
-        async fn fail(&self, job_id: i64, _error: &str) -> anyhow::Result<()> {
+        async fn fail(&self, job_id: i64, _error: &str) -> PortResult<()> {
             self.failed.lock().unwrap().push(job_id);
             Ok(())
         }
@@ -476,7 +477,7 @@ mod tests {
         async fn get_config(
             &self,
             _user_id: Uuid,
-        ) -> anyhow::Result<Option<crate::git::ports::git_repository::GitConfigRecord>> {
+        ) -> PortResult<Option<crate::git::ports::git_repository::GitConfigRecord>> {
             unimplemented!()
         }
 
@@ -488,25 +489,25 @@ mod tests {
             _auth_type: domain::git::auth::GitAuthType,
             _auth_data: &serde_json::Value,
             _auto_sync: Option<bool>,
-        ) -> anyhow::Result<crate::git::ports::git_repository::GitConfigRecord> {
+        ) -> PortResult<crate::git::ports::git_repository::GitConfigRecord> {
             unimplemented!()
         }
 
-        async fn delete_config(&self, _user_id: Uuid) -> anyhow::Result<bool> {
+        async fn delete_config(&self, _user_id: Uuid) -> PortResult<bool> {
             unimplemented!()
         }
 
         async fn load_user_git_cfg(
             &self,
             _user_id: Uuid,
-        ) -> anyhow::Result<Option<crate::git::ports::git_repository::UserGitCfg>> {
+        ) -> PortResult<Option<crate::git::ports::git_repository::UserGitCfg>> {
             Ok(None)
         }
 
         async fn get_last_sync_log(
             &self,
             _user_id: Uuid,
-        ) -> anyhow::Result<Option<crate::git::ports::git_repository::GitLastSyncLog>> {
+        ) -> PortResult<Option<crate::git::ports::git_repository::GitLastSyncLog>> {
             Ok(None)
         }
 
@@ -517,20 +518,20 @@ mod tests {
             status: domain::git::sync_log::GitSyncStatus,
             _message: Option<&str>,
             _commit_hash: Option<&str>,
-        ) -> anyhow::Result<()> {
+        ) -> PortResult<()> {
             *self.last_status.lock().unwrap() = Some(status.as_str().to_string());
             Ok(())
         }
 
-        async fn delete_sync_logs(&self, _workspace_id: Uuid) -> anyhow::Result<()> {
+        async fn delete_sync_logs(&self, _workspace_id: Uuid) -> PortResult<()> {
             Ok(())
         }
 
-        async fn delete_repository_state(&self, _workspace_id: Uuid) -> anyhow::Result<()> {
+        async fn delete_repository_state(&self, _workspace_id: Uuid) -> PortResult<()> {
             Ok(())
         }
 
-        async fn list_auto_sync_workspaces(&self) -> anyhow::Result<Vec<Uuid>> {
+        async fn list_auto_sync_workspaces(&self) -> PortResult<Vec<Uuid>> {
             Ok(Vec::new())
         }
     }

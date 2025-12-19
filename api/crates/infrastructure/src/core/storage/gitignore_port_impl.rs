@@ -1,10 +1,12 @@
 use application::git::ports::gitignore_port::GitignorePort;
+use application::core::ports::errors::PortResult;
 
 pub struct FsGitignorePort;
 
 #[async_trait::async_trait]
 impl GitignorePort for FsGitignorePort {
-    async fn ensure_gitignore(&self, dir: &str) -> anyhow::Result<bool> {
+    async fn ensure_gitignore(&self, dir: &str) -> PortResult<bool> {
+        let out: anyhow::Result<bool> = async {
         use tokio::io::AsyncWriteExt;
         let path = std::path::Path::new(dir).join(".gitignore");
         if let Some(parent) = path.parent() {
@@ -49,13 +51,17 @@ impl GitignorePort for FsGitignorePort {
             created_or_updated = true;
         }
         Ok(created_or_updated)
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn upsert_gitignore_patterns(
         &self,
         dir: &str,
         patterns: &[String],
-    ) -> anyhow::Result<usize> {
+    ) -> PortResult<usize> {
+        let out: anyhow::Result<usize> = async {
         use tokio::io::AsyncWriteExt;
         let path = std::path::Path::new(dir).join(".gitignore");
         if let Some(parent) = path.parent() {
@@ -89,9 +95,13 @@ impl GitignorePort for FsGitignorePort {
             return Ok(set.len() - before);
         }
         Ok(0)
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn read_gitignore_patterns(&self, dir: &str) -> anyhow::Result<Vec<String>> {
+    async fn read_gitignore_patterns(&self, dir: &str) -> PortResult<Vec<String>> {
+        let out: anyhow::Result<Vec<String>> = async {
         let path = std::path::Path::new(dir).join(".gitignore");
         let content = if tokio::fs::try_exists(&path).await.unwrap_or(false) {
             tokio::fs::read_to_string(&path).await.unwrap_or_default()
@@ -104,5 +114,8 @@ impl GitignorePort for FsGitignorePort {
             .filter(|s| !s.is_empty() && !s.starts_with('#'))
             .collect();
         Ok(patterns)
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

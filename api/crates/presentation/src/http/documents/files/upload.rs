@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
-use domain::access::permissions::PERM_FILE_UPLOAD;
+use application::domain::access::permissions::PERM_FILE_UPLOAD;
 
 use super::types::{UploadFileResponse, map_file_error};
 

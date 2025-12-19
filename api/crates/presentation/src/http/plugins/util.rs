@@ -8,8 +8,10 @@ use crate::security::token;
 use application::core::services::access;
 use application::core::services::errors::ServiceError;
 use application::plugins::services::management;
-use domain::access::permissions::{PERM_DOC_EDIT, PERM_DOC_VIEW, PERM_PLUGIN_RUN, PermissionSet};
-use domain::documents::share;
+use application::domain::access::permissions::{
+    PERM_DOC_EDIT, PERM_DOC_VIEW, PERM_PLUGIN_RUN, PermissionSet,
+};
+use application::domain::documents::share;
 
 pub const PERMISSION_DOC_READ: &str = "doc.read";
 pub const PERMISSION_DOC_WRITE: &str = "doc.write";

@@ -342,7 +342,7 @@ impl PluginManagementService {
                 if err.downcast_ref::<std::io::Error>().is_some() {
                     ServiceError::NotFound
                 } else {
-                    ServiceError::Unexpected(err)
+                    ServiceError::Unexpected(err.into())
                 }
             })
     }

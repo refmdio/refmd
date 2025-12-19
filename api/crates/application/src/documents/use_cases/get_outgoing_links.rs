@@ -13,6 +13,9 @@ impl<'a, R: LinkGraphRepository + ?Sized> GetOutgoingLinks<'a, R> {
         workspace_id: Uuid,
         doc_id: Uuid,
     ) -> anyhow::Result<Vec<OutgoingLink>> {
-        self.repo.outgoing_links_for(workspace_id, doc_id).await
+        self.repo
+            .outgoing_links_for(workspace_id, doc_id)
+            .await
+            .map_err(Into::into)
     }
 }

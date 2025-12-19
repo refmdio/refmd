@@ -365,7 +365,10 @@ impl PluginsContext {
     pub async fn subscribe_plugin_events(
         &self,
     ) -> anyhow::Result<BoxStream<'static, PluginScopedEvent>> {
-        self.plugin_event_subscriber.subscribe().await
+        self.plugin_event_subscriber
+            .subscribe()
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -507,6 +510,7 @@ impl WsContext {
         self.realtime_engine
             .subscribe(doc_id, sink, stream, can_edit)
             .await
+            .map_err(Into::into)
     }
 }
 

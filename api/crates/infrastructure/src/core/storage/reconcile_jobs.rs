@@ -4,6 +4,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_reconcile_jobs::{
     StorageReconcileJob, StorageReconcileJobs,
 };
@@ -20,9 +21,10 @@ impl PgStorageReconcileJobs {
 
 #[async_trait]
 impl StorageReconcileJobs for PgStorageReconcileJobs {
-    async fn enqueue(&self, workspace_id: Uuid, scope: &str) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"
+    async fn enqueue(&self, workspace_id: Uuid, scope: &str) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"
             INSERT INTO storage_reconcile_jobs (workspace_id, scope, attempts, locked_at, last_error)
             VALUES ($1, $2, 0, NULL, NULL)
             ON CONFLICT ON CONSTRAINT storage_reconcile_jobs_workspace_scope_unique
@@ -42,25 +44,29 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
                 END,
                 updated_at = now()
             "#,
-        )
-        .bind(workspace_id)
-        .bind(scope)
-        .execute(&self.pool)
-        .await?;
-        debug!(
-            workspace_id = %workspace_id,
-            scope,
-            "storage_reconcile_job_enqueued"
-        );
-        Ok(())
+            )
+            .bind(workspace_id)
+            .bind(scope)
+            .execute(&self.pool)
+            .await?;
+            debug!(
+                workspace_id = %workspace_id,
+                scope,
+                "storage_reconcile_job_enqueued"
+            );
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn fetch_next(
         &self,
         lock_timeout_secs: i64,
-    ) -> anyhow::Result<Option<StorageReconcileJob>> {
-        let row = sqlx::query(
-            r#"
+    ) -> PortResult<Option<StorageReconcileJob>> {
+        let out: anyhow::Result<Option<StorageReconcileJob>> = async {
+            let row = sqlx::query(
+                r#"
             WITH next_job AS (
                 SELECT id FROM storage_reconcile_jobs
                 WHERE locked_at IS NULL
@@ -76,22 +82,26 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
             WHERE j.id IN (SELECT id FROM next_job)
             RETURNING j.id, j.workspace_id, j.scope, j.attempts
             "#,
-        )
-        .bind(lock_timeout_secs.max(1))
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(lock_timeout_secs.max(1))
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(row.map(|r| StorageReconcileJob {
-            id: r.get("id"),
-            workspace_id: r.get("workspace_id"),
-            scope: r.get("scope"),
-            attempts: r.get("attempts"),
-        }))
+            Ok(row.map(|r| StorageReconcileJob {
+                id: r.get("id"),
+                workspace_id: r.get("workspace_id"),
+                scope: r.get("scope"),
+                attempts: r.get("attempts"),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn complete(&self, job_id: i64) -> anyhow::Result<()> {
-        let result = sqlx::query(
-            r#"
+    async fn complete(&self, job_id: i64) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let result = sqlx::query(
+                r#"
             UPDATE storage_reconcile_jobs
             SET locked_at = NULL,
                 attempts = 0,
@@ -100,23 +110,27 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
                 updated_at = now()
             WHERE id = $1 AND pending_retry = true
             "#,
-        )
-        .bind(job_id)
-        .execute(&self.pool)
-        .await?;
+            )
+            .bind(job_id)
+            .execute(&self.pool)
+            .await?;
 
-        if result.rows_affected() == 0 {
-            sqlx::query("DELETE FROM storage_reconcile_jobs WHERE id = $1")
-                .bind(job_id)
-                .execute(&self.pool)
-                .await?;
+            if result.rows_affected() == 0 {
+                sqlx::query("DELETE FROM storage_reconcile_jobs WHERE id = $1")
+                    .bind(job_id)
+                    .execute(&self.pool)
+                    .await?;
+            }
+            Ok(())
         }
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn fail(&self, job_id: i64, error: &str) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"
+    async fn fail(&self, job_id: i64, error: &str) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"
             UPDATE storage_reconcile_jobs
             SET last_error = $2,
                 locked_at = NULL,
@@ -124,11 +138,14 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
                 updated_at = now()
             WHERE id = $1
             "#,
-        )
-        .bind(job_id)
-        .bind(error)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(job_id)
+            .bind(error)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

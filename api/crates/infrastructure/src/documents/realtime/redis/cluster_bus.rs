@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
+use application::core::ports::errors::PortResult;
 use application::documents::ports::realtime::awareness_port::AwarenessPublisher;
 use application::documents::ports::realtime::realtime_hydration_port::{
     RealtimeBacklogReader, StreamFrame,
@@ -358,31 +359,44 @@ impl RealtimeBacklogReader for RedisClusterBus {
         &self,
         doc_id: &str,
         last_stream_id: Option<&str>,
-    ) -> anyhow::Result<Vec<StreamFrame>> {
-        let items = RedisClusterBus::read_update_backlog(self, doc_id, last_stream_id).await?;
-        Ok(items
-            .into_iter()
-            .map(|(id, payload)| StreamFrame { id, payload })
-            .collect())
+    ) -> PortResult<Vec<StreamFrame>> {
+        let out: anyhow::Result<Vec<StreamFrame>> = async {
+            let items = RedisClusterBus::read_update_backlog(self, doc_id, last_stream_id).await?;
+            Ok(items
+                .into_iter()
+                .map(|(id, payload)| StreamFrame { id, payload })
+                .collect())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn read_awareness_backlog(
         &self,
         doc_id: &str,
         last_stream_id: Option<&str>,
-    ) -> anyhow::Result<Vec<StreamFrame>> {
-        let items = RedisClusterBus::read_awareness_backlog(self, doc_id, last_stream_id).await?;
-        Ok(items
-            .into_iter()
-            .map(|(id, payload)| StreamFrame { id, payload })
-            .collect())
+    ) -> PortResult<Vec<StreamFrame>> {
+        let out: anyhow::Result<Vec<StreamFrame>> = async {
+            let items =
+                RedisClusterBus::read_awareness_backlog(self, doc_id, last_stream_id).await?;
+            Ok(items
+                .into_iter()
+                .map(|(id, payload)| StreamFrame { id, payload })
+                .collect())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }
 
 #[async_trait]
 impl AwarenessPublisher for RedisClusterBus {
-    async fn publish_awareness(&self, doc_id: &str, frame: Vec<u8>) -> anyhow::Result<()> {
-        let _id = RedisClusterBus::publish_awareness(self, doc_id, frame).await?;
-        Ok(())
+    async fn publish_awareness(&self, doc_id: &str, frame: Vec<u8>) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let _id = RedisClusterBus::publish_awareness(self, doc_id, frame).await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

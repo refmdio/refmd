@@ -4,6 +4,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_projection_queue::{
     StorageProjectionJob, StorageProjectionJobKind, StorageProjectionQueue,
 };
@@ -45,15 +46,16 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         doc_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
-    ) -> anyhow::Result<()> {
-        match kind {
-            StorageProjectionJobKind::DocSync | StorageProjectionJobKind::DeleteDoc => {}
-            other => anyhow::bail!("job_kind {other:?} requires a folder_id"),
-        }
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            match kind {
+                StorageProjectionJobKind::DocSync | StorageProjectionJobKind::DeleteDoc => {}
+                other => anyhow::bail!("job_kind {other:?} requires a folder_id"),
+            }
 
-        let job_type = Self::kind_to_str(kind);
-        sqlx::query(
-            r#"
+            let job_type = Self::kind_to_str(kind);
+            sqlx::query(
+                r#"
             INSERT INTO storage_projection_jobs (workspace_id, job_type, doc_id, reason, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, $4, 0, NULL, NULL)
             ON CONFLICT (job_type, doc_id) WHERE doc_id IS NOT NULL
@@ -77,14 +79,17 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                           END,
                           updated_at = now()
             "#,
-        )
-        .bind(workspace_id)
-        .bind(job_type)
-        .bind(doc_id)
-        .bind(reason)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(workspace_id)
+            .bind(job_type)
+            .bind(doc_id)
+            .bind(reason)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn enqueue_folder_job(
@@ -93,15 +98,16 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
-    ) -> anyhow::Result<()> {
-        match kind {
-            StorageProjectionJobKind::FolderSync | StorageProjectionJobKind::DeleteFolder => {}
-            other => anyhow::bail!("job_kind {other:?} requires a doc_id"),
-        }
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            match kind {
+                StorageProjectionJobKind::FolderSync | StorageProjectionJobKind::DeleteFolder => {}
+                other => anyhow::bail!("job_kind {other:?} requires a doc_id"),
+            }
 
-        let job_type = Self::kind_to_str(kind);
-        sqlx::query(
-            r#"
+            let job_type = Self::kind_to_str(kind);
+            sqlx::query(
+                r#"
             INSERT INTO storage_projection_jobs (workspace_id, job_type, folder_id, reason, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, $4, 0, NULL, NULL)
             ON CONFLICT (job_type, folder_id) WHERE folder_id IS NOT NULL
@@ -125,22 +131,26 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                           END,
                           updated_at = now()
             "#,
-        )
-        .bind(workspace_id)
-        .bind(job_type)
-        .bind(folder_id)
-        .bind(reason)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(workspace_id)
+            .bind(job_type)
+            .bind(folder_id)
+            .bind(reason)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn fetch_next_job(
         &self,
         lock_timeout_secs: i64,
-    ) -> anyhow::Result<Option<StorageProjectionJob>> {
-        let row = sqlx::query(
-            r#"
+    ) -> PortResult<Option<StorageProjectionJob>> {
+        let out: anyhow::Result<Option<StorageProjectionJob>> = async {
+            let row = sqlx::query(
+                r#"
             WITH next_job AS (
                 SELECT id FROM storage_projection_jobs
                 WHERE locked_at IS NULL
@@ -156,34 +166,38 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
             WHERE j.id IN (SELECT id FROM next_job)
             RETURNING j.id, j.workspace_id, j.job_type, j.doc_id, j.folder_id, j.reason, j.attempts, j.locked_at
             "#,
-        )
-        .bind(lock_timeout_secs.max(1))
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(lock_timeout_secs.max(1))
+            .fetch_optional(&self.pool)
+            .await?;
 
-        let Some(row) = row else {
-            return Ok(None);
-        };
+            let Some(row) = row else {
+                return Ok(None);
+            };
 
-        let job_type: String = row.get("job_type");
-        let kind = Self::str_to_kind(&job_type)?;
+            let job_type: String = row.get("job_type");
+            let kind = Self::str_to_kind(&job_type)?;
 
-        Ok(Some(StorageProjectionJob {
-            id: row.get("id"),
-            workspace_id: row.get("workspace_id"),
-            job_type: kind,
-            doc_id: row.try_get::<Option<Uuid>, _>("doc_id").unwrap_or(None),
-            folder_id: row.try_get::<Option<Uuid>, _>("folder_id").unwrap_or(None),
-            reason: row.try_get::<Option<String>, _>("reason").unwrap_or(None),
-            attempts: row.try_get("attempts").unwrap_or_default(),
-            locked_at: row.get::<DateTime<Utc>, _>("locked_at"),
-        }))
+            Ok(Some(StorageProjectionJob {
+                id: row.get("id"),
+                workspace_id: row.get("workspace_id"),
+                job_type: kind,
+                doc_id: row.try_get::<Option<Uuid>, _>("doc_id").unwrap_or(None),
+                folder_id: row.try_get::<Option<Uuid>, _>("folder_id").unwrap_or(None),
+                reason: row.try_get::<Option<String>, _>("reason").unwrap_or(None),
+                attempts: row.try_get("attempts").unwrap_or_default(),
+                locked_at: row.get::<DateTime<Utc>, _>("locked_at"),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()> {
-        let mut tx = self.pool.begin().await?;
-        let updated = sqlx::query(
-            r#"
+    async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let mut tx = self.pool.begin().await?;
+            let updated = sqlx::query(
+                r#"
             UPDATE storage_projection_jobs
             SET locked_at = NULL,
                 attempts = 0,
@@ -192,22 +206,25 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                 updated_at = now()
             WHERE id = $1 AND locked_at = $2 AND pending_retry = true
             "#,
-        )
-        .bind(job_id)
-        .bind(locked_at)
-        .execute(&mut *tx)
-        .await?;
-        if updated.rows_affected() == 0 {
-            sqlx::query(
-                "DELETE FROM storage_projection_jobs WHERE id = $1 AND locked_at = $2 AND pending_retry = false",
             )
             .bind(job_id)
             .bind(locked_at)
             .execute(&mut *tx)
             .await?;
+            if updated.rows_affected() == 0 {
+                sqlx::query(
+                    "DELETE FROM storage_projection_jobs WHERE id = $1 AND locked_at = $2 AND pending_retry = false",
+                )
+                .bind(job_id)
+                .bind(locked_at)
+                .execute(&mut *tx)
+                .await?;
+            }
+            tx.commit().await?;
+            Ok(())
         }
-        tx.commit().await?;
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn fail_job(
@@ -215,9 +232,10 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         job_id: i64,
         locked_at: DateTime<Utc>,
         error: &str,
-    ) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"
             UPDATE storage_projection_jobs
             SET last_error = $2,
                 locked_at = NULL,
@@ -225,12 +243,15 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
                 updated_at = now()
             WHERE id = $1 AND locked_at = $3
             "#,
-        )
-        .bind(job_id)
-        .bind(error)
-        .bind(locked_at)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(job_id)
+            .bind(error)
+            .bind(locked_at)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

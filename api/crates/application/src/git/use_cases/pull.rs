@@ -30,5 +30,6 @@ where
         self.workspace
             .pull(workspace_id, actor_id, &req, &cfg)
             .await
+            .map_err(Into::into)
     }
 }

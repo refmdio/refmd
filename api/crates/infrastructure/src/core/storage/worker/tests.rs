@@ -11,6 +11,7 @@ use domain::access::permissions::{
 };
 use domain::documents::doc_type::DocumentType;
 
+use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_port::StoredAttachment;
 use application::core::services::errors::ServiceError;
 use application::documents::services::realtime::snapshot::{
@@ -293,7 +294,7 @@ impl StorageProjectionQueue for MockQueue {
         _doc_id: Uuid,
         _kind: StorageProjectionJobKind,
         _reason: Option<&str>,
-    ) -> anyhow::Result<()> {
+    ) -> PortResult<()> {
         unimplemented!()
     }
 
@@ -303,14 +304,14 @@ impl StorageProjectionQueue for MockQueue {
         _folder_id: Uuid,
         _kind: StorageProjectionJobKind,
         _reason: Option<&str>,
-    ) -> anyhow::Result<()> {
+    ) -> PortResult<()> {
         unimplemented!()
     }
 
     async fn fetch_next_job(
         &self,
         _lock_timeout_secs: i64,
-    ) -> anyhow::Result<Option<StorageProjectionJob>> {
+    ) -> PortResult<Option<StorageProjectionJob>> {
         Ok(None)
     }
 
@@ -318,7 +319,7 @@ impl StorageProjectionQueue for MockQueue {
         &self,
         job_id: i64,
         _locked_at: chrono::DateTime<chrono::Utc>,
-    ) -> anyhow::Result<()> {
+    ) -> PortResult<()> {
         self.completed.lock().unwrap().push(job_id);
         Ok(())
     }
@@ -328,7 +329,7 @@ impl StorageProjectionQueue for MockQueue {
         job_id: i64,
         _locked_at: chrono::DateTime<chrono::Utc>,
         error: &str,
-    ) -> anyhow::Result<()> {
+    ) -> PortResult<()> {
         self.failed
             .lock()
             .unwrap()
@@ -355,7 +356,7 @@ impl RecordingStoragePort {
 
 #[async_trait]
 impl StorageProjectionPort for RecordingStoragePort {
-    async fn move_folder_subtree(&self, folder_id: Uuid) -> anyhow::Result<usize> {
+    async fn move_folder_subtree(&self, folder_id: Uuid) -> PortResult<usize> {
         let _ = folder_id;
         self.calls
             .lock()
@@ -364,7 +365,7 @@ impl StorageProjectionPort for RecordingStoragePort {
         Ok(0)
     }
 
-    async fn delete_doc_physical(&self, doc_id: Uuid) -> anyhow::Result<()> {
+    async fn delete_doc_physical(&self, doc_id: Uuid) -> PortResult<()> {
         let _ = doc_id;
         self.calls
             .lock()
@@ -373,7 +374,7 @@ impl StorageProjectionPort for RecordingStoragePort {
         Ok(())
     }
 
-    async fn delete_folder_physical(&self, folder_id: Uuid) -> anyhow::Result<usize> {
+    async fn delete_folder_physical(&self, folder_id: Uuid) -> PortResult<usize> {
         let _ = folder_id;
         self.calls
             .lock()
@@ -382,18 +383,18 @@ impl StorageProjectionPort for RecordingStoragePort {
         Ok(0)
     }
 
-    async fn sync_doc_paths(&self, _doc_id: Uuid) -> anyhow::Result<()> {
+    async fn sync_doc_paths(&self, _doc_id: Uuid) -> PortResult<()> {
         self.calls
             .lock()
             .unwrap()
             .push("sync_doc_paths".to_string());
         if self.fail_sync.swap(false, Ordering::SeqCst) {
-            anyhow::bail!("sync_failed");
+            return Err(anyhow::anyhow!("sync_failed").into());
         }
         Ok(())
     }
 
-    async fn delete_relative_path(&self, rel: &str) -> anyhow::Result<()> {
+    async fn delete_relative_path(&self, rel: &str) -> PortResult<()> {
         self.calls
             .lock()
             .unwrap()
@@ -415,11 +416,11 @@ impl MockResolver {
 
 #[async_trait]
 impl StorageResolverPort for MockResolver {
-    async fn build_doc_dir(&self, _doc_id: Uuid) -> anyhow::Result<PathBuf> {
+    async fn build_doc_dir(&self, _doc_id: Uuid) -> PortResult<PathBuf> {
         Ok(PathBuf::from("mock"))
     }
 
-    async fn build_doc_file_path(&self, doc_id: Uuid) -> anyhow::Result<PathBuf> {
+    async fn build_doc_file_path(&self, doc_id: Uuid) -> PortResult<PathBuf> {
         Ok(PathBuf::from(format!("mock/{doc_id}.md")))
     }
 
@@ -439,19 +440,19 @@ impl StorageResolverPort for MockResolver {
         &self,
         _doc_id: Uuid,
         _rest_path: &str,
-    ) -> anyhow::Result<PathBuf> {
+    ) -> PortResult<PathBuf> {
         unimplemented!()
     }
 
-    async fn read_bytes(&self, _abs_path: &Path) -> anyhow::Result<Vec<u8>> {
+    async fn read_bytes(&self, _abs_path: &Path) -> PortResult<Vec<u8>> {
         unimplemented!()
     }
 
-    async fn exists(&self, _abs_path: &Path) -> anyhow::Result<bool> {
+    async fn exists(&self, _abs_path: &Path) -> PortResult<bool> {
         Ok(true)
     }
 
-    async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> anyhow::Result<()> {
+    async fn write_bytes(&self, abs_path: &Path, data: &[u8]) -> PortResult<()> {
         let doc_id = abs_path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -466,7 +467,7 @@ impl StorageResolverPort for MockResolver {
         _doc_id: Uuid,
         _original_filename: Option<&str>,
         _bytes: &[u8],
-    ) -> anyhow::Result<StoredAttachment> {
+    ) -> PortResult<StoredAttachment> {
         unimplemented!()
     }
 }
@@ -520,7 +521,7 @@ impl DocEventLog for RecordingDocEventLog {
         doc_id: Uuid,
         event_type: &str,
         payload: Option<serde_json::Value>,
-    ) -> anyhow::Result<()> {
+    ) -> PortResult<()> {
         self.events
             .lock()
             .unwrap()

@@ -96,6 +96,7 @@ impl StorageIngestWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::core::ports::errors::PortResult;
     use application::core::ports::storage::storage_ingest_queue::StorageIngestKind;
     use chrono::Utc;
     use domain::storage::ingest_backend::StorageIngestBackend;
@@ -131,11 +132,11 @@ mod tests {
             _content_hash: Option<&str>,
             _payload: Option<serde_json::Value>,
             _permission_snapshot: &[String],
-        ) -> anyhow::Result<()> {
+        ) -> PortResult<()> {
             unimplemented!()
         }
 
-        async fn fetch_next_event(&self) -> anyhow::Result<Option<StorageIngestEvent>> {
+        async fn fetch_next_event(&self) -> PortResult<Option<StorageIngestEvent>> {
             Ok(None)
         }
 
@@ -143,7 +144,7 @@ mod tests {
             &self,
             event_id: i64,
             _locked_at: chrono::DateTime<Utc>,
-        ) -> anyhow::Result<()> {
+        ) -> PortResult<()> {
             self.completed.lock().unwrap().push(event_id);
             Ok(())
         }
@@ -153,14 +154,14 @@ mod tests {
             event_id: i64,
             _locked_at: chrono::DateTime<Utc>,
             _error: &str,
-        ) -> anyhow::Result<()> {
+        ) -> PortResult<()> {
             self.failed.lock().unwrap().push(event_id);
             Ok(())
         }
 
         async fn stats(
             &self,
-        ) -> anyhow::Result<
+        ) -> PortResult<
             application::core::ports::storage::storage_ingest_queue::StorageIngestQueueStats,
         > {
             unimplemented!()

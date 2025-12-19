@@ -9,7 +9,7 @@ use crate::context::WorkspacesContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::AuthedUser;
 use application::core::services::errors::ServiceError;
-use domain::access::permissions::PERM_MEMBER_INVITE;
+use application::domain::access::permissions::PERM_MEMBER_INVITE;
 
 use super::types::{
     CreateWorkspaceInvitationRequest, WorkspaceInvitationResponse, invitation_response_from,
@@ -60,12 +60,12 @@ pub async fn create_invitation(
     let role_kind = parse_role_kind(body.role_kind.as_str())?;
     let system_role = parse_system_role(body.system_role.as_deref())?;
     match role_kind {
-        domain::workspaces::roles::WorkspaceRoleKind::System => {
+        application::domain::workspaces::roles::WorkspaceRoleKind::System => {
             if system_role.is_none() || body.custom_role_id.is_some() {
                 return Err(ApiError::bad_request("invalid_role"));
             }
         }
-        domain::workspaces::roles::WorkspaceRoleKind::Custom => {
+        application::domain::workspaces::roles::WorkspaceRoleKind::Custom => {
             if system_role.is_some() || body.custom_role_id.is_none() {
                 return Err(ApiError::bad_request("invalid_role"));
             }

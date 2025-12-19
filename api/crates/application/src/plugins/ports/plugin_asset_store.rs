@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Clone)]
 pub struct PluginAssetPayload {
     pub bytes: Vec<u8>,
@@ -29,16 +31,16 @@ pub trait PluginAssetStore: Send + Sync {
         plugin_id: &str,
         version: &str,
         relative_path: &str,
-    ) -> anyhow::Result<PluginAssetPayload>;
+    ) -> PortResult<PluginAssetPayload>;
 
-    async fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> anyhow::Result<()>;
+    async fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> PortResult<()>;
 
-    async fn list_latest_global_manifests(&self) -> anyhow::Result<Vec<LatestGlobalManifest>>;
+    async fn list_latest_global_manifests(&self) -> PortResult<Vec<LatestGlobalManifest>>;
 
     async fn load_user_manifest(
         &self,
         user_id: &Uuid,
         plugin_id: &str,
         version: &str,
-    ) -> anyhow::Result<Option<Value>>;
+    ) -> PortResult<Option<Value>>;
 }

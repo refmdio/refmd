@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
 use domain::storage::ingest_backend::StorageIngestBackend;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,18 +59,18 @@ pub trait StorageIngestQueue: Send + Sync {
         content_hash: Option<&str>,
         payload: Option<Value>,
         permission_snapshot: &[String],
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
-    async fn fetch_next_event(&self) -> anyhow::Result<Option<StorageIngestEvent>>;
+    async fn fetch_next_event(&self) -> PortResult<Option<StorageIngestEvent>>;
 
-    async fn complete_event(&self, event_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()>;
+    async fn complete_event(&self, event_id: i64, locked_at: DateTime<Utc>) -> PortResult<()>;
 
     async fn fail_event(
         &self,
         event_id: i64,
         locked_at: DateTime<Utc>,
         error: &str,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
-    async fn stats(&self) -> anyhow::Result<StorageIngestQueueStats>;
+    async fn stats(&self) -> PortResult<StorageIngestQueueStats>;
 }

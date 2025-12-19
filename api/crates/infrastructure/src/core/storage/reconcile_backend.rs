@@ -10,6 +10,7 @@ use tokio::task;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_reconcile_backend::StorageReconcileBackend;
 
 use super::s3::S3StorageConfig;
@@ -26,30 +27,34 @@ impl FsReconcileBackend {
 
 #[async_trait]
 impl StorageReconcileBackend for FsReconcileBackend {
-    async fn list_paths(&self, user_id: Uuid) -> anyhow::Result<Vec<String>> {
-        let root = self.root.clone();
-        task::spawn_blocking(move || {
-            let user_root = root.join(user_id.to_string());
-            if !user_root.exists() {
-                return Ok(Vec::new());
-            }
-            let mut paths = Vec::new();
-            for entry in WalkDir::new(&user_root).into_iter().filter_map(Result::ok) {
-                if entry.path().is_file() {
-                    if let Some(rel) = entry
-                        .path()
-                        .strip_prefix(&root)
-                        .ok()
-                        .and_then(|p| p.to_str())
-                    {
-                        paths.push(rel.replace('\\', "/"));
+    async fn list_paths(&self, user_id: Uuid) -> PortResult<Vec<String>> {
+        let out: anyhow::Result<Vec<String>> = async {
+            let root = self.root.clone();
+            task::spawn_blocking(move || {
+                let user_root = root.join(user_id.to_string());
+                if !user_root.exists() {
+                    return Ok(Vec::new());
+                }
+                let mut paths = Vec::new();
+                for entry in WalkDir::new(&user_root).into_iter().filter_map(Result::ok) {
+                    if entry.path().is_file() {
+                        if let Some(rel) = entry
+                            .path()
+                            .strip_prefix(&root)
+                            .ok()
+                            .and_then(|p| p.to_str())
+                        {
+                            paths.push(rel.replace('\\', "/"));
+                        }
                     }
                 }
-            }
-            Ok(paths)
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
+                Ok(paths)
+            })
+            .await
+            .map_err(|err| anyhow!(err))?
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }
 
@@ -107,37 +112,41 @@ impl S3ReconcileBackend {
 
 #[async_trait]
 impl StorageReconcileBackend for S3ReconcileBackend {
-    async fn list_paths(&self, user_id: Uuid) -> anyhow::Result<Vec<String>> {
-        let mut paths = Vec::new();
-        let prefix = if self.root_prefix.is_empty() {
-            user_id.to_string()
-        } else {
-            format!("{}/{}", self.root_prefix, user_id)
-        };
-        let mut token = None;
-        loop {
-            let resp = self
-                .client
-                .list_objects_v2()
-                .bucket(&self.bucket)
-                .prefix(&prefix)
-                .set_continuation_token(token.clone())
-                .send()
-                .await?;
-            for obj in resp.contents() {
-                if let Some(key) = obj.key() {
-                    if let Some(repo_path) = self.repo_path_from_key(key) {
-                        paths.push(repo_path);
+    async fn list_paths(&self, user_id: Uuid) -> PortResult<Vec<String>> {
+        let out: anyhow::Result<Vec<String>> = async {
+            let mut paths = Vec::new();
+            let prefix = if self.root_prefix.is_empty() {
+                user_id.to_string()
+            } else {
+                format!("{}/{}", self.root_prefix, user_id)
+            };
+            let mut token = None;
+            loop {
+                let resp = self
+                    .client
+                    .list_objects_v2()
+                    .bucket(&self.bucket)
+                    .prefix(&prefix)
+                    .set_continuation_token(token.clone())
+                    .send()
+                    .await?;
+                for obj in resp.contents() {
+                    if let Some(key) = obj.key() {
+                        if let Some(repo_path) = self.repo_path_from_key(key) {
+                            paths.push(repo_path);
+                        }
                     }
                 }
+                if let Some(next) = resp.next_continuation_token() {
+                    token = Some(next.to_string());
+                } else {
+                    break;
+                }
             }
-            if let Some(next) = resp.next_continuation_token() {
-                token = Some(next.to_string());
-            } else {
-                break;
-            }
+            Ok(paths)
         }
-        Ok(paths)
+        .await;
+        out.map_err(Into::into)
     }
 }
 

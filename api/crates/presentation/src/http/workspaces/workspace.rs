@@ -18,8 +18,10 @@ use application::core::services::access;
 use application::core::services::errors::ServiceError;
 use application::identity::services::auth::user_sessions::SessionMetadata;
 use application::workspaces::ports::workspace_repository::WorkspaceListItem;
-use domain::access::permissions::{PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE};
-use domain::workspaces::roles::{WorkspaceRoleKind, WorkspaceSystemRole};
+use application::domain::access::permissions::{
+    PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE,
+};
+use application::domain::workspaces::roles::{WorkspaceRoleKind, WorkspaceSystemRole};
 
 use super::types::{
     CreateWorkspaceRequest, DownloadWorkspaceQuery, SwitchWorkspaceResponse,

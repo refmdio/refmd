@@ -102,7 +102,7 @@ impl GitWorkspaceService {
                 if err.to_string().to_lowercase().contains("not found") {
                     return Ok(None);
                 }
-                Err(err)
+                Err(err.into())
             }
         }
     }

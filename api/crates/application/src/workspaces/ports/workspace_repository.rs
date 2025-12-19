@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
 use domain::access::permissions::PermissionOverride;
 use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
 
@@ -99,7 +100,7 @@ pub enum WorkspaceSetDefaultError {
 
 #[async_trait]
 pub trait WorkspaceRepository: Send + Sync {
-    async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<WorkspaceListItem>>;
+    async fn list_for_user(&self, user_id: Uuid) -> PortResult<Vec<WorkspaceListItem>>;
     async fn create_workspace(
         &self,
         creator_id: Uuid,
@@ -108,8 +109,8 @@ pub trait WorkspaceRepository: Send + Sync {
         icon: Option<&str>,
         description: Option<&str>,
         is_personal: bool,
-    ) -> anyhow::Result<WorkspaceRow>;
-    async fn get_workspace(&self, workspace_id: Uuid) -> anyhow::Result<Option<WorkspaceRow>>;
+    ) -> PortResult<WorkspaceRow>;
+    async fn get_workspace(&self, workspace_id: Uuid) -> PortResult<Option<WorkspaceRow>>;
     #[allow(clippy::too_many_arguments)]
     async fn create_workspace_with_id(
         &self,
@@ -120,7 +121,7 @@ pub trait WorkspaceRepository: Send + Sync {
         icon: Option<&str>,
         description: Option<&str>,
         is_personal: bool,
-    ) -> anyhow::Result<WorkspaceRow>;
+    ) -> PortResult<WorkspaceRow>;
     async fn add_member(
         &self,
         workspace_id: Uuid,
@@ -128,20 +129,20 @@ pub trait WorkspaceRepository: Send + Sync {
         role_kind: WorkspaceRoleKind,
         system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
-    ) -> anyhow::Result<WorkspaceMemberRow>;
+    ) -> PortResult<WorkspaceMemberRow>;
     async fn set_default_workspace(
         &self,
         user_id: Uuid,
         workspace_id: Uuid,
     ) -> Result<WorkspaceMemberRow, WorkspaceSetDefaultError>;
 
-    async fn list_members(&self, workspace_id: Uuid) -> anyhow::Result<Vec<WorkspaceMemberDetail>>;
+    async fn list_members(&self, workspace_id: Uuid) -> PortResult<Vec<WorkspaceMemberDetail>>;
 
     async fn get_member_detail(
         &self,
         workspace_id: Uuid,
         user_id: Uuid,
-    ) -> anyhow::Result<Option<WorkspaceMemberDetail>>;
+    ) -> PortResult<Option<WorkspaceMemberDetail>>;
 
     async fn update_member_role(
         &self,
@@ -150,21 +151,21 @@ pub trait WorkspaceRepository: Send + Sync {
         role_kind: WorkspaceRoleKind,
         system_role: Option<WorkspaceSystemRole>,
         custom_role_id: Option<Uuid>,
-    ) -> anyhow::Result<WorkspaceMemberRow>;
+    ) -> PortResult<WorkspaceMemberRow>;
 
     async fn get_member_with_permissions(
         &self,
         workspace_id: Uuid,
         user_id: Uuid,
-    ) -> anyhow::Result<Option<WorkspacePermissionRecord>>;
+    ) -> PortResult<Option<WorkspacePermissionRecord>>;
 
     async fn count_system_role_members(
         &self,
         workspace_id: Uuid,
         system_role: WorkspaceSystemRole,
-    ) -> anyhow::Result<i64>;
+    ) -> PortResult<i64>;
 
-    async fn list_roles(&self, workspace_id: Uuid) -> anyhow::Result<Vec<WorkspaceRoleRecord>>;
+    async fn list_roles(&self, workspace_id: Uuid) -> PortResult<Vec<WorkspaceRoleRecord>>;
 
     async fn create_role(
         &self,
@@ -174,7 +175,7 @@ pub trait WorkspaceRepository: Send + Sync {
         description: Option<&str>,
         priority: i32,
         overrides: &[PermissionOverride],
-    ) -> anyhow::Result<WorkspaceRoleRecord>;
+    ) -> PortResult<WorkspaceRoleRecord>;
 
     #[allow(clippy::too_many_arguments)]
     async fn update_role(
@@ -186,25 +187,25 @@ pub trait WorkspaceRepository: Send + Sync {
         description: Option<&str>,
         priority: Option<i32>,
         overrides: Option<&[PermissionOverride]>,
-    ) -> anyhow::Result<WorkspaceRoleRecord>;
+    ) -> PortResult<WorkspaceRoleRecord>;
 
-    async fn delete_role(&self, workspace_id: Uuid, role_id: Uuid) -> anyhow::Result<bool>;
-    async fn delete_workspace(&self, workspace_id: Uuid) -> anyhow::Result<bool>;
+    async fn delete_role(&self, workspace_id: Uuid, role_id: Uuid) -> PortResult<bool>;
+    async fn delete_workspace(&self, workspace_id: Uuid) -> PortResult<bool>;
 
     async fn get_role(
         &self,
         workspace_id: Uuid,
         role_id: Uuid,
-    ) -> anyhow::Result<Option<WorkspaceRoleRecord>>;
+    ) -> PortResult<Option<WorkspaceRoleRecord>>;
 
-    async fn delete_member(&self, workspace_id: Uuid, user_id: Uuid) -> anyhow::Result<bool>;
+    async fn delete_member(&self, workspace_id: Uuid, user_id: Uuid) -> PortResult<bool>;
     async fn update_workspace(
         &self,
         workspace_id: Uuid,
         name: Option<&str>,
         icon: Option<&str>,
         description: Option<&str>,
-    ) -> anyhow::Result<Option<WorkspaceRow>>;
+    ) -> PortResult<Option<WorkspaceRow>>;
 
     #[allow(clippy::too_many_arguments)]
     async fn create_invitation(
@@ -217,25 +218,25 @@ pub trait WorkspaceRepository: Send + Sync {
         invited_by: Uuid,
         token: &str,
         expires_at: Option<DateTime<Utc>>,
-    ) -> anyhow::Result<WorkspaceInvitationRecord>;
+    ) -> PortResult<WorkspaceInvitationRecord>;
 
     async fn list_invitations(
         &self,
         workspace_id: Uuid,
-    ) -> anyhow::Result<Vec<WorkspaceInvitationRecord>>;
+    ) -> PortResult<Vec<WorkspaceInvitationRecord>>;
 
     async fn accept_invitation(
         &self,
         token: &str,
         user_id: Uuid,
         user_email: &str,
-    ) -> anyhow::Result<WorkspaceInvitationRecord>;
+    ) -> PortResult<WorkspaceInvitationRecord>;
 
     async fn revoke_invitation(
         &self,
         workspace_id: Uuid,
         invitation_id: Uuid,
-    ) -> anyhow::Result<Option<WorkspaceInvitationRecord>>;
+    ) -> PortResult<Option<WorkspaceInvitationRecord>>;
 
-    async fn list_all_workspace_ids(&self) -> anyhow::Result<Vec<Uuid>>;
+    async fn list_all_workspace_ids(&self) -> PortResult<Vec<Uuid>>;
 }

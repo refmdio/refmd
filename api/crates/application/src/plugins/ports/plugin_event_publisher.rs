@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Clone)]
 pub struct PluginScopedEvent {
     pub user_id: Option<Uuid>,
@@ -11,5 +13,5 @@ pub struct PluginScopedEvent {
 
 #[async_trait]
 pub trait PluginEventPublisher: Send + Sync {
-    async fn publish(&self, event: &PluginScopedEvent) -> anyhow::Result<()>;
+    async fn publish(&self, event: &PluginScopedEvent) -> PortResult<()>;
 }

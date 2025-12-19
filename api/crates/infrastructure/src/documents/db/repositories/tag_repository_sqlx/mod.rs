@@ -3,6 +3,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::documents::ports::tagging::tag_repository::{TagRepository, TagSummary};
 
 pub struct SqlxTagRepository {
@@ -21,41 +22,45 @@ impl TagRepository for SqlxTagRepository {
         &self,
         owner_id: Uuid,
         filter: Option<String>,
-    ) -> anyhow::Result<Vec<TagSummary>> {
-        let rows = if let Some(f) = filter.filter(|s| !s.trim().is_empty()) {
-            let like = format!("%{}%", f);
-            sqlx::query(
-                r#"SELECT t.name, COUNT(*)::BIGINT AS count
+    ) -> PortResult<Vec<TagSummary>> {
+        let out: anyhow::Result<Vec<TagSummary>> = async {
+            let rows = if let Some(f) = filter.filter(|s| !s.trim().is_empty()) {
+                let like = format!("%{}%", f);
+                sqlx::query(
+                    r#"SELECT t.name, COUNT(*)::BIGINT AS count
                    FROM document_tags dt
                    JOIN tags t ON t.id = dt.tag_id
                    JOIN documents d ON d.id = dt.document_id AND d.owner_id = $1
                    WHERE t.name ILIKE $2
                    GROUP BY t.name
                    ORDER BY count DESC, t.name ASC"#,
-            )
-            .bind(owner_id)
-            .bind(like)
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query(
-                r#"SELECT t.name, COUNT(*)::BIGINT AS count
+                )
+                .bind(owner_id)
+                .bind(like)
+                .fetch_all(&self.pool)
+                .await?
+            } else {
+                sqlx::query(
+                    r#"SELECT t.name, COUNT(*)::BIGINT AS count
                    FROM document_tags dt
                    JOIN tags t ON t.id = dt.tag_id
                    JOIN documents d ON d.id = dt.document_id AND d.owner_id = $1
                    GROUP BY t.name
                    ORDER BY count DESC, t.name ASC"#,
-            )
-            .bind(owner_id)
-            .fetch_all(&self.pool)
-            .await?
-        };
-        Ok(rows
-            .into_iter()
-            .map(|r| TagSummary {
-                name: r.get("name"),
-                count: r.get("count"),
-            })
-            .collect())
+                )
+                .bind(owner_id)
+                .fetch_all(&self.pool)
+                .await?
+            };
+            Ok(rows
+                .into_iter()
+                .map(|r| TagSummary {
+                    name: r.get("name"),
+                    count: r.get("count"),
+                })
+                .collect())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

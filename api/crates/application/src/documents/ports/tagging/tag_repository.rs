@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Clone)]
 pub struct TagSummary {
     pub name: String,
@@ -13,5 +15,5 @@ pub trait TagRepository: Send + Sync {
         &self,
         owner_id: Uuid,
         filter: Option<String>,
-    ) -> anyhow::Result<Vec<TagSummary>>;
+    ) -> PortResult<Vec<TagSummary>>;
 }

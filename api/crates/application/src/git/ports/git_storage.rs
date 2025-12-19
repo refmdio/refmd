@@ -5,6 +5,8 @@ use async_trait::async_trait;
 use futures_core::Stream;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 pub type CommitId = Vec<u8>;
 
 #[derive(Debug, Clone)]
@@ -31,54 +33,53 @@ pub struct BlobKey {
     pub path: String,
 }
 
-pub type PackStream = Pin<Box<dyn Stream<Item = anyhow::Result<PackBlob>> + Send>>;
+pub type PackStream = Pin<Box<dyn Stream<Item = PortResult<PackBlob>> + Send>>;
 
 #[async_trait]
 pub trait GitStorage: Send + Sync {
-    async fn latest_commit(&self, user_id: Uuid) -> anyhow::Result<Option<CommitMeta>>;
-    async fn store_pack(&self, user_id: Uuid, pack: &[u8], meta: &CommitMeta)
-    -> anyhow::Result<()>;
+    async fn latest_commit(&self, user_id: Uuid) -> PortResult<Option<CommitMeta>>;
+    async fn store_pack(&self, user_id: Uuid, pack: &[u8], meta: &CommitMeta) -> PortResult<()>;
     async fn load_pack_chain(
         &self,
         user_id: Uuid,
         until: Option<&[u8]>,
-    ) -> anyhow::Result<PackStream>;
-    async fn put_blob(&self, key: &BlobKey, data: &[u8]) -> anyhow::Result<()>;
-    async fn fetch_blob(&self, key: &BlobKey) -> anyhow::Result<Vec<u8>>;
+    ) -> PortResult<PackStream>;
+    async fn put_blob(&self, key: &BlobKey, data: &[u8]) -> PortResult<()>;
+    async fn fetch_blob(&self, key: &BlobKey) -> PortResult<Vec<u8>>;
     async fn commit_meta(
         &self,
         user_id: Uuid,
         commit_id: &[u8],
-    ) -> anyhow::Result<Option<CommitMeta>>;
-    async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> anyhow::Result<()>;
+    ) -> PortResult<Option<CommitMeta>>;
+    async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> PortResult<()>;
     async fn fetch_pack_for_commit(
         &self,
         user_id: Uuid,
         commit_id: &[u8],
-    ) -> anyhow::Result<Option<Vec<u8>>>;
-    async fn delete_blob(&self, key: &BlobKey) -> anyhow::Result<()>;
-    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> anyhow::Result<()>;
+    ) -> PortResult<Option<Vec<u8>>>;
+    async fn delete_blob(&self, key: &BlobKey) -> PortResult<()>;
+    async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> PortResult<()>;
     async fn set_latest_commit(
         &self,
         user_id: Uuid,
         meta: Option<&CommitMeta>,
-    ) -> anyhow::Result<()>;
-    async fn delete_all(&self, user_id: Uuid) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
+    async fn delete_all(&self, user_id: Uuid) -> PortResult<()>;
 }
 
 pub fn encode_commit_id(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-pub fn decode_commit_id(hex: &str) -> anyhow::Result<CommitId> {
+pub fn decode_commit_id(hex: &str) -> PortResult<CommitId> {
     if !hex.len().is_multiple_of(2) {
-        anyhow::bail!("invalid commit id length");
+        return Err(anyhow::anyhow!("invalid commit id length").into());
     }
     let mut out = Vec::with_capacity(hex.len() / 2);
     let chars: Vec<char> = hex.chars().collect();
     for chunk in chars.chunks(2) {
         let [hi, lo] = chunk else {
-            anyhow::bail!("invalid commit id");
+            return Err(anyhow::anyhow!("invalid commit id").into());
         };
         let hi = hi
             .to_digit(16)

@@ -8,7 +8,7 @@ use application::documents::dtos::{
     ActiveShareItemDto, ApplicableShareDto, ShareBrowseResponseDto, ShareBrowseTreeItemDto,
     ShareDocumentDto, ShareItemDto, ShareMountDto,
 };
-use domain::documents::doc_type::{DOC_TYPE_DOCUMENT, DOC_TYPE_FOLDER};
+use application::domain::documents::doc_type::{DOC_TYPE_DOCUMENT, DOC_TYPE_FOLDER};
 
 pub fn frontend_base(cfg: &PresentationConfig) -> String {
     cfg.frontend_url

@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Clone)]
 pub struct UserSessionRecord {
     pub id: Uuid,
@@ -36,10 +38,10 @@ pub trait UserSessionRepository: Send + Sync {
         remember_me: bool,
         user_agent: Option<&str>,
         ip_address: Option<&str>,
-    ) -> anyhow::Result<UserSessionRecord>;
+    ) -> PortResult<UserSessionRecord>;
 
     async fn find_by_digest(&self, token_digest: &str)
-    -> anyhow::Result<Option<UserSessionSecret>>;
+    -> PortResult<Option<UserSessionSecret>>;
 
     #[allow(clippy::too_many_arguments)]
     async fn update_token(
@@ -52,21 +54,21 @@ pub trait UserSessionRepository: Send + Sync {
         user_agent: Option<&str>,
         ip_address: Option<&str>,
         workspace_id: Option<Uuid>,
-    ) -> anyhow::Result<bool>;
+    ) -> PortResult<bool>;
 
-    async fn update_workspace(&self, session_id: Uuid, workspace_id: Uuid) -> anyhow::Result<bool>;
+    async fn update_workspace(&self, session_id: Uuid, workspace_id: Uuid) -> PortResult<bool>;
 
-    async fn touch(&self, session_id: Uuid) -> anyhow::Result<()>;
+    async fn touch(&self, session_id: Uuid) -> PortResult<()>;
 
-    async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<UserSessionRecord>>;
+    async fn list_for_user(&self, user_id: Uuid) -> PortResult<Vec<UserSessionRecord>>;
 
-    async fn find_by_id(&self, session_id: Uuid) -> anyhow::Result<Option<UserSessionRecord>>;
+    async fn find_by_id(&self, session_id: Uuid) -> PortResult<Option<UserSessionRecord>>;
 
-    async fn revoke(&self, session_id: Uuid) -> anyhow::Result<bool>;
+    async fn revoke(&self, session_id: Uuid) -> PortResult<bool>;
 
-    async fn revoke_by_digest(&self, token_digest: &str) -> anyhow::Result<bool>;
+    async fn revoke_by_digest(&self, token_digest: &str) -> PortResult<bool>;
 
-    async fn revoke_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()>;
+    async fn revoke_all_for_user(&self, user_id: Uuid) -> PortResult<()>;
 
-    async fn delete_expired(&self, before: DateTime<Utc>, batch_size: i64) -> anyhow::Result<u64>;
+    async fn delete_expired(&self, before: DateTime<Utc>, batch_size: i64) -> PortResult<u64>;
 }

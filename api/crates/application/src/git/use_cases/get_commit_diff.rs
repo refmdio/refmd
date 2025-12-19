@@ -13,6 +13,9 @@ impl<'a, W: GitWorkspacePort + ?Sized> GetCommitDiff<'a, W> {
         from: String,
         to: String,
     ) -> anyhow::Result<Vec<TextDiffResult>> {
-        self.workspace.commit_diff(workspace_id, &from, &to).await
+        self.workspace
+            .commit_diff(workspace_id, &from, &to)
+            .await
+            .map_err(Into::into)
     }
 }

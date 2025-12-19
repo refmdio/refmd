@@ -25,7 +25,7 @@ impl StorageIngestService {
                     .await?;
                 return Ok(());
             }
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
         };
         let size = bytes.len() as i64;
         let hash = sha256_hex(&bytes);

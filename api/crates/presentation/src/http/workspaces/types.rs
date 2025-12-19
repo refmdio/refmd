@@ -9,8 +9,8 @@ use application::core::services::errors::ServiceError;
 use application::workspaces::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceRoleRecord,
 };
-use domain::access::permissions::PermissionOverride;
-use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
+use application::domain::access::permissions::PermissionOverride;
+use application::domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceSystemRole};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceResponse {

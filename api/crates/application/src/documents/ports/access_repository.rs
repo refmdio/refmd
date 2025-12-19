@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
 use domain::access::permissions::PermissionSet;
 
 #[derive(Debug, Clone)]
@@ -16,7 +17,7 @@ pub trait AccessRepository: Send + Sync {
         &self,
         doc_id: Uuid,
         user_id: Uuid,
-    ) -> anyhow::Result<Option<DocumentUserAccess>>;
-    async fn is_document_public(&self, doc_id: Uuid) -> anyhow::Result<bool>;
-    async fn is_document_archived(&self, doc_id: Uuid) -> anyhow::Result<bool>;
+    ) -> PortResult<Option<DocumentUserAccess>>;
+    async fn is_document_public(&self, doc_id: Uuid) -> PortResult<bool>;
+    async fn is_document_archived(&self, doc_id: Uuid) -> PortResult<bool>;
 }

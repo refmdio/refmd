@@ -6,7 +6,7 @@ use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
 use application::core::services::storage::ingest::normalize_repo_path;
-use domain::storage::ingest_backend::StorageIngestBackend;
+use application::domain::storage::ingest_backend::StorageIngestBackend;
 
 use super::types::IngestBatchRequest;
 

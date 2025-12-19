@@ -321,6 +321,7 @@ impl AppContext {
             .plugin_event_subscriber
             .subscribe()
             .await
+            .map_err(Into::into)
     }
 
     pub fn api_token_service(&self) -> Arc<dyn ApiTokenServiceFacade> {
@@ -343,6 +344,7 @@ impl AppContext {
             .realtime_engine
             .subscribe(doc_id, sink, stream, can_edit)
             .await
+            .map_err(Into::into)
     }
 }
 

@@ -3,6 +3,8 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Clone)]
 pub struct UserShortcutProfile {
     pub user_id: Uuid,
@@ -13,12 +15,12 @@ pub struct UserShortcutProfile {
 
 #[async_trait]
 pub trait UserShortcutRepository: Send + Sync {
-    async fn get_by_user(&self, user_id: Uuid) -> anyhow::Result<Option<UserShortcutProfile>>;
+    async fn get_by_user(&self, user_id: Uuid) -> PortResult<Option<UserShortcutProfile>>;
 
     async fn upsert(
         &self,
         user_id: Uuid,
         bindings: Value,
         leader_key: Option<String>,
-    ) -> anyhow::Result<UserShortcutProfile>;
+    ) -> PortResult<UserShortcutProfile>;
 }

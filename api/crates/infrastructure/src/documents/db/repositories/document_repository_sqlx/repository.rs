@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use sqlx::Row;
 use uuid::Uuid;
 
+use application::core::ports::errors::PortResult;
 use application::documents::ports::document_path_repository::DocumentPathRepository;
 use application::documents::ports::document_repository::{
     DocMeta, DocumentListState, DocumentRepoResult, DocumentRepository, DocumentRepositoryError,
@@ -329,41 +330,49 @@ impl DocumentRepository for SqlxDocumentRepository {
 
 #[async_trait]
 impl DocumentPathRepository for SqlxDocumentRepository {
-    async fn list_paths_for_user(&self, workspace_id: Uuid) -> anyhow::Result<Vec<String>> {
-        let rows = sqlx::query(
-            r#"
+    async fn list_paths_for_user(&self, workspace_id: Uuid) -> PortResult<Vec<String>> {
+        let out: anyhow::Result<Vec<String>> = async {
+            let rows = sqlx::query(
+                r#"
             SELECT path
             FROM documents
             WHERE workspace_id = $1
               AND path IS NOT NULL
               AND type <> 'folder'
             "#,
-        )
-        .bind(workspace_id)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .filter_map(|r| r.try_get::<String, _>("path").ok())
-            .collect())
+            )
+            .bind(workspace_id)
+            .fetch_all(&self.pool)
+            .await?;
+            Ok(rows
+                .into_iter()
+                .filter_map(|r| r.try_get::<String, _>("path").ok())
+                .collect())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn get_by_owner_and_path(
         &self,
         workspace_id: Uuid,
         relative_path: &str,
-    ) -> anyhow::Result<Option<DomainDocument>> {
-        let row = sqlx::query(
-            r#"SELECT *
+    ) -> PortResult<Option<DomainDocument>> {
+        let out: anyhow::Result<Option<DomainDocument>> = async {
+            let row = sqlx::query(
+                r#"SELECT *
                FROM documents
                WHERE workspace_id = $1 AND path = $2
                LIMIT 1"#,
-        )
-        .bind(workspace_id)
-        .bind(relative_path)
-        .fetch_optional(&self.pool)
-        .await?;
-        row.map(|r| Self::map_row_to_document(&r)).transpose()
+            )
+            .bind(workspace_id)
+            .bind(relative_path)
+            .fetch_optional(&self.pool)
+            .await?;
+            row.map(|r| Self::map_row_to_document(&r)).transpose()
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn update_repo_path(
@@ -371,20 +380,21 @@ impl DocumentPathRepository for SqlxDocumentRepository {
         doc_id: Uuid,
         workspace_id: Uuid,
         relative_path: &str,
-    ) -> anyhow::Result<()> {
-        let repo_path = doc_path::repo_relative_from_storage(workspace_id, relative_path)
-            .ok_or_else(|| anyhow!("invalid_relative_path"))?;
-        let desired_path =
-            doc_path::DesiredPath::new(repo_path.as_str().to_string()).context("invalid_path")?;
-        let slug = doc_path::slug_from_desired_path(&desired_path)?;
-        let parent_path = doc_path::parent_desired_path(&desired_path);
-        let parent_id = self
-            .resolve_parent_folder_id(workspace_id, parent_path.as_ref())
-            .await?;
-        let normalized_path = Self::owner_relative_path(workspace_id, desired_path.as_str());
-        let path_digest = Self::hash_path(desired_path.as_str());
-        sqlx::query(
-            r#"UPDATE documents SET
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let repo_path = doc_path::repo_relative_from_storage(workspace_id, relative_path)
+                .ok_or_else(|| anyhow!("invalid_relative_path"))?;
+            let desired_path = doc_path::DesiredPath::new(repo_path.as_str().to_string())
+                .context("invalid_path")?;
+            let slug = doc_path::slug_from_desired_path(&desired_path)?;
+            let parent_path = doc_path::parent_desired_path(&desired_path);
+            let parent_id = self
+                .resolve_parent_folder_id(workspace_id, parent_path.as_ref())
+                .await?;
+            let normalized_path = Self::owner_relative_path(workspace_id, desired_path.as_str());
+            let path_digest = Self::hash_path(desired_path.as_str());
+            sqlx::query(
+                r#"UPDATE documents SET
                     path = $3,
                     desired_path = $4,
                     path_digest = $5,
@@ -392,16 +402,19 @@ impl DocumentPathRepository for SqlxDocumentRepository {
                     parent_id = $7,
                     updated_at = now()
                 WHERE id = $1 AND workspace_id = $2"#,
-        )
-        .bind(doc_id)
-        .bind(workspace_id)
-        .bind(&normalized_path)
-        .bind(desired_path.as_str())
-        .bind(&path_digest)
-        .bind(slug.as_str())
-        .bind(parent_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(doc_id)
+            .bind(workspace_id)
+            .bind(&normalized_path)
+            .bind(desired_path.as_str())
+            .bind(&path_digest)
+            .bind(slug.as_str())
+            .bind(parent_id)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

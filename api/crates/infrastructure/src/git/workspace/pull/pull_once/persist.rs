@@ -28,7 +28,7 @@ async fn pull_fast_forward_to_remote(
         for key in snapshot_keys.iter().rev() {
             let _ = self.git_storage.delete_blob(key).await;
         }
-        return Err(err);
+        return Err(err.into());
     }
 
     let mut tx = self.pool.begin().await?;
@@ -144,7 +144,7 @@ async fn pull_persist_merged_commit(
         for key in snapshot_keys.iter().rev() {
             let _ = self.git_storage.delete_blob(key).await;
         }
-        return Err(err);
+        return Err(err.into());
     }
 
     if let Err(err) = self
@@ -156,7 +156,7 @@ async fn pull_persist_merged_commit(
         for key in snapshot_keys.iter().rev() {
             let _ = self.git_storage.delete_blob(key).await;
         }
-        return Err(err);
+        return Err(err.into());
     }
 
     let mut tx = self.pool.begin().await?;

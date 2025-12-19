@@ -23,7 +23,7 @@ impl ShareService {
                 "not_found" => ServiceError::NotFound,
                 "forbidden" => ServiceError::Forbidden,
                 "bad_request" => ServiceError::BadRequest("invalid_share_scope"),
-                _ => ServiceError::Unexpected(err),
+                _ => ServiceError::Unexpected(err.into()),
             })
     }
 }

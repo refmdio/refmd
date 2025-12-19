@@ -288,6 +288,7 @@ impl SnapshotService {
         self.archive_repo
             .list_for_document(doc_id, limit, offset)
             .await
+            .map_err(Into::into)
     }
 
     pub async fn load_archive_doc(

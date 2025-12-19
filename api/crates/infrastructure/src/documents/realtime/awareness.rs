@@ -83,6 +83,7 @@ impl AwarenessService {
         self.publisher
             .publish_awareness(&self.doc_id, frame)
             .await
+            .map_err(anyhow::Error::from)
             .context("awareness_publish_local_clear")?;
         Ok(())
     }
@@ -190,6 +191,7 @@ impl AwarenessService {
         self.publisher
             .publish_awareness(&self.doc_id, frame)
             .await
+            .map_err(anyhow::Error::from)
             .context("awareness_publish_removal")?;
         Ok(())
     }

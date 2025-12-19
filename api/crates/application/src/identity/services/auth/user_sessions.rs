@@ -371,6 +371,7 @@ impl UserSessionService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ports::errors::PortResult;
     use crate::identity::ports::api_token_repository::{
         ApiToken, ApiTokenRepository, ApiTokenSecret,
     };
@@ -380,7 +381,6 @@ mod tests {
         UserSessionRepository, UserSessionSecret,
     };
     use crate::identity::services::auth::token_validation::TokenValidationService;
-    use anyhow::bail;
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -420,7 +420,7 @@ mod tests {
             remember_me: bool,
             user_agent: Option<&str>,
             ip_address: Option<&str>,
-        ) -> anyhow::Result<UserSessionRecord> {
+        ) -> PortResult<UserSessionRecord> {
             let mut sessions = self.sessions.lock().await;
             let mut digests = self.digests.lock().await;
             let id = Uuid::new_v4();
@@ -452,7 +452,7 @@ mod tests {
         async fn find_by_digest(
             &self,
             token_digest: &str,
-        ) -> anyhow::Result<Option<UserSessionSecret>> {
+        ) -> PortResult<Option<UserSessionSecret>> {
             let digests = self.digests.lock().await;
             let sessions = self.sessions.lock().await;
             Ok(digests
@@ -471,7 +471,7 @@ mod tests {
             user_agent: Option<&str>,
             ip_address: Option<&str>,
             workspace_id: Option<Uuid>,
-        ) -> anyhow::Result<bool> {
+        ) -> PortResult<bool> {
             let mut sessions = self.sessions.lock().await;
             let mut digests = self.digests.lock().await;
             let Some(entry) = sessions.get_mut(&session_id) else {
@@ -501,7 +501,7 @@ mod tests {
             &self,
             session_id: Uuid,
             workspace_id: Uuid,
-        ) -> anyhow::Result<bool> {
+        ) -> PortResult<bool> {
             let mut sessions = self.sessions.lock().await;
             if let Some(entry) = sessions.get_mut(&session_id)
                 && entry.record.revoked_at.is_none()
@@ -512,14 +512,14 @@ mod tests {
             Ok(false)
         }
 
-        async fn touch(&self, session_id: Uuid) -> anyhow::Result<()> {
+        async fn touch(&self, session_id: Uuid) -> PortResult<()> {
             if let Some(entry) = self.sessions.lock().await.get_mut(&session_id) {
                 entry.record.last_seen_at = Utc::now();
             }
             Ok(())
         }
 
-        async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<UserSessionRecord>> {
+        async fn list_for_user(&self, user_id: Uuid) -> PortResult<Vec<UserSessionRecord>> {
             let sessions = self.sessions.lock().await;
             Ok(sessions
                 .values()
@@ -528,7 +528,7 @@ mod tests {
                 .collect())
         }
 
-        async fn find_by_id(&self, session_id: Uuid) -> anyhow::Result<Option<UserSessionRecord>> {
+        async fn find_by_id(&self, session_id: Uuid) -> PortResult<Option<UserSessionRecord>> {
             Ok(self
                 .sessions
                 .lock()
@@ -537,7 +537,7 @@ mod tests {
                 .map(|entry| entry.record.clone()))
         }
 
-        async fn revoke(&self, session_id: Uuid) -> anyhow::Result<bool> {
+        async fn revoke(&self, session_id: Uuid) -> PortResult<bool> {
             let mut sessions = self.sessions.lock().await;
             if let Some(entry) = sessions.get_mut(&session_id)
                 && entry.record.revoked_at.is_none()
@@ -548,7 +548,7 @@ mod tests {
             Ok(false)
         }
 
-        async fn revoke_by_digest(&self, token_digest: &str) -> anyhow::Result<bool> {
+        async fn revoke_by_digest(&self, token_digest: &str) -> PortResult<bool> {
             let id = {
                 let digests = self.digests.lock().await;
                 digests.get(token_digest).cloned()
@@ -559,7 +559,7 @@ mod tests {
             Ok(false)
         }
 
-        async fn revoke_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()> {
+        async fn revoke_all_for_user(&self, user_id: Uuid) -> PortResult<()> {
             let mut sessions = self.sessions.lock().await;
             for entry in sessions
                 .values_mut()
@@ -574,7 +574,7 @@ mod tests {
             &self,
             before: DateTime<Utc>,
             batch_size: i64,
-        ) -> anyhow::Result<u64> {
+        ) -> PortResult<u64> {
             let mut sessions = self.sessions.lock().await;
             let mut digests = self.digests.lock().await;
             let mut removed = 0u64;
@@ -606,23 +606,23 @@ mod tests {
             _name: &str,
             _token_hash: &str,
             _token_digest: &str,
-        ) -> anyhow::Result<ApiToken> {
-            bail!("not implemented")
+        ) -> PortResult<ApiToken> {
+            Err(anyhow::anyhow!("not implemented").into())
         }
 
-        async fn list_active(&self, _workspace_id: Uuid) -> anyhow::Result<Vec<ApiToken>> {
-            bail!("not implemented")
+        async fn list_active(&self, _workspace_id: Uuid) -> PortResult<Vec<ApiToken>> {
+            Err(anyhow::anyhow!("not implemented").into())
         }
 
-        async fn revoke(&self, _workspace_id: Uuid, _token_id: Uuid) -> anyhow::Result<bool> {
-            bail!("not implemented")
+        async fn revoke(&self, _workspace_id: Uuid, _token_id: Uuid) -> PortResult<bool> {
+            Err(anyhow::anyhow!("not implemented").into())
         }
 
-        async fn find_by_digest(&self, _digest: &str) -> anyhow::Result<Option<ApiTokenSecret>> {
+        async fn find_by_digest(&self, _digest: &str) -> PortResult<Option<ApiTokenSecret>> {
             Ok(None)
         }
 
-        async fn touch_last_used(&self, _token_id: Uuid) -> anyhow::Result<()> {
+        async fn touch_last_used(&self, _token_id: Uuid) -> PortResult<()> {
             Ok(())
         }
     }
@@ -631,11 +631,11 @@ mod tests {
     struct NoopSecretHasher;
 
     impl SecretHasher for NoopSecretHasher {
-        fn hash_secret(&self, secret: &str) -> anyhow::Result<String> {
+        fn hash_secret(&self, secret: &str) -> PortResult<String> {
             Ok(format!("h:{secret}"))
         }
 
-        fn verify_secret(&self, secret: &str, secret_hash: &str) -> anyhow::Result<bool> {
+        fn verify_secret(&self, secret: &str, secret_hash: &str) -> PortResult<bool> {
             Ok(secret_hash == format!("h:{secret}"))
         }
     }

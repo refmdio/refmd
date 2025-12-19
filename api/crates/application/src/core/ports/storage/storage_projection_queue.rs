@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
 use domain::documents::doc_type::DocumentType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +58,7 @@ pub trait StorageProjectionQueue: Send + Sync {
         doc_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
     async fn enqueue_folder_job(
         &self,
@@ -65,21 +66,21 @@ pub trait StorageProjectionQueue: Send + Sync {
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
     async fn fetch_next_job(
         &self,
         lock_timeout_secs: i64,
-    ) -> anyhow::Result<Option<StorageProjectionJob>>;
+    ) -> PortResult<Option<StorageProjectionJob>>;
 
-    async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> anyhow::Result<()>;
+    async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> PortResult<()>;
 
     async fn fail_job(
         &self,
         job_id: i64,
         locked_at: DateTime<Utc>,
         error: &str,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 }
 
 #[async_trait]
@@ -90,7 +91,7 @@ pub trait StorageProjectionQueueTx: Send {
         doc_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
     async fn enqueue_folder_job(
         &mut self,
@@ -98,5 +99,5 @@ pub trait StorageProjectionQueueTx: Send {
         folder_id: Uuid,
         kind: StorageProjectionJobKind,
         reason: Option<&str>,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 }

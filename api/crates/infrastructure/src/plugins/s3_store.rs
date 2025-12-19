@@ -22,6 +22,7 @@ use walkdir::WalkDir;
 
 use crate::plugins::event_bus_pg::PgPluginEventBus;
 use crate::plugins::filesystem_store::{FilesystemPluginStore, PluginExecutionLimits};
+use application::core::ports::errors::PortResult;
 use application::plugins::dtos::ExecResult;
 use application::plugins::ports::plugin_asset_store::{
     LatestGlobalManifest, PluginAssetPayload, PluginAssetStore, PluginAssetStoreScope,
@@ -503,40 +504,57 @@ impl PluginAssetStore for S3BackedPluginStore {
         plugin_id: &str,
         version: &str,
         relative_path: &str,
-    ) -> anyhow::Result<PluginAssetPayload> {
-        let owner = match scope {
-            PluginAssetStoreScope::Global => None,
-            PluginAssetStoreScope::User { owner_id } => Some(*owner_id),
-        };
-        self.ensure_local(owner, plugin_id).await?;
-        self.local
-            .fetch_asset(scope, plugin_id, version, relative_path)
-            .await
-    }
-
-    async fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> anyhow::Result<()> {
-        self.local.remove_user_plugin_dir(user_id, plugin_id)?;
-        let prefix = format!("{}/{}", user_id, plugin_id);
-        let client = self.client.clone();
-        let bucket = self.bucket.clone();
-        tokio::spawn(async move {
-            let _ = delete_prefix(&client, &bucket, &prefix).await;
-        });
-        self.global_cache.invalidate();
-        Ok(())
-    }
-
-    async fn list_latest_global_manifests(&self) -> anyhow::Result<Vec<LatestGlobalManifest>> {
-        let now = epoch_secs_now();
-        if self.global_cache.needs_refresh(now) {
-            let _guard = self.global_cache.refresh_lock.lock().await;
-            let refreshed_now = epoch_secs_now();
-            if self.global_cache.needs_refresh(refreshed_now) {
-                download_prefix(&self.client, &self.bucket, "global", self.local.root()).await?;
-                self.global_cache.mark_refreshed(refreshed_now);
-            }
+    ) -> PortResult<PluginAssetPayload> {
+        let out: anyhow::Result<PluginAssetPayload> = async {
+            let owner = match scope {
+                PluginAssetStoreScope::Global => None,
+                PluginAssetStoreScope::User { owner_id } => Some(*owner_id),
+            };
+            self.ensure_local(owner, plugin_id).await?;
+            let payload = self
+                .local
+                .fetch_asset(scope, plugin_id, version, relative_path)
+                .await?;
+            Ok(payload)
         }
-        self.local.list_latest_global_manifests().await
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn remove_user_plugin_dir(&self, user_id: &Uuid, plugin_id: &str) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            self.local.remove_user_plugin_dir(user_id, plugin_id)?;
+            let prefix = format!("{}/{}", user_id, plugin_id);
+            let client = self.client.clone();
+            let bucket = self.bucket.clone();
+            tokio::spawn(async move {
+                let _ = delete_prefix(&client, &bucket, &prefix).await;
+            });
+            self.global_cache.invalidate();
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn list_latest_global_manifests(&self) -> PortResult<Vec<LatestGlobalManifest>> {
+        let out: anyhow::Result<Vec<LatestGlobalManifest>> = async {
+            let now = epoch_secs_now();
+            if self.global_cache.needs_refresh(now) {
+                let _guard = self.global_cache.refresh_lock.lock().await;
+                let refreshed_now = epoch_secs_now();
+                if self.global_cache.needs_refresh(refreshed_now) {
+                    download_prefix(&self.client, &self.bucket, "global", self.local.root()).await?;
+                    self.global_cache.mark_refreshed(refreshed_now);
+                }
+            }
+            self.local
+                .list_latest_global_manifests()
+                .await
+                .map_err(Into::into)
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn load_user_manifest(
@@ -544,14 +562,19 @@ impl PluginAssetStore for S3BackedPluginStore {
         user_id: &Uuid,
         plugin_id: &str,
         version: &str,
-    ) -> anyhow::Result<Option<serde_json::Value>> {
-        if !FilesystemPluginStore::is_valid_plugin_id(plugin_id) {
-            return Ok(None);
+    ) -> PortResult<Option<serde_json::Value>> {
+        let out: anyhow::Result<Option<serde_json::Value>> = async {
+            if !FilesystemPluginStore::is_valid_plugin_id(plugin_id) {
+                return Ok(None);
+            }
+            self.ensure_local(Some(*user_id), plugin_id).await?;
+            self.local
+                .load_user_manifest(user_id, plugin_id, version)
+                .await
+                .map_err(Into::into)
         }
-        self.ensure_local(Some(*user_id), plugin_id).await?;
-        self.local
-            .load_user_manifest(user_id, plugin_id, version)
-            .await
+        .await;
+        out.map_err(Into::into)
     }
 }
 
@@ -585,12 +608,19 @@ impl PluginRuntime for S3BackedPluginStore {
         plugin: &str,
         action: &str,
         payload: &serde_json::Value,
-    ) -> anyhow::Result<Option<ExecResult>> {
-        if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
-            return Ok(None);
+    ) -> PortResult<Option<ExecResult>> {
+        let out: anyhow::Result<Option<ExecResult>> = async {
+            if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
+                return Ok(None);
+            }
+            self.ensure_local(user_id, plugin).await?;
+            self.local
+                .execute(user_id, plugin, action, payload)
+                .await
+                .map_err(Into::into)
         }
-        self.ensure_local(user_id, plugin).await?;
-        self.local.execute(user_id, plugin, action, payload).await
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn render_placeholder(
@@ -599,25 +629,37 @@ impl PluginRuntime for S3BackedPluginStore {
         plugin: &str,
         function: &str,
         request: &serde_json::Value,
-    ) -> anyhow::Result<Option<serde_json::Value>> {
-        if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
-            return Ok(None);
+    ) -> PortResult<Option<serde_json::Value>> {
+        let out: anyhow::Result<Option<serde_json::Value>> = async {
+            if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
+                return Ok(None);
+            }
+            self.ensure_local(user_id, plugin).await?;
+            self.local
+                .render_placeholder(user_id, plugin, function, request)
+                .await
+                .map_err(Into::into)
         }
-        self.ensure_local(user_id, plugin).await?;
-        self.local
-            .render_placeholder(user_id, plugin, function, request)
-            .await
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn permissions(
         &self,
         user_id: Option<Uuid>,
         plugin: &str,
-    ) -> anyhow::Result<Option<Vec<String>>> {
-        if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
-            return Ok(None);
+    ) -> PortResult<Option<Vec<String>>> {
+        let out: anyhow::Result<Option<Vec<String>>> = async {
+            if !FilesystemPluginStore::is_valid_plugin_id(plugin) {
+                return Ok(None);
+            }
+            self.ensure_local(user_id, plugin).await?;
+            self.local
+                .permissions(user_id, plugin)
+                .await
+                .map_err(Into::into)
         }
-        self.ensure_local(user_id, plugin).await?;
-        self.local.permissions(user_id, plugin).await
+        .await;
+        out.map_err(Into::into)
     }
 }

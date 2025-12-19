@@ -48,6 +48,9 @@ pub struct DeinitRepo<'a, W: GitWorkspacePort + ?Sized> {
 
 impl<'a, W: GitWorkspacePort + ?Sized> DeinitRepo<'a, W> {
     pub async fn execute(&self, workspace_id: Uuid) -> anyhow::Result<()> {
-        self.workspace.remove_repository(workspace_id).await
+        self.workspace
+            .remove_repository(workspace_id)
+            .await
+            .map_err(Into::into)
     }
 }

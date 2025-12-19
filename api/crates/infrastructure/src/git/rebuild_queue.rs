@@ -4,6 +4,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::git::ports::git_rebuild_job_queue::{GitRebuildJob, GitRebuildJobQueue};
 
 pub struct PgGitRebuildJobQueue {
@@ -23,9 +24,10 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
         workspace_id: Uuid,
         actor_id: Option<Uuid>,
         permission_snapshot: &[String],
-    ) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"
             INSERT INTO git_rebuild_jobs (workspace_id, actor_id, permission_snapshot, attempts, locked_at, last_error)
             VALUES ($1, $2, $3, 0, NULL, NULL)
             ON CONFLICT (workspace_id)
@@ -46,19 +48,23 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
                            END,
                            updated_at = now()
             "#,
-        )
-        .bind(workspace_id)
-        .bind(actor_id)
-        .bind(serde_json::json!(permission_snapshot))
-        .execute(&self.pool)
-        .await?;
-        debug!(workspace_id = %workspace_id, "git_rebuild_job_queued");
-        Ok(())
+            )
+            .bind(workspace_id)
+            .bind(actor_id)
+            .bind(serde_json::json!(permission_snapshot))
+            .execute(&self.pool)
+            .await?;
+            debug!(workspace_id = %workspace_id, "git_rebuild_job_queued");
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn fetch_next(&self, lock_timeout_secs: i64) -> anyhow::Result<Option<GitRebuildJob>> {
-        let row = sqlx::query(
-            r#"
+    async fn fetch_next(&self, lock_timeout_secs: i64) -> PortResult<Option<GitRebuildJob>> {
+        let out: anyhow::Result<Option<GitRebuildJob>> = async {
+            let row = sqlx::query(
+                r#"
             WITH next_job AS (
                 SELECT id
                 FROM git_rebuild_jobs
@@ -75,23 +81,29 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
             WHERE j.id IN (SELECT id FROM next_job)
             RETURNING j.id, j.workspace_id, j.actor_id, j.permission_snapshot, j.attempts
             "#,
-        )
-        .bind(lock_timeout_secs.max(1))
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(lock_timeout_secs.max(1))
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(row.map(|r| GitRebuildJob {
-            id: r.get("id"),
-            workspace_id: r.get("workspace_id"),
-            actor_id: r.try_get("actor_id").ok(),
-            attempts: r.get("attempts"),
-            permission_snapshot: parse_permission_snapshot(r.try_get("permission_snapshot").ok()),
-        }))
+            Ok(row.map(|r| GitRebuildJob {
+                id: r.get("id"),
+                workspace_id: r.get("workspace_id"),
+                actor_id: r.try_get("actor_id").ok(),
+                attempts: r.get("attempts"),
+                permission_snapshot: parse_permission_snapshot(
+                    r.try_get("permission_snapshot").ok(),
+                ),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn complete(&self, job_id: i64) -> anyhow::Result<()> {
-        let res = sqlx::query(
-            r#"
+    async fn complete(&self, job_id: i64) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let res = sqlx::query(
+                r#"
             UPDATE git_rebuild_jobs
             SET locked_at = NULL,
                 attempts = 0,
@@ -100,23 +112,27 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
                 updated_at = now()
             WHERE id = $1 AND pending_retry = true
             "#,
-        )
-        .bind(job_id)
-        .execute(&self.pool)
-        .await?;
+            )
+            .bind(job_id)
+            .execute(&self.pool)
+            .await?;
 
-        if res.rows_affected() == 0 {
-            sqlx::query("DELETE FROM git_rebuild_jobs WHERE id = $1")
-                .bind(job_id)
-                .execute(&self.pool)
-                .await?;
+            if res.rows_affected() == 0 {
+                sqlx::query("DELETE FROM git_rebuild_jobs WHERE id = $1")
+                    .bind(job_id)
+                    .execute(&self.pool)
+                    .await?;
+            }
+            Ok(())
         }
-        Ok(())
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn fail(&self, job_id: i64, error: &str) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"
+    async fn fail(&self, job_id: i64, error: &str) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"
             UPDATE git_rebuild_jobs
             SET last_error = $2,
                 locked_at = NULL,
@@ -124,12 +140,15 @@ impl GitRebuildJobQueue for PgGitRebuildJobQueue {
                 updated_at = now()
             WHERE id = $1
             "#,
-        )
-        .bind(job_id)
-        .bind(error)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(job_id)
+            .bind(error)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }
 

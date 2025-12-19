@@ -73,7 +73,7 @@ impl GitWorkspaceService {
                             stale_paths.push(path.clone());
                             continue;
                         } else {
-                            return Err(e);
+                            return Err(e.into());
                         }
                     }
                 }

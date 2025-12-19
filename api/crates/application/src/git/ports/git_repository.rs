@@ -5,6 +5,8 @@ use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::core::ports::errors::PortResult;
+
 #[derive(Debug, Clone)]
 pub struct GitConfigRecord {
     pub id: Uuid,
@@ -35,7 +37,7 @@ pub struct UserGitCfg {
 
 #[async_trait]
 pub trait GitRepository: Send + Sync {
-    async fn get_config(&self, workspace_id: Uuid) -> anyhow::Result<Option<GitConfigRecord>>;
+    async fn get_config(&self, workspace_id: Uuid) -> PortResult<Option<GitConfigRecord>>;
     async fn upsert_config(
         &self,
         workspace_id: Uuid,
@@ -44,11 +46,11 @@ pub trait GitRepository: Send + Sync {
         auth_type: GitAuthType,
         auth_data: &Value,
         auto_sync: Option<bool>,
-    ) -> anyhow::Result<GitConfigRecord>;
-    async fn delete_config(&self, workspace_id: Uuid) -> anyhow::Result<bool>;
-    async fn load_user_git_cfg(&self, workspace_id: Uuid) -> anyhow::Result<Option<UserGitCfg>>;
+    ) -> PortResult<GitConfigRecord>;
+    async fn delete_config(&self, workspace_id: Uuid) -> PortResult<bool>;
+    async fn load_user_git_cfg(&self, workspace_id: Uuid) -> PortResult<Option<UserGitCfg>>;
     async fn get_last_sync_log(&self, workspace_id: Uuid)
-    -> anyhow::Result<Option<GitLastSyncLog>>;
+    -> PortResult<Option<GitLastSyncLog>>;
     async fn log_sync_operation(
         &self,
         workspace_id: Uuid,
@@ -56,11 +58,11 @@ pub trait GitRepository: Send + Sync {
         status: GitSyncStatus,
         message: Option<&str>,
         commit_hash: Option<&str>,
-    ) -> anyhow::Result<()>;
+    ) -> PortResult<()>;
 
-    async fn delete_sync_logs(&self, workspace_id: Uuid) -> anyhow::Result<()>;
+    async fn delete_sync_logs(&self, workspace_id: Uuid) -> PortResult<()>;
 
-    async fn delete_repository_state(&self, workspace_id: Uuid) -> anyhow::Result<()>;
+    async fn delete_repository_state(&self, workspace_id: Uuid) -> PortResult<()>;
 
-    async fn list_auto_sync_workspaces(&self) -> anyhow::Result<Vec<Uuid>>;
+    async fn list_auto_sync_workspaces(&self) -> PortResult<Vec<Uuid>>;
 }

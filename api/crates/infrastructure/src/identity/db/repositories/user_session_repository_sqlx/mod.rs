@@ -4,6 +4,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::core::db::PgPool;
+use application::core::ports::errors::PortResult;
 use application::identity::ports::user_session_repository::{
     UserSessionRecord, UserSessionRepository, UserSessionSecret,
 };
@@ -45,47 +46,55 @@ impl UserSessionRepository for SqlxUserSessionRepository {
         remember_me: bool,
         user_agent: Option<&str>,
         ip_address: Option<&str>,
-    ) -> anyhow::Result<UserSessionRecord> {
-        let row = sqlx::query(
-            r#"INSERT INTO user_sessions
+    ) -> PortResult<UserSessionRecord> {
+        let out: anyhow::Result<UserSessionRecord> = async {
+            let row = sqlx::query(
+                r#"INSERT INTO user_sessions
                (user_id, workspace_id, token_hash, token_digest, expires_at, remember_me, user_agent, ip_address)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id, user_id, workspace_id, user_agent, ip_address, remember_me, created_at, last_seen_at, expires_at, revoked_at"#,
-        )
-        .bind(user_id)
-        .bind(workspace_id)
-        .bind(token_hash)
-        .bind(token_digest)
-        .bind(expires_at)
-        .bind(remember_me)
-        .bind(user_agent)
-        .bind(ip_address)
-        .fetch_one(&self.pool)
-        .await?;
+            )
+            .bind(user_id)
+            .bind(workspace_id)
+            .bind(token_hash)
+            .bind(token_digest)
+            .bind(expires_at)
+            .bind(remember_me)
+            .bind(user_agent)
+            .bind(ip_address)
+            .fetch_one(&self.pool)
+            .await?;
 
-        Ok(Self::map_record(row))
+            Ok(Self::map_record(row))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn find_by_digest(
         &self,
         token_digest: &str,
-    ) -> anyhow::Result<Option<UserSessionSecret>> {
-        let row = sqlx::query(
-            r#"SELECT id, user_id, workspace_id, user_agent, ip_address, remember_me,
+    ) -> PortResult<Option<UserSessionSecret>> {
+        let out: anyhow::Result<Option<UserSessionSecret>> = async {
+            let row = sqlx::query(
+                r#"SELECT id, user_id, workspace_id, user_agent, ip_address, remember_me,
                        created_at, last_seen_at, expires_at, revoked_at, token_hash, token_digest
                FROM user_sessions
                WHERE token_digest = $1
                LIMIT 1"#,
-        )
-        .bind(token_digest)
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(token_digest)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(row.map(|row| UserSessionSecret {
-            token_hash: row.get("token_hash"),
-            token_digest: row.get("token_digest"),
-            session: Self::map_record(row),
-        }))
+            Ok(row.map(|row| UserSessionSecret {
+                token_hash: row.get("token_hash"),
+                token_digest: row.get("token_digest"),
+                session: Self::map_record(row),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
     async fn update_token(
@@ -98,9 +107,10 @@ impl UserSessionRepository for SqlxUserSessionRepository {
         user_agent: Option<&str>,
         ip_address: Option<&str>,
         workspace_id: Option<Uuid>,
-    ) -> anyhow::Result<bool> {
-        let row = sqlx::query(
-            r#"UPDATE user_sessions
+    ) -> PortResult<bool> {
+        let out: anyhow::Result<bool> = async {
+            let row = sqlx::query(
+                r#"UPDATE user_sessions
                SET token_hash = $2,
                    token_digest = $3,
                    expires_at = $4,
@@ -112,113 +122,145 @@ impl UserSessionRepository for SqlxUserSessionRepository {
                  AND revoked_at IS NULL
                  AND token_digest = $7
                RETURNING id"#,
-        )
-        .bind(session_id)
-        .bind(token_hash)
-        .bind(token_digest)
-        .bind(expires_at)
-        .bind(user_agent)
-        .bind(ip_address)
-        .bind(expected_token_digest)
-        .bind(workspace_id)
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(session_id)
+            .bind(token_hash)
+            .bind(token_digest)
+            .bind(expires_at)
+            .bind(user_agent)
+            .bind(ip_address)
+            .bind(expected_token_digest)
+            .bind(workspace_id)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(row.is_some())
+            Ok(row.is_some())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn update_workspace(&self, session_id: Uuid, workspace_id: Uuid) -> anyhow::Result<bool> {
-        let row = sqlx::query(
-            r#"UPDATE user_sessions
+    async fn update_workspace(&self, session_id: Uuid, workspace_id: Uuid) -> PortResult<bool> {
+        let out: anyhow::Result<bool> = async {
+            let row = sqlx::query(
+                r#"UPDATE user_sessions
                SET workspace_id = $2
                WHERE id = $1 AND revoked_at IS NULL
                RETURNING id"#,
-        )
-        .bind(session_id)
-        .bind(workspace_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(row.is_some())
-    }
-
-    async fn touch(&self, session_id: Uuid) -> anyhow::Result<()> {
-        sqlx::query("UPDATE user_sessions SET last_seen_at = now() WHERE id = $1")
+            )
             .bind(session_id)
-            .execute(&self.pool)
+            .bind(workspace_id)
+            .fetch_optional(&self.pool)
             .await?;
-        Ok(())
+
+            Ok(row.is_some())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn list_for_user(&self, user_id: Uuid) -> anyhow::Result<Vec<UserSessionRecord>> {
-        let rows = sqlx::query(
-            r#"SELECT id, user_id, workspace_id, user_agent, ip_address, remember_me,
+    async fn touch(&self, session_id: Uuid) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query("UPDATE user_sessions SET last_seen_at = now() WHERE id = $1")
+                .bind(session_id)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn list_for_user(&self, user_id: Uuid) -> PortResult<Vec<UserSessionRecord>> {
+        let out: anyhow::Result<Vec<UserSessionRecord>> = async {
+            let rows = sqlx::query(
+                r#"SELECT id, user_id, workspace_id, user_agent, ip_address, remember_me,
                        created_at, last_seen_at, expires_at, revoked_at
                FROM user_sessions
                WHERE user_id = $1
                ORDER BY last_seen_at DESC"#,
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await?;
+            )
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
 
-        Ok(rows.into_iter().map(Self::map_record).collect())
+            Ok(rows.into_iter().map(Self::map_record).collect())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn find_by_id(&self, session_id: Uuid) -> anyhow::Result<Option<UserSessionRecord>> {
-        let row = sqlx::query(
-            r#"SELECT id, user_id, workspace_id, user_agent, ip_address, remember_me,
+    async fn find_by_id(&self, session_id: Uuid) -> PortResult<Option<UserSessionRecord>> {
+        let out: anyhow::Result<Option<UserSessionRecord>> = async {
+            let row = sqlx::query(
+                r#"SELECT id, user_id, workspace_id, user_agent, ip_address, remember_me,
                        created_at, last_seen_at, expires_at, revoked_at
                FROM user_sessions
                WHERE id = $1
                LIMIT 1"#,
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await?;
+            )
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        Ok(row.map(Self::map_record))
+            Ok(row.map(Self::map_record))
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn revoke(&self, session_id: Uuid) -> anyhow::Result<bool> {
-        let affected = sqlx::query(
-            r#"UPDATE user_sessions
+    async fn revoke(&self, session_id: Uuid) -> PortResult<bool> {
+        let out: anyhow::Result<bool> = async {
+            let affected = sqlx::query(
+                r#"UPDATE user_sessions
                SET revoked_at = now()
                WHERE id = $1 AND revoked_at IS NULL"#,
-        )
-        .bind(session_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(affected.rows_affected() > 0)
+            )
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+            Ok(affected.rows_affected() > 0)
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn revoke_by_digest(&self, token_digest: &str) -> anyhow::Result<bool> {
-        let affected = sqlx::query(
-            r#"UPDATE user_sessions
+    async fn revoke_by_digest(&self, token_digest: &str) -> PortResult<bool> {
+        let out: anyhow::Result<bool> = async {
+            let affected = sqlx::query(
+                r#"UPDATE user_sessions
                SET revoked_at = now()
                WHERE token_digest = $1 AND revoked_at IS NULL"#,
-        )
-        .bind(token_digest)
-        .execute(&self.pool)
-        .await?;
-        Ok(affected.rows_affected() > 0)
+            )
+            .bind(token_digest)
+            .execute(&self.pool)
+            .await?;
+            Ok(affected.rows_affected() > 0)
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn revoke_all_for_user(&self, user_id: Uuid) -> anyhow::Result<()> {
-        sqlx::query(
-            r#"UPDATE user_sessions
+    async fn revoke_all_for_user(&self, user_id: Uuid) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"UPDATE user_sessions
                SET revoked_at = now()
                WHERE user_id = $1 AND revoked_at IS NULL"#,
-        )
-        .bind(user_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+            )
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
     }
 
-    async fn delete_expired(&self, before: DateTime<Utc>, batch_size: i64) -> anyhow::Result<u64> {
-        let rows = sqlx::query(
-            r#"WITH expired AS (
+    async fn delete_expired(&self, before: DateTime<Utc>, batch_size: i64) -> PortResult<u64> {
+        let out: anyhow::Result<u64> = async {
+            let rows = sqlx::query(
+                r#"WITH expired AS (
                     SELECT id
                     FROM user_sessions
                     WHERE expires_at < $1
@@ -228,12 +270,15 @@ impl UserSessionRepository for SqlxUserSessionRepository {
                 DELETE FROM user_sessions
                 WHERE id IN (SELECT id FROM expired)
                 RETURNING 1"#,
-        )
-        .bind(before)
-        .bind(batch_size)
-        .fetch_all(&self.pool)
-        .await?;
+            )
+            .bind(before)
+            .bind(batch_size)
+            .fetch_all(&self.pool)
+            .await?;
 
-        Ok(rows.len() as u64)
+            Ok(rows.len() as u64)
+        }
+        .await;
+        out.map_err(Into::into)
     }
 }

@@ -16,5 +16,6 @@ impl<'a, R: PublicRepository + ?Sized> GetPublicByWorkspaceAndId<'a, R> {
         self.repo
             .get_public_meta_by_workspace_and_id(workspace_slug, doc_id)
             .await
+            .map_err(Into::into)
     }
 }

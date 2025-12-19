@@ -13,7 +13,7 @@ impl GitWorkspaceService {
                 for key in stored.iter().rev() {
                     let _ = self.git_storage.delete_blob(key).await;
                 }
-                return Err(err);
+                return Err(err.into());
             }
             stored.push(key);
         }
@@ -25,7 +25,7 @@ impl GitWorkspaceService {
             FileSnapshotData::Inline(bytes) => Ok(bytes.clone()),
             FileSnapshotData::StoragePath(path) => {
                 let abs = self.storage.absolute_from_relative(path);
-                self.storage.read_bytes(abs.as_path()).await
+                self.storage.read_bytes(abs.as_path()).await.map_err(Into::into)
             }
         }
     }
@@ -49,7 +49,7 @@ impl GitWorkspaceService {
                 if err.to_string().contains("not found") {
                     return Ok(None);
                 }
-                Err(err)
+                Err(err.into())
             }
         }
     }
