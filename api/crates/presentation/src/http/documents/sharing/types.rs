@@ -33,7 +33,7 @@ pub fn share_scope(document_type: &str) -> String {
     }
 }
 
-pub fn map_share_error(err: ServiceError) -> StatusCode {
+pub fn map_share_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "share_service_error")
 }
 

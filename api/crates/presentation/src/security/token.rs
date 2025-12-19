@@ -6,6 +6,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::security::request_status;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,7 +71,7 @@ impl<S> FromRequestParts<S> for Bearer
 where
     S: Send + Sync,
 {
-    type Rejection = axum::http::StatusCode;
+    type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         if let Some(token) = parts.extensions.get::<AccessTokenOverride>() {
@@ -78,7 +79,14 @@ where
         }
         extract_bearer_token(&parts.headers)
             .map(Bearer)
-            .ok_or(axum::http::StatusCode::UNAUTHORIZED)
+            .ok_or(ApiError::unauthorized("unauthorized"))
+    }
+}
+
+pub fn map_actor_error(err: ActorResolveError) -> ApiError {
+    match err {
+        ActorResolveError::TokenExpired => ApiError::unauthorized("token_expired"),
+        ActorResolveError::Unauthorized => ApiError::unauthorized("unauthorized"),
     }
 }
 

@@ -10,3 +10,4 @@ pub mod metrics;
 pub mod storage;
 pub mod tagging;
 pub mod utils;
+pub mod worker;

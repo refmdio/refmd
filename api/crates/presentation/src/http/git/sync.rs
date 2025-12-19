@@ -1,10 +1,11 @@
 use axum::{
     Json,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::git::dtos::{GitSyncRequestDto, UpsertGitConfigInput};
@@ -20,11 +21,11 @@ pub async fn sync_now(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<GitSyncRequest>,
-) -> Result<Json<GitSyncResponse>, StatusCode> {
+) -> Result<Json<GitSyncResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -65,14 +66,14 @@ pub async fn import_repository(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateGitConfigRequest>,
-) -> Result<Json<GitImportResponse>, StatusCode> {
+) -> Result<Json<GitImportResponse>, ApiError> {
     if req.repository_url.trim().is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("invalid_repository_url"));
     }
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -103,11 +104,11 @@ pub async fn init_repository(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -128,11 +129,11 @@ pub async fn deinit_repository(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

@@ -1,5 +1,5 @@
 use axum::{
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue},
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub struct UploadFileResponse {
     pub size: i64,
 }
 
-pub fn map_file_error(err: ServiceError) -> StatusCode {
+pub fn map_file_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "file_service_error")
 }
 

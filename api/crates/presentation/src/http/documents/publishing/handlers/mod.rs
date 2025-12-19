@@ -6,6 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::documents::{Document, to_http_document};
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -13,7 +14,7 @@ use application::core::services::errors::ServiceError;
 
 use super::types::{PublicDocumentSummary, PublishResponse};
 
-fn map_public_error(err: ServiceError) -> StatusCode {
+fn map_public_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "public_service_error")
 }
 
@@ -29,11 +30,11 @@ pub async fn publish_document(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<PublishResponse>, StatusCode> {
+) -> Result<Json<PublishResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -66,11 +67,11 @@ pub async fn unpublish_document(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -88,7 +89,7 @@ pub async fn unpublish_document(
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(StatusCode::FORBIDDEN)
+        Err(ApiError::forbidden("forbidden"))
     }
 }
 
@@ -104,11 +105,11 @@ pub async fn get_publish_status(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<PublishResponse>, StatusCode> {
+) -> Result<Json<PublishResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -141,7 +142,7 @@ pub async fn get_publish_status(
 pub async fn list_workspace_public_documents(
     State(ctx): State<AppContext>,
     Path(slug): Path<String>,
-) -> Result<Json<Vec<PublicDocumentSummary>>, StatusCode> {
+) -> Result<Json<Vec<PublicDocumentSummary>>, ApiError> {
     let items = ctx
         .public_service()
         .list_workspace_public_documents(&slug)
@@ -162,7 +163,7 @@ pub async fn list_workspace_public_documents(
 pub async fn get_public_by_workspace_and_id(
     State(ctx): State<AppContext>,
     Path((slug, id)): Path<(String, Uuid)>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     let doc = ctx
         .public_service()
         .get_public_by_workspace_and_id(&slug, id)
@@ -181,7 +182,7 @@ pub async fn get_public_by_workspace_and_id(
 pub async fn get_public_content_by_workspace_and_id(
     State(ctx): State<AppContext>,
     Path((slug, id)): Path<(String, Uuid)>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let content = ctx
         .public_service()
         .get_public_content_by_workspace_and_id(&slug, id)

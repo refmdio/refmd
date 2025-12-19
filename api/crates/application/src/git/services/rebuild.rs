@@ -13,6 +13,7 @@ use crate::git::ports::git_workspace::GitWorkspacePort;
 use crate::git::use_cases::helpers::needs_force_retry;
 use crate::workspaces::services::WorkspacePermissionResolver;
 use crate::workspaces::services::permission_snapshot::permission_set_from_snapshot;
+use crate::core::services::worker::WorkerTick;
 use domain::access::permissions::{PERM_GIT_SYNC, PermissionSet};
 use domain::git::policy;
 use domain::git::sync_log::{GitSyncOperation, GitSyncStatus};
@@ -63,20 +64,16 @@ impl GitRebuildService {
         self
     }
 
-    pub async fn run(self: Arc<Self>) {
-        loop {
-            match self.jobs.fetch_next(self.lock_timeout_secs).await {
-                Ok(Some(job)) => {
-                    if let Err(err) = self.process_job(&job).await {
-                        error!(error = ?err, job_id = job.id, "git_rebuild_job_failed");
-                    }
+    pub async fn tick(&self) -> anyhow::Result<WorkerTick> {
+        match self.jobs.fetch_next(self.lock_timeout_secs).await {
+            Ok(Some(job)) => {
+                if let Err(err) = self.process_job(&job).await {
+                    error!(error = ?err, job_id = job.id, "git_rebuild_job_failed");
                 }
-                Ok(None) => tokio::time::sleep(self.idle_backoff).await,
-                Err(err) => {
-                    error!(error = ?err, "git_rebuild_fetch_failed");
-                    tokio::time::sleep(self.idle_backoff).await;
-                }
+                Ok(WorkerTick::Processed)
             }
+            Ok(None) => Ok(WorkerTick::Idle),
+            Err(err) => Err(err),
         }
     }
 

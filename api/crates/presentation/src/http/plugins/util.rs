@@ -1,10 +1,10 @@
 use axum::http::HeaderMap;
-use axum::http::StatusCode;
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
-use crate::security::{request_status, token};
+use crate::security::token;
 use application::core::services::access;
 use application::core::services::errors::ServiceError;
 use application::plugins::services::management;
@@ -27,15 +27,10 @@ pub async fn resolve_plugin_user_context(
     headers: &HeaderMap,
     bearer_token: &str,
     required_permission: Option<&str>,
-) -> Result<PluginUserContext, StatusCode> {
-    let actor = match token::resolve_actor_from_token_str(ctx, bearer_token).await {
-        Ok(actor) => actor,
-        Err(token::ActorResolveError::TokenExpired) => {
-            request_status::mark_token_expired();
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-        Err(token::ActorResolveError::Unauthorized) => return Err(StatusCode::UNAUTHORIZED),
-    };
+) -> Result<PluginUserContext, ApiError> {
+    let actor = token::resolve_actor_from_token_str(ctx, bearer_token)
+        .await
+        .map_err(token::map_actor_error)?;
 
     match actor {
         access::Actor::User(user_id) => {
@@ -45,15 +40,12 @@ pub async fn resolve_plugin_user_context(
                 Some(bearer_token),
                 user_id,
             )
-            .await
-            .map_err(|_| StatusCode::FORBIDDEN)?;
+            .await?;
             let permissions =
-                workspace_scope::resolve_workspace_permissions(ctx, workspace_id, user_id)
-                    .await
-                    .map_err(|_| StatusCode::FORBIDDEN)?;
+                workspace_scope::resolve_workspace_permissions(ctx, workspace_id, user_id).await?;
             if let Some(permission) = required_permission {
                 if !permissions.allows(permission) {
-                    return Err(StatusCode::FORBIDDEN);
+                    return Err(ApiError::forbidden("forbidden"));
                 }
             }
             Ok(PluginUserContext {
@@ -68,10 +60,10 @@ pub async fn resolve_plugin_user_context(
                 .share_service()
                 .resolve_share_context(&token)
                 .await
-                .map_err(|_| StatusCode::UNAUTHORIZED)?
-                .ok_or(StatusCode::UNAUTHORIZED)?;
+                .map_err(|err| crate::http::error::map_service_error(err, "share_service_error"))?
+                .ok_or(ApiError::unauthorized("unauthorized"))?;
             if share::is_expired(ctx_share.expires_at.as_ref(), chrono::Utc::now()) {
-                return Err(StatusCode::UNAUTHORIZED);
+                return Err(ApiError::unauthorized("share_expired"));
             }
             let mut permissions = PermissionSet::from_slice(&[PERM_PLUGIN_RUN, PERM_DOC_VIEW]);
             if ctx_share.permission.allows_edit() {
@@ -79,7 +71,7 @@ pub async fn resolve_plugin_user_context(
             }
             if let Some(permission) = required_permission {
                 if !permissions.allows(permission) {
-                    return Err(StatusCode::FORBIDDEN);
+                    return Err(ApiError::forbidden("forbidden"));
                 }
             }
             Ok(PluginUserContext {
@@ -90,14 +82,14 @@ pub async fn resolve_plugin_user_context(
                 actor: access::Actor::ShareToken(token),
             })
         }
-        _ => Err(StatusCode::UNAUTHORIZED),
+        _ => Err(ApiError::unauthorized("unauthorized")),
     }
 }
 
-pub fn ensure_valid_plugin_id(id: &str) -> Result<(), StatusCode> {
+pub fn ensure_valid_plugin_id(id: &str) -> Result<(), ApiError> {
     management::validate_plugin_id(id).map_err(map_plugin_service_error)
 }
 
-pub fn map_plugin_service_error(err: ServiceError) -> StatusCode {
+pub fn map_plugin_service_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error_no_log(err)
 }

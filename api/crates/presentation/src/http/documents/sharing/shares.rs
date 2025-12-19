@@ -6,6 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
@@ -30,11 +31,11 @@ pub async fn create_share(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateShareRequest>,
-) -> Result<Json<CreateShareResponse>, StatusCode> {
+) -> Result<Json<CreateShareResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -48,7 +49,7 @@ pub async fn create_share(
     ctx.authorization()
         .require_edit(&actor, req.document_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|err| crate::http::error::map_service_error(err, "authorization_error"))?;
     let permission = req.permission.as_deref().unwrap_or(SHARE_PERMISSION_VIEW);
     let service = ctx.share_service();
     let res = service
@@ -82,11 +83,11 @@ pub async fn list_document_shares(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<Vec<ShareItem>>, StatusCode> {
+) -> Result<Json<Vec<ShareItem>>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -100,7 +101,7 @@ pub async fn list_document_shares(
     ctx.authorization()
         .require_edit(&actor, id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|err| crate::http::error::map_service_error(err, "authorization_error"))?;
     let service = ctx.share_service();
     let rows: Vec<ShareItemDto> = service
         .list_document_shares(workspace_id, &permissions, id)
@@ -126,11 +127,11 @@ pub async fn delete_share(
     bearer: Bearer,
     headers: HeaderMap,
     Path(token): Path<String>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -145,15 +146,15 @@ pub async fn delete_share(
         .share_document_meta(&token)
         .await
         .map_err(map_share_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("not_found"))?;
     if meta.workspace_id != workspace_id {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ApiError::forbidden("forbidden"));
     }
     let actor = access::Actor::User(user_id);
     ctx.authorization()
         .require_edit(&actor, meta.document_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|err| crate::http::error::map_service_error(err, "authorization_error"))?;
     let ok = service
         .delete_share(workspace_id, &permissions, &token)
         .await
@@ -161,6 +162,6 @@ pub async fn delete_share(
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(StatusCode::NOT_FOUND)
+        Err(ApiError::not_found("not_found"))
     }
 }

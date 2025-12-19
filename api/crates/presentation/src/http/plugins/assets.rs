@@ -1,11 +1,12 @@
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, header},
     response::{IntoResponse, Response},
 };
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use application::plugins::services::management::{AssetRequestScope, PluginAssetRequest};
 
 use super::util::map_plugin_service_error;
@@ -21,32 +22,34 @@ use super::util::map_plugin_service_error;
 pub async fn get_plugin_asset(
     State(ctx): State<AppContext>,
     Query(params): Query<std::collections::HashMap<String, String>>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ApiError> {
     let scope_raw = params
         .get("scope")
         .map(|s| s.as_str())
-        .ok_or(StatusCode::BAD_REQUEST)?;
+        .ok_or(ApiError::bad_request("missing_scope"))?;
     let plugin_id = params
         .get("plugin")
         .map(|s| s.as_str())
-        .ok_or(StatusCode::BAD_REQUEST)?;
+        .ok_or(ApiError::bad_request("missing_plugin"))?;
     let version = params
         .get("version")
         .map(|s| s.as_str())
-        .ok_or(StatusCode::BAD_REQUEST)?;
+        .ok_or(ApiError::bad_request("missing_version"))?;
     let path = params
         .get("path")
         .map(|s| s.as_str())
-        .ok_or(StatusCode::BAD_REQUEST)?;
+        .ok_or(ApiError::bad_request("missing_path"))?;
     let exp = params
         .get("exp")
         .map(|s| s.as_str())
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    let expires_at = exp.parse::<i64>().map_err(|_| StatusCode::BAD_REQUEST)?;
+        .ok_or(ApiError::bad_request("missing_exp"))?;
+    let expires_at = exp
+        .parse::<i64>()
+        .map_err(|_| ApiError::bad_request("invalid_exp"))?;
     let sig = params
         .get("sig")
         .map(|s| s.as_str())
-        .ok_or(StatusCode::BAD_REQUEST)?;
+        .ok_or(ApiError::bad_request("missing_sig"))?;
     let share_owned = params
         .get("share")
         .map(|s| s.trim())
@@ -59,14 +62,15 @@ pub async fn get_plugin_asset(
             let owner_str = params
                 .get("owner")
                 .map(|s| s.as_str())
-                .ok_or(StatusCode::BAD_REQUEST)?;
-            let owner_id = Uuid::parse_str(owner_str).map_err(|_| StatusCode::BAD_REQUEST)?;
+                .ok_or(ApiError::bad_request("missing_owner"))?;
+            let owner_id = Uuid::parse_str(owner_str)
+                .map_err(|_| ApiError::bad_request("invalid_owner"))?;
             AssetRequestScope::User {
                 owner_id,
                 share_token: share_owned.as_deref(),
             }
         }
-        _ => return Err(StatusCode::BAD_REQUEST),
+        _ => return Err(ApiError::bad_request("invalid_scope")),
     };
 
     let payload = ctx

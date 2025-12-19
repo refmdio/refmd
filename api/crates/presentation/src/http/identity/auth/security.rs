@@ -12,6 +12,7 @@ use axum::{
 };
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::security::token::{AccessTokenOverride, Bearer};
 
 use super::cookies::{
@@ -66,26 +67,26 @@ fn should_skip_refresh(path: &str) -> bool {
 pub(crate) async fn validate_bearer(
     ctx: &AppContext,
     bearer: Bearer,
-) -> Result<String, StatusCode> {
+) -> Result<String, ApiError> {
     validate_bearer_str(ctx, &bearer.0).await
 }
 
 pub async fn validate_bearer_public(
     ctx: &AppContext,
     bearer: Bearer,
-) -> Result<String, StatusCode> {
+) -> Result<String, ApiError> {
     validate_bearer(ctx, bearer).await
 }
 
-pub async fn validate_bearer_str(ctx: &AppContext, token: &str) -> Result<String, StatusCode> {
+pub async fn validate_bearer_str(ctx: &AppContext, token: &str) -> Result<String, ApiError> {
     let service = ctx.auth_service();
     let session_service = ctx.session_service();
     let subject = match service.subject_from_token(token).await {
         Ok(Some(sub)) => sub,
-        Ok(None) => return Err(StatusCode::UNAUTHORIZED),
+        Ok(None) => return Err(ApiError::unauthorized("unauthorized")),
         Err(ServiceError::TokenExpired) => {
             request_status::mark_token_expired();
-            return Err(StatusCode::UNAUTHORIZED);
+            return Err(ApiError::unauthorized("token_expired"));
         }
         Err(err) => return Err(map_auth_error(err)),
     };
@@ -184,10 +185,16 @@ pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Opti
         .ok()
 }
 
-pub(crate) fn map_auth_error(err: ServiceError) -> StatusCode {
-    if err.is_internal() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::UNAUTHORIZED
+pub(crate) fn map_auth_error(err: ServiceError) -> ApiError {
+    match err {
+        ServiceError::Unauthorized => ApiError::unauthorized("unauthorized"),
+        ServiceError::TokenExpired => ApiError::unauthorized("token_expired"),
+        ServiceError::Forbidden => ApiError::forbidden("forbidden"),
+        ServiceError::NotFound => ApiError::not_found("not_found"),
+        ServiceError::Conflict => ApiError::conflict("conflict"),
+        ServiceError::BadRequest(code) => ApiError::bad_request(code).with_message(code),
+        ServiceError::Unexpected(_) => {
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+        }
     }
 }

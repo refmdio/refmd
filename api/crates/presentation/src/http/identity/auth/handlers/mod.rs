@@ -17,13 +17,14 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 
 use super::cookies::{
     append_cookie, build_oauth_state_cookie, clear_oauth_state_cookie, extract_client_ip,
     extract_refresh_token, extract_user_agent, generate_oauth_state, validate_oauth_state_cookie,
 };
-use super::security::{RefreshedSession, map_auth_error, validate_bearer, validate_bearer_str};
+use super::security::{RefreshedSession, map_auth_error};
 use super::{
     AuthProviderInfoResponse, AuthProvidersResponse, LoginRequest, LoginResponse,
     OAuthLoginRequest, OAuthStateResponse, RefreshResponse, RegisterRequest, SessionResponse,
@@ -41,11 +42,14 @@ use super::{
 pub async fn oauth_state(
     Path(provider): Path<String>,
     State(ctx): State<AppContext>,
-) -> Result<(HeaderMap, Json<OAuthStateResponse>), StatusCode> {
-    let provider_kind =
-        ExternalAuthProviderKind::try_from(provider.as_str()).map_err(|_| StatusCode::NOT_FOUND)?;
+) -> Result<(HeaderMap, Json<OAuthStateResponse>), ApiError> {
+    let provider_kind = ExternalAuthProviderKind::try_from(provider.as_str())
+        .map_err(|_| ApiError::not_found("oauth_provider_not_found"))?;
     if ctx.external_auth().get(provider_kind).is_none() {
-        return Err(StatusCode::NOT_IMPLEMENTED);
+        return Err(ApiError::new(
+            StatusCode::NOT_IMPLEMENTED,
+            "oauth_provider_not_implemented",
+        ));
     }
     let state = generate_oauth_state();
     let mut headers = HeaderMap::new();
@@ -70,18 +74,24 @@ pub async fn oauth_login(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Json(req): Json<OAuthLoginRequest>,
-) -> Result<(HeaderMap, Json<LoginResponse>), StatusCode> {
-    let provider_kind =
-        ExternalAuthProviderKind::try_from(provider.as_str()).map_err(|_| StatusCode::NOT_FOUND)?;
+) -> Result<(HeaderMap, Json<LoginResponse>), ApiError> {
+    let provider_kind = ExternalAuthProviderKind::try_from(provider.as_str())
+        .map_err(|_| ApiError::not_found("oauth_provider_not_found"))?;
     let registry = ctx.external_auth();
     let verifier = registry
         .get(provider_kind)
-        .ok_or(StatusCode::NOT_IMPLEMENTED)?;
+        .ok_or(ApiError::new(
+            StatusCode::NOT_IMPLEMENTED,
+            "oauth_provider_not_implemented",
+        ))?;
     let mut response_headers = HeaderMap::new();
     if provider_kind.requires_state() {
-        let provided_state = req.state.as_deref().ok_or(StatusCode::BAD_REQUEST)?;
+        let provided_state = req
+            .state
+            .as_deref()
+            .ok_or(ApiError::bad_request("missing_state"))?;
         validate_oauth_state_cookie(&headers, provider_kind, provided_state)
-            .map_err(|_| StatusCode::UNAUTHORIZED)?;
+            .map_err(|_| ApiError::unauthorized("invalid_oauth_state"))?;
         clear_oauth_state_cookie(&mut response_headers, ctx.cfg.session_cookie_secure);
     }
     let payload = ExternalAuthPayload {
@@ -99,7 +109,10 @@ pub async fn oauth_login(
     let active_workspace_id = user
         .active_workspace_id
         .or_else(|| user.workspaces.iter().find(|w| w.is_default).map(|w| w.id))
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        .ok_or(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "workspace_missing",
+        ))?;
     let client_ip = extract_client_ip(&headers);
     let user_agent = extract_user_agent(&headers);
     let issued = ctx
@@ -134,7 +147,7 @@ pub async fn oauth_login(
 )]
 pub async fn list_oauth_providers(
     State(ctx): State<AppContext>,
-) -> Result<Json<AuthProvidersResponse>, StatusCode> {
+) -> Result<Json<AuthProvidersResponse>, ApiError> {
     let providers = ctx
         .external_auth()
         .list_descriptors()
@@ -152,11 +165,11 @@ pub async fn list_oauth_providers(
     Ok(Json(AuthProvidersResponse { providers }))
 }
 
-fn map_account_error(err: ServiceError) -> StatusCode {
+fn map_account_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "account_service_error")
 }
 
-fn map_workspace_error(err: ServiceError) -> StatusCode {
+fn map_workspace_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "workspace_service_error")
 }
 
@@ -196,7 +209,7 @@ async fn build_user_response(
     ctx: &AppContext,
     user: UserDto,
     preferred_workspace_id: Option<Uuid>,
-) -> Result<UserResponse, StatusCode> {
+) -> Result<UserResponse, ApiError> {
     let workspaces = ctx
         .workspace_service()
         .list_for_user(user.id)
@@ -217,13 +230,19 @@ async fn build_user_response(
         active_workspace_id.and_then(|id| workspaces.iter().find(|w| w.id == id).cloned());
     let mut active_workspace_permissions = Vec::new();
     if let Some(active_ws_id) = active_workspace_id {
-        if let Some(set) = ctx
+        match ctx
             .workspace_service()
             .resolve_permission_set(active_ws_id, user.id)
             .await
-            .map_err(map_workspace_error)?
         {
-            active_workspace_permissions = set.to_vec();
+            Ok(Some(set)) => active_workspace_permissions = set.to_vec(),
+            Ok(None) => {}
+            Err(err) => {
+                let mapped = map_workspace_error(err);
+                if mapped.status() != StatusCode::FORBIDDEN {
+                    return Err(mapped);
+                }
+            }
         }
     }
     Ok(UserResponse {
@@ -248,7 +267,7 @@ async fn build_user_response(
 pub async fn register(
     State(ctx): State<AppContext>,
     Json(req): Json<RegisterRequest>,
-) -> Result<Json<UserResponse>, StatusCode> {
+) -> Result<Json<UserResponse>, ApiError> {
     let service = ctx.account_service();
     let user = service
         .register(&req.email, &req.name, &req.password)
@@ -270,18 +289,21 @@ pub async fn login(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Json(req): Json<LoginRequest>,
-) -> Result<(HeaderMap, Json<LoginResponse>), StatusCode> {
+) -> Result<(HeaderMap, Json<LoginResponse>), ApiError> {
     let service = ctx.account_service();
     let user = service
         .login(&req.email, &req.password)
         .await
         .map_err(map_account_error)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or(ApiError::unauthorized("invalid_credentials"))?;
     let user = build_user_response(&ctx, user, None).await?;
     let active_workspace_id = user
         .active_workspace_id
         .or_else(|| user.workspaces.iter().find(|w| w.is_default).map(|w| w.id))
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        .ok_or(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "workspace_missing",
+        ))?;
     let client_ip = extract_client_ip(&headers);
     let user_agent = extract_user_agent(&headers);
     let issued = ctx
@@ -319,7 +341,7 @@ pub async fn login(
 pub async fn refresh_session(
     State(ctx): State<AppContext>,
     refreshed: Option<Extension<RefreshedSession>>,
-) -> Result<axum::response::Response, StatusCode> {
+) -> Result<axum::response::Response, ApiError> {
     if let Some(Extension(bundle)) = refreshed {
         return Ok(Json(RefreshResponse {
             access_token: bundle.0.access.token.clone(),
@@ -335,36 +357,27 @@ pub async fn refresh_session(
 #[utoipa::path(get, path = "/api/auth/me", tag = "Auth", responses((status = 200, body = UserResponse)))]
 pub async fn me(
     State(ctx): State<AppContext>,
-    bearer: Result<super::Bearer, StatusCode>,
+    bearer: super::Bearer,
     headers: HeaderMap,
-) -> Result<Json<UserResponse>, StatusCode> {
-    let bearer = bearer?;
+) -> Result<Json<UserResponse>, crate::http::error::ApiError> {
     let bearer_token = bearer.0.clone();
-    let sub = validate_bearer_str(&ctx, &bearer_token).await?;
-    let id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let id = crate::security::token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(crate::security::token::map_actor_error)?;
 
-    let active_workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        id,
-    )
-    .await
-    .map(Some)
-    .or_else(|err| {
-        if err == StatusCode::FORBIDDEN {
-            Ok(None)
-        } else {
-            Err(err)
-        }
-    })?;
+    let active_workspace_id =
+        match workspace_scope::resolve_active_workspace_id(&ctx, &headers, Some(bearer_token.as_str()), id).await {
+            Ok(id) => Some(id),
+            Err(err) if err.status() == StatusCode::FORBIDDEN => None,
+            Err(err) => return Err(err),
+        };
 
     let service = ctx.account_service();
     let row = service
         .get_me(id)
         .await
         .map_err(map_account_error)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .ok_or(crate::http::error::ApiError::unauthorized("unauthorized"))?;
     let resp = build_user_response(&ctx, row, active_workspace_id).await?;
     Ok(Json(resp))
 }
@@ -373,9 +386,10 @@ pub async fn me(
 pub async fn delete_account(
     State(ctx): State<AppContext>,
     bearer: super::Bearer,
-) -> Result<(HeaderMap, StatusCode), StatusCode> {
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+) -> Result<(HeaderMap, StatusCode), crate::http::error::ApiError> {
+    let user_id = crate::security::token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(crate::security::token::map_actor_error)?;
     let service = ctx.account_service();
     service
         .delete_account(user_id)
@@ -396,7 +410,7 @@ pub async fn delete_account(
 pub async fn logout(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-) -> Result<(HeaderMap, StatusCode), StatusCode> {
+) -> Result<(HeaderMap, StatusCode), ApiError> {
     if let Some(refresh_token) = extract_refresh_token(&headers) {
         if let Err(err) = ctx.session_service().revoke_by_token(&refresh_token).await {
             warn!(error = ?err, "logout_revoke_session_failed");
@@ -413,9 +427,10 @@ pub async fn list_sessions(
     State(ctx): State<AppContext>,
     bearer: super::Bearer,
     headers: HeaderMap,
-) -> Result<Json<Vec<SessionResponse>>, StatusCode> {
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+) -> Result<Json<Vec<SessionResponse>>, ApiError> {
+    let user_id = crate::security::token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(crate::security::token::map_actor_error)?;
     let current_session_id = if let Some(refresh_token) = extract_refresh_token(&headers) {
         match ctx
             .session_service()
@@ -458,9 +473,10 @@ pub async fn revoke_session(
     bearer: super::Bearer,
     headers: HeaderMap,
     Path(session_id): Path<Uuid>,
-) -> Result<(HeaderMap, StatusCode), StatusCode> {
-    let sub = validate_bearer(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+) -> Result<(HeaderMap, StatusCode), ApiError> {
+    let user_id = crate::security::token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(crate::security::token::map_actor_error)?;
     let current_session_id = if let Some(refresh_token) = extract_refresh_token(&headers) {
         match ctx
             .session_service()
@@ -481,8 +497,8 @@ pub async fn revoke_session(
         .revoke_session(user_id, session_id)
         .await
         .map_err(|err| match err {
-            ServiceError::Forbidden => StatusCode::FORBIDDEN,
-            ServiceError::NotFound => StatusCode::NOT_FOUND,
+            ServiceError::Forbidden => ApiError::forbidden("forbidden"),
+            ServiceError::NotFound => ApiError::not_found("not_found"),
             other => map_auth_error(other),
         })?;
     let mut response_headers = HeaderMap::new();

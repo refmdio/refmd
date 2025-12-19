@@ -6,23 +6,134 @@ use crate::documents::title::Title;
 
 #[derive(Debug, Clone)]
 pub struct Document {
-    pub id: Uuid,
-    pub owner_id: Uuid,
-    pub owner_user_id: Option<Uuid>,
-    pub workspace_id: Uuid,
-    pub title: Title,
-    pub parent_id: Option<Uuid>,
-    pub doc_type: DocumentType,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub created_by_plugin: Option<String>,
-    pub slug: Slug,
-    pub desired_path: DesiredPath,
-    pub path: Option<String>,
-    pub created_by: Option<Uuid>,
-    pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub archived_by: Option<Uuid>,
-    pub archived_parent_id: Option<Uuid>,
+    id: Uuid,
+    owner_id: Uuid,
+    owner_user_id: Option<Uuid>,
+    workspace_id: Uuid,
+    title: Title,
+    parent_id: Option<Uuid>,
+    doc_type: DocumentType,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+    created_by_plugin: Option<String>,
+    slug: Slug,
+    desired_path: DesiredPath,
+    path: Option<String>,
+    created_by: Option<Uuid>,
+    archived_at: Option<chrono::DateTime<chrono::Utc>>,
+    archived_by: Option<Uuid>,
+    archived_parent_id: Option<Uuid>,
+}
+
+impl Document {
+    #[allow(clippy::too_many_arguments)]
+    pub fn rehydrate(
+        id: Uuid,
+        owner_id: Uuid,
+        owner_user_id: Option<Uuid>,
+        workspace_id: Uuid,
+        title: Title,
+        parent_id: Option<Uuid>,
+        doc_type: DocumentType,
+        created_at: chrono::DateTime<chrono::Utc>,
+        updated_at: chrono::DateTime<chrono::Utc>,
+        created_by_plugin: Option<String>,
+        slug: Slug,
+        desired_path: DesiredPath,
+        path: Option<String>,
+        created_by: Option<Uuid>,
+        archived_at: Option<chrono::DateTime<chrono::Utc>>,
+        archived_by: Option<Uuid>,
+        archived_parent_id: Option<Uuid>,
+    ) -> Self {
+        Self {
+            id,
+            owner_id,
+            owner_user_id,
+            workspace_id,
+            title,
+            parent_id,
+            doc_type,
+            created_at,
+            updated_at,
+            created_by_plugin,
+            slug,
+            desired_path,
+            path,
+            created_by,
+            archived_at,
+            archived_by,
+            archived_parent_id,
+        }
+    }
+
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub fn owner_id(&self) -> Uuid {
+        self.owner_id
+    }
+
+    pub fn owner_user_id(&self) -> Option<Uuid> {
+        self.owner_user_id
+    }
+
+    pub fn workspace_id(&self) -> Uuid {
+        self.workspace_id
+    }
+
+    pub fn title(&self) -> &Title {
+        &self.title
+    }
+
+    pub fn parent_id(&self) -> Option<Uuid> {
+        self.parent_id
+    }
+
+    pub fn doc_type(&self) -> DocumentType {
+        self.doc_type
+    }
+
+    pub fn created_at(&self) -> chrono::DateTime<chrono::Utc> {
+        self.created_at.clone()
+    }
+
+    pub fn updated_at(&self) -> chrono::DateTime<chrono::Utc> {
+        self.updated_at.clone()
+    }
+
+    pub fn created_by_plugin(&self) -> Option<&str> {
+        self.created_by_plugin.as_deref()
+    }
+
+    pub fn slug(&self) -> &Slug {
+        &self.slug
+    }
+
+    pub fn desired_path(&self) -> &DesiredPath {
+        &self.desired_path
+    }
+
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+
+    pub fn created_by(&self) -> Option<Uuid> {
+        self.created_by
+    }
+
+    pub fn archived_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.archived_at.clone()
+    }
+
+    pub fn archived_by(&self) -> Option<Uuid> {
+        self.archived_by
+    }
+
+    pub fn archived_parent_id(&self) -> Option<Uuid> {
+        self.archived_parent_id
+    }
 }
 
 #[derive(Debug, Clone)]

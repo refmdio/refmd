@@ -3,9 +3,9 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::{self, Stream, StreamExt};
 use std::time::Duration;
-use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 
 #[utoipa::path(
@@ -17,15 +17,16 @@ use crate::http::identity::auth::Bearer;
 pub async fn sse_updates(
     State(ctx): State<AppContext>,
     bearer: Bearer,
-) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, StatusCode> {
-    let sub = crate::http::identity::auth::validate_bearer_public(&ctx, bearer).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError> {
+    let user_id = crate::security::token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(crate::security::token::map_actor_error)?;
 
     let initial = stream::iter(vec![Ok(Event::default().event("ready").data("{}\n"))]);
     let event_stream = ctx
         .subscribe_plugin_events()
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))?;
     let broadcast = event_stream.filter_map(move |ev| {
         let user_id = user_id.clone();
         async move {

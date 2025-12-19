@@ -18,10 +18,10 @@ impl DocumentService {
         doc: &DomainDocument,
         reason: &'static str,
     ) -> Result<(), ServiceError> {
-        if doc.doc_type == DocumentType::Folder {
-            Self::enqueue_folder_sync_tx(storage_jobs, doc.workspace_id, doc.id, reason).await
+        if doc.doc_type() == DocumentType::Folder {
+            Self::enqueue_folder_sync_tx(storage_jobs, doc.workspace_id(), doc.id(), reason).await
         } else {
-            Self::enqueue_doc_sync_tx(storage_jobs, doc.workspace_id, doc.id, reason).await
+            Self::enqueue_doc_sync_tx(storage_jobs, doc.workspace_id(), doc.id(), reason).await
         }
     }
 

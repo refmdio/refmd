@@ -6,6 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;
@@ -34,11 +35,11 @@ pub async fn pull_repository(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<GitPullRequest>,
-) -> Result<(StatusCode, Json<GitPullResponse>), StatusCode> {
+) -> Result<(StatusCode, Json<GitPullResponse>), ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -75,7 +76,7 @@ pub async fn pull_repository(
                 }
                 _ => err.to_string(),
             };
-            let status = map_git_error(err);
+            let status = map_git_error(err).status();
             let body = GitPullResponse {
                 success: false,
                 message,
@@ -127,11 +128,11 @@ pub async fn start_pull_session(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<(StatusCode, Json<GitPullSessionResponse>), StatusCode> {
+) -> Result<(StatusCode, Json<GitPullSessionResponse>), ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -153,7 +154,7 @@ pub async fn start_pull_session(
                 }
                 other => other.to_string(),
             };
-            let status = map_git_error(err);
+            let status = map_git_error(err).status();
             return Ok((
                 status,
                 Json(GitPullSessionResponse {
@@ -213,11 +214,11 @@ pub async fn get_pull_session(
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
-) -> Result<Json<GitPullSessionResponse>, StatusCode> {
+) -> Result<Json<GitPullSessionResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -233,7 +234,7 @@ pub async fn get_pull_session(
         .load_pull_session_with_stale_check(workspace_id, id)
         .await
         .map_err(map_git_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("not_found"))?;
     Ok(Json(GitPullSessionResponse {
         session_id: state.id,
         status: state.status.as_str().to_string(),
@@ -268,11 +269,11 @@ pub async fn resolve_pull_session(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
     Json(req): Json<GitPullRequest>,
-) -> Result<(StatusCode, Json<GitPullSessionResponse>), StatusCode> {
+) -> Result<(StatusCode, Json<GitPullSessionResponse>), ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -288,7 +289,7 @@ pub async fn resolve_pull_session(
         .load_pull_session_with_stale_check(workspace_id, id)
         .await
         .map_err(map_git_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("not_found"))?;
     let resolutions = req.resolutions.unwrap_or_default();
     let session = match service
         .resolve_pull_session_flow(
@@ -316,7 +317,7 @@ pub async fn resolve_pull_session(
                 }
                 other => other.to_string(),
             };
-            let status = map_git_error(err);
+            let status = map_git_error(err).status();
             return Ok((
                 status,
                 Json(GitPullSessionResponse {
@@ -396,11 +397,11 @@ pub async fn finalize_pull_session(
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
-) -> Result<(StatusCode, Json<GitPullResponse>), StatusCode> {
+) -> Result<(StatusCode, Json<GitPullResponse>), ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

@@ -4,6 +4,7 @@ use axum::{Json, extract::State, http::StatusCode};
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use application::core::services::errors::ServiceError;
 use application::core::services::markdown::RenderOptions;
@@ -19,10 +20,13 @@ pub async fn render_markdown(
     State(ctx): State<AppContext>,
     bearer: Option<Bearer>,
     Json(req): Json<RenderRequest>,
-) -> Result<Json<RenderResponseBody>, StatusCode> {
+) -> Result<Json<RenderResponseBody>, ApiError> {
     // Per-item size guard (2MB)
     if req.text.len() > 2 * 1024 * 1024 {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        return Err(ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload_too_large",
+        ));
     }
     let RenderRequest { text, options } = req;
     let options: RenderOptions = options.into();
@@ -46,17 +50,23 @@ pub async fn render_markdown_many(
     State(ctx): State<AppContext>,
     bearer: Option<Bearer>,
     Json(req): Json<RenderManyRequest>,
-) -> Result<Json<RenderManyResponse>, StatusCode> {
+) -> Result<Json<RenderManyResponse>, ApiError> {
     // Guard: item count and total size
     const MAX_ITEMS: usize = 128;
     const MAX_TOTAL_BYTES: usize = 5 * 1024 * 1024; // 5MB
     let items = req.items;
     if items.len() > MAX_ITEMS {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        return Err(ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload_too_large",
+        ));
     }
     let total: usize = items.iter().map(|i| i.text.len()).sum();
     if total > MAX_TOTAL_BYTES {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+        return Err(ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload_too_large",
+        ));
     }
 
     let bearer_token = bearer.as_ref().map(|b| b.0.clone());
@@ -66,7 +76,10 @@ pub async fn render_markdown_many(
 
     for item in items {
         if item.text.len() > 2 * 1024 * 1024 {
-            return Err(StatusCode::PAYLOAD_TOO_LARGE);
+            return Err(ApiError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+            ));
         }
         let RenderRequest { text, options } = item;
         let options: RenderOptions = options.into();
@@ -102,6 +115,6 @@ pub async fn render_markdown_many(
     Ok(Json(RenderManyResponse { items }))
 }
 
-fn map_markdown_error(err: ServiceError) -> StatusCode {
+fn map_markdown_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error_no_log(err)
 }

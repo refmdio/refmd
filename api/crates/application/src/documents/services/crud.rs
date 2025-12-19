@@ -99,20 +99,20 @@ impl DocumentService {
                 return Err(service_err);
             }
         };
-        let repo_path = doc.desired_path.as_str().to_string();
+        let repo_path = doc.desired_path().as_str().to_string();
         let event_payload = json!({
-            "title": doc.title.as_str(),
-            "parent_id": doc.parent_id,
-            "doc_type": doc.doc_type.as_str(),
+            "title": doc.title().as_str(),
+            "parent_id": doc.parent_id(),
+            "doc_type": doc.doc_type().as_str(),
             "repo_path": repo_path,
-            "slug": doc.slug.as_str(),
-            "desired_path": doc.desired_path.as_str(),
-            "owner_id": doc.workspace_id,
+            "slug": doc.slug().as_str(),
+            "desired_path": doc.desired_path().as_str(),
+            "owner_id": doc.workspace_id(),
             "actor_id": actor_id,
         });
         self.record_event(
-            doc.workspace_id,
-            doc.id,
+            doc.workspace_id(),
+            doc.id(),
             "document.created",
             Some(event_payload),
         )
@@ -144,17 +144,17 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
-        if source.workspace_id != workspace_id {
+        if source.workspace_id() != workspace_id {
             return Err(ServiceError::NotFound);
         }
-        let state = DocumentState::new(source.doc_type, source.archived_at);
+        let state = DocumentState::new(source.doc_type(), source.archived_at());
         if doc_policy::ensure_duplicate_allowed(state).is_err() {
             return Err(ServiceError::BadRequest("cannot_duplicate_folder"));
         }
 
         let target_parent = match parent_id {
             Some(explicit) => explicit,
-            None => source.parent_id.or(source.archived_parent_id),
+            None => source.parent_id().or(source.archived_parent_id()),
         };
 
         let source_content = self
@@ -164,8 +164,8 @@ impl DocumentService {
             .map_err(ServiceError::from)?
             .unwrap_or_default();
 
-        let attachments = self.snapshot_attachments(source.id).await?;
-        let new_title = title::duplicate_title(&source.title, title);
+        let attachments = self.snapshot_attachments(source.id()).await?;
+        let new_title = title::duplicate_title(source.title(), title);
         let new_doc = self
             .create_for_user(
                 workspace_id,
@@ -173,14 +173,14 @@ impl DocumentService {
                 permissions,
                 new_title.as_str(),
                 target_parent,
-                source.doc_type,
-                source.created_by_plugin.as_deref(),
+                source.doc_type(),
+                source.created_by_plugin(),
             )
             .await?;
 
         let result = async {
             let updated_doc = self
-                .update_content(&actor, new_doc.id, &source_content)
+                .update_content(&actor, new_doc.id(), &source_content)
                 .await?;
 
             self.copy_attachments(&updated_doc, &attachments, actor_id)
@@ -196,7 +196,7 @@ impl DocumentService {
                 if let Err(clean_err) = self
                     .delete_for_user_internal(
                         workspace_id,
-                        new_doc.id,
+                        new_doc.id(),
                         Some(actor_id),
                         permissions,
                         false,
@@ -204,7 +204,7 @@ impl DocumentService {
                     .await
                 {
                     warn!(
-                        document_id = %new_doc.id,
+                        document_id = %new_doc.id(),
                         error = ?clean_err,
                         "duplicate_cleanup_failed"
                     );
@@ -390,22 +390,22 @@ impl DocumentService {
                 return Err(service_err);
             }
         };
-        let repo_path = doc.desired_path.as_str().to_string();
+        let repo_path = doc.desired_path().as_str().to_string();
         let event_payload = json!({
-            "title": doc.title.as_str(),
-            "parent_id": doc.parent_id,
+            "title": doc.title().as_str(),
+            "parent_id": doc.parent_id(),
             "repo_path": repo_path,
-            "doc_type": doc.doc_type.as_str(),
-            "slug": doc.slug.as_str(),
-            "desired_path": doc.desired_path.as_str(),
-            "owner_id": doc.workspace_id,
+            "doc_type": doc.doc_type().as_str(),
+            "slug": doc.slug().as_str(),
+            "desired_path": doc.desired_path().as_str(),
+            "owner_id": doc.workspace_id(),
             "actor_id": actor_id,
             "previous_path": previous_repo_path,
             "previous_desired_path": previous_desired_path,
         });
         self.record_event(
-            doc.workspace_id,
-            doc.id,
+            doc.workspace_id(),
+            doc.id(),
             "document.metadata_updated",
             Some(event_payload),
         )

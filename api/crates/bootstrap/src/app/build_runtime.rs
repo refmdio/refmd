@@ -192,12 +192,14 @@ pub async fn build_runtime(
             reconcile_ingest_known_paths,
         ));
         jobs::spawn_storage_reconcile_worker(&mut jobs, spawn_background_tasks, reconcile_service);
-        let scheduler = StorageReconcileScheduler::new(
-            storage_reconcile_jobs.clone(),
-            workspace_repo.clone(),
+        let scheduler =
+            StorageReconcileScheduler::new(storage_reconcile_jobs.clone(), workspace_repo.clone());
+        jobs::spawn_storage_reconcile_scheduler(
+            &mut jobs,
+            spawn_background_tasks,
+            scheduler,
             Duration::from_secs(60 * 60),
         );
-        jobs::spawn_storage_reconcile_scheduler(&mut jobs, spawn_background_tasks, scheduler);
     }
     let tag_repo = Arc::new(
         infrastructure::documents::db::repositories::tag_repository_sqlx::SqlxTagRepository::new(
@@ -390,10 +392,12 @@ pub async fn build_runtime(
         plugin_fetcher.clone(),
         plugin_installer.clone(),
     ));
+    let markdown_renderer = Arc::new(infrastructure::core::markdown::ComrakMarkdownRenderer::new());
     let markdown_render_service = Arc::new(MarkdownRenderService::new(
         plugin_assets.clone(),
         plugin_installations.clone(),
         plugin_runtime.clone(),
+        markdown_renderer,
         asset_signer.clone(),
         cfg.plugin_asset_url_ttl_secs,
     ));

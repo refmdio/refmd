@@ -1,10 +1,11 @@
 use axum::{
     Json,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 
 use super::types::ManifestItem;
@@ -21,7 +22,7 @@ pub async fn get_manifest(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<Json<Vec<ManifestItem>>, StatusCode> {
+) -> Result<Json<Vec<ManifestItem>>, ApiError> {
     let bearer_token = bearer.0;
     let plugin_ctx =
         resolve_plugin_user_context(&ctx, &headers, bearer_token.as_str(), None).await?;

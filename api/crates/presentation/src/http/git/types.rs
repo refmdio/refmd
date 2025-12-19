@@ -4,11 +4,10 @@ use application::git::dtos::{
     GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitPullConflictItemDto,
     GitPullResolutionDto, GitPullSessionDto, GitStatusDto, GitignoreUpdateDto,
 };
-use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub fn map_git_error(err: ServiceError) -> StatusCode {
+pub fn map_git_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "git_service_error")
 }
 

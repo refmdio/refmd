@@ -1,4 +1,3 @@
-use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -11,6 +10,7 @@ use application::documents::dtos::{
 };
 use application::documents::services::DocumentPatchOperation;
 use domain::documents::document as domain;
+use crate::http::error::ApiError;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Document {
@@ -35,26 +35,26 @@ pub struct Document {
 
 pub fn to_http_document(doc: domain::Document) -> Document {
     Document {
-        id: doc.id,
-        owner_id: doc.owner_id,
-        workspace_id: doc.workspace_id,
-        title: doc.title.into_string(),
-        parent_id: doc.parent_id,
-        r#type: doc.doc_type.to_string(),
-        created_at: doc.created_at,
-        updated_at: doc.updated_at,
-        created_by_plugin: doc.created_by_plugin,
-        slug: doc.slug.into_string(),
-        desired_path: doc.desired_path.into_string(),
-        path: doc.path,
-        created_by: doc.created_by,
-        archived_at: doc.archived_at,
-        archived_by: doc.archived_by,
-        archived_parent_id: doc.archived_parent_id,
+        id: doc.id(),
+        owner_id: doc.owner_id(),
+        workspace_id: doc.workspace_id(),
+        title: doc.title().as_str().to_string(),
+        parent_id: doc.parent_id(),
+        r#type: doc.doc_type().to_string(),
+        created_at: doc.created_at(),
+        updated_at: doc.updated_at(),
+        created_by_plugin: doc.created_by_plugin().map(str::to_string),
+        slug: doc.slug().as_str().to_string(),
+        desired_path: doc.desired_path().as_str().to_string(),
+        path: doc.path().map(str::to_string),
+        created_by: doc.created_by(),
+        archived_at: doc.archived_at(),
+        archived_by: doc.archived_by(),
+        archived_parent_id: doc.archived_parent_id(),
     }
 }
 
-pub fn map_service_error(err: ServiceError) -> StatusCode {
+pub fn map_service_error(err: ServiceError) -> ApiError {
     crate::http::error::map_service_error(err, "document_service_error")
 }
 

@@ -7,6 +7,7 @@ use serde_json::json;
 use std::collections::HashMap;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use domain::access::permissions::PERM_PLUGIN_RUN;
 
@@ -39,7 +40,7 @@ pub async fn list_records(
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
     Path(p): Path<RecordsPath>,
-) -> Result<Json<RecordsResponse>, StatusCode> {
+) -> Result<Json<RecordsResponse>, ApiError> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
     let plugin_ctx =
@@ -49,7 +50,7 @@ pub async fn list_records(
     ctx.authorization()
         .require_view(&actor, p.doc_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|_| ApiError::forbidden("forbidden"))?;
 
     let limit = params
         .get("limit")
@@ -116,7 +117,7 @@ pub async fn create_record(
     headers: HeaderMap,
     Path(p): Path<RecordsPath>,
     Json(body): Json<CreateRecordBody>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
     let plugin_ctx =
@@ -126,7 +127,7 @@ pub async fn create_record(
     ctx.authorization()
         .require_edit(&actor, p.doc_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|_| ApiError::forbidden("forbidden"))?;
 
     ctx.plugin_permissions()
         .ensure(
@@ -168,7 +169,7 @@ pub async fn update_record(
     headers: HeaderMap,
     Path(p): Path<UpdateRecordPath>,
     Json(body): Json<UpdateRecordBody>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token_raw = bearer.0;
     let plugin_ctx = resolve_plugin_user_context(
@@ -185,19 +186,19 @@ pub async fn update_record(
         .get_record(p.id)
         .await
         .map_err(map_plugin_service_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("record_not_found"))?;
 
     if rec.plugin != p.plugin {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("record_not_found"));
     }
     if rec.scope != PluginRecordScope::Doc {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("record_not_found"));
     }
 
     ctx.authorization()
         .require_edit(&actor, rec.scope_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|_| ApiError::forbidden("forbidden"))?;
 
     ctx.plugin_permissions()
         .ensure(
@@ -212,7 +213,7 @@ pub async fn update_record(
         .update_record(p.id, &body.patch)
         .await
         .map_err(map_plugin_service_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("record_not_found"))?;
 
     Ok(Json(json!({
         "id": updated.id,
@@ -234,7 +235,7 @@ pub async fn delete_record(
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<UpdateRecordPath>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token_raw = bearer.0;
     let plugin_ctx = resolve_plugin_user_context(
@@ -250,19 +251,19 @@ pub async fn delete_record(
         .get_record(p.id)
         .await
         .map_err(map_plugin_service_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("record_not_found"))?;
 
     if rec.plugin != p.plugin {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("record_not_found"));
     }
     if rec.scope != PluginRecordScope::Doc {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(ApiError::not_found("record_not_found"));
     }
 
     ctx.authorization()
         .require_edit(&actor, rec.scope_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|_| ApiError::forbidden("forbidden"))?;
 
     ctx.plugin_permissions()
         .ensure(
@@ -280,6 +281,6 @@ pub async fn delete_record(
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(StatusCode::NOT_FOUND)
+        Err(ApiError::not_found("record_not_found"))
     }
 }

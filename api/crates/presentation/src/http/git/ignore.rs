@@ -1,11 +1,12 @@
 use axum::{
     Json,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;
@@ -20,11 +21,11 @@ pub async fn ignore_document(
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Json<GitignoreUpdateResponse>, StatusCode> {
+) -> Result<Json<GitignoreUpdateResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -32,13 +33,13 @@ pub async fn ignore_document(
         user_id,
     )
     .await?;
-    let doc_id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let doc_id = Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid_document_id"))?;
     let service = ctx.git_service();
     let res = service
         .ignore_document(workspace_id, doc_id)
         .await
         .map_err(|err| match err {
-            ServiceError::NotFound => StatusCode::NOT_FOUND,
+            ServiceError::NotFound => ApiError::not_found("not_found"),
             other => map_git_error(other),
         })?;
     Ok(Json(res.into()))
@@ -50,11 +51,11 @@ pub async fn ignore_folder(
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> Result<Json<GitignoreUpdateResponse>, StatusCode> {
+) -> Result<Json<GitignoreUpdateResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -62,13 +63,13 @@ pub async fn ignore_folder(
         user_id,
     )
     .await?;
-    let folder_id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let folder_id = Uuid::parse_str(&id).map_err(|_| ApiError::bad_request("invalid_folder_id"))?;
     let service = ctx.git_service();
     let res = service
         .ignore_folder(workspace_id, folder_id)
         .await
         .map_err(|err| match err {
-            ServiceError::NotFound => StatusCode::NOT_FOUND,
+            ServiceError::NotFound => ApiError::not_found("not_found"),
             other => map_git_error(other),
         })?;
     Ok(Json(res.into()))
@@ -80,11 +81,11 @@ pub async fn add_gitignore_patterns(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<AddPatternsRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -105,11 +106,11 @@ pub async fn get_gitignore_patterns(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -131,11 +132,11 @@ pub async fn check_path_ignored(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CheckIgnoredRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

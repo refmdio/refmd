@@ -11,12 +11,10 @@ openapi = ["dep:utoipa"]
 domain = { path = "../domain" }
 
 anyhow = "1"
-ammonia = { version = "3" }
 argon2 = "0.5"
 async-trait = "0.1"
 base64 = "0.21"
 chrono = { version = "0.4", features = ["serde", "clock"] }
-comrak = { version = "0.22" }
 futures-core = "0.3"
 futures-util = { version = "0.3", features = ["sink"] }
 hex = "0.4"
@@ -34,14 +32,13 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 sha2 = "0.10"
 similar = "2"
-syntect = { version = "5", default-features = true }
-syntect-assets = "0.23"
 thiserror = "1"
-tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "signal", "process"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 urlencoding = "2"
 utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"], optional = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 yrs = { version = "0.24", features = ["sync"] }
 zip = { version = "0.6" }
+
+[dev-dependencies]
+tokio = { version = "1.46", features = ["rt-multi-thread", "macros"] }

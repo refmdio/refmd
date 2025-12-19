@@ -47,25 +47,25 @@ impl SqlxDocumentRepository {
         let desired_path_str: String = row.get("desired_path");
         let desired_path =
             doc_path::DesiredPath::new(desired_path_str).context("invalid_desired_path")?;
-        Ok(DomainDocument {
-            id: row.get("id"),
-            owner_id: row.get("owner_id"),
-            owner_user_id: row.try_get("owner_user_id").ok(),
-            workspace_id: row.get("workspace_id"),
-            title: Title::new(title),
-            parent_id: row.get("parent_id"),
+        Ok(DomainDocument::rehydrate(
+            row.get("id"),
+            row.get("owner_id"),
+            row.try_get("owner_user_id").ok(),
+            row.get("workspace_id"),
+            Title::new(title),
+            row.get("parent_id"),
             doc_type,
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-            created_by_plugin: row.try_get("created_by_plugin").ok(),
+            row.get("created_at"),
+            row.get("updated_at"),
+            row.try_get("created_by_plugin").ok(),
             slug,
             desired_path,
-            path: row.try_get("path").ok(),
-            created_by: row.try_get("created_by").ok(),
-            archived_at: row.try_get("archived_at").ok(),
-            archived_by: row.try_get("archived_by").ok(),
-            archived_parent_id: row.try_get("archived_parent_id").ok(),
-        })
+            row.try_get("path").ok(),
+            row.try_get("created_by").ok(),
+            row.try_get("archived_at").ok(),
+            row.try_get("archived_by").ok(),
+            row.try_get("archived_parent_id").ok(),
+        ))
     }
 
     pub(super) fn hash_path(desired_path: &str) -> Vec<u8> {
@@ -327,12 +327,12 @@ impl SqlxDocumentRepository {
         match row {
             Ok(Some(row)) => {
                 let doc = Self::map_row_to_document(&row)?;
-                if doc.doc_type == DocumentType::Folder {
+                if doc.doc_type() == DocumentType::Folder {
                     sqlx::query("SAVEPOINT document_update_descendants")
                         .execute(tx.as_mut())
                         .await
                         .map_err(|e| DocumentRepositoryError::Unexpected(e.into()))?;
-                    let result = self.update_descendant_paths_tx(tx, doc.id).await;
+                    let result = self.update_descendant_paths_tx(tx, doc.id()).await;
                     match result {
                         Ok(()) => {
                             sqlx::query("RELEASE SAVEPOINT document_update_descendants")

@@ -5,6 +5,7 @@ use axum::{
 };
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;
@@ -21,11 +22,11 @@ pub async fn get_config(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<Json<Option<GitConfigResponse>>, StatusCode> {
+) -> Result<Json<Option<GitConfigResponse>>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -63,11 +64,11 @@ pub async fn create_or_update_config(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateGitConfigRequest>,
-) -> Result<Json<GitConfigResponse>, StatusCode> {
+) -> Result<Json<GitConfigResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -87,7 +88,7 @@ pub async fn create_or_update_config(
         .upsert_config(workspace_id, &input)
         .await
         .map_err(|err| match err {
-            ServiceError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            ServiceError::BadRequest(code) => ApiError::bad_request(code).with_message(code),
             other => map_git_error(other),
         })?;
     let mut out: GitConfigResponse = resp.into();
@@ -106,11 +107,11 @@ pub async fn delete_config(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

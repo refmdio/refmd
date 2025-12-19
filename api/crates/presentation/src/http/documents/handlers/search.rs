@@ -1,10 +1,11 @@
 use axum::{
     Json,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use domain::access::permissions::PERM_DOC_VIEW;
@@ -19,11 +20,11 @@ pub async fn search_documents(
     bearer: Bearer,
     headers: HeaderMap,
     q: Option<Query<SearchQuery>>,
-) -> Result<Json<Vec<SearchResult>>, StatusCode> {
+) -> Result<Json<Vec<SearchResult>>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

@@ -1,10 +1,11 @@
 use axum::{
     Json,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
@@ -19,11 +20,11 @@ pub async fn list_applicable_shares(
     bearer: Bearer,
     headers: HeaderMap,
     Query(q): Query<ApplicableQuery>,
-) -> Result<Json<Vec<ApplicableShareItem>>, StatusCode> {
+) -> Result<Json<Vec<ApplicableShareItem>>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -37,7 +38,7 @@ pub async fn list_applicable_shares(
     ctx.authorization()
         .require_view(&actor, q.doc_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|err| crate::http::error::map_service_error(err, "authorization_error"))?;
 
     let service = ctx.share_service();
     let rows = service

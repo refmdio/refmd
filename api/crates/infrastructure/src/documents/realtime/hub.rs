@@ -34,6 +34,8 @@ use application::documents::services::realtime::snapshot::{
     SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
 };
 
+type SharedRealtimeSink = Arc<Mutex<DynRealtimeSink>>;
+
 #[derive(Clone)]
 pub struct DocumentRoom {
     pub doc: Doc,
@@ -456,6 +458,7 @@ impl Hub {
         can_edit: bool,
     ) -> anyhow::Result<()> {
         let room = self.get_or_create(doc_id).await?;
+        let sink: SharedRealtimeSink = Arc::new(Mutex::new(sink));
         let edit_flag = self.ensure_edit_flag(doc_id).await;
         let effective_can_edit = can_edit && edit_flag.load(Ordering::Relaxed);
         let guarded_stream =
@@ -644,7 +647,7 @@ where
 
 impl Hub {
     async fn send_protocol_start<P>(
-        sink: DynRealtimeSink,
+        sink: SharedRealtimeSink,
         awareness: AwarenessRef,
         protocol: P,
     ) -> anyhow::Result<()>

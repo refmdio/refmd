@@ -20,6 +20,7 @@ use infrastructure::git::workspace::GitWorkspaceService;
 pub struct GitRebuildStack {
     pub service: Arc<GitRebuildService>,
     pub scheduler: GitRebuildScheduler,
+    pub interval: std::time::Duration,
 }
 
 pub struct GitStack {
@@ -116,16 +117,17 @@ pub async fn build_git_stack(
             metrics.clone(),
             workspace_permissions,
         ));
+        let interval = std::time::Duration::from_secs(cfg.git_rebuild_interval_secs);
         let rebuild_scheduler = GitRebuildScheduler::new(
             git_rebuild_jobs.clone(),
             git_repo.clone(),
             git_workspace.clone(),
-            std::time::Duration::from_secs(cfg.git_rebuild_interval_secs),
         );
         info!("git_rebuild_scheduler_enabled");
         Some(GitRebuildStack {
             service: rebuild_service,
             scheduler: rebuild_scheduler,
+            interval,
         })
     } else {
         info!("git_rebuild_scheduler_disabled");

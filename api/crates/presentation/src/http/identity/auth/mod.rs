@@ -35,7 +35,7 @@ pub(crate) use cookies::{
     apply_session_cookies, clear_auth_cookies, extract_client_ip, extract_refresh_token,
     extract_user_agent,
 };
-pub(crate) use security::{map_auth_error, validate_bearer};
+pub(crate) use security::map_auth_error;
 
 #[cfg(test)]
 mod tests;

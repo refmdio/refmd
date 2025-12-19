@@ -6,6 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use domain::access::permissions::PERM_FILE_UPLOAD;
@@ -29,11 +30,11 @@ pub async fn upload_file(
     bearer: Bearer,
     headers: HeaderMap,
     mut multipart: Multipart,
-) -> Result<Json<UploadFileResponse>, StatusCode> {
+) -> Result<(StatusCode, Json<UploadFileResponse>), ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -52,22 +53,34 @@ pub async fn upload_file(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?
+        .map_err(|_| ApiError::bad_request("invalid_multipart"))?
     {
         let name = field.name().map(|s| s.to_string());
         let file_name = field.file_name().map(|s| s.to_string());
         let ct = field.content_type().map(|s| s.to_string());
         match name.as_deref() {
             Some("document_id") => {
-                let t = field.text().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-                document_id = Uuid::parse_str(t.trim()).ok();
+                let t = field
+                    .text()
+                    .await
+                    .map_err(|_| ApiError::bad_request("invalid_document_id"))?;
+                document_id = Some(
+                    Uuid::parse_str(t.trim())
+                        .map_err(|_| ApiError::bad_request("invalid_document_id"))?,
+                );
             }
             Some("file") => {
                 orig_filename = file_name.clone();
                 content_type = ct.clone();
-                let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|_| ApiError::bad_request("invalid_upload"))?;
                 if data.len() > ctx.cfg.upload_max_bytes {
-                    return Err(StatusCode::PAYLOAD_TOO_LARGE);
+                    return Err(ApiError::new(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "payload_too_large",
+                    ));
                 }
                 file_bytes = Some(data.to_vec());
             }
@@ -75,8 +88,8 @@ pub async fn upload_file(
         }
     }
 
-    let doc_id = document_id.ok_or(StatusCode::BAD_REQUEST)?;
-    let bytes = file_bytes.ok_or(StatusCode::BAD_REQUEST)?;
+    let doc_id = document_id.ok_or(ApiError::bad_request("missing_document_id"))?;
+    let bytes = file_bytes.ok_or(ApiError::bad_request("missing_file"))?;
 
     let public_base_url = ctx.cfg.public_base_url.clone();
     let file_service = ctx.file_service();
@@ -92,11 +105,11 @@ pub async fn upload_file(
         )
         .await
         .map_err(map_file_error)?;
-    Ok(Json(UploadFileResponse {
+    Ok((StatusCode::CREATED, Json(UploadFileResponse {
         id: f.id,
         url: f.url,
         filename: f.filename,
         content_type: f.content_type,
         size: f.size,
-    }))
+    })))
 }

@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
 use application::core::services::errors::ServiceError;
@@ -25,10 +26,10 @@ pub async fn get_document_content(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, ApiError> {
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let actor = access::Actor::User(user_id);
     let service = ctx.document_service();
     let content = service
@@ -55,13 +56,13 @@ pub async fn update_document_content(
     Path(id): Path<Uuid>,
     q: Option<Query<SnapshotTokenQuery>>,
     Json(body): Json<UpdateDocumentContentRequest>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
     let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?
+        .ok_or(ApiError::unauthorized("unauthorized"))?;
     let service = ctx.document_service();
     let updated = service
         .update_content(&actor, id, &body.content)
@@ -87,16 +88,16 @@ pub async fn patch_document_content(
     Path(id): Path<Uuid>,
     q: Option<Query<SnapshotTokenQuery>>,
     Json(body): Json<PatchDocumentContentRequest>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     if body.operations.is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("missing_operations"));
     }
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
     let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?
+        .ok_or(ApiError::unauthorized("unauthorized"))?;
     let service = ctx.document_service();
     let operations: Vec<DocumentPatchOperation> = body
         .operations
@@ -131,28 +132,14 @@ pub async fn download_document(
     bearer: Option<Bearer>,
     Query(params): Query<DownloadDocumentQuery>,
     Path(id): Path<Uuid>,
-) -> Result<Response, (StatusCode, Json<Value>)> {
+) -> Result<Response, ApiError> {
     let token = params.token.as_deref();
     let format = params.format;
-    let error_response = |status: StatusCode, code: &str, message: String| {
-        (
-            status,
-            Json(json!({
-                "error": code,
-                "message": message,
-            })),
-        )
-    };
 
     let actor = match token::resolve_actor_from_parts(&ctx, bearer, token).await {
         Ok(Some(actor)) => actor,
-        Ok(None) | Err(_) => {
-            return Err(error_response(
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                "Unauthorized".to_string(),
-            ));
-        }
+        Ok(None) => return Err(ApiError::unauthorized("unauthorized")),
+        Err(err) => return Err(token::map_actor_error(err)),
     };
 
     let service = ctx.document_service();
@@ -162,25 +149,13 @@ pub async fn download_document(
         | Err(ServiceError::TokenExpired)
         | Err(ServiceError::Forbidden)
         | Err(ServiceError::NotFound) => {
-            return Err(error_response(
-                StatusCode::NOT_FOUND,
-                "not_found",
-                "Document not found".to_string(),
-            ));
+            return Err(ApiError::not_found("not_found"));
         }
         Err(ServiceError::Conflict) => {
-            return Err(error_response(
-                StatusCode::CONFLICT,
-                "conflict",
-                "Document cannot be downloaded".to_string(),
-            ));
+            return Err(ApiError::conflict("conflict"));
         }
         Err(ServiceError::BadRequest(_)) => {
-            return Err(error_response(
-                StatusCode::BAD_REQUEST,
-                "bad_request",
-                "Invalid download request".to_string(),
-            ));
+            return Err(ApiError::bad_request("bad_request"));
         }
         Err(ServiceError::Unexpected(error)) => {
             tracing::error!(
@@ -189,11 +164,7 @@ pub async fn download_document(
                 error = ?error,
                 "document_download_failed"
             );
-            return Err(error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal",
-                "Failed to prepare download".to_string(),
-            ));
+            return Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"));
         }
     };
 
@@ -201,10 +172,9 @@ pub async fn download_document(
     let content_type = match HeaderValue::from_str(&download.content_type) {
         Ok(value) => value,
         Err(_) => {
-            return Err(error_response(
+            return Err(ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "invalid_header",
-                "Failed to prepare download headers".to_string(),
+                "internal_error",
             ));
         }
     };
@@ -217,10 +187,9 @@ pub async fn download_document(
     let content_disposition = match HeaderValue::from_str(&disposition) {
         Ok(value) => value,
         Err(_) => {
-            return Err(error_response(
+            return Err(ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "invalid_header",
-                "Failed to prepare download headers".to_string(),
+                "internal_error",
             ));
         }
     };

@@ -62,11 +62,11 @@ impl GitWorkspaceService {
                 .get_by_owner_and_path(workspace_id, &lookup_path)
                 .await?
             {
-                if existing.doc_type != DocumentType::Folder {
+                if existing.doc_type() != DocumentType::Folder {
                     anyhow::bail!("path_conflict_not_folder");
                 }
-                cache.insert(accumulated.clone(), existing.id);
-                current_parent = Some(existing.id);
+                cache.insert(accumulated.clone(), existing.id());
+                current_parent = Some(existing.id());
                 continue;
             }
 
@@ -99,11 +99,11 @@ impl GitWorkspaceService {
             )
             .await?;
             self.doc_paths
-                .update_repo_path(folder.id, workspace_id, &accumulated)
+                .update_repo_path(folder.id(), workspace_id, &accumulated)
                 .await?;
 
-            cache.insert(accumulated.clone(), folder.id);
-            current_parent = Some(folder.id);
+            cache.insert(accumulated.clone(), folder.id());
+            current_parent = Some(folder.id());
         }
 
         Ok(current_parent)
@@ -151,18 +151,18 @@ impl GitWorkspaceService {
         let mut folder_docs: HashMap<String, Vec<Uuid>> = HashMap::new();
 
         for doc in self.docs.list_workspace_documents(workspace_id).await? {
-            let normalized = normalize_repo_path(doc.desired_path.as_str().to_string());
-            existing_by_desired.insert(normalized.clone(), doc.id);
-            if doc.doc_type != DocumentType::Folder {
+            let normalized = normalize_repo_path(doc.desired_path().as_str().to_string());
+            existing_by_desired.insert(normalized.clone(), doc.id());
+            if doc.doc_type() != DocumentType::Folder {
                 let key = folder_key(&normalized);
-                folder_docs.entry(key.clone()).or_default().push(doc.id);
-                if doc.archived_at.is_some() {
+                folder_docs.entry(key.clone()).or_default().push(doc.id());
+                if doc.archived_at().is_some() {
                     let archived_key = if key.is_empty() {
                         "Archives".to_string()
                     } else {
                         format!("Archives/{}", key)
                     };
-                    folder_docs.entry(archived_key).or_default().push(doc.id);
+                    folder_docs.entry(archived_key).or_default().push(doc.id());
                 }
             }
         }
@@ -231,12 +231,12 @@ impl GitWorkspaceService {
             )
             .await?;
             self.doc_paths
-                .update_repo_path(doc.id, workspace_id, &normalized)
+                .update_repo_path(doc.id(), workspace_id, &normalized)
                 .await?;
             docs_created += 1;
-            existing_by_desired.insert(normalized.clone(), doc.id);
+            existing_by_desired.insert(normalized.clone(), doc.id());
 
-            folder_docs.entry(parent_path).or_default().push(doc.id);
+            folder_docs.entry(parent_path).or_default().push(doc.id());
 
             let bytes = self.snapshot_bytes(snapshot).await.unwrap_or_default();
             let body = extract_markdown_body(&bytes)
@@ -244,9 +244,9 @@ impl GitWorkspaceService {
             let snap_bytes = snapshot_from_markdown(&body);
             let _ = self
                 .realtime
-                .apply_snapshot(&doc.id.to_string(), snap_bytes.as_slice())
+                .apply_snapshot(&doc.id().to_string(), snap_bytes.as_slice())
                 .await;
-            let _ = self.realtime.force_persist(&doc.id.to_string()).await;
+            let _ = self.realtime.force_persist(&doc.id().to_string()).await;
         }
 
         for docs in folder_docs.values_mut() {
@@ -322,11 +322,11 @@ impl GitWorkspaceService {
             .list_workspace_documents(workspace_id)
             .await?
             .into_iter()
-            .filter(|d| d.doc_type != DocumentType::Folder);
+            .filter(|d| d.doc_type() != DocumentType::Folder);
 
         for doc in doc_rows {
-            let doc_id = doc.id;
-            let normalized = normalize_repo_path(doc.desired_path.as_str().to_string());
+            let doc_id = doc.id();
+            let normalized = normalize_repo_path(doc.desired_path().as_str().to_string());
             let Some(snapshot) = next_state.get(&normalized) else {
                 continue;
             };

@@ -36,10 +36,10 @@ impl ResolvedDocument {
 impl From<DomainDocument> for ResolvedDocument {
     fn from(value: DomainDocument) -> Self {
         Self::new(
-            value.id,
-            value.doc_type,
-            value.path,
-            value.archived_at.is_some(),
+            value.id(),
+            value.doc_type(),
+            value.path().map(str::to_string),
+            value.archived_at().is_some(),
         )
     }
 }

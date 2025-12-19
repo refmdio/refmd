@@ -27,18 +27,21 @@ impl GitWorkspaceService {
             } else {
                 all_docs
                     .iter()
-                    .find(|d| normalize_repo_path(d.desired_path.as_str().to_string()) == candidate)
+                    .find(|d| {
+                        normalize_repo_path(d.desired_path().as_str().to_string()) == candidate
+                    })
                     .cloned()
             };
 
             if let Some(doc) = doc {
-                if doc.doc_type == DocumentType::Folder {
+                if doc.doc_type() == DocumentType::Folder {
                     continue;
                 }
-                if archived_only && doc.archived_at.is_none() {
+                if archived_only && doc.archived_at().is_none() {
                     continue;
                 }
-                if let Some(export) = self.snapshot.export_current_markdown(&doc.id).await? {
+                let doc_id = doc.id();
+                if let Some(export) = self.snapshot.export_current_markdown(&doc_id).await? {
                     return Ok(Some((export.bytes, export.content_hash)));
                 }
             }

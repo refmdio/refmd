@@ -1,7 +1,6 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::StatusCode,
 };
 use uuid::Uuid;
 
@@ -21,16 +20,16 @@ pub async fn get_workspace_permissions(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
-) -> Result<Json<WorkspacePermissionsResponse>, StatusCode> {
+) -> Result<Json<WorkspacePermissionsResponse>, crate::http::error::ApiError> {
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let set = ctx
         .workspace_service()
         .resolve_permission_set(id, user_id)
         .await
         .map_err(map_service_error)?
-        .ok_or(StatusCode::FORBIDDEN)?;
+        .ok_or(crate::http::error::ApiError::forbidden("forbidden"))?;
     Ok(Json(WorkspacePermissionsResponse {
         workspace_id: id,
         permissions: set.to_vec(),

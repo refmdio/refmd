@@ -6,6 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 
@@ -23,11 +24,11 @@ pub async fn create_share_mount(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateShareMountRequest>,
-) -> Result<Json<ShareMountItem>, StatusCode> {
+) -> Result<Json<ShareMountItem>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -61,11 +62,11 @@ pub async fn list_share_mounts(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<Json<Vec<ShareMountItem>>, StatusCode> {
+) -> Result<Json<Vec<ShareMountItem>>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -95,11 +96,11 @@ pub async fn delete_share_mount(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -117,7 +118,7 @@ pub async fn delete_share_mount(
     if deleted {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(StatusCode::NOT_FOUND)
+        Err(ApiError::not_found("not_found"))
     }
 }
 
@@ -130,11 +131,11 @@ pub async fn materialize_folder_share(
     bearer: Bearer,
     headers: HeaderMap,
     Path(token): Path<String>,
-) -> Result<Json<MaterializeResponse>, StatusCode> {
+) -> Result<Json<MaterializeResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -149,15 +150,15 @@ pub async fn materialize_folder_share(
         .share_document_meta(&token)
         .await
         .map_err(map_share_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("not_found"))?;
     if meta.workspace_id != workspace_id {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ApiError::forbidden("forbidden"));
     }
     let actor = application::core::services::access::Actor::User(user_id);
     ctx.authorization()
         .require_edit(&actor, meta.document_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|err| crate::http::error::map_service_error(err, "authorization_error"))?;
     let created = service
         .materialize_folder_share(workspace_id, user_id, &permissions, &token)
         .await

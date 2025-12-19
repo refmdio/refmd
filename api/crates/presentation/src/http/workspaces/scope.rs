@@ -1,8 +1,9 @@
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use uuid::Uuid;
 
 use crate::context::AppContext;
 use crate::http::workspaces::map_service_error;
+use crate::http::error::ApiError;
 use domain::access::permissions::PermissionSet;
 
 const WORKSPACE_HEADER: &str = "X-Workspace-ID";
@@ -12,13 +13,13 @@ pub async fn resolve_active_workspace_id(
     headers: &HeaderMap,
     bearer_token: Option<&str>,
     user_id: Uuid,
-) -> Result<Uuid, StatusCode> {
+) -> Result<Uuid, ApiError> {
     let override_id = headers
         .get(WORKSPACE_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(|raw| raw.trim())
         .filter(|value| !value.is_empty())
-        .map(|value| Uuid::parse_str(value).map_err(|_| StatusCode::BAD_REQUEST))
+        .map(|value| Uuid::parse_str(value).map_err(|_| ApiError::bad_request("invalid_workspace_id")))
         .transpose()?;
 
     let workspaces = ctx
@@ -28,7 +29,7 @@ pub async fn resolve_active_workspace_id(
         .map_err(map_service_error)?;
 
     if workspaces.is_empty() {
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ApiError::forbidden("forbidden"));
     }
 
     if let Some(id) = override_id {
@@ -36,7 +37,7 @@ pub async fn resolve_active_workspace_id(
         if found {
             return Ok(id);
         }
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ApiError::forbidden("forbidden"));
     }
 
     if let Some(token) = bearer_token {
@@ -65,12 +66,12 @@ pub async fn ensure_workspace_permission(
     workspace_id: Uuid,
     user_id: Uuid,
     permission: &str,
-) -> Result<(), StatusCode> {
+) -> Result<(), ApiError> {
     let set = resolve_workspace_permissions(ctx, workspace_id, user_id).await?;
     if set.allows(permission) {
         Ok(())
     } else {
-        Err(StatusCode::FORBIDDEN)
+        Err(ApiError::forbidden("forbidden"))
     }
 }
 
@@ -78,10 +79,10 @@ pub async fn resolve_workspace_permissions(
     ctx: &AppContext,
     workspace_id: Uuid,
     user_id: Uuid,
-) -> Result<PermissionSet, StatusCode> {
+) -> Result<PermissionSet, ApiError> {
     ctx.workspace_service()
         .resolve_permission_set(workspace_id, user_id)
         .await
         .map_err(map_service_error)?
-        .ok_or(StatusCode::FORBIDDEN)
+        .ok_or(ApiError::forbidden("forbidden"))
 }

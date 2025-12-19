@@ -4,12 +4,12 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::context::AppContext;
 #[allow(unused_imports)]
 use crate::http::documents::DocumentDownloadBinary;
+use crate::http::error::ApiError;
 use crate::http::identity::auth::{
     self, apply_session_cookies, extract_client_ip, extract_refresh_token, extract_user_agent,
 };
@@ -31,10 +31,10 @@ use super::types::{
 pub async fn list_workspaces(
     State(ctx): State<AppContext>,
     bearer: Bearer,
-) -> Result<Json<Vec<WorkspaceResponse>>, StatusCode> {
+) -> Result<Json<Vec<WorkspaceResponse>>, ApiError> {
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(security_token::map_actor_error)?;
     let items = ctx
         .workspace_service()
         .list_for_user(user_id)
@@ -51,13 +51,13 @@ pub async fn create_workspace(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Json(payload): Json<CreateWorkspaceRequest>,
-) -> Result<Json<WorkspaceResponse>, StatusCode> {
+) -> Result<Json<WorkspaceResponse>, ApiError> {
     if payload.name.trim().is_empty() {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("invalid_workspace_name"));
     }
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(security_token::map_actor_error)?;
     let workspace = ctx
         .workspace_service()
         .create_workspace(
@@ -102,10 +102,10 @@ pub async fn get_workspace_detail(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
-) -> Result<Json<WorkspaceResponse>, StatusCode> {
+) -> Result<Json<WorkspaceResponse>, ApiError> {
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(security_token::map_actor_error)?;
     let workspaces = ctx
         .workspace_service()
         .list_for_user(user_id)
@@ -114,7 +114,7 @@ pub async fn get_workspace_detail(
     let workspace = workspaces
         .into_iter()
         .find(|ws| ws.id == id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("workspace_not_found"))?;
     Ok(Json(to_response(workspace)))
 }
 
@@ -131,15 +131,15 @@ pub async fn update_workspace(
     bearer: Bearer,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateWorkspaceRequest>,
-) -> Result<Json<WorkspaceResponse>, StatusCode> {
+) -> Result<Json<WorkspaceResponse>, ApiError> {
     if let Some(name) = payload.name.as_deref() {
         if name.trim().is_empty() {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(ApiError::bad_request("invalid_workspace_name"));
         }
     }
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(security_token::map_actor_error)?;
     require_permission(&ctx, id, user_id, PERM_WORKSPACE_UPDATE).await?;
     let normalized_name = payload
         .name
@@ -167,7 +167,7 @@ pub async fn update_workspace(
         )
         .await
         .map_err(map_service_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("workspace_not_found"))?;
 
     let memberships = ctx
         .workspace_service()
@@ -177,7 +177,7 @@ pub async fn update_workspace(
     let mut membership = memberships
         .into_iter()
         .find(|ws| ws.id == id)
-        .ok_or(StatusCode::FORBIDDEN)?;
+        .ok_or(ApiError::forbidden("forbidden"))?;
     membership.name = updated.name;
     membership.icon = updated.icon;
     membership.description = updated.description;
@@ -196,19 +196,19 @@ pub async fn delete_workspace(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(security_token::map_actor_error)?;
     require_permission(&ctx, id, user_id, PERM_WORKSPACE_DELETE).await?;
     let workspace = ctx
         .workspace_service()
         .get_workspace(id)
         .await
         .map_err(map_service_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("workspace_not_found"))?;
     if workspace.is_personal {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::bad_request("cannot_delete_personal_workspace"));
     }
     let members = ctx
         .workspace_service()
@@ -216,7 +216,7 @@ pub async fn delete_workspace(
         .await
         .map_err(map_service_error)?;
     if members.iter().any(|member| member.is_default) {
-        return Err(StatusCode::CONFLICT);
+        return Err(ApiError::conflict("workspace_has_default_member"));
     }
     ctx.workspace_service()
         .delete_workspace(id)
@@ -236,10 +236,10 @@ pub async fn leave_workspace(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path(workspace_id): Path<Uuid>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(security_token::map_actor_error)?;
     ctx.workspace_service()
         .leave_workspace(workspace_id, user_id)
         .await
@@ -259,10 +259,10 @@ pub async fn switch_workspace(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<(HeaderMap, Json<SwitchWorkspaceResponse>), StatusCode> {
+) -> Result<(HeaderMap, Json<SwitchWorkspaceResponse>), ApiError> {
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(security_token::map_actor_error)?;
     ctx.workspace_service()
         .set_default_workspace(user_id, id)
         .await
@@ -334,51 +334,20 @@ pub async fn download_workspace_archive(
     bearer: Bearer,
     Path(id): Path<Uuid>,
     Query(params): Query<DownloadWorkspaceQuery>,
-) -> Result<Response, (StatusCode, Json<Value>)> {
-    let error_response = |status: StatusCode, code: &str, message: String| {
-        (
-            status,
-            Json(json!({
-                "error": code,
-                "message": message,
-            })),
-        )
-    };
-
+) -> Result<Response, ApiError> {
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| {
-            error_response(
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                "Unauthorized".to_string(),
-            )
-        })?;
+        .map_err(security_token::map_actor_error)?;
 
     require_permission(&ctx, id, user_id, PERM_DOC_VIEW)
-        .await
-        .map_err(|status| error_response(status, "forbidden", "Forbidden".to_string()))?;
+        .await?;
 
     let workspace = ctx
         .workspace_service()
         .get_workspace(id)
         .await
-        .map_err(|err| {
-            let status = map_service_error(err);
-            let (code, message) = if status == StatusCode::NOT_FOUND {
-                ("not_found", "Workspace not found".to_string())
-            } else {
-                ("internal", "Failed to load workspace".to_string())
-            };
-            error_response(status, code, message)
-        })?
-        .ok_or_else(|| {
-            error_response(
-                StatusCode::NOT_FOUND,
-                "not_found",
-                "Workspace not found".to_string(),
-            )
-        })?;
+        .map_err(map_service_error)?
+        .ok_or(ApiError::not_found("workspace_not_found"))?;
 
     let actor = access::Actor::User(user_id);
     let download = ctx
@@ -387,49 +356,27 @@ pub async fn download_workspace_archive(
         .await
         .map_err(|err| match err {
             ServiceError::Unauthorized | ServiceError::TokenExpired | ServiceError::Forbidden => {
-                error_response(StatusCode::FORBIDDEN, "forbidden", "Forbidden".to_string())
+                ApiError::forbidden("forbidden")
             }
-            ServiceError::Conflict | ServiceError::NotFound => error_response(
-                StatusCode::NOT_FOUND,
-                "not_found",
-                "Workspace not found".to_string(),
-            ),
-            ServiceError::BadRequest(_) => error_response(
-                StatusCode::BAD_REQUEST,
-                "bad_request",
-                "Invalid download request".to_string(),
-            ),
+            ServiceError::Conflict | ServiceError::NotFound => ApiError::not_found("not_found"),
+            ServiceError::BadRequest(code) => ApiError::bad_request(code).with_message(code),
             ServiceError::Unexpected(inner) => {
                 tracing::error!(error = ?inner, workspace_id = %id, "workspace_download_failed");
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "internal",
-                    "Failed to prepare download".to_string(),
-                )
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
             }
         })?;
 
     let mut headers = HeaderMap::new();
-    let content_type = HeaderValue::from_str(&download.content_type).map_err(|_| {
-        error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "invalid_header",
-            "Failed to prepare download headers".to_string(),
-        )
-    })?;
+    let content_type = HeaderValue::from_str(&download.content_type)
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "invalid_header"))?;
     headers.insert(axum::http::header::CONTENT_TYPE, content_type);
     headers.insert(
         axum::http::header::HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
     let disposition = format!("attachment; filename=\"{}\"", download.filename);
-    let content_disposition = HeaderValue::from_str(&disposition).map_err(|_| {
-        error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "invalid_header",
-            "Failed to prepare download headers".to_string(),
-        )
-    })?;
+    let content_disposition = HeaderValue::from_str(&disposition)
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "invalid_header"))?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
 
     Ok((headers, download.bytes).into_response())

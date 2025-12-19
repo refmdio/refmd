@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use tracing::{debug, error, info};
 use uuid::Uuid;
@@ -17,7 +16,6 @@ pub struct GitRebuildScheduler {
     jobs: Arc<dyn GitRebuildJobQueue>,
     git_repo: Arc<dyn GitRepository>,
     workspace: Arc<dyn GitWorkspacePort>,
-    interval: Duration,
 }
 
 impl GitRebuildScheduler {
@@ -25,33 +23,28 @@ impl GitRebuildScheduler {
         jobs: Arc<dyn GitRebuildJobQueue>,
         git_repo: Arc<dyn GitRepository>,
         workspace: Arc<dyn GitWorkspacePort>,
-        interval: Duration,
     ) -> Self {
         Self {
             jobs,
             git_repo,
             workspace,
-            interval,
         }
     }
 
-    pub async fn run(self) {
-        loop {
-            match self.git_repo.list_auto_sync_workspaces().await {
-                Ok(ids) => {
-                    for workspace_id in ids {
-                        if let Err(err) = self.enqueue_job_if_ready(workspace_id).await {
-                            error!(
-                                error = ?err,
-                                workspace_id = %workspace_id,
-                                "git_rebuild_enqueue_failed"
-                            );
-                        }
+    pub async fn tick(&self) {
+        match self.git_repo.list_auto_sync_workspaces().await {
+            Ok(ids) => {
+                for workspace_id in ids {
+                    if let Err(err) = self.enqueue_job_if_ready(workspace_id).await {
+                        error!(
+                            error = ?err,
+                            workspace_id = %workspace_id,
+                            "git_rebuild_enqueue_failed"
+                        );
                     }
                 }
-                Err(err) => error!(error = ?err, "git_rebuild_scheduler_workspace_list_failed"),
             }
-            tokio::time::sleep(self.interval).await;
+            Err(err) => error!(error = ?err, "git_rebuild_scheduler_workspace_list_failed"),
         }
     }
 

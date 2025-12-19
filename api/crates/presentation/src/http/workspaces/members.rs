@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::context::AppContext;
 use crate::security::token::{self, Bearer};
+use crate::http::error::ApiError;
 use domain::access::permissions::{PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW};
 
 use super::types::{
@@ -25,10 +26,10 @@ pub async fn list_members(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
-) -> Result<Json<Vec<WorkspaceMemberResponse>>, StatusCode> {
+) -> Result<Json<Vec<WorkspaceMemberResponse>>, ApiError> {
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     require_permission(&ctx, id, user_id, PERM_MEMBER_VIEW).await?;
     let members = ctx
         .workspace_service()
@@ -57,25 +58,25 @@ pub async fn update_member_role(
     bearer: Bearer,
     Path((workspace_id, member_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateMemberRoleRequest>,
-) -> Result<Json<WorkspaceMemberResponse>, StatusCode> {
+) -> Result<Json<WorkspaceMemberResponse>, ApiError> {
     let role_kind = parse_role_kind(body.role_kind.as_str())?;
     let system_role = parse_system_role(body.system_role.as_deref())?;
     match role_kind {
         domain::workspaces::roles::WorkspaceRoleKind::System => {
             if system_role.is_none() || body.custom_role_id.is_some() {
-                return Err(StatusCode::BAD_REQUEST);
+                return Err(ApiError::bad_request("invalid_role"));
             }
         }
         domain::workspaces::roles::WorkspaceRoleKind::Custom => {
             if system_role.is_some() || body.custom_role_id.is_none() {
-                return Err(StatusCode::BAD_REQUEST);
+                return Err(ApiError::bad_request("invalid_role"));
             }
         }
     }
 
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_UPDATE_ROLE).await?;
 
     ctx.workspace_service()
@@ -97,7 +98,7 @@ pub async fn update_member_role(
         .map_err(map_service_error)?
         .into_iter()
         .find(|m| m.user_id == member_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .ok_or(ApiError::not_found("member_not_found"))?;
 
     Ok(Json(member_response_from(updated)))
 }
@@ -116,10 +117,10 @@ pub async fn remove_member(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path((workspace_id, member_id)): Path<(Uuid, Uuid)>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_REMOVE).await?;
     ctx.workspace_service()
         .remove_member(workspace_id, member_id, Some(user_id))

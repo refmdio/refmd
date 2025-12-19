@@ -10,18 +10,19 @@ impl GitWorkspaceService {
             .list_workspace_documents(workspace_id)
             .await?
             .into_iter()
-            .filter(|d| d.doc_type != DocumentType::Folder);
+            .filter(|d| d.doc_type() != DocumentType::Folder);
 
         for doc in doc_rows {
-            let export = match self.snapshot.export_current_markdown(&doc.id).await? {
+            let doc_id = doc.id();
+            let export = match self.snapshot.export_current_markdown(&doc_id).await? {
                 Some(export) => export,
                 None => continue,
             };
             let repo_path = export
                 .repo_path
-                .or_else(|| Some(doc.desired_path.as_str().to_string()))
+                .or_else(|| Some(doc.desired_path().as_str().to_string()))
                 .map(normalize_repo_path)
-                .ok_or_else(|| anyhow!("missing_repo_path_for_doc {}", doc.id))?;
+                .ok_or_else(|| anyhow!("missing_repo_path_for_doc {}", doc_id))?;
             state.insert(
                 repo_path,
                 FileSnapshot {

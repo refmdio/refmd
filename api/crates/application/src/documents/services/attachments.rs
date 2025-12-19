@@ -71,7 +71,7 @@ impl DocumentService {
         }
         let base_dir = self
             .storage
-            .build_doc_dir(target_doc.id)
+            .build_doc_dir(target_doc.id())
             .await
             .map_err(ServiceError::from)?;
         for attachment in attachments {
@@ -92,7 +92,7 @@ impl DocumentService {
                 .replace('\\', "/");
             self.files_repo
                 .insert_file(
-                    target_doc.id,
+                    target_doc.id(),
                     &filename,
                     attachment.content_type.as_deref(),
                     attachment.bytes.len() as i64,
@@ -102,7 +102,7 @@ impl DocumentService {
                 .await
                 .map_err(ServiceError::from)?;
             if let Some(repo_path) =
-                doc_path::repo_relative_from_storage(target_doc.workspace_id, &storage_path)
+                doc_path::repo_relative_from_storage(target_doc.workspace_id(), &storage_path)
             {
                 let payload = json!({
                     "repo_path": repo_path.as_str(),
@@ -110,12 +110,12 @@ impl DocumentService {
                     "backend": "api",
                     "size": attachment.bytes.len() as i64,
                     "content_hash": attachment.content_hash,
-                    "workspace_id": target_doc.workspace_id.to_string(),
+                    "workspace_id": target_doc.workspace_id().to_string(),
                     "actor_id": actor_id.to_string(),
                 });
                 self.record_event(
-                    target_doc.workspace_id,
-                    target_doc.id,
+                    target_doc.workspace_id(),
+                    target_doc.id(),
                     "attachment.ingest_upsert",
                     Some(payload),
                 )

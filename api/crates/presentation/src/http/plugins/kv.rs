@@ -1,4 +1,5 @@
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use axum::{
     Json,
@@ -27,7 +28,7 @@ pub async fn get_kv_value(
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<KvPath>,
-) -> Result<Json<KvValueResponse>, StatusCode> {
+) -> Result<Json<KvValueResponse>, ApiError> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
     let plugin_ctx =
@@ -37,7 +38,7 @@ pub async fn get_kv_value(
     ctx.authorization()
         .require_view(&actor, p.doc_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|_| ApiError::forbidden("forbidden"))?;
 
     ctx.plugin_permissions()
         .ensure(
@@ -72,7 +73,7 @@ pub async fn put_kv_value(
     headers: HeaderMap,
     Path(p): Path<KvPath>,
     Json(body): Json<KvValueBody>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     ensure_valid_plugin_id(&p.plugin)?;
     let bearer_token = bearer.0;
     let plugin_ctx =
@@ -82,7 +83,7 @@ pub async fn put_kv_value(
     ctx.authorization()
         .require_edit(&actor, p.doc_id)
         .await
-        .map_err(|_| StatusCode::FORBIDDEN)?;
+        .map_err(|_| ApiError::forbidden("forbidden"))?;
 
     ctx.plugin_permissions()
         .ensure(

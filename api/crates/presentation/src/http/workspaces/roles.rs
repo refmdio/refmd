@@ -26,10 +26,10 @@ pub async fn list_roles(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
-) -> Result<Json<Vec<WorkspaceRoleResponse>>, StatusCode> {
+) -> Result<Json<Vec<WorkspaceRoleResponse>>, crate::http::error::ApiError> {
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     require_any_permission(
         &ctx,
         id,
@@ -65,15 +65,15 @@ pub async fn create_role(
     bearer: Bearer,
     Path(id): Path<Uuid>,
     Json(body): Json<CreateWorkspaceRoleRequest>,
-) -> Result<Json<WorkspaceRoleResponse>, StatusCode> {
+) -> Result<Json<WorkspaceRoleResponse>, crate::http::error::ApiError> {
     if body.name.trim().is_empty() || !validate_base_role(body.base_role.as_str()) {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(crate::http::error::ApiError::bad_request("invalid_role"));
     }
     let base_role = parse_base_role(body.base_role.as_str())?;
     let overrides = normalize_overrides(body.overrides)?;
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     require_permission(&ctx, id, user_id, PERM_MEMBER_UPDATE_ROLE).await?;
     let record = ctx
         .workspace_service()
@@ -107,10 +107,10 @@ pub async fn update_role(
     bearer: Bearer,
     Path((workspace_id, role_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateWorkspaceRoleRequest>,
-) -> Result<Json<WorkspaceRoleResponse>, StatusCode> {
+) -> Result<Json<WorkspaceRoleResponse>, crate::http::error::ApiError> {
     if let Some(base) = body.base_role.as_deref() {
         if !validate_base_role(base) {
-            return Err(StatusCode::BAD_REQUEST);
+            return Err(crate::http::error::ApiError::bad_request("invalid_base_role"));
         }
     }
     let base_role = parse_optional_base_role(body.base_role.as_deref())?;
@@ -122,7 +122,7 @@ pub async fn update_role(
     };
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_UPDATE_ROLE).await?;
     let mut record = ctx
         .workspace_service()
@@ -158,10 +158,10 @@ pub async fn delete_role(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     Path((workspace_id, role_id)): Path<(Uuid, Uuid)>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, crate::http::error::ApiError> {
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_UPDATE_ROLE).await?;
     ctx.workspace_service()
         .delete_role(workspace_id, role_id)

@@ -70,8 +70,8 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
-        let workspace_id = doc.workspace_id;
-        let doc_id = doc.id;
+        let workspace_id = doc.workspace_id();
+        let doc_id = doc.id();
         run_in_tx(self.tx_runner.as_ref(), move |tx| {
             Box::pin(async move {
                 Self::enqueue_doc_sync_tx(
@@ -86,17 +86,17 @@ impl DocumentService {
         })
         .await
         .map_err(map_tx_error)?;
-        let repo_path = doc.desired_path.as_str().to_string();
+        let repo_path = doc.desired_path().as_str().to_string();
         let event_payload = json!({
             "repo_path": repo_path,
-            "desired_path": doc.desired_path.as_str(),
-            "slug": doc.slug.as_str(),
-            "doc_type": doc.doc_type.as_str(),
-            "owner_id": doc.workspace_id,
+            "desired_path": doc.desired_path().as_str(),
+            "slug": doc.slug().as_str(),
+            "doc_type": doc.doc_type().as_str(),
+            "owner_id": doc.workspace_id(),
         });
         self.record_event(
-            doc.workspace_id,
-            doc.id,
+            doc.workspace_id(),
+            doc.id(),
             "document.content_updated",
             Some(event_payload),
         )

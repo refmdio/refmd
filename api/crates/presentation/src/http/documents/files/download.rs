@@ -1,11 +1,12 @@
 use axum::{
     extract::{Path as AxumPath, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     response::Response,
 };
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
@@ -25,11 +26,11 @@ pub async fn get_file(
     bearer: Bearer,
     headers: HeaderMap,
     AxumPath(id): AxumPath<Uuid>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -60,11 +61,11 @@ pub async fn get_file_by_name(
     headers: HeaderMap,
     AxumPath(filename): AxumPath<String>,
     Query(q): Query<FileByNameQuery>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

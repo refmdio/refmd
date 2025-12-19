@@ -5,6 +5,7 @@ use axum::{
 };
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use application::plugins::use_cases::install_from_url::InstallPluginError;
 use domain::access::permissions::{PERM_PLUGIN_INSTALL, PERM_PLUGIN_UNINSTALL};
@@ -25,7 +26,7 @@ pub async fn install_from_url(
     bearer: Bearer,
     headers: HeaderMap,
     Json(body): Json<InstallFromUrlBody>,
-) -> Result<Json<InstallResponse>, StatusCode> {
+) -> Result<Json<InstallResponse>, ApiError> {
     let bearer_token_raw = bearer.0;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,
@@ -54,17 +55,24 @@ pub async fn install_from_url(
         Err(err) => {
             tracing::error!(error = ?err, "failed to install plugin from url");
             match err {
-                InstallPluginError::Download(_) => Err(StatusCode::BAD_GATEWAY),
+                InstallPluginError::Download(_) => Err(ApiError::new(
+                    StatusCode::BAD_GATEWAY,
+                    "plugin_download_failed",
+                )),
                 InstallPluginError::Install(inner) => match inner {
                     application::plugins::ports::plugin_installer::PluginInstallError::InvalidPackage(_) => {
-                        Err(StatusCode::BAD_REQUEST)
+                        Err(ApiError::bad_request("invalid_plugin_package"))
                     }
                     application::plugins::ports::plugin_installer::PluginInstallError::Storage(_) => {
-                        Err(StatusCode::INTERNAL_SERVER_ERROR)
+                        Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))
                     }
                 },
-                InstallPluginError::Persist(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-                InstallPluginError::Event(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+                InstallPluginError::Persist(_) => {
+                    Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))
+                }
+                InstallPluginError::Event(_) => {
+                    Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))
+                }
             }
         }
     }
@@ -83,7 +91,7 @@ pub async fn uninstall(
     bearer: Bearer,
     headers: HeaderMap,
     Json(body): Json<UninstallBody>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let bearer_token_raw = bearer.0;
     let plugin_ctx = resolve_plugin_user_context(
         &ctx,

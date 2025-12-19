@@ -9,7 +9,8 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::core::services::errors::ServiceError;
-use crate::core::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse, render};
+use crate::core::ports::markdown_renderer::MarkdownRenderer;
+use crate::core::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;
@@ -27,6 +28,7 @@ pub struct MarkdownRenderService {
     assets: Arc<dyn PluginAssetStore>,
     installations: Arc<dyn PluginInstallationRepository>,
     runtime: Arc<dyn PluginRuntime>,
+    renderer: Arc<dyn MarkdownRenderer>,
     asset_signer: Arc<AssetSigner>,
     asset_ttl_secs: u64,
 }
@@ -37,6 +39,7 @@ impl MarkdownRenderService {
         assets: Arc<dyn PluginAssetStore>,
         installations: Arc<dyn PluginInstallationRepository>,
         runtime: Arc<dyn PluginRuntime>,
+        renderer: Arc<dyn MarkdownRenderer>,
         asset_signer: Arc<AssetSigner>,
         asset_ttl_secs: u64,
     ) -> Self {
@@ -44,6 +47,7 @@ impl MarkdownRenderService {
             assets,
             installations,
             runtime,
+            renderer,
             asset_signer,
             asset_ttl_secs,
         }
@@ -96,8 +100,10 @@ impl MarkdownRenderService {
             Some(&placeholder_kinds)
         };
 
-        let mut response =
-            render(text, options.clone(), placeholder_kinds_ref).map_err(ServiceError::from)?;
+        let mut response = self
+            .renderer
+            .render(text, options.clone(), placeholder_kinds_ref)
+            .map_err(ServiceError::from)?;
         if !response.placeholders.is_empty() && !specs.is_empty() {
             self.apply_placeholder_renderers(&mut response, &options, specs)
                 .await?;

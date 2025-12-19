@@ -64,7 +64,7 @@ where
             None => return Ok(None),
         };
 
-        if document.doc_type == DocumentType::Folder {
+        if document.doc_type() == DocumentType::Folder {
             return self.download_folder(actor, &document, format).await;
         }
 
@@ -81,17 +81,18 @@ where
         &self,
         document: &DomainDocument,
     ) -> anyhow::Result<Option<DocumentExportAssets>> {
-        if document.doc_type == DocumentType::Folder {
+        if document.doc_type() == DocumentType::Folder {
             return Ok(None);
         }
-        let export = match self.snapshot.export_current_markdown(&document.id).await? {
+        let doc_id = document.id();
+        let export = match self.snapshot.export_current_markdown(&doc_id).await? {
             Some(export) => export,
             None => return Ok(None),
         };
-        let doc_dir = self.storage.build_doc_dir(document.id).await?;
-        let attachments = self.collect_attachments(document.id, &doc_dir).await?;
-        let safe_title = sanitize_filename(document.title.as_str());
-        let display_title = document.title.as_str().trim();
+        let doc_dir = self.storage.build_doc_dir(doc_id).await?;
+        let attachments = self.collect_attachments(doc_id, &doc_dir).await?;
+        let safe_title = sanitize_filename(document.title().as_str());
+        let display_title = document.title().as_str().trim();
         let display_title = if display_title.is_empty() {
             None
         } else {
@@ -151,23 +152,28 @@ where
         }
 
         let mut nodes: HashMap<Uuid, DomainDocument> = HashMap::new();
-        nodes.insert(folder.id, folder.clone());
+        nodes.insert(folder.id(), folder.clone());
         let subtree = self
             .documents
-            .list_owned_subtree_documents(folder.workspace_id, folder.id)
+            .list_owned_subtree_documents(folder.workspace_id(), folder.id())
             .await?;
         for entry in subtree {
-            if entry.id == folder.id {
+            if entry.id == folder.id() {
                 continue;
             }
             if let Some(doc) = self.documents.get_by_id(entry.id).await? {
-                nodes.insert(doc.id, doc);
+                nodes.insert(doc.id(), doc);
             }
         }
 
-        let root_name = sanitize_filename(folder.title.as_str());
+        let root_name = sanitize_filename(folder.title().as_str());
         let entries = self
-            .build_archive_entries(actor, &nodes, folder.id, Some(folder.desired_path.as_str()))
+            .build_archive_entries(
+                actor,
+                &nodes,
+                folder.id(),
+                Some(folder.desired_path().as_str()),
+            )
             .await?;
         let bytes = build_folder_archive(&root_name, &entries)?;
         Ok(Some(DocumentDownload {
@@ -194,30 +200,30 @@ where
             .await?;
         let mut nodes: HashMap<Uuid, DomainDocument> = HashMap::new();
         for doc in documents {
-            nodes.insert(doc.id, doc);
+            nodes.insert(doc.id(), doc);
         }
 
-        let root = DomainDocument {
-            id: workspace_id,
-            owner_id: workspace_id,
-            owner_user_id: None,
+        let root = DomainDocument::rehydrate(
             workspace_id,
-            title: domain::documents::title::Title::new(workspace_name),
-            parent_id: None,
-            doc_type: DocumentType::Folder,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            created_by_plugin: None,
-            slug: domain::documents::path::Slug::new(sanitize_filename(workspace_name))
+            workspace_id,
+            None,
+            workspace_id,
+            domain::documents::title::Title::new(workspace_name),
+            None,
+            DocumentType::Folder,
+            Utc::now(),
+            Utc::now(),
+            None,
+            domain::documents::path::Slug::new(sanitize_filename(workspace_name))
                 .unwrap_or_else(|_| domain::documents::path::Slug::from_title(workspace_name)),
-            desired_path: domain::documents::path::DesiredPath::root(),
-            path: None,
-            created_by: None,
-            archived_at: None,
-            archived_by: None,
-            archived_parent_id: None,
-        };
-        nodes.insert(root.id, root);
+            domain::documents::path::DesiredPath::root(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        nodes.insert(root.id(), root);
 
         let root_name = sanitize_filename(workspace_name);
         let entries = self
@@ -240,11 +246,11 @@ where
     ) -> anyhow::Result<Vec<FolderDownloadEntry>> {
         let mut entries: Vec<FolderDownloadEntry> = Vec::new();
         for doc in nodes.values() {
-            if doc.id == root_id || doc.doc_type == DocumentType::Folder {
+            if doc.id() == root_id || doc.doc_type() == DocumentType::Folder {
                 continue;
             }
             let capability =
-                access::resolve_document(self.access, self.shares, actor, doc.id).await?;
+                access::resolve_document(self.access, self.shares, actor, doc.id()).await?;
             if capability < Capability::View {
                 continue;
             }
@@ -279,7 +285,7 @@ fn sanitize_filename(name: &str) -> String {
 }
 
 fn resolve_relative_path(doc: &DomainDocument, base_prefix: Option<&str>) -> String {
-    let path = doc.desired_path.as_str().trim_start_matches('/');
+    let path = doc.desired_path().as_str().trim_start_matches('/');
     if let Some(base) = base_prefix {
         let base = base.trim_start_matches('/');
         if !base.is_empty() {
@@ -292,7 +298,7 @@ fn resolve_relative_path(doc: &DomainDocument, base_prefix: Option<&str>) -> Str
         }
     }
     if path.is_empty() {
-        format!("{}.md", sanitize_filename(doc.title.as_str()))
+        format!("{}.md", sanitize_filename(doc.title().as_str()))
     } else {
         path.to_string()
     }

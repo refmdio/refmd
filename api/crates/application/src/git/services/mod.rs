@@ -625,13 +625,13 @@ impl GitService {
             let mut matched = None;
             for doc in docs.iter() {
                 let mut paths: Vec<String> = Vec::new();
-                if let Some(p) = doc.path.as_ref() {
+                if let Some(p) = doc.path() {
                     let norm = normalize(p);
                     if !norm.is_empty() {
                         paths.push(norm);
                     }
                 }
-                let desired = normalize(doc.desired_path.as_str());
+                let desired = normalize(doc.desired_path().as_str());
                 if !desired.is_empty() {
                     paths.push(desired);
                 }
@@ -641,15 +641,15 @@ impl GitService {
                         || candidate.ends_with(&format!("/{p}"))
                         || p.ends_with(&candidate)
                 }) {
-                    matched = Some(doc.id);
+                    matched = Some(doc.id());
                     break;
                 }
             }
 
             conflict.document_id = matched;
             if let Some(doc_id) = matched {
-                if let Some(doc) = docs.iter().find(|d| d.id == doc_id) {
-                    conflict.path = doc.desired_path.as_str().to_string();
+                if let Some(doc) = docs.iter().find(|d| d.id() == doc_id) {
+                    conflict.path = doc.desired_path().as_str().to_string();
                 }
             }
             out.push(conflict);

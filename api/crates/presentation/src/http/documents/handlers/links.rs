@@ -1,11 +1,12 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
@@ -23,11 +24,11 @@ pub async fn get_backlinks(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<BacklinksResponse>, StatusCode> {
+) -> Result<Json<BacklinksResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -69,11 +70,11 @@ pub async fn get_outgoing_links(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<OutgoingLinksResponse>, StatusCode> {
+) -> Result<Json<OutgoingLinksResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

@@ -214,7 +214,7 @@ where
                         )
                         .await
                         .map_err(PluginEffectError::from)?;
-                    doc_id_created = Some(doc.id);
+                    doc_id_created = Some(doc.id());
                 }
                 "putKv" => {
                     policy::ensure_plugin_permission(

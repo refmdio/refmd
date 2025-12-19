@@ -64,20 +64,20 @@ impl DocumentService {
                 .set_document_editable(&node.id.to_string(), false)
                 .await?;
         }
-        let repo_path = doc.desired_path.as_str().to_string();
+        let repo_path = doc.desired_path().as_str().to_string();
         let event_payload = json!({
             "repo_path": repo_path,
-            "doc_type": doc.doc_type.as_str(),
-            "slug": doc.slug.as_str(),
-            "desired_path": doc.desired_path.as_str(),
-            "owner_id": doc.workspace_id,
+            "doc_type": doc.doc_type().as_str(),
+            "slug": doc.slug().as_str(),
+            "desired_path": doc.desired_path().as_str(),
+            "owner_id": doc.workspace_id(),
             "actor_id": actor_id,
             "previous_path": previous_repo_path,
             "previous_desired_path": meta.desired_path.as_str(),
         });
         self.record_event(
-            doc.workspace_id,
-            doc.id,
+            doc.workspace_id(),
+            doc.id(),
             "document.archived",
             Some(event_payload),
         )
@@ -135,20 +135,20 @@ impl DocumentService {
                 self.realtime.force_persist(&node.id.to_string()).await?;
             }
         }
-        let repo_path = doc.desired_path.as_str().to_string();
+        let repo_path = doc.desired_path().as_str().to_string();
         let event_payload = json!({
             "repo_path": repo_path,
-            "doc_type": doc.doc_type.as_str(),
-            "slug": doc.slug.as_str(),
-            "desired_path": doc.desired_path.as_str(),
-            "owner_id": doc.workspace_id,
+            "doc_type": doc.doc_type().as_str(),
+            "slug": doc.slug().as_str(),
+            "desired_path": doc.desired_path().as_str(),
+            "owner_id": doc.workspace_id(),
             "actor_id": actor_id,
             "previous_path": previous_repo_path,
             "previous_desired_path": meta.desired_path.as_str(),
         });
         self.record_event(
-            doc.workspace_id,
-            doc.id,
+            doc.workspace_id(),
+            doc.id(),
             "document.unarchived",
             Some(event_payload),
         )

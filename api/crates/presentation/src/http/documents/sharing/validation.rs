@@ -1,10 +1,10 @@
 use axum::{
     Json,
     extract::{Query, State},
-    http::StatusCode,
 };
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 
 use super::types::{ShareBrowseResponse, ShareDocumentResponse, ShareTokenQuery, map_share_error};
 
@@ -18,13 +18,15 @@ use super::types::{ShareBrowseResponse, ShareDocumentResponse, ShareTokenQuery, 
 pub async fn validate_share_token(
     State(ctx): State<AppContext>,
     Query(query): Query<ShareTokenQuery>,
-) -> Result<Json<ShareDocumentResponse>, StatusCode> {
+) -> Result<Json<ShareDocumentResponse>, ApiError> {
     let service = ctx.share_service();
     let res = service
         .validate_token(&query.token)
         .await
         .map_err(map_share_error)?;
-    let out: ShareDocumentResponse = res.map(Into::into).ok_or(StatusCode::NOT_FOUND)?;
+    let out: ShareDocumentResponse = res
+        .map(Into::into)
+        .ok_or(ApiError::not_found("not_found"))?;
     Ok(Json(out))
 }
 
@@ -34,12 +36,14 @@ pub async fn validate_share_token(
 pub async fn browse_share(
     State(ctx): State<AppContext>,
     Query(query): Query<ShareTokenQuery>,
-) -> Result<Json<ShareBrowseResponse>, StatusCode> {
+) -> Result<Json<ShareBrowseResponse>, ApiError> {
     let service = ctx.share_service();
     let res = service
         .browse_share(&query.token)
         .await
         .map_err(map_share_error)?;
-    let out: ShareBrowseResponse = res.map(Into::into).ok_or(StatusCode::NOT_FOUND)?;
+    let out: ShareBrowseResponse = res
+        .map(Into::into)
+        .ok_or(ApiError::not_found("not_found"))?;
     Ok(Json(out))
 }

@@ -1,5 +1,4 @@
 use std::pin::Pin;
-use std::sync::Arc;
 
 use crate::context::{AppContext, DynRealtimeSink, DynRealtimeStream};
 use crate::security::request_status;
@@ -15,7 +14,6 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use futures_util::{Sink, Stream, StreamExt};
 use serde::Deserialize;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -181,9 +179,8 @@ async fn peer_axum(doc_id: String, ws: WebSocket, ctx: AppContext, can_edit: boo
     tracing::debug!(%doc_id, "WS peer:upgrade");
     let (sink_raw, stream_raw) = ws.split();
     let sink_box: Pin<Box<WsBinarySink>> = Box::pin(WsBinarySink { inner: sink_raw });
-    let sink_dyn: DynRealtimeSink = Arc::new(Mutex::new(
-        sink_box as Pin<Box<dyn Sink<Vec<u8>, Error = RealtimeError> + Send + Sync>>,
-    ));
+    let sink_dyn: DynRealtimeSink =
+        sink_box as Pin<Box<dyn Sink<Vec<u8>, Error = RealtimeError> + Send + Sync>>;
     let stream_box: Pin<Box<WsBinaryStream>> = Box::pin(WsBinaryStream { inner: stream_raw });
     let stream_dyn: DynRealtimeStream =
         stream_box as Pin<Box<dyn Stream<Item = Result<Vec<u8>, RealtimeError>> + Send + Sync>>;

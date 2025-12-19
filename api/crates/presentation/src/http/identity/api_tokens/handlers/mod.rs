@@ -6,13 +6,15 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
-use crate::http::identity::auth::{self, Bearer};
+use crate::http::error::ApiError;
+use crate::http::identity::auth::Bearer;
 use crate::http::workspaces::scope as workspace_scope;
+use crate::security::token;
 use application::core::services::errors::ServiceError;
 
 use super::types::{ApiTokenCreateRequest, ApiTokenCreateResponse, ApiTokenItem};
 
-fn map_token_error(err: ServiceError) -> StatusCode {
+fn map_token_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "api_token_service_error")
 }
 
@@ -26,10 +28,11 @@ pub async fn list_api_tokens(
     State(ctx): State<AppContext>,
     bearer: Bearer,
     headers: HeaderMap,
-) -> Result<Json<Vec<ApiTokenItem>>, StatusCode> {
+) -> Result<Json<Vec<ApiTokenItem>>, ApiError> {
     let bearer_token = bearer.0.clone();
-    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -60,10 +63,11 @@ pub async fn create_api_token(
     bearer: Bearer,
     headers: HeaderMap,
     Json(payload): Json<ApiTokenCreateRequest>,
-) -> Result<Json<ApiTokenCreateResponse>, StatusCode> {
+) -> Result<Json<ApiTokenCreateResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
-    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -94,10 +98,11 @@ pub async fn revoke_api_token(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let bearer_token = bearer.0.clone();
-    let sub = auth::validate_bearer(&ctx, Bearer(bearer_token.clone())).await?;
-    let user_id = Uuid::parse_str(&sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let user_id = token::require_user_id(&ctx, bearer)
+        .await
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -116,6 +121,6 @@ pub async fn revoke_api_token(
     if revoked {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(StatusCode::NOT_FOUND)
+        Err(ApiError::not_found("not_found"))
     }
 }

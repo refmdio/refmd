@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::json;
 use tracing::{error, info, warn};
@@ -14,6 +13,7 @@ use crate::core::ports::storage::storage_reconcile_backend::StorageReconcileBack
 use crate::core::ports::storage::storage_reconcile_jobs::{
     StorageReconcileJob, StorageReconcileJobs,
 };
+use crate::core::services::worker::WorkerTick;
 use crate::documents::ports::document_path_repository::DocumentPathRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use domain::access::permissions::PermissionSet;
@@ -218,14 +218,14 @@ impl StorageReconcileService {
             Some(doc) => {
                 info!(
                     workspace_id = %workspace_id,
-                    doc_id = %doc.id,
+                    doc_id = %doc.id(),
                     repo_path = repo_path,
                     "storage_reconcile_missing_doc_enqueued"
                 );
                 self.storage_jobs
                     .enqueue_doc_job(
-                        doc.workspace_id,
-                        doc.id,
+                        doc.workspace_id(),
+                        doc.id(),
                         StorageProjectionJobKind::DocSync,
                         Some("storage_reconcile_missing_doc"),
                     )
@@ -242,23 +242,19 @@ impl StorageReconcileService {
         Ok(())
     }
 
-    pub async fn run(self: Arc<Self>) {
-        loop {
-            match self.jobs.fetch_next(30).await {
-                Ok(Some(job)) => {
-                    if let Err(err) = self.process_job(&job).await {
-                        error!(error = ?err, job_id = job.id, "storage_reconcile_job_failed");
-                        let _ = self.jobs.fail(job.id, &format!("{err:#}")).await;
-                    } else {
-                        let _ = self.jobs.complete(job.id).await;
-                    }
+    pub async fn tick(&self) -> anyhow::Result<WorkerTick> {
+        match self.jobs.fetch_next(30).await {
+            Ok(Some(job)) => {
+                if let Err(err) = self.process_job(&job).await {
+                    error!(error = ?err, job_id = job.id, "storage_reconcile_job_failed");
+                    let _ = self.jobs.fail(job.id, &format!("{err:#}")).await;
+                } else {
+                    let _ = self.jobs.complete(job.id).await;
                 }
-                Ok(None) => tokio::time::sleep(Duration::from_secs(2)).await,
-                Err(err) => {
-                    error!(error = ?err, "storage_reconcile_fetch_failed");
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                }
+                Ok(WorkerTick::Processed)
             }
+            Ok(None) => Ok(WorkerTick::Idle),
+            Err(err) => Err(err),
         }
     }
 }

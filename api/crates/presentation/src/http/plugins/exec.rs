@@ -1,12 +1,13 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
 };
 use serde_json::json;
 
 use crate::context::AppContext;
 use crate::http::identity::auth::Bearer;
+use crate::http::error::ApiError;
 use application::core::services::access;
 use domain::access::permissions::PERM_PLUGIN_RUN;
 use domain::documents::doc_type::DocumentType;
@@ -32,7 +33,7 @@ pub async fn exec_action(
     headers: HeaderMap,
     Path((plugin, action)): Path<(String, String)>,
     Json(body): Json<ExecBody>,
-) -> Result<Json<ExecResultResponse>, StatusCode> {
+) -> Result<Json<ExecResultResponse>, ApiError> {
     ensure_valid_plugin_id(&plugin)?;
     let bearer_token = bearer.0;
     let plugin_ctx =
@@ -65,11 +66,11 @@ pub async fn exec_action(
         if let access::Actor::ShareToken(_) = &actor {
             auth.require_view(&actor, doc_id)
                 .await
-                .map_err(|_| StatusCode::FORBIDDEN)?;
+                .map_err(|_| ApiError::forbidden("forbidden"))?;
         } else {
             auth.require_edit(&actor, doc_id)
                 .await
-                .map_err(|_| StatusCode::FORBIDDEN)?;
+                .map_err(|_| ApiError::forbidden("forbidden"))?;
         }
     }
     let allowed_doc_id = match &actor {

@@ -170,25 +170,25 @@ impl PublicRepository for SqlxPublicRepository {
             let desired_path_str: String = r.get("desired_path");
             let desired_path =
                 doc_path::DesiredPath::new(desired_path_str).context("invalid_desired_path")?;
-            Ok(Document {
-                id: r.get("id"),
-                owner_id: r.get("owner_id"),
-                owner_user_id: r.try_get("owner_user_id").ok(),
-                workspace_id: r.get("workspace_id"),
-                title: Title::new(title),
-                parent_id: r.try_get("parent_id").ok(),
+            Ok(Document::rehydrate(
+                r.get("id"),
+                r.get("owner_id"),
+                r.try_get("owner_user_id").ok(),
+                r.get("workspace_id"),
+                Title::new(title),
+                r.try_get("parent_id").ok(),
                 doc_type,
-                created_at: r.get("created_at"),
-                updated_at: r.get("updated_at"),
+                r.get("created_at"),
+                r.get("updated_at"),
+                r.try_get("created_by_plugin").ok(),
                 slug,
                 desired_path,
-                path: r.try_get("path").ok(),
-                created_by: r.try_get("created_by").ok(),
-                created_by_plugin: r.try_get("created_by_plugin").ok(),
-                archived_at: r.try_get("archived_at").ok(),
-                archived_by: r.try_get("archived_by").ok(),
-                archived_parent_id: r.try_get("archived_parent_id").ok(),
-            })
+                r.try_get("path").ok(),
+                r.try_get("created_by").ok(),
+                r.try_get("archived_at").ok(),
+                r.try_get("archived_by").ok(),
+                r.try_get("archived_parent_id").ok(),
+            ))
         })
         .transpose()
     }

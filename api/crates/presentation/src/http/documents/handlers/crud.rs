@@ -6,6 +6,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use domain::access::permissions::PERM_DOC_VIEW;
@@ -29,11 +30,11 @@ pub async fn list_documents(
     bearer: Bearer,
     headers: HeaderMap,
     q: Option<Query<ListDocumentsQuery>>,
-) -> Result<Json<DocumentListResponse>, StatusCode> {
+) -> Result<Json<DocumentListResponse>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -66,11 +67,11 @@ pub async fn create_document(
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateDocumentRequest>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -84,7 +85,8 @@ pub async fn create_document(
     let dtype = req
         .r#type
         .unwrap_or_else(|| DocumentType::Document.as_str().to_string());
-    let doc_type = DocumentType::try_from(dtype.as_str()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let doc_type =
+        DocumentType::try_from(dtype.as_str()).map_err(|_| ApiError::bad_request("invalid_document_type"))?;
     let service = ctx.document_service();
     let doc = service
         .create_for_user(
@@ -110,12 +112,12 @@ pub async fn get_document(
     bearer: Option<Bearer>,
     Query(params): Query<std::collections::HashMap<String, String>>,
     Path(id): Path<Uuid>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     let token = params.get("token").map(|s| s.as_str());
     let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?
+        .ok_or(ApiError::unauthorized("unauthorized"))?;
     let service = ctx.document_service();
     let doc = service
         .get_for_actor(&actor, id)
@@ -131,11 +133,11 @@ pub async fn delete_document(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<StatusCode, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -153,7 +155,7 @@ pub async fn delete_document(
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(StatusCode::NOT_FOUND)
+        Err(ApiError::not_found("not_found"))
     }
 }
 
@@ -165,11 +167,11 @@ pub async fn update_document(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateDocumentRequest>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -213,11 +215,11 @@ pub async fn duplicate_document(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
     Json(req): Json<DuplicateDocumentRequest>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -263,11 +265,11 @@ pub async fn archive_document(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
@@ -301,11 +303,11 @@ pub async fn unarchive_document(
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-) -> Result<Json<Document>, StatusCode> {
+) -> Result<Json<Document>, ApiError> {
     let bearer_token = bearer.0.clone();
     let user_id = token::require_user_id(&ctx, bearer)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?;
     let workspace_id = workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,

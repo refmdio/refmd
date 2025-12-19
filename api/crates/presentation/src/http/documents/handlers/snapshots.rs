@@ -7,6 +7,7 @@ use axum::{
 use uuid::Uuid;
 
 use crate::context::AppContext;
+use crate::http::error::ApiError;
 use crate::security::token::{self, Bearer};
 
 #[allow(unused_imports)]
@@ -33,13 +34,13 @@ pub async fn list_document_snapshots(
     bearer: Option<Bearer>,
     Path(id): Path<Uuid>,
     q: Option<Query<crate::http::documents::types::ListSnapshotsQuery>>,
-) -> Result<Json<SnapshotListResponse>, StatusCode> {
+) -> Result<Json<SnapshotListResponse>, ApiError> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
     let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?
+        .ok_or(ApiError::unauthorized("unauthorized"))?;
 
     let limit = params.limit.unwrap_or(50).clamp(1, 200);
     let offset = params.offset.unwrap_or(0).max(0);
@@ -72,13 +73,13 @@ pub async fn get_document_snapshot_diff(
     bearer: Option<Bearer>,
     Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
     q: Option<Query<SnapshotDiffQuery>>,
-) -> Result<Json<SnapshotDiffResponse>, StatusCode> {
+) -> Result<Json<SnapshotDiffResponse>, ApiError> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
     let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?
+        .ok_or(ApiError::unauthorized("unauthorized"))?;
 
     let base_mode = params
         .base
@@ -114,13 +115,13 @@ pub async fn restore_document_snapshot(
     bearer: Option<Bearer>,
     Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
     q: Option<Query<SnapshotTokenQuery>>,
-) -> Result<Json<SnapshotRestoreResponse>, StatusCode> {
+) -> Result<Json<SnapshotRestoreResponse>, ApiError> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
     let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?
+        .ok_or(ApiError::unauthorized("unauthorized"))?;
 
     let service = ctx.document_service();
     let restored = service
@@ -153,13 +154,13 @@ pub async fn download_document_snapshot(
     bearer: Option<Bearer>,
     Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
     q: Option<Query<SnapshotTokenQuery>>,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ApiError> {
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
     let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
         .await
-        .map_err(|_| StatusCode::UNAUTHORIZED)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        .map_err(token::map_actor_error)?
+        .ok_or(ApiError::unauthorized("unauthorized"))?;
 
     let service = ctx.document_service();
     let download = service
@@ -173,8 +174,9 @@ pub async fn download_document_snapshot(
         HeaderValue::from_static("application/zip"),
     );
     let disposition = format!("attachment; filename=\"{}\"", download.filename);
-    let content_disposition =
-        HeaderValue::from_str(&disposition).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let content_disposition = HeaderValue::from_str(&disposition).map_err(|_| {
+        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+    })?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
 
     Ok((headers, download.bytes).into_response())

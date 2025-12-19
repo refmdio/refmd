@@ -12,6 +12,7 @@ use crate::config::Config;
 use crate::git::GitRebuildStack;
 use application::core::services::storage::reconcile::StorageReconcileService;
 use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
+use application::core::services::worker::WorkerTick;
 use application::identity::ports::user_session_repository::UserSessionRepository;
 use application::plugins::ports::plugin_asset_store::PluginAssetStore;
 use application::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
@@ -149,7 +150,17 @@ pub fn spawn_storage_reconcile_worker(
 ) {
     if spawn_background_tasks {
         jobs.spawn("storage_reconcile_worker", async move {
-            svc.run().await;
+            let idle = Duration::from_secs(2);
+            loop {
+                match svc.tick().await {
+                    Ok(WorkerTick::Processed) => continue,
+                    Ok(WorkerTick::Idle) => sleep(idle).await,
+                    Err(err) => {
+                        error!(error = ?err, "storage_reconcile_worker_tick_failed");
+                        sleep(idle).await;
+                    }
+                }
+            }
         });
     }
 }
@@ -158,10 +169,14 @@ pub fn spawn_storage_reconcile_scheduler(
     jobs: &mut Jobs,
     spawn_background_tasks: bool,
     scheduler: StorageReconcileScheduler,
+    interval: Duration,
 ) {
     if spawn_background_tasks {
         jobs.spawn("storage_reconcile_scheduler", async move {
-            scheduler.run().await;
+            loop {
+                scheduler.tick().await;
+                sleep(interval).await;
+            }
         });
     }
 }
@@ -201,10 +216,23 @@ pub fn spawn_git_rebuild_jobs(
     if let Some(rebuild) = rebuild {
         let svc = rebuild.service.clone();
         jobs.spawn("git_rebuild_worker", async move {
-            svc.run().await;
+            let idle = Duration::from_secs(1);
+            loop {
+                match svc.tick().await {
+                    Ok(WorkerTick::Processed) => continue,
+                    Ok(WorkerTick::Idle) => sleep(idle).await,
+                    Err(err) => {
+                        error!(error = ?err, "git_rebuild_worker_tick_failed");
+                        sleep(idle).await;
+                    }
+                }
+            }
         });
         jobs.spawn("git_rebuild_scheduler", async move {
-            rebuild.scheduler.run().await;
+            loop {
+                rebuild.scheduler.tick().await;
+                sleep(rebuild.interval).await;
+            }
         });
     }
 }

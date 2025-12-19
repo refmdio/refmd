@@ -49,6 +49,8 @@ use application::documents::services::realtime::snapshot::{
 
 use super::cluster_bus::{RedisClusterBus, StreamItem};
 
+type SharedRealtimeSink = Arc<Mutex<DynRealtimeSink>>;
+
 pub struct RedisRealtimeEngine {
     bus: Arc<RedisClusterBus>,
     hydration_service: Arc<DocHydrationService>,
@@ -145,7 +147,7 @@ impl RedisRealtimeEngine {
         self.snapshot_service.clone()
     }
 
-    async fn send_initial_sync(&self, doc: &Doc, sink: &DynRealtimeSink) -> anyhow::Result<()> {
+    async fn send_initial_sync(&self, doc: &Doc, sink: &SharedRealtimeSink) -> anyhow::Result<()> {
         let bin = {
             let txn = doc.transact();
             txn.encode_state_as_update_v1(&StateVector::default())
@@ -166,7 +168,7 @@ impl RedisRealtimeEngine {
 
     async fn flush_awareness_backlog(
         &self,
-        sink: &DynRealtimeSink,
+        sink: &SharedRealtimeSink,
         frames: &[Vec<u8>],
         doc_id: &str,
         awareness_manager: &AwarenessService,
@@ -188,7 +190,7 @@ impl RedisRealtimeEngine {
 
     fn spawn_forward_task(
         mut stream: UnboundedReceiverStream<anyhow::Result<StreamItem>>,
-        sink: DynRealtimeSink,
+        sink: SharedRealtimeSink,
         doc_id: String,
         channel: &'static str,
         awareness_manager: Option<AwarenessService>,
@@ -239,6 +241,7 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         stream: DynRealtimeStream,
         can_edit: bool,
     ) -> anyhow::Result<()> {
+        let sink: SharedRealtimeSink = Arc::new(Mutex::new(sink));
         let doc_uuid = Uuid::parse_str(doc_id)?;
         let hydrated = self
             .hydration_service
@@ -649,7 +652,7 @@ fn spawn_persistence_worker(
 
 impl RedisRealtimeEngine {
     async fn send_protocol_start(
-        sink: DynRealtimeSink,
+        sink: SharedRealtimeSink,
         awareness: Arc<Awareness>,
         writable: bool,
     ) -> anyhow::Result<()> {
