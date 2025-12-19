@@ -25,9 +25,10 @@ pub async fn get_file(
     AxumPath(id): AxumPath<Uuid>,
 ) -> Result<Response, ApiError> {
     auth.ensure_permission(PERM_DOC_VIEW)?;
+    let actor = access::Actor::User(auth.user_id);
     let payload = ctx
         .file_service()
-        .download_owned_file(auth.workspace_id, id)
+        .download_owned_file(&actor, auth.workspace_id, id)
         .await
         .map_err(map_file_error)?;
     Ok(file_payload_response(payload))

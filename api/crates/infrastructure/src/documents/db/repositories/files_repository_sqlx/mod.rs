@@ -82,7 +82,7 @@ impl FilesRepository for SqlxFilesRepository {
     async fn get_file_meta(&self, file_id: Uuid) -> PortResult<Option<FileMeta>> {
         let out: anyhow::Result<Option<FileMeta>> = async {
             let row = sqlx::query(
-                r#"SELECT f.storage_path, f.content_type, d.workspace_id
+                r#"SELECT f.storage_path, f.content_type, f.document_id, d.workspace_id
                FROM files f JOIN documents d ON f.document_id = d.id
                WHERE f.id = $1"#,
             )
@@ -92,6 +92,7 @@ impl FilesRepository for SqlxFilesRepository {
             Ok(row.map(|r| FileMeta {
                 storage_path: r.get("storage_path"),
                 content_type: r.try_get("content_type").ok(),
+                document_id: r.get("document_id"),
                 workspace_id: r.get("workspace_id"),
             }))
         }

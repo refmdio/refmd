@@ -7,6 +7,7 @@ use crate::core::ports::errors::PortResult;
 pub struct FileMeta {
     pub storage_path: String,
     pub content_type: Option<String>,
+    pub document_id: Uuid,
     pub workspace_id: Uuid,
 }
 

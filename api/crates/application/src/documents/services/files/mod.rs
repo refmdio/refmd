@@ -37,6 +37,7 @@ pub trait FileServiceFacade: Send + Sync {
 
     async fn download_owned_file(
         &self,
+        actor: &Actor,
         workspace_id: Uuid,
         file_id: Uuid,
     ) -> Result<FilePayload, ServiceError>;
@@ -83,10 +84,11 @@ impl FileServiceFacade for FileService {
 
     async fn download_owned_file(
         &self,
+        actor: &Actor,
         workspace_id: Uuid,
         file_id: Uuid,
     ) -> Result<FilePayload, ServiceError> {
-        self.download_owned_file(workspace_id, file_id).await
+        self.download_owned_file(actor, workspace_id, file_id).await
     }
 
     async fn get_file_by_name(
@@ -161,6 +163,7 @@ impl FileService {
 
     pub async fn download_owned_file(
         &self,
+        actor: &Actor,
         workspace_id: Uuid,
         file_id: Uuid,
     ) -> Result<FilePayload, ServiceError> {
@@ -173,6 +176,13 @@ impl FileService {
         if meta.workspace_id != workspace_id {
             return Err(ServiceError::Forbidden);
         }
+        access::require_view(
+            self.access_repo.as_ref(),
+            self.share_access.as_ref(),
+            actor,
+            meta.document_id,
+        )
+        .await?;
         let abs_path = self.storage.absolute_from_relative(&meta.storage_path);
         let bytes = self
             .storage
