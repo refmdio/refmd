@@ -3,12 +3,9 @@ name = "application"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-# Enables OpenAPI schema derives on some boundary models.
-openapi = ["dep:utoipa"]
-
 [dependencies]
 domain = { path = "../domain" }
+contracts = { path = "../contracts" }
 
 anyhow = "1"
 async-trait = "0.1"
@@ -32,7 +29,6 @@ similar = "2"
 thiserror = "1"
 tracing = "0.1"
 urlencoding = "2"
-utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"], optional = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 yrs = { version = "0.24", features = ["sync"] }
 zip = { version = "0.6" }

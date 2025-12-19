@@ -1,13 +1,11 @@
 use axum::{
     Json,
     extract::{Query, State},
-    http::HeaderMap,
 };
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use application::core::services::access;
 
 use super::types::{ApplicableQuery, ApplicableShareItem, map_share_error};
@@ -17,24 +15,10 @@ use super::types::{ApplicableQuery, ApplicableShareItem, map_share_error};
     responses((status = 200, description = "Shares that include the document", body = [ApplicableShareItem])))]
 pub async fn list_applicable_shares(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Query(q): Query<ApplicableQuery>,
 ) -> Result<Json<Vec<ApplicableShareItem>>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
-    let actor = access::Actor::User(user_id);
+    let actor = access::Actor::User(auth.user_id);
     ctx.authorization()
         .require_view(&actor, q.doc_id)
         .await
@@ -42,7 +26,7 @@ pub async fn list_applicable_shares(
 
     let service = ctx.share_service();
     let rows = service
-        .list_applicable(workspace_id, &permissions, q.doc_id)
+        .list_applicable(auth.workspace_id, &auth.permissions, q.doc_id)
         .await
         .map_err(map_share_error)?;
     let items: Vec<ApplicableShareItem> = rows.into_iter().map(Into::into).collect();

@@ -1,14 +1,12 @@
 use axum::{
     extract::{Path as AxumPath, Query, State},
-    http::HeaderMap,
     response::Response,
 };
 use uuid::Uuid;
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use application::core::services::access;
 use domain::access::permissions::PERM_DOC_VIEW;
 
@@ -23,26 +21,13 @@ use super::types::{FileByNameQuery, file_payload_response, map_file_error};
 )]
 pub async fn get_file(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     AxumPath(id): AxumPath<Uuid>,
 ) -> Result<Response, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
-        .await?;
+    auth.ensure_permission(PERM_DOC_VIEW)?;
     let payload = ctx
         .file_service()
-        .download_owned_file(workspace_id, id)
+        .download_owned_file(auth.workspace_id, id)
         .await
         .map_err(map_file_error)?;
     Ok(file_payload_response(payload))
@@ -57,26 +42,13 @@ pub async fn get_file(
 )]
 pub async fn get_file_by_name(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     AxumPath(filename): AxumPath<String>,
     Query(q): Query<FileByNameQuery>,
 ) -> Result<Response, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
-        .await?;
+    auth.ensure_permission(PERM_DOC_VIEW)?;
 
-    let actor = access::Actor::User(user_id);
+    let actor = access::Actor::User(auth.user_id);
     let payload = ctx
         .file_service()
         .get_file_by_name(&actor, q.document_id, &filename)

@@ -105,14 +105,8 @@ mod tests {
 
     #[test]
     fn share_permission_parses_and_formats() {
-        assert_eq!(
-            SharePermission::parse("view"),
-            Some(SharePermission::View)
-        );
-        assert_eq!(
-            SharePermission::parse("edit"),
-            Some(SharePermission::Edit)
-        );
+        assert_eq!(SharePermission::parse("view"), Some(SharePermission::View));
+        assert_eq!(SharePermission::parse("edit"), Some(SharePermission::Edit));
         assert_eq!(SharePermission::parse("nope"), None);
         assert_eq!(SharePermission::Edit.as_str(), SHARE_PERMISSION_EDIT);
         assert!(SharePermission::Edit.allows_edit());

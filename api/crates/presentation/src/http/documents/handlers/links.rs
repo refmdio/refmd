@@ -1,14 +1,12 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::HeaderMap,
 };
 use uuid::Uuid;
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use application::core::services::access;
 use domain::access::permissions::PERM_DOC_VIEW;
 
@@ -21,27 +19,14 @@ use crate::http::documents::types::{
     responses((status = 200, body = BacklinksResponse)))]
 pub async fn get_backlinks(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<BacklinksResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
-        .await?;
-    let actor = access::Actor::User(user_id);
+    auth.ensure_permission(PERM_DOC_VIEW)?;
+    let actor = access::Actor::User(auth.user_id);
     let service = ctx.document_service();
     let items = service
-        .backlinks(&actor, workspace_id, id)
+        .backlinks(&actor, auth.workspace_id, id)
         .await
         .map_err(map_service_error)?;
     let backlinks: Vec<BacklinkInfo> = items
@@ -67,27 +52,14 @@ pub async fn get_backlinks(
     responses((status = 200, body = OutgoingLinksResponse)))]
 pub async fn get_outgoing_links(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<OutgoingLinksResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
-        .await?;
-    let actor = access::Actor::User(user_id);
+    auth.ensure_permission(PERM_DOC_VIEW)?;
+    let actor = access::Actor::User(auth.user_id);
     let service = ctx.document_service();
     let items = service
-        .outgoing_links(&actor, workspace_id, id)
+        .outgoing_links(&actor, auth.workspace_id, id)
         .await
         .map_err(map_service_error)?;
     let links = items

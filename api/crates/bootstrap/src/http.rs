@@ -1,5 +1,5 @@
-use axum::extract::{DefaultBodyLimit, MatchedPath};
 use axum::extract::FromRef;
+use axum::extract::{DefaultBodyLimit, MatchedPath};
 use axum::{Router, middleware, routing::get};
 use http::HeaderValue;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -160,7 +160,9 @@ fn build_cors(cfg: &Config) -> anyhow::Result<CorsLayer> {
     } else if cfg.is_production {
         // In production, FRONTEND_URL is mandatory (enforced earlier), but fallback defensively to deny all
         CorsLayer::new()
-            .allow_origin(AllowOrigin::exact(HeaderValue::from_static("http://invalid")))
+            .allow_origin(AllowOrigin::exact(HeaderValue::from_static(
+                "http://invalid",
+            )))
             .allow_methods([
                 http::Method::GET,
                 http::Method::POST,

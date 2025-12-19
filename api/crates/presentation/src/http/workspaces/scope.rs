@@ -43,11 +43,16 @@ pub async fn resolve_active_workspace_id(
     }
 
     if let Some(token) = bearer_token {
-        let token_ws_id = if let Some(token_ws_id) = ctx.auth_service().workspace_from_token_claim(token) {
-            Some(token_ws_id)
-        } else {
-            ctx.auth_service().workspace_from_token_async(token).await.ok().flatten()
-        };
+        let token_ws_id =
+            if let Some(token_ws_id) = ctx.auth_service().workspace_from_token_claim(token) {
+                Some(token_ws_id)
+            } else {
+                ctx.auth_service()
+                    .workspace_from_token_async(token)
+                    .await
+                    .ok()
+                    .flatten()
+            };
         if let Some(token_ws_id) = token_ws_id
             && workspaces.iter().any(|ws| ws.id == token_ws_id)
         {

@@ -5,8 +5,7 @@ use axum::{
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 use domain::access::permissions::PERM_DOC_VIEW;
 
@@ -21,21 +20,14 @@ fn map_tag_error(err: ServiceError) -> crate::http::error::ApiError {
     responses((status = 200, body = [TagItem])))]
 pub async fn list_tags(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: axum::http::HeaderMap,
+    auth: WorkspaceAuth,
     q: Option<Query<std::collections::HashMap<String, String>>>,
 ) -> Result<Json<Vec<TagItem>>, ApiError> {
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id =
-        workspace_scope::resolve_active_workspace_id(&ctx, &headers, None, user_id).await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
-        .await?;
+    auth.ensure_permission(PERM_DOC_VIEW)?;
     let filter = q.and_then(|Query(m)| m.get("q").cloned());
     let service = ctx.tag_service();
     let items = service
-        .list(workspace_id, filter)
+        .list(auth.workspace_id, filter)
         .await
         .map_err(map_tag_error)?;
     let out: Vec<TagItem> = items.into_iter().map(Into::into).collect();

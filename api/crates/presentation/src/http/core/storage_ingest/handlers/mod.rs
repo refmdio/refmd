@@ -1,9 +1,9 @@
-use axum::{Json, extract::State, http::HeaderMap};
+use axum::{Json, extract::State, http::StatusCode};
 use uuid::Uuid;
 
 use crate::context::CoreContext;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::error::ApiError;
+use crate::http::extractors::WorkspaceAuth;
 use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
 use application::core::services::storage::ingest::normalize_repo_path;
 use domain::storage::ingest_backend::StorageIngestBackend;
@@ -19,37 +19,31 @@ use super::types::IngestBatchRequest;
 )]
 pub async fn enqueue_ingest_events(
     State(ctx): State<CoreContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Json(body): Json<IngestBatchRequest>,
-) -> Result<axum::http::StatusCode, axum::http::StatusCode> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(|_| axum::http::StatusCode::UNAUTHORIZED)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
+) -> Result<StatusCode, ApiError> {
+    let queue = ctx.storage_ingest_queue();
+    let snapshot = auth.permissions.to_vec();
+    enqueue_batch(
+        queue.as_ref(),
+        auth.workspace_id,
+        auth.user_id,
+        &snapshot,
+        &body,
     )
     .await
-    .map_err(|_| axum::http::StatusCode::FORBIDDEN)?;
-    let permissions = workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id)
-        .await
-        .map_err(|_| axum::http::StatusCode::FORBIDDEN)?;
-    let queue = ctx.storage_ingest_queue();
-    let snapshot = permissions.to_vec();
-    enqueue_batch(queue.as_ref(), workspace_id, user_id, &snapshot, &body)
-        .await
-        .map(|count| {
-            tracing::info!(user_id = %user_id, events = count, "storage_ingest_events_enqueued");
-            axum::http::StatusCode::ACCEPTED
-        })
-        .map_err(|err| {
-            tracing::error!(error = ?err, "storage_ingest_enqueue_failed");
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR
-        })
+    .map(|count| {
+        tracing::info!(
+            user_id = %auth.user_id,
+            events = count,
+            "storage_ingest_events_enqueued"
+        );
+        StatusCode::ACCEPTED
+    })
+    .map_err(|err| {
+        tracing::error!(error = ?err, "storage_ingest_enqueue_failed");
+        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+    })
 }
 
 async fn enqueue_batch(

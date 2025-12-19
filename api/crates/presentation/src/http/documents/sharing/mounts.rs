@@ -1,14 +1,13 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
 };
 use uuid::Uuid;
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 
 use super::types::{CreateShareMountRequest, MaterializeResponse, ShareMountItem, map_share_error};
 
@@ -21,29 +20,15 @@ use super::types::{CreateShareMountRequest, MaterializeResponse, ShareMountItem,
 )]
 pub async fn create_share_mount(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Json(req): Json<CreateShareMountRequest>,
 ) -> Result<Json<ShareMountItem>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.share_service();
     let item = service
         .save_share_mount(
-            workspace_id,
-            user_id,
-            &permissions,
+            auth.workspace_id,
+            auth.user_id,
+            &auth.permissions,
             &req.token,
             req.parent_folder_id,
         )
@@ -60,25 +45,11 @@ pub async fn create_share_mount(
 )]
 pub async fn list_share_mounts(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
 ) -> Result<Json<Vec<ShareMountItem>>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.share_service();
     let items = service
-        .list_share_mounts(workspace_id, &permissions)
+        .list_share_mounts(auth.workspace_id, &auth.permissions)
         .await
         .map_err(map_share_error)?;
     Ok(Json(items.into_iter().map(Into::into).collect()))
@@ -93,26 +64,12 @@ pub async fn list_share_mounts(
 )]
 pub async fn delete_share_mount(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.share_service();
     let deleted = service
-        .delete_share_mount(workspace_id, &permissions, id)
+        .delete_share_mount(auth.workspace_id, &auth.permissions, id)
         .await
         .map_err(map_share_error)?;
     if deleted {
@@ -128,39 +85,25 @@ pub async fn delete_share_mount(
 )]
 pub async fn materialize_folder_share(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(token): Path<String>,
 ) -> Result<Json<MaterializeResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.share_service();
     let meta = service
         .share_document_meta(&token)
         .await
         .map_err(map_share_error)?
         .ok_or(ApiError::not_found("not_found"))?;
-    if meta.workspace_id != workspace_id {
+    if meta.workspace_id != auth.workspace_id {
         return Err(ApiError::forbidden("forbidden"));
     }
-    let actor = application::core::services::access::Actor::User(user_id);
+    let actor = application::core::services::access::Actor::User(auth.user_id);
     ctx.authorization()
         .require_edit(&actor, meta.document_id)
         .await
         .map_err(|err| crate::http::error::map_service_error(err, "authorization_error"))?;
     let created = service
-        .materialize_folder_share(workspace_id, user_id, &permissions, &token)
+        .materialize_folder_share(auth.workspace_id, auth.user_id, &auth.permissions, &token)
         .await
         .map_err(map_share_error)?;
     Ok(Json(MaterializeResponse { created }))

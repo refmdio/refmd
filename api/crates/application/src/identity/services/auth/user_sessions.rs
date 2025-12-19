@@ -277,9 +277,9 @@ impl UserSessionService {
             return Err(ServiceError::Unauthorized);
         }
 
-        let access = self
-            .auth
-            .issue_session(session.user_id, session.workspace_id, Some(session.id))?;
+        let access =
+            self.auth
+                .issue_session(session.user_id, session.workspace_id, Some(session.id))?;
 
         Ok(IssuedSessionBundle {
             access,

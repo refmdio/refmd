@@ -22,6 +22,7 @@ cli_app = { package = "cli", path = "crates/cli" }
 resolver = "3"
 members = [
     "crates/domain",
+    "crates/contracts",
     "crates/application",
     "crates/presentation",
     "crates/infrastructure",

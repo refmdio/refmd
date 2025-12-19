@@ -1,13 +1,13 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
 };
 use uuid::Uuid;
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
+use crate::http::extractors::WorkspaceAuth;
 use crate::security::token::{self, Bearer};
 use domain::access::permissions::PERM_DOC_VIEW;
 use domain::documents::doc_type::DocumentType;
@@ -27,23 +27,10 @@ use crate::http::documents::types::{
     responses((status = 200, body = DocumentListResponse)))]
 pub async fn list_documents(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     q: Option<Query<ListDocumentsQuery>>,
 ) -> Result<Json<DocumentListResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
-        .await?;
+    auth.ensure_permission(PERM_DOC_VIEW)?;
     let (qstr, tag, state_param) = q
         .map(|Query(v)| (v.query, v.tag, v.state))
         .unwrap_or((None, None, None));
@@ -53,7 +40,7 @@ pub async fn list_documents(
 
     let service = ctx.document_service();
     let docs = service
-        .list_for_user(workspace_id, qstr, tag, state)
+        .list_for_user(auth.workspace_id, qstr, tag, state)
         .await
         .map_err(map_service_error)?;
 
@@ -64,23 +51,9 @@ pub async fn list_documents(
 #[utoipa::path(post, path = "/api/documents", tag = "Documents", request_body = CreateDocumentRequest, responses((status = 200, body = Document)))]
 pub async fn create_document(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Json(req): Json<CreateDocumentRequest>,
 ) -> Result<Json<Document>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let title = req.title.unwrap_or_else(|| "Untitled".into());
     let dtype = req
         .r#type
@@ -90,9 +63,9 @@ pub async fn create_document(
     let service = ctx.document_service();
     let doc = service
         .create_for_user(
-            workspace_id,
-            user_id,
-            &permissions,
+            auth.workspace_id,
+            auth.user_id,
+            &auth.permissions,
             &title,
             req.parent_id,
             doc_type,
@@ -130,26 +103,12 @@ pub async fn get_document(
 #[utoipa::path(delete, path = "/api/documents/{id}", tag = "Documents", params(("id" = Uuid, Path, description = "Document ID"),), responses((status = 204)))]
 pub async fn delete_document(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.document_service();
     let ok = service
-        .delete_for_user(workspace_id, id, Some(user_id), &permissions)
+        .delete_for_user(auth.workspace_id, id, Some(auth.user_id), &auth.permissions)
         .await
         .map_err(map_service_error)?;
     if ok {
@@ -163,24 +122,10 @@ pub async fn delete_document(
     params(("id" = Uuid, Path, description = "Document ID"),), responses((status = 200, body = Document)))]
 pub async fn update_document(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateDocumentRequest>,
 ) -> Result<Json<Document>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let parent_opt = match req.parent_id.clone() {
         DoubleOption::NotProvided => None,
         DoubleOption::Null => Some(None),
@@ -189,10 +134,10 @@ pub async fn update_document(
     let service = ctx.document_service();
     let doc = service
         .update_metadata(
-            workspace_id,
+            auth.workspace_id,
             id,
-            user_id,
-            &permissions,
+            auth.user_id,
+            &auth.permissions,
             req.title.clone(),
             parent_opt,
         )
@@ -211,24 +156,10 @@ pub async fn update_document(
 )]
 pub async fn duplicate_document(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<DuplicateDocumentRequest>,
 ) -> Result<Json<Document>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let parent_opt = match req.parent_id.clone() {
         DoubleOption::NotProvided => None,
         DoubleOption::Null => Some(None),
@@ -237,10 +168,10 @@ pub async fn duplicate_document(
     let doc = ctx
         .document_service()
         .duplicate_document(
-            workspace_id,
+            auth.workspace_id,
             id,
-            user_id,
-            &permissions,
+            auth.user_id,
+            &auth.permissions,
             req.title.clone(),
             parent_opt,
         )
@@ -262,26 +193,12 @@ pub async fn duplicate_document(
 )]
 pub async fn archive_document(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Document>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let doc = ctx
         .document_service()
-        .archive_document(workspace_id, id, user_id, &permissions)
+        .archive_document(auth.workspace_id, id, auth.user_id, &auth.permissions)
         .await
         .map_err(map_service_error)?;
     Ok(Json(to_http_document(doc)))
@@ -300,26 +217,12 @@ pub async fn archive_document(
 )]
 pub async fn unarchive_document(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Document>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let doc = ctx
         .document_service()
-        .unarchive_document(workspace_id, id, user_id, &permissions)
+        .unarchive_document(auth.workspace_id, id, auth.user_id, &auth.permissions)
         .await
         .map_err(map_service_error)?;
     Ok(Json(to_http_document(doc)))

@@ -55,7 +55,7 @@ impl<R: DocumentRepository + ?Sized> CreateDocumentRepository for &R {
 }
 
 #[async_trait::async_trait]
-impl<'a> CreateDocumentRepository for (dyn DocumentRepositoryTx + 'a) {
+impl<'a> CreateDocumentRepository for dyn DocumentRepositoryTx + 'a {
     async fn create_for_user(
         &mut self,
         workspace_id: Uuid,

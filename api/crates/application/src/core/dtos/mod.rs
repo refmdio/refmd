@@ -1,3 +1,1 @@
-mod diff;
-
-pub use diff::*;
+pub use contracts::core::dtos::*;

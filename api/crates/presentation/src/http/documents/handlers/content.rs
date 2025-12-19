@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
+use crate::http::extractors::AuthedUser;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
 use application::core::services::errors::ServiceError;
@@ -24,13 +25,10 @@ use crate::http::documents::types::{
 #[utoipa::path(get, path = "/api/documents/{id}/content", tag = "Documents", params(("id" = Uuid, Path, description = "Document ID"),), responses((status = 200)))]
 pub async fn get_document_content(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let actor = access::Actor::User(user_id);
+    let actor = access::Actor::User(auth.user_id);
     let service = ctx.document_service();
     let content = service
         .get_content(&actor, id)

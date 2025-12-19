@@ -1,13 +1,11 @@
 use axum::{
     Json,
     extract::{Query, State},
-    http::HeaderMap,
 };
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use domain::access::permissions::PERM_DOC_VIEW;
 
 use crate::http::documents::types::{SearchQuery, SearchResult, map_service_error};
@@ -17,28 +15,15 @@ use crate::http::documents::types::{SearchQuery, SearchResult, map_service_error
     responses((status = 200, body = [SearchResult])))]
 pub async fn search_documents(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     q: Option<Query<SearchQuery>>,
 ) -> Result<Json<Vec<SearchResult>>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_DOC_VIEW)
-        .await?;
+    auth.ensure_permission(PERM_DOC_VIEW)?;
     let query_text = q.and_then(|Query(v)| v.q);
 
     let service = ctx.document_service();
     let hits = service
-        .search_for_user(workspace_id, query_text, 20)
+        .search_for_user(auth.workspace_id, query_text, 20)
         .await
         .map_err(map_service_error)?;
     let items = hits

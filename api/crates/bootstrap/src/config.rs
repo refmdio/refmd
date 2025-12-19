@@ -3,7 +3,9 @@ use std::str::FromStr;
 
 fn env_var(keys: &[&str]) -> Option<String> {
     for key in keys {
-        if let Ok(value) = env::var(key) && !value.trim().is_empty() {
+        if let Ok(value) = env::var(key)
+            && !value.trim().is_empty()
+        {
             return Some(value);
         }
     }

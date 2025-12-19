@@ -1,9 +1,8 @@
-use axum::{Json, extract::State, http::HeaderMap};
+use axum::{Json, extract::State};
 
 use crate::context::GitContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::{WorkspaceAuth, WorkspaceUser};
 use application::git::dtos::{GitSyncRequestDto, UpsertGitConfigInput};
 use domain::access::permissions::PERM_GIT_INIT;
 
@@ -14,25 +13,13 @@ use super::types::{
 #[utoipa::path(post, path = "/api/git/sync", tag = "Git", request_body = GitSyncRequest, responses((status = 200, body = GitSyncResponse), (status = 409, description = "Conflicts during rebase/pull")))]
 pub async fn sync_now(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceUser,
     Json(req): Json<GitSyncRequest>,
 ) -> Result<Json<GitSyncResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
     let service = ctx.git_service();
     let out = service
         .sync_now(
-            workspace_id,
+            auth.workspace_id,
             GitSyncRequestDto {
                 message: req.message.clone(),
                 force: req.force,
@@ -59,30 +46,21 @@ pub async fn sync_now(
 )]
 pub async fn import_repository(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Json(req): Json<CreateGitConfigRequest>,
 ) -> Result<Json<GitImportResponse>, ApiError> {
     if req.repository_url.trim().is_empty() {
         return Err(ApiError::bad_request("invalid_repository_url"));
     }
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_INIT)
-        .await?;
+    auth.ensure_permission(PERM_GIT_INIT)?;
 
     let service = ctx.git_service();
     let dto = service
-        .import_repository(workspace_id, user_id, &UpsertGitConfigInput::from(req))
+        .import_repository(
+            auth.workspace_id,
+            auth.user_id,
+            &UpsertGitConfigInput::from(req),
+        )
         .await
         .map_err(map_git_error)?;
     Ok(Json(GitImportResponse {
@@ -98,23 +76,11 @@ pub async fn import_repository(
 #[utoipa::path(post, path = "/api/git/init", tag = "Git", responses((status = 200, description = "OK")))]
 pub async fn init_repository(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
     let service = ctx.git_service();
     service
-        .init_repository(workspace_id)
+        .init_repository(auth.workspace_id)
         .await
         .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"success":true})))
@@ -123,23 +89,11 @@ pub async fn init_repository(
 #[utoipa::path(post, path = "/api/git/deinit", tag = "Git", responses((status = 200, description = "OK")))]
 pub async fn deinit_repository(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
     let service = ctx.git_service();
     service
-        .deinit_repository(workspace_id)
+        .deinit_repository(auth.workspace_id)
         .await
         .map_err(map_git_error)?;
     Ok(Json(serde_json::json!({"success":true})))

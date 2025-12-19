@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-application = { path = "../application", features = ["openapi"] }
+application = { path = "../application" }
 domain = { path = "../domain" }
 infrastructure = { path = "../infrastructure" }
 presentation = { path = "../presentation" }

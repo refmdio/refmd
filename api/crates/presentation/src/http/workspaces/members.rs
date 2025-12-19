@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::context::WorkspacesContext;
 use crate::http::error::ApiError;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::AuthedUser;
 use domain::access::permissions::{PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW};
 
 use super::types::{
@@ -24,13 +24,10 @@ use super::types::{
 )]
 pub async fn list_members(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<WorkspaceMemberResponse>>, ApiError> {
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    require_permission(&ctx, id, user_id, PERM_MEMBER_VIEW).await?;
+    require_permission(&ctx, id, auth.user_id, PERM_MEMBER_VIEW).await?;
     let members = ctx
         .workspace_service()
         .list_members(id)
@@ -55,7 +52,7 @@ pub async fn list_members(
 )]
 pub async fn update_member_role(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path((workspace_id, member_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateMemberRoleRequest>,
 ) -> Result<Json<WorkspaceMemberResponse>, ApiError> {
@@ -74,16 +71,13 @@ pub async fn update_member_role(
         }
     }
 
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_UPDATE_ROLE).await?;
+    require_permission(&ctx, workspace_id, auth.user_id, PERM_MEMBER_UPDATE_ROLE).await?;
 
     ctx.workspace_service()
         .update_member_role(
             workspace_id,
             member_id,
-            user_id,
+            auth.user_id,
             role_kind,
             system_role,
             body.custom_role_id,
@@ -115,15 +109,12 @@ pub async fn update_member_role(
 )]
 pub async fn remove_member(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path((workspace_id, member_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_REMOVE).await?;
+    require_permission(&ctx, workspace_id, auth.user_id, PERM_MEMBER_REMOVE).await?;
     ctx.workspace_service()
-        .remove_member(workspace_id, member_id, Some(user_id))
+        .remove_member(workspace_id, member_id, Some(auth.user_id))
         .await
         .map_err(map_service_error)?;
     Ok(StatusCode::NO_CONTENT)

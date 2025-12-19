@@ -1,5 +1,5 @@
 # -- Builder stage -----------------------------------------------------
-FROM rustlang/rust:nightly-bullseye-slim AS build
+FROM rust:1.92-slim-bullseye AS build
 WORKDIR /build
 
 # Build dependencies once to leverage Docker layer caching

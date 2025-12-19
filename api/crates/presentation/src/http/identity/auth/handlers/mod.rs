@@ -19,6 +19,7 @@ use uuid::Uuid;
 use crate::context::HasWorkspaceService;
 use crate::context::IdentityContext;
 use crate::http::error::ApiError;
+use crate::http::extractors::AuthedUser;
 use crate::http::workspaces::scope as workspace_scope;
 
 use super::cookies::{
@@ -366,19 +367,14 @@ pub async fn refresh_session(
 #[utoipa::path(get, path = "/api/auth/me", tag = "Auth", responses((status = 200, body = UserResponse)))]
 pub async fn me(
     State(ctx): State<IdentityContext>,
-    bearer: super::Bearer,
+    auth: AuthedUser,
     headers: HeaderMap,
 ) -> Result<Json<UserResponse>, crate::http::error::ApiError> {
-    let bearer_token = bearer.0.clone();
-    let id = crate::security::token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(crate::security::token::map_actor_error)?;
-
     let active_workspace_id = match workspace_scope::resolve_active_workspace_id(
         &ctx,
         &headers,
-        Some(bearer_token.as_str()),
-        id,
+        Some(auth.bearer_token.as_str()),
+        auth.user_id,
     )
     .await
     {
@@ -389,7 +385,7 @@ pub async fn me(
 
     let service = ctx.account_service();
     let row = service
-        .get_me(id)
+        .get_me(auth.user_id)
         .await
         .map_err(map_account_error)?
         .ok_or(crate::http::error::ApiError::unauthorized("unauthorized"))?;
@@ -400,18 +396,15 @@ pub async fn me(
 #[utoipa::path(delete, path = "/api/auth/me", tag = "Auth", responses((status = 204)))]
 pub async fn delete_account(
     State(ctx): State<IdentityContext>,
-    bearer: super::Bearer,
+    auth: AuthedUser,
 ) -> Result<(HeaderMap, StatusCode), crate::http::error::ApiError> {
-    let user_id = crate::security::token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(crate::security::token::map_actor_error)?;
     let service = ctx.account_service();
     service
-        .delete_account(user_id)
+        .delete_account(auth.user_id)
         .await
         .map_err(map_account_error)?;
     ctx.session_service()
-        .revoke_all_for_user(user_id)
+        .revoke_all_for_user(auth.user_id)
         .await
         .map_err(map_auth_error)?;
 
@@ -440,12 +433,9 @@ pub async fn logout(
 #[utoipa::path(get, path = "/api/auth/sessions", tag = "Auth", responses((status = 200, body = [SessionResponse])))]
 pub async fn list_sessions(
     State(ctx): State<IdentityContext>,
-    bearer: super::Bearer,
+    auth: AuthedUser,
     headers: HeaderMap,
 ) -> Result<Json<Vec<SessionResponse>>, ApiError> {
-    let user_id = crate::security::token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(crate::security::token::map_actor_error)?;
     let current_session_id = if let Some(refresh_token) = extract_refresh_token(&headers) {
         match ctx
             .session_service()
@@ -464,7 +454,7 @@ pub async fn list_sessions(
     };
     let sessions = ctx
         .session_service()
-        .list_for_user(user_id)
+        .list_for_user(auth.user_id)
         .await
         .map_err(map_auth_error)?;
     let now = Utc::now();
@@ -485,13 +475,10 @@ pub async fn list_sessions(
 )]
 pub async fn revoke_session(
     State(ctx): State<IdentityContext>,
-    bearer: super::Bearer,
+    auth: AuthedUser,
     headers: HeaderMap,
     Path(session_id): Path<Uuid>,
 ) -> Result<(HeaderMap, StatusCode), ApiError> {
-    let user_id = crate::security::token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(crate::security::token::map_actor_error)?;
     let current_session_id = if let Some(refresh_token) = extract_refresh_token(&headers) {
         match ctx
             .session_service()
@@ -509,7 +496,7 @@ pub async fn revoke_session(
         None
     };
     ctx.session_service()
-        .revoke_session(user_id, session_id)
+        .revoke_session(auth.user_id, session_id)
         .await
         .map_err(|err| match err {
             ServiceError::Forbidden => ApiError::forbidden("forbidden"),

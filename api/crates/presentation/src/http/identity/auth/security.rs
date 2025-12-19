@@ -74,7 +74,10 @@ pub async fn validate_bearer_public(
     validate_bearer(ctx, bearer).await
 }
 
-pub async fn validate_bearer_str(ctx: &impl HasAuthServices, token: &str) -> Result<String, ApiError> {
+pub async fn validate_bearer_str(
+    ctx: &impl HasAuthServices,
+    token: &str,
+) -> Result<String, ApiError> {
     let service = ctx.auth_service();
     let session_service = ctx.session_service();
     let subject = match service.subject_from_token(token).await {

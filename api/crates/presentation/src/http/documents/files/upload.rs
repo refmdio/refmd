@@ -1,14 +1,13 @@
 use axum::{
     Json,
     extract::{Multipart, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
 };
 use uuid::Uuid;
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use domain::access::permissions::PERM_FILE_UPLOAD;
 
 use super::types::{UploadFileResponse, map_file_error};
@@ -27,23 +26,10 @@ use super::types::{UploadFileResponse, map_file_error};
 )]
 pub async fn upload_file(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<UploadFileResponse>), ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_FILE_UPLOAD)
-        .await?;
+    auth.ensure_permission(PERM_FILE_UPLOAD)?;
 
     let mut document_id: Option<Uuid> = None;
     let mut file_bytes: Option<Vec<u8>> = None;
@@ -95,8 +81,8 @@ pub async fn upload_file(
     let file_service = ctx.file_service();
     let f = file_service
         .upload_file(
-            workspace_id,
-            user_id,
+            auth.workspace_id,
+            auth.user_id,
             doc_id,
             bytes,
             orig_filename,

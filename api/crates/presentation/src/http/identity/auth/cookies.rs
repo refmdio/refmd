@@ -1,5 +1,5 @@
-use application::identity::services::auth::external::ExternalAuthProviderKind;
 use application::identity::services::auth::auth_service::AuthServiceFacade;
+use application::identity::services::auth::external::ExternalAuthProviderKind;
 use application::identity::services::auth::user_sessions::IssuedSessionBundle;
 use axum::http::{HeaderMap, HeaderValue, header};
 use chrono::{DateTime, Duration, Utc};

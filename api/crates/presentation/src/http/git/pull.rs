@@ -1,14 +1,9 @@
-use axum::{
-    Json,
-    extract::State,
-    http::{HeaderMap, StatusCode},
-};
+use axum::{Json, extract::State, http::StatusCode};
 use uuid::Uuid;
 
 use crate::context::GitContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 use application::git::dtos::{GitPullRequestDto, GitPullResolutionDto};
 use application::git::services::FinalizePullSessionResult;
@@ -32,28 +27,15 @@ use super::types::{
 )]
 pub async fn pull_repository(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Json(req): Json<GitPullRequest>,
 ) -> Result<(StatusCode, Json<GitPullResponse>), ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
-        .await?;
+    auth.ensure_permission(PERM_GIT_SYNC)?;
     let service = ctx.git_service();
     let dto = service
         .pull_repository(
-            workspace_id,
-            user_id,
+            auth.workspace_id,
+            auth.user_id,
             GitPullRequestDto {
                 resolutions: req
                     .resolutions
@@ -126,25 +108,15 @@ pub async fn pull_repository(
 )]
 pub async fn start_pull_session(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
 ) -> Result<(StatusCode, Json<GitPullSessionResponse>), ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
-        .await?;
+    auth.ensure_permission(PERM_GIT_SYNC)?;
 
     let service = ctx.git_service();
-    let session = match service.start_pull_session_flow(workspace_id, user_id).await {
+    let session = match service
+        .start_pull_session_flow(auth.workspace_id, auth.user_id)
+        .await
+    {
         Ok(v) => v,
         Err(err) => {
             let message = match &err {
@@ -211,27 +183,14 @@ pub async fn start_pull_session(
 )]
 pub async fn get_pull_session(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> Result<Json<GitPullSessionResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
-        .await?;
+    auth.ensure_permission(PERM_GIT_SYNC)?;
 
     let service = ctx.git_service();
     let state = service
-        .load_pull_session_with_stale_check(workspace_id, id)
+        .load_pull_session_with_stale_check(auth.workspace_id, id)
         .await
         .map_err(map_git_error)?
         .ok_or(ApiError::not_found("not_found"))?;
@@ -265,36 +224,23 @@ pub async fn get_pull_session(
 )]
 pub async fn resolve_pull_session(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
     Json(req): Json<GitPullRequest>,
 ) -> Result<(StatusCode, Json<GitPullSessionResponse>), ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
-        .await?;
+    auth.ensure_permission(PERM_GIT_SYNC)?;
 
     let service = ctx.git_service();
     let existing_session = service
-        .load_pull_session_with_stale_check(workspace_id, id)
+        .load_pull_session_with_stale_check(auth.workspace_id, id)
         .await
         .map_err(map_git_error)?
         .ok_or(ApiError::not_found("not_found"))?;
     let resolutions = req.resolutions.unwrap_or_default();
     let session = match service
         .resolve_pull_session_flow(
-            workspace_id,
-            user_id,
+            auth.workspace_id,
+            auth.user_id,
             id,
             resolutions
                 .iter()
@@ -394,30 +340,17 @@ pub async fn resolve_pull_session(
 )]
 pub async fn finalize_pull_session(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> Result<(StatusCode, Json<GitPullResponse>), ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
-        .await?;
+    auth.ensure_permission(PERM_GIT_SYNC)?;
 
     let service = ctx.git_service();
     let FinalizePullSessionResult {
         session,
         git_status,
     } = service
-        .finalize_pull_session_flow(workspace_id, id)
+        .finalize_pull_session_flow(auth.workspace_id, id)
         .await
         .map_err(map_git_error)?;
     if session.status == GitPullSessionStatus::Error {

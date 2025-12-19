@@ -1,13 +1,8 @@
-use axum::{
-    Json,
-    extract::State,
-    http::{HeaderMap, StatusCode},
-};
+use axum::{Json, extract::State, http::StatusCode};
 
 use crate::context::GitContext;
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 use application::git::dtos::GitConfigDto;
 use application::git::dtos::UpsertGitConfigInput;
@@ -20,35 +15,20 @@ use super::types::{
 #[utoipa::path(get, path = "/api/git/config", tag = "Git", responses((status = 200, body = Option<GitConfigResponse>)))]
 pub async fn get_config(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
 ) -> Result<Json<Option<GitConfigResponse>>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_INIT)
-        .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
-        .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
-        .await?;
+    auth.ensure_permission(PERM_GIT_INIT)?;
+    auth.ensure_permission(PERM_GIT_SYNC)?;
+    auth.ensure_permission(PERM_GIT_CONFIGURE)?;
     let service = ctx.git_service();
     let resp: Option<GitConfigDto> = service
-        .get_config(workspace_id)
+        .get_config(auth.workspace_id)
         .await
         .map_err(map_git_error)?;
     let mut out: Option<GitConfigResponse> = resp.map(Into::into);
     if let Some(ref mut cfg) = out
         && let Some(check) = service
-            .check_remote(workspace_id)
+            .check_remote(auth.workspace_id)
             .await
             .map_err(map_git_error)?
     {
@@ -60,31 +40,16 @@ pub async fn get_config(
 #[utoipa::path(post, path = "/api/git/config", tag = "Git", request_body = CreateGitConfigRequest, responses((status = 200, body = GitConfigResponse)))]
 pub async fn create_or_update_config(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Json(req): Json<CreateGitConfigRequest>,
 ) -> Result<Json<GitConfigResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_INIT)
-        .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
-        .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
-        .await?;
+    auth.ensure_permission(PERM_GIT_INIT)?;
+    auth.ensure_permission(PERM_GIT_SYNC)?;
+    auth.ensure_permission(PERM_GIT_CONFIGURE)?;
     let input: UpsertGitConfigInput = req.into();
     let service = ctx.git_service();
     let resp: GitConfigDto = service
-        .upsert_config(workspace_id, &input)
+        .upsert_config(auth.workspace_id, &input)
         .await
         .map_err(|err| match err {
             ServiceError::BadRequest(code) => ApiError::bad_request(code).with_message(code),
@@ -92,7 +57,7 @@ pub async fn create_or_update_config(
         })?;
     let mut out: GitConfigResponse = resp.into();
     if let Some(check) = service
-        .check_remote(workspace_id)
+        .check_remote(auth.workspace_id)
         .await
         .map_err(map_git_error)?
     {
@@ -104,27 +69,13 @@ pub async fn create_or_update_config(
 #[utoipa::path(delete, path = "/api/git/config", tag = "Git", responses((status = 204, description = "Deleted")))]
 pub async fn delete_config(
     State(ctx): State<GitContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
 ) -> Result<StatusCode, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_SYNC)
-        .await?;
-    workspace_scope::ensure_workspace_permission(&ctx, workspace_id, user_id, PERM_GIT_CONFIGURE)
-        .await?;
+    auth.ensure_permission(PERM_GIT_SYNC)?;
+    auth.ensure_permission(PERM_GIT_CONFIGURE)?;
     let service = ctx.git_service();
     service
-        .delete_config(workspace_id)
+        .delete_config(auth.workspace_id)
         .await
         .map_err(map_git_error)?;
     Ok(StatusCode::NO_CONTENT)

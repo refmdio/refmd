@@ -100,7 +100,10 @@ pub async fn resolve_actor_from_token_str(
         Ok(Some(sub)) => {
             if let Ok(uid) = Uuid::parse_str(&sub) {
                 if let Some(session_id) = service.session_id_from_token_claim(trimmed)
-                    && let Err(err) = ctx.session_service().ensure_session_active(session_id).await
+                    && let Err(err) = ctx
+                        .session_service()
+                        .ensure_session_active(session_id)
+                        .await
                 {
                     if err.is_internal() {
                         error!(error = ?err, "session_validation_failed");

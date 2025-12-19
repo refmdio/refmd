@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::context::WorkspacesContext;
 use crate::http::error::ApiError;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::AuthedUser;
 use application::core::services::errors::ServiceError;
 use domain::access::permissions::PERM_MEMBER_INVITE;
 
@@ -25,13 +25,10 @@ use super::types::{
 )]
 pub async fn list_invitations(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<WorkspaceInvitationResponse>>, ApiError> {
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    require_permission(&ctx, id, user_id, PERM_MEMBER_INVITE).await?;
+    require_permission(&ctx, id, auth.user_id, PERM_MEMBER_INVITE).await?;
     let invitations = ctx
         .workspace_service()
         .list_invitations(id)
@@ -53,7 +50,7 @@ pub async fn list_invitations(
 )]
 pub async fn create_invitation(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(id): Path<Uuid>,
     Json(body): Json<CreateWorkspaceInvitationRequest>,
 ) -> Result<Json<WorkspaceInvitationResponse>, ApiError> {
@@ -74,15 +71,12 @@ pub async fn create_invitation(
             }
         }
     }
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    require_permission(&ctx, id, user_id, PERM_MEMBER_INVITE).await?;
+    require_permission(&ctx, id, auth.user_id, PERM_MEMBER_INVITE).await?;
     let record = ctx
         .workspace_service()
         .create_invitation(
             id,
-            user_id,
+            auth.user_id,
             &body.email,
             role_kind,
             system_role,
@@ -106,13 +100,10 @@ pub async fn create_invitation(
 )]
 pub async fn revoke_invitation(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path((workspace_id, invitation_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<WorkspaceInvitationResponse>, ApiError> {
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    require_permission(&ctx, workspace_id, user_id, PERM_MEMBER_INVITE).await?;
+    require_permission(&ctx, workspace_id, auth.user_id, PERM_MEMBER_INVITE).await?;
     let record = ctx
         .workspace_service()
         .revoke_invitation(workspace_id, invitation_id)
@@ -130,15 +121,12 @@ pub async fn revoke_invitation(
 )]
 pub async fn accept_invitation(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(token): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
     let user = ctx
         .account_service()
-        .get_me(user_id)
+        .get_me(auth.user_id)
         .await
         .map_err(|err| match err {
             ServiceError::Unauthorized | ServiceError::TokenExpired => {
@@ -155,7 +143,7 @@ pub async fn accept_invitation(
         .ok_or(ApiError::unauthorized("unauthorized"))?;
 
     ctx.workspace_service()
-        .accept_invitation(&token, user_id, &user.email)
+        .accept_invitation(&token, auth.user_id, &user.email)
         .await
         .map_err(map_service_error)?;
 

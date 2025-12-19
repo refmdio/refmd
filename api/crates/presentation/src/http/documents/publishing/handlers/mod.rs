@@ -1,15 +1,14 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
 };
 use uuid::Uuid;
 
 use crate::context::DocumentsContext;
 use crate::http::documents::{Document, to_http_document};
 use crate::http::error::ApiError;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token::{self, Bearer};
+use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 
 use super::types::{PublicDocumentSummary, PublishResponse};
@@ -27,26 +26,12 @@ fn map_public_error(err: ServiceError) -> crate::http::error::ApiError {
 )]
 pub async fn publish_document(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PublishResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.public_service();
     let out = service
-        .publish_document(workspace_id, &permissions, id)
+        .publish_document(auth.workspace_id, &auth.permissions, id)
         .await
         .map_err(map_public_error)?;
     Ok(Json(PublishResponse {
@@ -64,26 +49,12 @@ pub async fn publish_document(
 )]
 pub async fn unpublish_document(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let ok = ctx
         .public_service()
-        .unpublish_document(workspace_id, &permissions, id)
+        .unpublish_document(auth.workspace_id, &auth.permissions, id)
         .await
         .map_err(map_public_error)?;
     if ok {
@@ -102,26 +73,12 @@ pub async fn unpublish_document(
 )]
 pub async fn get_publish_status(
     State(ctx): State<DocumentsContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PublishResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let out = ctx
         .public_service()
-        .get_publish_status(workspace_id, &permissions, id)
+        .get_publish_status(auth.workspace_id, &auth.permissions, id)
         .await
         .map_err(map_public_error)?;
     Ok(Json(PublishResponse {

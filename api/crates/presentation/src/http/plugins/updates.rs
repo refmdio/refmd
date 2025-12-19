@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::context::PluginsContext;
 use crate::http::error::ApiError;
-use crate::http::identity::auth::Bearer;
+use crate::http::extractors::AuthedUser;
 
 #[utoipa::path(
     get,
@@ -16,25 +16,19 @@ use crate::http::identity::auth::Bearer;
 )]
 pub async fn sse_updates(
     State(ctx): State<PluginsContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError> {
-    let user_id = crate::security::token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(crate::security::token::map_actor_error)?;
-
     let initial = stream::iter(vec![Ok(Event::default().event("ready").data("{}\n"))]);
     let event_stream = ctx
         .subscribe_plugin_events()
         .await
         .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))?;
-    let broadcast = event_stream.filter_map(move |ev| {
-        async move {
-            if ev.user_id.is_some() && ev.user_id != Some(user_id) {
-                return None;
-            }
-            let payload = ev.payload.to_string();
-            Some(Ok(Event::default().event("update").data(payload)))
+    let broadcast = event_stream.filter_map(move |ev| async move {
+        if ev.user_id.is_some() && ev.user_id != Some(auth.user_id) {
+            return None;
         }
+        let payload = ev.payload.to_string();
+        Some(Ok(Event::default().event("update").data(payload)))
     });
     let merged = initial.chain(broadcast);
     let keepalive = KeepAlive::new()

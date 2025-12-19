@@ -10,11 +10,10 @@ use crate::context::WorkspacesContext;
 #[allow(unused_imports)]
 use crate::http::documents::DocumentDownloadBinary;
 use crate::http::error::ApiError;
+use crate::http::extractors::AuthedUser;
 use crate::http::identity::auth::{
     self, apply_session_cookies, extract_client_ip, extract_refresh_token, extract_user_agent,
 };
-use crate::security::token as security_token;
-use crate::security::token::Bearer;
 use application::core::services::access;
 use application::core::services::errors::ServiceError;
 use application::identity::services::auth::user_sessions::SessionMetadata;
@@ -30,14 +29,11 @@ use super::types::{
 #[utoipa::path(get, path = "/api/workspaces", tag = "Workspaces", responses((status = 200, body = [WorkspaceResponse])))]
 pub async fn list_workspaces(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
 ) -> Result<Json<Vec<WorkspaceResponse>>, ApiError> {
-    let user_id = security_token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(security_token::map_actor_error)?;
     let items = ctx
         .workspace_service()
-        .list_for_user(user_id)
+        .list_for_user(auth.user_id)
         .await
         .map_err(map_service_error)?
         .into_iter()
@@ -49,19 +45,16 @@ pub async fn list_workspaces(
 #[utoipa::path(post, path = "/api/workspaces", tag = "Workspaces", request_body = CreateWorkspaceRequest, responses((status = 200, body = WorkspaceResponse)))]
 pub async fn create_workspace(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Json(payload): Json<CreateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, ApiError> {
     if payload.name.trim().is_empty() {
         return Err(ApiError::bad_request("invalid_workspace_name"));
     }
-    let user_id = security_token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(security_token::map_actor_error)?;
     let workspace = ctx
         .workspace_service()
         .create_workspace(
-            user_id,
+            auth.user_id,
             payload.name.trim(),
             payload.icon.as_deref(),
             payload.description.as_deref(),
@@ -70,7 +63,7 @@ pub async fn create_workspace(
         .map_err(map_service_error)?;
     let memberships = ctx
         .workspace_service()
-        .list_for_user(user_id)
+        .list_for_user(auth.user_id)
         .await
         .map_err(map_service_error)?;
     let created = memberships
@@ -100,15 +93,12 @@ pub async fn create_workspace(
 )]
 pub async fn get_workspace_detail(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WorkspaceResponse>, ApiError> {
-    let user_id = security_token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(security_token::map_actor_error)?;
     let workspaces = ctx
         .workspace_service()
-        .list_for_user(user_id)
+        .list_for_user(auth.user_id)
         .await
         .map_err(map_service_error)?;
     let workspace = workspaces
@@ -128,7 +118,7 @@ pub async fn get_workspace_detail(
 )]
 pub async fn update_workspace(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, ApiError> {
@@ -139,10 +129,7 @@ pub async fn update_workspace(
     {
         return Err(ApiError::bad_request("invalid_workspace_name"));
     }
-    let user_id = security_token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(security_token::map_actor_error)?;
-    require_permission(&ctx, id, user_id, PERM_WORKSPACE_UPDATE).await?;
+    require_permission(&ctx, id, auth.user_id, PERM_WORKSPACE_UPDATE).await?;
     let normalized_name = payload
         .name
         .as_ref()
@@ -173,7 +160,7 @@ pub async fn update_workspace(
 
     let memberships = ctx
         .workspace_service()
-        .list_for_user(user_id)
+        .list_for_user(auth.user_id)
         .await
         .map_err(map_service_error)?;
     let mut membership = memberships
@@ -196,13 +183,10 @@ pub async fn update_workspace(
 )]
 pub async fn delete_workspace(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let user_id = security_token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(security_token::map_actor_error)?;
-    require_permission(&ctx, id, user_id, PERM_WORKSPACE_DELETE).await?;
+    require_permission(&ctx, id, auth.user_id, PERM_WORKSPACE_DELETE).await?;
     let workspace = ctx
         .workspace_service()
         .get_workspace(id)
@@ -236,14 +220,11 @@ pub async fn delete_workspace(
 )]
 pub async fn leave_workspace(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(workspace_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    let user_id = security_token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(security_token::map_actor_error)?;
     ctx.workspace_service()
-        .leave_workspace(workspace_id, user_id)
+        .leave_workspace(workspace_id, auth.user_id)
         .await
         .map_err(map_service_error)?;
     Ok(StatusCode::NO_CONTENT)
@@ -258,15 +239,12 @@ pub async fn leave_workspace(
 )]
 pub async fn switch_workspace(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<(HeaderMap, Json<SwitchWorkspaceResponse>), ApiError> {
-    let user_id = security_token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(security_token::map_actor_error)?;
     ctx.workspace_service()
-        .set_default_workspace(user_id, id)
+        .set_default_workspace(auth.user_id, id)
         .await
         .map_err(map_service_error)?;
     let client_ip = extract_client_ip(&headers);
@@ -296,7 +274,7 @@ pub async fn switch_workspace(
         Some(bundle) => bundle,
         None => session_service
             .issue_new_session(
-                user_id,
+                auth.user_id,
                 id,
                 false,
                 SessionMetadata {
@@ -338,15 +316,11 @@ pub async fn switch_workspace(
 )]
 pub async fn download_workspace_archive(
     State(ctx): State<WorkspacesContext>,
-    bearer: Bearer,
+    auth: AuthedUser,
     Path(id): Path<Uuid>,
     Query(params): Query<DownloadWorkspaceQuery>,
 ) -> Result<Response, ApiError> {
-    let user_id = security_token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(security_token::map_actor_error)?;
-
-    require_permission(&ctx, id, user_id, PERM_DOC_VIEW).await?;
+    require_permission(&ctx, id, auth.user_id, PERM_DOC_VIEW).await?;
 
     let workspace = ctx
         .workspace_service()
@@ -355,7 +329,7 @@ pub async fn download_workspace_archive(
         .map_err(map_service_error)?
         .ok_or(ApiError::not_found("workspace_not_found"))?;
 
-    let actor = access::Actor::User(user_id);
+    let actor = access::Actor::User(auth.user_id);
     let download = ctx
         .document_service()
         .download_workspace_root(&actor, id, &workspace.name, params.format.into())

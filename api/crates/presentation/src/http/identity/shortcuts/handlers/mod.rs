@@ -1,10 +1,8 @@
-use axum::{Json, extract::State, http::HeaderMap};
+use axum::{Json, extract::State};
 
 use crate::context::IdentityContext;
 use crate::http::error::ApiError;
-use crate::http::identity::auth::Bearer;
-use crate::http::workspaces::scope as workspace_scope;
-use crate::security::token;
+use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 
 use super::types::{UpdateUserShortcutRequest, UserShortcutResponse};
@@ -21,25 +19,11 @@ fn map_shortcut_error(err: ServiceError) -> crate::http::error::ApiError {
 )]
 pub async fn get_user_shortcuts(
     State(ctx): State<IdentityContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
 ) -> Result<Json<UserShortcutResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.user_shortcut_service();
     let profile = service
-        .get_profile(workspace_id, user_id, &permissions)
+        .get_profile(auth.workspace_id, auth.user_id, &auth.permissions)
         .await
         .map_err(map_shortcut_error)?;
     let response = profile
@@ -57,29 +41,15 @@ pub async fn get_user_shortcuts(
 )]
 pub async fn update_user_shortcuts(
     State(ctx): State<IdentityContext>,
-    bearer: Bearer,
-    headers: HeaderMap,
+    auth: WorkspaceAuth,
     Json(payload): Json<UpdateUserShortcutRequest>,
 ) -> Result<Json<UserShortcutResponse>, ApiError> {
-    let bearer_token = bearer.0.clone();
-    let user_id = token::require_user_id(&ctx, bearer)
-        .await
-        .map_err(token::map_actor_error)?;
-    let workspace_id = workspace_scope::resolve_active_workspace_id(
-        &ctx,
-        &headers,
-        Some(bearer_token.as_str()),
-        user_id,
-    )
-    .await?;
-    let permissions =
-        workspace_scope::resolve_workspace_permissions(&ctx, workspace_id, user_id).await?;
     let service = ctx.user_shortcut_service();
     let result = service
         .update_profile(
-            workspace_id,
-            user_id,
-            &permissions,
+            auth.workspace_id,
+            auth.user_id,
+            &auth.permissions,
             payload.bindings,
             payload.leader_key,
         )
