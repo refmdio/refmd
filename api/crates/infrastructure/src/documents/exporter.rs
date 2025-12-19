@@ -35,6 +35,7 @@ pre {
 
 static PANDOC_WORKDIR_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
+#[derive(Default)]
 pub struct DefaultDocumentExporter;
 
 impl DefaultDocumentExporter {

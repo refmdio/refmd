@@ -116,11 +116,11 @@ impl GitWorkspaceService {
         state: &HashMap<String, FileSnapshot>,
     ) -> anyhow::Result<(u32, u32)> {
         fn folder_key(path: &str) -> String {
-            path.rsplitn(2, '/')
-                .nth(1)
-                .map(|s| s.trim().trim_end_matches('/').to_string())
+            path.rsplit_once('/')
+                .map(|(parent, _)| parent.trim().trim_end_matches('/'))
                 .filter(|s| !s.is_empty())
-                .unwrap_or_else(String::new)
+                .unwrap_or_default()
+                .to_string()
         }
 
         fn attachment_owner_folder(path: &str) -> String {

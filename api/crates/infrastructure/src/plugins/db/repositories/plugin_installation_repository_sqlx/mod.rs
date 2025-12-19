@@ -73,10 +73,10 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
                 workspace_id: row.get("workspace_id"),
                 plugin_id: row.get("plugin_id"),
                 version: row.get("version"),
-                scope: PluginScope::from_str(&scope_raw)
+                scope: PluginScope::parse(&scope_raw)
                     .ok_or_else(|| anyhow::anyhow!("invalid_plugin_scope"))?,
                 origin_url: row.try_get("origin_url").ok(),
-                status: PluginInstallationStatus::from_str(&status_raw)
+                status: PluginInstallationStatus::parse(&status_raw)
                     .ok_or_else(|| anyhow::anyhow!("invalid_plugin_installation_status"))?,
                 installed_at: row.get("installed_at"),
                 updated_at: row.get("updated_at"),
@@ -102,10 +102,10 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
                 workspace_id: row.get("workspace_id"),
                 plugin_id: row.get("plugin_id"),
                 version: row.get("version"),
-                scope: PluginScope::from_str(&scope_raw)
+                scope: PluginScope::parse(&scope_raw)
                     .ok_or_else(|| anyhow::anyhow!("invalid_plugin_scope"))?,
                 origin_url: row.try_get("origin_url").ok(),
-                status: PluginInstallationStatus::from_str(&status_raw)
+                status: PluginInstallationStatus::parse(&status_raw)
                     .ok_or_else(|| anyhow::anyhow!("invalid_plugin_installation_status"))?,
                 installed_at: row.get("installed_at"),
                 updated_at: row.get("updated_at"),

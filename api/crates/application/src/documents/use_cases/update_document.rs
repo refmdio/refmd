@@ -22,6 +22,7 @@ where
     R: DocumentRepositoryTx + ?Sized,
 {
     // parent_id: None => not provided; Some(None) => set null; Some(Some(uuid)) => set value
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &mut self,
         id: Uuid,

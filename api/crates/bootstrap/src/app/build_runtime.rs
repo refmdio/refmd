@@ -62,7 +62,7 @@ pub async fn build_runtime(
     let pool = infrastructure::core::db::connect_pool(&cfg.database_url).await?;
     infrastructure::core::db::migrate(&pool).await?;
 
-    let secret_hasher: Arc<dyn SecretHasher> = Arc::new(Argon2SecretHasher::default());
+    let secret_hasher: Arc<dyn SecretHasher> = Arc::new(Argon2SecretHasher);
 
     let asset_signer = Arc::new(AssetSigner::new(&cfg.plugin_asset_sign_key));
     let uploads_root = std::path::PathBuf::from(&cfg.storage_root);

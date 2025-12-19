@@ -26,12 +26,9 @@ pub(in super::super) fn find_front_matter_end(s: &str) -> Option<(usize, usize)>
 }
 
 pub(in super::super) fn split_front_matter(input: &str) -> Option<(&str, &str)> {
-    let Some(after_open) = input
+    let after_open = input
         .strip_prefix("---\r\n")
-        .or_else(|| input.strip_prefix("---\n"))
-    else {
-        return None;
-    };
+        .or_else(|| input.strip_prefix("---\n"))?;
     if let Some((front_len, body_start)) = find_front_matter_end(after_open) {
         let front = &after_open[..front_len];
         let body = &after_open[body_start..];
@@ -44,9 +41,7 @@ pub(in super::super) fn strip_front_matter_body(
     path: &str,
     text: Option<String>,
 ) -> Option<String> {
-    let Some(txt) = text else {
-        return None;
-    };
+    let txt = text?;
     let lower = path.to_ascii_lowercase();
     let is_markdown = lower.ends_with(".md") || lower.ends_with(".markdown");
     if !is_markdown {

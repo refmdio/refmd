@@ -29,8 +29,11 @@ impl GitWorkspaceService {
             }
             chain.reverse();
 
+            type PreparedEntry = (String, Vec<u8>);
+            type PreparedCommit = (CommitMeta, Vec<PreparedEntry>);
+
             // Preload snapshots async
-            let mut prepared: Vec<(CommitMeta, Vec<(String, Vec<u8>)>)> = Vec::new();
+            let mut prepared: Vec<PreparedCommit> = Vec::new();
             for meta in chain.iter() {
                 let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
                 for path in meta.file_hash_index.keys() {

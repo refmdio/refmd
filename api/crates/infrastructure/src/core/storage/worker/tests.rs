@@ -501,14 +501,16 @@ impl MarkdownExportProvider for MockMarkdownExporter {
 
 #[derive(Default)]
 struct RecordingDocEventLog {
-    events: Mutex<Vec<(Uuid, Uuid, String, Option<serde_json::Value>)>>,
+    events: Mutex<Vec<RecordedDocEvent>>,
 }
 
 impl RecordingDocEventLog {
-    fn events(&self) -> Vec<(Uuid, Uuid, String, Option<serde_json::Value>)> {
+    fn events(&self) -> Vec<RecordedDocEvent> {
         self.events.lock().unwrap().clone()
     }
 }
+
+type RecordedDocEvent = (Uuid, Uuid, String, Option<serde_json::Value>);
 
 #[async_trait]
 impl DocEventLog for RecordingDocEventLog {

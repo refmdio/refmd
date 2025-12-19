@@ -28,7 +28,7 @@ impl ShareService {
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<CreatedShareDto, ServiceError> {
         ensure_share_create_permission(permissions)?;
-        let permission = share::SharePermission::from_str(permission)
+        let permission = share::SharePermission::parse(permission)
             .ok_or(ServiceError::BadRequest("invalid_share_permission"))?;
         let uc = CreateShare {
             repo: self.repo.as_ref(),

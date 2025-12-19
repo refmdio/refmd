@@ -199,7 +199,7 @@ fn session_response_from(
         created_at: record.created_at,
         last_seen_at: record.last_seen_at,
         expires_at: record.expires_at,
-        current: current_session_id.map_or(false, |id| id == record.id),
+        current: current_session_id.is_some_and(|id| id == record.id),
     }
 }
 
@@ -415,10 +415,10 @@ pub async fn logout(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<(HeaderMap, StatusCode), ApiError> {
-    if let Some(refresh_token) = extract_refresh_token(&headers) {
-        if let Err(err) = ctx.session_service().revoke_by_token(&refresh_token).await {
-            warn!(error = ?err, "logout_revoke_session_failed");
-        }
+    if let Some(refresh_token) = extract_refresh_token(&headers)
+        && let Err(err) = ctx.session_service().revoke_by_token(&refresh_token).await
+    {
+        warn!(error = ?err, "logout_revoke_session_failed");
     }
     let mut response_headers = HeaderMap::new();
     clear_auth_cookies(&mut response_headers, ctx.cfg.session_cookie_secure);

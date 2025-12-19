@@ -95,6 +95,7 @@ async fn print_ingest_stats(queue: &dyn StorageIngestQueue) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn enqueue_ingest(
     queue: &dyn StorageIngestQueue,
     workspace_id: Uuid,

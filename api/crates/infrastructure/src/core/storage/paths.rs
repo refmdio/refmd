@@ -397,7 +397,7 @@ pub async fn delete_doc_physical(
     }
 
     // Delete the document file itself
-    if let Some(rel) = row.try_get::<String, _>("path").ok() {
+    if let Ok(rel) = row.try_get::<String, _>("path") {
         let full = uploads_root.join(&rel);
         let _ = tokio::fs::remove_file(&full).await;
         // Mark delete for document markdown

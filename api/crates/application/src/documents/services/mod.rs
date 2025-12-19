@@ -62,6 +62,7 @@ pub trait DocumentServiceFacade: Send + Sync {
         limit: i64,
     ) -> Result<Vec<SearchHit>, ServiceError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_for_user(
         &self,
         workspace_id: Uuid,

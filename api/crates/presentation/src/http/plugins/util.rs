@@ -43,10 +43,10 @@ pub async fn resolve_plugin_user_context(
             .await?;
             let permissions =
                 workspace_scope::resolve_workspace_permissions(ctx, workspace_id, user_id).await?;
-            if let Some(permission) = required_permission {
-                if !permissions.allows(permission) {
-                    return Err(ApiError::forbidden("forbidden"));
-                }
+            if let Some(permission) = required_permission
+                && !permissions.allows(permission)
+            {
+                return Err(ApiError::forbidden("forbidden"));
             }
             Ok(PluginUserContext {
                 workspace_id,
@@ -69,10 +69,10 @@ pub async fn resolve_plugin_user_context(
             if ctx_share.permission.allows_edit() {
                 permissions.insert(PERM_DOC_EDIT);
             }
-            if let Some(permission) = required_permission {
-                if !permissions.allows(permission) {
-                    return Err(ApiError::forbidden("forbidden"));
-                }
+            if let Some(permission) = required_permission
+                && !permissions.allows(permission)
+            {
+                return Err(ApiError::forbidden("forbidden"));
             }
             Ok(PluginUserContext {
                 workspace_id: ctx_share.workspace_id,

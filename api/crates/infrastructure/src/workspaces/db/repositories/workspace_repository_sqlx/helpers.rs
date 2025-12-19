@@ -136,7 +136,7 @@ impl SqlxWorkspaceRepository {
     }
 
     pub(super) fn parse_role_kind(raw: &str) -> anyhow::Result<WorkspaceRoleKind> {
-        WorkspaceRoleKind::from_str(raw).ok_or_else(|| anyhow::anyhow!("invalid_role_kind"))
+        WorkspaceRoleKind::parse(raw).ok_or_else(|| anyhow::anyhow!("invalid_role_kind"))
     }
 
     pub(super) fn parse_system_role(
@@ -145,12 +145,12 @@ impl SqlxWorkspaceRepository {
         let Some(raw) = raw else {
             return Ok(None);
         };
-        WorkspaceSystemRole::from_str(raw)
+        WorkspaceSystemRole::parse(raw)
             .ok_or_else(|| anyhow::anyhow!("invalid_system_role"))
             .map(Some)
     }
 
     pub(super) fn parse_base_role(raw: &str) -> anyhow::Result<WorkspaceBaseRole> {
-        WorkspaceBaseRole::from_str(raw).ok_or_else(|| anyhow::anyhow!("invalid_base_role"))
+        WorkspaceBaseRole::parse(raw).ok_or_else(|| anyhow::anyhow!("invalid_base_role"))
     }
 }

@@ -24,10 +24,10 @@ pub struct AccessTokenOverride(pub String);
 fn get_cookie(cookie_header: &str, name: &str) -> Option<String> {
     for part in cookie_header.split(';') {
         let kv = part.trim();
-        if let Some((k, v)) = kv.split_once('=') {
-            if k.trim() == name {
-                return Some(v.trim().to_string());
-            }
+        if let Some((k, v)) = kv.split_once('=')
+            && k.trim() == name
+        {
+            return Some(v.trim().to_string());
         }
     }
     None
@@ -40,24 +40,20 @@ fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
     if let Some(cookie) = headers
         .get(axum::http::header::COOKIE)
         .and_then(|v| v.to_str().ok())
+        && let Some(token) = get_cookie(cookie, "access_token")
+        && !token.trim().is_empty()
     {
-        if let Some(token) = get_cookie(cookie, "access_token") {
-            if !token.trim().is_empty() {
-                return Some(token);
-            }
-        }
+        return Some(token);
     }
 
     if let Some(auth) = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
+        && let Some(t) = auth.strip_prefix("Bearer ")
+        && let trimmed = t.trim()
+        && !trimmed.is_empty()
     {
-        if let Some(t) = auth.strip_prefix("Bearer ") {
-            let trimmed = t.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
+        return Some(trimmed.to_string());
     }
     None
 }
@@ -103,17 +99,13 @@ pub async fn resolve_actor_from_token_str(
     match service.subject_from_token(trimmed).await {
         Ok(Some(sub)) => {
             if let Ok(uid) = Uuid::parse_str(&sub) {
-                if let Some(session_id) = service.session_id_from_token_claim(trimmed) {
-                    if let Err(err) = ctx
-                        .session_service()
-                        .ensure_session_active(session_id)
-                        .await
-                    {
-                        if err.is_internal() {
-                            error!(error = ?err, "session_validation_failed");
-                        }
-                        return Err(ActorResolveError::Unauthorized);
+                if let Some(session_id) = service.session_id_from_token_claim(trimmed)
+                    && let Err(err) = ctx.session_service().ensure_session_active(session_id).await
+                {
+                    if err.is_internal() {
+                        error!(error = ?err, "session_validation_failed");
                     }
+                    return Err(ActorResolveError::Unauthorized);
                 }
                 Ok(access::Actor::User(uid))
             } else {
@@ -139,16 +131,16 @@ pub async fn resolve_actor_from_parts(
     bearer: Option<Bearer>,
     share_token: Option<&str>,
 ) -> Result<Option<access::Actor>, ActorResolveError> {
-    if let Some(token) = share_token {
-        if let Ok(actor) = resolve_actor_from_token_str(ctx, token).await {
-            return Ok(Some(actor));
-        }
+    if let Some(token) = share_token
+        && let Ok(actor) = resolve_actor_from_token_str(ctx, token).await
+    {
+        return Ok(Some(actor));
     }
 
-    if let Some(b) = bearer {
-        if let Ok(actor) = resolve_actor_from_token_str(ctx, &b.0).await {
-            return Ok(Some(actor));
-        }
+    if let Some(b) = bearer
+        && let Ok(actor) = resolve_actor_from_token_str(ctx, &b.0).await
+    {
+        return Ok(Some(actor));
     }
 
     Ok(None)

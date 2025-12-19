@@ -1,15 +1,18 @@
+type PullMergeOk = (CommitMeta, Vec<u8>, HashMap<String, FileSnapshot>, String);
+type PullMergeResult = Result<PullMergeOk, GitPullResultDto>;
+type ConflictEntry = (String, Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>);
+
 impl GitWorkspaceService {
-fn pull_build_diverged_merge_commit(
-    &self,
-    workspace_id: Uuid,
-    repo: &Repository,
-    local_oid_val: git2::Oid,
-    remote_oid: git2::Oid,
-    req: &GitPullRequestDto,
-    base_commit: &Option<Vec<u8>>,
-    remote_commit: &Option<Vec<u8>>,
-) -> anyhow::Result<Result<(CommitMeta, Vec<u8>, HashMap<String, FileSnapshot>, String), GitPullResultDto>>
-{
+    fn pull_build_diverged_merge_commit(
+        &self,
+        workspace_id: Uuid,
+        repo: &Repository,
+        local_oid_val: git2::Oid,
+        remote_oid: git2::Oid,
+        req: &GitPullRequestDto,
+        base_commit: &Option<Vec<u8>>,
+        remote_commit: &Option<Vec<u8>>,
+    ) -> anyhow::Result<PullMergeResult> {
     // Build a synthetic "ours" commit from the current workspace state anchored to the local head
     // so dirty edits participate in the merge against remote changes.
     let synthetic_ours = self.build_synthetic_commit(workspace_id, repo, local_oid_val)?;
@@ -27,20 +30,19 @@ fn pull_build_diverged_merge_commit(
     }
 
     // Collect conflict entries for resolution application.
-    let mut conflict_entries: Vec<(String, Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>)> =
-        Vec::new();
-    {
-        let mut conflicts_iter = index.conflicts()?;
-        while let Some(conflict) = conflicts_iter.next() {
-            let conflict = conflict?;
-            let path = conflict
-                .our
-                .as_ref()
-                .or(conflict.their.as_ref())
-                .or(conflict.ancestor.as_ref())
-                .and_then(|e| std::str::from_utf8(&e.path).ok())
-                .ok_or_else(|| anyhow!("missing conflict path"))?
-                .to_string();
+        let mut conflict_entries: Vec<ConflictEntry> = Vec::new();
+        {
+            let conflicts_iter = index.conflicts()?;
+            for conflict in conflicts_iter {
+                let conflict = conflict?;
+                let path = conflict
+                    .our
+                    .as_ref()
+                    .or(conflict.their.as_ref())
+                    .or(conflict.ancestor.as_ref())
+                    .and_then(|e| std::str::from_utf8(&e.path).ok())
+                    .ok_or_else(|| anyhow!("missing conflict path"))?
+                    .to_string();
 
             let to_bytes = |entry: Option<&git2::IndexEntry>| -> anyhow::Result<Option<Vec<u8>>> {
                 if let Some(e) = entry {
@@ -51,14 +53,14 @@ fn pull_build_diverged_merge_commit(
                 }
             };
 
-            conflict_entries.push((
-                path,
-                to_bytes(conflict.our.as_ref())?,
-                to_bytes(conflict.their.as_ref())?,
-                to_bytes(conflict.ancestor.as_ref())?,
-            ));
+                conflict_entries.push((
+                    path,
+                    to_bytes(conflict.our.as_ref())?,
+                    to_bytes(conflict.their.as_ref())?,
+                    to_bytes(conflict.ancestor.as_ref())?,
+                ));
+            }
         }
-    }
 
     let resolution_map: std::collections::HashMap<
         String,
@@ -199,6 +201,6 @@ fn pull_build_diverged_merge_commit(
         file_hash_index,
     };
 
-    Ok(Ok((meta, pack_bytes, merged_snapshots, commit_hex)))
-}
+        Ok(Ok((meta, pack_bytes, merged_snapshots, commit_hex)))
+    }
 }

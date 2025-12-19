@@ -341,7 +341,7 @@ impl StorageProjectionPort for S3StoragePort {
         if dtype == DOC_TYPE_FOLDER {
             return Ok(());
         }
-        if let Some(path) = row.try_get::<String, _>("path").ok() {
+        if let Ok(path) = row.try_get::<String, _>("path") {
             let key = self.relative_to_key(&path);
             let _ = self.delete_object(&key).await;
         }

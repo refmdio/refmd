@@ -5,8 +5,8 @@ pub(in super::super) fn collect_conflicts(
     index: &git2::Index,
 ) -> anyhow::Result<Vec<GitPullConflictItemDto>> {
     let mut out = Vec::new();
-    let mut conflicts = index.conflicts()?;
-    while let Some(conflict) = conflicts.next() {
+    let conflicts = index.conflicts()?;
+    for conflict in conflicts {
         let conflict = conflict?;
         let path = conflict
             .our

@@ -46,6 +46,7 @@ pub struct StorageIngestQueueStats {
 
 #[async_trait]
 pub trait StorageIngestQueue: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     async fn enqueue_event(
         &self,
         workspace_id: Uuid,

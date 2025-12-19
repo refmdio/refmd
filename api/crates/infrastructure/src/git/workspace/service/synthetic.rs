@@ -32,7 +32,7 @@ impl GitWorkspaceService {
                 gid: 0,
                 file_size: bytes.len() as u32,
                 id: blob_oid,
-                flags: std::cmp::min(path.as_bytes().len(), 0x0fff) as u16,
+                flags: std::cmp::min(path.len(), 0x0fff) as u16,
                 flags_extended: 0,
                 path: path.as_bytes().to_vec(),
             };

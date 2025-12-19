@@ -16,9 +16,9 @@ use application::documents::ports::realtime::realtime_types::DynRealtimeStream;
 
 pub fn analyse_frame(frame: &[u8]) -> Result<FrameSummary> {
     let mut decoder = DecoderV1::new(Cursor::new(frame));
-    let mut reader = MessageReader::new(&mut decoder);
+    let reader = MessageReader::new(&mut decoder);
     let mut summary = FrameSummary::default();
-    while let Some(message) = reader.next() {
+    for message in reader {
         match message? {
             Message::Sync(SyncMessage::Update(_)) | Message::Sync(SyncMessage::SyncStep2(_)) => {
                 summary.has_update = true;

@@ -286,16 +286,14 @@ fn sanitize_filename(name: &str) -> String {
 
 fn resolve_relative_path(doc: &DomainDocument, base_prefix: Option<&str>) -> String {
     let path = doc.desired_path().as_str().trim_start_matches('/');
-    if let Some(base) = base_prefix {
-        let base = base.trim_start_matches('/');
-        if !base.is_empty() {
-            if let Some(stripped) = path.strip_prefix(base) {
-                let trimmed = stripped.trim_start_matches('/');
-                if !trimmed.is_empty() {
-                    return trimmed.to_string();
-                }
-            }
-        }
+    if let Some(base) = base_prefix
+        .map(|b| b.trim_start_matches('/'))
+        .filter(|b| !b.is_empty())
+        && let Some(stripped) = path.strip_prefix(base)
+        && let trimmed = stripped.trim_start_matches('/')
+        && !trimmed.is_empty()
+    {
+        return trimmed.to_string();
     }
     if path.is_empty() {
         format!("{}.md", sanitize_filename(doc.title().as_str()))

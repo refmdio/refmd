@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +20,7 @@ pub enum GitPullSessionStatus {
 }
 
 impl GitPullSessionStatus {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
             GIT_PULL_STATUS_PENDING => Some(Self::Pending),
             GIT_PULL_STATUS_RESOLVING => Some(Self::Resolving),
@@ -51,6 +52,25 @@ impl fmt::Display for GitPullSessionStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidGitPullSessionStatus;
+
+impl fmt::Display for InvalidGitPullSessionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid git pull session status")
+    }
+}
+
+impl std::error::Error for InvalidGitPullSessionStatus {}
+
+impl FromStr for GitPullSessionStatus {
+    type Err = InvalidGitPullSessionStatus;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(InvalidGitPullSessionStatus)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,26 +78,26 @@ mod tests {
     #[test]
     fn parses_formats_and_in_progress() {
         assert_eq!(
-            GitPullSessionStatus::from_str(" pending "),
+            GitPullSessionStatus::parse(" pending "),
             Some(GitPullSessionStatus::Pending)
         );
         assert_eq!(
-            GitPullSessionStatus::from_str("resolving"),
+            GitPullSessionStatus::parse("resolving"),
             Some(GitPullSessionStatus::Resolving)
         );
         assert_eq!(
-            GitPullSessionStatus::from_str("merged"),
+            GitPullSessionStatus::parse("merged"),
             Some(GitPullSessionStatus::Merged)
         );
         assert_eq!(
-            GitPullSessionStatus::from_str("stale"),
+            GitPullSessionStatus::parse("stale"),
             Some(GitPullSessionStatus::Stale)
         );
         assert_eq!(
-            GitPullSessionStatus::from_str("error"),
+            GitPullSessionStatus::parse("error"),
             Some(GitPullSessionStatus::Error)
         );
-        assert_eq!(GitPullSessionStatus::from_str("nope"), None);
+        assert_eq!(GitPullSessionStatus::parse("nope"), None);
 
         assert!(GitPullSessionStatus::Pending.is_in_progress());
         assert!(GitPullSessionStatus::Resolving.is_in_progress());

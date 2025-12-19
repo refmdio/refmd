@@ -194,11 +194,7 @@ pub fn render(
                 } else {
                     // Hashtags and directives starting with '#'
                     let start = j; // position of '#'
-                    let prev_char = if start == 0 {
-                        None
-                    } else {
-                        s[..start].chars().rev().next()
-                    };
+                    let prev_char = s[..start].chars().next_back();
                     if let Some(prev) = prev_char {
                         if prev.is_alphanumeric()
                             || matches!(
@@ -461,7 +457,7 @@ pub fn render(
                             if !txt.is_empty() {
                                 txt
                             } else {
-                                url.split('/').last().unwrap_or(&url).to_string()
+                                url.rsplit('/').next().unwrap_or(&url).to_string()
                             }
                         };
                         let new_url = rewrite_attachment_url(&url, opts).unwrap_or(url.clone());

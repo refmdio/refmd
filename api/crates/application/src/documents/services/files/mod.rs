@@ -23,6 +23,7 @@ pub struct FilePayload {
 
 #[async_trait]
 pub trait FileServiceFacade: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     async fn upload_file(
         &self,
         workspace_id: Uuid,
@@ -57,6 +58,7 @@ pub trait FileServiceFacade: Send + Sync {
 
 #[async_trait]
 impl FileServiceFacade for FileService {
+    #[allow(clippy::too_many_arguments)]
     async fn upload_file(
         &self,
         workspace_id: Uuid,
@@ -131,6 +133,7 @@ impl FileService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn upload_file(
         &self,
         workspace_id: Uuid,

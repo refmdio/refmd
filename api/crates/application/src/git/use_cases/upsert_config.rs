@@ -32,7 +32,7 @@ where
         req: &UpsertGitConfigInput,
     ) -> anyhow::Result<GitConfigDto> {
         let auth_type =
-            GitAuthType::from_str(&req.auth_type).ok_or_else(|| anyhow::anyhow!("bad_request"))?;
+            GitAuthType::parse(&req.auth_type).ok_or_else(|| anyhow::anyhow!("bad_request"))?;
         if !auth_type.validate_repository_url(&req.repository_url) {
             anyhow::bail!("bad_request");
         }

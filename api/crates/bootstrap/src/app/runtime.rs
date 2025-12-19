@@ -13,21 +13,21 @@ use presentation::context::AppContext;
 use crate::jobs::{self, Jobs};
 use crate::{app::AppRuntime, http};
 
+type AppRuntimeParts = (
+    crate::config::Config,
+    PgPool,
+    AppContext,
+    Option<infrastructure::documents::realtime::Hub>,
+    Jobs,
+    Arc<dyn StorageProjectionQueue>,
+    Arc<dyn StorageReconcileJobs>,
+    Arc<dyn GitRebuildJobQueue>,
+    Arc<dyn PluginAssetStore>,
+);
+
 impl AppRuntime {
     /// Consume the runtime and return owned parts for reuse.
-    pub fn into_parts(
-        self,
-    ) -> (
-        crate::config::Config,
-        PgPool,
-        AppContext,
-        Option<infrastructure::documents::realtime::Hub>,
-        Jobs,
-        Arc<dyn StorageProjectionQueue>,
-        Arc<dyn StorageReconcileJobs>,
-        Arc<dyn GitRebuildJobQueue>,
-        Arc<dyn PluginAssetStore>,
-    ) {
+    pub fn into_parts(self) -> AppRuntimeParts {
         (
             self.cfg,
             self.pool,

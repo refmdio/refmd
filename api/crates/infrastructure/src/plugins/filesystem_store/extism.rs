@@ -26,7 +26,7 @@ impl FilesystemPluginStore {
                     .filter_map(|item| item.as_str().map(|s| s.to_string()))
                     .collect::<Vec<String>>()
             })
-            .unwrap_or_else(Vec::new)
+            .unwrap_or_default()
     }
 
     async fn load_plugin_instance(&self, plugin_dir: &Path) -> anyhow::Result<Arc<Mutex<Plugin>>> {

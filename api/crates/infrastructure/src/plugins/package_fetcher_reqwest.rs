@@ -14,6 +14,12 @@ impl ReqwestPluginPackageFetcher {
     }
 }
 
+impl Default for ReqwestPluginPackageFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl PluginPackageFetcher for ReqwestPluginPackageFetcher {
     async fn fetch(&self, url: &str, token: Option<&str>) -> anyhow::Result<Vec<u8>> {

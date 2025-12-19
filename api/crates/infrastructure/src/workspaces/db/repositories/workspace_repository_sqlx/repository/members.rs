@@ -85,9 +85,9 @@ impl SqlxWorkspaceRepository {
             workspace_id: row.get("workspace_id"),
             user_id: row.get("user_id"),
             role_kind: Self::parse_role_kind(&role_kind_raw)
-                .map_err(|e| WorkspaceSetDefaultError::Unexpected(e.into()))?,
+                .map_err(WorkspaceSetDefaultError::Unexpected)?,
             system_role: Self::parse_system_role(system_role_raw.as_deref())
-                .map_err(|e| WorkspaceSetDefaultError::Unexpected(e.into()))?,
+                .map_err(WorkspaceSetDefaultError::Unexpected)?,
             custom_role_id: row.try_get("custom_role_id").ok(),
             is_default: row.get("is_default"),
         })
@@ -113,8 +113,7 @@ impl SqlxWorkspaceRepository {
         .bind(workspace_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
+        rows.into_iter()
             .map(|row| {
                 let role_kind_raw: String = row.get("role_kind");
                 let system_role_raw: Option<String> = row.try_get("system_role").ok();
@@ -129,7 +128,7 @@ impl SqlxWorkspaceRepository {
                     user_name: row.get("name"),
                 })
             })
-            .collect::<anyhow::Result<Vec<_>>>()?)
+            .collect::<anyhow::Result<Vec<_>>>()
     }
     pub(super) async fn get_member_detail_impl(
         &self,

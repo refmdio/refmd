@@ -68,7 +68,7 @@ pub async fn build_realtime_stack(
     > = Arc::new(infrastructure::documents::realtime::SqlxDocStateReader::new(pool.clone()));
     let backlog_reader: Arc<
         dyn application::documents::ports::realtime::realtime_hydration_port::RealtimeBacklogReader,
-    > = Arc::new(infrastructure::documents::realtime::NoopBacklogReader::default());
+    > = Arc::new(infrastructure::documents::realtime::NoopBacklogReader);
     let doc_persistence: Arc<
         dyn application::documents::ports::realtime::realtime_persistence_port::DocPersistencePort,
     > = Arc::new(infrastructure::documents::realtime::SqlxDocPersistenceAdapter::new(pool.clone()));

@@ -36,9 +36,9 @@ impl SqlxSharesRepository {
         .await?;
         Ok(row.and_then(|r| {
             let permission_raw: String = r.get("permission");
-            let permission = share::SharePermission::from_str(&permission_raw)?;
+            let permission = share::SharePermission::parse(&permission_raw)?;
             let shared_type_raw: String = r.get("shared_type");
-            let shared_type = DocumentType::from_str(&shared_type_raw)?;
+            let shared_type = DocumentType::parse(&shared_type_raw)?;
             Some(share::ShareContext {
                 share_id: r.get("share_id"),
                 permission,
@@ -51,12 +51,12 @@ impl SqlxSharesRepository {
     }
 
     fn parse_share_permission(raw: &str) -> anyhow::Result<share::SharePermission> {
-        share::SharePermission::from_str(raw)
+        share::SharePermission::parse(raw)
             .ok_or_else(|| anyhow::anyhow!("invalid_share_permission"))
     }
 
     fn parse_document_type(raw: &str) -> anyhow::Result<DocumentType> {
-        DocumentType::from_str(raw).ok_or_else(|| anyhow::anyhow!("invalid_document_type"))
+        DocumentType::parse(raw).ok_or_else(|| anyhow::anyhow!("invalid_document_type"))
     }
 }
 
@@ -573,7 +573,7 @@ impl ShareAccessPort for SqlxSharesRepository {
         .await?;
         match perm {
             None => Ok(None),
-            Some(raw) => share::SharePermission::from_str(&raw)
+            Some(raw) => share::SharePermission::parse(&raw)
                 .ok_or_else(|| anyhow::anyhow!("invalid_share_permission"))
                 .map(Some),
         }

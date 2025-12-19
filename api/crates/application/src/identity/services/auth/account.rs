@@ -220,9 +220,7 @@ impl AccountService {
         if !identity.email_verified {
             return Err(ServiceError::Unauthorized);
         }
-        self.handle_external_identity(identity)
-            .await
-            .map_err(ServiceError::from)
+        self.handle_external_identity(identity).await
     }
 
     async fn handle_external_identity(

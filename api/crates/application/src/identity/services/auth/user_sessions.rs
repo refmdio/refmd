@@ -136,7 +136,7 @@ impl UserSessionService {
         Duration::seconds(secs.max(60))
     }
 
-    fn sanitize_metadata<'a>(value: Option<&'a str>) -> Option<&'a str> {
+    fn sanitize_metadata(value: Option<&str>) -> Option<&str> {
         value.and_then(|raw| {
             let trimmed = raw.trim();
             if trimmed.is_empty() {
@@ -204,8 +204,7 @@ impl UserSessionService {
             .map_err(ServiceError::from)?;
         let access = self
             .auth
-            .issue_session(user_id, workspace_id, Some(record.id))
-            .map_err(ServiceError::from)?;
+            .issue_session(user_id, workspace_id, Some(record.id))?;
         Ok(IssuedSessionBundle {
             access,
             refresh_token,
@@ -280,8 +279,7 @@ impl UserSessionService {
 
         let access = self
             .auth
-            .issue_session(session.user_id, session.workspace_id, Some(session.id))
-            .map_err(ServiceError::from)?;
+            .issue_session(session.user_id, session.workspace_id, Some(session.id))?;
 
         Ok(IssuedSessionBundle {
             access,
@@ -505,11 +503,11 @@ mod tests {
             workspace_id: Uuid,
         ) -> anyhow::Result<bool> {
             let mut sessions = self.sessions.lock().await;
-            if let Some(entry) = sessions.get_mut(&session_id) {
-                if entry.record.revoked_at.is_none() {
-                    entry.record.workspace_id = workspace_id;
-                    return Ok(true);
-                }
+            if let Some(entry) = sessions.get_mut(&session_id)
+                && entry.record.revoked_at.is_none()
+            {
+                entry.record.workspace_id = workspace_id;
+                return Ok(true);
             }
             Ok(false)
         }
@@ -541,11 +539,11 @@ mod tests {
 
         async fn revoke(&self, session_id: Uuid) -> anyhow::Result<bool> {
             let mut sessions = self.sessions.lock().await;
-            if let Some(entry) = sessions.get_mut(&session_id) {
-                if entry.record.revoked_at.is_none() {
-                    entry.record.revoked_at = Some(Utc::now());
-                    return Ok(true);
-                }
+            if let Some(entry) = sessions.get_mut(&session_id)
+                && entry.record.revoked_at.is_none()
+            {
+                entry.record.revoked_at = Some(Utc::now());
+                return Ok(true);
             }
             Ok(false)
         }
@@ -657,7 +655,7 @@ mod tests {
 
     fn build_service() -> UserSessionService {
         let repo = Arc::new(InMemorySessionRepo::default());
-        let hasher: Arc<dyn SecretHasher> = Arc::new(NoopSecretHasher::default());
+        let hasher: Arc<dyn SecretHasher> = Arc::new(NoopSecretHasher);
         let token_validation = Arc::new(TokenValidationService::new(
             Arc::new(NoopApiTokenRepo),
             hasher.clone(),

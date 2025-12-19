@@ -106,6 +106,7 @@ pub trait SharesRepository: Send + Sync {
 
     async fn list_share_mounts(&self, workspace_id: Uuid) -> anyhow::Result<Vec<ShareMountRow>>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_share_mount(
         &self,
         workspace_id: Uuid,

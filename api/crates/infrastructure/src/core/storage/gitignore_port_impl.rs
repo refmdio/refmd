@@ -25,8 +25,8 @@ impl GitignorePort for FsGitignorePort {
                 existing.lines().map(|s| s.to_string()).collect();
             let mut changed = false;
             for d in &defaults {
-                if !lines.contains(&d.to_string()) {
-                    lines.insert(d.to_string());
+                if !lines.contains(*d) {
+                    lines.insert((*d).to_string());
                     changed = true;
                 }
             }

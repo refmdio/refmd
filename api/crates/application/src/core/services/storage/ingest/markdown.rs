@@ -17,16 +17,15 @@ pub(super) fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownI
     // Accept lossy UTF-8 to avoid retry storms on malformed files; non-UTF8 bytes become U+FFFD.
     let text = String::from_utf8_lossy(&bytes).to_string();
     let trimmed = text.trim_start_matches('\u{feff}');
-    if let Some((front, body)) = split_front_matter(trimmed) {
-        if let Ok(front_matter) = serde_yaml::from_str::<MarkdownFrontMatter>(front) {
-            if let Some(doc_id) = front_matter.id {
-                return Ok(MarkdownIngestPayload {
-                    doc_id_hint: Some(doc_id),
-                    body: body.to_string(),
-                    content_hash,
-                });
-            }
-        }
+    if let Some((front, body)) = split_front_matter(trimmed)
+        && let Ok(front_matter) = serde_yaml::from_str::<MarkdownFrontMatter>(front)
+        && let Some(doc_id) = front_matter.id
+    {
+        return Ok(MarkdownIngestPayload {
+            doc_id_hint: Some(doc_id),
+            body: body.to_string(),
+            content_hash,
+        });
     }
     Ok(MarkdownIngestPayload {
         doc_id_hint: None,
@@ -36,12 +35,9 @@ pub(super) fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownI
 }
 
 fn split_front_matter(input: &str) -> Option<(&str, &str)> {
-    let Some(after_open) = input
+    let after_open = input
         .strip_prefix("---\r\n")
-        .or_else(|| input.strip_prefix("---\n"))
-    else {
-        return None;
-    };
+        .or_else(|| input.strip_prefix("---\n"))?;
     if let Some((front_len, body_start)) = find_front_matter_end(after_open) {
         let front = &after_open[..front_len];
         let body = &after_open[body_start..];

@@ -56,10 +56,10 @@ struct GoogleTokenInfo {
 }
 
 fn parse_email_verified(value: Option<String>) -> bool {
-    match value.unwrap_or_default().to_lowercase().as_str() {
-        "true" | "1" | "yes" => true,
-        _ => false,
-    }
+    matches!(
+        value.unwrap_or_default().to_lowercase().as_str(),
+        "true" | "1" | "yes"
+    )
 }
 
 #[async_trait]

@@ -38,24 +38,20 @@ fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
     if let Some(cookie) = headers
         .get(axum::http::header::COOKIE)
         .and_then(|v| v.to_str().ok())
+        && let Some(token) = get_cookie(cookie, SESSION_COOKIE_NAME)
+        && !token.trim().is_empty()
     {
-        if let Some(token) = get_cookie(cookie, SESSION_COOKIE_NAME) {
-            if !token.trim().is_empty() {
-                return Some(token);
-            }
-        }
+        return Some(token);
     }
 
     if let Some(auth) = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
+        && let Some(t) = auth.strip_prefix("Bearer ")
+        && let trimmed = t.trim()
+        && !trimmed.is_empty()
     {
-        if let Some(t) = auth.strip_prefix("Bearer ") {
-            let trimmed = t.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
+        return Some(trimmed.to_string());
     }
     None
 }
@@ -125,17 +121,13 @@ pub async fn refresh_middleware(
 
         let token_expired_or_missing = if force_refresh {
             true
-        } else if let Some(access_token) = access_token {
-            match auth.subject_from_token(&access_token).await {
-                Ok(Some(_)) => false,
-                Ok(None) => false,
-                Err(ServiceError::TokenExpired) => true,
-                Err(_) => false,
-            }
-        } else if refresh_token.is_some() {
-            true
+        } else if let Some(access_token) = access_token.as_deref() {
+            matches!(
+                auth.subject_from_token(access_token).await,
+                Err(ServiceError::TokenExpired)
+            )
         } else {
-            false
+            refresh_token.is_some()
         };
 
         if token_expired_or_missing {

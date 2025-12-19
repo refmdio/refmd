@@ -89,14 +89,14 @@ impl AwarenessService {
 
     async fn process_frame(&self, frame: &[u8], origin: FrameOrigin) -> anyhow::Result<()> {
         let mut decoder = DecoderV1::new(Cursor::new(frame));
-        let mut reader = MessageReader::new(&mut decoder);
+        let reader = MessageReader::new(&mut decoder);
         let mut combined = AwarenessUpdateSummary {
             added: Vec::new(),
             updated: Vec::new(),
             removed: Vec::new(),
         };
         let mut any = false;
-        while let Some(message) = reader.next() {
+        for message in reader {
             let message = message?;
             if let Message::Awareness(update) = message {
                 if let Some(summary) = self

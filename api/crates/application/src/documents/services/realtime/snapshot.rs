@@ -31,22 +31,12 @@ pub struct SnapshotService {
     storage_jobs: Arc<dyn StorageProjectionQueue>,
 }
 
+#[derive(Default)]
 pub struct SnapshotPersistOptions {
     pub clear_updates: bool,
     pub skip_if_unchanged: bool,
     pub prune_snapshots: Option<i64>,
     pub prune_updates_before: Option<i64>,
-}
-
-impl Default for SnapshotPersistOptions {
-    fn default() -> Self {
-        Self {
-            clear_updates: false,
-            skip_if_unchanged: false,
-            prune_snapshots: None,
-            prune_updates_before: None,
-        }
-    }
 }
 
 pub struct SnapshotPersistResult {
@@ -152,27 +142,26 @@ impl SnapshotService {
             )
         };
 
-        if options.skip_if_unchanged {
-            if let Some(prev) = previous_snapshot.as_ref() {
-                if prev.as_slice() == snapshot_bin.as_slice() {
-                    if options.clear_updates {
-                        self.persistence.clear_updates(doc_id).await?;
-                    }
-                    if let Some(keep) = options.prune_snapshots {
-                        self.persistence.prune_snapshots(doc_id, keep).await?;
-                    }
-                    if let Some(cutoff) = options.prune_updates_before {
-                        self.persistence
-                            .prune_updates_before(doc_id, cutoff)
-                            .await?;
-                    }
-                    return Ok(SnapshotPersistResult {
-                        version: current_version,
-                        snapshot_bytes: snapshot_bin,
-                        persisted: false,
-                    });
-                }
+        if options.skip_if_unchanged
+            && let Some(prev) = previous_snapshot.as_ref()
+            && prev.as_slice() == snapshot_bin.as_slice()
+        {
+            if options.clear_updates {
+                self.persistence.clear_updates(doc_id).await?;
             }
+            if let Some(keep) = options.prune_snapshots {
+                self.persistence.prune_snapshots(doc_id, keep).await?;
+            }
+            if let Some(cutoff) = options.prune_updates_before {
+                self.persistence
+                    .prune_updates_before(doc_id, cutoff)
+                    .await?;
+            }
+            return Ok(SnapshotPersistResult {
+                version: current_version,
+                snapshot_bytes: snapshot_bin,
+                persisted: false,
+            });
         }
         let next_version = current_version + 1;
         self.persistence
@@ -342,8 +331,7 @@ impl SnapshotService {
 fn extract_markdown(doc: &Doc) -> String {
     let txt = doc.get_or_insert_text("content");
     let txn = doc.transact();
-    let contents = txt.get_string(&txn);
-    contents
+    txt.get_string(&txn)
 }
 
 fn render_markdown_bytes(doc_id: &Uuid, title: &str, contents: &str) -> Vec<u8> {

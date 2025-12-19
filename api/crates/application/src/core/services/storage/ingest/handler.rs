@@ -21,31 +21,31 @@ impl StorageIngestHandler for StorageIngestService {
             .await?
             .map(ResolvedDocument::from);
 
-        if doc.is_none() {
-            if let Some(prev_repo) = payload_previous_repo_path.as_deref() {
-                let prev_rel = Self::relative_path(event.workspace_id, prev_repo);
-                if let Some(prev_doc) = self
+        if doc.is_none()
+            && let Some(prev_repo) = payload_previous_repo_path.as_deref()
+        {
+            let prev_rel = Self::relative_path(event.workspace_id, prev_repo);
+            if let Some(prev_doc) = self
+                .document_paths
+                .get_by_owner_and_path(event.workspace_id, &prev_rel)
+                .await?
+                .map(ResolvedDocument::from)
+            {
+                if let Err(err) = self
                     .document_paths
-                    .get_by_owner_and_path(event.workspace_id, &prev_rel)
-                    .await?
-                    .map(ResolvedDocument::from)
+                    .update_repo_path(prev_doc.id, event.workspace_id, &rel_path)
+                    .await
                 {
-                    if let Err(err) = self
-                        .document_paths
-                        .update_repo_path(prev_doc.id, event.workspace_id, &rel_path)
-                        .await
-                    {
-                        warn!(
-                            doc_id = %prev_doc.id,
-                            error = ?err,
-                            "storage_ingest_repo_path_update_failed"
-                        );
-                    } else {
-                        doc_previous_repo_path = Some(prev_repo.to_string());
-                        let mut updated = prev_doc.clone();
-                        updated.path = Some(rel_path.clone());
-                        doc = Some(updated);
-                    }
+                    warn!(
+                        doc_id = %prev_doc.id,
+                        error = ?err,
+                        "storage_ingest_repo_path_update_failed"
+                    );
+                } else {
+                    doc_previous_repo_path = Some(prev_repo.to_string());
+                    let mut updated = prev_doc.clone();
+                    updated.path = Some(rel_path.clone());
+                    doc = Some(updated);
                 }
             }
         }
@@ -108,16 +108,16 @@ impl StorageIngestHandler for StorageIngestService {
         let mut attachment_previous_repo_path: Option<String> = None;
         let mut attachment = self.files_repo.find_by_storage_path(&rel_path).await?;
 
-        if attachment.is_none() {
-            if let Some(prev_repo) = payload_previous_repo_path.as_deref() {
-                let prev_rel = Self::relative_path(event.workspace_id, prev_repo);
-                if let Some(file) = self.files_repo.find_by_storage_path(&prev_rel).await? {
-                    self.files_repo
-                        .update_storage_path(file.file_id, &rel_path)
-                        .await?;
-                    attachment_previous_repo_path = Some(prev_repo.to_string());
-                    attachment = Some(file);
-                }
+        if attachment.is_none()
+            && let Some(prev_repo) = payload_previous_repo_path.as_deref()
+        {
+            let prev_rel = Self::relative_path(event.workspace_id, prev_repo);
+            if let Some(file) = self.files_repo.find_by_storage_path(&prev_rel).await? {
+                self.files_repo
+                    .update_storage_path(file.file_id, &rel_path)
+                    .await?;
+                attachment_previous_repo_path = Some(prev_repo.to_string());
+                attachment = Some(file);
             }
         }
 

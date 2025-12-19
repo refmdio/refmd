@@ -33,15 +33,14 @@ pub struct JobHandle {
 }
 
 /// Small registry to keep track of spawned background jobs.
+#[derive(Default)]
 pub struct Jobs {
     handles: Vec<JobHandle>,
 }
 
 impl Jobs {
     pub fn new() -> Self {
-        Self {
-            handles: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Spawn a background task and record its handle.

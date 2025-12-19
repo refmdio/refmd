@@ -44,12 +44,12 @@ where
             }
         };
 
-        if let Some(ref leader) = payload.leader_key {
-            if leader.len() > 16 {
-                return Err(UpdateUserShortcutsError::Validation(
-                    "leader key is too long".into(),
-                ));
-            }
+        if let Some(leader) = payload.leader_key.as_deref()
+            && leader.len() > 16
+        {
+            return Err(UpdateUserShortcutsError::Validation(
+                "leader key is too long".into(),
+            ));
         }
 
         let encoded = serde_json::to_vec(&bindings)

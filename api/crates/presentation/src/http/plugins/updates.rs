@@ -28,7 +28,6 @@ pub async fn sse_updates(
         .await
         .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))?;
     let broadcast = event_stream.filter_map(move |ev| {
-        let user_id = user_id.clone();
         async move {
             if ev.user_id.is_some() && ev.user_id != Some(user_id) {
                 return None;

@@ -25,6 +25,7 @@ pub struct UserSessionSecret {
 
 #[async_trait]
 pub trait UserSessionRepository: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     async fn create(
         &self,
         user_id: Uuid,
@@ -40,6 +41,7 @@ pub trait UserSessionRepository: Send + Sync {
     async fn find_by_digest(&self, token_digest: &str)
     -> anyhow::Result<Option<UserSessionSecret>>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn update_token(
         &self,
         session_id: Uuid,

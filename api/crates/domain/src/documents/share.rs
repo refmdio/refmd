@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use std::fmt;
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::documents::doc_type::DocumentType;
@@ -14,7 +15,7 @@ pub enum SharePermission {
 }
 
 impl SharePermission {
-    pub fn from_str(permission: &str) -> Option<Self> {
+    pub fn parse(permission: &str) -> Option<Self> {
         match normalize_permission(permission)? {
             SHARE_PERMISSION_VIEW => Some(SharePermission::View),
             SHARE_PERMISSION_EDIT => Some(SharePermission::Edit),
@@ -37,6 +38,25 @@ impl SharePermission {
 impl fmt::Display for SharePermission {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidSharePermission;
+
+impl fmt::Display for InvalidSharePermission {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid share permission")
+    }
+}
+
+impl std::error::Error for InvalidSharePermission {}
+
+impl FromStr for SharePermission {
+    type Err = InvalidSharePermission;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(InvalidSharePermission)
     }
 }
 
@@ -86,14 +106,14 @@ mod tests {
     #[test]
     fn share_permission_parses_and_formats() {
         assert_eq!(
-            SharePermission::from_str("view"),
+            SharePermission::parse("view"),
             Some(SharePermission::View)
         );
         assert_eq!(
-            SharePermission::from_str("edit"),
+            SharePermission::parse("edit"),
             Some(SharePermission::Edit)
         );
-        assert_eq!(SharePermission::from_str("nope"), None);
+        assert_eq!(SharePermission::parse("nope"), None);
         assert_eq!(SharePermission::Edit.as_str(), SHARE_PERMISSION_EDIT);
         assert!(SharePermission::Edit.allows_edit());
         assert!(!SharePermission::View.allows_edit());

@@ -3,10 +3,8 @@ use std::str::FromStr;
 
 fn env_var(keys: &[&str]) -> Option<String> {
     for key in keys {
-        if let Ok(value) = env::var(key) {
-            if !value.trim().is_empty() {
-                return Some(value);
-            }
+        if let Ok(value) = env::var(key) && !value.trim().is_empty() {
+            return Some(value);
         }
     }
     None
@@ -275,11 +273,9 @@ impl Config {
 
         // Production hardening: require proper FRONTEND_URL and robust secrets
         if is_production {
-            if frontend_url
+            if !frontend_url
                 .as_deref()
-                .map(|u| u.starts_with("http"))
-                .unwrap_or(false)
-                == false
+                .is_some_and(|u| u.starts_with("http"))
             {
                 anyhow::bail!(
                     "FRONTEND_URL must be set to a full origin in production (e.g., https://app.example.com)"

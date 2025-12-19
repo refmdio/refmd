@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 pub const GIT_AUTH_TYPE_TOKEN: &str = "token";
 pub const GIT_AUTH_TYPE_SSH: &str = "ssh";
@@ -10,7 +11,7 @@ pub enum GitAuthType {
 }
 
 impl GitAuthType {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
             GIT_AUTH_TYPE_TOKEN => Some(Self::Token),
             GIT_AUTH_TYPE_SSH => Some(Self::Ssh),
@@ -39,15 +40,34 @@ impl fmt::Display for GitAuthType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidGitAuthType;
+
+impl fmt::Display for InvalidGitAuthType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid git auth type")
+    }
+}
+
+impl std::error::Error for InvalidGitAuthType {}
+
+impl FromStr for GitAuthType {
+    type Err = InvalidGitAuthType;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(InvalidGitAuthType)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn parses_and_formats() {
-        assert_eq!(GitAuthType::from_str(" token "), Some(GitAuthType::Token));
-        assert_eq!(GitAuthType::from_str("ssh"), Some(GitAuthType::Ssh));
-        assert_eq!(GitAuthType::from_str("nope"), None);
+        assert_eq!(GitAuthType::parse(" token "), Some(GitAuthType::Token));
+        assert_eq!(GitAuthType::parse("ssh"), Some(GitAuthType::Ssh));
+        assert_eq!(GitAuthType::parse("nope"), None);
         assert_eq!(GitAuthType::Token.as_str(), GIT_AUTH_TYPE_TOKEN);
         assert_eq!(GitAuthType::Ssh.to_string(), GIT_AUTH_TYPE_SSH);
     }

@@ -59,6 +59,7 @@ pub struct StorageIngestService {
 }
 
 impl StorageIngestService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         document_repo: Arc<dyn DocumentRepository>,
         document_paths: Arc<dyn DocumentPathRepository>,

@@ -175,7 +175,7 @@ impl GitStorage for FilesystemGitStorage {
         }
         let storage = self.clone();
         let storage_for_stream = storage.clone();
-        let stream = stream::iter(metas.into_iter()).then(move |meta| {
+        let stream = stream::iter(metas).then(move |meta| {
             let storage = storage_for_stream.clone();
             async move {
                 let commit_hex = encode_commit_id(&meta.commit_id);
@@ -579,7 +579,7 @@ impl GitStorage for S3GitStorage {
         }
         let storage = self.clone();
         let storage_for_stream = storage.clone();
-        let stream = stream::iter(metas.into_iter()).then(move |meta| {
+        let stream = stream::iter(metas).then(move |meta| {
             let storage = storage_for_stream.clone();
             async move {
                 let commit_hex = encode_commit_id(&meta.commit_id);

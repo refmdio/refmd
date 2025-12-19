@@ -31,9 +31,11 @@ impl GitWorkspaceService {
             }
         }
 
-        upserts.retain(|path, u| match (&u.content_hash, previous_index.get(path)) {
-            (Some(hnew), Some(hprev)) if hnew == hprev => false,
-            _ => true,
+        upserts.retain(|path, u| {
+            !matches!(
+                (&u.content_hash, previous_index.get(path)),
+                (Some(hnew), Some(hprev)) if hnew == hprev
+            )
         });
 
         (upserts, deletes)

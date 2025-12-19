@@ -55,7 +55,7 @@ async fn create_token(
     owner_id: Uuid,
     name: Option<&str>,
 ) -> Result<()> {
-    let hasher = Argon2SecretHasher::default();
+    let hasher = Argon2SecretHasher;
     let generated = generate_api_token(&hasher)?;
     let stored = repo
         .create(

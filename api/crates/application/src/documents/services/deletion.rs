@@ -117,10 +117,10 @@ impl DocumentService {
             "owner_id": workspace_id,
             "previous_path": previous_repo_path,
         });
-        if let Some(actor) = actor_id {
-            if let serde_json::Value::Object(ref mut map) = payload {
-                map.insert("actor_id".into(), json!(actor));
-            }
+        if let Some(actor) = actor_id
+            && let serde_json::Value::Object(ref mut map) = payload
+        {
+            map.insert("actor_id".into(), json!(actor));
         }
         self.record_event(
             workspace_id,

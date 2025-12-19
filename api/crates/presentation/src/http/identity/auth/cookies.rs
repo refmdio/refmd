@@ -69,10 +69,10 @@ pub(super) fn validate_oauth_state_cookie(
 pub(super) fn get_cookie(cookie_header: &str, name: &str) -> Option<String> {
     for part in cookie_header.split(';') {
         let kv = part.trim();
-        if let Some((k, v)) = kv.split_once('=') {
-            if k.trim() == name {
-                return Some(v.trim().to_string());
-            }
+        if let Some((k, v)) = kv.split_once('=')
+            && k.trim() == name
+        {
+            return Some(v.trim().to_string());
         }
     }
     None
@@ -89,20 +89,19 @@ pub(crate) fn extract_refresh_token(headers: &HeaderMap) -> Option<String> {
     extract_cookie_from_headers(headers, REFRESH_COOKIE_NAME)
 }
 
-pub(crate) fn extract_user_agent<'a>(headers: &'a HeaderMap) -> Option<&'a str> {
+pub(crate) fn extract_user_agent(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
 }
 
 pub(crate) fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
-    if let Some(value) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(first) = value.split(',').next() {
-            let trimmed = first.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
+    if let Some(value) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok())
+        && let Some(first) = value.split(',').next()
+        && let trimmed = first.trim()
+        && !trimmed.is_empty()
+    {
+        return Some(trimmed.to_string());
     }
     headers
         .get("x-real-ip")

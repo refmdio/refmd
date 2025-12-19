@@ -103,6 +103,7 @@ pub trait WorkspaceServiceFacade: Send + Sync {
         workspace_id: Uuid,
     ) -> Result<Vec<WorkspaceRoleRecord>, ServiceError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_role(
         &self,
         workspace_id: Uuid,
@@ -114,6 +115,7 @@ pub trait WorkspaceServiceFacade: Send + Sync {
         overrides: &[PermissionOverride],
     ) -> Result<WorkspaceRoleRecord, ServiceError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn update_role(
         &self,
         workspace_id: Uuid,
@@ -133,6 +135,7 @@ pub trait WorkspaceServiceFacade: Send + Sync {
         workspace_id: Uuid,
     ) -> Result<Vec<WorkspaceInvitationRecord>, ServiceError>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_invitation(
         &self,
         workspace_id: Uuid,
@@ -494,6 +497,7 @@ impl WorkspaceService {
             .map_err(ServiceError::from)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_invitation(
         &self,
         workspace_id: Uuid,
@@ -738,6 +742,7 @@ impl WorkspaceService {
             .map_err(ServiceError::from)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_role(
         &self,
         workspace_id: Uuid,
@@ -767,6 +772,7 @@ impl WorkspaceService {
             .map_err(ServiceError::from)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_role(
         &self,
         workspace_id: Uuid,

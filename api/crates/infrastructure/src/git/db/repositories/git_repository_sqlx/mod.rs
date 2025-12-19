@@ -127,7 +127,7 @@ impl GitRepository for SqlxGitRepository {
             .await?;
         row.map(|r| {
             let auth_type_raw: String = r.get("auth_type");
-            let auth_type = GitAuthType::from_str(&auth_type_raw)
+            let auth_type = GitAuthType::parse(&auth_type_raw)
                 .ok_or_else(|| anyhow::anyhow!("invalid_git_auth_type"))?;
             Ok(GitConfigRecord {
                 id: r.get("id"),
@@ -177,7 +177,7 @@ impl GitRepository for SqlxGitRepository {
             match query.fetch_one(&self.pool).await {
                 Ok(row) => {
                     let auth_type_raw: String = row.get("auth_type");
-                    let parsed_auth_type = GitAuthType::from_str(&auth_type_raw)
+                    let parsed_auth_type = GitAuthType::parse(&auth_type_raw)
                         .ok_or_else(|| anyhow::anyhow!("invalid_git_auth_type"))?;
                     break Ok(GitConfigRecord {
                         id: row.get("id"),
@@ -226,7 +226,7 @@ impl GitRepository for SqlxGitRepository {
             let auth_type = match auth_type_raw.as_deref() {
                 None => None,
                 Some(value) => Some(
-                    GitAuthType::from_str(value)
+                    GitAuthType::parse(value)
                         .ok_or_else(|| anyhow::anyhow!("invalid_git_auth_type"))?,
                 ),
             };
@@ -257,7 +257,7 @@ impl GitRepository for SqlxGitRepository {
             let status = match status_raw.as_deref() {
                 None => None,
                 Some(value) => Some(
-                    GitSyncStatus::from_str(value)
+                    GitSyncStatus::parse(value)
                         .ok_or_else(|| anyhow::anyhow!("invalid_git_sync_status"))?,
                 ),
             };

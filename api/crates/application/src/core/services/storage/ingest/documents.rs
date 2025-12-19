@@ -30,14 +30,14 @@ impl StorageIngestService {
             .await?;
         // Persist back to storage only for API/actor initiated ingests; fs_watcher/reconcile events
         // originate from the filesystem itself and writing would re-trigger the watcher endlessly.
-        if event.actor_id.is_some() {
-            if let Err(err) = self.realtime.force_persist(&doc.id.to_string()).await {
-                warn!(
-                    error = ?err,
-                    doc_id = %doc.id,
-                    "storage_ingest_force_persist_failed"
-                );
-            }
+        if event.actor_id.is_some()
+            && let Err(err) = self.realtime.force_persist(&doc.id.to_string()).await
+        {
+            warn!(
+                error = ?err,
+                doc_id = %doc.id,
+                "storage_ingest_force_persist_failed"
+            );
         }
         let mut payload_obj = serde_json::Map::new();
         payload_obj.insert("repo_path".into(), json!(repo_path));
@@ -106,7 +106,7 @@ impl StorageIngestService {
         let actor_id = event.actor_id;
         match self
             .document_service
-            .delete_for_user(event.workspace_id, doc.id, actor_id, &permissions)
+            .delete_for_user(event.workspace_id, doc.id, actor_id, permissions)
             .await
         {
             Ok(true) => {

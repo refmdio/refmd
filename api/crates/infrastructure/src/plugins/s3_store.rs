@@ -88,7 +88,7 @@ fn is_manifest_affecting_event(event: &PluginScopedEvent) -> bool {
         .payload
         .get("event")
         .and_then(|value| value.as_str())
-        .and_then(PluginEventKind::from_str)
+        .and_then(PluginEventKind::parse)
         .is_some_and(|kind| kind.affects_manifests())
 }
 
@@ -457,7 +457,7 @@ impl S3BackedPluginStore {
             .payload
             .get("event")
             .and_then(|value| value.as_str())
-            .and_then(PluginEventKind::from_str);
+            .and_then(PluginEventKind::parse);
 
         if is_manifest_affecting_event(event) {
             self.global_cache.invalidate();

@@ -77,14 +77,16 @@ pub fn decode_commit_id(hex: &str) -> anyhow::Result<CommitId> {
     let mut out = Vec::with_capacity(hex.len() / 2);
     let chars: Vec<char> = hex.chars().collect();
     for chunk in chars.chunks(2) {
-        let hi = chunk
-            .get(0)
+        let [hi, lo] = chunk else {
+            anyhow::bail!("invalid commit id");
+        };
+        let hi = hi
+            .to_digit(16)
             .ok_or_else(|| anyhow::anyhow!("invalid commit id"))?;
-        let lo = chunk
-            .get(1)
+        let lo = lo
+            .to_digit(16)
             .ok_or_else(|| anyhow::anyhow!("invalid commit id"))?;
-        let byte = u8::from_str_radix(&format!("{}{}", hi, lo), 16)?;
-        out.push(byte);
+        out.push(((hi << 4) | lo) as u8);
     }
     Ok(out)
 }

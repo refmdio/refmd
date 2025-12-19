@@ -110,6 +110,7 @@ pub trait WorkspaceRepository: Send + Sync {
         is_personal: bool,
     ) -> anyhow::Result<WorkspaceRow>;
     async fn get_workspace(&self, workspace_id: Uuid) -> anyhow::Result<Option<WorkspaceRow>>;
+    #[allow(clippy::too_many_arguments)]
     async fn create_workspace_with_id(
         &self,
         workspace_id: Uuid,
@@ -175,6 +176,7 @@ pub trait WorkspaceRepository: Send + Sync {
         overrides: &[PermissionOverride],
     ) -> anyhow::Result<WorkspaceRoleRecord>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn update_role(
         &self,
         workspace_id: Uuid,
@@ -204,6 +206,7 @@ pub trait WorkspaceRepository: Send + Sync {
         description: Option<&str>,
     ) -> anyhow::Result<Option<WorkspaceRow>>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_invitation(
         &self,
         workspace_id: Uuid,

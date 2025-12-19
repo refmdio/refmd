@@ -154,39 +154,35 @@ fn build_cors(cfg: &Config) -> anyhow::Result<CorsLayer> {
             .allow_headers(cors_allow_headers.clone())
             .expose_headers(cors_expose_headers.clone())
             .allow_credentials(true)
+    } else if cfg.is_production {
+        // In production, FRONTEND_URL is mandatory (enforced earlier), but fallback defensively to deny all
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::exact(HeaderValue::from_static("http://invalid")))
+            .allow_methods([
+                http::Method::GET,
+                http::Method::POST,
+                http::Method::PUT,
+                http::Method::DELETE,
+                http::Method::PATCH,
+                http::Method::OPTIONS,
+            ])
+            .allow_headers(cors_allow_headers.clone())
+            .expose_headers(cors_expose_headers.clone())
     } else {
-        if cfg.is_production {
-            // In production, FRONTEND_URL is mandatory (enforced earlier), but fallback defensively to deny all
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::exact(HeaderValue::from_static(
-                    "http://invalid",
-                )))
-                .allow_methods([
-                    http::Method::GET,
-                    http::Method::POST,
-                    http::Method::PUT,
-                    http::Method::DELETE,
-                    http::Method::PATCH,
-                    http::Method::OPTIONS,
-                ])
-                .allow_headers(cors_allow_headers.clone())
-                .expose_headers(cors_expose_headers.clone())
-        } else {
-            // Development convenience
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::mirror_request())
-                .allow_methods([
-                    http::Method::GET,
-                    http::Method::POST,
-                    http::Method::PUT,
-                    http::Method::DELETE,
-                    http::Method::PATCH,
-                    http::Method::OPTIONS,
-                ])
-                .allow_headers(cors_allow_headers.clone())
-                .expose_headers(cors_expose_headers.clone())
-                .allow_credentials(true)
-        }
+        // Development convenience
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::mirror_request())
+            .allow_methods([
+                http::Method::GET,
+                http::Method::POST,
+                http::Method::PUT,
+                http::Method::DELETE,
+                http::Method::PATCH,
+                http::Method::OPTIONS,
+            ])
+            .allow_headers(cors_allow_headers.clone())
+            .expose_headers(cors_expose_headers.clone())
+            .allow_credentials(true)
     };
     Ok(cors)
 }

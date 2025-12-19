@@ -1,3 +1,6 @@
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::too_many_arguments)]
+
 pub mod core;
 pub mod documents;
 pub mod git;

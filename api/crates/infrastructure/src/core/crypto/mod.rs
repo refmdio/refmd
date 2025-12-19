@@ -10,7 +10,7 @@ fn derive_key(secret: &str) -> Key<Aes256Gcm> {
     let out = hasher.finalize();
     let mut k = [0u8; 32];
     k.copy_from_slice(&out);
-    Key::<Aes256Gcm>::from_slice(&k).clone()
+    *Key::<Aes256Gcm>::from_slice(&k)
 }
 
 pub fn encrypt_string(secret: &str, plaintext: &str) -> anyhow::Result<String> {

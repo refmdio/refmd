@@ -12,6 +12,7 @@ const MAX_SLUG_ATTEMPTS: usize = 50;
 
 #[async_trait::async_trait]
 pub trait CreateDocumentRepository: Send {
+    #[allow(clippy::too_many_arguments)]
     async fn create_for_user(
         &mut self,
         workspace_id: Uuid,
@@ -86,6 +87,7 @@ pub struct CreateDocument<'a, R: CreateDocumentRepository + ?Sized> {
 }
 
 impl<'a, R: CreateDocumentRepository + ?Sized> CreateDocument<'a, R> {
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &mut self,
         workspace_id: Uuid,

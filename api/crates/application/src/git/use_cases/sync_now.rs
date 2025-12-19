@@ -31,37 +31,37 @@ where
             .sync(workspace_id, &attempt_req, cfg.as_ref())
             .await?;
 
-        if let Some(cfg) = cfg.as_ref() {
-            if !cfg.repository_url.is_empty() {
-                if attempt_req.skip_push.unwrap_or(false) {
-                    let _ = self
-                        .repo
-                        .log_sync_operation(
-                            workspace_id,
-                            GitSyncOperation::Commit,
-                            GitSyncStatus::Success,
-                            Some(&outcome.message),
-                            outcome.commit_hash.as_deref(),
-                        )
-                        .await;
+        if let Some(cfg) = cfg.as_ref()
+            && !cfg.repository_url.is_empty()
+        {
+            if attempt_req.skip_push.unwrap_or(false) {
+                let _ = self
+                    .repo
+                    .log_sync_operation(
+                        workspace_id,
+                        GitSyncOperation::Commit,
+                        GitSyncStatus::Success,
+                        Some(&outcome.message),
+                        outcome.commit_hash.as_deref(),
+                    )
+                    .await;
+            } else {
+                // Treat "nothing to commit" as success even if no push occurred.
+                let status = if outcome.files_changed == 0 || outcome.pushed {
+                    GitSyncStatus::Success
                 } else {
-                    // Treat "nothing to commit" as success even if no push occurred.
-                    let status = if outcome.files_changed == 0 || outcome.pushed {
-                        GitSyncStatus::Success
-                    } else {
-                        GitSyncStatus::Error
-                    };
-                    let _ = self
-                        .repo
-                        .log_sync_operation(
-                            workspace_id,
-                            GitSyncOperation::Push,
-                            status,
-                            Some(&outcome.message),
-                            outcome.commit_hash.as_deref(),
-                        )
-                        .await;
-                }
+                    GitSyncStatus::Error
+                };
+                let _ = self
+                    .repo
+                    .log_sync_operation(
+                        workspace_id,
+                        GitSyncOperation::Push,
+                        status,
+                        Some(&outcome.message),
+                        outcome.commit_hash.as_deref(),
+                    )
+                    .await;
             }
         }
 

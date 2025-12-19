@@ -238,7 +238,7 @@ impl ExternalAuthVerifier for GithubOAuthProvider {
             subject: user.id.to_string(),
             email: Some(email),
             email_verified: true,
-            name: user.name.or_else(|| Some(user.login)),
+            name: user.name.or(Some(user.login)),
             avatar_url: user.avatar_url,
         })
     }

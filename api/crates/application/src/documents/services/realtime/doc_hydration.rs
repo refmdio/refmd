@@ -107,19 +107,16 @@ impl DocHydrationService {
             let is_empty = yrs::Text::len(&txt, &txn) == 0;
             drop(txn);
 
-            if is_empty {
-                if let Some(record) = self.state_reader.document_record(doc_id).await? {
-                    if let Some(path) = record.path {
-                        let absolute = self.storage.absolute_from_relative(&path);
-                        if let Ok(bytes) = self.storage.read_bytes(absolute.as_path()).await {
-                            if let Ok(content) = String::from_utf8(bytes) {
-                                let body = strip_frontmatter(&content);
-                                let mut txn = doc.transact_mut();
-                                yrs::Text::insert(&txt, &mut txn, 0, body);
-                            }
-                        }
-                    }
-                }
+            if is_empty
+                && let Some(record) = self.state_reader.document_record(doc_id).await?
+                && let Some(path) = record.path
+                && let absolute = self.storage.absolute_from_relative(&path)
+                && let Ok(bytes) = self.storage.read_bytes(absolute.as_path()).await
+                && let Ok(content) = String::from_utf8(bytes)
+            {
+                let body = strip_frontmatter(&content);
+                let mut txn = doc.transact_mut();
+                yrs::Text::insert(&txt, &mut txn, 0, body);
             }
         }
 
@@ -150,9 +147,9 @@ fn apply_update_bytes(doc: &Doc, bytes: &[u8]) -> anyhow::Result<()> {
 
 fn extract_updates(frame: &[u8]) -> anyhow::Result<Vec<Update>> {
     let mut decoder = DecoderV1::new(Cursor::new(frame));
-    let mut reader = MessageReader::new(&mut decoder);
+    let reader = MessageReader::new(&mut decoder);
     let mut updates = Vec::new();
-    while let Some(message) = reader.next() {
+    for message in reader {
         match message? {
             Message::Sync(SyncMessage::Update(bin))
             | Message::Sync(SyncMessage::SyncStep2(bin)) => {
@@ -166,20 +163,15 @@ fn extract_updates(frame: &[u8]) -> anyhow::Result<Vec<Update>> {
 }
 
 fn strip_frontmatter(content: &str) -> &str {
-    if content.starts_with("---\n") {
-        if let Some(idx) = content[4..].find("\n---\n") {
-            let start = 4 + idx + 5;
-            let mut body = &content[start..];
-            if let Some(stripped) = body.strip_prefix("\r\n") {
-                body = stripped;
-            } else if let Some(stripped) = body.strip_prefix('\n') {
-                body = stripped;
-            }
-            body
-        } else {
-            content
-        }
-    } else {
-        content
-    }
+    let Some(after_open) = content.strip_prefix("---\n") else {
+        return content;
+    };
+    let Some(idx) = after_open.find("\n---\n") else {
+        return content;
+    };
+    let start = idx + "\n---\n".len();
+    let body = &after_open[start..];
+    body.strip_prefix("\r\n")
+        .or_else(|| body.strip_prefix('\n'))
+        .unwrap_or(body)
 }

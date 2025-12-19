@@ -261,11 +261,11 @@ pub async fn require_any_permission(
 }
 
 pub fn validate_base_role(role: &str) -> bool {
-    WorkspaceBaseRole::from_str(role).is_some()
+    WorkspaceBaseRole::parse(role).is_some()
 }
 
 pub fn parse_role_kind(role_kind: &str) -> Result<WorkspaceRoleKind, crate::http::error::ApiError> {
-    WorkspaceRoleKind::from_str(role_kind).ok_or(crate::http::error::ApiError::bad_request(
+    WorkspaceRoleKind::parse(role_kind).ok_or(crate::http::error::ApiError::bad_request(
         "invalid_role_kind",
     ))
 }
@@ -274,7 +274,7 @@ pub fn parse_system_role(
     role: Option<&str>,
 ) -> Result<Option<WorkspaceSystemRole>, crate::http::error::ApiError> {
     role.map(|value| {
-        WorkspaceSystemRole::from_str(value).ok_or(crate::http::error::ApiError::bad_request(
+        WorkspaceSystemRole::parse(value).ok_or(crate::http::error::ApiError::bad_request(
             "invalid_system_role",
         ))
     })
@@ -282,7 +282,7 @@ pub fn parse_system_role(
 }
 
 pub fn parse_base_role(role: &str) -> Result<WorkspaceBaseRole, crate::http::error::ApiError> {
-    WorkspaceBaseRole::from_str(role).ok_or(crate::http::error::ApiError::bad_request(
+    WorkspaceBaseRole::parse(role).ok_or(crate::http::error::ApiError::bad_request(
         "invalid_base_role",
     ))
 }

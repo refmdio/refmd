@@ -20,6 +20,7 @@ pub struct PluginExecutionService {
 
 #[async_trait]
 pub trait PluginExecutionServiceFacade: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     async fn execute_action(
         &self,
         workspace_id: Uuid,
@@ -35,6 +36,7 @@ pub trait PluginExecutionServiceFacade: Send + Sync {
 
 #[async_trait]
 impl PluginExecutionServiceFacade for PluginExecutionService {
+    #[allow(clippy::too_many_arguments)]
     async fn execute_action(
         &self,
         workspace_id: Uuid,
@@ -75,6 +77,7 @@ impl PluginExecutionService {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_action(
         &self,
         workspace_id: Uuid,

@@ -61,6 +61,7 @@ where
     PR: PluginRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
 {
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &self,
         workspace_id: Uuid,
@@ -134,6 +135,7 @@ where
         Ok(Some(res))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn apply_server_effects(
         &self,
         workspace_id: Uuid,
@@ -366,22 +368,21 @@ where
                     }
                 }
                 "navigate" => {
-                    if let Some(doc_id) = doc_id_created {
-                        if let Some(to) = effect.get("to").and_then(|v| v.as_str()) {
-                            if to.contains(":createdDocId") {
-                                let mut cloned = effect.clone();
-                                if let Some(obj) = cloned.as_object_mut() {
-                                    obj.insert(
-                                        "to".into(),
-                                        serde_json::Value::String(
-                                            to.replace(":createdDocId", &doc_id.to_string()),
-                                        ),
-                                    );
-                                }
-                                passthrough.push(cloned);
-                                continue;
-                            }
+                    if let Some(doc_id) = doc_id_created
+                        && let Some(to) = effect.get("to").and_then(|v| v.as_str())
+                        && to.contains(":createdDocId")
+                    {
+                        let mut cloned = effect.clone();
+                        if let Some(obj) = cloned.as_object_mut() {
+                            obj.insert(
+                                "to".into(),
+                                serde_json::Value::String(
+                                    to.replace(":createdDocId", &doc_id.to_string()),
+                                ),
+                            );
                         }
+                        passthrough.push(cloned);
+                        continue;
                     }
                     passthrough.push(effect.clone());
                 }

@@ -237,18 +237,18 @@ impl MarkdownRenderService {
                 let hydrate = spec.hydrate.as_ref();
 
                 let Some(function) = spec.function.as_deref() else {
-                    if let Some(hydrate) = hydrate {
-                        if self.attach_hydrate_metadata(
+                    if let Some(hydrate) = hydrate
+                        && self.attach_hydrate_metadata(
                             &mut html,
                             &placeholder,
                             &request,
                             spec,
                             hydrate,
                             options.token.as_deref(),
-                        ) {
-                            handled = true;
-                            break;
-                        }
+                        )
+                    {
+                        handled = true;
+                        break;
                     }
                     continue;
                 };
@@ -422,10 +422,7 @@ impl MarkdownRenderService {
         let module_url = self
             .build_hydrate_module_url(spec, hydrate, token)
             .ok_or_else(|| {
-                serde_json::Error::io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "invalid hydrate module path",
-                ))
+                serde_json::Error::io(std::io::Error::other("invalid hydrate module path"))
             })?;
         let export_name = hydrate.export.as_deref().unwrap_or("default");
         let context = json!({

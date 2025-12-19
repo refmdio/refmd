@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +20,7 @@ pub enum PluginEventKind {
 }
 
 impl PluginEventKind {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
             PLUGIN_EVENT_INSTALLED => Some(Self::Installed),
             PLUGIN_EVENT_UNINSTALLED => Some(Self::Uninstalled),
@@ -51,6 +52,25 @@ impl fmt::Display for PluginEventKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidPluginEventKind;
+
+impl fmt::Display for InvalidPluginEventKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid plugin event kind")
+    }
+}
+
+impl std::error::Error for InvalidPluginEventKind {}
+
+impl FromStr for PluginEventKind {
+    type Err = InvalidPluginEventKind;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(InvalidPluginEventKind)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,14 +78,14 @@ mod tests {
     #[test]
     fn parses_and_formats() {
         assert_eq!(
-            PluginEventKind::from_str(" installed "),
+            PluginEventKind::parse(" installed "),
             Some(PluginEventKind::Installed)
         );
         assert_eq!(
-            PluginEventKind::from_str("uninstalled"),
+            PluginEventKind::parse("uninstalled"),
             Some(PluginEventKind::Uninstalled)
         );
-        assert_eq!(PluginEventKind::from_str("nope"), None);
+        assert_eq!(PluginEventKind::parse("nope"), None);
         assert_eq!(PluginEventKind::Publish.as_str(), "publish");
         assert_eq!(PluginEventKind::Unpublish.to_string(), "unpublish");
     }

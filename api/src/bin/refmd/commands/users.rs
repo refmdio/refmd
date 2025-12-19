@@ -17,7 +17,7 @@ use crate::cli::UserCommand;
 use crate::deps::Deps;
 
 pub(crate) async fn handle(deps: &Deps, cmd: UserCommand) -> Result<()> {
-    let hasher = Argon2SecretHasher::default();
+    let hasher = Argon2SecretHasher;
     match cmd {
         UserCommand::List => list_users(&deps.pool).await,
         UserCommand::Create {

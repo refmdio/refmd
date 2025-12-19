@@ -83,7 +83,7 @@ impl PluginRepository for SqlxPluginRepository {
         .fetch_one(&self.pool)
         .await?;
         let scope_raw: String = row.get("scope");
-        let scope = PluginRecordScope::from_str(&scope_raw)
+        let scope = PluginRecordScope::parse(&scope_raw)
             .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
         Ok(PluginRecord {
             id: row.get("id"),
@@ -113,7 +113,7 @@ impl PluginRepository for SqlxPluginRepository {
         .await?;
         row.map(|r| {
             let scope_raw: String = r.get("scope");
-            let scope = PluginRecordScope::from_str(&scope_raw)
+            let scope = PluginRecordScope::parse(&scope_raw)
                 .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
             Ok(PluginRecord {
                 id: r.get("id"),
@@ -147,7 +147,7 @@ impl PluginRepository for SqlxPluginRepository {
         .await?;
         row.map(|r| {
             let scope_raw: String = r.get("scope");
-            let scope = PluginRecordScope::from_str(&scope_raw)
+            let scope = PluginRecordScope::parse(&scope_raw)
                 .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
             Ok(PluginRecord {
                 id: r.get("id"),
@@ -191,7 +191,7 @@ impl PluginRepository for SqlxPluginRepository {
         let mut out = Vec::with_capacity(rows.len());
         for r in rows {
             let scope_raw: String = r.get("scope");
-            let parsed_scope = PluginRecordScope::from_str(&scope_raw)
+            let parsed_scope = PluginRecordScope::parse(&scope_raw)
                 .ok_or_else(|| anyhow::anyhow!("invalid_plugin_record_scope"))?;
             out.push(PluginRecord {
                 id: r.get("id"),

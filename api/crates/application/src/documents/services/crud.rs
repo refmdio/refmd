@@ -38,6 +38,7 @@ impl DocumentService {
             .map_err(ServiceError::from)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_for_user(
         &self,
         workspace_id: Uuid,

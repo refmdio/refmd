@@ -201,8 +201,9 @@ impl Default for DuplicateDocumentRequest {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum DoubleOption<T> {
+    #[default]
     NotProvided,
     Null,
     Some(T),
@@ -217,12 +218,6 @@ where
         None => DoubleOption::Null,
         Some(value) => DoubleOption::Some(value),
     })
-}
-
-impl<T> Default for DoubleOption<T> {
-    fn default() -> Self {
-        DoubleOption::NotProvided
-    }
 }
 
 #[derive(Debug, Deserialize)]

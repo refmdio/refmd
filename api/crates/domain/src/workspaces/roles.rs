@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
@@ -12,8 +13,19 @@ pub enum WorkspaceRoleKind {
     Custom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidWorkspaceRoleKind;
+
+impl fmt::Display for InvalidWorkspaceRoleKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid workspace role kind")
+    }
+}
+
+impl std::error::Error for InvalidWorkspaceRoleKind {}
+
 impl WorkspaceRoleKind {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
             WORKSPACE_ROLE_KIND_SYSTEM => Some(Self::System),
             WORKSPACE_ROLE_KIND_CUSTOM => Some(Self::Custom),
@@ -35,6 +47,14 @@ impl fmt::Display for WorkspaceRoleKind {
     }
 }
 
+impl FromStr for WorkspaceRoleKind {
+    type Err = InvalidWorkspaceRoleKind;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(InvalidWorkspaceRoleKind)
+    }
+}
+
 pub const WORKSPACE_SYSTEM_ROLE_OWNER: &str = "owner";
 pub const WORKSPACE_SYSTEM_ROLE_ADMIN: &str = "admin";
 pub const WORKSPACE_SYSTEM_ROLE_EDITOR: &str = "editor";
@@ -49,8 +69,19 @@ pub enum WorkspaceSystemRole {
     Viewer,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidWorkspaceSystemRole;
+
+impl fmt::Display for InvalidWorkspaceSystemRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid workspace system role")
+    }
+}
+
+impl std::error::Error for InvalidWorkspaceSystemRole {}
+
 impl WorkspaceSystemRole {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
             WORKSPACE_SYSTEM_ROLE_OWNER => Some(Self::Owner),
             WORKSPACE_SYSTEM_ROLE_ADMIN => Some(Self::Admin),
@@ -76,6 +107,14 @@ impl fmt::Display for WorkspaceSystemRole {
     }
 }
 
+impl FromStr for WorkspaceSystemRole {
+    type Err = InvalidWorkspaceSystemRole;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(InvalidWorkspaceSystemRole)
+    }
+}
+
 pub const WORKSPACE_BASE_ROLE_ADMIN: &str = "admin";
 pub const WORKSPACE_BASE_ROLE_EDITOR: &str = "editor";
 pub const WORKSPACE_BASE_ROLE_VIEWER: &str = "viewer";
@@ -88,8 +127,19 @@ pub enum WorkspaceBaseRole {
     Viewer,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidWorkspaceBaseRole;
+
+impl fmt::Display for InvalidWorkspaceBaseRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid workspace base role")
+    }
+}
+
+impl std::error::Error for InvalidWorkspaceBaseRole {}
+
 impl WorkspaceBaseRole {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
             WORKSPACE_BASE_ROLE_ADMIN => Some(Self::Admin),
             WORKSPACE_BASE_ROLE_EDITOR => Some(Self::Editor),
@@ -113,6 +163,14 @@ impl fmt::Display for WorkspaceBaseRole {
     }
 }
 
+impl FromStr for WorkspaceBaseRole {
+    type Err = InvalidWorkspaceBaseRole;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s).ok_or(InvalidWorkspaceBaseRole)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,33 +178,33 @@ mod tests {
     #[test]
     fn parses_roles() {
         assert_eq!(
-            WorkspaceRoleKind::from_str("system"),
+            WorkspaceRoleKind::parse("system"),
             Some(WorkspaceRoleKind::System)
         );
         assert_eq!(
-            WorkspaceRoleKind::from_str(" custom "),
+            WorkspaceRoleKind::parse(" custom "),
             Some(WorkspaceRoleKind::Custom)
         );
-        assert_eq!(WorkspaceRoleKind::from_str("nope"), None);
+        assert_eq!(WorkspaceRoleKind::parse("nope"), None);
 
         assert_eq!(
-            WorkspaceSystemRole::from_str("owner"),
+            WorkspaceSystemRole::parse("owner"),
             Some(WorkspaceSystemRole::Owner)
         );
         assert_eq!(
-            WorkspaceSystemRole::from_str(" viewer "),
+            WorkspaceSystemRole::parse(" viewer "),
             Some(WorkspaceSystemRole::Viewer)
         );
-        assert_eq!(WorkspaceSystemRole::from_str("nope"), None);
+        assert_eq!(WorkspaceSystemRole::parse("nope"), None);
 
         assert_eq!(
-            WorkspaceBaseRole::from_str("admin"),
+            WorkspaceBaseRole::parse("admin"),
             Some(WorkspaceBaseRole::Admin)
         );
         assert_eq!(
-            WorkspaceBaseRole::from_str(" editor "),
+            WorkspaceBaseRole::parse(" editor "),
             Some(WorkspaceBaseRole::Editor)
         );
-        assert_eq!(WorkspaceBaseRole::from_str("owner"), None);
+        assert_eq!(WorkspaceBaseRole::parse("owner"), None);
     }
 }

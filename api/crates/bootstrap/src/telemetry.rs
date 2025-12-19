@@ -12,7 +12,7 @@ mod tests {
     #[test]
     fn init_tracing_idempotent() {
         // Should not panic on multiple init calls in tests.
-        let _ = std::panic::catch_unwind(|| super::init_tracing());
-        let _ = std::panic::catch_unwind(|| super::init_tracing());
+        let _ = std::panic::catch_unwind(super::init_tracing);
+        let _ = std::panic::catch_unwind(super::init_tracing);
     }
 }

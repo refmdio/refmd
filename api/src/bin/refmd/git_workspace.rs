@@ -296,10 +296,8 @@ impl GitWorkspacePort for CliGitWorkspace {
         }
         // If the base commit is not the latest, consider it stale.
         let latest = self.latest_commit_meta(workspace_id).await?;
-        if let Some(meta) = latest {
-            if meta.commit_id.as_slice() != base_commit {
-                return Ok(true);
-            }
+        if let Some(meta) = latest && meta.commit_id.as_slice() != base_commit {
+            return Ok(true);
         }
         Ok(false)
     }

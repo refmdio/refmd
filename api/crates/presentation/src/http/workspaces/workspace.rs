@@ -132,10 +132,12 @@ pub async fn update_workspace(
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, ApiError> {
-    if let Some(name) = payload.name.as_deref() {
-        if name.trim().is_empty() {
-            return Err(ApiError::bad_request("invalid_workspace_name"));
-        }
+    if payload
+        .name
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err(ApiError::bad_request("invalid_workspace_name"));
     }
     let user_id = security_token::require_user_id(&ctx, bearer)
         .await

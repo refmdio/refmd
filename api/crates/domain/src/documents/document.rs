@@ -96,11 +96,11 @@ impl Document {
     }
 
     pub fn created_at(&self) -> chrono::DateTime<chrono::Utc> {
-        self.created_at.clone()
+        self.created_at
     }
 
     pub fn updated_at(&self) -> chrono::DateTime<chrono::Utc> {
-        self.updated_at.clone()
+        self.updated_at
     }
 
     pub fn created_by_plugin(&self) -> Option<&str> {
@@ -124,7 +124,7 @@ impl Document {
     }
 
     pub fn archived_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.archived_at.clone()
+        self.archived_at
     }
 
     pub fn archived_by(&self) -> Option<Uuid> {

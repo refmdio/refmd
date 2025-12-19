@@ -28,17 +28,12 @@ impl From<DocumentRepositoryError> for crate::core::services::errors::ServiceErr
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DocumentListState {
+    #[default]
     Active,
     Archived,
     All,
-}
-
-impl Default for DocumentListState {
-    fn default() -> Self {
-        DocumentListState::Active
-    }
 }
 
 #[async_trait]
@@ -67,6 +62,7 @@ pub trait DocumentRepository: Send + Sync {
         limit: i64,
     ) -> DocumentRepoResult<Vec<SearchHit>>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_for_user(
         &self,
         workspace_id: Uuid,
@@ -80,6 +76,7 @@ pub trait DocumentRepository: Send + Sync {
     ) -> DocumentRepoResult<DomainDocument>;
 
     // parent_id: None => not provided; Some(None) => set NULL; Some(Some(uuid)) => set to value
+    #[allow(clippy::too_many_arguments)]
     async fn update_title_and_parent_for_user(
         &self,
         id: Uuid,
@@ -126,6 +123,7 @@ pub trait DocumentRepository: Send + Sync {
 
 #[async_trait]
 pub trait DocumentRepositoryTx: Send {
+    #[allow(clippy::too_many_arguments)]
     async fn create_for_user(
         &mut self,
         workspace_id: Uuid,
@@ -139,6 +137,7 @@ pub trait DocumentRepositoryTx: Send {
     ) -> DocumentRepoResult<DomainDocument>;
 
     // parent_id: None => not provided; Some(None) => set NULL; Some(Some(uuid)) => set to value
+    #[allow(clippy::too_many_arguments)]
     async fn update_title_and_parent_for_user(
         &mut self,
         id: Uuid,

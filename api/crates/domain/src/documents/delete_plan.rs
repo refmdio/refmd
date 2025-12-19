@@ -33,7 +33,7 @@ pub fn build_delete_plan(
             .unwrap_or_default();
         return vec![DeleteEntry {
             doc_id: root_id,
-            doc_type: root_meta.doc_type.clone(),
+            doc_type: root_meta.doc_type,
             meta: root_meta,
             attachments,
             reason: "delete_document",

@@ -643,9 +643,8 @@ impl GitService {
                     ServiceError::BadRequest("workspace_has_pending_changes")
                 } else if msg.contains("not initialized") {
                     ServiceError::BadRequest("repository_not_initialized")
-                } else if msg.contains("remote not configured") {
-                    ServiceError::BadRequest("remote_not_configured")
-                } else if msg.contains("git_not_configured") {
+                } else if msg.contains("remote not configured") || msg.contains("git_not_configured")
+                {
                     ServiceError::BadRequest("remote_not_configured")
                 } else if msg.contains("custom_text content required") {
                     ServiceError::BadRequest("resolution_content_required")
@@ -745,10 +744,10 @@ impl GitService {
         // When the pull completed (no conflicts), record the latest head as the session base so
         // subsequent finalize calls don't treat the session as stale.
         let mut base_commit = dto.base_commit.clone();
-        if conflicts.is_empty() {
-            if let Some(head) = self.workspace.head_commit(workspace_id).await? {
-                base_commit = Some(head);
-            }
+        if conflicts.is_empty()
+            && let Some(head) = self.workspace.head_commit(workspace_id).await?
+        {
+            base_commit = Some(head);
         }
         let session = GitPullSessionDto {
             id: session_id,
@@ -904,10 +903,10 @@ impl GitService {
             }
 
             conflict.document_id = matched;
-            if let Some(doc_id) = matched {
-                if let Some(doc) = docs.iter().find(|d| d.id() == doc_id) {
-                    conflict.path = doc.desired_path().as_str().to_string();
-                }
+            if let Some(doc_id) = matched
+                && let Some(doc) = docs.iter().find(|d| d.id() == doc_id)
+            {
+                conflict.path = doc.desired_path().as_str().to_string();
             }
             out.push(conflict);
         }

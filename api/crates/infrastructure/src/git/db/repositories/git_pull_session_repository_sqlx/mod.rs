@@ -75,7 +75,7 @@ impl GitPullSessionRepository for GitPullSessionRepositorySqlx {
             .get::<Json<Vec<GitPullResolutionDto>>, _>("resolutions")
             .0;
         let status_raw: String = row.get::<String, _>("status");
-        let status = GitPullSessionStatus::from_str(&status_raw)
+        let status = GitPullSessionStatus::parse(&status_raw)
             .ok_or_else(|| anyhow::anyhow!("invalid_git_pull_session_status"))?;
         Ok(Some(GitPullSessionDto {
             id,

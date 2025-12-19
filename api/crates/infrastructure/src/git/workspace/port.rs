@@ -257,19 +257,19 @@ impl GitWorkspacePort for GitWorkspaceService {
 
         let history = rows
             .into_iter()
-            .filter_map(|row| {
+            .map(|row| {
                 let commit_id: Vec<u8> = row.get("commit_id");
                 let message: Option<String> = row.try_get("message").ok();
                 let author_name: Option<String> = row.try_get("author_name").ok();
                 let author_email: Option<String> = row.try_get("author_email").ok();
                 let committed_at: DateTime<Utc> = row.get("committed_at");
-                Some(GitCommitInfo {
+                GitCommitInfo {
                     hash: encode_commit_id(&commit_id),
                     message: message.unwrap_or_default(),
                     author_name: author_name.unwrap_or_default(),
                     author_email: author_email.unwrap_or_default(),
                     time: committed_at,
-                })
+                }
             })
             .collect();
         Ok(history)

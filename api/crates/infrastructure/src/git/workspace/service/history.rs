@@ -93,7 +93,7 @@ impl GitWorkspaceService {
         .fetch_optional(&self.pool)
         .await?;
 
-        row.map(|r| row_to_commit_meta(r)).transpose()
+        row.map(row_to_commit_meta).transpose()
     }
 
     async fn load_commit_meta_ref(
@@ -131,7 +131,7 @@ impl GitWorkspaceService {
         .bind(commit_id)
         .fetch_optional(&self.pool)
         .await?;
-        row.map(|row| row_to_commit_meta(row)).transpose()
+        row.map(row_to_commit_meta).transpose()
     }
 
     async fn commit_meta_by_hex(
@@ -151,7 +151,7 @@ impl GitWorkspaceService {
         .bind(bytes)
         .fetch_optional(&self.pool)
         .await?;
-        row.map(|r| row_to_commit_meta(r)).transpose()
+        row.map(row_to_commit_meta).transpose()
     }
 
     async fn ensure_latest_meta(&self, workspace_id: Uuid) -> anyhow::Result<Option<CommitMeta>> {

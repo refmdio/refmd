@@ -46,14 +46,13 @@ pub async fn get_config(
         .await
         .map_err(map_git_error)?;
     let mut out: Option<GitConfigResponse> = resp.map(Into::into);
-    if let Some(ref mut cfg) = out {
-        if let Some(check) = service
+    if let Some(ref mut cfg) = out
+        && let Some(check) = service
             .check_remote(workspace_id)
             .await
             .map_err(map_git_error)?
-        {
-            cfg.remote_check = Some(GitRemoteCheckResponse::from(check));
-        }
+    {
+        cfg.remote_check = Some(GitRemoteCheckResponse::from(check));
     }
     Ok(Json(out))
 }
