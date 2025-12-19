@@ -10,8 +10,8 @@
     "serve": "vite preview",
     "test": "vitest run",
     "lint": "eslint --ext .ts,.tsx src",
-    "gen:openapi": "bash -lc 'cd ../api && mkdir -p openapi && cargo run --quiet --bin export-openapi > openapi/openapi.json'",
-    "gen:client": "openapi-ts -i ../api/openapi/openapi.json -o src/shared/api/client -c legacy/fetch",
+    "gen:openapi": "bash -lc 'cd ../api && cargo run --quiet --bin refmd -- openapi export > openapi.json'",
+    "gen:client": "openapi-ts -i ../api/openapi.json -o src/shared/api/client -c legacy/fetch",
     "gen:api": "npm run gen:openapi && npm run gen:client"
   },
   "dependencies": {

@@ -1,5 +1,5 @@
 # -- Builder stage -----------------------------------------------------
-FROM rustlang/rust:nightly-bullseye-slim AS build
+FROM rust:1.92-slim-bullseye AS build
 WORKDIR /build
 
 # Build dependencies once to leverage Docker layer caching
@@ -7,7 +7,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates binutils curl \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --locked --release --bin api || true
+RUN mkdir -p src/bin && echo "fn main(){}" > src/bin/api.rs && echo "fn main(){}" > src/bin/cli.rs \
+    && cargo build --locked --release --bin api --bin refmd || true
 
 # Actual sources
 COPY . ./
@@ -40,7 +41,7 @@ RUN useradd -m -u 10001 appuser \
     && mkdir -p /data/uploads \
     && chown -R appuser:appuser /app /data
 
-COPY docker/entrypoint.sh /entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 USER root

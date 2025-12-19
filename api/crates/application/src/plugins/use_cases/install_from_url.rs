@@ -1,0 +1,89 @@
+use crate::plugins::ports::plugin_event_publisher::{PluginEventPublisher, PluginScopedEvent};
+use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
+use crate::plugins::ports::plugin_installer::{
+    InstalledPlugin, PluginInstallError, PluginInstaller,
+};
+use crate::plugins::ports::plugin_package_fetcher::PluginPackageFetcher;
+use domain::plugins::events::PluginEventKind;
+use domain::plugins::scope::{PluginInstallationStatus, PluginScope};
+use uuid::Uuid;
+
+#[derive(thiserror::Error, Debug)]
+pub enum InstallPluginError {
+    #[error("failed to download plugin package")]
+    Download(#[source] anyhow::Error),
+    #[error("failed to install plugin package")]
+    Install(#[source] PluginInstallError),
+    #[error("failed to persist plugin installation")]
+    Persist(#[source] anyhow::Error),
+    #[error("failed to publish plugin event")]
+    Event(#[source] anyhow::Error),
+}
+
+pub struct InstallPluginFromUrl<'a, F, I, E, R>
+where
+    F: PluginPackageFetcher + ?Sized,
+    I: PluginInstaller + ?Sized,
+    E: PluginEventPublisher + ?Sized,
+    R: PluginInstallationRepository + ?Sized,
+{
+    pub fetcher: &'a F,
+    pub installer: &'a I,
+    pub events: &'a E,
+    pub installations: &'a R,
+}
+
+impl<'a, F, I, E, R> InstallPluginFromUrl<'a, F, I, E, R>
+where
+    F: PluginPackageFetcher + ?Sized,
+    I: PluginInstaller + ?Sized,
+    E: PluginEventPublisher + ?Sized,
+    R: PluginInstallationRepository + ?Sized,
+{
+    pub async fn execute(
+        &self,
+        workspace_id: Uuid,
+        user_id: Uuid,
+        url: &str,
+        token: Option<&str>,
+    ) -> Result<InstalledPlugin, InstallPluginError> {
+        let bytes = self
+            .fetcher
+            .fetch(url, token)
+            .await
+            .map_err(|err| InstallPluginError::Download(err.into()))?;
+        let installed = self
+            .installer
+            .install_for_user(workspace_id, &bytes)
+            .await
+            .map_err(InstallPluginError::Install)?;
+
+        self.installations
+            .upsert(
+                workspace_id,
+                &installed.id,
+                &installed.version,
+                PluginScope::User,
+                Some(url),
+                PluginInstallationStatus::Enabled,
+            )
+            .await
+            .map_err(|err| InstallPluginError::Persist(err.into()))?;
+
+        let event = PluginScopedEvent {
+            user_id: Some(user_id),
+            workspace_id: Some(workspace_id),
+            payload: serde_json::json!({
+                "event": PluginEventKind::Installed.as_str(),
+                "id": installed.id,
+                "version": installed.version,
+                "workspace_id": workspace_id,
+            }),
+        };
+        self.events
+            .publish(&event)
+            .await
+            .map_err(|err| InstallPluginError::Event(err.into()))?;
+        Ok(installed)
+    }
+}

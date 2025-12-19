@@ -1,2 +1,7 @@
 [env]
 SQLX_OFFLINE = "true"
+
+[alias]
+checkw = "check --workspace"
+testw = "test --workspace"
+clippyw = "clippy --workspace --all-targets"

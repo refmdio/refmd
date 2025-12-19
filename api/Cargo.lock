@@ -155,62 +155,41 @@ checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
 name = "api"
 version = "0.1.0"
 dependencies = [
- "aead",
- "aes-gcm",
- "ammonia",
  "anyhow",
- "argon2",
- "async-lock",
+ "bootstrap",
+]
+
+[[package]]
+name = "application"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "async-trait",
- "aws-config",
- "aws-sdk-s3",
- "axum",
  "base64 0.21.7",
  "chrono",
- "clap",
- "comrak",
- "dotenvy",
- "extism",
+ "contracts",
+ "domain",
  "futures-core",
  "futures-util",
- "git2",
  "hex",
  "hmac",
  "htmlescape",
  "http 1.3.1",
- "jsonwebtoken",
  "mime_guess",
- "notify",
  "once_cell",
- "pandoc",
- "password-hash 0.5.0",
  "rand 0.8.5",
- "redis",
  "regex",
- "reqwest 0.11.27",
- "semver",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha2",
  "similar",
- "sqlx",
- "syntect",
- "syntect-assets",
- "tempfile",
  "thiserror 1.0.69",
  "tokio",
- "tokio-stream",
- "tower-http",
  "tracing",
- "tracing-subscriber",
  "urlencoding",
- "utoipa",
- "utoipa-swagger-ui",
  "uuid",
- "walkdir",
  "yrs",
- "yrs-warp",
  "zip 0.6.6",
 ]
 
@@ -922,6 +901,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "bootstrap"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "application",
+ "axum",
+ "chrono",
+ "domain",
+ "dotenvy",
+ "futures-util",
+ "http 1.3.1",
+ "infrastructure",
+ "once_cell",
+ "presentation",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "tokio",
+ "tokio-stream",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+ "utoipa-swagger-ui",
+ "uuid",
+]
+
+[[package]]
 name = "bstr"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1182,6 +1190,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
+name = "cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bootstrap",
+ "chrono",
+ "clap",
+ "dotenvy",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1259,6 +1284,14 @@ name = "constant_time_eq"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
+
+[[package]]
+name = "contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "utoipa",
+]
 
 [[package]]
 name = "core-foundation"
@@ -1756,6 +1789,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.106",
+]
+
+[[package]]
+name = "domain"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "uuid",
 ]
 
 [[package]]
@@ -2826,6 +2868,62 @@ dependencies = [
  "equivalent",
  "hashbrown 0.15.5",
  "serde",
+]
+
+[[package]]
+name = "infrastructure"
+version = "0.1.0"
+dependencies = [
+ "aead",
+ "aes-gcm",
+ "ammonia",
+ "anyhow",
+ "application",
+ "argon2",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "base64 0.21.7",
+ "chrono",
+ "comrak",
+ "domain",
+ "dotenvy",
+ "extism",
+ "futures-core",
+ "futures-util",
+ "git2",
+ "hex",
+ "hmac",
+ "htmlescape",
+ "http 1.3.1",
+ "jsonwebtoken",
+ "mime_guess",
+ "notify",
+ "once_cell",
+ "pandoc",
+ "password-hash 0.5.0",
+ "rand 0.8.5",
+ "redis",
+ "regex",
+ "reqwest 0.11.27",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "syntect",
+ "syntect-assets",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "walkdir",
+ "yrs",
+ "yrs-warp",
+ "zip 0.6.6",
 ]
 
 [[package]]
@@ -3922,6 +4020,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
+name = "presentation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "application",
+ "axum",
+ "chrono",
+ "contracts",
+ "domain",
+ "futures-util",
+ "http 1.3.1",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "utoipa",
+ "uuid",
+ "yrs",
+ "yrs-warp",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4229,6 +4350,16 @@ dependencies = [
  "getrandom 0.2.16",
  "libredox",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "refmd-bins"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "api",
+ "cli",
+ "tokio",
 ]
 
 [[package]]

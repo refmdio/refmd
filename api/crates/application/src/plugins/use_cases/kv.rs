@@ -1,0 +1,43 @@
+use uuid::Uuid;
+
+use crate::plugins::ports::plugin_repository::PluginRepository;
+use domain::plugins::scope::PluginScope;
+
+pub struct GetPluginKv<'a, R: PluginRepository + ?Sized> {
+    pub repo: &'a R,
+}
+
+impl<'a, R: PluginRepository + ?Sized> GetPluginKv<'a, R> {
+    pub async fn execute(
+        &self,
+        plugin: &str,
+        scope: PluginScope,
+        scope_id: Option<Uuid>,
+        key: &str,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
+        self.repo
+            .kv_get(plugin, scope, scope_id, key)
+            .await
+            .map_err(Into::into)
+    }
+}
+
+pub struct PutPluginKv<'a, R: PluginRepository + ?Sized> {
+    pub repo: &'a R,
+}
+
+impl<'a, R: PluginRepository + ?Sized> PutPluginKv<'a, R> {
+    pub async fn execute(
+        &self,
+        plugin: &str,
+        scope: PluginScope,
+        scope_id: Option<Uuid>,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        self.repo
+            .kv_set(plugin, scope, scope_id, key, value)
+            .await
+            .map_err(Into::into)
+    }
+}

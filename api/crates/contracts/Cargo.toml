@@ -1,0 +1,12 @@
+[package]
+name = "contracts"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+openapi = ["dep:utoipa"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"], optional = true }
+
