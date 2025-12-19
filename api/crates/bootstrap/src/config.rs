@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt;
 use std::str::FromStr;
 
 fn env_var(keys: &[&str]) -> Option<String> {
@@ -30,7 +31,7 @@ impl FromStr for StorageBackend {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub api_port: u16,
     pub frontend_url: Option<String>,
@@ -78,19 +79,19 @@ pub struct Config {
     pub oidc_oauth: Option<OidcOAuthConfig>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GoogleOAuthConfig {
     pub client_ids: Vec<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GithubOAuthConfig {
     pub client_id: String,
     pub client_secret: String,
     pub redirect_uri: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct OidcOAuthConfig {
     pub issuer_url: String,
     pub discovery_url: Option<String>,
@@ -99,6 +100,114 @@ pub struct OidcOAuthConfig {
     pub redirect_uri: Option<String>,
     pub scopes: Vec<String>,
     pub display_name: Option<String>,
+}
+
+fn redact() -> &'static str {
+    "<redacted>"
+}
+
+impl fmt::Debug for GoogleOAuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GoogleOAuthConfig")
+            .field("client_ids_count", &self.client_ids.len())
+            .finish()
+    }
+}
+
+impl fmt::Debug for GithubOAuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GithubOAuthConfig")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &redact())
+            .field("redirect_uri", &self.redirect_uri)
+            .finish()
+    }
+}
+
+impl fmt::Debug for OidcOAuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OidcOAuthConfig")
+            .field("issuer_url", &self.issuer_url)
+            .field("discovery_url", &self.discovery_url)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &redact())
+            .field("redirect_uri", &self.redirect_uri)
+            .field("scopes", &self.scopes)
+            .field("display_name", &self.display_name)
+            .finish()
+    }
+}
+
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Config")
+            .field("api_port", &self.api_port)
+            .field("frontend_url", &self.frontend_url)
+            .field("database_url", &redact())
+            .field("jwt_secret_pem", &redact())
+            .field("jwt_expires_secs", &self.jwt_expires_secs)
+            .field("session_refresh_ttl_secs", &self.session_refresh_ttl_secs)
+            .field(
+                "session_refresh_remember_ttl_secs",
+                &self.session_refresh_remember_ttl_secs,
+            )
+            .field("snapshot_interval_secs", &self.snapshot_interval_secs)
+            .field("snapshot_keep_versions", &self.snapshot_keep_versions)
+            .field("updates_keep_window", &self.updates_keep_window)
+            .field("storage_backend", &self.storage_backend)
+            .field("storage_root", &self.storage_root)
+            .field("storage_monitor_enabled", &self.storage_monitor_enabled)
+            .field(
+                "storage_monitor_interval_secs",
+                &self.storage_monitor_interval_secs,
+            )
+            .field(
+                "storage_monitor_batch_size",
+                &self.storage_monitor_batch_size,
+            )
+            .field("s3_endpoint", &self.s3_endpoint)
+            .field("s3_bucket", &self.s3_bucket)
+            .field("s3_region", &self.s3_region)
+            .field(
+                "s3_access_key",
+                &self.s3_access_key.as_ref().map(|_| redact()),
+            )
+            .field(
+                "s3_secret_key",
+                &self.s3_secret_key.as_ref().map(|_| redact()),
+            )
+            .field("s3_use_path_style", &self.s3_use_path_style)
+            .field("plugin_dir", &self.plugin_dir)
+            .field("plugin_timeout_secs", &self.plugin_timeout_secs)
+            .field("plugin_memory_max_mb", &self.plugin_memory_max_mb)
+            .field("plugin_fuel_limit", &self.plugin_fuel_limit)
+            .field("plugin_asset_sign_key", &redact())
+            .field("plugin_asset_url_ttl_secs", &self.plugin_asset_url_ttl_secs)
+            .field("encryption_key", &redact())
+            .field("upload_max_bytes", &self.upload_max_bytes)
+            .field("public_base_url", &self.public_base_url)
+            .field("is_production", &self.is_production)
+            .field("cluster_mode", &self.cluster_mode)
+            .field("redis_url", &self.redis_url.as_ref().map(|_| redact()))
+            .field("redis_stream_prefix", &self.redis_stream_prefix)
+            .field(
+                "redis_min_message_lifetime_ms",
+                &self.redis_min_message_lifetime_ms,
+            )
+            .field("redis_task_debounce_ms", &self.redis_task_debounce_ms)
+            .field("redis_awareness_ttl_ms", &self.redis_awareness_ttl_ms)
+            .field("redis_stream_max_len", &self.redis_stream_max_len)
+            .field(
+                "snapshot_archive_interval_secs",
+                &self.snapshot_archive_interval_secs,
+            )
+            .field("git_rebuild_enabled", &self.git_rebuild_enabled)
+            .field("git_rebuild_interval_secs", &self.git_rebuild_interval_secs)
+            .field("google_oauth", &self.google_oauth)
+            .field("github_oauth", &self.github_oauth)
+            .field("oidc_oauth", &self.oidc_oauth)
+            .finish()
+    }
 }
 
 impl Config {
