@@ -61,6 +61,63 @@ pub struct AppServices {
 }
 
 #[derive(Clone)]
+pub struct AppServicesDeps {
+    pub core: CoreServicesDeps,
+    pub documents: DocumentServicesDeps,
+    pub git: GitServicesDeps,
+    pub identity: IdentityServicesDeps,
+    pub plugins: PluginServicesDeps,
+    pub workspaces: WorkspaceServicesDeps,
+}
+
+#[derive(Clone)]
+pub struct CoreServicesDeps {
+    pub authorization: Arc<dyn AuthorizationServiceFacade>,
+    pub markdown_render_service: Arc<dyn MarkdownRenderServiceFacade>,
+    pub storage_ingest_queue: Arc<dyn StorageIngestQueue>,
+    pub health_service: Arc<dyn HealthServiceFacade>,
+}
+
+#[derive(Clone)]
+pub struct DocumentServicesDeps {
+    pub document_service: Arc<dyn DocumentServiceFacade>,
+    pub share_service: Arc<dyn ShareServiceFacade>,
+    pub file_service: Arc<dyn FileServiceFacade>,
+    pub public_service: Arc<dyn PublicServiceFacade>,
+    pub tag_service: Arc<dyn TagServiceFacade>,
+    pub realtime_engine: Arc<dyn RealtimeEngine>,
+}
+
+#[derive(Clone)]
+pub struct GitServicesDeps {
+    pub git_service: Arc<dyn GitServiceFacade>,
+}
+
+#[derive(Clone)]
+pub struct IdentityServicesDeps {
+    pub api_token_service: Arc<dyn ApiTokenServiceFacade>,
+    pub user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
+    pub account_service: Arc<dyn AccountServiceFacade>,
+    pub auth_service: Arc<dyn AuthServiceFacade>,
+    pub session_service: Arc<dyn UserSessionServiceFacade>,
+    pub external_auth: Arc<dyn ExternalAuthRegistryFacade>,
+}
+
+#[derive(Clone)]
+pub struct PluginServicesDeps {
+    pub plugin_execution_service: Arc<dyn PluginExecutionServiceFacade>,
+    pub plugin_management_service: Arc<dyn PluginManagementServiceFacade>,
+    pub plugin_permission_service: Arc<dyn PluginPermissionServiceFacade>,
+    pub plugin_data_service: Arc<dyn PluginDataServiceFacade>,
+    pub plugin_event_subscriber: Arc<dyn PluginEventSubscriber>,
+}
+
+#[derive(Clone)]
+pub struct WorkspaceServicesDeps {
+    pub workspace_service: Arc<dyn WorkspaceServiceFacade>,
+}
+
+#[derive(Clone)]
 struct CoreServices {
     authorization: Arc<dyn AuthorizationServiceFacade>,
     markdown_render_service: Arc<dyn MarkdownRenderServiceFacade>,
@@ -114,64 +171,43 @@ pub use subcontexts::{
 };
 
 impl AppServices {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        authorization: Arc<dyn AuthorizationServiceFacade>,
-        document_service: Arc<dyn DocumentServiceFacade>,
-        share_service: Arc<dyn ShareServiceFacade>,
-        file_service: Arc<dyn FileServiceFacade>,
-        public_service: Arc<dyn PublicServiceFacade>,
-        tag_service: Arc<dyn TagServiceFacade>,
-        api_token_service: Arc<dyn ApiTokenServiceFacade>,
-        user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
-        git_service: Arc<dyn GitServiceFacade>,
-        markdown_render_service: Arc<dyn MarkdownRenderServiceFacade>,
-        workspace_service: Arc<dyn WorkspaceServiceFacade>,
-        plugin_execution_service: Arc<dyn PluginExecutionServiceFacade>,
-        plugin_management_service: Arc<dyn PluginManagementServiceFacade>,
-        plugin_permission_service: Arc<dyn PluginPermissionServiceFacade>,
-        plugin_data_service: Arc<dyn PluginDataServiceFacade>,
-        plugin_event_subscriber: Arc<dyn PluginEventSubscriber>,
-        health_service: Arc<dyn HealthServiceFacade>,
-        account_service: Arc<dyn AccountServiceFacade>,
-        auth_service: Arc<dyn AuthServiceFacade>,
-        session_service: Arc<dyn UserSessionServiceFacade>,
-        realtime_engine: Arc<dyn RealtimeEngine>,
-        storage_ingest_queue: Arc<dyn StorageIngestQueue>,
-        external_auth: Arc<dyn ExternalAuthRegistryFacade>,
-    ) -> Self {
+    pub fn new(deps: AppServicesDeps) -> Self {
         Self {
             core: CoreServices {
-                authorization,
-                markdown_render_service,
-                storage_ingest_queue,
-                health_service,
+                authorization: deps.core.authorization,
+                markdown_render_service: deps.core.markdown_render_service,
+                storage_ingest_queue: deps.core.storage_ingest_queue,
+                health_service: deps.core.health_service,
             },
             documents: DocumentServices {
-                document_service,
-                share_service,
-                file_service,
-                public_service,
-                tag_service,
-                realtime_engine,
+                document_service: deps.documents.document_service,
+                share_service: deps.documents.share_service,
+                file_service: deps.documents.file_service,
+                public_service: deps.documents.public_service,
+                tag_service: deps.documents.tag_service,
+                realtime_engine: deps.documents.realtime_engine,
             },
-            git: GitServices { git_service },
+            git: GitServices {
+                git_service: deps.git.git_service,
+            },
             identity: IdentityServices {
-                api_token_service,
-                user_shortcut_service,
-                account_service,
-                auth_service,
-                session_service,
-                external_auth,
+                api_token_service: deps.identity.api_token_service,
+                user_shortcut_service: deps.identity.user_shortcut_service,
+                account_service: deps.identity.account_service,
+                auth_service: deps.identity.auth_service,
+                session_service: deps.identity.session_service,
+                external_auth: deps.identity.external_auth,
             },
             plugins: PluginServices {
-                plugin_execution_service,
-                plugin_management_service,
-                plugin_permission_service,
-                plugin_data_service,
-                plugin_event_subscriber,
+                plugin_execution_service: deps.plugins.plugin_execution_service,
+                plugin_management_service: deps.plugins.plugin_management_service,
+                plugin_permission_service: deps.plugins.plugin_permission_service,
+                plugin_data_service: deps.plugins.plugin_data_service,
+                plugin_event_subscriber: deps.plugins.plugin_event_subscriber,
             },
-            workspaces: WorkspaceServices { workspace_service },
+            workspaces: WorkspaceServices {
+                workspace_service: deps.workspaces.workspace_service,
+            },
         }
     }
 }

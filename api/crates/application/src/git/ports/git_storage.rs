@@ -71,7 +71,7 @@ pub fn encode_commit_id(bytes: &[u8]) -> String {
 }
 
 pub fn decode_commit_id(hex: &str) -> anyhow::Result<CommitId> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         anyhow::bail!("invalid commit id length");
     }
     let mut out = Vec::with_capacity(hex.len() / 2);

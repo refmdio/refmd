@@ -15,6 +15,7 @@ use domain::documents::document as domain;
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Document {
     pub id: Uuid,
+    /// Legacy alias for `workspace_id` kept for backward compatibility with older clients.
     pub owner_id: Uuid,
     pub workspace_id: Uuid,
     pub title: String,
@@ -36,6 +37,7 @@ pub struct Document {
 pub fn to_http_document(doc: domain::Document) -> Document {
     Document {
         id: doc.id(),
+        // NOTE: Older clients used `owner_id` to identify the workspace.
         owner_id: doc.workspace_id(),
         workspace_id: doc.workspace_id(),
         title: doc.title().as_str().to_string(),
@@ -102,18 +104,13 @@ pub struct SnapshotDiffResponse {
     pub diff: TextDiffResult,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SnapshotDiffBaseParam {
+    #[default]
     Auto,
     Current,
     Previous,
-}
-
-impl Default for SnapshotDiffBaseParam {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl From<SnapshotDiffBaseParam> for SnapshotDiffBaseMode {

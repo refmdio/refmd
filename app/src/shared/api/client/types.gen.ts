@@ -4,9 +4,6 @@ export type ActiveShareItem = {
     created_at: string;
     document_id: string;
     document_title: string;
-    /**
-     * 'document' or 'folder'
-     */
     document_type: string;
     expires_at?: (string) | null;
     id: string;
@@ -42,9 +39,6 @@ export type ApiTokenItem = {
 export type ApplicableShareItem = {
     excluded: boolean;
     permission: string;
-    /**
-     * 'document' or 'folder'
-     */
     scope: string;
     token: string;
 };
@@ -147,6 +141,9 @@ export type Document = {
     created_by_plugin?: (string) | null;
     desired_path: string;
     id: string;
+    /**
+     * Legacy alias for `workspace_id` kept for backward compatibility with older clients.
+     */
     owner_id: string;
     parent_id?: (string) | null;
     path?: (string) | null;
@@ -326,6 +323,20 @@ export type GitSyncResponse = {
 export type HealthResp = {
     status: string;
 };
+
+export type IngestBatchRequest = {
+    events: Array<IngestEventRequest>;
+};
+
+export type IngestEventRequest = {
+    backend?: (string) | null;
+    content_hash?: (string) | null;
+    kind: IngestKindParam;
+    payload?: unknown;
+    repo_path: string;
+};
+
+export type IngestKindParam = 'upsert' | 'delete';
 
 export type InstallFromUrlBody = {
     token?: (string) | null;
@@ -517,14 +528,8 @@ export type ShareDocumentResponse = {
 export type ShareItem = {
     expires_at?: (string) | null;
     id: string;
-    /**
-     * If present, this document share was materialized from a folder share
-     */
     parent_share_id?: (string) | null;
     permission: string;
-    /**
-     * document | folder
-     */
     scope: string;
     token: string;
     url: string;
@@ -655,13 +660,7 @@ export type UpdateWorkspaceRoleRequest = {
 };
 
 export type UploadFileMultipart = {
-    /**
-     * Target document ID
-     */
     document_id: string;
-    /**
-     * File to upload
-     */
     file: Blob | File;
 };
 
@@ -1244,6 +1243,15 @@ export type UpdateUserShortcutsData = {
 
 export type UpdateUserShortcutsResponse = (UserShortcutResponse);
 
+export type PluginsGetAssetData = {
+    /**
+     * Share token (optional)
+     */
+    token?: (string) | null;
+};
+
+export type PluginsGetAssetResponse = (unknown);
+
 export type PluginsGetKvData = {
     /**
      * Document ID
@@ -1504,6 +1512,12 @@ export type DeleteShareData = {
 
 export type DeleteShareResponse = (void);
 
+export type EnqueueIngestEventsData = {
+    requestBody: IngestBatchRequest;
+};
+
+export type EnqueueIngestEventsResponse = (unknown);
+
 export type ListTagsData = {
     /**
      * Filter contains
@@ -1602,6 +1616,15 @@ export type RevokeInvitationData = {
 };
 
 export type RevokeInvitationResponse = (WorkspaceInvitationResponse);
+
+export type LeaveWorkspaceData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type LeaveWorkspaceResponse = (void);
 
 export type ListMembersData = {
     /**

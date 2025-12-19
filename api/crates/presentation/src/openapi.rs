@@ -237,6 +237,8 @@ use crate::ws;
         workspaces::CreateWorkspaceInvitationRequest,
         workspaces::DownloadWorkspaceQuery,
         storage_ingest::IngestBatchRequest,
+        storage_ingest::IngestEventRequest,
+        storage_ingest::IngestKindParam,
         health::HealthResp,
     )),
     tags(

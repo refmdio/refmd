@@ -45,7 +45,11 @@ use infrastructure::documents::event_poller::DocEventPoller;
 use infrastructure::documents::exporter::DefaultDocumentExporter;
 use infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
 use infrastructure::identity::crypto::Argon2SecretHasher;
-use presentation::context::{AppContext, AppServices, PresentationConfig};
+use presentation::context::{
+    AppContext, AppServices, AppServicesDeps, CoreServicesDeps, DocumentServicesDeps,
+    GitServicesDeps, IdentityServicesDeps, PluginServicesDeps, PresentationConfig,
+    WorkspaceServicesDeps,
+};
 
 use crate::app::AppRuntime;
 use crate::config::{Config, StorageBackend};
@@ -424,31 +428,43 @@ pub async fn build_runtime(
 
     let external_auth_registry = auth_stack.external_auth.clone();
 
-    let services = AppServices::new(
-        authorization_service,
-        document_service.clone(),
-        share_service.clone(),
-        file_service.clone(),
-        public_service.clone(),
-        tag_service.clone(),
-        api_token_service.clone(),
-        user_shortcut_service.clone(),
-        git_service.clone(),
-        markdown_render_service.clone(),
-        workspace_service.clone(),
-        plugin_execution_service.clone(),
-        plugin_management_service.clone(),
-        plugin_permission_service.clone(),
-        plugin_data_service.clone(),
-        plugin_event_subscriber,
-        health_service.clone(),
-        account_service.clone(),
-        auth_stack.auth_service.clone(),
-        auth_stack.session_service.clone(),
-        realtime_engine.clone(),
-        storage_ingest_queue.clone(),
-        external_auth_registry.clone(),
-    );
+    let services = AppServices::new(AppServicesDeps {
+        core: CoreServicesDeps {
+            authorization: authorization_service,
+            markdown_render_service: markdown_render_service.clone(),
+            storage_ingest_queue: storage_ingest_queue.clone(),
+            health_service: health_service.clone(),
+        },
+        documents: DocumentServicesDeps {
+            document_service: document_service.clone(),
+            share_service: share_service.clone(),
+            file_service: file_service.clone(),
+            public_service: public_service.clone(),
+            tag_service: tag_service.clone(),
+            realtime_engine: realtime_engine.clone(),
+        },
+        git: GitServicesDeps {
+            git_service: git_service.clone(),
+        },
+        identity: IdentityServicesDeps {
+            api_token_service: api_token_service.clone(),
+            user_shortcut_service: user_shortcut_service.clone(),
+            account_service: account_service.clone(),
+            auth_service: auth_stack.auth_service.clone(),
+            session_service: auth_stack.session_service.clone(),
+            external_auth: external_auth_registry.clone(),
+        },
+        plugins: PluginServicesDeps {
+            plugin_execution_service: plugin_execution_service.clone(),
+            plugin_management_service: plugin_management_service.clone(),
+            plugin_permission_service: plugin_permission_service.clone(),
+            plugin_data_service: plugin_data_service.clone(),
+            plugin_event_subscriber,
+        },
+        workspaces: WorkspaceServicesDeps {
+            workspace_service: workspace_service.clone(),
+        },
+    });
 
     let presentation_cfg = PresentationConfig {
         frontend_url: cfg.frontend_url.clone(),

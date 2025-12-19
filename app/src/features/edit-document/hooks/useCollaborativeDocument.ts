@@ -56,10 +56,16 @@ export function useCollaborativeDocument(id: string, shareToken?: string) {
   }, [id, shareToken])
 
   React.useEffect(() => {
+    const token = resolveShareToken(shareToken)
+    if (token) {
+      setIsReadOnly(shareReadOnly || archived)
+      return
+    }
+
     if (authLoading) return
     const hasEditPermission = permissions.includes('doc:edit')
-    setIsReadOnly(shareReadOnly || archived || !hasEditPermission)
-  }, [authLoading, shareReadOnly, archived, permissions])
+    setIsReadOnly(archived || !hasEditPermission)
+  }, [authLoading, shareReadOnly, archived, permissions, shareToken])
 
   const loadMeta = React.useCallback(async () => {
     try {
