@@ -35,11 +35,7 @@ impl SqlxFilesRepository {
 
 #[async_trait]
 impl FilesRepository for SqlxFilesRepository {
-    async fn is_workspace_document(
-        &self,
-        doc_id: Uuid,
-        workspace_id: Uuid,
-    ) -> PortResult<bool> {
+    async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid) -> PortResult<bool> {
         let out: anyhow::Result<bool> = async {
             let n = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(1) FROM documents WHERE id = $1 AND workspace_id = $2",
@@ -191,7 +187,10 @@ impl FilesRepository for SqlxFilesRepository {
         out.map_err(Into::into)
     }
 
-    async fn find_by_storage_path(&self, storage_path: &str) -> PortResult<Option<StoredFileScope>> {
+    async fn find_by_storage_path(
+        &self,
+        storage_path: &str,
+    ) -> PortResult<Option<StoredFileScope>> {
         let out: anyhow::Result<Option<StoredFileScope>> = async {
             let row = sqlx::query(
                 r#"SELECT f.id as file_id, f.document_id, d.workspace_id

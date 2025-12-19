@@ -436,11 +436,7 @@ impl StorageResolverPort for MockResolver {
         PathBuf::from(rel)
     }
 
-    async fn resolve_upload_path(
-        &self,
-        _doc_id: Uuid,
-        _rest_path: &str,
-    ) -> PortResult<PathBuf> {
+    async fn resolve_upload_path(&self, _doc_id: Uuid, _rest_path: &str) -> PortResult<PathBuf> {
         unimplemented!()
     }
 

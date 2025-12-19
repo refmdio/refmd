@@ -544,7 +544,8 @@ impl PluginAssetStore for S3BackedPluginStore {
                 let _guard = self.global_cache.refresh_lock.lock().await;
                 let refreshed_now = epoch_secs_now();
                 if self.global_cache.needs_refresh(refreshed_now) {
-                    download_prefix(&self.client, &self.bucket, "global", self.local.root()).await?;
+                    download_prefix(&self.client, &self.bucket, "global", self.local.root())
+                        .await?;
                     self.global_cache.mark_refreshed(refreshed_now);
                 }
             }

@@ -2,20 +2,16 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::core::dtos::TextDiffResult;
+use crate::core::ports::errors::PortResult;
 use crate::git::dtos::{
     GitChangeItem, GitCommitInfo, GitImportOutcome, GitPullRequestDto, GitPullResultDto,
     GitRemoteCheckDto, GitSyncOutcome, GitSyncRequestDto, GitWorkspaceStatus,
 };
 use crate::git::ports::git_repository::UserGitCfg;
-use crate::core::ports::errors::PortResult;
 
 #[async_trait]
 pub trait GitWorkspacePort: Send + Sync {
-    async fn ensure_repository(
-        &self,
-        workspace_id: Uuid,
-        default_branch: &str,
-    ) -> PortResult<()>;
+    async fn ensure_repository(&self, workspace_id: Uuid, default_branch: &str) -> PortResult<()>;
     async fn remove_repository(&self, workspace_id: Uuid) -> PortResult<()>;
     async fn status(&self, workspace_id: Uuid) -> PortResult<GitWorkspaceStatus>;
     async fn list_changes(&self, workspace_id: Uuid) -> PortResult<Vec<GitChangeItem>>;
@@ -53,11 +49,7 @@ pub trait GitWorkspacePort: Send + Sync {
         cfg: &UserGitCfg,
     ) -> PortResult<Option<Vec<u8>>>;
     async fn has_pending_changes(&self, workspace_id: Uuid) -> PortResult<bool>;
-    async fn drift_since_commit(
-        &self,
-        workspace_id: Uuid,
-        base_commit: &[u8],
-    ) -> PortResult<bool>;
+    async fn drift_since_commit(&self, workspace_id: Uuid, base_commit: &[u8]) -> PortResult<bool>;
 
     async fn check_remote(
         &self,

@@ -40,8 +40,7 @@ pub trait UserSessionRepository: Send + Sync {
         ip_address: Option<&str>,
     ) -> PortResult<UserSessionRecord>;
 
-    async fn find_by_digest(&self, token_digest: &str)
-    -> PortResult<Option<UserSessionSecret>>;
+    async fn find_by_digest(&self, token_digest: &str) -> PortResult<Option<UserSessionSecret>>;
 
     #[allow(clippy::too_many_arguments)]
     async fn update_token(

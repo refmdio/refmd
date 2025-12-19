@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
-use application::domain::access::permissions::PERM_PLUGIN_RUN;
+use domain::access::permissions::PERM_PLUGIN_RUN;
 
 use super::types::{
     CreateRecordBody, RecordsPath, RecordsResponse, UpdateRecordBody, UpdateRecordPath,
@@ -19,7 +19,7 @@ use super::util::{
     PERMISSION_DOC_READ, PERMISSION_DOC_WRITE, map_plugin_service_error,
     resolve_plugin_user_context,
 };
-use application::domain::plugins::scope::PluginRecordScope;
+use domain::plugins::scope::PluginRecordScope;
 
 #[utoipa::path(
     get,

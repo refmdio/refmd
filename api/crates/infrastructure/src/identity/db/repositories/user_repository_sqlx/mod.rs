@@ -52,10 +52,11 @@ impl UserRepository for SqlxUserRepository {
 
     async fn find_by_email(&self, email: &str) -> PortResult<Option<UserRow>> {
         let out: anyhow::Result<Option<UserRow>> = async {
-            let row = sqlx::query(r#"SELECT id, email, name, password_hash FROM users WHERE email = $1"#)
-                .bind(email)
-                .fetch_optional(&self.pool)
-                .await?;
+            let row =
+                sqlx::query(r#"SELECT id, email, name, password_hash FROM users WHERE email = $1"#)
+                    .bind(email)
+                    .fetch_optional(&self.pool)
+                    .await?;
             Ok(row.map(|r| UserRow {
                 id: r.get("id"),
                 email: r.get("email"),

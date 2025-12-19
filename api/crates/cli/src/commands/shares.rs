@@ -1,6 +1,8 @@
 use anyhow::Result;
 use uuid::Uuid;
 
+use bootstrap::{application, infrastructure};
+
 use application::documents::ports::sharing::shares_repository::SharesRepository;
 use infrastructure::documents::db::repositories::shares_repository_sqlx::SqlxSharesRepository;
 

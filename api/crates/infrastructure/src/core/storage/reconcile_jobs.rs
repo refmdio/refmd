@@ -60,10 +60,7 @@ impl StorageReconcileJobs for PgStorageReconcileJobs {
         out.map_err(Into::into)
     }
 
-    async fn fetch_next(
-        &self,
-        lock_timeout_secs: i64,
-    ) -> PortResult<Option<StorageReconcileJob>> {
+    async fn fetch_next(&self, lock_timeout_secs: i64) -> PortResult<Option<StorageReconcileJob>> {
         let out: anyhow::Result<Option<StorageReconcileJob>> = async {
             let row = sqlx::query(
                 r#"

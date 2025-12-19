@@ -7,9 +7,7 @@ use uuid::Uuid;
 
 use crate::context::WorkspacesContext;
 use crate::http::extractors::AuthedUser;
-use application::domain::access::permissions::{
-    PERM_MEMBER_INVITE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW,
-};
+use domain::access::permissions::{PERM_MEMBER_INVITE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW};
 
 use super::types::{
     CreateWorkspaceRoleRequest, UpdateWorkspaceRoleRequest, WorkspaceRoleResponse,

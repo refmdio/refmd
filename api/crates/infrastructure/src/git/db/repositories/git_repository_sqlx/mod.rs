@@ -264,10 +264,7 @@ impl GitRepository for SqlxGitRepository {
         out.map_err(Into::into)
     }
 
-    async fn get_last_sync_log(
-        &self,
-        workspace_id: Uuid,
-    ) -> PortResult<Option<GitLastSyncLog>> {
+    async fn get_last_sync_log(&self, workspace_id: Uuid) -> PortResult<Option<GitLastSyncLog>> {
         let out: anyhow::Result<Option<GitLastSyncLog>> = async {
             let row = sqlx::query("SELECT status, message, commit_hash, created_at FROM git_sync_logs WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 1")
                 .bind(workspace_id)

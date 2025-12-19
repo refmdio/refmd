@@ -49,8 +49,7 @@ pub trait GitRepository: Send + Sync {
     ) -> PortResult<GitConfigRecord>;
     async fn delete_config(&self, workspace_id: Uuid) -> PortResult<bool>;
     async fn load_user_git_cfg(&self, workspace_id: Uuid) -> PortResult<Option<UserGitCfg>>;
-    async fn get_last_sync_log(&self, workspace_id: Uuid)
-    -> PortResult<Option<GitLastSyncLog>>;
+    async fn get_last_sync_log(&self, workspace_id: Uuid) -> PortResult<Option<GitLastSyncLog>>;
     async fn log_sync_operation(
         &self,
         workspace_id: Uuid,

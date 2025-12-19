@@ -8,7 +8,7 @@ use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use application::plugins::use_cases::install_from_url::InstallPluginError;
-use application::domain::access::permissions::{PERM_PLUGIN_INSTALL, PERM_PLUGIN_UNINSTALL};
+use domain::access::permissions::{PERM_PLUGIN_INSTALL, PERM_PLUGIN_UNINSTALL};
 
 use super::types::{InstallFromUrlBody, InstallResponse, UninstallBody, ensure_valid_plugin_id};
 use super::util::{map_plugin_service_error, resolve_plugin_user_context};

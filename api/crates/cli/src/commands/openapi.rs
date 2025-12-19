@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::io::Write;
 
 use crate::cli::OpenapiCommand;
+use bootstrap::presentation;
 use utoipa::OpenApi;
 
 pub(crate) fn handle(command: OpenapiCommand) -> Result<()> {

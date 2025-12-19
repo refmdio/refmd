@@ -8,6 +8,7 @@ use application::core::services::authorization::AuthorizationServiceFacade;
 use application::core::services::health::HealthServiceFacade;
 use application::core::services::markdown_render::MarkdownRenderServiceFacade;
 use application::core::services::metrics::MetricsRegistryFacade;
+use application::core::services::storage::ingest_enqueue::StorageIngestEnqueueServiceFacade;
 use application::documents::ports::realtime::realtime_port::RealtimeEngine;
 pub use application::documents::ports::realtime::realtime_types::{
     DynRealtimeSink, DynRealtimeStream,
@@ -75,6 +76,7 @@ pub struct CoreServicesDeps {
     pub authorization: Arc<dyn AuthorizationServiceFacade>,
     pub markdown_render_service: Arc<dyn MarkdownRenderServiceFacade>,
     pub storage_ingest_queue: Arc<dyn StorageIngestQueue>,
+    pub storage_ingest_enqueuer: Arc<dyn StorageIngestEnqueueServiceFacade>,
     pub health_service: Arc<dyn HealthServiceFacade>,
 }
 
@@ -122,6 +124,7 @@ struct CoreServices {
     authorization: Arc<dyn AuthorizationServiceFacade>,
     markdown_render_service: Arc<dyn MarkdownRenderServiceFacade>,
     storage_ingest_queue: Arc<dyn StorageIngestQueue>,
+    storage_ingest_enqueuer: Arc<dyn StorageIngestEnqueueServiceFacade>,
     health_service: Arc<dyn HealthServiceFacade>,
 }
 
@@ -177,6 +180,7 @@ impl AppServices {
                 authorization: deps.core.authorization,
                 markdown_render_service: deps.core.markdown_render_service,
                 storage_ingest_queue: deps.core.storage_ingest_queue,
+                storage_ingest_enqueuer: deps.core.storage_ingest_enqueuer,
                 health_service: deps.core.health_service,
             },
             documents: DocumentServices {
@@ -267,6 +271,10 @@ impl AppContext {
 
     pub fn storage_ingest_queue(&self) -> Arc<dyn StorageIngestQueue> {
         self.services.core.storage_ingest_queue.clone()
+    }
+
+    pub fn storage_ingest_enqueuer(&self) -> Arc<dyn StorageIngestEnqueueServiceFacade> {
+        self.services.core.storage_ingest_enqueuer.clone()
     }
 
     pub fn plugin_execution_service(&self) -> Arc<dyn PluginExecutionServiceFacade> {

@@ -4,7 +4,7 @@ use super::*;
 pub struct CoreContext {
     pub cfg: PresentationConfig,
     markdown_render_service: Arc<dyn MarkdownRenderServiceFacade>,
-    storage_ingest_queue: Arc<dyn StorageIngestQueue>,
+    storage_ingest_enqueuer: Arc<dyn StorageIngestEnqueueServiceFacade>,
     health_service: Arc<dyn HealthServiceFacade>,
     metrics: Arc<dyn MetricsRegistryFacade>,
     auth_service: Arc<dyn AuthServiceFacade>,
@@ -34,8 +34,8 @@ impl CoreContext {
         self.markdown_render_service.clone()
     }
 
-    pub fn storage_ingest_queue(&self) -> Arc<dyn StorageIngestQueue> {
-        self.storage_ingest_queue.clone()
+    pub fn storage_ingest_enqueuer(&self) -> Arc<dyn StorageIngestEnqueueServiceFacade> {
+        self.storage_ingest_enqueuer.clone()
     }
 
     pub fn health_service(&self) -> Arc<dyn HealthServiceFacade> {
@@ -74,7 +74,7 @@ impl FromRef<AppContext> for CoreContext {
         Self {
             cfg: ctx.cfg.clone(),
             markdown_render_service: ctx.markdown_renderer(),
-            storage_ingest_queue: ctx.storage_ingest_queue(),
+            storage_ingest_enqueuer: ctx.storage_ingest_enqueuer(),
             health_service: ctx.health_service(),
             metrics: ctx.metrics(),
             auth_service: ctx.auth_service(),

@@ -325,10 +325,7 @@ impl SharesRepository for SqlxSharesRepository {
         out.map_err(Into::into)
     }
 
-    async fn validate_share_token(
-        &self,
-        token: &str,
-    ) -> PortResult<Option<ShareTokenValidation>> {
+    async fn validate_share_token(&self, token: &str) -> PortResult<Option<ShareTokenValidation>> {
         let out: anyhow::Result<Option<ShareTokenValidation>> = async {
             let row = sqlx::query(
                 r#"SELECT s.document_id, s.permission, s.expires_at, d.title
@@ -421,17 +418,11 @@ impl SharesRepository for SqlxSharesRepository {
         out.map_err(Into::into)
     }
 
-    async fn resolve_share_by_token(
-        &self,
-        token: &str,
-    ) -> PortResult<Option<share::ShareContext>> {
+    async fn resolve_share_by_token(&self, token: &str) -> PortResult<Option<share::ShareContext>> {
         self.fetch_share_resolution(token).await.map_err(Into::into)
     }
 
-    async fn get_share_document_meta(
-        &self,
-        token: &str,
-    ) -> PortResult<Option<ShareDocumentMeta>> {
+    async fn get_share_document_meta(&self, token: &str) -> PortResult<Option<ShareDocumentMeta>> {
         let out: anyhow::Result<Option<ShareDocumentMeta>> = async {
             let row = sqlx::query(
                 "SELECT d.id as document_id, d.owner_id, d.workspace_id FROM shares s JOIN documents d ON d.id = s.document_id WHERE s.token = $1",
@@ -572,11 +563,7 @@ impl SharesRepository for SqlxSharesRepository {
         out.map_err(Into::into)
     }
 
-    async fn revoke_subtree_shares(
-        &self,
-        workspace_id: Uuid,
-        root_id: Uuid,
-    ) -> PortResult<i64> {
+    async fn revoke_subtree_shares(&self, workspace_id: Uuid, root_id: Uuid) -> PortResult<i64> {
         let out: anyhow::Result<i64> = async {
             let deleted = sqlx::query_scalar::<_, i64>(
                 r#"
@@ -610,10 +597,7 @@ impl SharesRepository for SqlxSharesRepository {
 
 #[async_trait]
 impl ShareAccessPort for SqlxSharesRepository {
-    async fn resolve_share_by_token(
-        &self,
-        token: &str,
-    ) -> PortResult<Option<share::ShareContext>> {
+    async fn resolve_share_by_token(&self, token: &str) -> PortResult<Option<share::ShareContext>> {
         self.fetch_share_resolution(token).await.map_err(Into::into)
     }
 

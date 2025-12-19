@@ -39,18 +39,10 @@ pub type PackStream = Pin<Box<dyn Stream<Item = PortResult<PackBlob>> + Send>>;
 pub trait GitStorage: Send + Sync {
     async fn latest_commit(&self, user_id: Uuid) -> PortResult<Option<CommitMeta>>;
     async fn store_pack(&self, user_id: Uuid, pack: &[u8], meta: &CommitMeta) -> PortResult<()>;
-    async fn load_pack_chain(
-        &self,
-        user_id: Uuid,
-        until: Option<&[u8]>,
-    ) -> PortResult<PackStream>;
+    async fn load_pack_chain(&self, user_id: Uuid, until: Option<&[u8]>) -> PortResult<PackStream>;
     async fn put_blob(&self, key: &BlobKey, data: &[u8]) -> PortResult<()>;
     async fn fetch_blob(&self, key: &BlobKey) -> PortResult<Vec<u8>>;
-    async fn commit_meta(
-        &self,
-        user_id: Uuid,
-        commit_id: &[u8],
-    ) -> PortResult<Option<CommitMeta>>;
+    async fn commit_meta(&self, user_id: Uuid, commit_id: &[u8]) -> PortResult<Option<CommitMeta>>;
     async fn restore_commit_meta(&self, user_id: Uuid, meta: &CommitMeta) -> PortResult<()>;
     async fn fetch_pack_for_commit(
         &self,
@@ -59,11 +51,7 @@ pub trait GitStorage: Send + Sync {
     ) -> PortResult<Option<Vec<u8>>>;
     async fn delete_blob(&self, key: &BlobKey) -> PortResult<()>;
     async fn delete_pack(&self, user_id: Uuid, commit_id: &[u8]) -> PortResult<()>;
-    async fn set_latest_commit(
-        &self,
-        user_id: Uuid,
-        meta: Option<&CommitMeta>,
-    ) -> PortResult<()>;
+    async fn set_latest_commit(&self, user_id: Uuid, meta: Option<&CommitMeta>) -> PortResult<()>;
     async fn delete_all(&self, user_id: Uuid) -> PortResult<()>;
 }
 

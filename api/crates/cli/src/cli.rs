@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use uuid::Uuid;
 
-use application::core::ports::storage::storage_ingest_queue::StorageIngestKind;
+use bootstrap::application::core::ports::storage::storage_ingest_queue::StorageIngestKind;
 
 #[derive(Parser)]
 #[command(name = "refmd", about = "Admin CLI for managing a refmd node", version)]

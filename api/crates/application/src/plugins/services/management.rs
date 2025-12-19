@@ -467,7 +467,7 @@ impl ManifestScope {
 pub fn validate_plugin_id(id: &str) -> Result<(), ServiceError> {
     const MAX_LEN: usize = 128;
     if id.is_empty() || id.len() > MAX_LEN {
-        return Err(ServiceError::BadRequest("invalid plugin id"));
+        return Err(ServiceError::BadRequest("invalid_plugin_id"));
     }
     if id
         .chars()
@@ -475,14 +475,14 @@ pub fn validate_plugin_id(id: &str) -> Result<(), ServiceError> {
     {
         Ok(())
     } else {
-        Err(ServiceError::BadRequest("invalid plugin id"))
+        Err(ServiceError::BadRequest("invalid_plugin_id"))
     }
 }
 
 pub fn validate_plugin_version(version: &str) -> Result<(), ServiceError> {
     const MAX_LEN: usize = 128;
     if version.is_empty() || version.len() > MAX_LEN {
-        return Err(ServiceError::BadRequest("invalid plugin version"));
+        return Err(ServiceError::BadRequest("invalid_plugin_version"));
     }
     if version
         .chars()
@@ -490,7 +490,7 @@ pub fn validate_plugin_version(version: &str) -> Result<(), ServiceError> {
     {
         Ok(())
     } else {
-        Err(ServiceError::BadRequest("invalid plugin version"))
+        Err(ServiceError::BadRequest("invalid_plugin_version"))
     }
 }
 
@@ -501,13 +501,13 @@ pub fn normalize_manifest_path(raw: &str) -> Result<String, ServiceError> {
     }
     trimmed = trimmed.trim_start_matches('/');
     if trimmed.is_empty() || trimmed.contains("..") || trimmed.contains('\\') {
-        return Err(ServiceError::BadRequest("invalid manifest path"));
+        return Err(ServiceError::BadRequest("invalid_manifest_path"));
     }
     if trimmed
         .split('/')
         .any(|segment| segment.is_empty() || segment == "." || segment == "..")
     {
-        return Err(ServiceError::BadRequest("invalid manifest path"));
+        return Err(ServiceError::BadRequest("invalid_manifest_path"));
     }
     Ok(trimmed.to_string())
 }

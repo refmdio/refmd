@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::context::{HasAuthServices, HasWorkspaceService};
 use crate::http::error::ApiError;
 use crate::http::workspaces::map_service_error;
-use application::domain::access::permissions::PermissionSet;
+use domain::access::permissions::PermissionSet;
 
 const WORKSPACE_HEADER: &str = "X-Workspace-ID";
 

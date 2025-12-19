@@ -10,7 +10,7 @@ use application::documents::dtos::{
 };
 use application::documents::services::DocumentPatchOperation;
 use contracts::core::dtos::TextDiffResult;
-use application::domain::documents::document as domain;
+use domain::documents::document as domain;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Document {

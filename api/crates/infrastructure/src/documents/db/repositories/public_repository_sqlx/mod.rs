@@ -74,11 +74,7 @@ impl PublicRepository for SqlxPublicRepository {
         out.map_err(Into::into)
     }
 
-    async fn is_workspace_document(
-        &self,
-        doc_id: Uuid,
-        workspace_id: Uuid,
-    ) -> PortResult<bool> {
+    async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid) -> PortResult<bool> {
         let out: anyhow::Result<bool> = async {
             let n = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(1) FROM documents WHERE id = $1 AND workspace_id = $2",

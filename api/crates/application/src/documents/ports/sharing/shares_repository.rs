@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use chrono::{DateTime, Utc};
 use crate::core::ports::errors::PortResult;
+use chrono::{DateTime, Utc};
 use domain::documents::doc_type::DocumentType;
 use domain::documents::share::{ShareContext, SharePermission};
 use domain::documents::title::Title;
@@ -90,10 +90,7 @@ pub trait SharesRepository: Send + Sync {
 
     async fn delete_share(&self, workspace_id: Uuid, token: &str) -> PortResult<bool>;
 
-    async fn validate_share_token(
-        &self,
-        token: &str,
-    ) -> PortResult<Option<ShareTokenValidation>>;
+    async fn validate_share_token(&self, token: &str) -> PortResult<Option<ShareTokenValidation>>;
 
     async fn list_applicable_shares_for_doc(
         &self,
@@ -122,10 +119,7 @@ pub trait SharesRepository: Send + Sync {
 
     async fn delete_share_mount(&self, workspace_id: Uuid, mount_id: Uuid) -> PortResult<bool>;
 
-    async fn get_share_document_meta(
-        &self,
-        token: &str,
-    ) -> PortResult<Option<ShareDocumentMeta>>;
+    async fn get_share_document_meta(&self, token: &str) -> PortResult<Option<ShareDocumentMeta>>;
 
     async fn list_subtree_nodes(&self, root_id: Uuid) -> PortResult<Vec<ShareSubtreeNode>>;
 

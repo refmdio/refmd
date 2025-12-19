@@ -7,6 +7,9 @@ pub struct DeleteGitConfig<'a, R: GitRepository + ?Sized> {
 
 impl<'a, R: GitRepository + ?Sized> DeleteGitConfig<'a, R> {
     pub async fn execute(&self, workspace_id: Uuid) -> anyhow::Result<bool> {
-        self.repo.delete_config(workspace_id).await.map_err(Into::into)
+        self.repo
+            .delete_config(workspace_id)
+            .await
+            .map_err(Into::into)
     }
 }

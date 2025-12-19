@@ -2,9 +2,9 @@ use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
+use application::core::dtos::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use application::core::ports::errors::PortResult;
 use application::core::ports::markdown_renderer::MarkdownRenderer;
-use application::core::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use application::core::services::utils::hash::sha256_hex;
 
 pub struct ComrakMarkdownRenderer;

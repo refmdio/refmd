@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
 
+use bootstrap::infrastructure;
 use infrastructure::core::db::PgPool;
 
 use crate::cli::WorkspaceCommand;

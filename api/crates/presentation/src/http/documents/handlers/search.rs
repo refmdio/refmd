@@ -6,7 +6,7 @@ use axum::{
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
-use application::domain::access::permissions::PERM_DOC_VIEW;
+use domain::access::permissions::PERM_DOC_VIEW;
 
 use crate::http::documents::types::{SearchQuery, SearchResult, map_service_error};
 

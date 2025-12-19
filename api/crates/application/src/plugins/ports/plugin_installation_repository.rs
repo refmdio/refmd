@@ -28,10 +28,7 @@ pub trait PluginInstallationRepository: Send + Sync {
         status: PluginInstallationStatus,
     ) -> PortResult<()>;
 
-    async fn list_for_workspace(
-        &self,
-        workspace_id: Uuid,
-    ) -> PortResult<Vec<PluginInstallation>>;
+    async fn list_for_workspace(&self, workspace_id: Uuid) -> PortResult<Vec<PluginInstallation>>;
 
     async fn list_all(&self) -> PortResult<Vec<PluginInstallation>>;
 

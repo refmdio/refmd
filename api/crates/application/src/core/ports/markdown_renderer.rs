@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
+use crate::core::dtos::markdown::{RenderOptions, RenderResponse};
 use crate::core::ports::errors::PortResult;
-use crate::core::services::markdown::{RenderOptions, RenderResponse};
 
 pub trait MarkdownRenderer: Send + Sync {
     fn render(

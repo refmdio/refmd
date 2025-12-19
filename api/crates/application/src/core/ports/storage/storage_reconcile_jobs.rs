@@ -14,10 +14,7 @@ pub struct StorageReconcileJob {
 #[async_trait]
 pub trait StorageReconcileJobs: Send + Sync {
     async fn enqueue(&self, workspace_id: Uuid, scope: &str) -> PortResult<()>;
-    async fn fetch_next(
-        &self,
-        lock_timeout_secs: i64,
-    ) -> PortResult<Option<StorageReconcileJob>>;
+    async fn fetch_next(&self, lock_timeout_secs: i64) -> PortResult<Option<StorageReconcileJob>>;
     async fn complete(&self, job_id: i64) -> PortResult<()>;
     async fn fail(&self, job_id: i64, error: &str) -> PortResult<()>;
 }

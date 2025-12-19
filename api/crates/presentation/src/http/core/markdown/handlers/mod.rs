@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::context::CoreContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
+use application::core::dtos::markdown::RenderOptions;
 use application::core::services::errors::ServiceError;
-use application::core::services::markdown::RenderOptions;
 use application::core::services::markdown_render::MarkdownRenderTask;
 
 use super::types::{RenderManyRequest, RenderManyResponse, RenderRequest, RenderResponseBody};

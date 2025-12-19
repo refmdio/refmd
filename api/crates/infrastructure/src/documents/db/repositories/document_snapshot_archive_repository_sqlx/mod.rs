@@ -21,10 +21,7 @@ impl SqlxDocumentSnapshotArchiveRepository {
 
 #[async_trait]
 impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository {
-    async fn insert(
-        &self,
-        input: SnapshotArchiveInsert<'_>,
-    ) -> PortResult<SnapshotArchiveRecord> {
+    async fn insert(&self, input: SnapshotArchiveInsert<'_>) -> PortResult<SnapshotArchiveRecord> {
         let out: anyhow::Result<SnapshotArchiveRecord> = async {
             let inserted = sqlx::query(
                 r#"INSERT INTO document_snapshot_archives (

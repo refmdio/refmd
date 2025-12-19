@@ -2,25 +2,25 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
-use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
-use application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
-use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
-use application::plugins::ports::plugin_asset_store::PluginAssetStore;
-use application::workspaces::services::WorkspaceServiceFacade;
 use bootstrap::app::AppBuilder;
+use bootstrap::application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
+use bootstrap::application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
+use bootstrap::application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
+use bootstrap::application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
+use bootstrap::application::plugins::ports::plugin_asset_store::PluginAssetStore;
+use bootstrap::application::workspaces::services::WorkspaceServiceFacade;
 use bootstrap::config::Config;
 use bootstrap::git::git_storage_driver_config;
-use infrastructure::core::db::PgPool;
-use infrastructure::documents::db::repositories::document_repository_sqlx::SqlxDocumentRepository;
-use infrastructure::documents::db::repositories::files_repository_sqlx::SqlxFilesRepository;
-use infrastructure::documents::db::repositories::shares_repository_sqlx::SqlxSharesRepository;
-use infrastructure::git::storage::build_git_storage;
-use infrastructure::identity::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository;
-use infrastructure::identity::db::repositories::user_repository_sqlx::SqlxUserRepository;
-use infrastructure::identity::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository;
-use infrastructure::plugins::db::repositories::plugin_installation_repository_sqlx::SqlxPluginInstallationRepository;
-use infrastructure::plugins::db::repositories::plugin_repository_sqlx::SqlxPluginRepository;
+use bootstrap::infrastructure::core::db::PgPool;
+use bootstrap::infrastructure::documents::db::repositories::document_repository_sqlx::SqlxDocumentRepository;
+use bootstrap::infrastructure::documents::db::repositories::files_repository_sqlx::SqlxFilesRepository;
+use bootstrap::infrastructure::documents::db::repositories::shares_repository_sqlx::SqlxSharesRepository;
+use bootstrap::infrastructure::git::storage::build_git_storage;
+use bootstrap::infrastructure::identity::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository;
+use bootstrap::infrastructure::identity::db::repositories::user_repository_sqlx::SqlxUserRepository;
+use bootstrap::infrastructure::identity::db::repositories::user_session_repository_sqlx::SqlxUserSessionRepository;
+use bootstrap::infrastructure::plugins::db::repositories::plugin_installation_repository_sqlx::SqlxPluginInstallationRepository;
+use bootstrap::infrastructure::plugins::db::repositories::plugin_repository_sqlx::SqlxPluginRepository;
 
 use super::git_workspace::CliGitWorkspace;
 
@@ -40,7 +40,7 @@ pub(crate) struct Deps {
     pub(crate) shares_repo: SqlxSharesRepository,
     pub(crate) plugin_assets: Arc<dyn PluginAssetStore>,
     pub(crate) git_repo:
-        infrastructure::git::db::repositories::git_repository_sqlx::SqlxGitRepository,
+        bootstrap::infrastructure::git::db::repositories::git_repository_sqlx::SqlxGitRepository,
     pub(crate) storage_jobs: Arc<dyn StorageProjectionQueue>,
     pub(crate) git_workspace: Arc<CliGitWorkspace>,
 }
@@ -78,7 +78,7 @@ pub(crate) async fn build(database_url: Option<String>) -> Result<Deps> {
     let api_tokens = SqlxApiTokenRepository::new(pool.clone());
     let shares_repo = SqlxSharesRepository::new(pool.clone());
     let git_repo =
-        infrastructure::git::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
+        bootstrap::infrastructure::git::db::repositories::git_repository_sqlx::SqlxGitRepository::new(
             pool.clone(),
             cfg.encryption_key.clone(),
         );

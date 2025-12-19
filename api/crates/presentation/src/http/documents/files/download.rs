@@ -8,7 +8,7 @@ use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use application::core::services::access;
-use application::domain::access::permissions::PERM_DOC_VIEW;
+use domain::access::permissions::PERM_DOC_VIEW;
 
 use super::types::{FileByNameQuery, file_payload_response, map_file_error};
 

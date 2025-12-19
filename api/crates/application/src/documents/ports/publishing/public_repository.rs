@@ -33,8 +33,7 @@ pub trait PublicRepository: Send + Sync {
     ) -> PortResult<Option<WorkspaceTitleAndSlug>>;
     async fn upsert_public_document(&self, doc_id: Uuid, slug: &str) -> PortResult<()>;
     async fn slug_exists(&self, slug: &str) -> PortResult<bool>;
-    async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid)
-    -> PortResult<bool>;
+    async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid) -> PortResult<bool>;
     async fn delete_public_document(&self, doc_id: Uuid) -> PortResult<bool>;
     async fn get_publish_status(
         &self,

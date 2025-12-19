@@ -497,11 +497,7 @@ mod tests {
             Ok(true)
         }
 
-        async fn update_workspace(
-            &self,
-            session_id: Uuid,
-            workspace_id: Uuid,
-        ) -> PortResult<bool> {
+        async fn update_workspace(&self, session_id: Uuid, workspace_id: Uuid) -> PortResult<bool> {
             let mut sessions = self.sessions.lock().await;
             if let Some(entry) = sessions.get_mut(&session_id)
                 && entry.record.revoked_at.is_none()
@@ -570,11 +566,7 @@ mod tests {
             Ok(())
         }
 
-        async fn delete_expired(
-            &self,
-            before: DateTime<Utc>,
-            batch_size: i64,
-        ) -> PortResult<u64> {
+        async fn delete_expired(&self, before: DateTime<Utc>, batch_size: i64) -> PortResult<u64> {
             let mut sessions = self.sessions.lock().await;
             let mut digests = self.digests.lock().await;
             let mut removed = 0u64;

@@ -9,8 +9,8 @@ use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use crate::security::token::{self, Bearer};
-use application::domain::access::permissions::PERM_DOC_VIEW;
-use application::domain::documents::doc_type::DocumentType;
+use domain::access::permissions::PERM_DOC_VIEW;
+use domain::documents::doc_type::DocumentType;
 
 use crate::http::documents::types::{
     CreateDocumentRequest, Document, DocumentListResponse, DocumentStateFilter, DoubleOption,

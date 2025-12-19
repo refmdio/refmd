@@ -75,12 +75,7 @@ pub trait StorageProjectionQueue: Send + Sync {
 
     async fn complete_job(&self, job_id: i64, locked_at: DateTime<Utc>) -> PortResult<()>;
 
-    async fn fail_job(
-        &self,
-        job_id: i64,
-        locked_at: DateTime<Utc>,
-        error: &str,
-    ) -> PortResult<()>;
+    async fn fail_job(&self, job_id: i64, locked_at: DateTime<Utc>, error: &str) -> PortResult<()>;
 }
 
 #[async_trait]

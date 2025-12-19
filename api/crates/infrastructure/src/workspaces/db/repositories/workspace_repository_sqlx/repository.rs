@@ -41,7 +41,9 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
     }
 
     async fn get_workspace(&self, workspace_id: Uuid) -> PortResult<Option<WorkspaceRow>> {
-        self.get_workspace_impl(workspace_id).await.map_err(Into::into)
+        self.get_workspace_impl(workspace_id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn create_workspace_with_id(
@@ -95,7 +97,9 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
     }
 
     async fn list_members(&self, workspace_id: Uuid) -> PortResult<Vec<WorkspaceMemberDetail>> {
-        self.list_members_impl(workspace_id).await.map_err(Into::into)
+        self.list_members_impl(workspace_id)
+            .await
+            .map_err(Into::into)
     }
 
     async fn get_member_detail(
@@ -291,8 +295,6 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
     }
 
     async fn list_all_workspace_ids(&self) -> PortResult<Vec<Uuid>> {
-        self.list_all_workspace_ids_impl()
-            .await
-            .map_err(Into::into)
+        self.list_all_workspace_ids_impl().await.map_err(Into::into)
     }
 }

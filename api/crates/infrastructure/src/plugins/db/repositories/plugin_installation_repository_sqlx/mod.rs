@@ -57,10 +57,7 @@ impl PluginInstallationRepository for SqlxPluginInstallationRepository {
         out.map_err(Into::into)
     }
 
-    async fn list_for_workspace(
-        &self,
-        workspace_id: Uuid,
-    ) -> PortResult<Vec<PluginInstallation>> {
+    async fn list_for_workspace(&self, workspace_id: Uuid) -> PortResult<Vec<PluginInstallation>> {
         let out: anyhow::Result<Vec<PluginInstallation>> = async {
             let rows = sqlx::query(
                 r#"SELECT workspace_id, plugin_id, version, scope, origin_url, status, installed_at, updated_at

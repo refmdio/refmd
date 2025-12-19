@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use application::git::ports::git_workspace::GitWorkspacePort;
+use bootstrap::application;
 
 use crate::cli::GitCommand;
 use crate::deps::Deps;

@@ -3,6 +3,8 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
 
+use bootstrap::{application, infrastructure};
+
 use application::identity::ports::secret_hasher::SecretHasher;
 use application::identity::ports::user_session_repository::UserSessionRepository;
 use application::identity::use_cases::auth::delete_account::DeleteAccount;

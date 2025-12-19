@@ -39,10 +39,7 @@ pub struct SnapshotArchiveEntry {
 
 #[async_trait]
 pub trait DocumentSnapshotArchiveRepository: Send + Sync {
-    async fn insert(
-        &self,
-        input: SnapshotArchiveInsert<'_>,
-    ) -> PortResult<SnapshotArchiveRecord>;
+    async fn insert(&self, input: SnapshotArchiveInsert<'_>) -> PortResult<SnapshotArchiveRecord>;
 
     async fn get_by_id(&self, id: Uuid) -> PortResult<Option<SnapshotArchiveEntry>>;
 

@@ -442,10 +442,7 @@ mod tests {
             Ok(())
         }
 
-        async fn fetch_next(
-            &self,
-            _lock_timeout_secs: i64,
-        ) -> PortResult<Option<GitRebuildJob>> {
+        async fn fetch_next(&self, _lock_timeout_secs: i64) -> PortResult<Option<GitRebuildJob>> {
             Ok(None)
         }
 

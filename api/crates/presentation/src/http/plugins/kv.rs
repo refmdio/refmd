@@ -6,14 +6,14 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use application::domain::access::permissions::PERM_PLUGIN_RUN;
+use domain::access::permissions::PERM_PLUGIN_RUN;
 
 use super::types::{KvPath, KvValueBody, KvValueResponse, ensure_valid_plugin_id};
 use super::util::{
     PERMISSION_DOC_READ, PERMISSION_DOC_WRITE, map_plugin_service_error,
     resolve_plugin_user_context,
 };
-use application::domain::plugins::scope::PluginScope;
+use domain::plugins::scope::PluginScope;
 
 #[utoipa::path(
     get,

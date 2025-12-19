@@ -152,12 +152,7 @@ impl GitStorage for FilesystemGitStorage {
         out.map_err(Into::into)
     }
 
-    async fn store_pack(
-        &self,
-        user_id: Uuid,
-        pack: &[u8],
-        meta: &CommitMeta,
-    ) -> PortResult<()> {
+    async fn store_pack(&self, user_id: Uuid, pack: &[u8], meta: &CommitMeta) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
             let commit_hex = encode_commit_id(&meta.commit_id);
             let pack_path = self.pack_path(user_id, &commit_hex);
@@ -173,11 +168,7 @@ impl GitStorage for FilesystemGitStorage {
         out.map_err(Into::into)
     }
 
-    async fn load_pack_chain(
-        &self,
-        user_id: Uuid,
-        until: Option<&[u8]>,
-    ) -> PortResult<PackStream> {
+    async fn load_pack_chain(&self, user_id: Uuid, until: Option<&[u8]>) -> PortResult<PackStream> {
         let out: anyhow::Result<PackStream> = async {
             let metas = self.collect_meta_chain(user_id, until).await?;
             if metas.is_empty() {
@@ -234,11 +225,7 @@ impl GitStorage for FilesystemGitStorage {
         out.map_err(Into::into)
     }
 
-    async fn commit_meta(
-        &self,
-        user_id: Uuid,
-        commit_id: &[u8],
-    ) -> PortResult<Option<CommitMeta>> {
+    async fn commit_meta(&self, user_id: Uuid, commit_id: &[u8]) -> PortResult<Option<CommitMeta>> {
         let out: anyhow::Result<Option<CommitMeta>> = async {
             let commit_hex = encode_commit_id(commit_id);
             let meta_path = self.meta_path(user_id, &commit_hex);
@@ -306,11 +293,7 @@ impl GitStorage for FilesystemGitStorage {
         out.map_err(Into::into)
     }
 
-    async fn set_latest_commit(
-        &self,
-        user_id: Uuid,
-        meta: Option<&CommitMeta>,
-    ) -> PortResult<()> {
+    async fn set_latest_commit(&self, user_id: Uuid, meta: Option<&CommitMeta>) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
             let latest_path = self.latest_path(user_id);
             if let Some(meta) = meta {
@@ -608,12 +591,7 @@ impl GitStorage for S3GitStorage {
         out.map_err(Into::into)
     }
 
-    async fn store_pack(
-        &self,
-        user_id: Uuid,
-        pack: &[u8],
-        meta: &CommitMeta,
-    ) -> PortResult<()> {
+    async fn store_pack(&self, user_id: Uuid, pack: &[u8], meta: &CommitMeta) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
             let commit_hex = encode_commit_id(&meta.commit_id);
             let pack_key = self.key_for_pack(user_id, &commit_hex);
@@ -627,11 +605,7 @@ impl GitStorage for S3GitStorage {
         out.map_err(Into::into)
     }
 
-    async fn load_pack_chain(
-        &self,
-        user_id: Uuid,
-        until: Option<&[u8]>,
-    ) -> PortResult<PackStream> {
+    async fn load_pack_chain(&self, user_id: Uuid, until: Option<&[u8]>) -> PortResult<PackStream> {
         let out: anyhow::Result<PackStream> = async {
             let metas = self.collect_meta_chain(user_id, until).await?;
             if metas.is_empty() {
@@ -684,11 +658,7 @@ impl GitStorage for S3GitStorage {
         out.map_err(Into::into)
     }
 
-    async fn commit_meta(
-        &self,
-        user_id: Uuid,
-        commit_id: &[u8],
-    ) -> PortResult<Option<CommitMeta>> {
+    async fn commit_meta(&self, user_id: Uuid, commit_id: &[u8]) -> PortResult<Option<CommitMeta>> {
         let out: anyhow::Result<Option<CommitMeta>> = async {
             let commit_hex = encode_commit_id(commit_id);
             let meta_key = self.key_for_meta(user_id, &commit_hex);
@@ -765,11 +735,7 @@ impl GitStorage for S3GitStorage {
         out.map_err(Into::into)
     }
 
-    async fn set_latest_commit(
-        &self,
-        user_id: Uuid,
-        meta: Option<&CommitMeta>,
-    ) -> PortResult<()> {
+    async fn set_latest_commit(&self, user_id: Uuid, meta: Option<&CommitMeta>) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
             let latest_key = self.key_for_latest(user_id);
             match meta {

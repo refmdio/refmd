@@ -173,10 +173,7 @@ impl<'repo, 'tx, 'c> DocumentRepositoryTx for SqlxDocumentsTx<'repo, 'tx, 'c> {
 
 #[async_trait]
 impl<'repo, 'tx, 'c> FilesRepositoryTx for SqlxDocumentsTx<'repo, 'tx, 'c> {
-    async fn list_storage_paths_for_document(
-        &mut self,
-        doc_id: Uuid,
-    ) -> PortResult<Vec<String>> {
+    async fn list_storage_paths_for_document(&mut self, doc_id: Uuid) -> PortResult<Vec<String>> {
         self.files_repo
             .list_storage_paths_for_document_tx(self.tx, doc_id)
             .await

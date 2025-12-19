@@ -1,6 +1,8 @@
 use anyhow::Error;
 use thiserror::Error;
 
+use crate::core::ports::errors::PortError;
+
 #[derive(Debug, Error)]
 pub enum ServiceError {
     #[error("unauthorized")]
@@ -22,5 +24,11 @@ pub enum ServiceError {
 impl ServiceError {
     pub fn is_internal(&self) -> bool {
         matches!(self, ServiceError::Unexpected(_))
+    }
+}
+
+impl From<PortError> for ServiceError {
+    fn from(err: PortError) -> Self {
+        ServiceError::Unexpected(err.into_anyhow())
     }
 }

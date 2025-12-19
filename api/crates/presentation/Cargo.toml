@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 application = { path = "../application" }
+domain = { path = "../domain" }
 contracts = { path = "../contracts", features = ["openapi"] }
 
 anyhow = "1"

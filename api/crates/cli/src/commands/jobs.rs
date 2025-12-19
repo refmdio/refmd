@@ -3,6 +3,8 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
 
+use bootstrap::{application, domain, infrastructure};
+
 use domain::storage::ingest_backend::StorageIngestBackend;
 use domain::workspaces::permissions::PermissionSet;
 use infrastructure::core::db::PgPool;

@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use sqlx::{Row, types::Json};
 use uuid::Uuid;
 
+use bootstrap::{application, infrastructure};
+
 use application::core::ports::errors::PortResult;
 use application::git::ports::git_storage::GitStorage;
 use application::git::ports::git_workspace::GitWorkspacePort;
@@ -305,11 +307,7 @@ impl GitWorkspacePort for CliGitWorkspace {
         out.map_err(Into::into)
     }
 
-    async fn drift_since_commit(
-        &self,
-        workspace_id: Uuid,
-        base_commit: &[u8],
-    ) -> PortResult<bool> {
+    async fn drift_since_commit(&self, workspace_id: Uuid, base_commit: &[u8]) -> PortResult<bool> {
         let out: anyhow::Result<bool> = async {
             // CLI helper: fallback to dirty check when full state comparison is not available.
             if self.has_pending_changes(workspace_id).await? {

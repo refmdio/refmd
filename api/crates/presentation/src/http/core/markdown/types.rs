@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use application::core::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
+use application::core::dtos::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Default)]
 #[serde(default)]

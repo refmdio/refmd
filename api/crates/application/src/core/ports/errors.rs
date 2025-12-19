@@ -1,8 +1,6 @@
 use std::fmt;
 use std::ops::Deref;
 
-use crate::core::services::errors::ServiceError;
-
 #[derive(Debug)]
 pub struct PortError(anyhow::Error);
 
@@ -37,11 +35,5 @@ pub type PortResult<T> = Result<T, PortError>;
 impl From<PortError> for anyhow::Error {
     fn from(err: PortError) -> Self {
         err.into_anyhow()
-    }
-}
-
-impl From<PortError> for ServiceError {
-    fn from(err: PortError) -> Self {
-        ServiceError::Unexpected(err.into_anyhow())
     }
 }

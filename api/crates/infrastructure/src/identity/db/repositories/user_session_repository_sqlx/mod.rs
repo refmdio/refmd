@@ -71,10 +71,7 @@ impl UserSessionRepository for SqlxUserSessionRepository {
         out.map_err(Into::into)
     }
 
-    async fn find_by_digest(
-        &self,
-        token_digest: &str,
-    ) -> PortResult<Option<UserSessionSecret>> {
+    async fn find_by_digest(&self, token_digest: &str) -> PortResult<Option<UserSessionSecret>> {
         let out: anyhow::Result<Option<UserSessionSecret>> = async {
             let row = sqlx::query(
                 r#"SELECT id, user_id, workspace_id, user_agent, ip_address, remember_me,

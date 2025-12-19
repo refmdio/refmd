@@ -7,8 +7,8 @@ use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 use application::git::dtos::{GitPullRequestDto, GitPullResolutionDto};
 use application::git::services::FinalizePullSessionResult;
-use application::domain::access::permissions::PERM_GIT_SYNC;
-use application::domain::git::pull_session::GitPullSessionStatus;
+use domain::access::permissions::PERM_GIT_SYNC;
+use domain::git::pull_session::GitPullSessionStatus;
 
 use super::types::{
     GitPullConflictItem, GitPullRequest, GitPullResolution, GitPullResponse,

@@ -9,9 +9,9 @@ use serde_json::{Value, json};
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::core::dtos::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use crate::core::ports::markdown_renderer::MarkdownRenderer;
 use crate::core::services::errors::ServiceError;
-use crate::core::services::markdown::{PlaceholderItem, RenderOptions, RenderResponse};
 use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
 use crate::plugins::ports::plugin_runtime::PluginRuntime;

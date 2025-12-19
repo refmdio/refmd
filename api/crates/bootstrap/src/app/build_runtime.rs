@@ -14,6 +14,7 @@ use application::core::services::health::HealthService;
 use application::core::services::markdown_render::MarkdownRenderService;
 use application::core::services::metrics::MetricsRegistry;
 use application::core::services::storage::ingest::StorageIngestService;
+use application::core::services::storage::ingest_enqueue::StorageIngestEnqueueService;
 use application::core::services::storage::reconcile::StorageReconcileService;
 use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
 use application::documents::ports::doc_event_log::DocEventLog;
@@ -77,6 +78,9 @@ pub async fn build_runtime(
         crate::storage::build_storage_projection_queue(&pool);
     let storage_ingest_queue: Arc<dyn StorageIngestQueue> =
         Arc::new(PgStorageIngestQueue::new(pool.clone()));
+    let storage_ingest_enqueuer: Arc<StorageIngestEnqueueService> = Arc::new(
+        StorageIngestEnqueueService::new(storage_ingest_queue.clone()),
+    );
     let mut jobs = Jobs::new();
 
     if cfg.storage_monitor_enabled {
@@ -433,6 +437,7 @@ pub async fn build_runtime(
             authorization: authorization_service,
             markdown_render_service: markdown_render_service.clone(),
             storage_ingest_queue: storage_ingest_queue.clone(),
+            storage_ingest_enqueuer: storage_ingest_enqueuer.clone(),
             health_service: health_service.clone(),
         },
         documents: DocumentServicesDeps {

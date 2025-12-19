@@ -227,12 +227,7 @@ impl StorageProjectionQueue for PgStorageProjectionQueue {
         out.map_err(Into::into)
     }
 
-    async fn fail_job(
-        &self,
-        job_id: i64,
-        locked_at: DateTime<Utc>,
-        error: &str,
-    ) -> PortResult<()> {
+    async fn fail_job(&self, job_id: i64, locked_at: DateTime<Utc>, error: &str) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
             sqlx::query(
                 r#"

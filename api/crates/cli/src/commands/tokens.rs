@@ -1,6 +1,8 @@
 use anyhow::Result;
 use uuid::Uuid;
 
+use bootstrap::{application, infrastructure};
+
 use application::identity::ports::api_token_repository::ApiTokenRepository;
 use application::identity::services::api_tokens::generate_api_token;
 use infrastructure::identity::crypto::Argon2SecretHasher;

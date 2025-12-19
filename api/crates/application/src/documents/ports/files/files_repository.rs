@@ -25,8 +25,7 @@ pub struct StoredFileScope {
 
 #[async_trait]
 pub trait FilesRepository: Send + Sync {
-    async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid)
-    -> PortResult<bool>;
+    async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid) -> PortResult<bool>;
     async fn insert_file(
         &self,
         doc_id: Uuid,
@@ -47,15 +46,11 @@ pub trait FilesRepository: Send + Sync {
 
     async fn list_files_for_document(&self, doc_id: Uuid) -> PortResult<Vec<FileRecord>>;
 
-    async fn list_storage_paths_for_workspace(
-        &self,
-        workspace_id: Uuid,
-    ) -> PortResult<Vec<String>>;
+    async fn list_storage_paths_for_workspace(&self, workspace_id: Uuid)
+    -> PortResult<Vec<String>>;
 
-    async fn find_by_storage_path(
-        &self,
-        storage_path: &str,
-    ) -> PortResult<Option<StoredFileScope>>;
+    async fn find_by_storage_path(&self, storage_path: &str)
+    -> PortResult<Option<StoredFileScope>>;
 
     async fn update_storage_path(&self, file_id: Uuid, storage_path: &str) -> PortResult<()>;
 
@@ -71,10 +66,7 @@ pub trait FilesRepository: Send + Sync {
 
 #[async_trait]
 pub trait FilesRepositoryTx: Send {
-    async fn list_storage_paths_for_document(
-        &mut self,
-        doc_id: Uuid,
-    ) -> PortResult<Vec<String>>;
+    async fn list_storage_paths_for_document(&mut self, doc_id: Uuid) -> PortResult<Vec<String>>;
 }
 
 #[derive(Debug, Clone)]
