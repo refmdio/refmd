@@ -5,7 +5,7 @@ use axum::http::request::Parts;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::HasAuthServices;
 use crate::http::error::ApiError;
 use crate::security::request_status;
 
@@ -87,7 +87,7 @@ pub fn map_actor_error(err: ActorResolveError) -> ApiError {
 }
 
 pub async fn resolve_actor_from_token_str(
-    ctx: &AppContext,
+    ctx: &impl HasAuthServices,
     token: &str,
 ) -> Result<access::Actor, ActorResolveError> {
     let trimmed = token.trim();
@@ -127,7 +127,7 @@ pub async fn resolve_actor_from_token_str(
 }
 
 pub async fn resolve_actor_from_parts(
-    ctx: &AppContext,
+    ctx: &impl HasAuthServices,
     bearer: Option<Bearer>,
     share_token: Option<&str>,
 ) -> Result<Option<access::Actor>, ActorResolveError> {
@@ -146,7 +146,10 @@ pub async fn resolve_actor_from_parts(
     Ok(None)
 }
 
-pub async fn require_user_id(ctx: &AppContext, bearer: Bearer) -> Result<Uuid, ActorResolveError> {
+pub async fn require_user_id(
+    ctx: &impl HasAuthServices,
+    bearer: Bearer,
+) -> Result<Uuid, ActorResolveError> {
     match resolve_actor_from_token_str(ctx, &bearer.0).await? {
         access::Actor::User(user_id) => Ok(user_id),
         _ => Err(ActorResolveError::Unauthorized),

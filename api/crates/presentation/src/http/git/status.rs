@@ -1,6 +1,6 @@
 use axum::{Json, extract::State, http::HeaderMap};
 
-use crate::context::AppContext;
+use crate::context::GitContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -11,7 +11,7 @@ use super::types::{GitChangesResponse, GitHistoryResponse, GitStatus, map_git_er
 
 #[utoipa::path(get, path = "/api/git/status", tag = "Git", responses((status = 200, body = GitStatus)))]
 pub async fn get_status(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<GitStatus>, ApiError> {
@@ -37,7 +37,7 @@ pub async fn get_status(
 
 #[utoipa::path(get, path = "/api/git/changes", tag = "Git", responses((status = 200, body = GitChangesResponse)))]
 pub async fn get_changes(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<GitChangesResponse>, ApiError> {
@@ -63,7 +63,7 @@ pub async fn get_changes(
 
 #[utoipa::path(get, path = "/api/git/history", tag = "Git", responses((status = 200, body = GitHistoryResponse)))]
 pub async fn get_history(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<GitHistoryResponse>, ApiError> {
@@ -94,7 +94,7 @@ pub async fn get_history(
     responses((status = 200, body = [TextDiffResult]))
 )]
 pub async fn get_working_diff(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<Vec<TextDiffResult>>, ApiError> {
@@ -125,7 +125,7 @@ pub async fn get_working_diff(
     responses((status = 200, body = [TextDiffResult]))
 )]
 pub async fn get_commit_diff(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path((from, to)): axum::extract::Path<(String, String)>,

@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::security::token;
 use application::core::services::access;
@@ -14,7 +14,7 @@ use super::types::file_payload_response;
 
 /// Serve static files from uploads directory with authentication support
 pub async fn serve_upload(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     AxumPath(path): AxumPath<String>,
     Query(params): Query<std::collections::HashMap<String, String>>,
     headers: HeaderMap,

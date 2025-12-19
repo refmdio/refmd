@@ -7,7 +7,6 @@ use crate::documents::title::Title;
 #[derive(Debug, Clone)]
 pub struct Document {
     id: Uuid,
-    owner_id: Uuid,
     owner_user_id: Option<Uuid>,
     workspace_id: Uuid,
     title: Title,
@@ -29,7 +28,6 @@ impl Document {
     #[allow(clippy::too_many_arguments)]
     pub fn rehydrate(
         id: Uuid,
-        owner_id: Uuid,
         owner_user_id: Option<Uuid>,
         workspace_id: Uuid,
         title: Title,
@@ -48,7 +46,6 @@ impl Document {
     ) -> Self {
         Self {
             id,
-            owner_id,
             owner_user_id,
             workspace_id,
             title,
@@ -69,10 +66,6 @@ impl Document {
 
     pub fn id(&self) -> Uuid {
         self.id
-    }
-
-    pub fn owner_id(&self) -> Uuid {
-        self.owner_id
     }
 
     pub fn owner_user_id(&self) -> Option<Uuid> {

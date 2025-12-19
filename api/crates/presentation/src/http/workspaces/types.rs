@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::HasWorkspaceService;
 use crate::http::documents::DownloadFormat;
 use application::core::services::errors::ServiceError;
 use application::workspaces::ports::workspace_repository::{
@@ -220,7 +220,7 @@ pub fn invitation_response_from(record: WorkspaceInvitationRecord) -> WorkspaceI
 }
 
 pub async fn require_permission(
-    ctx: &AppContext,
+    ctx: &impl HasWorkspaceService,
     workspace_id: Uuid,
     user_id: Uuid,
     permission: &str,
@@ -239,7 +239,7 @@ pub async fn require_permission(
 }
 
 pub async fn require_any_permission(
-    ctx: &AppContext,
+    ctx: &impl HasWorkspaceService,
     workspace_id: Uuid,
     user_id: Uuid,
     permissions: &[&str],

@@ -4,7 +4,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::WorkspacesContext;
 use crate::security::token::{self, Bearer};
 
 use super::types::{WorkspacePermissionsResponse, map_service_error};
@@ -17,7 +17,7 @@ use super::types::{WorkspacePermissionsResponse, map_service_error};
     responses((status = 200, body = WorkspacePermissionsResponse))
 )]
 pub async fn get_workspace_permissions(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WorkspacePermissionsResponse>, crate::http::error::ApiError> {

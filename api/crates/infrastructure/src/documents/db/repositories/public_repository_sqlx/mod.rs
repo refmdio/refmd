@@ -172,7 +172,6 @@ impl PublicRepository for SqlxPublicRepository {
                 doc_path::DesiredPath::new(desired_path_str).context("invalid_desired_path")?;
             Ok(Document::rehydrate(
                 r.get("id"),
-                r.get("owner_id"),
                 r.try_get("owner_user_id").ok(),
                 r.get("workspace_id"),
                 Title::new(title),

@@ -22,7 +22,7 @@ use infrastructure::identity::db::repositories::user_session_repository_sqlx::Sq
 use infrastructure::plugins::db::repositories::plugin_installation_repository_sqlx::SqlxPluginInstallationRepository;
 use infrastructure::plugins::db::repositories::plugin_repository_sqlx::SqlxPluginRepository;
 
-use crate::git_workspace::CliGitWorkspace;
+use super::git_workspace::CliGitWorkspace;
 
 pub(crate) struct Deps {
     pub(crate) pool: PgPool,

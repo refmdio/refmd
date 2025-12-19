@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::WorkspacesContext;
 use crate::security::token::{self, Bearer};
 use domain::access::permissions::{PERM_MEMBER_INVITE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW};
 
@@ -23,7 +23,7 @@ use super::types::{
     responses((status = 200, body = [WorkspaceRoleResponse]))
 )]
 pub async fn list_roles(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<WorkspaceRoleResponse>>, crate::http::error::ApiError> {
@@ -61,7 +61,7 @@ pub async fn list_roles(
     responses((status = 200, body = WorkspaceRoleResponse))
 )]
 pub async fn create_role(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
     Json(body): Json<CreateWorkspaceRoleRequest>,
@@ -103,7 +103,7 @@ pub async fn create_role(
     responses((status = 200, body = WorkspaceRoleResponse))
 )]
 pub async fn update_role(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path((workspace_id, role_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateWorkspaceRoleRequest>,
@@ -157,7 +157,7 @@ pub async fn update_role(
     responses((status = 204))
 )]
 pub async fn delete_role(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path((workspace_id, role_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, crate::http::error::ApiError> {

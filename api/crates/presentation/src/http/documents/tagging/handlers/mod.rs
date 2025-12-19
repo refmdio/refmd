@@ -3,7 +3,7 @@ use axum::{
     extract::{Query, State},
 };
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -20,7 +20,7 @@ fn map_tag_error(err: ServiceError) -> crate::http::error::ApiError {
     params(("q" = Option<String>, Query, description = "Filter contains")),
     responses((status = 200, body = [TagItem])))]
 pub async fn list_tags(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: axum::http::HeaderMap,
     q: Option<Query<std::collections::HashMap<String, String>>>,

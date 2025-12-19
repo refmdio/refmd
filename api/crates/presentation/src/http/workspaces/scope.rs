@@ -1,7 +1,7 @@
 use axum::http::HeaderMap;
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::{HasAuthServices, HasWorkspaceService};
 use crate::http::error::ApiError;
 use crate::http::workspaces::map_service_error;
 use domain::access::permissions::PermissionSet;
@@ -9,7 +9,7 @@ use domain::access::permissions::PermissionSet;
 const WORKSPACE_HEADER: &str = "X-Workspace-ID";
 
 pub async fn resolve_active_workspace_id(
-    ctx: &AppContext,
+    ctx: &(impl HasAuthServices + HasWorkspaceService),
     headers: &HeaderMap,
     bearer_token: Option<&str>,
     user_id: Uuid,
@@ -63,7 +63,7 @@ pub async fn resolve_active_workspace_id(
 }
 
 pub async fn ensure_workspace_permission(
-    ctx: &AppContext,
+    ctx: &(impl HasAuthServices + HasWorkspaceService),
     workspace_id: Uuid,
     user_id: Uuid,
     permission: &str,
@@ -77,7 +77,7 @@ pub async fn ensure_workspace_permission(
 }
 
 pub async fn resolve_workspace_permissions(
-    ctx: &AppContext,
+    ctx: &(impl HasAuthServices + HasWorkspaceService),
     workspace_id: Uuid,
     user_id: Uuid,
 ) -> Result<PermissionSet, ApiError> {

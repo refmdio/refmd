@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::HeaderMap};
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::CoreContext;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
 use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
@@ -18,7 +18,7 @@ use super::types::IngestBatchRequest;
     responses((status = 202, description = "Events enqueued"), (status = 400, description = "Invalid request")),
 )]
 pub async fn enqueue_ingest_events(
-    State(ctx): State<AppContext>,
+    State(ctx): State<CoreContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(body): Json<IngestBatchRequest>,

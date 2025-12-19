@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use application::plugins::services::management::{AssetRequestScope, PluginAssetRequest};
 
@@ -20,7 +20,7 @@ use super::util::map_plugin_service_error;
     operation_id = "pluginsGetAsset"
 )]
 pub async fn get_plugin_asset(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Response, ApiError> {
     let scope_raw = params

@@ -3,7 +3,7 @@ use axum::{
     extract::{Query, State},
 };
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 
 use super::types::{ShareBrowseResponse, ShareDocumentResponse, ShareTokenQuery, map_share_error};
@@ -16,7 +16,7 @@ use super::types::{ShareBrowseResponse, ShareDocumentResponse, ShareTokenQuery, 
     responses((status = 200, description = "Document info", body = ShareDocumentResponse))
 )]
 pub async fn validate_share_token(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     Query(query): Query<ShareTokenQuery>,
 ) -> Result<Json<ShareDocumentResponse>, ApiError> {
     let service = ctx.share_service();
@@ -34,7 +34,7 @@ pub async fn validate_share_token(
     params(("token" = String, Query, description = "Share token")),
     responses((status = 200, description = "Share tree", body = ShareBrowseResponse)))]
 pub async fn browse_share(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     Query(query): Query<ShareTokenQuery>,
 ) -> Result<Json<ShareBrowseResponse>, ApiError> {
     let service = ctx.share_service();

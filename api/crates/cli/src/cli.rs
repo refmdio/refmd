@@ -51,6 +51,17 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: ShareCommand,
     },
+    /// OpenAPI utilities
+    Openapi {
+        #[command(subcommand)]
+        command: OpenapiCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum OpenapiCommand {
+    /// Print OpenAPI JSON to stdout
+    Export,
 }
 
 #[derive(Subcommand)]

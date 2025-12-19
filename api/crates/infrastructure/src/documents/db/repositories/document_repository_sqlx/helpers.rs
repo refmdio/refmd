@@ -49,7 +49,6 @@ impl SqlxDocumentRepository {
             doc_path::DesiredPath::new(desired_path_str).context("invalid_desired_path")?;
         Ok(DomainDocument::rehydrate(
             row.get("id"),
-            row.get("owner_id"),
             row.try_get("owner_user_id").ok(),
             row.get("workspace_id"),
             Title::new(title),

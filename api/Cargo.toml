@@ -1,30 +1,31 @@
 [package]
-name = "api"
+name = "refmd-bins"
 version = "0.1.0"
 edition = "2024"
+publish = false
+
+[[bin]]
+name = "api"
+path = "src/bin/api.rs"
+
+[[bin]]
+name = "refmd"
+path = "src/bin/cli.rs"
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1.46", features = ["rt-multi-thread", "macros"] }
+api_app = { package = "api", path = "crates/api" }
+cli_app = { package = "cli", path = "crates/cli" }
 
 [workspace]
+resolver = "3"
 members = [
     "crates/domain",
     "crates/application",
     "crates/presentation",
     "crates/infrastructure",
     "crates/bootstrap",
+    "crates/api",
+    "crates/cli",
 ]
-
-[dependencies]
-anyhow = "1"
-async-trait = "0.1"
-chrono = { version = "0.4", features = ["serde", "clock"] }
-clap = { version = "4.5", features = ["derive"] }
-dotenvy = "0.15"
-serde_json = "1.0"
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "macros"] }
-tokio = { version = "1.46", features = ["rt-multi-thread", "macros"] }
-utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-domain = { path = "crates/domain" }
-application = { path = "crates/application" }
-presentation = { path = "crates/presentation" }
-infrastructure = { path = "crates/infrastructure" }
-bootstrap = { path = "crates/bootstrap" }

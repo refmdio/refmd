@@ -156,20 +156,7 @@ name = "api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "application",
- "async-trait",
  "bootstrap",
- "chrono",
- "clap",
- "domain",
- "dotenvy",
- "infrastructure",
- "presentation",
- "serde_json",
- "sqlx",
- "tokio",
- "utoipa",
- "uuid",
 ]
 
 [[package]]
@@ -1201,6 +1188,27 @@ name = "clap_lex"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
+
+[[package]]
+name = "cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "application",
+ "async-trait",
+ "bootstrap",
+ "chrono",
+ "clap",
+ "domain",
+ "dotenvy",
+ "infrastructure",
+ "presentation",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "utoipa",
+ "uuid",
+]
 
 [[package]]
 name = "cmake"
@@ -4337,6 +4345,16 @@ dependencies = [
  "getrandom 0.2.16",
  "libredox",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "refmd-bins"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "api",
+ "cli",
+ "tokio",
 ]
 
 [[package]]

@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -20,7 +20,7 @@ use super::types::{CreateShareMountRequest, MaterializeResponse, ShareMountItem,
     responses((status = 200, description = "Saved share mount", body = ShareMountItem))
 )]
 pub async fn create_share_mount(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateShareMountRequest>,
@@ -59,7 +59,7 @@ pub async fn create_share_mount(
     responses((status = 200, description = "Share mounts", body = [ShareMountItem]))
 )]
 pub async fn list_share_mounts(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ShareMountItem>>, ApiError> {
@@ -92,7 +92,7 @@ pub async fn list_share_mounts(
     responses((status = 204, description = "Share mount removed"))
 )]
 pub async fn delete_share_mount(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -127,7 +127,7 @@ pub async fn delete_share_mount(
     responses((status = 200, description = "Created doc shares", body = MaterializeResponse))
 )]
 pub async fn materialize_folder_share(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(token): Path<String>,

@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -26,7 +26,7 @@ use crate::http::documents::types::{
     ),
     responses((status = 200, body = DocumentListResponse)))]
 pub async fn list_documents(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     q: Option<Query<ListDocumentsQuery>>,
@@ -63,7 +63,7 @@ pub async fn list_documents(
 
 #[utoipa::path(post, path = "/api/documents", tag = "Documents", request_body = CreateDocumentRequest, responses((status = 200, body = Document)))]
 pub async fn create_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateDocumentRequest>,
@@ -108,7 +108,7 @@ pub async fn create_document(
     params(("id" = Uuid, Path, description = "Document ID"), ("token" = Option<String>, Query, description = "Share token (optional)")),
     responses((status = 200, body = Document)))]
 pub async fn get_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Option<Bearer>,
     Query(params): Query<std::collections::HashMap<String, String>>,
     Path(id): Path<Uuid>,
@@ -129,7 +129,7 @@ pub async fn get_document(
 
 #[utoipa::path(delete, path = "/api/documents/{id}", tag = "Documents", params(("id" = Uuid, Path, description = "Document ID"),), responses((status = 204)))]
 pub async fn delete_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -162,7 +162,7 @@ pub async fn delete_document(
 #[utoipa::path(patch, path = "/api/documents/{id}", tag = "Documents", request_body = UpdateDocumentRequest,
     params(("id" = Uuid, Path, description = "Document ID"),), responses((status = 200, body = Document)))]
 pub async fn update_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -210,7 +210,7 @@ pub async fn update_document(
     responses((status = 200, body = Document))
 )]
 pub async fn duplicate_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -261,7 +261,7 @@ pub async fn duplicate_document(
     )
 )]
 pub async fn archive_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -299,7 +299,7 @@ pub async fn archive_document(
     )
 )]
 pub async fn unarchive_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,

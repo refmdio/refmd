@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::documents::{Document, to_http_document};
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
@@ -26,7 +26,7 @@ fn map_public_error(err: ServiceError) -> crate::http::error::ApiError {
     responses((status = 200, description = "Published", body = PublishResponse))
 )]
 pub async fn publish_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -63,7 +63,7 @@ pub async fn publish_document(
     responses((status = 204, description = "Unpublished"))
 )]
 pub async fn unpublish_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -101,7 +101,7 @@ pub async fn unpublish_document(
     responses((status = 200, description = "Published status", body = PublishResponse))
 )]
 pub async fn get_publish_status(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -140,7 +140,7 @@ pub async fn get_publish_status(
     responses((status = 200, description = "Public documents for workspace", body = [PublicDocumentSummary]))
 )]
 pub async fn list_workspace_public_documents(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     Path(slug): Path<String>,
 ) -> Result<Json<Vec<PublicDocumentSummary>>, ApiError> {
     let items = ctx
@@ -161,7 +161,7 @@ pub async fn list_workspace_public_documents(
     responses((status = 200, description = "Document metadata", body = Document))
 )]
 pub async fn get_public_by_workspace_and_id(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     Path((slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<Document>, ApiError> {
     let doc = ctx
@@ -180,7 +180,7 @@ pub async fn get_public_by_workspace_and_id(
     responses((status = 200, description = "Document content"))
 )]
 pub async fn get_public_content_by_workspace_and_id(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     Path((slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let content = ctx

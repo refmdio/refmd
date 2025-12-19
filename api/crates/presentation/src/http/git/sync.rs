@@ -1,6 +1,6 @@
 use axum::{Json, extract::State, http::HeaderMap};
 
-use crate::context::AppContext;
+use crate::context::GitContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -13,7 +13,7 @@ use super::types::{
 
 #[utoipa::path(post, path = "/api/git/sync", tag = "Git", request_body = GitSyncRequest, responses((status = 200, body = GitSyncResponse), (status = 409, description = "Conflicts during rebase/pull")))]
 pub async fn sync_now(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<GitSyncRequest>,
@@ -58,7 +58,7 @@ pub async fn sync_now(
     responses((status = 200, body = GitImportResponse))
 )]
 pub async fn import_repository(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateGitConfigRequest>,
@@ -97,7 +97,7 @@ pub async fn import_repository(
 
 #[utoipa::path(post, path = "/api/git/init", tag = "Git", responses((status = 200, description = "OK")))]
 pub async fn init_repository(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -122,7 +122,7 @@ pub async fn init_repository(
 
 #[utoipa::path(post, path = "/api/git/deinit", tag = "Git", responses((status = 200, description = "OK")))]
 pub async fn deinit_repository(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {

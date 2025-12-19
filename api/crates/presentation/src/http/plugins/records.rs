@@ -6,7 +6,7 @@ use axum::{
 use serde_json::json;
 use std::collections::HashMap;
 
-use crate::context::AppContext;
+use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use domain::access::permissions::PERM_PLUGIN_RUN;
@@ -35,7 +35,7 @@ use domain::plugins::scope::PluginRecordScope;
     tag = "Plugins"
 )]
 pub async fn list_records(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
@@ -112,7 +112,7 @@ pub async fn list_records(
     operation_id = "pluginsCreateRecord"
 )]
 pub async fn create_record(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<RecordsPath>,
@@ -164,7 +164,7 @@ pub async fn create_record(
     operation_id = "pluginsUpdateRecord"
 )]
 pub async fn update_record(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<UpdateRecordPath>,
@@ -231,7 +231,7 @@ pub async fn update_record(
     operation_id = "pluginsDeleteRecord"
 )]
 pub async fn delete_record(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<UpdateRecordPath>,

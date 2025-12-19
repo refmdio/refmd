@@ -1,4 +1,5 @@
 use axum::extract::{DefaultBodyLimit, MatchedPath};
+use axum::extract::FromRef;
 use axum::{Router, middleware, routing::get};
 use http::HeaderValue;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -6,12 +7,13 @@ use tower_http::trace::TraceLayer;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::config::Config;
-use presentation::context::AppContext;
+use presentation::context::{AppContext, IdentityContext};
 use presentation::openapi::ApiDoc;
 use utoipa::OpenApi;
 
 pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<Router> {
     let cors = build_cors(cfg)?;
+    let identity_ctx = IdentityContext::from_ref(&ctx);
 
     // Ensure uploads dir exists even when using S3 backend (local staging is still required)
     if let Err(e) = tokio::fs::create_dir_all(&cfg.storage_root).await {
@@ -74,7 +76,7 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
         )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn_with_state(
-            ctx.clone(),
+            identity_ctx.clone(),
             presentation::http::identity::auth::refresh_middleware,
         ))
         .layer(middleware::from_fn(
@@ -110,6 +112,7 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
 }
 
 pub fn build_ws_router(ctx: AppContext) -> Router {
+    let identity_ctx = IdentityContext::from_ref(&ctx);
     Router::new()
         .route(
             "/api/yjs/:id",
@@ -117,7 +120,7 @@ pub fn build_ws_router(ctx: AppContext) -> Router {
         )
         .with_state(ctx.clone())
         .layer(middleware::from_fn_with_state(
-            ctx.clone(),
+            identity_ctx.clone(),
             presentation::http::identity::auth::refresh_middleware,
         ))
         .layer(middleware::from_fn(

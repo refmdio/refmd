@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use crate::context::{AppContext, DynRealtimeSink, DynRealtimeStream};
+use crate::context::{DynRealtimeSink, DynRealtimeStream, WsContext};
 use crate::security::request_status;
 use crate::security::token::{
     AccessTokenOverride, ActorResolveError, bearer_from_headers, resolve_actor_from_token_str,
@@ -22,8 +22,6 @@ pub struct AuthQuery {
     pub access_token: Option<String>,
 }
 
-// Uses AppContext as router state
-
 #[utoipa::path(
     get,
     path = "/api/yjs/{id}",
@@ -43,7 +41,7 @@ pub async fn axum_ws_entry(
     ws: WebSocketUpgrade,
     Query(query): Query<AuthQuery>,
     headers: HeaderMap,
-    State(state): State<AppContext>,
+    State(state): State<WsContext>,
     override_token: Option<Extension<AccessTokenOverride>>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let token = override_token.map(|Extension(t)| t.0).or_else(|| {
@@ -175,7 +173,7 @@ impl Stream for WsBinaryStream {
 }
 
 // WS peer using Axum WebSocket
-async fn peer_axum(doc_id: String, ws: WebSocket, ctx: AppContext, can_edit: bool) {
+async fn peer_axum(doc_id: String, ws: WebSocket, ctx: WsContext, can_edit: bool) {
     tracing::debug!(%doc_id, "WS peer:upgrade");
     let (sink_raw, stream_raw) = ws.split();
     let sink_box: Pin<Box<WsBinarySink>> = Box::pin(WsBinarySink { inner: sink_raw });

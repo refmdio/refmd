@@ -4,7 +4,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::stream::{self, Stream, StreamExt};
 use std::time::Duration;
 
-use crate::context::AppContext;
+use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 
@@ -15,7 +15,7 @@ use crate::http::identity::auth::Bearer;
     responses((status = 200, description = "Plugin event stream", content_type = "text/event-stream"))
 )]
 pub async fn sse_updates(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError> {
     let user_id = crate::security::token::require_user_id(&ctx, bearer)

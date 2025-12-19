@@ -1,6 +1,6 @@
 use axum::{Json, extract::State, http::HeaderMap};
 
-use crate::context::AppContext;
+use crate::context::IdentityContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use crate::http::workspaces::scope as workspace_scope;
@@ -20,7 +20,7 @@ fn map_shortcut_error(err: ServiceError) -> crate::http::error::ApiError {
     responses((status = 200, body = UserShortcutResponse))
 )]
 pub async fn get_user_shortcuts(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<UserShortcutResponse>, ApiError> {
@@ -56,7 +56,7 @@ pub async fn get_user_shortcuts(
     responses((status = 200, body = UserShortcutResponse))
 )]
 pub async fn update_user_shortcuts(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(payload): Json<UpdateUserShortcutRequest>,

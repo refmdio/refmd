@@ -1,12 +1,12 @@
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::{HasAuthServices, HasShareService, HasWorkspaceService};
 use crate::security::{request_status, token};
 use application::core::services::access;
 use domain::documents::share;
 
 pub(super) async fn resolve_user_scope_from_inputs(
-    ctx: &AppContext,
+    ctx: &(impl HasAuthServices + HasWorkspaceService + HasShareService),
     bearer_token: Option<&str>,
     share_token: Option<&str>,
 ) -> Option<Uuid> {

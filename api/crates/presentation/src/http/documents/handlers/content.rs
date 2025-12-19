@@ -7,7 +7,7 @@ use axum::{
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
@@ -23,7 +23,7 @@ use crate::http::documents::types::{
 
 #[utoipa::path(get, path = "/api/documents/{id}/content", tag = "Documents", params(("id" = Uuid, Path, description = "Document ID"),), responses((status = 200)))]
 pub async fn get_document_content(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
@@ -51,7 +51,7 @@ pub async fn get_document_content(
     responses((status = 200, body = Document))
 )]
 pub async fn update_document_content(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Option<Bearer>,
     Path(id): Path<Uuid>,
     q: Option<Query<SnapshotTokenQuery>>,
@@ -83,7 +83,7 @@ pub async fn update_document_content(
     responses((status = 200, body = Document))
 )]
 pub async fn patch_document_content(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Option<Bearer>,
     Path(id): Path<Uuid>,
     q: Option<Query<SnapshotTokenQuery>>,
@@ -128,7 +128,7 @@ pub async fn patch_document_content(
     )
 )]
 pub async fn download_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Option<Bearer>,
     Query(params): Query<DownloadDocumentQuery>,
     Path(id): Path<Uuid>,

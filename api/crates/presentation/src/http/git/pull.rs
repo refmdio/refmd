@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::GitContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -31,7 +31,7 @@ use super::types::{
     )
 )]
 pub async fn pull_repository(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<GitPullRequest>,
@@ -125,7 +125,7 @@ pub async fn pull_repository(
     )
 )]
 pub async fn start_pull_session(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<GitPullSessionResponse>), ApiError> {
@@ -210,7 +210,7 @@ pub async fn start_pull_session(
     responses((status = 200, body = GitPullSessionResponse))
 )]
 pub async fn get_pull_session(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
@@ -264,7 +264,7 @@ pub async fn get_pull_session(
     )
 )]
 pub async fn resolve_pull_session(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
@@ -393,7 +393,7 @@ pub async fn resolve_pull_session(
     )
 )]
 pub async fn finalize_pull_session(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<Uuid>,

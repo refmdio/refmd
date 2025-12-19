@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::HeaderMap};
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::GitContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -13,7 +13,7 @@ use super::types::{
 
 #[utoipa::path(post, path = "/api/git/ignore/doc/{id}", params(("id" = String, Path, description = "Document ID")), tag = "Git", responses((status = 200, description = "OK")))]
 pub async fn ignore_document(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -43,7 +43,7 @@ pub async fn ignore_document(
 
 #[utoipa::path(post, path = "/api/git/ignore/folder/{id}", params(("id" = String, Path, description = "Folder ID")), tag = "Git", responses((status = 200, description = "OK")))]
 pub async fn ignore_folder(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -73,7 +73,7 @@ pub async fn ignore_folder(
 
 #[utoipa::path(post, path = "/api/git/gitignore/patterns", tag = "Git", request_body = AddPatternsRequest, responses((status = 200, description = "OK")))]
 pub async fn add_gitignore_patterns(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<AddPatternsRequest>,
@@ -99,7 +99,7 @@ pub async fn add_gitignore_patterns(
 
 #[utoipa::path(get, path = "/api/git/gitignore/patterns", tag = "Git", responses((status = 200, description = "OK")))]
 pub async fn get_gitignore_patterns(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -124,7 +124,7 @@ pub async fn get_gitignore_patterns(
 
 #[utoipa::path(post, path = "/api/git/gitignore/check", tag = "Git", request_body = CheckIgnoredRequest, responses((status = 200, description = "OK")))]
 pub async fn check_path_ignored(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CheckIgnoredRequest>,

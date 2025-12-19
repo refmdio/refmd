@@ -36,7 +36,7 @@ pub struct Document {
 pub fn to_http_document(doc: domain::Document) -> Document {
     Document {
         id: doc.id(),
-        owner_id: doc.owner_id(),
+        owner_id: doc.workspace_id(),
         workspace_id: doc.workspace_id(),
         title: doc.title().as_str().to_string(),
         parent_id: doc.parent_id(),

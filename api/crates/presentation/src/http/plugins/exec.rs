@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::context::AppContext;
+use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use application::core::services::access;
@@ -28,7 +28,7 @@ use super::util::{map_plugin_service_error, resolve_plugin_user_context};
     operation_id = "pluginsExecAction"
 )]
 pub async fn exec_action(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path((plugin, action)): Path<(String, String)>,

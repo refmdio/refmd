@@ -1,6 +1,6 @@
 use axum::{Json, extract::State, http::HeaderMap};
 
-use crate::context::AppContext;
+use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 
@@ -15,7 +15,7 @@ use super::util::resolve_plugin_user_context;
     operation_id = "pluginsGetManifest"
 )]
 pub async fn get_manifest(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ManifestItem>>, ApiError> {

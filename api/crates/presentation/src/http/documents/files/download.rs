@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -22,7 +22,7 @@ use super::types::{FileByNameQuery, file_payload_response, map_file_error};
     responses((status = 200, description = "OK", body = Vec<u8>, content_type = "application/octet-stream"))
 )]
 pub async fn get_file(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     AxumPath(id): AxumPath<Uuid>,
@@ -56,7 +56,7 @@ pub async fn get_file(
     responses((status = 200, description = "OK", body = Vec<u8>, content_type = "application/octet-stream"))
 )]
 pub async fn get_file_by_name(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     AxumPath(filename): AxumPath<String>,

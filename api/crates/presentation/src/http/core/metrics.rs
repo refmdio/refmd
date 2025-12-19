@@ -4,9 +4,9 @@ use axum::{
     response::Response,
 };
 
-use crate::context::AppContext;
+use crate::context::CoreContext;
 
-pub async fn metrics_handler(State(ctx): State<AppContext>) -> Result<Response, StatusCode> {
+pub async fn metrics_handler(State(ctx): State<CoreContext>) -> Result<Response, StatusCode> {
     let body = ctx.metrics().render();
     Response::builder()
         .status(StatusCode::OK)

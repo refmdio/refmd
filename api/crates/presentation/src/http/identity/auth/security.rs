@@ -11,7 +11,7 @@ use axum::{
     response::IntoResponse,
 };
 
-use crate::context::AppContext;
+use crate::context::{HasAuthServices, IdentityContext};
 use crate::http::error::ApiError;
 use crate::security::token::{AccessTokenOverride, Bearer};
 
@@ -24,7 +24,7 @@ use super::request_status;
 #[derive(Clone)]
 pub struct RefreshedSession(pub Arc<IssuedSessionBundle>);
 
-fn unauthorized_token_expired(ctx: &AppContext) -> axum::response::Response {
+fn unauthorized_token_expired(ctx: &IdentityContext) -> axum::response::Response {
     let mut headers = HeaderMap::new();
     clear_auth_cookies(&mut headers, ctx.cfg.session_cookie_secure);
     let _ = headers.insert(
@@ -60,15 +60,21 @@ fn should_skip_refresh(path: &str) -> bool {
     path.starts_with("/api/public") || path.starts_with("/api/health") || path == "/metrics"
 }
 
-pub(crate) async fn validate_bearer(ctx: &AppContext, bearer: Bearer) -> Result<String, ApiError> {
+pub(crate) async fn validate_bearer(
+    ctx: &impl HasAuthServices,
+    bearer: Bearer,
+) -> Result<String, ApiError> {
     validate_bearer_str(ctx, &bearer.0).await
 }
 
-pub async fn validate_bearer_public(ctx: &AppContext, bearer: Bearer) -> Result<String, ApiError> {
+pub async fn validate_bearer_public(
+    ctx: &impl HasAuthServices,
+    bearer: Bearer,
+) -> Result<String, ApiError> {
     validate_bearer(ctx, bearer).await
 }
 
-pub async fn validate_bearer_str(ctx: &AppContext, token: &str) -> Result<String, ApiError> {
+pub async fn validate_bearer_str(ctx: &impl HasAuthServices, token: &str) -> Result<String, ApiError> {
     let service = ctx.auth_service();
     let session_service = ctx.session_service();
     let subject = match service.subject_from_token(token).await {
@@ -90,7 +96,7 @@ pub async fn validate_bearer_str(ctx: &AppContext, token: &str) -> Result<String
 }
 
 pub async fn resolve_actor_from_parts(
-    ctx: &AppContext,
+    ctx: &impl HasAuthServices,
     bearer: Option<Bearer>,
     share_token: Option<&str>,
 ) -> Option<access::Actor> {
@@ -101,7 +107,7 @@ pub async fn resolve_actor_from_parts(
 }
 
 pub async fn refresh_middleware(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     mut req: Request<Body>,
     next: Next,
 ) -> axum::response::Response {
@@ -160,12 +166,20 @@ pub async fn refresh_middleware(
 
     let mut response = next.run(req).await;
     if let Some(bundle) = refreshed {
-        apply_session_cookies(&ctx, response.headers_mut(), bundle.as_ref());
+        apply_session_cookies(
+            ctx.auth_service().as_ref(),
+            ctx.cfg.session_cookie_secure,
+            response.headers_mut(),
+            bundle.as_ref(),
+        );
     }
     response
 }
 
-pub async fn resolve_actor_from_token_str(ctx: &AppContext, token: &str) -> Option<access::Actor> {
+pub async fn resolve_actor_from_token_str(
+    ctx: &impl HasAuthServices,
+    token: &str,
+) -> Option<access::Actor> {
     crate::security::token::resolve_actor_from_token_str(ctx, token)
         .await
         .ok()

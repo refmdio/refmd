@@ -38,4 +38,4 @@ yrs = { version = "0.24", features = ["sync"] }
 zip = { version = "0.6" }
 
 [dev-dependencies]
-tokio = { version = "1.46", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.46", features = ["rt-multi-thread", "macros", "sync"] }

@@ -4,7 +4,7 @@ use axum::{
     http::HeaderMap,
 };
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -16,7 +16,7 @@ use crate::http::documents::types::{SearchQuery, SearchResult, map_service_error
     params(("q" = Option<String>, Query, description = "Query")),
     responses((status = 200, body = [SearchResult])))]
 pub async fn search_documents(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     q: Option<Query<SearchQuery>>,

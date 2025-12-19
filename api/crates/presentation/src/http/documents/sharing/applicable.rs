@@ -4,7 +4,7 @@ use axum::{
     http::HeaderMap,
 };
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -16,7 +16,7 @@ use super::types::{ApplicableQuery, ApplicableShareItem, map_share_error};
     params(("doc_id" = Uuid, Query, description = "Document ID")),
     responses((status = 200, description = "Shares that include the document", body = [ApplicableShareItem])))]
 pub async fn list_applicable_shares(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Query(q): Query<ApplicableQuery>,

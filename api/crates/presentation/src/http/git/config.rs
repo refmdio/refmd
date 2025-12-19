@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
-use crate::context::AppContext;
+use crate::context::GitContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -19,7 +19,7 @@ use super::types::{
 
 #[utoipa::path(get, path = "/api/git/config", tag = "Git", responses((status = 200, body = Option<GitConfigResponse>)))]
 pub async fn get_config(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<Option<GitConfigResponse>>, ApiError> {
@@ -59,7 +59,7 @@ pub async fn get_config(
 
 #[utoipa::path(post, path = "/api/git/config", tag = "Git", request_body = CreateGitConfigRequest, responses((status = 200, body = GitConfigResponse)))]
 pub async fn create_or_update_config(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateGitConfigRequest>,
@@ -103,7 +103,7 @@ pub async fn create_or_update_config(
 
 #[utoipa::path(delete, path = "/api/git/config", tag = "Git", responses((status = 204, description = "Deleted")))]
 pub async fn delete_config(
-    State(ctx): State<AppContext>,
+    State(ctx): State<GitContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<StatusCode, ApiError> {

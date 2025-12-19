@@ -6,7 +6,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::WorkspacesContext;
 #[allow(unused_imports)]
 use crate::http::documents::DocumentDownloadBinary;
 use crate::http::error::ApiError;
@@ -29,7 +29,7 @@ use super::types::{
 
 #[utoipa::path(get, path = "/api/workspaces", tag = "Workspaces", responses((status = 200, body = [WorkspaceResponse])))]
 pub async fn list_workspaces(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
 ) -> Result<Json<Vec<WorkspaceResponse>>, ApiError> {
     let user_id = security_token::require_user_id(&ctx, bearer)
@@ -48,7 +48,7 @@ pub async fn list_workspaces(
 
 #[utoipa::path(post, path = "/api/workspaces", tag = "Workspaces", request_body = CreateWorkspaceRequest, responses((status = 200, body = WorkspaceResponse)))]
 pub async fn create_workspace(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Json(payload): Json<CreateWorkspaceRequest>,
 ) -> Result<Json<WorkspaceResponse>, ApiError> {
@@ -99,7 +99,7 @@ pub async fn create_workspace(
     responses((status = 200, body = WorkspaceResponse))
 )]
 pub async fn get_workspace_detail(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WorkspaceResponse>, ApiError> {
@@ -127,7 +127,7 @@ pub async fn get_workspace_detail(
     responses((status = 200, body = WorkspaceResponse))
 )]
 pub async fn update_workspace(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateWorkspaceRequest>,
@@ -195,7 +195,7 @@ pub async fn update_workspace(
     responses((status = 204))
 )]
 pub async fn delete_workspace(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -235,7 +235,7 @@ pub async fn delete_workspace(
     responses((status = 204))
 )]
 pub async fn leave_workspace(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(workspace_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -257,7 +257,7 @@ pub async fn leave_workspace(
     responses((status = 200, body = SwitchWorkspaceResponse))
 )]
 pub async fn switch_workspace(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -308,7 +308,12 @@ pub async fn switch_workspace(
             .map_err(auth::map_auth_error)?,
     };
     let mut response_headers = HeaderMap::new();
-    apply_session_cookies(&ctx, &mut response_headers, &issued);
+    apply_session_cookies(
+        ctx.auth_service().as_ref(),
+        ctx.cfg.session_cookie_secure,
+        &mut response_headers,
+        &issued,
+    );
     Ok((
         response_headers,
         Json(SwitchWorkspaceResponse {
@@ -332,7 +337,7 @@ pub async fn switch_workspace(
     )
 )]
 pub async fn download_workspace_archive(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
     Query(params): Query<DownloadWorkspaceQuery>,

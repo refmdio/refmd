@@ -1,6 +1,6 @@
 use axum::{Json, extract::State, http::HeaderMap};
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -15,7 +15,7 @@ use application::documents::dtos::ActiveShareItemDto;
     responses((status = 200, description = "Active shares", body = [ActiveShareItem]))
 )]
 pub async fn list_active_shares(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ActiveShareItem>>, ApiError> {

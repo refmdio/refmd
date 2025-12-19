@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -27,7 +27,7 @@ use super::types::{
     responses((status = 200, description = "Share link created", body = CreateShareResponse))
 )]
 pub async fn create_share(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(req): Json<CreateShareRequest>,
@@ -79,7 +79,7 @@ pub async fn create_share(
     responses((status = 200, description = "OK", body = [ShareItem]))
 )]
 pub async fn list_document_shares(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -123,7 +123,7 @@ pub async fn list_document_shares(
     responses((status = 204, description = "Share link deleted"))
 )]
 pub async fn delete_share(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(token): Path<String>,

@@ -1,15 +1,20 @@
 use anyhow::Result;
 
-use crate::cli::Command;
-use crate::deps::Deps;
+use super::cli::Command;
+use super::deps::Deps;
 
 mod git;
 mod jobs;
+mod openapi;
 mod plugins;
 mod shares;
 mod tokens;
 mod users;
 mod workspaces;
+
+pub(crate) fn run_openapi(command: super::cli::OpenapiCommand) -> Result<()> {
+    openapi::handle(command)
+}
 
 pub(crate) async fn run(deps: &Deps, command: Command) -> Result<()> {
     match command {
@@ -20,5 +25,6 @@ pub(crate) async fn run(deps: &Deps, command: Command) -> Result<()> {
         Command::Plugins { command } => plugins::handle(deps, command).await,
         Command::Tokens { command } => tokens::handle(deps, command).await,
         Command::Shares { command } => shares::handle(deps, command).await,
+        Command::Openapi { command } => openapi::handle(command),
     }
 }

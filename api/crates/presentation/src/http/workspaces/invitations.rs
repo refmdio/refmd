@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::WorkspacesContext;
 use crate::http::error::ApiError;
 use crate::security::token::{self, Bearer};
 use application::core::services::errors::ServiceError;
@@ -24,7 +24,7 @@ use super::types::{
     responses((status = 200, body = [WorkspaceInvitationResponse]))
 )]
 pub async fn list_invitations(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<WorkspaceInvitationResponse>>, ApiError> {
@@ -52,7 +52,7 @@ pub async fn list_invitations(
     responses((status = 200, body = WorkspaceInvitationResponse))
 )]
 pub async fn create_invitation(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
     Json(body): Json<CreateWorkspaceInvitationRequest>,
@@ -105,7 +105,7 @@ pub async fn create_invitation(
     responses((status = 200, body = WorkspaceInvitationResponse))
 )]
 pub async fn revoke_invitation(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path((workspace_id, invitation_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<WorkspaceInvitationResponse>, ApiError> {
@@ -129,7 +129,7 @@ pub async fn revoke_invitation(
     responses((status = 204))
 )]
 pub async fn accept_invitation(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(token): Path<String>,
 ) -> Result<StatusCode, ApiError> {

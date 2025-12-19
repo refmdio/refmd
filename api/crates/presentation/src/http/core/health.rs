@@ -2,7 +2,7 @@ use axum::{Json, Router, extract::State, routing::get};
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::context::AppContext;
+use crate::context::{AppContext, CoreContext};
 use application::core::services::health::OverallHealth;
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -16,7 +16,7 @@ pub struct HealthResp {
     tag = "Health",
     responses((status = 200, body = HealthResp))
 )]
-pub async fn health(State(ctx): State<AppContext>) -> Json<HealthResp> {
+pub async fn health(State(ctx): State<CoreContext>) -> Json<HealthResp> {
     let service = ctx.health_service();
     let status = match service.status().await.unwrap_or(OverallHealth::Degraded) {
         OverallHealth::Ok => "ok",

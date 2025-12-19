@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token::{self, Bearer};
@@ -20,7 +20,7 @@ use crate::http::documents::types::{
     params(("id" = Uuid, Path, description = "Document ID")),
     responses((status = 200, body = BacklinksResponse)))]
 pub async fn get_backlinks(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -66,7 +66,7 @@ pub async fn get_backlinks(
     params(("id" = Uuid, Path, description = "Document ID")),
     responses((status = 200, body = OutgoingLinksResponse)))]
 pub async fn get_outgoing_links(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,

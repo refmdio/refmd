@@ -1,10 +1,9 @@
 use application::identity::services::auth::external::ExternalAuthProviderKind;
+use application::identity::services::auth::auth_service::AuthServiceFacade;
 use application::identity::services::auth::user_sessions::IssuedSessionBundle;
 use axum::http::{HeaderMap, HeaderValue, header};
 use chrono::{DateTime, Duration, Utc};
 use rand::{Rng, distributions::Alphanumeric, rngs::OsRng};
-
-use crate::context::AppContext;
 
 pub(super) const SESSION_COOKIE_NAME: &str = "access_token";
 const REFRESH_COOKIE_NAME: &str = "refresh_token";
@@ -159,7 +158,8 @@ fn refresh_cookie_max_age(expires_at: DateTime<Utc>) -> usize {
 }
 
 pub(crate) fn apply_session_cookies(
-    ctx: &AppContext,
+    auth_service: &dyn AuthServiceFacade,
+    session_cookie_secure: bool,
     headers: &mut HeaderMap,
     issued: &IssuedSessionBundle,
 ) {
@@ -167,8 +167,8 @@ pub(crate) fn apply_session_cookies(
         headers,
         build_session_cookie(
             &issued.access.token,
-            ctx.auth_service().session_ttl_secs(),
-            ctx.cfg.session_cookie_secure,
+            auth_service.session_ttl_secs(),
+            session_cookie_secure,
         ),
     );
     append_cookie(
@@ -176,7 +176,7 @@ pub(crate) fn apply_session_cookies(
         build_refresh_cookie(
             &issued.refresh_token,
             refresh_cookie_max_age(issued.refresh_expires_at),
-            ctx.cfg.session_cookie_secure,
+            session_cookie_secure,
         ),
     );
 }

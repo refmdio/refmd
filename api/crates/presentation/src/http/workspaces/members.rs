@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::WorkspacesContext;
 use crate::http::error::ApiError;
 use crate::security::token::{self, Bearer};
 use domain::access::permissions::{PERM_MEMBER_REMOVE, PERM_MEMBER_UPDATE_ROLE, PERM_MEMBER_VIEW};
@@ -23,7 +23,7 @@ use super::types::{
     responses((status = 200, body = [WorkspaceMemberResponse]))
 )]
 pub async fn list_members(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<WorkspaceMemberResponse>>, ApiError> {
@@ -54,7 +54,7 @@ pub async fn list_members(
     responses((status = 200, body = WorkspaceMemberResponse))
 )]
 pub async fn update_member_role(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path((workspace_id, member_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateMemberRoleRequest>,
@@ -114,7 +114,7 @@ pub async fn update_member_role(
     responses((status = 204))
 )]
 pub async fn remove_member(
-    State(ctx): State<AppContext>,
+    State(ctx): State<WorkspacesContext>,
     bearer: Bearer,
     Path((workspace_id, member_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {

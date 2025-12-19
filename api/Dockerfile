@@ -7,7 +7,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates binutils curl \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --locked --release --bin api || true
+RUN mkdir -p src/bin && echo "fn main(){}" > src/bin/api.rs && echo "fn main(){}" > src/bin/cli.rs \
+    && cargo build --locked --release --bin api --bin refmd || true
 
 # Actual sources
 COPY . ./

@@ -16,7 +16,8 @@ use chrono::Utc;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::HasWorkspaceService;
+use crate::context::IdentityContext;
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 
@@ -41,7 +42,7 @@ use super::{
 )]
 pub async fn oauth_state(
     Path(provider): Path<String>,
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
 ) -> Result<(HeaderMap, Json<OAuthStateResponse>), ApiError> {
     let provider_kind = ExternalAuthProviderKind::try_from(provider.as_str())
         .map_err(|_| ApiError::not_found("oauth_provider_not_found"))?;
@@ -71,7 +72,7 @@ pub async fn oauth_state(
 )]
 pub async fn oauth_login(
     Path(provider): Path<String>,
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     headers: HeaderMap,
     Json(req): Json<OAuthLoginRequest>,
 ) -> Result<(HeaderMap, Json<LoginResponse>), ApiError> {
@@ -126,7 +127,12 @@ pub async fn oauth_login(
         )
         .await
         .map_err(map_auth_error)?;
-    apply_session_cookies(&ctx, &mut response_headers, &issued);
+    apply_session_cookies(
+        ctx.auth_service().as_ref(),
+        ctx.cfg.session_cookie_secure,
+        &mut response_headers,
+        &issued,
+    );
     Ok((
         response_headers,
         Json(LoginResponse {
@@ -144,7 +150,7 @@ pub async fn oauth_login(
     responses((status = 200, body = AuthProvidersResponse))
 )]
 pub async fn list_oauth_providers(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
 ) -> Result<Json<AuthProvidersResponse>, ApiError> {
     let providers = ctx
         .external_auth()
@@ -204,7 +210,7 @@ fn session_response_from(
 }
 
 async fn build_user_response(
-    ctx: &AppContext,
+    ctx: &impl HasWorkspaceService,
     user: UserDto,
     preferred_workspace_id: Option<Uuid>,
 ) -> Result<UserResponse, ApiError> {
@@ -263,7 +269,7 @@ async fn build_user_response(
     responses((status = 200, body = UserResponse))
 )]
 pub async fn register(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<UserResponse>, ApiError> {
     let service = ctx.account_service();
@@ -284,7 +290,7 @@ pub async fn register(
     responses((status = 200, body = LoginResponse))
 )]
 pub async fn login(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<LoginResponse>), ApiError> {
@@ -319,7 +325,12 @@ pub async fn login(
         .map_err(map_auth_error)?;
 
     let mut response_headers = HeaderMap::new();
-    apply_session_cookies(&ctx, &mut response_headers, &issued);
+    apply_session_cookies(
+        ctx.auth_service().as_ref(),
+        ctx.cfg.session_cookie_secure,
+        &mut response_headers,
+        &issued,
+    );
 
     Ok((
         response_headers,
@@ -337,7 +348,7 @@ pub async fn login(
     responses((status = 200, body = RefreshResponse))
 )]
 pub async fn refresh_session(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     refreshed: Option<Extension<RefreshedSession>>,
 ) -> Result<axum::response::Response, ApiError> {
     if let Some(Extension(bundle)) = refreshed {
@@ -354,7 +365,7 @@ pub async fn refresh_session(
 
 #[utoipa::path(get, path = "/api/auth/me", tag = "Auth", responses((status = 200, body = UserResponse)))]
 pub async fn me(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: super::Bearer,
     headers: HeaderMap,
 ) -> Result<Json<UserResponse>, crate::http::error::ApiError> {
@@ -388,7 +399,7 @@ pub async fn me(
 
 #[utoipa::path(delete, path = "/api/auth/me", tag = "Auth", responses((status = 204)))]
 pub async fn delete_account(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: super::Bearer,
 ) -> Result<(HeaderMap, StatusCode), crate::http::error::ApiError> {
     let user_id = crate::security::token::require_user_id(&ctx, bearer)
@@ -412,7 +423,7 @@ pub async fn delete_account(
 
 #[utoipa::path(post, path = "/api/auth/logout", tag = "Auth", responses((status = 204)))]
 pub async fn logout(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     headers: HeaderMap,
 ) -> Result<(HeaderMap, StatusCode), ApiError> {
     if let Some(refresh_token) = extract_refresh_token(&headers)
@@ -428,7 +439,7 @@ pub async fn logout(
 
 #[utoipa::path(get, path = "/api/auth/sessions", tag = "Auth", responses((status = 200, body = [SessionResponse])))]
 pub async fn list_sessions(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: super::Bearer,
     headers: HeaderMap,
 ) -> Result<Json<Vec<SessionResponse>>, ApiError> {
@@ -473,7 +484,7 @@ pub async fn list_sessions(
     responses((status = 204))
 )]
 pub async fn revoke_session(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: super::Bearer,
     headers: HeaderMap,
     Path(session_id): Path<Uuid>,

@@ -1,4 +1,4 @@
-use crate::context::AppContext;
+use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use axum::{
@@ -24,7 +24,7 @@ use domain::plugins::scope::PluginScope;
     operation_id = "pluginsGetKv"
 )]
 pub async fn get_kv_value(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<KvPath>,
@@ -68,7 +68,7 @@ pub async fn get_kv_value(
     operation_id = "pluginsPutKv"
 )]
 pub async fn put_kv_value(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(p): Path<KvPath>,

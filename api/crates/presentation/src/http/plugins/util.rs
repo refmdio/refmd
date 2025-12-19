@@ -1,7 +1,7 @@
 use axum::http::HeaderMap;
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::{HasAuthServices, HasShareService, HasWorkspaceService};
 use crate::http::error::ApiError;
 use crate::http::workspaces::scope as workspace_scope;
 use crate::security::token;
@@ -23,7 +23,7 @@ pub struct PluginUserContext {
 }
 
 pub async fn resolve_plugin_user_context(
-    ctx: &AppContext,
+    ctx: &(impl HasAuthServices + HasWorkspaceService + HasShareService),
     headers: &HeaderMap,
     bearer_token: &str,
     required_permission: Option<&str>,

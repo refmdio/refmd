@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 
-use crate::context::AppContext;
+use crate::context::PluginsContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use application::plugins::use_cases::install_from_url::InstallPluginError;
@@ -22,7 +22,7 @@ use super::util::{map_plugin_service_error, resolve_plugin_user_context};
     operation_id = "pluginsInstallFromUrl"
 )]
 pub async fn install_from_url(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(body): Json<InstallFromUrlBody>,
@@ -87,7 +87,7 @@ pub async fn install_from_url(
     operation_id = "pluginsUninstall"
 )]
 pub async fn uninstall(
-    State(ctx): State<AppContext>,
+    State(ctx): State<PluginsContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(body): Json<UninstallBody>,

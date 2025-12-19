@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use axum::{Json, extract::State, http::StatusCode};
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::CoreContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use application::core::services::errors::ServiceError;
@@ -17,7 +17,7 @@ use super::user_scope::resolve_user_scope_from_inputs;
     request_body = RenderRequest,
     responses((status = 200, body = RenderResponseBody)))]
 pub async fn render_markdown(
-    State(ctx): State<AppContext>,
+    State(ctx): State<CoreContext>,
     bearer: Option<Bearer>,
     Json(req): Json<RenderRequest>,
 ) -> Result<Json<RenderResponseBody>, ApiError> {
@@ -47,7 +47,7 @@ pub async fn render_markdown(
     request_body = RenderManyRequest,
     responses((status = 200, body = RenderManyResponse)))]
 pub async fn render_markdown_many(
-    State(ctx): State<AppContext>,
+    State(ctx): State<CoreContext>,
     bearer: Option<Bearer>,
     Json(req): Json<RenderManyRequest>,
 ) -> Result<Json<RenderManyResponse>, ApiError> {

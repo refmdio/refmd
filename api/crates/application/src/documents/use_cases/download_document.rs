@@ -205,7 +205,6 @@ where
 
         let root = DomainDocument::rehydrate(
             workspace_id,
-            workspace_id,
             None,
             workspace_id,
             domain::documents::title::Title::new(workspace_name),

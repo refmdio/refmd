@@ -6,7 +6,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::security::token::{self, Bearer};
 
@@ -30,7 +30,7 @@ use crate::http::documents::types::{
     responses((status = 200, body = SnapshotListResponse))
 )]
 pub async fn list_document_snapshots(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Option<Bearer>,
     Path(id): Path<Uuid>,
     q: Option<Query<crate::http::documents::types::ListSnapshotsQuery>>,
@@ -69,7 +69,7 @@ pub async fn list_document_snapshots(
     responses((status = 200, body = SnapshotDiffResponse))
 )]
 pub async fn get_document_snapshot_diff(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Option<Bearer>,
     Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
     q: Option<Query<SnapshotDiffQuery>>,
@@ -111,7 +111,7 @@ pub async fn get_document_snapshot_diff(
     responses((status = 200, body = SnapshotRestoreResponse))
 )]
 pub async fn restore_document_snapshot(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Option<Bearer>,
     Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
     q: Option<Query<SnapshotTokenQuery>>,
@@ -150,7 +150,7 @@ pub async fn restore_document_snapshot(
     )
 )]
 pub async fn download_document_snapshot(
-    State(ctx): State<AppContext>,
+    State(ctx): State<DocumentsContext>,
     bearer: Option<Bearer>,
     Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
     q: Option<Query<SnapshotTokenQuery>>,

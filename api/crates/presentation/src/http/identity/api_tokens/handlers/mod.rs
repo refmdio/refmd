@@ -5,7 +5,7 @@ use axum::{
 };
 use uuid::Uuid;
 
-use crate::context::AppContext;
+use crate::context::IdentityContext;
 use crate::http::error::ApiError;
 use crate::http::identity::auth::Bearer;
 use crate::http::workspaces::scope as workspace_scope;
@@ -25,7 +25,7 @@ fn map_token_error(err: ServiceError) -> crate::http::error::ApiError {
     responses((status = 200, body = [ApiTokenItem]))
 )]
 pub async fn list_api_tokens(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: Bearer,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ApiTokenItem>>, ApiError> {
@@ -59,7 +59,7 @@ pub async fn list_api_tokens(
     responses((status = 200, body = ApiTokenCreateResponse))
 )]
 pub async fn create_api_token(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Json(payload): Json<ApiTokenCreateRequest>,
@@ -94,7 +94,7 @@ pub async fn create_api_token(
     responses((status = 204))
 )]
 pub async fn revoke_api_token(
-    State(ctx): State<AppContext>,
+    State(ctx): State<IdentityContext>,
     bearer: Bearer,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
