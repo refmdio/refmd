@@ -310,10 +310,14 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
 
   const effectiveViewMode = headerViewMode
   const isPluginDocument = Boolean(rt.documentPluginId && rt.documentPluginId.trim().length > 0)
-  const pluginSupportsViewModes = !isPluginDocument || (rt.documentId ? splitCapablePluginDocs.has(rt.documentId) : false)
+  const pluginViewPolicy: 'normal' | 'splitCapable' | 'previewOnly' = !isPluginDocument
+    ? 'normal'
+    : rt.documentId && splitCapablePluginDocs.has(rt.documentId)
+      ? 'splitCapable'
+      : 'previewOnly'
   const changeView = useCallback(
     (mode: ViewMode) => {
-      const normalized = !pluginSupportsViewModes ? 'editor' : mode
+      const normalized = pluginViewPolicy === 'previewOnly' ? 'preview' : mode
       const nextMode = normalized === 'split' && isCompact ? 'preview' : normalized
       setHeaderViewMode(nextMode)
       const focusedDocumentId = focusedDocumentIdRef.current
@@ -323,8 +327,17 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       }
       vc.setViewMode(nextMode)
     },
-    [isCompact, pluginSupportsViewModes, vc],
+    [isCompact, pluginViewPolicy, vc],
   )
+
+  useEffect(() => {
+    if (!mounted) return
+    if (pluginViewPolicy !== 'previewOnly') return
+    const focusedDocumentId = rt.documentId
+    if (!focusedDocumentId) return
+    setHeaderViewMode('preview')
+    dispatchMosaicSetViewMode(focusedDocumentId, 'preview')
+  }, [mounted, pluginViewPolicy, rt.documentId])
   const shareHandler = () => {
     if (!rt.documentId) return
     setShareOpen(true)
@@ -410,14 +423,17 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         tooltip: 'Editor only',
       },
     ]
-    if (!isCompact && pluginSupportsViewModes) {
+    if (pluginViewPolicy === 'previewOnly') {
+      return [{ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' }] as ViewModeButtonItem[]
+    }
+    if (!isCompact && pluginViewPolicy !== 'normal') {
       items.push({ mode: 'split', icon: <Columns className={iconClass} />, tooltip: 'Split view' })
     }
-    if (pluginSupportsViewModes) {
+    if (pluginViewPolicy !== 'normal') {
       items.push({ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' })
     }
     return items
-  }, [iconClass, isCompact, pluginSupportsViewModes])
+  }, [iconClass, isCompact, pluginViewPolicy])
 
   const desktopToolbar = (
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex justify-center px-4 sm:px-5 md:px-6">
