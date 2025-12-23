@@ -5,6 +5,7 @@ export {
   matchesMount,
   resolvePluginForRoute,
   resolvePluginForDocument,
+  resolvePluginForDocumentById,
   mountResolvedPlugin,
   mountRoutePlugin,
 } from '@/features/plugins/lib/resolution'

@@ -23,12 +23,48 @@ export type DocumentPluginMatch = {
   docId: string
 }
 
+const PLUGIN_MANIFEST_CACHE_TTL_MS = 5_000
+const pluginManifestCache = new Map<
+  string,
+  { ts: number; value?: PluginManifestItem[]; promise?: Promise<PluginManifestItem[]> }
+>()
+
+async function getPluginManifestCached(token?: string | null): Promise<PluginManifestItem[]> {
+  const key = token ?? ''
+  const now = Date.now()
+  const cached = pluginManifestCache.get(key)
+  if (cached) {
+    if (cached.value && now - cached.ts < PLUGIN_MANIFEST_CACHE_TTL_MS) {
+      return cached.value
+    }
+    if (cached.promise) {
+      return cached.promise
+    }
+  }
+
+  const promise = getPluginManifest(token ?? undefined)
+    .then((value) => {
+      pluginManifestCache.set(key, { ts: Date.now(), value })
+      return value
+    })
+    .catch((error) => {
+      const current = pluginManifestCache.get(key)
+      if (current?.promise === promise) {
+        pluginManifestCache.delete(key)
+      }
+      throw error
+    })
+
+  pluginManifestCache.set(key, { ts: now, promise })
+  return promise
+}
+
 export async function resolvePluginForRoute(
   path: string,
   options: { token?: string | null } = {},
 ): Promise<RoutePluginMatch | null> {
   const token = options.token ?? extractTokenFromPath(path)
-  const manifest = await getPluginManifest(token ?? undefined)
+  const manifest = await getPluginManifestCached(token ?? undefined)
 
   for (const item of manifest) {
     const mounts = Array.isArray(item.mounts) ? item.mounts : []
@@ -56,11 +92,11 @@ export async function resolvePluginForDocumentById(
   docId: string,
   pluginId: string,
   token?: string | null,
-  options: { source?: 'primary' | 'secondary' } = {},
+  options: { source?: 'primary' | 'secondary'; document?: { type?: string | null } } = {},
 ): Promise<DocumentPluginMatch | null> {
   const trimmedPluginId = pluginId?.trim?.() ?? ''
   if (!trimmedPluginId) return null
-  const manifest = await getPluginManifest(token ?? undefined)
+  const manifest = await getPluginManifestCached(token ?? undefined)
   const apiOrigin = getApiOrigin()
 
   const item = (manifest as PluginManifestItem[]).find((entry) => String(entry?.id) === trimmedPluginId)
@@ -119,11 +155,14 @@ export async function resolvePluginForDocumentById(
   let canOpen = true
   if (typeof mod.canOpen === 'function') {
     try {
+      const docType = options.document?.type ?? null
       canOpen = await mod.canOpen(docId, {
         token,
         origin: apiOrigin,
         host: detectionHost,
         source: options.source ?? 'primary',
+        document: options.document,
+        docType: docType ?? undefined,
       })
     } catch {
       canOpen = false
@@ -154,9 +193,9 @@ export async function resolvePluginForDocumentById(
 export async function resolvePluginForDocument(
   docId: string,
   token?: string | null,
-  options: { source?: 'primary' | 'secondary' } = {},
+  options: { source?: 'primary' | 'secondary'; document?: { type?: string | null } } = {},
 ): Promise<DocumentPluginMatch | null> {
-  const manifest = await getPluginManifest(token ?? undefined)
+  const manifest = await getPluginManifestCached(token ?? undefined)
   const apiOrigin = getApiOrigin()
 
   for (const item of manifest) {
@@ -213,11 +252,14 @@ export async function resolvePluginForDocument(
     let route = `/document/${docId}`
     if (typeof mod.getRoute === 'function') {
       try {
+        const docType = options.document?.type ?? null
         const res = await mod.getRoute(docId, {
           token,
           origin: apiOrigin,
           host: detectionHost,
           source: options.source ?? 'primary',
+          document: options.document,
+          docType: docType ?? undefined,
         })
         if (typeof res === 'string' && res) route = res
       } catch {
@@ -231,11 +273,14 @@ export async function resolvePluginForDocument(
     let canOpen = true
     if (typeof mod.canOpen === 'function') {
       try {
+        const docType = options.document?.type ?? null
         canOpen = await mod.canOpen(docId, {
           token,
           origin: apiOrigin,
           host: detectionHost,
           source: options.source ?? 'primary',
+          document: options.document,
+          docType: docType ?? undefined,
         })
       } catch {
         canOpen = false

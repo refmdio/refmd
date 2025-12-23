@@ -37,7 +37,7 @@ import { browseShare } from '@/entities/share'
 import { useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
 import { EditorOverlay, MarkdownEditor, PreviewPane, useCollaborativeDocument } from '@/features/edit-document'
-import { mountResolvedPlugin, resolvePluginForDocument, type DocumentPluginMatch } from '@/features/plugins'
+import { mountResolvedPlugin, resolvePluginForDocument, resolvePluginForDocumentById, type DocumentPluginMatch } from '@/features/plugins'
 import { mountSplitEditorPreviewStage } from '@/features/plugins/ui/SplitEditorHost'
 
 import DocumentPage, { type DocumentLoaderData, type DocumentPageProps, type DocumentPageRenderContext } from './DocumentPage'
@@ -62,6 +62,7 @@ const FORCE_FLOATING_TOC_MAX_WIDTH_PX = 1024
 const EXPAND_PERCENTAGE = 80
 const UNEXPAND_PERCENTAGE = 50
 const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
+const PLUGIN_TILE_MOUNT_EVENT = 'refmd:plugin:tile-mount'
 
 function updateParentSplitPercentage(
   layout: MosaicNode<TileKey> | null,
@@ -613,8 +614,23 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const lastReportedViewModeRef = useRef<{ docId: string; mode: 'editor' | 'split' | 'preview' } | null>(null)
   const lastRouteDocIdRef = useRef<string>(id)
   const splitCapablePluginDocsRef = useRef<Set<string>>(new Set())
-  const nonSplitPluginSeenAtRef = useRef<Map<string, number>>(new Map())
-  const collapsedNonSplitPluginDocsRef = useRef<Set<string>>(new Set())
+  const pluginTileMountSeenRef = useRef<Set<string>>(new Set())
+  const nonSplitPluginDocsRef = useRef<Set<string>>(new Set())
+  const nonSplitPluginCollapseTimersRef = useRef<Map<string, number>>(new Map())
+
+  const clearNonSplitPluginCollapseTimer = useCallback((documentId: string) => {
+    const docId = documentId.trim()
+    if (!docId) return
+    const timerId = nonSplitPluginCollapseTimersRef.current.get(docId)
+    if (timerId == null) return
+    nonSplitPluginCollapseTimersRef.current.delete(docId)
+    if (typeof window === 'undefined') return
+    try {
+      window.clearTimeout(timerId)
+    } catch {
+      /* noop */
+    }
+  }, [])
 
   useEffect(() => {
     insertSplitModeRef.current = insertSplitMode
@@ -640,9 +656,25 @@ export default function DocumentMosaicWorkspace(props: Props) {
       const docId = typeof detail?.docId === 'string' ? detail.docId.trim() : ''
       if (!docId) return
       splitCapablePluginDocsRef.current.add(docId)
+      nonSplitPluginDocsRef.current.delete(docId)
+      clearNonSplitPluginCollapseTimer(docId)
     }
     window.addEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
     return () => window.removeEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+  }, [clearNonSplitPluginCollapseTimer])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    return () => {
+      for (const timerId of nonSplitPluginCollapseTimersRef.current.values()) {
+        try {
+          window.clearTimeout(timerId)
+        } catch {
+          /* noop */
+        }
+      }
+      nonSplitPluginCollapseTimersRef.current.clear()
+    }
   }, [])
 
   useEffect(() => {
@@ -1097,9 +1129,19 @@ export default function DocumentMosaicWorkspace(props: Props) {
     [canAccessSharedDocument, id, insertSplitMode, isSingleDocShare],
   )
 
+  const focusedPluginIdHint = useMemo(() => {
+    const raw = (loaderData as any)?.createdByPlugin
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : ''
+  }, [loaderData])
+
   const focusedPluginQuery = useQuery({
-    queryKey: ['plugin-doc-match', id, shareToken ?? null],
-    queryFn: async () => resolvePluginForDocument(id, shareToken ?? null, { source: 'primary' }),
+    queryKey: ['plugin-doc-match', id, shareToken ?? null, focusedPluginIdHint || null],
+    queryFn: async () => {
+      if (focusedPluginIdHint) {
+        return resolvePluginForDocumentById(id, focusedPluginIdHint, shareToken ?? null, { source: 'primary' })
+      }
+      return resolvePluginForDocument(id, shareToken ?? null, { source: 'primary' })
+    },
     staleTime: 60_000,
     enabled: Boolean(id && !isSingleDocShare),
   })
@@ -1109,27 +1151,70 @@ export default function DocumentMosaicWorkspace(props: Props) {
     if (!docId) return
     if (isSingleDocShare) return
     const match = (focusedPluginQuery.data ?? null) as DocumentPluginMatch | null
-    if (!match) return
-
-    const routePath = (match.route || '').split('?')[0] || ''
-    const isNonDocumentRoute = routePath !== `/document/${docId}`
-    if (!isNonDocumentRoute) return
-    if (splitCapablePluginDocsRef.current.has(docId)) return
-
-    const currentMode = deriveDocumentViewMode(docId, mosaicState.tiles)
-    if (currentMode === 'preview') return
-
-    const now = Date.now()
-    const firstSeen = nonSplitPluginSeenAtRef.current.get(docId)
-    if (!firstSeen) {
-      nonSplitPluginSeenAtRef.current.set(docId, now)
+    if (!match) {
+      clearNonSplitPluginCollapseTimer(docId)
       return
     }
-    if (now - firstSeen < 400) return
-    if (collapsedNonSplitPluginDocsRef.current.has(docId)) return
-    collapsedNonSplitPluginDocsRef.current.add(docId)
-    applyViewModeForDocument(docId, 'preview')
-  }, [applyViewModeForDocument, focusedPluginQuery.data, id, isSingleDocShare, mosaicState.tiles])
+
+    const currentMode = deriveDocumentViewMode(docId, mosaicState.tiles)
+    if (splitCapablePluginDocsRef.current.has(docId)) {
+      clearNonSplitPluginCollapseTimer(docId)
+      return
+    }
+
+    if (nonSplitPluginDocsRef.current.has(docId)) {
+      clearNonSplitPluginCollapseTimer(docId)
+      if (currentMode !== 'preview') {
+        applyViewModeForDocument(docId, 'preview')
+      }
+      return
+    }
+
+    if (currentMode === 'editor' && !pluginTileMountSeenRef.current.has(docId)) {
+      applyViewModeForDocument(docId, 'split')
+    }
+  }, [applyViewModeForDocument, clearNonSplitPluginCollapseTimer, focusedPluginQuery.data, id, isSingleDocShare, mosaicState.tiles])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (isSingleDocShare) return
+
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ docId?: string; variant?: string }>).detail
+      const docId = typeof detail?.docId === 'string' ? detail.docId.trim() : ''
+      if (!docId) return
+
+      pluginTileMountSeenRef.current.add(docId)
+
+      clearNonSplitPluginCollapseTimer(docId)
+      if (nonSplitPluginDocsRef.current.has(docId)) return
+      if (splitCapablePluginDocsRef.current.has(docId)) return
+      if (lastRouteDocIdRef.current !== docId) return
+
+      const safe = sanitizeState(latestStateRef.current, lastRouteDocIdRef.current)
+      const mode = deriveDocumentViewMode(docId, safe.tiles)
+      if (mode !== 'split') return
+
+      const timerId = window.setTimeout(() => {
+        nonSplitPluginCollapseTimersRef.current.delete(docId)
+        if (nonSplitPluginDocsRef.current.has(docId)) return
+        if (splitCapablePluginDocsRef.current.has(docId)) return
+        if (lastRouteDocIdRef.current !== docId) return
+
+        const nextSafe = sanitizeState(latestStateRef.current, lastRouteDocIdRef.current)
+        const nextMode = deriveDocumentViewMode(docId, nextSafe.tiles)
+        if (nextMode !== 'split') return
+
+        nonSplitPluginDocsRef.current.add(docId)
+        applyViewModeForDocument(docId, 'preview')
+      }, 900)
+
+      nonSplitPluginCollapseTimersRef.current.set(docId, timerId)
+    }
+
+    window.addEventListener(PLUGIN_TILE_MOUNT_EVENT, handler as EventListener)
+    return () => window.removeEventListener(PLUGIN_TILE_MOUNT_EVENT, handler as EventListener)
+  }, [applyViewModeForDocument, clearNonSplitPluginCollapseTimer, isSingleDocShare])
 
   useEffect(() => {
     if (shareLinkToken) return
@@ -1667,6 +1752,23 @@ function PluginDocumentTileMount({
     const container = containerRef.current
     if (!container) return
     let dispose: (() => void) | null = null
+
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent<{ docId: string; pluginId?: string; variant: 'full' | 'preview' }>(PLUGIN_TILE_MOUNT_EVENT, {
+            detail: {
+              docId: match.docId,
+              pluginId: match?.manifest?.id ? String(match.manifest.id) : undefined,
+              variant,
+            },
+          }),
+        )
+      }
+    } catch {
+      /* noop */
+    }
+
     ;(async () => {
       try {
         dispose = (await mountResolvedPlugin(
@@ -1942,14 +2044,20 @@ function MosaicPreviewTile({
   const pluginId =
     (typeof pluginHint === 'string' && pluginHint.trim() ? pluginHint.trim() : pluginLookup.pluginId) || ''
   const docType = pluginLookup.docType || ''
-  const shouldTryPlugin = Boolean(pluginId || (docType && docType !== 'document'))
   const pluginTileMode = isFocusedDocument ? ('primary' as const) : ('secondary' as const)
 
   const pluginQuery = useQuery({
-    queryKey: ['plugin-doc-match', documentId, activeCtx.shareToken ?? null],
-    queryFn: async () => resolvePluginForDocument(documentId, activeCtx.shareToken ?? null, { source: pluginTileMode }),
+    queryKey: ['plugin-doc-match', documentId, activeCtx.shareToken ?? null, pluginId || null, docType || null, pluginTileMode],
+    queryFn: async () => {
+      const token = activeCtx.shareToken ?? null
+      const document = docType ? { type: docType } : undefined
+      if (pluginId) {
+        return resolvePluginForDocumentById(documentId, pluginId, token, { source: pluginTileMode, document })
+      }
+      return resolvePluginForDocument(documentId, token, { source: pluginTileMode, document })
+    },
     staleTime: 60_000,
-    enabled: Boolean(documentId && shouldTryPlugin),
+    enabled: Boolean(documentId),
   })
 
   const pluginMatch = (pluginQuery.data ?? null) as DocumentPluginMatch | null
