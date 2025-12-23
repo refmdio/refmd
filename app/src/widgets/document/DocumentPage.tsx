@@ -14,20 +14,15 @@ import { getPullSession } from '@/entities/git'
 import { createShareMount, shareMountsQuery } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
-import { BacklinksPanel } from '@/features/document-backlinks'
 import {
   DocumentDownloadDialog,
   OTHER_DOWNLOAD_FORMAT_GROUPS,
   PRIMARY_DOWNLOAD_OPTIONS,
 } from '@/features/document-download'
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
-import { EditorOverlay, MarkdownEditor, useCollaborativeDocument, useViewContext } from '@/features/edit-document'
+import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
 import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
 import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
-import { usePluginDocumentRedirect } from '@/features/plugins'
-import { useSecondaryViewer } from '@/features/secondary-viewer'
-
-type SecondaryViewerType = ReturnType<typeof useSecondaryViewer>['secondaryDocumentType']
 
 export type DocumentLoaderData = {
   title: string
@@ -37,20 +32,29 @@ export type DocumentLoaderData = {
   desired_path?: string | null
 }
 
-export type SecondaryViewerRendererProps = {
-  documentId: string
-  documentType?: SecondaryViewerType
-  onClose: () => void
-  onDocumentChange: (id: string, type?: SecondaryViewerType) => void
-  className?: string
-}
-
 export type DocumentPageProps = {
   id: string
   loaderData?: DocumentLoaderData
   shareToken?: string
-  secondaryViewerRenderer?: (props: SecondaryViewerRendererProps) => ReactNode
   conflictMode?: boolean
+  render?: (ctx: DocumentPageRenderContext) => ReactNode
+}
+
+export type DocumentPageRenderContext = {
+  id: string
+  loaderData?: DocumentLoaderData
+  shareToken?: string
+  conflictMode: boolean
+  status: ReturnType<typeof useCollaborativeDocument>['status']
+  doc: ReturnType<typeof useCollaborativeDocument>['doc']
+  awareness: ReturnType<typeof useCollaborativeDocument>['awareness']
+  isReadOnly: ReturnType<typeof useCollaborativeDocument>['isReadOnly']
+  realtimeError: ReturnType<typeof useCollaborativeDocument>['error']
+  overlayLabel: string
+  showOverlay: boolean
+  markdownEditorProps: Parameters<typeof MarkdownEditor>[0] | null
+  previewOverride: string | undefined
+  resolvedTitle: string
 }
 
 const normalizeConflictPath = (path?: string | null) => (path || '').replace(/^[./]+/, '').trim().toLowerCase()
@@ -216,8 +220,11 @@ const matchConflictToDoc = (
   return null
 }
 
-export function DocumentPage({ id, loaderData, shareToken, secondaryViewerRenderer, conflictMode = false }: DocumentPageProps) {
-  const [isClient, setIsClient] = useState(typeof window !== 'undefined')
+export function DocumentPage({ id, loaderData, shareToken, conflictMode = false, render }: DocumentPageProps) {
+  // This component intentionally renders a placeholder on the server.
+  // Start from the same placeholder on the client to avoid hydration mismatches,
+  // then switch to the interactive client UI after mount.
+  const [isClient, setIsClient] = useState(false)
 
   useEffect(() => {
     setIsClient(true)
@@ -232,8 +239,8 @@ export function DocumentPage({ id, loaderData, shareToken, secondaryViewerRender
       id={id}
       loaderData={loaderData}
       shareToken={shareToken}
-      secondaryViewerRenderer={secondaryViewerRenderer}
       conflictMode={conflictMode}
+      render={render}
     />
   )
 }
@@ -252,7 +259,7 @@ function DocumentClient({
   id,
   loaderData,
   shareToken,
-  secondaryViewerRenderer,
+  render,
   conflictMode = false,
 }: DocumentPageProps) {
   const navigate = useNavigate()
@@ -273,8 +280,6 @@ function DocumentClient({
   const [hunkDefaultSide, setHunkDefaultSide] = useState<'ours' | 'theirs'>('ours')
   const [hunkAnchors, setHunkAnchors] = useState<Array<{ hunkId: string; line: number }>>([])
   const lastPayloadRef = useRef<GitPullResolution[]>([])
-  const { secondaryDocumentId, secondaryDocumentType, showSecondaryViewer, closeSecondaryViewer, openSecondaryViewer } = useSecondaryViewer()
-  const { showBacklinks, setShowBacklinks } = useViewContext()
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
@@ -283,12 +288,6 @@ function DocumentClient({
     const unsubscribe = subscribeSessionId((sid) => setSessionIdState(sid))
     return () => unsubscribe()
   }, [])
-  const pluginRedirectEnabled =
-    loaderData?.createdByPlugin === undefined ? true : Boolean(loaderData?.createdByPlugin)
-  const { redirecting, resolving: pluginResolving } = usePluginDocumentRedirect(id, {
-    enabled: pluginRedirectEnabled,
-    navigate: useCallback((to: string) => navigate({ to }), [navigate]),
-  })
   const anonIdentity = useMemo(() => {
     if (user) return null
     try {
@@ -305,12 +304,10 @@ function DocumentClient({
     }
   }, [user])
 
-  useEffect(() => {
-    setShowBacklinks(false)
-  }, [id, setShowBacklinks])
-
   const loaderTitle = loaderData?.title
   const resolvedTitle = (realtimeTitle && realtimeTitle.trim()) || loaderTitle
+
+  const hasEditorSession = Boolean(doc && awareness)
 
   const setConflictsForDoc = useCallback(
     (list: GitPullConflictItem[]) => {
@@ -560,25 +557,11 @@ function DocumentClient({
     }
   }, [documentActions, setDocumentActions, openSnapshots, hasDoc, openDownloadDialog, handleSaveShare, shareToken, user, savingShare])
 
-  useEffect(() => {
-    if (showBacklinks && showSecondaryViewer) {
-      closeSecondaryViewer()
-    }
-  }, [showBacklinks, showSecondaryViewer, closeSecondaryViewer])
-
   const hasCollaborativeState = Boolean(doc && awareness)
 
-  const shouldShowOverlay = pluginResolving || redirecting || Boolean(realtimeError) || !hasCollaborativeState
+  const shouldShowOverlay = Boolean(realtimeError) || !hasCollaborativeState
 
-  const overlayLabel = realtimeError
-    ? realtimeError
-    : pluginResolving
-      ? 'Preparing plugin...'
-      : redirecting
-        ? 'Opening plugin...'
-        : status === 'connecting'
-          ? 'Connecting...'
-          : 'Loading...'
+  const overlayLabel = realtimeError || (status === 'connecting' ? 'Connecting...' : 'Loading...')
   const showEditor = Boolean(doc && awareness && !realtimeError)
   const showOverlay = shouldShowOverlay
 
@@ -635,8 +618,6 @@ function DocumentClient({
       cleanupFns.forEach((fn) => fn())
     }
   }, [id, realtimeTitle, loaderData?.title, shareToken])
-
-  const renderSecondaryViewer = secondaryViewerRenderer
 
   const oursText = activeConflict?.ours ?? ''
   const theirsText = activeConflict?.theirs ?? ''
@@ -776,40 +757,56 @@ function DocumentClient({
         }))
       : undefined
 
-  return (
+  const previewOverrideValue = showConflictUI && !isBinaryConflict ? previewContent || oursText : undefined
+
+  const markdownEditorProps = hasEditorSession
+    ? ({
+        doc: doc!,
+        awareness: awareness!,
+        connected: status === 'connected',
+        initialView: 'editor',
+        userId: user?.id || anonIdentity?.id,
+        userName: user?.name || anonIdentity?.name,
+        documentId: id,
+        readOnly: isReadOnly || Boolean(activeConflict),
+        conflictView,
+        conflictHunkWidgets,
+        conflictBadgeText,
+        conflictControls,
+        previewOverride: previewOverrideValue,
+        extraRight: undefined,
+      } satisfies Parameters<typeof MarkdownEditor>[0])
+    : null
+
+  const renderContext: DocumentPageRenderContext = {
+    id,
+    loaderData,
+    shareToken,
+    conflictMode,
+    status,
+    doc,
+    awareness,
+    isReadOnly,
+    realtimeError,
+    overlayLabel,
+    showOverlay,
+    markdownEditorProps,
+    previewOverride: previewOverrideValue,
+    resolvedTitle: resolvedTitle || '',
+  }
+
+  const body = render ? (
+    render(renderContext)
+  ) : (
     <div className="relative flex h-full flex-1 min-h-0 flex-col">
       {showOverlay && <EditorOverlay label={overlayLabel} />}
-      {showEditor ? (
-        <MarkdownEditor
-          key={id}
-          doc={doc!}
-          awareness={awareness!}
-          connected={status === 'connected'}
-          initialView="split"
-          userId={user?.id || anonIdentity?.id}
-          userName={user?.name || anonIdentity?.name}
-          documentId={id}
-          readOnly={isReadOnly || redirecting || Boolean(activeConflict)}
-          conflictView={conflictView}
-          conflictHunkWidgets={conflictHunkWidgets}
-          conflictBadgeText={conflictBadgeText}
-          conflictControls={conflictControls}
-          previewOverride={showConflictUI && !isBinaryConflict ? previewContent || oursText : undefined}
-          extraRight={
-            showBacklinks ? (
-              <BacklinksPanel documentId={id} className="h-full" onClose={() => setShowBacklinks(false)} />
-            ) : showSecondaryViewer && secondaryDocumentId && renderSecondaryViewer ? (
-              renderSecondaryViewer({
-                documentId: secondaryDocumentId,
-                documentType: secondaryDocumentType,
-                onClose: closeSecondaryViewer,
-                onDocumentChange: (docId, type) => openSecondaryViewer(docId, type),
-                className: 'h-full',
-              })
-            ) : undefined
-          }
-        />
-      ) : null}
+      {showEditor && markdownEditorProps ? <MarkdownEditor key={id} {...markdownEditorProps} /> : null}
+    </div>
+  )
+
+  return (
+    <>
+      {body}
       <SnapshotHistoryDialog
         documentId={id}
         open={showSnapshots}
@@ -825,6 +822,6 @@ function DocumentClient({
         onSelect={handleDownload}
         isPending={downloadPending}
       />
-    </div>
+    </>
   )
 }

@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 
 import type { GitPullConflictItem, WorkspaceMembershipResponse } from '@/shared/api'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
+import { dispatchOpenPreviewTile } from '@/shared/lib/mosaic-events'
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -33,7 +34,6 @@ import FileNode from '@/features/file-tree/ui/FileNode'
 import FolderNode from '@/features/file-tree/ui/FolderNode'
 import { GitSyncButton } from '@/features/git-sync'
 import { GIT_CONFLICT_EVENT, readConflicts, readSessionId, setConflicts as setGlobalConflicts, setSessionId, clearSession, clearResolutions } from '@/features/git-sync/lib/git-conflict-store'
-import { useSecondaryViewer } from '@/features/secondary-viewer'
 import { ShareDialog } from '@/features/sharing'
 import {
   TEMPORARY_DOCUMENT_TTL_MS,
@@ -242,7 +242,6 @@ function WorkspaceSwitcher() {
 function FileTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const router = useRouter()
-  const { openSecondaryViewer } = useSecondaryViewer()
   const {
     documents,
     archivedDocuments,
@@ -657,8 +656,34 @@ function FileTreeInner() {
     toggleTreeFocus()
   })
 
+  useShortcut(
+    'file-tree.open.tile',
+    useCallback(
+      (event) => {
+        const treeEl = treeFocusRef.current
+        if (!treeEl) return
+        if (typeof document === 'undefined') return
+        const active = document.activeElement as HTMLElement | null
+        if (active !== treeEl) return
+        if (!selectedDocId) return
+        const idx = nodeIndexMap.get(selectedDocId)
+        if (typeof idx !== 'number') return
+        const node = visibleNodes[idx]?.node
+        if (!node || node.type !== 'file') return
+
+        const targetId = node.sourceId ?? node.id
+        dispatchOpenPreviewTile(targetId)
+        event.preventDefault()
+        event.stopPropagation()
+      },
+      [nodeIndexMap, selectedDocId, visibleNodes],
+    ),
+    { preventDefault: false },
+  )
+
   const handleTreeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.currentTarget !== event.target) return
+    if (event.defaultPrevented) return
     const normalizedKey = event.key === 'Spacebar' ? ' ' : event.key
     if (!TREE_NAV_KEYS.has(normalizedKey)) {
       return
@@ -831,12 +856,11 @@ function FileTreeInner() {
         onDragOver={drag.handleDragOver}
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parent) }}
         pluginRules={fileTreeRules}
-        onOpenSecondaryViewer={openSecondaryViewer}
         gitEnabled
         conflict={conflict}
       />
     )
-  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   const renderNestedNode = useCallback((node: DocumentNode, parentId?: string, depth = 1): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.id)
@@ -891,12 +915,11 @@ function FileTreeInner() {
         onDragOver={drag.handleDragOver}
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parentId) }}
         pluginRules={fileTreeRules}
-        onOpenSecondaryViewer={openSecondaryViewer}
         gitEnabled
         conflict={conflictForNode(node)}
       />
     )
-  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   return (
     <div className="flex h-full flex-1 flex-col">

@@ -17,7 +17,6 @@ import { useViewController } from '../public/useViewController'
 export type PreviewPaneProps = {
   content: string
   viewMode?: ViewMode
-  isSecondaryViewer?: boolean
   onScroll?: (scrollTop: number, scrollPercentage: number) => void
   onScrollAnchorLine?: (line: number) => void
   scrollPercentage?: number
@@ -31,7 +30,7 @@ export type PreviewPaneProps = {
   taskToggleDisabled?: boolean
 }
 
-function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer = false, onScroll, onScrollAnchorLine, scrollPercentage, documentIdOverride, onNavigate, forceFloatingToc = false, stickToBottom = false, scrollToLine, onToggleTask, taskToggleDisabled }: PreviewPaneProps) {
+function PreviewPaneComponent({ content, viewMode = 'preview', onScroll, onScrollAnchorLine, scrollPercentage, documentIdOverride, onNavigate, forceFloatingToc = false, stickToBottom = false, scrollToLine, onToggleTask, taskToggleDisabled }: PreviewPaneProps) {
   const vc = useViewController()
   const onTagClickStable = React.useCallback((tag: string) => {
     vc.openSearch(tag)
@@ -99,11 +98,10 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
     cn(
       'prose prose-neutral dark:prose-invert break-words overflow-wrap-anywhere',
       viewMode === 'preview' ? 'max-w-6xl mx-auto' : 'max-w-none',
-      isSecondaryViewer && 'markdown-preview-secondary'
-    ), [viewMode, isSecondaryViewer])
+    ), [viewMode])
 
-  const showAsideToc = viewMode === 'preview' && !isMobile && !isSecondaryViewer && !forceFloatingToc
-  const showFloatingTrigger = viewMode === 'split' || (viewMode === 'preview' && isMobile) || isSecondaryViewer || forceFloatingToc
+  const showAsideToc = viewMode === 'preview' && !isMobile && !forceFloatingToc
+  const showFloatingTrigger = viewMode === 'split' || (viewMode === 'preview' && isMobile) || forceFloatingToc
 
   // Apply external scroll percentage to container (fallback when no anchor line)
   useEffect(() => {
@@ -178,7 +176,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   const handleFloatingItemClick = React.useCallback(() => setShowFloatingToc(false), [])
 
   return (
-    <div className="relative flex flex-1 min-h-0 flex-col bg-background overflow-hidden">
+    <div className="relative flex h-full w-full flex-1 min-h-0 flex-col bg-background overflow-hidden">
       <div
         className="flex-1 overflow-auto"
         ref={previewRef}
@@ -238,7 +236,6 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           </div>
           <aside className={cn('w-64 shrink-0', showAsideToc ? 'hidden lg:block' : 'hidden')}>
             <Toc
-              contentSelector={isSecondaryViewer ? '.markdown-preview-secondary' : '.markdown-preview:not(.markdown-preview-secondary)'}
               containerRef={!isMobile ? (previewRef as React.RefObject<HTMLElement>) : undefined}
             />
           </aside>
@@ -250,7 +247,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           onClick={() => setShowFloatingToc((s) => !s)}
           className={cn(
             'p-3 rounded-full border border-primary/60 bg-primary text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl z-40',
-            (isMobile || forceFloatingToc) ? 'fixed bottom-6 right-6' : 'absolute bottom-6 right-6'
+            isMobile ? 'fixed bottom-6 right-6' : 'absolute bottom-6 right-6'
           )}
           title="Table of Contents"
           size="icon"
@@ -264,7 +261,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           ref={floatingTocRef}
           className={cn(
             overlayPanelClass,
-            (isMobile || forceFloatingToc)
+            isMobile
               ? 'fixed bottom-24 right-6 w-[min(320px,calc(100%-2.5rem))] z-40'
               : 'absolute bottom-20 right-6 w-[300px] max-w-[calc(100%-3rem)] z-40',
           )}
@@ -282,7 +279,6 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           </div>
           <div className="max-h-[60vh] overflow-y-auto">
             <Toc
-              contentSelector={isSecondaryViewer ? '.markdown-preview-secondary' : '.markdown-preview:not(.markdown-preview-secondary)'}
               containerRef={!isMobile ? (previewRef as React.RefObject<HTMLElement>) : undefined}
               onItemClick={handleFloatingItemClick}
               floating

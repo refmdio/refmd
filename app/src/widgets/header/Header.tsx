@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Columns, Eye, FileCode, Link2, Menu, Moon, Search, Share2, Sun } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { toast } from 'sonner'
 
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
+import { dispatchMosaicSetViewMode, dispatchOpenBacklinksTile } from '@/shared/lib/mosaic-events'
 import { cn } from '@/shared/lib/utils'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import type { HeaderRealtimeState } from '@/shared/types/header'
@@ -44,6 +45,72 @@ const defaultRealtimeState: HeaderRealtimeState = {
   onlineUsers: [],
 }
 
+type ViewMode = 'editor' | 'split' | 'preview'
+type ViewModeButtonItem = { mode: ViewMode; icon: ReactElement; tooltip: string }
+
+const HeaderViewModeControls = memo(function HeaderViewModeControls({
+  buttons,
+  activeMode,
+  onChange,
+  showBacklinksButton,
+  onBacklinksClick,
+  iconClass,
+}: {
+  buttons: ViewModeButtonItem[]
+  activeMode: ViewMode
+  onChange: (mode: ViewMode) => void
+  showBacklinksButton: boolean
+  onBacklinksClick: () => void
+  iconClass: string
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-1 py-0.5">
+      {buttons.map((item, idx) => {
+        const first = idx === 0
+        const last = idx === buttons.length - 1
+        const isActive = activeMode === item.mode
+        return (
+          <Tooltip key={item.mode}>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  onClick={() => onChange(item.mode)}
+                  variant="ghost"
+                  className={cn(
+                    'h-8 rounded-full px-2 text-sm transition-colors',
+                    first && 'pl-3',
+                    last && 'pr-3',
+                    isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted/70',
+                  )}
+                >
+                  {item.icon}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{item.tooltip}</TooltipContent>
+          </Tooltip>
+        )
+      })}
+      {showBacklinksButton && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                onClick={onBacklinksClick}
+                variant="ghost"
+                className={cn('h-8 w-8 rounded-full transition-colors hover:bg-muted/70')}
+              >
+                <Link2 className={iconClass} />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Open backlinks tile</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  )
+})
+
 export function Header({ className, realtime, variant = 'overlay' }: HeaderProps) {
   const { isDarkMode, toggleTheme } = useTheme()
   const { signOut } = useAuthContext()
@@ -53,12 +120,16 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const { editor } = useEditorContext()
   const { toggleSidebar } = useSidebar()
   const navigate = useNavigate()
+  const focusedDocumentIdRef = useRef<string | undefined>(undefined)
   const [mounted, setMounted] = useState(false)
+  const [isCompact, setIsCompact] = useState(false)
+  const [headerViewMode, setHeaderViewMode] = useState<'editor' | 'split' | 'preview'>(() => {
+    const initial = vc.viewMode
+    return initial === 'editor' || initial === 'split' || initial === 'preview' ? initial : 'split'
+  })
   const [searchOpenLocal, setSearchOpenLocal] = useState(false)
   const [searchPresetTag, setSearchPresetTag] = useState<string | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
-  const [headerViewMode, setHeaderViewMode] = useState<'editor' | 'split' | 'preview'>('split')
-  const [isCompact, setIsCompact] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const documentBadge = rt.documentBadge
   const documentStatus = rt.documentStatus
@@ -85,9 +156,27 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   }, [])
   
   const canShare = Boolean(rt.documentId)
+  focusedDocumentIdRef.current = rt.documentId
   const iconClass = 'h-[18px] w-[18px]'
 
   useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    if (rt.documentId) return
+    const mode = vc.viewMode
+    if (mode === 'editor' || mode === 'split' || mode === 'preview') {
+      setHeaderViewMode(mode)
+    }
+  }, [rt.documentId, vc.viewMode])
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(max-width: 1024px)')
+    const update = (event?: MediaQueryListEvent) => {
+      setIsCompact(event ? event.matches : mq.matches)
+    }
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
   useShortcut(
     'global.search.open',
     useCallback(
@@ -168,37 +257,26 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       toggleSidebar()
     }, [toggleSidebar]),
   )
-  useEffect(() => { setHeaderViewMode(vc.viewMode) }, [vc.viewMode])
   useEffect(() => {
     setSearchPresetTag(vc.searchPresetTag)
     if (vc.searchNonce > 0) setSearchOpenLocal(true)
   }, [vc.searchNonce, vc.searchPresetTag])
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const mq = window.matchMedia('(max-width: 1024px)')
-    const update = (event?: MediaQueryListEvent) => {
-      setIsCompact(event ? event.matches : mq.matches)
-    }
-    update()
-    mq.addEventListener('change', update)
-    return () => mq.removeEventListener('change', update)
-  }, [])
-  useEffect(() => {
-    if (!mounted) return
-    if (isCompact && vc.viewMode === 'split') {
-      vc.setViewMode('preview')
-    }
-  }, [isCompact, vc, vc.viewMode, mounted])
   // Dropped save-status pill and compatibility props
 
   const effectiveViewMode = headerViewMode
-  const changeView = useCallback((mode: 'editor' | 'split' | 'preview') => {
-    if (mode === 'split' && isCompact) {
-      vc.setViewMode('preview')
-      return
-    }
-    vc.setViewMode(mode)
-  }, [isCompact, vc])
+  const changeView = useCallback(
+    (mode: ViewMode) => {
+      const nextMode = mode === 'split' && isCompact ? 'preview' : mode
+      setHeaderViewMode(nextMode)
+      const focusedDocumentId = focusedDocumentIdRef.current
+      if (focusedDocumentId) {
+        dispatchMosaicSetViewMode(focusedDocumentId, nextMode)
+        return
+      }
+      vc.setViewMode(nextMode)
+    },
+    [isCompact, vc],
+  )
   const shareHandler = () => {
     if (!rt.documentId) return
     setShareOpen(true)
@@ -207,11 +285,38 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     void signOut()
   }, [signOut])
   const handleBacklinksClick = useCallback(() => {
-    if (!isCompact) {
+    const focusedDocumentId = focusedDocumentIdRef.current
+    if (!focusedDocumentId) return
+    dispatchOpenBacklinksTile(focusedDocumentId)
+  }, [])
+
+  useShortcut(
+    'view.mode.editor',
+    useCallback(() => {
+      changeView('editor')
+    }, [changeView]),
+  )
+
+  useShortcut(
+    'view.mode.preview',
+    useCallback(() => {
+      changeView('preview')
+    }, [changeView]),
+  )
+
+  useShortcut(
+    'view.mode.split',
+    useCallback(() => {
       changeView('split')
-    }
-    vc.toggleBacklinks()
-  }, [vc, changeView, isCompact])
+    }, [changeView]),
+  )
+
+  useShortcut(
+    'view.backlinks.toggle',
+    useCallback(() => {
+      handleBacklinksClick()
+    }, [handleBacklinksClick]),
+  )
 
   useEffect(() => {
     if (!rt.documentId && shareOpen) {
@@ -241,6 +346,13 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     },
     [editor],
   )
+
+  useEffect(() => {
+    if (!mounted) return
+    if (isCompact && headerViewMode === 'split') {
+      setHeaderViewMode('preview')
+    }
+  }, [headerViewMode, isCompact, mounted])
 
   const viewModeButtons = useMemo(() => {
     const items: Array<{ mode: 'editor' | 'split' | 'preview'; icon: ReactElement; tooltip: string }> = [
@@ -300,6 +412,16 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         </div>
 
         <div className="flex items-center gap-2">
+          {rt.showEditorFeatures && (
+            <HeaderViewModeControls
+              buttons={viewModeButtons}
+              activeMode={effectiveViewMode}
+              onChange={changeView}
+              showBacklinksButton={Boolean(rt.documentId)}
+              onBacklinksClick={handleBacklinksClick}
+              iconClass={iconClass}
+            />
+          )}
           {textActions.length > 0 && (
             <div className="flex items-center gap-1">
               {textActions.map((action) => (
@@ -313,55 +435,6 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
                   {action.label}
                 </Button>
               ))}
-            </div>
-          )}
-          {rt.showEditorFeatures && (
-            <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-1 py-0.5">
-              {viewModeButtons.map((item, idx) => {
-                const first = idx === 0
-                const last = idx === viewModeButtons.length - 1
-                const isActive = effectiveViewMode === item.mode
-                return (
-                  <Tooltip key={item.mode}>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <Button
-                          onClick={() => changeView(item.mode)}
-                          variant="ghost"
-                          className={cn(
-                            'h-8 rounded-full px-2 text-sm transition-colors',
-                            first && 'pl-3',
-                            last && 'pr-3',
-                            isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted/70',
-                          )}
-                        >
-                          {item.icon}
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{item.tooltip}</TooltipContent>
-                  </Tooltip>
-                )
-              })}
-              {rt.documentId && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        onClick={handleBacklinksClick}
-                        variant="ghost"
-                        className={cn(
-                          'h-8 w-8 rounded-full transition-colors hover:bg-muted/70',
-                          (vc.showBacklinks || false) && 'bg-accent text-accent-foreground',
-                        )}
-                      >
-                        <Link2 className={iconClass} />
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Toggle backlinks</TooltipContent>
-                </Tooltip>
-              )}
             </div>
           )}
 
@@ -422,7 +495,11 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-xl border border-border/50 bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground" />
-              <Button onClick={() => setSearchOpenLocal(true)} variant="ghost" className="grid h-9 w-9 place-items-center rounded-xl border border-border/50 bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+              <Button
+                onClick={() => setSearchOpenLocal(true)}
+                variant="ghost"
+                className="grid h-9 w-9 place-items-center rounded-xl border border-border/50 bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
                 <Search className="h-4 w-4" />
               </Button>
             </div>
@@ -472,10 +549,6 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       <MobileHeaderMenu
         open={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
-        showEditorFeatures={rt.showEditorFeatures}
-        headerViewMode={headerViewMode}
-        changeView={changeView}
-        isCompact={isCompact}
         canShare={canShare}
         onShare={shareHandler}
         onToggleTheme={() => { toggleTheme(); setMobileMenuOpen(false) }}

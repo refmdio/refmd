@@ -13,6 +13,8 @@ type AuthServerContext = {
 
 const REFRESH_COOKIE_NAME = 'refresh_token'
 
+const IS_DEV = process.env.NODE_ENV !== 'production'
+
 const STATIC_EXTENSIONS = new Set([
   '.apng',
   '.avif',
@@ -32,6 +34,7 @@ const STATIC_EXTENSIONS = new Set([
   '.webmanifest',
   '.webp',
   '.wasm',
+  ...(IS_DEV ? ['.ts', '.tsx'] : []),
 ])
 
 const PUBLIC_PATHS = new Set([
@@ -40,7 +43,14 @@ const PUBLIC_PATHS = new Set([
   '/robots.txt',
 ])
 
-const PUBLIC_PREFIXES = ['/_', '/api', '/u/', '/w/', '/assets']
+const PUBLIC_PREFIXES = [
+  '/_',
+  '/api',
+  '/u/',
+  '/w/',
+  '/assets',
+  ...(IS_DEV ? ['/@', '/__vite', '/node_modules', '/src'] : []),
+]
 const AUTH_REQUEST_TIMEOUT_MS = 5000
 const AUTH_DEFER_WINDOW_MS = 30_000
 

@@ -31,6 +31,7 @@ import { toast } from 'sonner'
 
 import type { GitPullConflictItem } from '@/shared/api'
 import useInView from '@/shared/hooks/use-in-view'
+import { dispatchOpenPreviewTile } from '@/shared/lib/mosaic-events'
 import { overlayMenuClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -68,7 +69,6 @@ type FileNodeProps = {
   onDrop: (e: React.DragEvent, id: string, type: 'file' | 'folder', parentId?: string) => void
   onDragOver: (e: React.DragEvent, nodeId?: string, nodeType?: 'file' | 'folder') => void
   pluginRules?: FileTreeRule[]
-  onOpenSecondaryViewer?: (id: string, type?: 'document' | 'scrap') => void
   gitEnabled?: boolean
   conflict?: GitPullConflictItem | null
 }
@@ -92,7 +92,6 @@ export const FileNode = memo(function FileNode({
   onDrop,
   onDragOver,
   pluginRules,
-  onOpenSecondaryViewer,
   gitEnabled = false,
   conflict = null,
 }: FileNodeProps) {
@@ -183,7 +182,15 @@ export const FileNode = memo(function FileNode({
       setDuplicatePending(false)
     }
   }, [isShareMount, node, onDuplicate])
-  const handleSelect = useCallback(() => { onSelect(node) }, [node, onSelect])
+  const handleSelect = useCallback((event?: React.MouseEvent) => {
+    if (event && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      event.stopPropagation()
+      dispatchOpenPreviewTile(node.id)
+      return
+    }
+    onSelect(node)
+  }, [node, onSelect])
   const handleOpenConflictResolver = useCallback(() => {
     router.navigate({
       to: '/document/$id',
@@ -508,9 +515,9 @@ export const FileNode = memo(function FileNode({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
-                  onSelect={(event) => guardMenuAction(event, () => onOpenSecondaryViewer?.(node.id, 'document'))}
+                  onSelect={(event) => guardMenuAction(event, () => dispatchOpenPreviewTile(node.id))}
                 >
-                  <FileText className="h-4 w-4 mr-2" />Open in Secondary Viewer
+                  <Blocks className="h-4 w-4 mr-2" />Open in Tile
                 </DropdownMenuItem>
                 {hasConflict && !isShareMount && (
                   <DropdownMenuItem

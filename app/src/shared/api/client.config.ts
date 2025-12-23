@@ -1,5 +1,3 @@
-import { getGlobalStartContext } from '@tanstack/start-client-core'
-
 import { API_BASE_URL, getEnv } from '@/shared/lib/config'
 
 import { OpenAPI } from './client'
@@ -57,9 +55,10 @@ export function getClientWorkspaceId() {
   return inMemoryWorkspaceId
 }
 
-function resolveSSRRequestHeaders(): Record<string, string> | undefined {
-  if (typeof window !== 'undefined') return undefined
+async function resolveSSRRequestHeaders(): Promise<Record<string, string> | undefined> {
+  if (!import.meta.env.SSR) return undefined
   try {
+    const { getGlobalStartContext } = await import('@tanstack/start-client-core')
     const context = getGlobalStartContext()
     const authContext = (context as { auth?: { requestHeaders?: Record<string, string> } } | undefined)?.auth
     return (
@@ -68,10 +67,6 @@ function resolveSSRRequestHeaders(): Record<string, string> | undefined {
   } catch {
     return undefined
   }
-}
-
-export function getSSRRequestHeaders(): Record<string, string> | undefined {
-  return resolveSSRRequestHeaders()
 }
 
 OpenAPI.HEADERS = async (_options) => {
@@ -86,7 +81,7 @@ OpenAPI.HEADERS = async (_options) => {
     return headers
   }
 
-  const requestHeaders = resolveSSRRequestHeaders()
+  const requestHeaders = await resolveSSRRequestHeaders()
   if (requestHeaders) {
     const cookie = requestHeaders.cookie ?? requestHeaders.Cookie
     if (cookie) {

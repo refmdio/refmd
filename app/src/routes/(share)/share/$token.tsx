@@ -28,7 +28,11 @@ export const Route = createFileRoute('/(share)/share/$token')({
     }
     const root = treeData.find((n: any) => !n.parent_id) ?? treeData[0]
     if (root?.type !== 'folder') {
-      throw redirect({ to: '/document/$id', params: { id: String(root.id) }, search: { token } })
+      throw redirect({
+        to: '/document/$id',
+        params: { id: String(root.id) },
+        search: { token, shareScope: 'document' },
+      })
     }
 
     const idMap = new Map(treeData.map((n: any) => [String(n.id), n]))

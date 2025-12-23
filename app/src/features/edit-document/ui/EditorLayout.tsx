@@ -18,6 +18,7 @@ export type EditorLayoutProps = {
   isMobile: boolean
   view: ViewMode
   extraRight?: ReactNode
+  embedded?: boolean
   toolbar: ReactNode
   toolbarOpen: boolean
   onToolbarOpenChange: (open: boolean) => void
@@ -70,6 +71,7 @@ export function EditorLayout({
   isMobile,
   view,
   extraRight,
+  embedded = false,
   toolbar,
   toolbarOpen,
   onToolbarOpenChange,
@@ -366,16 +368,16 @@ export function EditorLayout({
     <div
       className={cn(
         'flex flex-1 min-w-0 overflow-hidden',
-        isMobile ? 'flex-col min-h-0' : 'gap-6',
+        isMobile ? 'flex-col min-h-0' : (embedded ? 'gap-0' : 'gap-6'),
       )}
     >
       {layoutState.wEditor !== '0%' && (
         <div
           className={cn(
             'relative flex flex-1 min-w-0 flex-col overflow-hidden',
-            !isMobile &&
+            !embedded && !isMobile &&
               'rounded-3xl border border-border/40 bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80',
-            layoutState.isDesktopSingleEditor && 'mx-auto w-full max-w-6xl',
+            !embedded && layoutState.isDesktopSingleEditor && 'mx-auto w-full max-w-6xl',
           )}
           style={
             isMobile
@@ -385,12 +387,12 @@ export function EditorLayout({
         >
           <div
             className={cn(
-                'flex flex-1 min-h-0 flex-col',
+                'flex flex-1 min-h-0 min-w-0 flex-col',
                 !isMobile && 'px-4 pb-6 pt-6 sm:px-6 sm:pb-8 sm:pt-8',
               )}
             >
               {editorBanner ? <div className="mb-3">{editorBanner}</div> : null}
-            <div className="relative flex flex-1 min-h-0">
+            <div className="relative flex flex-1 min-h-0 min-w-0">
               {editorOverlay ? (
                 <div className="pointer-events-auto absolute left-3 right-3 top-3 z-40">
                   {editorOverlay}
@@ -425,9 +427,9 @@ export function EditorLayout({
                   </div>
                 )}
               </div>
-              <div className="flex flex-1 min-h-0">
+              <div className="flex flex-1 min-h-0 min-w-0">
                 {conflictView && conflictView.kind === 'text' ? (
-                  <div className="conflict-diff relative flex-1 overflow-hidden">
+                  <div className="conflict-diff relative flex-1 min-w-0 overflow-hidden">
                     {conflictControls ? <div className="mb-3 px-1">{conflictControls}</div> : null}
                     <div className="h-full">
                       <DiffEditor
@@ -517,9 +519,9 @@ export function EditorLayout({
         <div
           className={cn(
             'relative flex flex-1 min-w-0 flex-col overflow-hidden',
-            !isMobile &&
+            !embedded && !isMobile &&
               'rounded-3xl border border-border/40 bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80',
-            layoutState.isDesktopSinglePreview && 'mx-auto w-full max-w-6xl',
+            !embedded && layoutState.isDesktopSinglePreview && 'mx-auto w-full max-w-6xl',
           )}
           style={
             isMobile
@@ -529,7 +531,7 @@ export function EditorLayout({
         >
           <div
             className={cn(
-              'flex flex-1 min-h-0 flex-col',
+              'flex flex-1 min-h-0 min-w-0 flex-col',
               !isMobile && 'px-4 pb-6 pt-6 sm:px-6 sm:pb-8 sm:pt-8',
             )}
           >
@@ -562,7 +564,7 @@ export function EditorLayout({
         <div
           className={cn(
             'relative flex flex-1 min-w-0 flex-col overflow-hidden',
-            !isMobile &&
+            !embedded && !isMobile &&
               'rounded-3xl border border-border/40 bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80',
           )}
           style={
@@ -573,7 +575,7 @@ export function EditorLayout({
         >
           <div
             className={cn(
-              'flex flex-1 min-h-0 flex-col',
+              'flex flex-1 min-h-0 min-w-0 flex-col',
               !isMobile && 'px-4 pb-6 pt-6 sm:px-6 sm:pb-8 sm:pt-8',
             )}
           >

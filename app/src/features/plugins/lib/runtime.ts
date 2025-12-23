@@ -23,7 +23,7 @@ import {
   mountSplitEditorStage,
   type SplitEditorPreviewDelegate,
   type SplitEditorDocumentApi,
-} from '@/widgets/plugins/SplitEditorHost'
+} from '@/features/plugins/ui/SplitEditorHost'
 
 export type HostMode = 'primary' | 'secondary'
 
