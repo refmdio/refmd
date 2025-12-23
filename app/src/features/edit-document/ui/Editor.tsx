@@ -396,6 +396,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       const mosaicScrollDispose = editor.onDidScrollChange?.(() => {
         const groupId = mosaicGroupIdRef.current
         if (!groupId) return
+        if (!syncScrollRef.current) return
         if (suppressMosaicEmitRef.current) return
         if (mosaicScrollRafRef.current != null) return
         mosaicScrollRafRef.current = window.requestAnimationFrame(() => {
@@ -524,6 +525,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     if (!scrollSyncGroupId) return
     const handler = (event: Event) => {
       try {
+        if (!syncScrollRef.current) return
         const detail = (event as CustomEvent<MosaicScrollSyncDetail>).detail
         if (!detail || detail.source !== 'preview') return
         if (detail.groupId !== scrollSyncGroupId) return
@@ -600,12 +602,13 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       viewMode={view as ViewMode}
       syncScroll={syncScroll}
       onSyncScrollToggle={() => setSyncScroll((s) => !s)}
+      syncScrollAvailable={Boolean(scrollSyncGroupId)}
       isVimMode={isVimMode}
       onVimModeToggle={toggleVim}
       onFileUpload={readOnly ? undefined : handleFileUpload}
       readOnly={readOnly}
     />
-  ), [handleToolbarCommand, view, syncScroll, isVimMode, toggleVim, handleFileUpload, readOnly])
+  ), [handleToolbarCommand, view, syncScroll, scrollSyncGroupId, isVimMode, toggleVim, handleFileUpload, readOnly])
 
   const shortcutToggleSync = useCallback(() => {
     if (!isThisEditorActive()) return

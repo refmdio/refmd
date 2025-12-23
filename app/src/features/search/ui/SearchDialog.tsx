@@ -3,6 +3,8 @@ import { FileText, Hash, Loader2, X } from 'lucide-react'
 import React from 'react'
 
 import { useIsMobile } from '@/shared/hooks/use-mobile'
+import { useShortcut } from '@/shared/hooks/use-shortcut'
+import { dispatchOpenPreviewTile } from '@/shared/lib/mosaic-events'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import {
@@ -82,6 +84,24 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       navigate({ to: '/document/$id', params: { id } })
     },
     [navigate, onOpenChange],
+  )
+
+  const activeDocId = activeItem && activeItem.startsWith('doc-') ? activeItem.replace('doc-', '') : null
+
+  useShortcut(
+    'file-tree.open.tile',
+    React.useCallback(
+      (event) => {
+        if (!open) return
+        if (!activeDocId) return
+        dispatchOpenPreviewTile(activeDocId, 'row')
+        onOpenChange(false)
+        event.preventDefault()
+        event.stopPropagation()
+      },
+      [activeDocId, onOpenChange, open],
+    ),
+    { preventDefault: false },
   )
 
   React.useEffect(() => {
@@ -307,7 +327,6 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
     [forceFocusDocList],
   )
 
-  const activeDocId = activeItem && activeItem.startsWith('doc-') ? activeItem.replace('doc-', '') : null
   const selectedDoc = activeDocId ? visibleDocs.find((doc) => doc.id === activeDocId) : undefined
 
   React.useEffect(() => {
@@ -408,7 +427,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
         <div className="flex flex-col gap-1 border-b border-border/40 bg-transparent px-6 py-4">
           <p className="text-sm font-semibold leading-tight text-foreground">Quick search</p>
           <p className="text-xs text-muted-foreground">
-            Use ↑/↓ to move, Enter to open, #tag for tags, and folder/ to scope by path.
+            Use ↑/↓ to move, Enter to open, Shift+Enter to open in a tile, #tag for tags, and folder/ to scope by path.
           </p>
         </div>
         <div className="flex h-full min-h-0 min-w-0 flex-col md:flex-row">

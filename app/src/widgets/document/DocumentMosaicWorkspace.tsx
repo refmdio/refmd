@@ -1635,6 +1635,9 @@ function DocumentMosaicBody({
 
           const docId = spec.documentId
           const isFocusedDoc = docId === ctx.id
+          const hasPreviewTileForDoc = Object.entries(mosaicState.tiles).some(
+            ([key, tile]) => key !== tileId && tile.documentId === docId && tile.mode === 'preview',
+          )
           const hasEditorTileForDoc = Object.entries(mosaicState.tiles).some(
             ([key, tile]) => key !== tileId && tile.documentId === docId && tile.mode === 'editor',
           )
@@ -1645,7 +1648,7 @@ function DocumentMosaicBody({
                 tileKey={tileId}
                 path={path}
                 documentId={docId}
-                scrollSyncGroupId={spec.syncGroupId ?? null}
+                scrollSyncGroupId={hasPreviewTileForDoc ? (spec.syncGroupId ?? null) : null}
                 isFocusedDocument={isFocusedDoc}
                 ctx={ctx}
                 onSplit={() => splitFromTile(tileId, path)}
@@ -1675,7 +1678,7 @@ function DocumentMosaicBody({
               tileKey={tileId}
               path={path}
               documentId={docId}
-              syncGroupId={spec.syncGroupId ?? null}
+              syncGroupId={hasEditorTileForDoc ? (spec.syncGroupId ?? null) : null}
               isFocusedDocument={isFocusedDoc}
               hasEditorTileForDoc={hasEditorTileForDoc}
               activeCtx={ctx}

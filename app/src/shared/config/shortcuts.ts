@@ -75,9 +75,10 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   {
     id: 'file-tree.open.tile',
     label: 'Open in tile',
-    description: 'Open the selected file tree document as a tile',
+    description: 'Open the current document selection as a tile',
     category: 'Navigation',
     scope: 'global',
+    allowInInputs: true,
     default: {
       mac: [chord('Enter', { shift: true })],
       windows: [chord('Enter', { shift: true })],
