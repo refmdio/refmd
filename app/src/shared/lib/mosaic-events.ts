@@ -3,6 +3,7 @@ export const OPEN_EDITOR_TILE_EVENT = 'refmd:mosaic:open-editor-tile'
 export const OPEN_BACKLINKS_TILE_EVENT = 'refmd:mosaic:open-backlinks-tile'
 export const MOSAIC_SCROLL_SYNC_EVENT = 'refmd:mosaic:scroll-sync'
 export const MOSAIC_SET_VIEW_MODE_EVENT = 'refmd:mosaic:set-view-mode'
+export const MOSAIC_CURRENT_VIEW_MODE_EVENT = 'refmd:mosaic:current-view-mode'
 
 export type OpenPreviewTileDetail = {
   documentId: string
@@ -71,6 +72,22 @@ export function dispatchMosaicSetViewMode(documentId: string, mode: MosaicSetVie
   if (!id) return
   window.dispatchEvent(
     new CustomEvent<MosaicSetViewModeDetail>(MOSAIC_SET_VIEW_MODE_EVENT, {
+      detail: { documentId: id, mode },
+    }),
+  )
+}
+
+export type MosaicCurrentViewModeDetail = {
+  documentId: string
+  mode: 'editor' | 'split' | 'preview'
+}
+
+export function dispatchMosaicCurrentViewMode(documentId: string, mode: MosaicCurrentViewModeDetail['mode']) {
+  if (typeof window === 'undefined') return
+  const id = (documentId || '').trim()
+  if (!id) return
+  window.dispatchEvent(
+    new CustomEvent<MosaicCurrentViewModeDetail>(MOSAIC_CURRENT_VIEW_MODE_EVENT, {
       detail: { documentId: id, mode },
     }),
   )

@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
-import { dispatchMosaicSetViewMode, dispatchOpenBacklinksTile } from '@/shared/lib/mosaic-events'
+import { MOSAIC_CURRENT_VIEW_MODE_EVENT, dispatchMosaicSetViewMode, dispatchOpenBacklinksTile } from '@/shared/lib/mosaic-events'
 import { cn } from '@/shared/lib/utils'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import type { HeaderRealtimeState } from '@/shared/types/header'
@@ -121,6 +121,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const { toggleSidebar } = useSidebar()
   const navigate = useNavigate()
   const focusedDocumentIdRef = useRef<string | undefined>(undefined)
+  const mosaicViewModeRef = useRef<Map<string, ViewMode>>(new Map())
   const [mounted, setMounted] = useState(false)
   const [isCompact, setIsCompact] = useState(false)
   const [headerViewMode, setHeaderViewMode] = useState<'editor' | 'split' | 'preview'>(() => {
@@ -167,6 +168,29 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       setHeaderViewMode(mode)
     }
   }, [rt.documentId, vc.viewMode])
+
+  useEffect(() => {
+    if (!rt.documentId) return
+    const mode = mosaicViewModeRef.current.get(rt.documentId)
+    if (!mode) return
+    setHeaderViewMode(mode)
+  }, [rt.documentId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string; mode?: string }>).detail
+      const documentId = typeof detail?.documentId === 'string' ? detail.documentId.trim() : ''
+      const mode = detail?.mode
+      if (!documentId) return
+      if (mode !== 'editor' && mode !== 'split' && mode !== 'preview') return
+      mosaicViewModeRef.current.set(documentId, mode)
+      if (focusedDocumentIdRef.current !== documentId) return
+      setHeaderViewMode(mode)
+    }
+    window.addEventListener(MOSAIC_CURRENT_VIEW_MODE_EVENT, handler as EventListener)
+    return () => window.removeEventListener(MOSAIC_CURRENT_VIEW_MODE_EVENT, handler as EventListener)
+  }, [])
   useEffect(() => {
     if (typeof window === 'undefined') return
     const mq = window.matchMedia('(max-width: 1024px)')

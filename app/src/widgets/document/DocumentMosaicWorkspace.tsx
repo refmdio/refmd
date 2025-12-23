@@ -27,6 +27,7 @@ import {
   OPEN_PREVIEW_TILE_EVENT,
   MOSAIC_SET_VIEW_MODE_EVENT,
   dispatchMosaicScrollSync,
+  dispatchMosaicCurrentViewMode,
   type MosaicScrollSyncDetail,
 } from '@/shared/lib/mosaic-events'
 
@@ -404,13 +405,30 @@ function balanceLayoutSplits(layout: MosaicNode<TileKey>): MosaicNode<TileKey> {
 function defaultState(activeDocumentId: string): MosaicState {
   const editorKey = makeTileKey()
   const previewKey = makeTileKey()
+  const groupId = makeSyncGroupId()
   return {
     layout: { direction: 'row', first: editorKey, second: previewKey, splitPercentage: 50 },
     tiles: {
-      [editorKey]: { mode: 'editor', documentId: activeDocumentId },
-      [previewKey]: { mode: 'preview', documentId: activeDocumentId },
+      [editorKey]: { mode: 'editor', documentId: activeDocumentId, syncGroupId: groupId },
+      [previewKey]: { mode: 'preview', documentId: activeDocumentId, syncGroupId: groupId },
     },
   }
+}
+
+function deriveDocumentViewMode(documentId: string, tiles: Record<TileKey, TileSpec>): 'editor' | 'split' | 'preview' {
+  const id = documentId.trim()
+  if (!id) return 'editor'
+  let hasEditor = false
+  let hasPreview = false
+  for (const spec of Object.values(tiles)) {
+    if (spec.documentId !== id) continue
+    if (spec.mode === 'editor') hasEditor = true
+    else if (spec.mode === 'preview') hasPreview = true
+    if (hasEditor && hasPreview) return 'split'
+  }
+  if (hasEditor) return 'editor'
+  if (hasPreview) return 'preview'
+  return 'editor'
 }
 
 function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicState {
@@ -441,6 +459,61 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
       nextTiles[leaf] = nextSpec
     }
   }
+
+  // Ensure at least one editor/preview pair per document shares a sync group (migration for older saved layouts).
+  let needsSyncUpdate = false
+  const byDoc = new Map<string, { editors: TileKey[]; previews: TileKey[] }>()
+  for (const leaf of leaves) {
+    const spec = nextTiles[leaf]
+    if (!spec) continue
+    if (spec.mode !== 'editor' && spec.mode !== 'preview') continue
+    const docId = spec.documentId
+    let bucket = byDoc.get(docId)
+    if (!bucket) {
+      bucket = { editors: [], previews: [] }
+      byDoc.set(docId, bucket)
+    }
+    if (spec.mode === 'editor') bucket.editors.push(leaf)
+    else bucket.previews.push(leaf)
+  }
+
+  for (const [, bucket] of byDoc) {
+    if (bucket.editors.length === 0 || bucket.previews.length === 0) continue
+
+    const editorWithGroup = bucket.editors.find((key) => Boolean(nextTiles[key]?.syncGroupId))
+    const previewWithGroup = bucket.previews.find((key) => Boolean(nextTiles[key]?.syncGroupId))
+
+    if (editorWithGroup && !previewWithGroup) {
+      const groupId = nextTiles[editorWithGroup]?.syncGroupId
+      const previewKey = bucket.previews.find((key) => !nextTiles[key]?.syncGroupId)
+      if (groupId && previewKey) {
+        nextTiles[previewKey] = { ...nextTiles[previewKey], syncGroupId: groupId }
+        needsSyncUpdate = true
+      }
+      continue
+    }
+
+    if (!editorWithGroup && previewWithGroup) {
+      const groupId = nextTiles[previewWithGroup]?.syncGroupId
+      const editorKey = bucket.editors.find((key) => !nextTiles[key]?.syncGroupId)
+      if (groupId && editorKey) {
+        nextTiles[editorKey] = { ...nextTiles[editorKey], syncGroupId: groupId }
+        needsSyncUpdate = true
+      }
+      continue
+    }
+
+    if (!editorWithGroup && !previewWithGroup) {
+      const groupId = makeSyncGroupId()
+      const editorKey = bucket.editors[0]
+      const previewKey = bucket.previews[0]
+      if (editorKey && previewKey) {
+        nextTiles[editorKey] = { ...nextTiles[editorKey], syncGroupId: groupId }
+        nextTiles[previewKey] = { ...nextTiles[previewKey], syncGroupId: groupId }
+        needsSyncUpdate = true
+      }
+    }
+  }
   if (leaves.length === 0) {
     return defaultState(activeDocumentId)
   }
@@ -454,7 +527,7 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
           break
         }
       }
-      if (same) return state
+      if (same && !needsSyncUpdate) return state
     }
   }
   return { layout: prunedLayout, tiles: nextTiles }
@@ -516,6 +589,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const latestStateRef = useRef(mosaicState)
   const shareLinkTokenRef = useRef(shareLinkToken)
   const clearSavedLayoutRef = useRef(false)
+  const lastReportedViewModeRef = useRef<{ docId: string; mode: 'editor' | 'split' | 'preview' } | null>(null)
 
   useEffect(() => {
     insertSplitModeRef.current = insertSplitMode
@@ -1074,6 +1148,15 @@ export default function DocumentMosaicWorkspace(props: Props) {
     if (!isSingleDocShare) return
     setMosaicState(defaultState(id))
   }, [id, isSingleDocShare])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mode = deriveDocumentViewMode(id, mosaicState.tiles)
+    const prev = lastReportedViewModeRef.current
+    if (prev && prev.docId === id && prev.mode === mode) return
+    lastReportedViewModeRef.current = { docId: id, mode }
+    dispatchMosaicCurrentViewMode(id, mode)
+  }, [id, mosaicState.tiles])
 
   const setInsertSplitModeWithToast = useCallback(
     (mode: InsertSplitMode) => {
