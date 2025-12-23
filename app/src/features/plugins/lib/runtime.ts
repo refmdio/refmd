@@ -266,6 +266,15 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
           target.innerHTML = '<div class="p-4 text-sm text-muted-foreground">No document selected.</div>'
           return undefined
         }
+        try {
+          window.dispatchEvent(
+            new CustomEvent<{ docId: string }>('refmd:plugin:uses-split-editor', {
+              detail: { docId },
+            }),
+          )
+        } catch {
+          /* noop */
+        }
         return mountSplitEditorStage(target, {
           docId,
           token,

@@ -7,7 +7,6 @@ export type HeaderRealtimeState = {
   documentId?: string
   documentPath?: string
   documentPluginId?: string
-  documentPluginEmbedding?: 'none' | 'preview' | 'full'
   documentStatus?: string
   documentBadge?: string
   documentActions?: DocumentHeaderAction[]

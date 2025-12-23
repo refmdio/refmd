@@ -32,13 +32,13 @@ import {
 } from '@/shared/lib/mosaic-events'
 
 import { fetchDocumentContent, fetchDocumentMeta } from '@/entities/document'
-import { getPluginEmbeddingKind } from '@/entities/plugin/lib/embedding'
 import { browseShare } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
 import { BacklinksPanel } from '@/features/document-backlinks'
 import { EditorOverlay, MarkdownEditor, PreviewPane, useCollaborativeDocument } from '@/features/edit-document'
-import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
+import { mountResolvedPlugin, resolvePluginForDocument, type DocumentPluginMatch } from '@/features/plugins'
+import { mountSplitEditorPreviewStage } from '@/features/plugins/ui/SplitEditorHost'
 
 import DocumentPage, { type DocumentLoaderData, type DocumentPageProps, type DocumentPageRenderContext } from './DocumentPage'
 
@@ -61,6 +61,34 @@ const STORAGE_KEY = 'refmd-document-mosaic-state-v3'
 const FORCE_FLOATING_TOC_MAX_WIDTH_PX = 1024
 const EXPAND_PERCENTAGE = 80
 const UNEXPAND_PERCENTAGE = 50
+const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
+
+function updateParentSplitPercentage(
+  layout: MosaicNode<TileKey> | null,
+  path: MosaicPath,
+  splitPercentage: number,
+): MosaicNode<TileKey> | null {
+  if (!layout) return null
+  if (path.length === 0) {
+    if (!isParent(layout)) return layout
+    const parent = layout as MosaicParent<TileKey>
+    const current = normalizeSplitPercentage((parent as any).splitPercentage)
+    const next = normalizeSplitPercentage(splitPercentage)
+    if (current === next) return layout
+    return { ...parent, splitPercentage: next }
+  }
+  if (!isParent(layout)) return layout
+  const parent = layout as MosaicParent<TileKey>
+  const [head, ...rest] = path
+  if (head === 'first') {
+    const updated = updateParentSplitPercentage(parent.first, rest as MosaicPath, splitPercentage)
+    if (updated === parent.first) return layout
+    return { ...parent, first: updated as any }
+  }
+  const updated = updateParentSplitPercentage(parent.second, rest as MosaicPath, splitPercentage)
+  if (updated === parent.second) return layout
+  return { ...parent, second: updated as any }
+}
 
 function tileControlsToggle(key = 'more') {
   return (
@@ -461,7 +489,7 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
     }
   }
 
-  // Ensure at least one editor/preview pair per document shares a sync group (migration for older saved layouts).
+  // Ensure editor/preview tiles for the same document share a sync group.
   let needsSyncUpdate = false
   const byDoc = new Map<string, { editors: TileKey[]; previews: TileKey[] }>()
   for (const leaf of leaves) {
@@ -481,36 +509,26 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
   for (const [, bucket] of byDoc) {
     if (bucket.editors.length === 0 || bucket.previews.length === 0) continue
 
-    const editorWithGroup = bucket.editors.find((key) => Boolean(nextTiles[key]?.syncGroupId))
-    const previewWithGroup = bucket.previews.find((key) => Boolean(nextTiles[key]?.syncGroupId))
+    const editorGroups = new Set(bucket.editors.map((key) => nextTiles[key]?.syncGroupId).filter(Boolean) as string[])
+    const previewGroups = new Set(bucket.previews.map((key) => nextTiles[key]?.syncGroupId).filter(Boolean) as string[])
 
-    if (editorWithGroup && !previewWithGroup) {
-      const groupId = nextTiles[editorWithGroup]?.syncGroupId
-      const previewKey = bucket.previews.find((key) => !nextTiles[key]?.syncGroupId)
-      if (groupId && previewKey) {
-        nextTiles[previewKey] = { ...nextTiles[previewKey], syncGroupId: groupId }
-        needsSyncUpdate = true
+    let groupId: string | null = null
+    for (const candidate of editorGroups) {
+      if (previewGroups.has(candidate)) {
+        groupId = candidate
+        break
       }
-      continue
     }
-
-    if (!editorWithGroup && previewWithGroup) {
-      const groupId = nextTiles[previewWithGroup]?.syncGroupId
-      const editorKey = bucket.editors.find((key) => !nextTiles[key]?.syncGroupId)
-      if (groupId && editorKey) {
-        nextTiles[editorKey] = { ...nextTiles[editorKey], syncGroupId: groupId }
-        needsSyncUpdate = true
-      }
-      continue
+    if (!groupId) {
+      groupId = editorGroups.values().next().value ?? previewGroups.values().next().value ?? null
     }
+    if (!groupId) groupId = makeSyncGroupId()
 
-    if (!editorWithGroup && !previewWithGroup) {
-      const groupId = makeSyncGroupId()
-      const editorKey = bucket.editors[0]
-      const previewKey = bucket.previews[0]
-      if (editorKey && previewKey) {
-        nextTiles[editorKey] = { ...nextTiles[editorKey], syncGroupId: groupId }
-        nextTiles[previewKey] = { ...nextTiles[previewKey], syncGroupId: groupId }
+    for (const key of [...bucket.editors, ...bucket.previews]) {
+      const spec = nextTiles[key]
+      if (!spec) continue
+      if (spec.syncGroupId !== groupId) {
+        nextTiles[key] = { ...spec, syncGroupId: groupId }
         needsSyncUpdate = true
       }
     }
@@ -568,29 +586,8 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const { id, loaderData, shareToken, shareScope: shareScopeProp, isShareMount = false, conflictMode } = props
   const navigate = useNavigate()
   const shareLinkToken = shareToken && !isShareMount ? shareToken : undefined
-  const activePluginId = typeof loaderData?.createdByPlugin === 'string' ? loaderData.createdByPlugin.trim() : ''
-  const activeEmbeddingKind = getPluginEmbeddingKind(activePluginId)
   const [mosaicState, setMosaicState] = useState<MosaicState>(() => {
-    const raw = shareLinkToken ? defaultState(id) : loadState(id)
-    if (activeEmbeddingKind !== 'full') return raw
-
-    const safe = sanitizeState(raw, id)
-    if (!safe.layout) return safe
-    const entries = Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>
-    const docKeys = entries
-      .filter(([, spec]) => spec.documentId === id && (spec.mode === 'editor' || spec.mode === 'preview'))
-      .map(([key]) => key)
-    if (docKeys.length <= 1) return safe
-
-    const keep = docKeys.find((key) => safe.tiles[key]?.mode === 'editor') ?? docKeys[0] ?? null
-    if (!keep) return safe
-    const nextTiles: Record<TileKey, TileSpec> = { ...safe.tiles }
-    for (const key of docKeys) {
-      if (key === keep) continue
-      delete nextTiles[key]
-    }
-    const nextLayout = pruneLayout(safe.layout, (leaf) => Boolean(nextTiles[leaf]))
-    return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
+    return shareLinkToken ? defaultState(id) : loadState(id)
   })
   const [activeDocumentId, setActiveDocumentId] = useState(id)
   const activeDocumentIdRef = useRef(activeDocumentId)
@@ -598,13 +595,13 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const previousTileKeyRef = useRef<TileKey | null>(null)
   const expandedTileKeyRef = useRef<TileKey | null>(null)
   const [insertSplitMode, setInsertSplitMode] = useState<InsertSplitMode>(() => {
-    if (typeof window === 'undefined') return 'auto'
+    if (typeof window === 'undefined') return 'row'
     try {
       const raw = localStorage.getItem('refmd:mosaic:insert-split-mode')
       if (raw === 'row' || raw === 'column' || raw === 'auto') return raw
-      return 'auto'
+      return 'row'
     } catch {
-      return 'auto'
+      return 'row'
     }
   })
   const insertSplitModeRef = useRef(insertSplitMode)
@@ -614,6 +611,10 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const shareLinkTokenRef = useRef(shareLinkToken)
   const clearSavedLayoutRef = useRef(false)
   const lastReportedViewModeRef = useRef<{ docId: string; mode: 'editor' | 'split' | 'preview' } | null>(null)
+  const lastRouteDocIdRef = useRef<string>(id)
+  const splitCapablePluginDocsRef = useRef<Set<string>>(new Set())
+  const nonSplitPluginSeenAtRef = useRef<Map<string, number>>(new Map())
+  const collapsedNonSplitPluginDocsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     insertSplitModeRef.current = insertSplitMode
@@ -631,6 +632,74 @@ export default function DocumentMosaicWorkspace(props: Props) {
   useEffect(() => {
     latestStateRef.current = mosaicState
   }, [mosaicState])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ docId?: string }>).detail
+      const docId = typeof detail?.docId === 'string' ? detail.docId.trim() : ''
+      if (!docId) return
+      splitCapablePluginDocsRef.current.add(docId)
+    }
+    window.addEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+    return () => window.removeEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+  }, [])
+
+  useEffect(() => {
+    const previous = lastRouteDocIdRef.current
+    lastRouteDocIdRef.current = id
+    if (!previous || previous === id) return
+
+    setMosaicState((prev) => {
+      const safe = sanitizeState(prev, id)
+      const alreadyOpen = Object.values(safe.tiles).some((spec) => spec.documentId === id)
+      if (alreadyOpen) return safe
+
+      let changed = false
+      const nextTiles: Record<TileKey, TileSpec> = { ...safe.tiles }
+      for (const [tileKey, spec] of Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>) {
+        if (spec.documentId !== previous) continue
+        nextTiles[tileKey] = { ...spec, documentId: id }
+        changed = true
+      }
+      if (!changed) return safe
+
+      // If the previous focused document was in split view, reset that pair's divider to 50/50
+      // so the newly opened document starts balanced.
+      let nextLayout = safe.layout
+      const entries = Object.entries(nextTiles) as Array<[TileKey, TileSpec]>
+      const editorKey = entries.find(([, spec]) => spec.documentId === id && spec.mode === 'editor')?.[0] ?? null
+      const previewKey = entries.find(([, spec]) => spec.documentId === id && spec.mode === 'preview')?.[0] ?? null
+      if (editorKey && previewKey && nextLayout) {
+        const editorPath = findPathToTile(nextLayout, editorKey)
+        const previewPath = findPathToTile(nextLayout, previewKey)
+        if (editorPath && previewPath) {
+          const minLength = Math.min(editorPath.length, previewPath.length)
+          let idx = 0
+          while (idx < minLength && editorPath[idx] === previewPath[idx]) idx += 1
+          const lcaPath = editorPath.slice(0, idx) as MosaicPath
+          const lcaNode = ((): MosaicNode<TileKey> | null => {
+            let node: MosaicNode<TileKey> | null = nextLayout
+            for (const step of lcaPath) {
+              if (!node || !isParent(node)) return null
+              node = step === 'first' ? (node as MosaicParent<TileKey>).first : (node as MosaicParent<TileKey>).second
+            }
+            return node
+          })()
+          if (
+            lcaNode &&
+            isParent(lcaNode) &&
+            ((lcaNode as MosaicParent<TileKey>).first === editorKey || (lcaNode as MosaicParent<TileKey>).second === editorKey) &&
+            ((lcaNode as MosaicParent<TileKey>).first === previewKey || (lcaNode as MosaicParent<TileKey>).second === previewKey)
+          ) {
+            nextLayout = updateParentSplitPercentage(nextLayout, lcaPath, 50)
+          }
+        }
+      }
+
+      return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
+    })
+  }, [id, setMosaicState])
 
   const focusTileElement = useCallback((tileKey: TileKey) => {
     if (typeof document === 'undefined') return
@@ -881,13 +950,6 @@ export default function DocumentMosaicWorkspace(props: Props) {
       if (!target) return
       if (isSingleDocShare && target !== id) return
 
-      const resolvedMode =
-        activeEmbeddingKind === 'full' && target === id && mode === 'split'
-          ? 'editor'
-          : mode
-      if (activeEmbeddingKind === 'full' && target === id && mode === 'split') {
-        toast.info('Split view is not available for this plugin document.')
-      }
       if (!canAccessSharedDocument(target)) {
         toast.info('This document is not included in the shared scope.')
         return
@@ -925,7 +987,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
           nextLayout = insertLeafBsp(nextLayout, key, activeTileRef.current?.tileKey, insertSplitMode)
         }
 
-        if (resolvedMode === 'editor') {
+        if (mode === 'editor') {
           const existingEditorKey = editorKeys[0]
           const reusedFromPreviewKey = !existingEditorKey ? previewKeys[0] : undefined
           const editorKey = existingEditorKey ?? reusedFromPreviewKey ?? makeTileKey()
@@ -944,7 +1006,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
             if (key !== editorKey) removeTile(key)
           }
           clearSync(editorKey)
-        } else if (resolvedMode === 'preview') {
+        } else if (mode === 'preview') {
           const existingPreviewKey = previewKeys[0]
           const reusedFromEditorKey = !existingPreviewKey ? editorKeys[0] : undefined
           const previewKey = existingPreviewKey ?? reusedFromEditorKey ?? makeTileKey()
@@ -1032,8 +1094,42 @@ export default function DocumentMosaicWorkspace(props: Props) {
         return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
       })
     },
-    [activeEmbeddingKind, canAccessSharedDocument, id, insertSplitMode, isSingleDocShare],
+    [canAccessSharedDocument, id, insertSplitMode, isSingleDocShare],
   )
+
+  const focusedPluginQuery = useQuery({
+    queryKey: ['plugin-doc-match', id, shareToken ?? null],
+    queryFn: async () => resolvePluginForDocument(id, shareToken ?? null, { source: 'primary' }),
+    staleTime: 60_000,
+    enabled: Boolean(id && !isSingleDocShare),
+  })
+
+  useEffect(() => {
+    const docId = id.trim()
+    if (!docId) return
+    if (isSingleDocShare) return
+    const match = (focusedPluginQuery.data ?? null) as DocumentPluginMatch | null
+    if (!match) return
+
+    const routePath = (match.route || '').split('?')[0] || ''
+    const isNonDocumentRoute = routePath !== `/document/${docId}`
+    if (!isNonDocumentRoute) return
+    if (splitCapablePluginDocsRef.current.has(docId)) return
+
+    const currentMode = deriveDocumentViewMode(docId, mosaicState.tiles)
+    if (currentMode === 'preview') return
+
+    const now = Date.now()
+    const firstSeen = nonSplitPluginSeenAtRef.current.get(docId)
+    if (!firstSeen) {
+      nonSplitPluginSeenAtRef.current.set(docId, now)
+      return
+    }
+    if (now - firstSeen < 400) return
+    if (collapsedNonSplitPluginDocsRef.current.has(docId)) return
+    collapsedNonSplitPluginDocsRef.current.add(docId)
+    applyViewModeForDocument(docId, 'preview')
+  }, [applyViewModeForDocument, focusedPluginQuery.data, id, isSingleDocShare, mosaicState.tiles])
 
   useEffect(() => {
     if (shareLinkToken) return
@@ -1178,37 +1274,8 @@ export default function DocumentMosaicWorkspace(props: Props) {
 
   useEffect(() => {
     if (!isSingleDocShare) return
-    if (activeEmbeddingKind === 'full') {
-      const editorKey = makeTileKey()
-      setMosaicState({ layout: editorKey, tiles: { [editorKey]: { mode: 'editor', documentId: id } } })
-      return
-    }
     setMosaicState(defaultState(id))
-  }, [activeEmbeddingKind, id, isSingleDocShare])
-
-  useEffect(() => {
-    if (activeEmbeddingKind !== 'full') return
-    setMosaicState((prev) => {
-      const safe = sanitizeState(prev, id)
-      if (!safe.layout) return safe
-      const entries = Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>
-      const docKeys = entries
-        .filter(([, spec]) => spec.documentId === id && (spec.mode === 'editor' || spec.mode === 'preview'))
-        .map(([key]) => key)
-      if (docKeys.length <= 1) return safe
-
-      const keep = docKeys.find((key) => safe.tiles[key]?.mode === 'editor') ?? docKeys[0] ?? null
-      if (!keep) return safe
-
-      const nextTiles: Record<TileKey, TileSpec> = { ...safe.tiles }
-      for (const key of docKeys) {
-        if (key === keep) continue
-        delete nextTiles[key]
-      }
-      const nextLayout = pruneLayout(safe.layout, (leaf) => Boolean(nextTiles[leaf]))
-      return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
-    })
-  }, [activeEmbeddingKind, id])
+  }, [id, isSingleDocShare])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1219,19 +1286,9 @@ export default function DocumentMosaicWorkspace(props: Props) {
     dispatchMosaicCurrentViewMode(id, mode)
   }, [id, mosaicState.tiles])
 
-  const setInsertSplitModeWithToast = useCallback(
-    (mode: InsertSplitMode) => {
-      if (insertSplitModeRef.current === mode) return
-      setInsertSplitMode(mode)
-      const label = mode === 'auto' ? 'Auto (BSP)' : mode === 'row' ? 'Horizontal' : 'Vertical'
-      toast.info(`Tile insertion split: ${label}`)
-    },
-    [setInsertSplitMode],
-  )
-
-  useShortcut('tiles.split.direction.auto', () => setInsertSplitModeWithToast('auto'))
-  useShortcut('tiles.split.direction.row', () => setInsertSplitModeWithToast('row'))
-  useShortcut('tiles.split.direction.column', () => setInsertSplitModeWithToast('column'))
+  useShortcut('tiles.split.direction.auto', () => setInsertSplitMode('auto'))
+  useShortcut('tiles.split.direction.row', () => setInsertSplitMode('row'))
+  useShortcut('tiles.split.direction.column', () => setInsertSplitMode('column'))
   useShortcut('tiles.swap.left', () => swapActiveTileByDirection('left'), { preventDefault: true })
   useShortcut('tiles.swap.right', () => swapActiveTileByDirection('right'), { preventDefault: true })
   useShortcut('tiles.swap.up', () => swapActiveTileByDirection('up'), { preventDefault: true })
@@ -1581,7 +1638,93 @@ function useCreatedByPluginId(documentId: string, token?: string | null) {
     return typeof raw === 'string' && raw.trim() ? raw.trim() : ''
   }, [query.data])
 
-  return { pluginId, loading: query.isPending, error: query.isError }
+  const docType = useMemo(() => {
+    const raw = (query.data as any)?.type
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : ''
+  }, [query.data])
+
+  return { pluginId, docType, loading: query.isPending, error: query.isError }
+}
+
+function PluginDocumentTileMount({
+  match,
+  mode,
+  variant = 'full',
+  className,
+}: {
+  match: DocumentPluginMatch
+  mode: 'primary' | 'secondary'
+  variant?: 'full' | 'preview'
+  className?: string
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const mountNodeKey = useMemo(() => {
+    const pluginId = match?.manifest?.id ? String(match.manifest.id) : 'none'
+    return `${pluginId}:${match.docId}:${match.route}:${match.token ?? ''}:${mode}:${variant}`
+  }, [match, mode, variant])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    let dispose: (() => void) | null = null
+    ;(async () => {
+      try {
+        dispose = (await mountResolvedPlugin(
+          match,
+          container,
+          mode,
+          variant === 'preview'
+            ? {
+                tweakHost: (host) => {
+                  if (!host || typeof host !== 'object') return
+                  if (!host.ui || typeof host.ui !== 'object') host.ui = {}
+                  ;(host.ui as any).mountSplitEditor = (target: Element, options?: any) => {
+                    if (typeof window === 'undefined') return undefined
+                    if (!target) return undefined
+                    const el = target as HTMLElement
+                    const previewDelegate = options?.preview?.delegate
+                    const onDocumentReady = options?.document?.onReady
+                    const nextDocId = options?.docId ?? host?.context?.docId ?? null
+                    const nextToken = options?.token ?? host?.context?.token ?? null
+                    if (typeof nextDocId === 'string' && nextDocId.trim()) {
+                      try {
+                        window.dispatchEvent(
+                          new CustomEvent<{ docId: string }>(PLUGIN_USES_SPLIT_EDITOR_EVENT, {
+                            detail: { docId: nextDocId.trim() },
+                          }),
+                        )
+                      } catch {
+                        /* noop */
+                      }
+                    }
+                    return mountSplitEditorPreviewStage(el, {
+                      docId: nextDocId,
+                      token: nextToken,
+                      host,
+                      previewDelegate,
+                      onDocumentReady,
+                    })
+                  }
+                },
+              }
+            : {},
+        )) as any
+      } catch (err) {
+        console.error('[plugins] failed to mount plugin in tile', err)
+      }
+    })()
+    return () => {
+      try {
+        dispose?.()
+      } catch {}
+    }
+  }, [match, mode, mountNodeKey])
+
+  return (
+    <div className={className ?? 'h-full w-full overflow-auto'}>
+      <div key={mountNodeKey} ref={containerRef} className="h-full w-full" />
+    </div>
+  )
 }
 
 function DocumentMosaicBody({
@@ -1731,7 +1874,6 @@ function DocumentMosaicBody({
               documentId={docId}
               syncGroupId={hasEditorTileForDoc ? (spec.syncGroupId ?? null) : null}
               isFocusedDocument={isFocusedDoc}
-              hasEditorTileForDoc={hasEditorTileForDoc}
               activeCtx={ctx}
               addPreviewTile={addPreviewTile}
               onSplit={() => splitFromTile(tileId, path)}
@@ -1753,7 +1895,6 @@ function MosaicPreviewTile({
   documentId,
   syncGroupId,
   isFocusedDocument,
-  hasEditorTileForDoc,
   activeCtx,
   addPreviewTile,
   onSplit,
@@ -1767,7 +1908,6 @@ function MosaicPreviewTile({
   documentId: string
   syncGroupId?: string | null
   isFocusedDocument: boolean
-  hasEditorTileForDoc: boolean
   activeCtx: DocumentPageRenderContext
   addPreviewTile: (documentId: string) => void
   onSplit: () => void
@@ -1801,13 +1941,21 @@ function MosaicPreviewTile({
   const pluginLookup = useCreatedByPluginId(documentId, activeCtx.shareToken ?? null)
   const pluginId =
     (typeof pluginHint === 'string' && pluginHint.trim() ? pluginHint.trim() : pluginLookup.pluginId) || ''
-  const embeddingKind = getPluginEmbeddingKind(pluginId)
-  const allowSplitControls = embeddingKind !== 'full'
-  const shouldMountPlugin =
-    embeddingKind === 'preview' || (embeddingKind === 'full' && !hasEditorTileForDoc)
-  const previewMode: 'markdown' | 'plugin' = shouldMountPlugin ? 'plugin' : 'markdown'
-  const isMarkdownPreview = previewMode === 'markdown'
-  const pluginTileMode = isFocusedDocument ? 'primary' : 'secondary'
+  const docType = pluginLookup.docType || ''
+  const shouldTryPlugin = Boolean(pluginId || (docType && docType !== 'document'))
+  const pluginTileMode = isFocusedDocument ? ('primary' as const) : ('secondary' as const)
+
+  const pluginQuery = useQuery({
+    queryKey: ['plugin-doc-match', documentId, activeCtx.shareToken ?? null],
+    queryFn: async () => resolvePluginForDocument(documentId, activeCtx.shareToken ?? null, { source: pluginTileMode }),
+    staleTime: 60_000,
+    enabled: Boolean(documentId && shouldTryPlugin),
+  })
+
+  const pluginMatch = (pluginQuery.data ?? null) as DocumentPluginMatch | null
+  const shouldMountPlugin = Boolean(pluginMatch)
+  const allowSplitControls = !isSingleDocShare
+  const isMarkdownPreview = !shouldMountPlugin
 
   const useLiveContent = Boolean(
     isMarkdownPreview &&
@@ -1901,15 +2049,19 @@ function MosaicPreviewTile({
             </button>,
           ]
         : []),
-      <button
-        key="mode"
-        type="button"
-        className="mosaic-default-control"
-        onClick={onSwitchToEditor}
-        aria-label="Open editor tile"
-      >
-        <FileCode className="h-4 w-4" aria-hidden="true" />
-      </button>,
+      ...(allowSplitControls
+        ? [
+            <button
+              key="mode"
+              type="button"
+              className="mosaic-default-control"
+              onClick={onSwitchToEditor}
+              aria-label="Open editor tile"
+            >
+              <FileCode className="h-4 w-4" aria-hidden="true" />
+            </button>,
+          ]
+        : []),
       <Separator key="sep" />,
       <button
         key="expand"
@@ -1937,13 +2089,11 @@ function MosaicPreviewTile({
         onPointerDownCapture={onActivate}
         onFocusCapture={onActivate}
       >
-        {previewMode === 'plugin' ? (
-          <PluginDocumentMount
-            docId={documentId}
-            token={shareToken}
-            pluginIdHint={pluginId}
-            variant={embeddingKind === 'preview' ? 'preview' : 'full'}
+        {shouldMountPlugin && pluginMatch ? (
+          <PluginDocumentTileMount
+            match={pluginMatch}
             mode={pluginTileMode}
+            variant="preview"
             className="h-full w-full overflow-auto"
           />
         ) : (
@@ -2094,13 +2244,6 @@ function EditorTile({
   isSingleDocShare: boolean
   onActivate?: () => void
 }) {
-  const pluginHint = isFocusedDocument ? ctx.loaderData?.createdByPlugin ?? null : null
-  const pluginLookup = useCreatedByPluginId(documentId, ctx.shareToken ?? null)
-  const pluginId = (typeof pluginHint === 'string' && pluginHint.trim() ? pluginHint.trim() : pluginLookup.pluginId) || ''
-  const embeddingKind = getPluginEmbeddingKind(pluginId)
-  const shouldMountPlugin = embeddingKind === 'full'
-  const allowSplitControls = !shouldMountPlugin
-
   return (
     <MosaicWindow<TileKey>
       path={path}
@@ -2109,19 +2252,15 @@ function EditorTile({
         isSingleDocShare
           ? []
           : [
-              ...(allowSplitControls
-                ? [
-                    <button
-                      key="split"
-                      type="button"
-                      className="mosaic-default-control"
-                      onClick={onSplit}
-                      aria-label="Split: add preview tile"
-                    >
-                      <Columns2 className="h-4 w-4" aria-hidden="true" />
-                    </button>,
-                  ]
-                : []),
+              <button
+                key="split"
+                type="button"
+                className="mosaic-default-control"
+                onClick={onSplit}
+                aria-label="Split: add preview tile"
+              >
+                <Columns2 className="h-4 w-4" aria-hidden="true" />
+              </button>,
               <button
                 key="mode"
                 type="button"
@@ -2143,7 +2282,7 @@ function EditorTile({
               tileControlsToggle(),
             ]
       }
-    >
+      >
       <div
         className="h-full w-full min-h-0 min-w-0"
         tabIndex={-1}
@@ -2151,26 +2290,15 @@ function EditorTile({
         onPointerDownCapture={onActivate}
         onFocusCapture={onActivate}
       >
-        {shouldMountPlugin ? (
-          <PluginDocumentMount
-            docId={documentId}
-            token={ctx.shareToken}
-            pluginIdHint={pluginId}
-            variant="full"
-            mode={isFocusedDocument ? 'primary' : 'secondary'}
-            className="h-full w-full overflow-auto"
+        <div className="refmd-mosaic-panel">
+          <MarkdownEditorTileBody
+            tileKey={tileKey}
+            documentId={documentId}
+            scrollSyncGroupId={scrollSyncGroupId}
+            isFocusedDocument={isFocusedDocument}
+            ctx={ctx}
           />
-        ) : (
-          <div className="refmd-mosaic-panel">
-            <MarkdownEditorTileBody
-              tileKey={tileKey}
-              documentId={documentId}
-              scrollSyncGroupId={scrollSyncGroupId}
-              isFocusedDocument={isFocusedDocument}
-              ctx={ctx}
-            />
-          </div>
-        )}
+        </div>
       </div>
     </MosaicWindow>
   )

@@ -40,7 +40,6 @@ const defaultRealtimeState: HeaderRealtimeState = {
   documentId: undefined,
   documentPath: undefined,
   documentPluginId: undefined,
-  documentPluginEmbedding: 'none',
   documentStatus: undefined,
   documentBadge: undefined,
   documentActions: [],
@@ -49,6 +48,8 @@ const defaultRealtimeState: HeaderRealtimeState = {
 
 type ViewMode = 'editor' | 'split' | 'preview'
 type ViewModeButtonItem = { mode: ViewMode; icon: ReactElement; tooltip: string }
+
+const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
 
 const HeaderViewModeControls = memo(function HeaderViewModeControls({
   buttons,
@@ -134,6 +135,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const [searchPresetTag, setSearchPresetTag] = useState<string | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [splitCapablePluginDocs, setSplitCapablePluginDocs] = useState<Set<string>>(() => new Set())
   const documentBadge = rt.documentBadge
   const documentStatus = rt.documentStatus
   const documentActions = rt.documentActions ?? []
@@ -161,6 +163,23 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const canShare = Boolean(rt.documentId)
   focusedDocumentIdRef.current = rt.documentId
   const iconClass = 'h-[18px] w-[18px]'
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ docId?: string }>).detail
+      const docId = typeof detail?.docId === 'string' ? detail.docId.trim() : ''
+      if (!docId) return
+      setSplitCapablePluginDocs((prev) => {
+        if (prev.has(docId)) return prev
+        const next = new Set(prev)
+        next.add(docId)
+        return next
+      })
+    }
+    window.addEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+    return () => window.removeEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+  }, [])
 
   useEffect(() => { setMounted(true) }, [])
   useEffect(() => {
@@ -290,9 +309,12 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   // Dropped save-status pill and compatibility props
 
   const effectiveViewMode = headerViewMode
+  const isPluginDocument = Boolean(rt.documentPluginId && rt.documentPluginId.trim().length > 0)
+  const pluginSupportsViewModes = !isPluginDocument || (rt.documentId ? splitCapablePluginDocs.has(rt.documentId) : false)
   const changeView = useCallback(
     (mode: ViewMode) => {
-      const nextMode = mode === 'split' && isCompact ? 'preview' : mode
+      const normalized = !pluginSupportsViewModes ? 'editor' : mode
+      const nextMode = normalized === 'split' && isCompact ? 'preview' : normalized
       setHeaderViewMode(nextMode)
       const focusedDocumentId = focusedDocumentIdRef.current
       if (focusedDocumentId) {
@@ -301,7 +323,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       }
       vc.setViewMode(nextMode)
     },
-    [isCompact, vc],
+    [isCompact, pluginSupportsViewModes, vc],
   )
   const shareHandler = () => {
     if (!rt.documentId) return
@@ -381,24 +403,21 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   }, [headerViewMode, isCompact, mounted])
 
   const viewModeButtons = useMemo(() => {
-    const pluginEmbedding = rt.documentPluginEmbedding ?? 'none'
-    const supportsSplit = pluginEmbedding !== 'full'
-    const supportsPreview = pluginEmbedding !== 'full'
     const items: Array<{ mode: 'editor' | 'split' | 'preview'; icon: ReactElement; tooltip: string }> = [
       {
         mode: 'editor',
         icon: <FileCode className={iconClass} />,
-        tooltip: pluginEmbedding === 'full' ? 'Document view' : 'Editor only',
+        tooltip: 'Editor only',
       },
     ]
-    if (!isCompact && supportsSplit) {
+    if (!isCompact && pluginSupportsViewModes) {
       items.push({ mode: 'split', icon: <Columns className={iconClass} />, tooltip: 'Split view' })
     }
-    if (supportsPreview) {
+    if (pluginSupportsViewModes) {
       items.push({ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' })
     }
     return items
-  }, [iconClass, isCompact, rt.documentPluginEmbedding])
+  }, [iconClass, isCompact, pluginSupportsViewModes])
 
   const desktopToolbar = (
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex justify-center px-4 sm:px-5 md:px-6">

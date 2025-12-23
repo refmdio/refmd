@@ -188,7 +188,7 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   },
   {
     id: 'tiles.split.direction.row',
-    label: 'Tile insertion split: Horizontal',
+    label: 'Tile insertion split: Left/Right',
     description: 'When opening a document in a new tile, split left/right only',
     category: 'View',
     scope: 'view',
@@ -199,8 +199,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   },
   {
     id: 'tiles.split.direction.column',
-    label: 'Tile insertion split: Vertical',
-    description: 'When opening a document in a new tile, split up/down only',
+    label: 'Tile insertion split: Top/Bottom',
+    description: 'When opening a document in a new tile, split top/bottom only',
     category: 'View',
     scope: 'view',
     default: {

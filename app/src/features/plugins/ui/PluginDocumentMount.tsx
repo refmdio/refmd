@@ -9,6 +9,8 @@ import { mountSplitEditorPreviewStage } from '@/features/plugins/ui/SplitEditorH
 
 import { mountResolvedPlugin, resolvePluginForDocumentById } from '../lib/resolution'
 
+const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
+
 export type PluginMountVariant = 'full' | 'preview'
 
 export function PluginDocumentMount({
@@ -88,6 +90,17 @@ export function PluginDocumentMount({
                     const onDocumentReady = options?.document?.onReady
                     const nextDocId = options?.docId ?? host?.context?.docId ?? null
                     const nextToken = options?.token ?? host?.context?.token ?? null
+                    if (typeof nextDocId === 'string' && nextDocId.trim()) {
+                      try {
+                        window.dispatchEvent(
+                          new CustomEvent<{ docId: string }>(PLUGIN_USES_SPLIT_EDITOR_EVENT, {
+                            detail: { docId: nextDocId.trim() },
+                          }),
+                        )
+                      } catch {
+                        /* noop */
+                      }
+                    }
                     return mountSplitEditorPreviewStage(el, {
                       docId: nextDocId,
                       token: nextToken,

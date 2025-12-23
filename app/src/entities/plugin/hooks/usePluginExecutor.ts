@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 
 import { API_BASE_URL } from '@/shared/lib/config'
 
-import { execPluginAction } from '../api'
+import { execPluginAction, getPluginKv } from '../api'
 import type { PluginManifestItem } from '../api'
 
 type Options = {
@@ -133,10 +133,37 @@ export function usePluginExecutor({
 
   const resolveDocRoute = useCallback(
     async (docId: string) => {
+      const ordered = [
+        ...plugins.filter((p) => (p as any)?.scope === 'user'),
+        ...plugins.filter((p) => (p as any)?.scope !== 'user'),
+      ]
+      for (const plugin of ordered) {
+        try {
+          const mod = await importPluginModule(plugin.id)
+          if (mod && typeof mod.canOpen === 'function') {
+            const host = {
+              origin: apiOrigin,
+              api: {
+                getKv: (pluginId: string, docId2: string, key: string, token?: string) =>
+                  getPluginKv(pluginId, docId2, key, token),
+              },
+            }
+            const canOpen = await mod.canOpen(docId, { token: shareToken, origin: apiOrigin, host })
+            if (canOpen && typeof mod.getRoute === 'function') {
+              const route = await mod.getRoute(docId, { token: shareToken, origin: apiOrigin, host })
+              if (typeof route === 'string' && route) {
+                return withShareToken(route)
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[plugins] resolveDocRoute failed', plugin.id, err)
+        }
+      }
       const suffix = shareToken ? `?token=${encodeURIComponent(shareToken)}` : ''
       return withShareToken(`/document/${docId}${suffix}`)
     },
-    [shareToken, withShareToken],
+    [apiOrigin, importPluginModule, plugins, shareToken, withShareToken],
   )
 
   const runPluginCommand = useCallback(
