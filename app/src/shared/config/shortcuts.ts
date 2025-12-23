@@ -164,28 +164,6 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
-    id: 'view.document.focus.next',
-    label: 'Focus next document',
-    description: 'Move focus to the next open document in the tile layout',
-    category: 'View',
-    scope: 'view',
-    default: {
-      mac: [chord('ArrowRight', { ctrl: true, alt: true })],
-      windows: [chord('ArrowRight', { ctrl: true, alt: true })],
-    },
-  },
-  {
-    id: 'view.document.focus.prev',
-    label: 'Focus previous document',
-    description: 'Move focus to the previous open document in the tile layout',
-    category: 'View',
-    scope: 'view',
-    default: {
-      mac: [chord('ArrowLeft', { ctrl: true, alt: true })],
-      windows: [chord('ArrowLeft', { ctrl: true, alt: true })],
-    },
-  },
-  {
     id: 'tiles.split.direction.auto',
     label: 'Tile insertion split: Auto',
     description: 'When opening a document in a new tile, choose split direction automatically',
@@ -203,8 +181,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     category: 'View',
     scope: 'view',
     default: {
-      mac: [chord('h', { meta: true, alt: true, shift: true })],
-      windows: [chord('h', { ctrl: true, alt: true, shift: true })],
+      mac: [chord('r', { meta: true, alt: true, shift: true })],
+      windows: [chord('r', { ctrl: true, alt: true, shift: true })],
     },
   },
   {
@@ -214,8 +192,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     category: 'View',
     scope: 'view',
     default: {
-      mac: [chord('j', { meta: true, alt: true, shift: true })],
-      windows: [chord('j', { ctrl: true, alt: true, shift: true })],
+      mac: [chord('c', { meta: true, alt: true, shift: true })],
+      windows: [chord('c', { ctrl: true, alt: true, shift: true })],
     },
   },
   {
@@ -271,6 +249,116 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     default: {
       mac: [chord('w', { meta: true, alt: true, shift: true })],
       windows: [chord('w', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.focus.left',
+    label: 'Focus tile left',
+    description: 'Move focus to the tile to the left',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowLeft', { ctrl: true, alt: true })],
+      windows: [chord('ArrowLeft', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.focus.right',
+    label: 'Focus tile right',
+    description: 'Move focus to the tile to the right',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowRight', { ctrl: true, alt: true })],
+      windows: [chord('ArrowRight', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.focus.up',
+    label: 'Focus tile up',
+    description: 'Move focus to the tile above',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowUp', { ctrl: true, alt: true })],
+      windows: [chord('ArrowUp', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.focus.down',
+    label: 'Focus tile down',
+    description: 'Move focus to the tile below',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowDown', { ctrl: true, alt: true })],
+      windows: [chord('ArrowDown', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.toggle.expand',
+    label: 'Toggle tile expand',
+    description: 'Expand the active tile or restore it',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('Enter', { meta: true, alt: true })],
+      windows: [chord('Enter', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.balance',
+    label: 'Balance tile sizes',
+    description: 'Equalize the tile sizes in the current layout',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('Enter', { meta: true, alt: true, shift: true })],
+      windows: [chord('Enter', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.close.active',
+    label: 'Close active tile',
+    description: 'Close the active tile',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('Backspace', { meta: true, alt: true })],
+      windows: [chord('Backspace', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.close.others',
+    label: 'Close other tiles',
+    description: 'Close all tiles except the active one',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('o', { meta: true, alt: true })],
+      windows: [chord('o', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.open.editor',
+    label: 'Open editor tile',
+    description: 'Open an editor tile for the focused document',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('e', { meta: true, alt: true })],
+      windows: [chord('e', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.open.preview',
+    label: 'Open preview tile',
+    description: 'Open a preview tile for the focused document',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('v', { meta: true, alt: true })],
+      windows: [chord('v', { ctrl: true, alt: true })],
     },
   },
   {

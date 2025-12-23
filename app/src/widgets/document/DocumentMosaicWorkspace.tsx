@@ -379,6 +379,28 @@ function pruneLayout(
   return { ...parent, first, second }
 }
 
+function balanceLayoutSplits(layout: MosaicNode<TileKey>): MosaicNode<TileKey> {
+  const equalize = (node: MosaicNode<TileKey>): { node: MosaicNode<TileKey>; leafCount: number } => {
+    if (!isParent(node)) return { node, leafCount: 1 }
+    const parent = node as MosaicParent<TileKey>
+    const first = equalize(parent.first)
+    const second = equalize(parent.second)
+    const total = first.leafCount + second.leafCount
+    const nextSplit = total > 0 ? (first.leafCount / total) * 100 : 50
+    const currentSplit = normalizeSplitPercentage((parent as any).splitPercentage)
+    const normalizedNext = normalizeSplitPercentage(nextSplit)
+    const epsilon = 1e-6
+    const sameSplit = Math.abs(currentSplit - normalizedNext) < epsilon
+    const nextNode =
+      first.node === parent.first && second.node === parent.second && sameSplit
+        ? node
+        : { ...parent, first: first.node, second: second.node, splitPercentage: normalizedNext }
+    return { node: nextNode, leafCount: total }
+  }
+
+  return equalize(layout).node
+}
+
 function defaultState(activeDocumentId: string): MosaicState {
   const editorKey = makeTileKey()
   const previewKey = makeTileKey()
@@ -477,6 +499,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const activeDocumentIdRef = useRef(activeDocumentId)
   const activeTileRef = useRef<{ tileKey: TileKey; documentId: string; mode: TileMode } | null>(null)
   const previousTileKeyRef = useRef<TileKey | null>(null)
+  const expandedTileKeyRef = useRef<TileKey | null>(null)
   const [insertSplitMode, setInsertSplitMode] = useState<InsertSplitMode>(() => {
     if (typeof window === 'undefined') return 'auto'
     try {
@@ -584,7 +607,30 @@ export default function DocumentMosaicWorkspace(props: Props) {
   useEffect(() => {
     setActiveDocumentId(id)
     activeDocumentIdRef.current = id
-    activeTileRef.current = null
+
+    const safe = sanitizeState(latestStateRef.current, id)
+    const existingTileKey = activeTileRef.current?.tileKey ?? null
+    const existingSpec = existingTileKey ? safe.tiles[existingTileKey] : undefined
+    if (existingTileKey && existingSpec?.documentId === id) {
+      activeTileRef.current = { tileKey: existingTileKey, documentId: id, mode: existingSpec.mode }
+      return
+    }
+
+    const leaves = getLeavesSafe(safe.layout)
+    const candidates: Array<{ key: TileKey; spec: TileSpec }> = []
+    for (const key of leaves) {
+      const spec = safe.tiles[key]
+      if (!spec) continue
+      if (spec.documentId !== id) continue
+      candidates.push({ key, spec })
+    }
+    if (candidates.length === 0) return
+
+    const modeRank: Record<TileMode, number> = { editor: 0, preview: 1, backlinks: 2 }
+    candidates.sort((a, b) => (modeRank[a.spec.mode] ?? 9) - (modeRank[b.spec.mode] ?? 9))
+    const picked = candidates[0]
+    if (!picked) return
+    activeTileRef.current = { tileKey: picked.key, documentId: id, mode: picked.spec.mode }
   }, [id])
 
   useEffect(() => {
@@ -713,52 +759,6 @@ export default function DocumentMosaicWorkspace(props: Props) {
       })
     },
     [id],
-  )
-
-  const focusAdjacentDocument = useCallback(
-    (direction: -1 | 1) => {
-      const safe = sanitizeState(latestStateRef.current, id)
-      const leaves = getLeavesSafe(safe.layout)
-      if (leaves.length === 0) return
-
-      const orderedDocs: string[] = []
-      const docToTiles = new Map<string, TileKey[]>()
-
-      for (const tileKey of leaves) {
-        const spec = safe.tiles[tileKey]
-        if (!spec) continue
-        const docId = spec.documentId
-        if (!docId) continue
-        if (!docToTiles.has(docId)) {
-          docToTiles.set(docId, [])
-          orderedDocs.push(docId)
-        }
-        docToTiles.get(docId)!.push(tileKey)
-      }
-
-      if (orderedDocs.length === 0) return
-      const current = activeDocumentIdRef.current || id
-      const currentIndex = orderedDocs.indexOf(current)
-      const startIndex = currentIndex >= 0 ? currentIndex : 0
-      const nextIndex = (startIndex + direction + orderedDocs.length) % orderedDocs.length
-      const nextDocId = orderedDocs[nextIndex]
-
-      const tilesForDoc = docToTiles.get(nextDocId) ?? []
-      if (tilesForDoc.length === 0) return
-
-      const pickPreferredTile = () => {
-        const active = activeTileRef.current
-        if (active && active.documentId === nextDocId) return active.tileKey
-        const findByMode = (mode: TileMode) => tilesForDoc.find((k) => safe.tiles[k]?.mode === mode)
-        return findByMode('editor') ?? findByMode('preview') ?? findByMode('backlinks') ?? tilesForDoc[0]
-      }
-
-      const tileKey = pickPreferredTile()
-      const mode = safe.tiles[tileKey]?.mode ?? 'preview'
-      markActiveDocument(nextDocId, tileKey, mode)
-      focusTileElement(tileKey)
-    },
-    [focusTileElement, id, markActiveDocument],
   )
 
   useEffect(() => {
@@ -977,13 +977,99 @@ export default function DocumentMosaicWorkspace(props: Props) {
     navigate({ to: '/dashboard', replace: true })
   }, [navigate])
 
+  const toggleExpandTile = useCallback(
+    (tileKey: TileKey) => {
+      if (typeof window === 'undefined') return
+      setMosaicState((prev) => {
+        const safe = sanitizeState(prev, id)
+        const layout = safe.layout
+        if (!layout) return safe
+        const path = findPathToTile(layout, tileKey)
+        if (!path) return safe
+
+        const isExpanded = expandedTileKeyRef.current === tileKey
+        const percentage = isExpanded ? UNEXPAND_PERCENTAGE : EXPAND_PERCENTAGE
+        expandedTileKeyRef.current = isExpanded ? null : tileKey
+
+        const nextLayout = updateTree(layout, [createExpandUpdate<TileKey>(path, percentage)])
+        return sanitizeState({ ...safe, layout: nextLayout }, id)
+      })
+    },
+    [id],
+  )
+
+  const focusActiveTileByDirection = useCallback(
+    (direction: SwapDirection) => {
+      const safe = sanitizeState(latestStateRef.current, id)
+      const active = activeTileRef.current?.tileKey ?? null
+      const layout = safe.layout
+      if (!active || !layout) return
+      const panes: BspLeafPane[] = []
+      collectLeafPanes(layout, getRootRect(), [] as MosaicPath, panes)
+      const neighbor = pickNeighborLeaf(panes, active, direction)
+      if (!neighbor) return
+      const spec = safe.tiles[neighbor]
+      if (!spec) return
+      markActiveDocument(spec.documentId, neighbor, spec.mode)
+      focusTileElement(neighbor)
+    },
+    [focusTileElement, id, markActiveDocument],
+  )
+
+  const balanceTileSizes = useCallback(() => {
+    setMosaicState((prev) => {
+      const safe = sanitizeState(prev, id)
+      if (!safe.layout) return safe
+      const nextLayout = balanceLayoutSplits(safe.layout)
+      if (nextLayout === safe.layout) return safe
+      expandedTileKeyRef.current = null
+      return sanitizeState({ ...safe, layout: nextLayout }, id)
+    })
+  }, [id])
+
+  const closeActiveTile = useCallback(() => {
+    const active = activeTileRef.current?.tileKey ?? null
+    if (!active) return
+    if (isSingleDocShare) return
+
+    const safeNow = sanitizeState(latestStateRef.current, id)
+    const leaves = getLeavesSafe(safeNow.layout)
+    if (leaves.length <= 1) {
+      closeAllTilesToDashboard()
+      return
+    }
+
+    setMosaicState((prev) => {
+      const safe = sanitizeState(prev, id)
+      if (!safe.layout) return safe
+      if (!safe.tiles[active]) return safe
+      const nextLayout = removeLeaf(safe.layout, active)
+      const nextTiles: Record<TileKey, TileSpec> = { ...safe.tiles }
+      delete nextTiles[active]
+      expandedTileKeyRef.current = null
+      return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
+    })
+  }, [closeAllTilesToDashboard, id, isSingleDocShare])
+
+  const closeOtherTiles = useCallback(() => {
+    const active = activeTileRef.current?.tileKey ?? null
+    if (!active) return
+    if (isSingleDocShare) return
+
+    setMosaicState((prev) => {
+      const safe = sanitizeState(prev, id)
+      const spec = safe.tiles[active]
+      if (!spec) return safe
+      expandedTileKeyRef.current = null
+      return sanitizeState({ layout: active, tiles: { [active]: spec } as Record<TileKey, TileSpec> }, id)
+    })
+  }, [id, isSingleDocShare])
+
   useEffect(() => {
     if (!isSingleDocShare) return
     setMosaicState(defaultState(id))
   }, [id, isSingleDocShare])
 
-  useShortcut('view.document.focus.next', () => focusAdjacentDocument(1))
-  useShortcut('view.document.focus.prev', () => focusAdjacentDocument(-1))
   useShortcut('tiles.split.direction.auto', () => setInsertSplitMode('auto'))
   useShortcut('tiles.split.direction.row', () => setInsertSplitMode('row'))
   useShortcut('tiles.split.direction.column', () => setInsertSplitMode('column'))
@@ -992,6 +1078,38 @@ export default function DocumentMosaicWorkspace(props: Props) {
   useShortcut('tiles.swap.up', () => swapActiveTileByDirection('up'), { preventDefault: true })
   useShortcut('tiles.swap.down', () => swapActiveTileByDirection('down'), { preventDefault: true })
   useShortcut('tiles.swap.last', () => swapActiveTileWithLast(), { preventDefault: true })
+  useShortcut('tiles.focus.left', () => focusActiveTileByDirection('left'), { preventDefault: true })
+  useShortcut('tiles.focus.right', () => focusActiveTileByDirection('right'), { preventDefault: true })
+  useShortcut('tiles.focus.up', () => focusActiveTileByDirection('up'), { preventDefault: true })
+  useShortcut('tiles.focus.down', () => focusActiveTileByDirection('down'), { preventDefault: true })
+  useShortcut(
+    'tiles.toggle.expand',
+    () => {
+      const active = activeTileRef.current?.tileKey ?? null
+      if (!active) return
+      toggleExpandTile(active)
+    },
+    { preventDefault: true },
+  )
+  useShortcut('tiles.balance', () => balanceTileSizes(), { preventDefault: true })
+  useShortcut('tiles.close.active', () => closeActiveTile(), { preventDefault: true })
+  useShortcut('tiles.close.others', () => closeOtherTiles(), { preventDefault: true })
+  useShortcut(
+    'tiles.open.editor',
+    () => {
+      const target = activeDocumentIdRef.current || id
+      addEditorTile(target)
+    },
+    { preventDefault: true },
+  )
+  useShortcut(
+    'tiles.open.preview',
+    () => {
+      const target = activeDocumentIdRef.current || id
+      addPreviewTile(target)
+    },
+    { preventDefault: true },
+  )
 
   useEffect(() => {
     if (isSingleDocShare) return
@@ -1165,6 +1283,8 @@ export default function DocumentMosaicWorkspace(props: Props) {
           isSingleDocShare={isSingleDocShare}
           onCloseAllTiles={closeAllTilesToDashboard}
           onActivateDocument={markActiveDocument}
+          onToggleExpandTile={toggleExpandTile}
+          expandedTileKeyRef={expandedTileKeyRef}
         />
       )}
     />
@@ -1317,6 +1437,8 @@ function DocumentMosaicBody({
   isSingleDocShare,
   onCloseAllTiles,
   onActivateDocument,
+  onToggleExpandTile,
+  expandedTileKeyRef,
 }: {
   ctx: DocumentPageRenderContext
   mosaicState: MosaicState
@@ -1325,9 +1447,9 @@ function DocumentMosaicBody({
   isSingleDocShare: boolean
   onCloseAllTiles: () => void
   onActivateDocument: (documentId: string, tileKey?: TileKey, mode?: TileMode) => void
+  onToggleExpandTile: (tileKey: TileKey) => void
+  expandedTileKeyRef: { current: TileKey | null }
 }) {
-  const expandedTileKeyRef = useRef<TileKey | null>(null)
-
   const setTileMode = useCallback(
     (tileKey: TileKey, mode: TileMode) => {
       setMosaicState((prev) => {
@@ -1340,27 +1462,6 @@ function DocumentMosaicBody({
           else nextTiles[key] = value
         }
         return { ...safe, tiles: nextTiles }
-      })
-    },
-    [ctx.id, setMosaicState],
-  )
-
-  const toggleExpandTile = useCallback(
-    (tileKey: TileKey) => {
-      if (typeof window === 'undefined') return
-      setMosaicState((prev) => {
-        const safe = sanitizeState(prev, ctx.id)
-        const layout = safe.layout
-        if (!layout) return safe
-        const path = findPathToTile(layout, tileKey)
-        if (!path) return safe
-
-        const isExpanded = expandedTileKeyRef.current === tileKey
-        const percentage = isExpanded ? UNEXPAND_PERCENTAGE : EXPAND_PERCENTAGE
-        expandedTileKeyRef.current = isExpanded ? null : tileKey
-
-        const nextLayout = updateTree(layout, [createExpandUpdate<TileKey>(path, percentage)])
-        return sanitizeState({ ...safe, layout: nextLayout }, ctx.id)
       })
     },
     [ctx.id, setMosaicState],
@@ -1444,7 +1545,7 @@ function DocumentMosaicBody({
                 isFocusedDocument={isFocusedDoc}
                 ctx={ctx}
                 onSplit={() => splitFromTile(tileId, path)}
-                onToggleExpand={() => toggleExpandTile(tileId)}
+                onToggleExpand={() => onToggleExpandTile(tileId)}
                 onSwitchToPreview={() => setTileMode(tileId, 'preview')}
                 isSingleDocShare={isSingleDocShare}
                 onActivate={() => onActivateDocument(docId, tileId, 'editor')}
@@ -1458,7 +1559,7 @@ function DocumentMosaicBody({
                 path={path}
                 tileKey={tileId}
                 documentId={docId}
-                onToggleExpand={() => toggleExpandTile(tileId)}
+                onToggleExpand={() => onToggleExpandTile(tileId)}
                 onActivate={() => onActivateDocument(docId, tileId, 'backlinks')}
               />
             )
@@ -1476,7 +1577,7 @@ function DocumentMosaicBody({
               activeCtx={ctx}
               addPreviewTile={addPreviewTile}
               onSplit={() => splitFromTile(tileId, path)}
-              onToggleExpand={() => toggleExpandTile(tileId)}
+              onToggleExpand={() => onToggleExpandTile(tileId)}
               onSwitchToEditor={() => setTileMode(tileId, 'editor')}
               isSingleDocShare={isSingleDocShare}
               onActivate={() => onActivateDocument(docId, tileId, 'preview')}
