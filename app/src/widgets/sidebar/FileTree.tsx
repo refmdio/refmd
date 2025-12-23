@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 
 import type { GitPullConflictItem, WorkspaceMembershipResponse } from '@/shared/api'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
+import { dispatchOpenPreviewTile } from '@/shared/lib/mosaic-events'
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -655,8 +656,34 @@ function FileTreeInner() {
     toggleTreeFocus()
   })
 
+  useShortcut(
+    'file-tree.open.tile',
+    useCallback(
+      (event) => {
+        const treeEl = treeFocusRef.current
+        if (!treeEl) return
+        if (typeof document === 'undefined') return
+        const active = document.activeElement as HTMLElement | null
+        if (active !== treeEl) return
+        if (!selectedDocId) return
+        const idx = nodeIndexMap.get(selectedDocId)
+        if (typeof idx !== 'number') return
+        const node = visibleNodes[idx]?.node
+        if (!node || node.type !== 'file') return
+
+        const targetId = node.sourceId ?? node.id
+        dispatchOpenPreviewTile(targetId)
+        event.preventDefault()
+        event.stopPropagation()
+      },
+      [nodeIndexMap, selectedDocId, visibleNodes],
+    ),
+    { preventDefault: false },
+  )
+
   const handleTreeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.currentTarget !== event.target) return
+    if (event.defaultPrevented) return
     const normalizedKey = event.key === 'Spacebar' ? ' ' : event.key
     if (!TREE_NAV_KEYS.has(normalizedKey)) {
       return

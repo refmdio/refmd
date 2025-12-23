@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 import { toast } from 'sonner'
 
@@ -30,6 +31,9 @@ type ConnectionCacheEntry = {
 }
 
 const connectionCache = new Map<string, ConnectionCacheEntry>()
+const invalidShareTokenToastShown = new Set<string>()
+const SHARE_TOKEN_VALIDATION_STALE_MS = 5 * 60 * 1000
+const DOCUMENT_META_STALE_MS = 60 * 1000
 
 function buildCacheKey(documentId: string, token: string | undefined, disablePersistence: boolean) {
   return `${documentId}::${token ?? ''}::p:${disablePersistence ? '0' : '1'}`
@@ -76,6 +80,7 @@ export function useCollaborativeDocument(
   shareToken?: string,
   options: UseCollaborativeDocumentOptions = {},
 ) {
+  const queryClient = useQueryClient()
   const { permissions, loading: authLoading } = useAuthContext()
   const enabled = options.enabled ?? true
   const contributeToRealtimeContext = options.contributeToRealtimeContext ?? true
@@ -121,16 +126,38 @@ export function useCollaborativeDocument(
       return
     }
 
+    let cancelled = false
     ;(async () => {
       try {
-        const info = await validateShareToken(token)
+        const info = await queryClient.fetchQuery({
+          queryKey: ['share-token', token],
+          queryFn: () => validateShareToken(token),
+          staleTime: SHARE_TOKEN_VALIDATION_STALE_MS,
+        })
+        if (cancelled) return
         setShareReadOnly(info?.permission !== 'edit')
       } catch {
-        toast.error('Invalid or expired share link')
+        if (cancelled) return
+        if (!invalidShareTokenToastShown.has(token)) {
+          invalidShareTokenToastShown.add(token)
+          toast.error('Invalid or expired share link')
+        }
         setShareReadOnly(true)
       }
     })()
-  }, [contributeToRealtimeContext, enabled, id, shareToken, shouldValidateShareToken, useUrlShareTokenFallback])
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    contributeToRealtimeContext,
+    enabled,
+    id,
+    queryClient,
+    shareToken,
+    shouldValidateShareToken,
+    useUrlShareTokenFallback,
+  ])
 
   React.useEffect(() => {
     if (!enabled) return
@@ -149,7 +176,11 @@ export function useCollaborativeDocument(
     if (!shouldLoadMeta) return
     try {
       const token = resolveShareToken(shareToken, useUrlShareTokenFallback)
-      const meta = await fetchDocumentMeta(id, token ?? undefined)
+      const meta = await queryClient.fetchQuery({
+        queryKey: ['document-meta', id, token ?? null],
+        queryFn: () => fetchDocumentMeta(id, token ?? undefined),
+        staleTime: DOCUMENT_META_STALE_MS,
+      })
       if (meta) {
         const isDocArchived = Boolean(meta.archived_at)
         setArchived(isDocArchived)
@@ -168,6 +199,7 @@ export function useCollaborativeDocument(
     }
   }, [
     id,
+    queryClient,
     shareToken,
     setDocumentTitle,
     setDocumentStatus,

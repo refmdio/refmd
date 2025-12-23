@@ -24,9 +24,9 @@ import { ShortcutRegistryProvider } from '@/features/shortcuts'
 import { Header } from '@/widgets/header/Header'
 import AuthLayout from '@/widgets/layouts/AuthLayout'
 import PublicLayout from '@/widgets/layouts/PublicLayout'
+import { SplitEditorPortalRenderer } from '@/widgets/plugins/SplitEditorHost'
 import PluginFallback from '@/widgets/routes/PluginFallback'
 import AppSidebar from '@/widgets/sidebar/AppSidebar'
-import { SplitEditorPortalRenderer } from '@/widgets/plugins/SplitEditorHost'
 
 
 import type { RouterContext } from '@/router'

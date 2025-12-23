@@ -73,6 +73,17 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: 'file-tree.open.tile',
+    label: 'Open in tile',
+    description: 'Open the selected file tree document as a tile',
+    category: 'Navigation',
+    scope: 'global',
+    default: {
+      mac: [chord('Enter', { shift: true })],
+      windows: [chord('Enter', { shift: true })],
+    },
+  },
+  {
     id: 'global.document.new',
     label: 'Create new document',
     description: 'Create a regular workspace document',
