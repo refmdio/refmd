@@ -1,8 +1,10 @@
 import { Link } from '@tanstack/react-router'
-import { Blocks, FileText, Github, LogOut, Share2, Sun, X } from 'lucide-react'
+import { Blocks, Eye, FileCode, FileText, Github, LogOut, Share2, Sun, X } from 'lucide-react'
 
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import { Button } from '@/shared/ui/button'
+
+type MobileViewMode = 'editor' | 'preview'
 
 type MobileHeaderMenuProps = {
   open: boolean
@@ -12,6 +14,8 @@ type MobileHeaderMenuProps = {
   onToggleTheme: () => void
   onSignOut: () => void
   documentActions?: DocumentHeaderAction[]
+  viewMode?: MobileViewMode
+  onChangeViewMode?: (mode: MobileViewMode) => void
 }
 
 export function MobileHeaderMenu({
@@ -22,8 +26,12 @@ export function MobileHeaderMenu({
   onToggleTheme,
   onSignOut,
   documentActions = [],
+  viewMode,
+  onChangeViewMode,
 }: MobileHeaderMenuProps) {
   if (!open) return null
+
+  const showViewModeToggle = Boolean(viewMode && onChangeViewMode)
 
   return (
     <>
@@ -37,6 +45,27 @@ export function MobileHeaderMenu({
         </div>
 
         <div className="p-4 space-y-4">
+          {showViewModeToggle ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">View</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  onClick={() => { onChangeViewMode?.('editor'); onClose() }}
+                  variant={viewMode === 'editor' ? 'secondary' : 'ghost'}
+                  className="justify-start"
+                >
+                  <FileCode className="h-4 w-4 mr-2" /> Editor
+                </Button>
+                <Button
+                  onClick={() => { onChangeViewMode?.('preview'); onClose() }}
+                  variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
+                  className="justify-start"
+                >
+                  <Eye className="h-4 w-4 mr-2" /> Preview
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <div className="flex flex-col gap-2">
             <Button asChild variant="ghost" className="justify-start">
               <Link to="/dashboard">

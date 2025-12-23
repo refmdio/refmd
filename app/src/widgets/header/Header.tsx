@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElem
 import { toast } from 'sonner'
 
 import { useTheme } from '@/shared/contexts/theme-context'
+import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
 import { MOSAIC_CURRENT_VIEW_MODE_EVENT, dispatchMosaicSetViewMode, dispatchOpenBacklinksTile } from '@/shared/lib/mosaic-events'
 import { cn } from '@/shared/lib/utils'
@@ -119,6 +120,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const { signOut } = useAuthContext()
   const queryClient = useQueryClient()
   const rt = realtime ?? defaultRealtimeState
+  const isMobile = useIsMobile()
   const vc = useViewController()
   const { editor } = useEditorContext()
   const { toggleSidebar } = useSidebar()
@@ -320,6 +322,10 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       const normalized = pluginViewPolicy === 'previewOnly' ? 'preview' : mode
       const nextMode = normalized === 'split' && isCompact ? 'preview' : normalized
       setHeaderViewMode(nextMode)
+      if (isMobile) {
+        vc.setViewMode(nextMode)
+        return
+      }
       const focusedDocumentId = focusedDocumentIdRef.current
       if (focusedDocumentId) {
         dispatchMosaicSetViewMode(focusedDocumentId, nextMode)
@@ -327,7 +333,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       }
       vc.setViewMode(nextMode)
     },
-    [isCompact, pluginViewPolicy, vc],
+    [isCompact, isMobile, pluginViewPolicy, vc],
   )
 
   useEffect(() => {
@@ -414,6 +420,13 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       setHeaderViewMode('preview')
     }
   }, [headerViewMode, isCompact, mounted])
+
+  useEffect(() => {
+    if (!isMobile) return
+    const next = vc.viewMode === 'split' ? 'preview' : vc.viewMode
+    if (next === headerViewMode) return
+    setHeaderViewMode(next)
+  }, [headerViewMode, isMobile, vc.viewMode])
 
   const viewModeButtons = useMemo(() => {
     const items: Array<{ mode: 'editor' | 'split' | 'preview'; icon: ReactElement; tooltip: string }> = [
@@ -624,6 +637,8 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         onToggleTheme={() => { toggleTheme(); setMobileMenuOpen(false) }}
         onSignOut={() => { handleSignOut(); setMobileMenuOpen(false) }}
         documentActions={documentActions}
+        viewMode={rt.showEditorFeatures ? (effectiveViewMode === 'editor' ? 'editor' : 'preview') : undefined}
+        onChangeViewMode={rt.showEditorFeatures ? (mode) => changeView(mode) : undefined}
       />
       {rt.documentId && (
         <ShareDialog open={shareOpen} onOpenChange={setShareOpen} targetId={rt.documentId} />

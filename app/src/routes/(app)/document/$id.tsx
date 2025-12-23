@@ -1,12 +1,14 @@
 import { createFileRoute, useParams } from '@tanstack/react-router'
 
+import { useIsMobile } from '@/shared/hooks/use-mobile'
+
 import { fetchDocumentMeta } from '@/entities/document'
 import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 
 import { documentBeforeLoadGuard } from '@/features/auth'
 
 import DocumentMosaicWorkspace from '@/widgets/document/DocumentMosaicWorkspace'
-import { type DocumentLoaderData } from '@/widgets/document/DocumentPage'
+import DocumentPage, { type DocumentLoaderData } from '@/widgets/document/DocumentPage'
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
 
@@ -100,6 +102,7 @@ function DocumentRouteComponent() {
   const { id } = useParams({ from: '/(app)/document/$id' })
   const loaderData = Route.useLoaderData() as LoaderData | undefined
   const search = Route.useSearch() as DocumentRouteSearch
+  const isMobile = useIsMobile()
   const shareToken = loaderData?.token ?? (typeof search.token === 'string' && search.token.trim().length > 0 ? search.token.trim() : undefined)
   const shareScope = search.shareScope === 'folder' || search.shareScope === 'document' ? search.shareScope : undefined
   const isShareMount = (() => {
@@ -112,6 +115,16 @@ function DocumentRouteComponent() {
     return Boolean(raw)
   })()
   const conflictMode = Object.prototype.hasOwnProperty.call(search, 'conflict')
+  if (isMobile) {
+    return (
+      <DocumentPage
+        id={id}
+        loaderData={loaderData}
+        shareToken={shareToken}
+        conflictMode={conflictMode}
+      />
+    )
+  }
   return (
     <DocumentMosaicWorkspace
       id={id}
