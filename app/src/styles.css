@@ -95,15 +95,28 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   min-width: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.refmd-mosaic-theme .refmd-mosaic-panel {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
   border-radius: 24px;
-  background: color-mix(in oklab, var(--background) 92%, transparent);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.06),
     0 10px 30px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(10px);
 }
 
 .refmd-mosaic-theme .mosaic-window .mosaic-window-toolbar,
@@ -254,7 +267,7 @@
   height: 0;
   background: transparent;
   z-index: 1;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .refmd-mosaic-theme .mosaic-window .mosaic-preview,

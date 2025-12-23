@@ -1866,7 +1866,11 @@ function MosaicPreviewTile({
   }, [isSingleDocShare, onSplit, onSwitchToEditor, onToggleExpand])
 
   return (
-    <MosaicWindow<TileKey> path={path} title="" toolbarControls={toolbarControls}>
+    <MosaicWindow<TileKey>
+      path={path}
+      title=""
+      toolbarControls={toolbarControls}
+    >
       <div
         ref={containerRef}
         className="h-full min-h-0"
@@ -1884,54 +1888,58 @@ function MosaicPreviewTile({
             mode={isFocusedDocument ? 'primary' : 'secondary'}
             className="h-full w-full overflow-auto"
           />
-        ) : previewMode === 'placeholder' ? (
-          <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-            This plugin uses a custom editor. Use the editor tile to interact with this document.
-          </div>
-        ) : showError ? (
-          <div className="p-4 text-sm text-destructive">Failed to load preview.</div>
-        ) : showLoading ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin mr-2" />
-            Loading preview…
-          </div>
         ) : (
-          <div className="h-full min-h-0 px-4 pb-6 pt-6 sm:px-6 sm:pb-8 sm:pt-8">
-            <PreviewPane
-              content={resolvedContent}
-              viewMode="preview"
-              documentIdOverride={documentId}
-              forceFloatingToc={forceFloatingToc}
-              scrollToLine={syncGroupId ? externalScrollToLine : undefined}
-              onScrollAnchorLine={
-                syncGroupId
-                  ? (line) => dispatchMosaicScrollSync({ groupId: syncGroupId, source: 'preview', line })
-                  : undefined
-              }
-              onScroll={
-                syncGroupId
-                  ? (_top, pct) => {
-                      if (pct >= 0.999) {
-                        dispatchMosaicScrollSync({ groupId: syncGroupId, source: 'preview', line: Number.MAX_SAFE_INTEGER })
-                      }
-                    }
-                  : undefined
-              }
-              onNavigate={(targetId) => {
-                const target = (targetId || '').trim()
-                if (!target) return
-                addPreviewTile(target)
-              }}
-              onToggleTask={
-                canToggleTasks
-                  ? (lineNumber, checked) => {
-                      if (!activeCtx.doc) return
-                      toggleTaskInDoc(activeCtx.doc, lineNumber, checked)
-                    }
-                  : undefined
-              }
-              taskToggleDisabled={!canToggleTasks}
-            />
+          <div className="refmd-mosaic-panel">
+            {previewMode === 'placeholder' ? (
+              <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+                This plugin uses a custom editor. Use the editor tile to interact with this document.
+              </div>
+            ) : showError ? (
+              <div className="p-4 text-sm text-destructive">Failed to load preview.</div>
+            ) : showLoading ? (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                Loading preview…
+              </div>
+            ) : (
+              <div className="h-full min-h-0 px-4 pb-6 pt-6 sm:px-6 sm:pb-8 sm:pt-8">
+                <PreviewPane
+                  content={resolvedContent}
+                  viewMode="preview"
+                  documentIdOverride={documentId}
+                  forceFloatingToc={forceFloatingToc}
+                  scrollToLine={syncGroupId ? externalScrollToLine : undefined}
+                  onScrollAnchorLine={
+                    syncGroupId
+                      ? (line) => dispatchMosaicScrollSync({ groupId: syncGroupId, source: 'preview', line })
+                      : undefined
+                  }
+                  onScroll={
+                    syncGroupId
+                      ? (_top, pct) => {
+                          if (pct >= 0.999) {
+                            dispatchMosaicScrollSync({ groupId: syncGroupId, source: 'preview', line: Number.MAX_SAFE_INTEGER })
+                          }
+                        }
+                      : undefined
+                  }
+                  onNavigate={(targetId) => {
+                    const target = (targetId || '').trim()
+                    if (!target) return
+                    addPreviewTile(target)
+                  }}
+                  onToggleTask={
+                    canToggleTasks
+                      ? (lineNumber, checked) => {
+                          if (!activeCtx.doc) return
+                          toggleTaskInDoc(activeCtx.doc, lineNumber, checked)
+                        }
+                      : undefined
+                  }
+                  taskToggleDisabled={!canToggleTasks}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1976,7 +1984,9 @@ function BacklinksTile({
         onPointerDownCapture={onActivate}
         onFocusCapture={onActivate}
       >
-        <BacklinksPanel documentId={documentId} className="h-full" />
+        <div className="refmd-mosaic-panel">
+          <BacklinksPanel documentId={documentId} className="h-full" />
+        </div>
       </div>
     </MosaicWindow>
   )
@@ -2092,13 +2102,15 @@ function EditorTile({
             className="h-full w-full overflow-auto"
           />
         ) : (
-          <MarkdownEditorTileBody
-            tileKey={tileKey}
-            documentId={documentId}
-            scrollSyncGroupId={scrollSyncGroupId}
-            isFocusedDocument={isFocusedDocument}
-            ctx={ctx}
-          />
+          <div className="refmd-mosaic-panel">
+            <MarkdownEditorTileBody
+              tileKey={tileKey}
+              documentId={documentId}
+              scrollSyncGroupId={scrollSyncGroupId}
+              isFocusedDocument={isFocusedDocument}
+              ctx={ctx}
+            />
+          </div>
         )}
       </div>
     </MosaicWindow>
