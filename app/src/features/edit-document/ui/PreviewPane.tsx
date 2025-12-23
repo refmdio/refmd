@@ -35,7 +35,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', onScroll, onScrol
   const onTagClickStable = React.useCallback((tag: string) => {
     vc.openSearch(tag)
   }, [vc])
-  // Track when user is actively interacting with preview to enable preview->editor sync
+  // Track user interaction to avoid overriding scroll position during active scrolling.
   useEffect(() => {
     const el = previewRef.current
     if (!el) return
@@ -66,6 +66,20 @@ function PreviewPaneComponent({ content, viewMode = 'preview', onScroll, onScrol
   const previewRef = useRef<HTMLDivElement | null>(null)
   const scrollRafId = useRef<number | null>(null)
   const anchorsRef = useRef<Array<{ line: number; top: number }>>([])
+  const suppressSyncEmitRef = useRef(false)
+  const suppressSyncEmitTimerRef = useRef<number | null>(null)
+
+  const suppressSyncEmit = React.useCallback((ms = 140) => {
+    if (typeof window === 'undefined') return
+    suppressSyncEmitRef.current = true
+    if (suppressSyncEmitTimerRef.current != null) {
+      window.clearTimeout(suppressSyncEmitTimerRef.current)
+    }
+    suppressSyncEmitTimerRef.current = window.setTimeout(() => {
+      suppressSyncEmitTimerRef.current = null
+      suppressSyncEmitRef.current = false
+    }, ms)
+  }, [])
 
   // Build anchors from data-sourcepos (requires ReactMarkdown sourcePos)
   const rebuildAnchors = React.useCallback(() => {
@@ -113,8 +127,9 @@ function PreviewPaneComponent({ content, viewMode = 'preview', onScroll, onScrol
     if ((el as any).__userInteracting === true) return
     const { scrollHeight, clientHeight } = el
     const denom = Math.max(1, scrollHeight - clientHeight)
+    suppressSyncEmit()
     el.scrollTop = Math.round(denom * Math.min(1, Math.max(0, scrollPercentage)))
-  }, [scrollPercentage, scrollToLine])
+  }, [scrollPercentage, scrollToLine, suppressSyncEmit])
 
   // If editor is at bottom (pct≈1) and content grows, keep preview pinned to bottom
   useEffect(() => {
@@ -126,11 +141,12 @@ function PreviewPaneComponent({ content, viewMode = 'preview', onScroll, onScrol
     const pin = () => {
       const { scrollHeight, clientHeight } = el
       const denom = Math.max(0, scrollHeight - clientHeight)
+      suppressSyncEmit()
       el.scrollTop = denom
     }
     // Wait for layout after content change
     requestAnimationFrame(() => { requestAnimationFrame(pin) })
-  }, [content, scrollPercentage, stickToBottom, scrollToLine])
+  }, [content, scrollPercentage, stickToBottom, scrollToLine, suppressSyncEmit])
 
   // Rebuild anchors after content or container size changes
   useEffect(() => {
@@ -166,12 +182,19 @@ function PreviewPaneComponent({ content, viewMode = 'preview', onScroll, onScrol
     const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
     const nextTop = Math.max(0, Math.min(maxTop, targetTop - margin))
     requestAnimationFrame(() => {
+      suppressSyncEmit()
       container.scrollTop = nextTop
     })
-  }, [scrollToLine])
+  }, [scrollToLine, suppressSyncEmit])
 
   // Cleanup rAF
-  useEffect(() => () => { if (scrollRafId.current != null) cancelAnimationFrame(scrollRafId.current) }, [])
+  useEffect(() => () => {
+    if (scrollRafId.current != null) cancelAnimationFrame(scrollRafId.current)
+    if (suppressSyncEmitTimerRef.current != null) {
+      window.clearTimeout(suppressSyncEmitTimerRef.current)
+      suppressSyncEmitTimerRef.current = null
+    }
+  }, [])
 
   const handleFloatingItemClick = React.useCallback(() => setShowFloatingToc(false), [])
 
@@ -191,10 +214,8 @@ function PreviewPaneComponent({ content, viewMode = 'preview', onScroll, onScrol
             const denom = Math.max(1, scrollHeight - clientHeight)
             const pct = Math.min(1, Math.max(0, scrollTop / denom))
             const anchors = anchorsRef.current
-            // Only propagate when user is interacting with preview (wheel/drag)
-            const isUser = (target as any).__userInteracting === true
-            const nearBottom = (scrollHeight - clientHeight - scrollTop) <= 4
-            if (isUser) {
+            if (!suppressSyncEmitRef.current) {
+              const nearBottom = (scrollHeight - clientHeight - scrollTop) <= 4
               if (nearBottom && onScroll) {
                 // At bottom: force editor to bottom using percentage sync to avoid partial reveal
                 onScroll(scrollTop, 1)
