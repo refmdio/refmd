@@ -6,13 +6,15 @@ export const MOSAIC_SET_VIEW_MODE_EVENT = 'refmd:mosaic:set-view-mode'
 
 export type OpenPreviewTileDetail = {
   documentId: string
+  splitMode?: 'auto' | 'row' | 'column'
 }
 
-export function dispatchOpenPreviewTile(documentId: string) {
+export function dispatchOpenPreviewTile(documentId: string, splitMode?: OpenPreviewTileDetail['splitMode']) {
   if (typeof window === 'undefined') return
+  const normalizedMode = splitMode === 'auto' || splitMode === 'row' || splitMode === 'column' ? splitMode : undefined
   window.dispatchEvent(
     new CustomEvent<OpenPreviewTileDetail>(OPEN_PREVIEW_TILE_EVENT, {
-      detail: { documentId },
+      detail: normalizedMode ? { documentId, splitMode: normalizedMode } : { documentId },
     }),
   )
 }

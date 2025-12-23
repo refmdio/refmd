@@ -510,11 +510,16 @@ export default function DocumentMosaicWorkspace(props: Props) {
       return 'auto'
     }
   })
+  const insertSplitModeRef = useRef(insertSplitMode)
   const focusRequestIdRef = useRef(0)
   const saveTimerRef = useRef<number | null>(null)
   const latestStateRef = useRef(mosaicState)
   const shareLinkTokenRef = useRef(shareLinkToken)
   const clearSavedLayoutRef = useRef(false)
+
+  useEffect(() => {
+    insertSplitModeRef.current = insertSplitMode
+  }, [insertSplitMode])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1070,9 +1075,19 @@ export default function DocumentMosaicWorkspace(props: Props) {
     setMosaicState(defaultState(id))
   }, [id, isSingleDocShare])
 
-  useShortcut('tiles.split.direction.auto', () => setInsertSplitMode('auto'))
-  useShortcut('tiles.split.direction.row', () => setInsertSplitMode('row'))
-  useShortcut('tiles.split.direction.column', () => setInsertSplitMode('column'))
+  const setInsertSplitModeWithToast = useCallback(
+    (mode: InsertSplitMode) => {
+      if (insertSplitModeRef.current === mode) return
+      setInsertSplitMode(mode)
+      const label = mode === 'auto' ? 'Auto (BSP)' : mode === 'row' ? 'Horizontal' : 'Vertical'
+      toast.info(`Tile insertion split: ${label}`)
+    },
+    [setInsertSplitMode],
+  )
+
+  useShortcut('tiles.split.direction.auto', () => setInsertSplitModeWithToast('auto'))
+  useShortcut('tiles.split.direction.row', () => setInsertSplitModeWithToast('row'))
+  useShortcut('tiles.split.direction.column', () => setInsertSplitModeWithToast('column'))
   useShortcut('tiles.swap.left', () => swapActiveTileByDirection('left'), { preventDefault: true })
   useShortcut('tiles.swap.right', () => swapActiveTileByDirection('right'), { preventDefault: true })
   useShortcut('tiles.swap.up', () => swapActiveTileByDirection('up'), { preventDefault: true })
@@ -1169,7 +1184,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
   )
 
   const addPreviewTile = useCallback(
-    (docId: string) => {
+    (docId: string, splitMode?: InsertSplitMode) => {
       const target = docId.trim()
       if (!target) return
       if (isSingleDocShare) return
@@ -1182,7 +1197,12 @@ export default function DocumentMosaicWorkspace(props: Props) {
         const exists = Object.values(safe.tiles).some((t) => t.documentId === target && t.mode === 'preview')
         if (exists) return safe
         const previewKey = makeTileKey()
-        const nextLayout = insertLeafBsp(safe.layout, previewKey, activeTileRef.current?.tileKey, insertSplitMode)
+        const nextLayout = insertLeafBsp(
+          safe.layout,
+          previewKey,
+          activeTileRef.current?.tileKey,
+          splitMode ?? insertSplitMode,
+        )
         const nextTiles: Record<TileKey, TileSpec> = {
           ...safe.tiles,
           [previewKey]: { mode: 'preview', documentId: target },
@@ -1221,10 +1241,11 @@ export default function DocumentMosaicWorkspace(props: Props) {
   useEffect(() => {
     if (isSingleDocShare) return
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ documentId?: string }>).detail
+      const detail = (event as CustomEvent<{ documentId?: string; splitMode?: InsertSplitMode }>).detail
       const documentId = typeof detail?.documentId === 'string' ? detail.documentId.trim() : ''
       if (!documentId) return
-      addPreviewTile(documentId)
+      const splitMode = detail?.splitMode
+      addPreviewTile(documentId, splitMode)
     }
     window.addEventListener(OPEN_PREVIEW_TILE_EVENT, handler as EventListener)
     return () => window.removeEventListener(OPEN_PREVIEW_TILE_EVENT, handler as EventListener)

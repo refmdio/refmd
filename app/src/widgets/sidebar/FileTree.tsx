@@ -672,7 +672,7 @@ function FileTreeInner() {
         if (!node || node.type !== 'file') return
 
         const targetId = node.sourceId ?? node.id
-        dispatchOpenPreviewTile(targetId)
+        dispatchOpenPreviewTile(targetId, 'row')
         event.preventDefault()
         event.stopPropagation()
       },
