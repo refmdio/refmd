@@ -7,6 +7,7 @@ import { createYjsConnection, destroyYjsConnection } from '@/shared/lib/yjsConne
 import type { YjsConnection } from '@/shared/lib/yjsConnection'
 
 import { fetchDocumentMeta } from '@/entities/document'
+import { getPluginEmbeddingKind } from '@/entities/plugin/lib/embedding'
 import { validateShareToken } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
@@ -96,6 +97,8 @@ export function useCollaborativeDocument(
     setDocumentBadge,
     setDocumentActions,
     setDocumentPath,
+    setDocumentPluginEmbedding,
+    setDocumentPluginId,
     setShowEditorFeatures,
     setConnected,
     setUserCount,
@@ -185,12 +188,15 @@ export function useCollaborativeDocument(
         const isDocArchived = Boolean(meta.archived_at)
         setArchived(isDocArchived)
         if (contributeToRealtimeContext) {
+          const pluginId = typeof (meta as any).created_by_plugin === 'string' ? String((meta as any).created_by_plugin).trim() : ''
           setDocumentTitle(meta.title)
           setDocumentStatus(isDocArchived ? 'Archived document' : undefined)
           setDocumentBadge(isDocArchived ? 'Archived' : undefined)
           setDocumentActions([])
           setDocumentPath(undefined)
           setRealtimeDocumentId(id)
+          setDocumentPluginId(pluginId || undefined)
+          setDocumentPluginEmbedding(getPluginEmbeddingKind(pluginId))
           setShowEditorFeatures(true)
         }
       }
@@ -206,6 +212,8 @@ export function useCollaborativeDocument(
     setDocumentBadge,
     setDocumentActions,
     setDocumentPath,
+    setDocumentPluginEmbedding,
+    setDocumentPluginId,
     setRealtimeDocumentId,
     setShowEditorFeatures,
     contributeToRealtimeContext,
@@ -418,6 +426,8 @@ export function useCollaborativeDocument(
         setDocumentBadge(undefined)
         setDocumentActions([])
         setDocumentPath(undefined)
+        setDocumentPluginId(undefined)
+        setDocumentPluginEmbedding('none')
       }
       setArchived(false)
       setShareReadOnly(false)

@@ -39,6 +39,8 @@ const defaultRealtimeState: HeaderRealtimeState = {
   documentTitle: undefined,
   documentId: undefined,
   documentPath: undefined,
+  documentPluginId: undefined,
+  documentPluginEmbedding: 'none',
   documentStatus: undefined,
   documentBadge: undefined,
   documentActions: [],
@@ -379,15 +381,24 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   }, [headerViewMode, isCompact, mounted])
 
   const viewModeButtons = useMemo(() => {
+    const pluginEmbedding = rt.documentPluginEmbedding ?? 'none'
+    const supportsSplit = pluginEmbedding !== 'full'
+    const supportsPreview = pluginEmbedding !== 'full'
     const items: Array<{ mode: 'editor' | 'split' | 'preview'; icon: ReactElement; tooltip: string }> = [
-      { mode: 'editor', icon: <FileCode className={iconClass} />, tooltip: 'Editor only' },
+      {
+        mode: 'editor',
+        icon: <FileCode className={iconClass} />,
+        tooltip: pluginEmbedding === 'full' ? 'Document view' : 'Editor only',
+      },
     ]
-    if (!isCompact) {
+    if (!isCompact && supportsSplit) {
       items.push({ mode: 'split', icon: <Columns className={iconClass} />, tooltip: 'Split view' })
     }
-    items.push({ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' })
+    if (supportsPreview) {
+      items.push({ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' })
+    }
     return items
-  }, [isCompact])
+  }, [iconClass, isCompact, rt.documentPluginEmbedding])
 
   const desktopToolbar = (
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex justify-center px-4 sm:px-5 md:px-6">

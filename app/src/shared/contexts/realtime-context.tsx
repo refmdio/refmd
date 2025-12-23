@@ -9,6 +9,8 @@ type RealtimeState = {
   documentTitle?: string
   documentPath?: string
   documentId?: string
+  documentPluginId?: string
+  documentPluginEmbedding: 'none' | 'preview' | 'full'
   showEditorFeatures: boolean
   documentStatus?: string
   documentBadge?: string
@@ -19,6 +21,8 @@ type RealtimeState = {
   setDocumentTitle: (t?: string | null) => void
   setDocumentPath: (p?: string | null) => void
   setDocumentId: (id?: string | null) => void
+  setDocumentPluginId: (id?: string | null) => void
+  setDocumentPluginEmbedding: (v: RealtimeState['documentPluginEmbedding']) => void
   setShowEditorFeatures: (v: boolean) => void
   setDocumentStatus: (status?: string | null) => void
   setDocumentBadge: (badge?: string | null) => void
@@ -34,6 +38,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [documentTitle, setDocumentTitleState] = useState<string | undefined>(undefined)
   const [documentPath, setDocumentPathState] = useState<string | undefined>(undefined)
   const [documentId, setDocumentIdState] = useState<string | undefined>(undefined)
+  const [documentPluginId, setDocumentPluginIdState] = useState<string | undefined>(undefined)
+  const [documentPluginEmbedding, setDocumentPluginEmbeddingState] = useState<RealtimeState['documentPluginEmbedding']>('none')
   const [showEditorFeatures, setShowEditorFeaturesState] = useState(false)
   const [documentStatus, setDocumentStatusState] = useState<string | undefined>(undefined)
   const [documentBadge, setDocumentBadgeState] = useState<string | undefined>(undefined)
@@ -41,6 +47,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const setDocumentTitle = useCallback((title?: string | null) => setDocumentTitleState(title ?? undefined), [])
   const setDocumentPath = useCallback((pathValue?: string | null) => setDocumentPathState(pathValue ?? undefined), [])
   const setDocumentId = useCallback((identifier?: string | null) => setDocumentIdState(identifier ?? undefined), [])
+  const setDocumentPluginId = useCallback((identifier?: string | null) => setDocumentPluginIdState(identifier ?? undefined), [])
+  const setDocumentPluginEmbedding = useCallback((value: RealtimeState['documentPluginEmbedding']) => setDocumentPluginEmbeddingState(value), [])
   const setShowEditorFeatures = useCallback((value: boolean) => setShowEditorFeaturesState(value), [])
   const setDocumentStatus = useCallback((status?: string | null) => setDocumentStatusState(status ?? undefined), [])
   const setDocumentBadge = useCallback((badge?: string | null) => setDocumentBadgeState(badge ?? undefined), [])
@@ -53,6 +61,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     documentTitle,
     documentPath,
     documentId,
+    documentPluginId,
+    documentPluginEmbedding,
     showEditorFeatures,
     documentStatus,
     documentBadge,
@@ -63,6 +73,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     setDocumentTitle,
     setDocumentPath,
     setDocumentId,
+    setDocumentPluginId,
+    setDocumentPluginEmbedding,
     setShowEditorFeatures,
     setDocumentStatus,
     setDocumentBadge,
@@ -74,6 +86,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     documentTitle,
     documentPath,
     documentId,
+    documentPluginId,
+    documentPluginEmbedding,
     showEditorFeatures,
     documentStatus,
     documentBadge,
@@ -84,6 +98,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     setDocumentTitle,
     setDocumentPath,
     setDocumentId,
+    setDocumentPluginId,
+    setDocumentPluginEmbedding,
     setShowEditorFeatures,
     setDocumentStatus,
     setDocumentBadge,

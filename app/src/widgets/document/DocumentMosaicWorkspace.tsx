@@ -32,6 +32,7 @@ import {
 } from '@/shared/lib/mosaic-events'
 
 import { fetchDocumentContent, fetchDocumentMeta } from '@/entities/document'
+import { getPluginEmbeddingKind } from '@/entities/plugin/lib/embedding'
 import { browseShare } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
@@ -567,7 +568,30 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const { id, loaderData, shareToken, shareScope: shareScopeProp, isShareMount = false, conflictMode } = props
   const navigate = useNavigate()
   const shareLinkToken = shareToken && !isShareMount ? shareToken : undefined
-  const [mosaicState, setMosaicState] = useState<MosaicState>(() => (shareLinkToken ? defaultState(id) : loadState(id)))
+  const activePluginId = typeof loaderData?.createdByPlugin === 'string' ? loaderData.createdByPlugin.trim() : ''
+  const activeEmbeddingKind = getPluginEmbeddingKind(activePluginId)
+  const [mosaicState, setMosaicState] = useState<MosaicState>(() => {
+    const raw = shareLinkToken ? defaultState(id) : loadState(id)
+    if (activeEmbeddingKind !== 'full') return raw
+
+    const safe = sanitizeState(raw, id)
+    if (!safe.layout) return safe
+    const entries = Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>
+    const docKeys = entries
+      .filter(([, spec]) => spec.documentId === id && (spec.mode === 'editor' || spec.mode === 'preview'))
+      .map(([key]) => key)
+    if (docKeys.length <= 1) return safe
+
+    const keep = docKeys.find((key) => safe.tiles[key]?.mode === 'editor') ?? docKeys[0] ?? null
+    if (!keep) return safe
+    const nextTiles: Record<TileKey, TileSpec> = { ...safe.tiles }
+    for (const key of docKeys) {
+      if (key === keep) continue
+      delete nextTiles[key]
+    }
+    const nextLayout = pruneLayout(safe.layout, (leaf) => Boolean(nextTiles[leaf]))
+    return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
+  })
   const [activeDocumentId, setActiveDocumentId] = useState(id)
   const activeDocumentIdRef = useRef(activeDocumentId)
   const activeTileRef = useRef<{ tileKey: TileKey; documentId: string; mode: TileMode } | null>(null)
@@ -856,6 +880,14 @@ export default function DocumentMosaicWorkspace(props: Props) {
       const target = documentId.trim()
       if (!target) return
       if (isSingleDocShare && target !== id) return
+
+      const resolvedMode =
+        activeEmbeddingKind === 'full' && target === id && mode === 'split'
+          ? 'editor'
+          : mode
+      if (activeEmbeddingKind === 'full' && target === id && mode === 'split') {
+        toast.info('Split view is not available for this plugin document.')
+      }
       if (!canAccessSharedDocument(target)) {
         toast.info('This document is not included in the shared scope.')
         return
@@ -893,7 +925,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
           nextLayout = insertLeafBsp(nextLayout, key, activeTileRef.current?.tileKey, insertSplitMode)
         }
 
-        if (mode === 'editor') {
+        if (resolvedMode === 'editor') {
           const existingEditorKey = editorKeys[0]
           const reusedFromPreviewKey = !existingEditorKey ? previewKeys[0] : undefined
           const editorKey = existingEditorKey ?? reusedFromPreviewKey ?? makeTileKey()
@@ -912,7 +944,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
             if (key !== editorKey) removeTile(key)
           }
           clearSync(editorKey)
-        } else if (mode === 'preview') {
+        } else if (resolvedMode === 'preview') {
           const existingPreviewKey = previewKeys[0]
           const reusedFromEditorKey = !existingPreviewKey ? editorKeys[0] : undefined
           const previewKey = existingPreviewKey ?? reusedFromEditorKey ?? makeTileKey()
@@ -1000,7 +1032,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
         return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
       })
     },
-    [canAccessSharedDocument, id, insertSplitMode, isSingleDocShare],
+    [activeEmbeddingKind, canAccessSharedDocument, id, insertSplitMode, isSingleDocShare],
   )
 
   useEffect(() => {
@@ -1146,8 +1178,37 @@ export default function DocumentMosaicWorkspace(props: Props) {
 
   useEffect(() => {
     if (!isSingleDocShare) return
+    if (activeEmbeddingKind === 'full') {
+      const editorKey = makeTileKey()
+      setMosaicState({ layout: editorKey, tiles: { [editorKey]: { mode: 'editor', documentId: id } } })
+      return
+    }
     setMosaicState(defaultState(id))
-  }, [id, isSingleDocShare])
+  }, [activeEmbeddingKind, id, isSingleDocShare])
+
+  useEffect(() => {
+    if (activeEmbeddingKind !== 'full') return
+    setMosaicState((prev) => {
+      const safe = sanitizeState(prev, id)
+      if (!safe.layout) return safe
+      const entries = Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>
+      const docKeys = entries
+        .filter(([, spec]) => spec.documentId === id && (spec.mode === 'editor' || spec.mode === 'preview'))
+        .map(([key]) => key)
+      if (docKeys.length <= 1) return safe
+
+      const keep = docKeys.find((key) => safe.tiles[key]?.mode === 'editor') ?? docKeys[0] ?? null
+      if (!keep) return safe
+
+      const nextTiles: Record<TileKey, TileSpec> = { ...safe.tiles }
+      for (const key of docKeys) {
+        if (key === keep) continue
+        delete nextTiles[key]
+      }
+      const nextLayout = pruneLayout(safe.layout, (leaf) => Boolean(nextTiles[leaf]))
+      return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
+    })
+  }, [activeEmbeddingKind, id])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1506,16 +1567,6 @@ function useElementWidth<T extends HTMLElement>() {
   return [ref, width] as const
 }
 
-type PluginEmbedding = 'none' | 'full' | 'preview'
-
-function getPluginEmbeddingKind(pluginId: string): PluginEmbedding {
-  const id = pluginId.trim()
-  if (!id) return 'none'
-  // Currently only Marp is a "preview-only override" in the built-in plugins.
-  if (id === 'marp') return 'preview'
-  return 'full'
-}
-
 function useCreatedByPluginId(documentId: string, token?: string | null) {
   const docId = documentId.trim()
   const query = useQuery({
@@ -1751,9 +1802,12 @@ function MosaicPreviewTile({
   const pluginId =
     (typeof pluginHint === 'string' && pluginHint.trim() ? pluginHint.trim() : pluginLookup.pluginId) || ''
   const embeddingKind = getPluginEmbeddingKind(pluginId)
-  const previewMode: 'markdown' | 'plugin' | 'placeholder' =
-    embeddingKind === 'preview' ? 'plugin' : embeddingKind === 'full' ? (hasEditorTileForDoc ? 'placeholder' : 'plugin') : 'markdown'
+  const allowSplitControls = embeddingKind !== 'full'
+  const shouldMountPlugin =
+    embeddingKind === 'preview' || (embeddingKind === 'full' && !hasEditorTileForDoc)
+  const previewMode: 'markdown' | 'plugin' = shouldMountPlugin ? 'plugin' : 'markdown'
   const isMarkdownPreview = previewMode === 'markdown'
+  const pluginTileMode = isFocusedDocument ? 'primary' : 'secondary'
 
   const useLiveContent = Boolean(
     isMarkdownPreview &&
@@ -1834,15 +1888,19 @@ function MosaicPreviewTile({
   const toolbarControls = useMemo(() => {
     if (isSingleDocShare) return []
     return [
-      <button
-        key="split"
-        type="button"
-        className="mosaic-default-control"
-        onClick={onSplit}
-        aria-label="Split: add editor tile"
-      >
-        <Columns2 className="h-4 w-4" aria-hidden="true" />
-      </button>,
+      ...(allowSplitControls
+        ? [
+            <button
+              key="split"
+              type="button"
+              className="mosaic-default-control"
+              onClick={onSplit}
+              aria-label="Split: add editor tile"
+            >
+              <Columns2 className="h-4 w-4" aria-hidden="true" />
+            </button>,
+          ]
+        : []),
       <button
         key="mode"
         type="button"
@@ -1863,7 +1921,7 @@ function MosaicPreviewTile({
       <RemoveButton key="close" />,
       tileControlsToggle(),
     ]
-  }, [isSingleDocShare, onSplit, onSwitchToEditor, onToggleExpand])
+  }, [allowSplitControls, isSingleDocShare, onSplit, onSwitchToEditor, onToggleExpand])
 
   return (
     <MosaicWindow<TileKey>
@@ -1885,16 +1943,12 @@ function MosaicPreviewTile({
             token={shareToken}
             pluginIdHint={pluginId}
             variant={embeddingKind === 'preview' ? 'preview' : 'full'}
-            mode={isFocusedDocument ? 'primary' : 'secondary'}
+            mode={pluginTileMode}
             className="h-full w-full overflow-auto"
           />
         ) : (
           <div className="refmd-mosaic-panel">
-            {previewMode === 'placeholder' ? (
-              <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-                This plugin uses a custom editor. Use the editor tile to interact with this document.
-              </div>
-            ) : showError ? (
+            {showError ? (
               <div className="p-4 text-sm text-destructive">Failed to load preview.</div>
             ) : showLoading ? (
               <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -2045,6 +2099,7 @@ function EditorTile({
   const pluginId = (typeof pluginHint === 'string' && pluginHint.trim() ? pluginHint.trim() : pluginLookup.pluginId) || ''
   const embeddingKind = getPluginEmbeddingKind(pluginId)
   const shouldMountPlugin = embeddingKind === 'full'
+  const allowSplitControls = !shouldMountPlugin
 
   return (
     <MosaicWindow<TileKey>
@@ -2054,15 +2109,19 @@ function EditorTile({
         isSingleDocShare
           ? []
           : [
-              <button
-                key="split"
-                type="button"
-                className="mosaic-default-control"
-                onClick={onSplit}
-                aria-label="Split: add preview tile"
-              >
-                <Columns2 className="h-4 w-4" aria-hidden="true" />
-              </button>,
+              ...(allowSplitControls
+                ? [
+                    <button
+                      key="split"
+                      type="button"
+                      className="mosaic-default-control"
+                      onClick={onSplit}
+                      aria-label="Split: add preview tile"
+                    >
+                      <Columns2 className="h-4 w-4" aria-hidden="true" />
+                    </button>,
+                  ]
+                : []),
               <button
                 key="mode"
                 type="button"
