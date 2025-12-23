@@ -11,8 +11,6 @@ import {
   type RoutePluginMatch,
 } from '@/features/plugins'
 
-import { SplitEditorPortalRenderer } from '@/widgets/plugins/SplitEditorHost'
-
 
 export default function PluginFallback() {
   const navigate = useNavigate()
@@ -55,6 +53,16 @@ export default function PluginFallback() {
   const [plugin, setPlugin] = React.useState<RoutePluginMatch | null>(null)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const disposeRef = React.useRef<null | (() => void)>(null)
+  const routeKey = React.useMemo(() => {
+    const pathname = routerState.location?.pathname ?? ''
+    const hash = routerState.location?.hash ?? ''
+    const searchPart = search ? (search.startsWith('?') ? search : `?${search}`) : ''
+    return `${pathname}${searchPart}${hash}`
+  }, [routerState.location?.hash, routerState.location?.pathname, search])
+  const mountNodeKey = React.useMemo(() => {
+    const pluginId = plugin?.manifest?.id ? String(plugin.manifest.id) : 'none'
+    return `${pluginId}:${routeKey}`
+  }, [plugin, routeKey])
 
   React.useEffect(() => {
     if (allowAnonymous || authLoading || authReady) return
@@ -137,11 +145,7 @@ export default function PluginFallback() {
         disposeRef.current = null
       }
       if (container) {
-        try {
-          container.innerHTML = ''
-        } catch {
-          /* noop */
-        }
+        // Let React/portal unmount clear DOM to avoid removeChild races.
       }
       realtime.setDocumentId(undefined)
       realtime.setDocumentTitle(undefined)
@@ -152,7 +156,6 @@ export default function PluginFallback() {
       return
     }
 
-    container.innerHTML = ''
     setPluginMounting(true)
 
     ;(async () => {
@@ -202,18 +205,13 @@ export default function PluginFallback() {
         }
         disposeRef.current = null
       }
-      try {
-        container.innerHTML = ''
-      } catch {
-        /* noop */
-      }
       realtime.setDocumentId(undefined)
       realtime.setDocumentTitle(undefined)
       realtime.setDocumentStatus(undefined)
       realtime.setDocumentBadge(undefined)
       realtime.setDocumentActions([])
     }
-  }, [plugin, navigate, pluginAccessReady])
+  }, [mountNodeKey, plugin, pluginAccessReady, navigate, realtime])
 
   if (!pluginAccessReady) {
     if (authLoading && !allowAnonymous) {
@@ -232,8 +230,9 @@ export default function PluginFallback() {
 
   return (
     <div className="relative h-full w-full">
-      <SplitEditorPortalRenderer />
-      <div ref={containerRef} className="h-full w-full overflow-auto" />
+      <div className="h-full w-full overflow-auto">
+        <div key={mountNodeKey} ref={containerRef} className="h-full w-full" />
+      </div>
       {(pluginMounting || manifestLoading) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80">
           <p className="text-sm text-muted-foreground">Preparing plugin…</p>

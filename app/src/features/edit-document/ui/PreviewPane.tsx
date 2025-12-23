@@ -178,7 +178,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   const handleFloatingItemClick = React.useCallback(() => setShowFloatingToc(false), [])
 
   return (
-    <div className="relative flex flex-1 min-h-0 flex-col bg-background overflow-hidden">
+    <div className="relative flex h-full w-full flex-1 min-h-0 flex-col bg-background overflow-hidden">
       <div
         className="flex-1 overflow-auto"
         ref={previewRef}
@@ -250,7 +250,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           onClick={() => setShowFloatingToc((s) => !s)}
           className={cn(
             'p-3 rounded-full border border-primary/60 bg-primary text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl z-40',
-            (isMobile || forceFloatingToc) ? 'fixed bottom-6 right-6' : 'absolute bottom-6 right-6'
+            isMobile ? 'fixed bottom-6 right-6' : 'absolute bottom-6 right-6'
           )}
           title="Table of Contents"
           size="icon"
@@ -264,7 +264,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           ref={floatingTocRef}
           className={cn(
             overlayPanelClass,
-            (isMobile || forceFloatingToc)
+            isMobile
               ? 'fixed bottom-24 right-6 w-[min(320px,calc(100%-2.5rem))] z-40'
               : 'absolute bottom-20 right-6 w-[300px] max-w-[calc(100%-3rem)] z-40',
           )}

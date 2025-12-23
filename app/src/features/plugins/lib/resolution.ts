@@ -52,6 +52,105 @@ export async function resolvePluginForRoute(
   return null
 }
 
+export async function resolvePluginForDocumentById(
+  docId: string,
+  pluginId: string,
+  token?: string | null,
+  options: { source?: 'primary' | 'secondary' } = {},
+): Promise<DocumentPluginMatch | null> {
+  const trimmedPluginId = pluginId?.trim?.() ?? ''
+  if (!trimmedPluginId) return null
+  const manifest = await getPluginManifest(token ?? undefined)
+  const apiOrigin = getApiOrigin()
+
+  const item = (manifest as PluginManifestItem[]).find((entry) => String(entry?.id) === trimmedPluginId)
+  if (!item) return null
+
+  const frontend = item?.frontend as { entry?: string; mode?: string } | undefined
+  const entry = frontend?.entry?.trim()
+  if (!entry) return null
+  if ((frontend?.mode || 'esm').toLowerCase() !== 'esm') return null
+
+  let mod: any
+  try {
+    mod = await loadPluginModule(item as any)
+  } catch (error) {
+    console.error('[plugins] failed to load document plugin', item?.id, error)
+    return null
+  }
+  if (!mod) return null
+
+  const detectionHost = {
+    origin: apiOrigin,
+    exec: async (action: string, payload: any) => {
+      const ok = (data: any) => ({ ok: true, data, effects: [], error: null })
+      const fail = (code: string, message?: string) => ({
+        ok: false,
+        data: null,
+        effects: [],
+        error: { code, message },
+      })
+      try {
+        switch (action) {
+          case 'host.kv.get': {
+            const lookupDocId = payload?.docId ?? docId
+            const key = payload?.key
+            const tok = payload?.token ?? token ?? undefined
+            if (!lookupDocId || typeof key !== 'string' || !key) {
+              return fail('BAD_REQUEST', 'docId and key required')
+            }
+            const data = await getPluginKv(item.id, lookupDocId, key, tok)
+            return ok(data)
+          }
+          default:
+            return fail('UNSUPPORTED_ACTION', `Unsupported host action: ${action}`)
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return fail('HOST_ACTION_FAILED', message)
+      }
+    },
+    api: {
+      getKv: (pluginId2: string, docId2: string, key: string, tok?: string) =>
+        getPluginKv(pluginId2, docId2, key, tok),
+    },
+  }
+
+  let canOpen = true
+  if (typeof mod.canOpen === 'function') {
+    try {
+      canOpen = await mod.canOpen(docId, {
+        token,
+        origin: apiOrigin,
+        host: detectionHost,
+        source: options.source ?? 'primary',
+      })
+    } catch {
+      canOpen = false
+    }
+  }
+  if (!canOpen) return null
+
+  // Embed into the standard document route (tiles), not plugin-specific routes.
+  const routeWithToken = applyShareTokenToRoute(`/document/${docId}`, token)
+
+  let routeToken: string | null = routeWithToken.token
+  try {
+    const url = new URL(routeWithToken.route, window.location.origin)
+    routeToken = routeToken ?? url.searchParams.get('token')
+  } catch {
+    /* noop */
+  }
+
+  return {
+    manifest: item,
+    module: mod,
+    route: routeWithToken.route,
+    token: routeToken ?? token ?? null,
+    docId,
+  }
+}
+
 export async function resolvePluginForDocument(
   docId: string,
   token?: string | null,
@@ -232,6 +331,7 @@ export async function mountResolvedPlugin(
   match: DocumentPluginMatch,
   container: HTMLElement,
   mode: 'primary' | 'secondary',
+  options: { tweakHost?: (host: any) => void } = {},
 ) {
   const host = await createPluginHost(match.manifest, {
     docId: match.docId,
@@ -239,6 +339,11 @@ export async function mountResolvedPlugin(
     token: match.token ?? undefined,
     mode,
   })
+  try {
+    options.tweakHost?.(host)
+  } catch {
+    /* noop */
+  }
 
   try {
     ;(match.module as any).__host__ = host

@@ -33,7 +33,6 @@ import FileNode from '@/features/file-tree/ui/FileNode'
 import FolderNode from '@/features/file-tree/ui/FolderNode'
 import { GitSyncButton } from '@/features/git-sync'
 import { GIT_CONFLICT_EVENT, readConflicts, readSessionId, setConflicts as setGlobalConflicts, setSessionId, clearSession, clearResolutions } from '@/features/git-sync/lib/git-conflict-store'
-import { useSecondaryViewer } from '@/features/secondary-viewer'
 import { ShareDialog } from '@/features/sharing'
 import {
   TEMPORARY_DOCUMENT_TTL_MS,
@@ -242,7 +241,6 @@ function WorkspaceSwitcher() {
 function FileTreeInner() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const router = useRouter()
-  const { openSecondaryViewer } = useSecondaryViewer()
   const {
     documents,
     archivedDocuments,
@@ -831,12 +829,11 @@ function FileTreeInner() {
         onDragOver={drag.handleDragOver}
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parent) }}
         pluginRules={fileTreeRules}
-        onOpenSecondaryViewer={openSecondaryViewer}
         gitEnabled
         conflict={conflict}
       />
     )
-  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   const renderNestedNode = useCallback((node: DocumentNode, parentId?: string, depth = 1): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.id)
@@ -891,12 +888,11 @@ function FileTreeInner() {
         onDragOver={drag.handleDragOver}
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parentId) }}
         pluginRules={fileTreeRules}
-        onOpenSecondaryViewer={openSecondaryViewer}
         gitEnabled
         conflict={conflictForNode(node)}
       />
     )
-  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, openSecondaryViewer, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
+  }, [conflictForNode, createDocument, createFolder, deleteDocument, drag, duplicateDocument, expandedFolders, fileTreeRules, handleDrop, onSelect, renameDocument, selectedDocId, setShareFolderId, toggleFolder])
 
   return (
     <div className="flex h-full flex-1 flex-col">

@@ -31,6 +31,14 @@ export default [
     },
     settings: {
       // Keep path groups like before; resolver TS optional
+      'import/resolver': {
+        node: {
+          extensions: ['.js', '.jsx', '.ts', '.tsx', '.d.ts', '.css'],
+        },
+        typescript: {
+          project: './tsconfig.json',
+        },
+      },
       'boundaries/elements': [
         { type: 'shared', pattern: 'src/shared/**' },
         { type: 'entities', pattern: 'src/entities/**' },
@@ -38,9 +46,12 @@ export default [
         { type: 'widgets', pattern: 'src/widgets/**' },
         { type: 'processes', pattern: 'src/processes/**' },
         { type: 'routes', pattern: 'src/routes/**' },
-        { type: 'assets', pattern: 'src/**/*.{svg,png,jpg,jpeg,gif,webp}' },
+        { type: 'routes', pattern: 'src/router.tsx', mode: 'file' },
+        { type: 'routes', pattern: 'src/routeTree.gen.ts', mode: 'file' },
+        { type: 'assets', pattern: 'src/**/*.{css,svg,png,jpg,jpeg,gif,webp}' },
       ],
       'boundaries/ignore': [
+        '**/*.css',
         '**/*.svg',
         '**/*.png',
         '**/*.jpg',
@@ -75,7 +86,7 @@ export default [
         {
           default: 'disallow',
           rules: [
-            { from: ['routes'], allow: ['widgets', 'features', 'entities', 'shared', 'processes', 'assets'] },
+            { from: ['routes'], allow: ['routes', 'widgets', 'features', 'entities', 'shared', 'processes', 'assets'] },
             { from: ['widgets'], allow: ['features', 'entities', 'shared'] },
             { from: ['features'], allow: ['entities', 'shared'] },
             { from: ['processes'], allow: ['features', 'entities', 'shared'] },

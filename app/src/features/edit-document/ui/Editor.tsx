@@ -1,14 +1,16 @@
 import type { OnMount } from '@monaco-editor/react'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import type * as monacoNs from 'monaco-editor'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
+import { useShareToken } from '@/shared/contexts/share-token-context'
 import { useTheme } from '@/shared/contexts/theme-context'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
+import { MOSAIC_SCROLL_SYNC_EVENT, type MosaicScrollSyncDetail, dispatchMosaicScrollSync } from '@/shared/lib/mosaic-events'
 import type { ViewMode } from '@/shared/types/view-mode'
 
 import { listDocuments } from '@/entities/document'
@@ -31,6 +33,9 @@ import type { PreviewPaneProps } from './PreviewPane'
 import EditorToolbar from './Toolbar'
 
 const logEditorError = (scope: string, error: unknown) => {
+  if (error instanceof Error && /InstantiationService has been disposed/i.test(error.message)) {
+    return
+  }
   if (error instanceof Error) {
     console.error(`[editor] ${scope}:`, error)
   } else {
@@ -51,6 +56,9 @@ export type MarkdownEditorProps = {
   awareness: Awareness
   connected: boolean
   initialView?: ViewMode
+  forcedView?: ViewMode
+  embedded?: boolean
+  scrollSyncGroupId?: string | null
   userName?: string
   userId?: string
   documentId: string
@@ -86,7 +94,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const {
     doc,
     awareness,
-    initialView: initialViewProp = 'split',
+    initialView: initialViewProp = 'editor',
+    forcedView,
+    embedded = false,
+    scrollSyncGroupId = null,
     userId,
     userName,
     documentId,
@@ -101,15 +112,38 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   } = props
   const { isDarkMode } = useTheme()
   const isMobile = useIsMobile()
-  const { setEditor } = useEditorContext()
+  const { editor: activeEditor, setEditor, registerEditor } = useEditorContext()
   const { viewMode, setViewMode, viewModeHydrated, hasPersistentViewMode } = useViewContext()
   const navigate = useNavigate()
+  const shareToken = useShareToken()
+  const shareScope = useRouterState({
+    select: (state) => {
+      const raw = (state.location?.search as any)?.shareScope
+      const scope = typeof raw === 'string' ? raw : null
+      return scope === 'folder' || scope === 'document' ? scope : null
+    },
+  })
+  const isShareMount = useRouterState({
+    select: (state) => {
+      const search = (state.location?.search ?? {}) as Record<string, unknown>
+      const raw = (search as any)?.shareMount ?? (search as any)?.share_mount
+      if (raw == null) return false
+      if (typeof raw === 'string') {
+        const normalized = raw.trim().toLowerCase()
+        return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+      }
+      if (typeof raw === 'number') return raw === 1
+      return Boolean(raw)
+    },
+  })
+  const isShareLink = Boolean(shareToken && !isShareMount)
   const brandedMonacoTheme = isDarkMode ? REFMD_DARK_THEME : REFMD_LIGHT_THEME
   const monacoTheme = brandedMonacoTheme
-  const view = viewMode
+  const view = forcedView ?? viewMode
   const [isVimMode, setIsVimMode] = useState<boolean>(() => typeof window !== 'undefined' && localStorage.getItem('editorVimMode') === 'true')
   const [syncScroll, setSyncScroll] = useState<boolean>(true)
   const [toolbarOpen, setToolbarOpen] = useState(false)
+  const [editorMountNonce, setEditorMountNonce] = useState(0)
   const readOnlyWarningRef = useRef(0)
   const emitReadOnlyWarning = useCallback(() => {
     if (!readOnly) return
@@ -123,16 +157,38 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const vimModeRef = useRef<{ dispose: () => void } | null>(null)
   const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const viewRef = useRef<ViewMode>(initialViewProp)
+  const viewRef = useRef<ViewMode>(forcedView ?? initialViewProp)
   useEffect(() => {
-    viewRef.current = viewMode
-  }, [viewMode])
+    viewRef.current = view as ViewMode
+  }, [view])
   const { onMount: onMonacoMount, text: boundText, editorRef } = useMonacoBinding({
     doc,
     awareness,
     language: 'markdown',
     onTextChange: () => {},
   })
+  const mosaicGroupIdRef = useRef<string | null>(scrollSyncGroupId)
+  useEffect(() => {
+    mosaicGroupIdRef.current = scrollSyncGroupId
+  }, [scrollSyncGroupId])
+  const mosaicScrollRafRef = useRef<number | null>(null)
+  const suppressMosaicEmitRef = useRef(false)
+  const suppressMosaicTimeoutRef = useRef<number | null>(null)
+  const unregisterEditorRef = useRef<null | (() => void)>(null)
+  const focusDisposableRef = useRef<null | { dispose: () => void }>(null)
+  const blurDisposableRef = useRef<null | { dispose: () => void }>(null)
+
+  const isThisEditorActive = useCallback(() => {
+    const ed = editorRef.current
+    if (!ed) return false
+    return activeEditor === ed
+  }, [activeEditor, editorRef])
+
+  const ensureThisEditorActive = useCallback(() => {
+    const ed = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null
+    if (!ed) return
+    if (activeEditor !== ed) setEditor(ed as any)
+  }, [activeEditor, editorRef, setEditor])
   const disableVimMode = useCallback(() => {
     if (vimModeRef.current) {
       safeExecute('disable vim mode', () => vimModeRef.current?.dispose())
@@ -169,11 +225,12 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   ;(onMonacoMount as any)._onCaretAtEnd = onCaretAtEndChange
   useEffect(() => {
     if (!viewModeHydrated) return
+    if (forcedView) return
     if (hasPersistentViewMode) return
     if (!initialViewProp) return
     if (viewMode === initialViewProp) return
     safeExecute('set initial view mode', () => setViewMode(initialViewProp))
-  }, [hasPersistentViewMode, initialViewProp, setViewMode, viewMode, viewModeHydrated])
+  }, [forcedView, hasPersistentViewMode, initialViewProp, setViewMode, viewMode, viewModeHydrated])
 
   useAwarenessStyles(awareness, { userId, userName })
 
@@ -334,6 +391,33 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     })
     ;(editor as any).__disposeScroll = () => safeExecute('dispose scroll listener', () => scrollDispose?.dispose?.())
 
+    // Mosaic scroll sync: emit current top line to paired preview tile (by group)
+    try {
+      const mosaicScrollDispose = editor.onDidScrollChange?.(() => {
+        const groupId = mosaicGroupIdRef.current
+        if (!groupId) return
+        if (suppressMosaicEmitRef.current) return
+        if (mosaicScrollRafRef.current != null) return
+        mosaicScrollRafRef.current = window.requestAnimationFrame(() => {
+          mosaicScrollRafRef.current = null
+          try {
+            if ((editor as any)?._isDisposed === true) return
+            const domNode = editor.getDomNode?.()
+            if (!domNode) return
+            const range = editor.getVisibleRanges?.()?.[0]
+            const line = range?.startLineNumber ?? editor.getPosition?.()?.lineNumber ?? 1
+            if (!Number.isFinite(line) || line < 1) return
+            dispatchMosaicScrollSync({ groupId, source: 'editor', line })
+          } catch (error) {
+            logEditorError('mosaic scroll sync emit', error)
+          }
+        })
+      })
+      ;(editor as any).__disposeMosaicScroll = () => safeExecute('dispose mosaic scroll listener', () => mosaicScrollDispose?.dispose?.())
+    } catch (error) {
+      logEditorError('register mosaic scroll listener', error)
+    }
+
     // Handle paste (Ctrl+V) with files from clipboard
     const dom = editor.getDomNode() as HTMLElement | null
     const pasteHandler = async (event: ClipboardEvent) => {
@@ -397,6 +481,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     const anyEditor = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | undefined
     safeExecute('dispose change listener', () => (anyEditor as any)?.__disposeChange?.())
     safeExecute('dispose scroll listener', () => (anyEditor as any)?.__disposeScroll?.())
+    safeExecute('dispose mosaic scroll listener', () => (anyEditor as any)?.__disposeMosaicScroll?.())
     safeExecute('dispose paste handler', () => (anyEditor as any)?.__disposePaste?.())
     safeExecute('dispose wiki handler', () => (anyEditor as any)?.__disposeWiki?.())
     safeExecute('dispose cursor handler', () => (anyEditor as any)?.__disposeCursor?.())
@@ -412,9 +497,78 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         delete (anyEditor as any).__monaco
       }
     })
+    safeExecute('dispose editor focus listener', () => focusDisposableRef.current?.dispose())
+    focusDisposableRef.current = null
+    safeExecute('dispose editor blur listener', () => blurDisposableRef.current?.dispose())
+    blurDisposableRef.current = null
+    safeExecute('unregister editor instance', () => unregisterEditorRef.current?.())
+    unregisterEditorRef.current = null
+    safeExecute('cancel mosaic scroll raf', () => {
+      if (mosaicScrollRafRef.current != null) {
+        window.cancelAnimationFrame(mosaicScrollRafRef.current)
+        mosaicScrollRafRef.current = null
+      }
+    })
+    safeExecute('cancel mosaic suppress timeout', () => {
+      if (suppressMosaicTimeoutRef.current != null) {
+        window.clearTimeout(suppressMosaicTimeoutRef.current)
+        suppressMosaicTimeoutRef.current = null
+      }
+      suppressMosaicEmitRef.current = false
+    })
     disableVimMode()
-    setEditor(null)
   }, [editorRef, setEditor, disableVimMode])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!scrollSyncGroupId) return
+    const handler = (event: Event) => {
+      try {
+        const detail = (event as CustomEvent<MosaicScrollSyncDetail>).detail
+        if (!detail || detail.source !== 'preview') return
+        if (detail.groupId !== scrollSyncGroupId) return
+        const line = detail.line
+        if (!Number.isFinite(line) || (line as number) < 1) return
+
+        const editorInstance = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null
+        if (!editorInstance) return
+        if ((editorInstance as any)?._isDisposed === true) return
+        const domNode = editorInstance.getDomNode?.()
+        if (!domNode) return
+
+        const model = editorInstance.getModel?.()
+        if (!model) return
+        const maxLine = model.getLineCount?.() ?? null
+        const clamped = maxLine
+          ? Math.min(maxLine, Math.max(1, Math.floor(line as number)))
+          : Math.max(1, Math.floor(line as number))
+
+        if (suppressMosaicTimeoutRef.current != null) {
+          window.clearTimeout(suppressMosaicTimeoutRef.current)
+          suppressMosaicTimeoutRef.current = null
+        }
+        suppressMosaicEmitRef.current = true
+        try {
+          ;(editorInstance as any).revealLineNearTop?.(clamped)
+        } catch (error) {
+          // Avoid noisy errors when editor is being disposed during tile close/layout changes.
+          if (error instanceof Error && /InstantiationService has been disposed/i.test(error.message)) return
+          throw error
+        } finally {
+          suppressMosaicTimeoutRef.current = window.setTimeout(() => {
+            suppressMosaicTimeoutRef.current = null
+            suppressMosaicEmitRef.current = false
+          }, 120)
+        }
+      } catch (error) {
+        logEditorError('mosaic scroll sync receive', error)
+      }
+    }
+    window.addEventListener(MOSAIC_SCROLL_SYNC_EVENT, handler as EventListener)
+    return () => {
+      window.removeEventListener(MOSAIC_SCROLL_SYNC_EVENT, handler as EventListener)
+    }
+  }, [editorRef, scrollSyncGroupId])
 
   const toggleVim = useCallback(async () => {
     const next = !isVimMode
@@ -432,8 +586,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       emitReadOnlyWarning()
       return
     }
+    ensureThisEditorActive()
     if (fileInputRef.current) fileInputRef.current.click()
-  }, [emitReadOnlyWarning, readOnly])
+  }, [emitReadOnlyWarning, readOnly, ensureThisEditorActive])
 
   // uploadFiles provided by hook
 
@@ -453,20 +608,30 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   ), [handleToolbarCommand, view, syncScroll, isVimMode, toggleVim, handleFileUpload, readOnly])
 
   const shortcutToggleSync = useCallback(() => {
+    if (!isThisEditorActive()) return
     setSyncScroll((value) => !value)
-  }, [])
+  }, [isThisEditorActive])
   const shortcutToggleVim = useCallback(() => {
+    if (!isThisEditorActive()) return
     void toggleVim()
-  }, [toggleVim])
+  }, [isThisEditorActive, toggleVim])
+  const shortcutUpload = useCallback(() => {
+    if (!isThisEditorActive()) return
+    handleFileUpload()
+  }, [handleFileUpload, isThisEditorActive])
 
   useShortcut('editor.sync-scroll.toggle', shortcutToggleSync)
   useShortcut('editor.vim.toggle', shortcutToggleVim)
-  useShortcut('editor.upload.trigger', handleFileUpload)
+  useShortcut('editor.upload.trigger', shortcutUpload)
 
   const onPreviewNavigate = useCallback(async (target: string) => {
+    if (isShareLink && shareScope === 'document') {
+      toast.info('This share link is for a single document.')
+      return
+    }
     const uuidRe = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
     let id = target
-    if (!uuidRe.test(target)) {
+    if (!uuidRe.test(target) && !shareToken) {
       try {
         const resp = await listDocuments({ query: target })
         const items = (resp.items ?? []) as unknown as Array<{ id: string; title: string }>
@@ -479,71 +644,115 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     }
     if (uuidRe.test(id)) {
       try {
-        navigate({ to: '/document/$id', params: { id } })
+        navigate({
+          to: '/document/$id',
+          params: { id },
+          search: (prev: Record<string, string | string[] | undefined>) => {
+            if (!shareToken) return prev
+            const next: Record<string, string | string[] | undefined> = { ...(prev || {}), token: shareToken }
+            if (shareScope) next.shareScope = shareScope
+            if (isShareMount) next.shareMount = '1'
+            return next
+          },
+        })
       } catch (error) {
         logEditorError('navigate to document from preview', error)
-        window.location.href = `/document/${id}`
+        const qs = shareToken ? `?token=${encodeURIComponent(shareToken)}` : ''
+        window.location.href = `/document/${id}${qs}`
       }
     }
-  }, [navigate])
+  }, [isShareLink, isShareMount, navigate, shareScope, shareToken])
 
   // Ensure Monaco relayouts when view/layout changes or container resizes
   useEffect(() => {
     const ed = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null
     if (!ed) return
-    const relayout = () => safeExecute('editor relayout', () => ed.layout())
+    const relayoutToContainer = () => {
+      safeExecute('editor relayout', () => {
+        const container = (ed as any).getContainerDomNode?.() as HTMLElement | null
+        const node = ed.getDomNode?.() as HTMLElement | null
+        const target = container || node?.parentElement || node
+        if (!target) {
+          ed.layout()
+          return
+        }
+        const rect = target.getBoundingClientRect()
+        if (!rect.width || !rect.height) {
+          ed.layout()
+          return
+        }
+        ed.layout({ width: rect.width, height: rect.height })
+      })
+    }
     // immediate relayout on view change
-    relayout()
+    relayoutToContainer()
     // also schedule once after transition
-    const t = setTimeout(relayout, 120)
+    const t = setTimeout(relayoutToContainer, 120)
     // observe parent size changes
     let ro: ResizeObserver | null = null
     try {
+      const container = (ed as any).getContainerDomNode?.() as HTMLElement | null
       const node = ed.getDomNode() as HTMLElement | null
-      const parent = node?.parentElement || node
-      if (parent && 'ResizeObserver' in window) {
-        ro = new ResizeObserver(() => relayout())
-        ro.observe(parent)
+      const target = container || node?.parentElement || node
+      if (target && 'ResizeObserver' in window) {
+        ro = new ResizeObserver(() => relayoutToContainer())
+        ro.observe(target)
       }
     } catch (error) {
       logEditorError('init resize observer', error)
     }
     // window resize
-    window.addEventListener('resize', relayout)
+    window.addEventListener('resize', relayoutToContainer)
     return () => {
       clearTimeout(t)
       safeExecute('disconnect resize observer', () => {
         if (ro) ro.disconnect()
       })
-      window.removeEventListener('resize', relayout)
+      window.removeEventListener('resize', relayoutToContainer)
     }
-  }, [view, editorRef])
+  }, [editorMountNonce, view, editorRef])
 
   const handleEditorMount = useCallback(
     (editor: monacoNs.editor.IStandaloneCodeEditor, monaco: Parameters<OnMount>[1]) => {
-      setEditor(editor as any)
+      unregisterEditorRef.current?.()
+      unregisterEditorRef.current = registerEditor(editor as any)
+      safeExecute('dispose editor focus listener', () => focusDisposableRef.current?.dispose())
+      safeExecute('dispose editor blur listener', () => blurDisposableRef.current?.dispose())
+      focusDisposableRef.current = editor.onDidFocusEditorWidget(() => {
+        try { setEditor(editor as any) } catch {}
+      })
+      blurDisposableRef.current = editor.onDidBlurEditorWidget(() => {
+        // Keep last active editor; do not clear on blur to avoid losing target when clicking chrome.
+      })
       handleMount(editor, monaco)
+      setEditorMountNonce((n) => n + 1)
     },
-    [handleMount, setEditor],
+    [handleMount, registerEditor, setEditor],
   )
 
   const handleEditorDropFiles = useCallback(
     async (files: File[]) => {
+      ensureThisEditorActive()
       await uploadFiles(files)
     },
-    [uploadFiles],
+    [ensureThisEditorActive, uploadFiles],
   )
 
   
 
   return (
-    <div className="relative flex h-full flex-1 min-h-0 flex-col">
+    <div
+      className="relative flex h-full flex-1 min-h-0 flex-col"
+      onMouseDownCapture={ensureThisEditorActive}
+      onFocusCapture={ensureThisEditorActive}
+    >
       <input
         ref={fileInputRef}
         type="file"
         multiple
         className="hidden"
         onChange={async (e) => {
+          ensureThisEditorActive()
           const files = Array.from(e.currentTarget.files || [])
           await uploadFiles(files)
           safeExecute('reset file input', () => {
@@ -556,6 +765,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         isMobile={isMobile}
         view={view as ViewMode}
         extraRight={extraRight}
+        embedded={embedded}
         toolbar={Toolbar}
         toolbarOpen={toolbarOpen}
         onToolbarOpenChange={setToolbarOpen}
@@ -592,7 +802,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         }
       />
 
-      <CursorDisplay awareness={awareness} />
+      <CursorDisplay awareness={awareness} className={embedded ? 'top-12' : undefined} />
     </div>
   )
 }

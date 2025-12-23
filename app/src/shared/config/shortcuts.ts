@@ -132,8 +132,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   },
   {
     id: 'view.mode.split',
-    label: 'Split view',
-    description: 'Show editor and preview together',
+    label: 'Editor + preview tiles',
+    description: 'Open editor and preview tiles for the current document',
     category: 'View',
     scope: 'view',
     default: {
@@ -154,13 +154,123 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   },
   {
     id: 'view.backlinks.toggle',
-    label: 'Toggle backlinks',
-    description: 'Open or close the backlink inspector',
+    label: 'Open backlinks tile',
+    description: 'Open backlinks in a tile',
     category: 'View',
     scope: 'view',
     default: {
       mac: [chord('b', { meta: true, alt: true })],
       windows: [chord('b', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'view.document.focus.next',
+    label: 'Focus next document',
+    description: 'Move focus to the next open document in the tile layout',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowRight', { ctrl: true, alt: true })],
+      windows: [chord('ArrowRight', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'view.document.focus.prev',
+    label: 'Focus previous document',
+    description: 'Move focus to the previous open document in the tile layout',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowLeft', { ctrl: true, alt: true })],
+      windows: [chord('ArrowLeft', { ctrl: true, alt: true })],
+    },
+  },
+  {
+    id: 'tiles.split.direction.auto',
+    label: 'Tile insertion split: Auto',
+    description: 'When opening a document in a new tile, choose split direction automatically',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('a', { meta: true, alt: true, shift: true })],
+      windows: [chord('a', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.split.direction.row',
+    label: 'Tile insertion split: Horizontal',
+    description: 'When opening a document in a new tile, split left/right only',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('h', { meta: true, alt: true, shift: true })],
+      windows: [chord('h', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.split.direction.column',
+    label: 'Tile insertion split: Vertical',
+    description: 'When opening a document in a new tile, split up/down only',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('j', { meta: true, alt: true, shift: true })],
+      windows: [chord('j', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.swap.left',
+    label: 'Swap tile left',
+    description: 'Swap the active tile contents with the tile to the left',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowLeft', { meta: true, alt: true, shift: true })],
+      windows: [chord('ArrowLeft', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.swap.right',
+    label: 'Swap tile right',
+    description: 'Swap the active tile contents with the tile to the right',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowRight', { meta: true, alt: true, shift: true })],
+      windows: [chord('ArrowRight', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.swap.up',
+    label: 'Swap tile up',
+    description: 'Swap the active tile contents with the tile above',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowUp', { meta: true, alt: true, shift: true })],
+      windows: [chord('ArrowUp', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.swap.down',
+    label: 'Swap tile down',
+    description: 'Swap the active tile contents with the tile below',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('ArrowDown', { meta: true, alt: true, shift: true })],
+      windows: [chord('ArrowDown', { ctrl: true, alt: true, shift: true })],
+    },
+  },
+  {
+    id: 'tiles.swap.last',
+    label: 'Swap with last active tile',
+    description: 'Swap the active tile contents with the previously active tile',
+    category: 'View',
+    scope: 'view',
+    default: {
+      mac: [chord('w', { meta: true, alt: true, shift: true })],
+      windows: [chord('w', { ctrl: true, alt: true, shift: true })],
     },
   },
   {
