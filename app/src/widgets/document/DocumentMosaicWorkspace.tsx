@@ -405,7 +405,7 @@ function defaultState(activeDocumentId: string): MosaicState {
   const editorKey = makeTileKey()
   const previewKey = makeTileKey()
   return {
-    layout: { direction: 'row', first: editorKey, second: previewKey, splitPercentage: 55 },
+    layout: { direction: 'row', first: editorKey, second: previewKey, splitPercentage: 50 },
     tiles: {
       [editorKey]: { mode: 'editor', documentId: activeDocumentId },
       [previewKey]: { mode: 'preview', documentId: activeDocumentId },
@@ -917,7 +917,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
               direction: 'row',
               first: editorKey,
               second: previewKey,
-              splitPercentage: 55,
+              splitPercentage: 50,
             }
             nextLayout = replaceNodeAtPath(nextLayout, finalPath, replacement)
           }
