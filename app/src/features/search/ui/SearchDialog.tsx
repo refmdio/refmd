@@ -94,7 +94,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       (event) => {
         if (!open) return
         if (!activeDocId) return
-        dispatchOpenPreviewTile(activeDocId, 'row')
+        dispatchOpenPreviewTile(activeDocId)
         onOpenChange(false)
         event.preventDefault()
         event.stopPropagation()

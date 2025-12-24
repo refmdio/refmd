@@ -178,6 +178,23 @@ function normalizeSplitPercentage(value: unknown): number {
   return Math.min(100, Math.max(0, value))
 }
 
+function insertLeafAtRight(layout: MosaicNode<TileKey> | null, leaf: TileKey): MosaicNode<TileKey> {
+  if (!layout) return leaf
+  return { direction: 'row', first: layout, second: leaf, splitPercentage: 50 }
+}
+
+type InsertSplitMode = 'auto' | 'row' | 'column'
+
+function insertLeafWithMode(
+  layout: MosaicNode<TileKey> | null,
+  leaf: TileKey,
+  preferredLeaf: TileKey | undefined,
+  mode: InsertSplitMode,
+): MosaicNode<TileKey> {
+  if (mode === 'row') return insertLeafAtRight(layout, leaf)
+  return insertLeafBsp(layout, leaf, preferredLeaf, mode)
+}
+
 type BspRect = { x: number; y: number; w: number; h: number }
 type BspLeafPane = { leaf: TileKey; path: MosaicPath; rect: BspRect }
 
@@ -254,8 +271,6 @@ function computeBspSplitDirection(rect: BspRect): 'row' | 'column' {
   // BSPwm-style: split along the longer axis (vertical split when pane is wider).
   return rect.w >= rect.h ? 'row' : 'column'
 }
-
-type InsertSplitMode = 'auto' | 'row' | 'column'
 
 function resolveInsertSplitDirection(mode: InsertSplitMode, rect: BspRect): 'row' | 'column' {
   if (mode === 'row') return 'row'
@@ -346,7 +361,7 @@ function ensureLeafInLayout(
 ): MosaicNode<TileKey> {
   const leaves = getLeavesSafe(layout)
   if (leaves.includes(leaf)) return layout ?? leaf
-  return insertLeafBsp(layout, leaf, preferredLeaf, mode)
+  return insertLeafWithMode(layout, leaf, preferredLeaf, mode)
 }
 
 function maybeBuildTwoDocSplitGrid(
@@ -626,6 +641,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
   const clearSavedLayoutRef = useRef(false)
   const lastReportedViewModeRef = useRef<{ docId: string; mode: 'editor' | 'split' | 'preview' } | null>(null)
   const lastRouteDocIdRef = useRef<string>(id)
+  const lastSeenRouteDocIdRef = useRef<string>(id)
   const splitCapablePluginDocsRef = useRef<Set<string>>(new Set())
   const pluginTileMountSeenRef = useRef<Set<string>>(new Set())
   const nonSplitPluginDocsRef = useRef<Set<string>>(new Set())
@@ -1014,6 +1030,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
         const safe = sanitizeState(prev, id)
         let nextLayout = safe.layout
         let nextTiles: Record<TileKey, TileSpec> = { ...safe.tiles }
+        let didMutateLayout = false
 
         const entries = Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>
         const editorKeys = entries
@@ -1039,7 +1056,8 @@ export default function DocumentMosaicWorkspace(props: Props) {
         }
 
         const addLeaf = (key: TileKey) => {
-          nextLayout = insertLeafBsp(nextLayout, key, activeTileRef.current?.tileKey, insertSplitMode)
+          nextLayout = insertLeafWithMode(nextLayout, key, activeTileRef.current?.tileKey, insertSplitMode)
+          didMutateLayout = true
         }
 
         if (mode === 'editor') {
@@ -1101,8 +1119,9 @@ export default function DocumentMosaicWorkspace(props: Props) {
             const previewKey = makeTileKey()
             setSpec(editorKey, { mode: 'editor', documentId: target, syncGroupId: groupId })
             setSpec(previewKey, { mode: 'preview', documentId: target, syncGroupId: groupId })
-            nextLayout = insertLeafBsp(nextLayout, editorKey, activeTileRef.current?.tileKey, insertSplitMode)
-            nextLayout = insertLeafBsp(nextLayout, previewKey, editorKey, insertSplitMode)
+            nextLayout = insertLeafWithMode(nextLayout, editorKey, activeTileRef.current?.tileKey, insertSplitMode)
+            nextLayout = insertLeafWithMode(nextLayout, previewKey, editorKey, insertSplitMode)
+            didMutateLayout = true
           } else {
             const baseSpec = safe.tiles[baseKey]
             const baseMode: TileMode = baseSpec?.mode === 'preview' ? 'preview' : 'editor'
@@ -1133,9 +1152,9 @@ export default function DocumentMosaicWorkspace(props: Props) {
               nextLayout = ensureLeafInLayout(nextLayout, baseKey, undefined, insertSplitMode)
               nextLayout = ensureLeafInLayout(nextLayout, oppositeKey, baseKey, insertSplitMode)
             }
-            const finalPath = findPathToTile(nextLayout, baseKey) ?? ([] as MosaicPath)
-            const editorKey = baseMode === 'editor' ? baseKey : oppositeKey
-            const previewKey = baseMode === 'preview' ? baseKey : oppositeKey
+          const finalPath = findPathToTile(nextLayout, baseKey) ?? ([] as MosaicPath)
+          const editorKey = baseMode === 'editor' ? baseKey : oppositeKey
+          const previewKey = baseMode === 'preview' ? baseKey : oppositeKey
             const replacement: MosaicNode<TileKey> = {
               direction: 'row',
               first: editorKey,
@@ -1143,7 +1162,18 @@ export default function DocumentMosaicWorkspace(props: Props) {
               splitPercentage: 50,
             }
             nextLayout = replaceNodeAtPath(nextLayout, finalPath, replacement)
+            didMutateLayout = true
           }
+
+          if (insertSplitMode === 'auto') {
+            const grid = maybeBuildTwoDocSplitGrid(nextLayout, nextTiles)
+            if (grid) nextLayout = grid
+          }
+        }
+
+        if (insertSplitMode === 'row' && didMutateLayout && nextLayout) {
+          nextLayout = balanceLayoutSplits(nextLayout)
+          expandedTileKeyRef.current = null
         }
 
         return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
@@ -1445,6 +1475,18 @@ export default function DocumentMosaicWorkspace(props: Props) {
 
   useEffect(() => {
     if (isSingleDocShare) return
+    // If the currently focused document (URL) is no longer present in any tile (e.g. the user closed that tile),
+    // do not rewrite existing tiles to show it. Instead, move focus/URL to a remaining document.
+    const tilesNow = Object.values(mosaicState.tiles)
+    const hasFocused = tilesNow.some((t) => t.documentId === id)
+    if (!hasFocused && tilesNow.length > 0 && lastSeenRouteDocIdRef.current === id) {
+      const fallback = tilesNow[0]?.documentId?.trim()
+      if (fallback && fallback !== id) {
+        markActiveDocument(fallback)
+        return
+      }
+    }
+    lastSeenRouteDocIdRef.current = id
     setMosaicState((prev) => {
       const safe = sanitizeState(prev, id)
       const tiles = Object.entries(safe.tiles) as Array<[TileKey, TileSpec]>
@@ -1470,10 +1512,17 @@ export default function DocumentMosaicWorkspace(props: Props) {
         ...safe.tiles,
         [editorKey]: { mode: 'editor', documentId: id },
       }
-      const nextLayout: MosaicNode<TileKey> = insertLeafBsp(safe.layout, editorKey, activeTileRef.current?.tileKey, insertSplitMode)
+      const nextLayoutBase: MosaicNode<TileKey> = insertLeafWithMode(
+        safe.layout,
+        editorKey,
+        activeTileRef.current?.tileKey,
+        insertSplitMode,
+      )
+      const nextLayout =
+        insertSplitMode === 'row' && nextLayoutBase ? balanceLayoutSplits(nextLayoutBase) : nextLayoutBase
       return sanitizeState({ layout: nextLayout, tiles: nextTiles }, id)
     })
-  }, [id, insertSplitMode, isSingleDocShare, mosaicState.layout, mosaicState.tiles])
+  }, [id, insertSplitMode, isSingleDocShare, markActiveDocument, mosaicState.tiles])
 
   const addEditorTile = useCallback(
     (docId: string) => {
@@ -1489,7 +1538,10 @@ export default function DocumentMosaicWorkspace(props: Props) {
         const exists = Object.values(safe.tiles).some((t) => t.documentId === target && t.mode === 'editor')
         if (exists) return safe
         const editorKey = makeTileKey()
-        const nextLayout = insertLeafBsp(safe.layout, editorKey, activeTileRef.current?.tileKey, insertSplitMode)
+        const nextLayoutBase = insertLeafWithMode(safe.layout, editorKey, activeTileRef.current?.tileKey, insertSplitMode)
+        const nextLayout =
+          insertSplitMode === 'row' && nextLayoutBase ? balanceLayoutSplits(nextLayoutBase) : nextLayoutBase
+        if (insertSplitMode === 'row') expandedTileKeyRef.current = null
         const nextTiles: Record<TileKey, TileSpec> = {
           ...safe.tiles,
           [editorKey]: { mode: 'editor', documentId: target },
@@ -1514,12 +1566,10 @@ export default function DocumentMosaicWorkspace(props: Props) {
         const exists = Object.values(safe.tiles).some((t) => t.documentId === target && t.mode === 'preview')
         if (exists) return safe
         const previewKey = makeTileKey()
-        const nextLayout = insertLeafBsp(
-          safe.layout,
-          previewKey,
-          activeTileRef.current?.tileKey,
-          splitMode ?? insertSplitMode,
-        )
+        const mode = splitMode ?? insertSplitMode
+        const nextLayoutBase = insertLeafWithMode(safe.layout, previewKey, activeTileRef.current?.tileKey, mode)
+        const nextLayout = mode === 'row' && nextLayoutBase ? balanceLayoutSplits(nextLayoutBase) : nextLayoutBase
+        if (mode === 'row') expandedTileKeyRef.current = null
         const nextTiles: Record<TileKey, TileSpec> = {
           ...safe.tiles,
           [previewKey]: { mode: 'preview', documentId: target },
@@ -1544,7 +1594,10 @@ export default function DocumentMosaicWorkspace(props: Props) {
         const exists = Object.values(safe.tiles).some((t) => t.documentId === target && t.mode === 'backlinks')
         if (exists) return safe
         const tileKey = makeTileKey()
-        const nextLayout = insertLeafBsp(safe.layout, tileKey, activeTileRef.current?.tileKey, insertSplitMode)
+        const nextLayoutBase = insertLeafWithMode(safe.layout, tileKey, activeTileRef.current?.tileKey, insertSplitMode)
+        const nextLayout =
+          insertSplitMode === 'row' && nextLayoutBase ? balanceLayoutSplits(nextLayoutBase) : nextLayoutBase
+        if (insertSplitMode === 'row') expandedTileKeyRef.current = null
         const nextTiles: Record<TileKey, TileSpec> = {
           ...safe.tiles,
           [tileKey]: { mode: 'backlinks', documentId: target },
@@ -1561,8 +1614,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
       const detail = (event as CustomEvent<{ documentId?: string; splitMode?: InsertSplitMode }>).detail
       const documentId = typeof detail?.documentId === 'string' ? detail.documentId.trim() : ''
       if (!documentId) return
-      const splitMode = detail?.splitMode
-      addPreviewTile(documentId, splitMode)
+      addPreviewTile(documentId, detail?.splitMode)
     }
     window.addEventListener(OPEN_PREVIEW_TILE_EVENT, handler as EventListener)
     return () => window.removeEventListener(OPEN_PREVIEW_TILE_EVENT, handler as EventListener)
@@ -1618,6 +1670,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
           mosaicState={mosaicState}
           setMosaicState={setMosaicState}
           addPreviewTile={addPreviewTile}
+          insertSplitMode={insertSplitMode}
           isSingleDocShare={isSingleDocShare}
           onCloseAllTiles={closeAllTilesToDashboard}
           onActivateDocument={markActiveDocument}
@@ -1865,6 +1918,7 @@ function DocumentMosaicBody({
   mosaicState,
   setMosaicState,
   addPreviewTile,
+  insertSplitMode,
   isSingleDocShare,
   onCloseAllTiles,
   onActivateDocument,
@@ -1875,6 +1929,7 @@ function DocumentMosaicBody({
   mosaicState: MosaicState
   setMosaicState: Dispatch<SetStateAction<MosaicState>>
   addPreviewTile: (documentId: string) => void
+  insertSplitMode: InsertSplitMode
   isSingleDocShare: boolean
   onCloseAllTiles: () => void
   onActivateDocument: (documentId: string, tileKey?: TileKey, mode?: TileMode) => void
@@ -1918,20 +1973,28 @@ function DocumentMosaicBody({
           [newKey]: { mode: opposite, documentId: spec.documentId, syncGroupId: groupId },
         }
 
+        const wantsEditorLeft = spec.mode === 'preview'
         const replacement: MosaicNode<TileKey> = {
           direction: 'row',
-          first: tileKey,
-          second: newKey,
+          first: wantsEditorLeft ? newKey : tileKey,
+          second: wantsEditorLeft ? tileKey : newKey,
           splitPercentage: 50,
         }
-        const nextLayout = replaceNodeAtPath(safe.layout, splitPath, replacement)
+        let nextLayout = replaceNodeAtPath(safe.layout, splitPath, replacement)
         const nextState = sanitizeState({ layout: nextLayout, tiles: nextTiles }, ctx.id)
-        const grid = maybeBuildTwoDocSplitGrid(nextState.layout, nextState.tiles)
-        if (!grid) return nextState
-        return sanitizeState({ ...nextState, layout: grid }, ctx.id)
+        if (insertSplitMode === 'auto') {
+          const grid = maybeBuildTwoDocSplitGrid(nextState.layout, nextState.tiles)
+          if (!grid) return nextState
+          return sanitizeState({ ...nextState, layout: grid }, ctx.id)
+        }
+        if (insertSplitMode === 'row' && nextState.layout) {
+          expandedTileKeyRef.current = null
+          return sanitizeState({ ...nextState, layout: balanceLayoutSplits(nextState.layout) }, ctx.id)
+        }
+        return nextState
       })
     },
-    [ctx.id, isSingleDocShare, setMosaicState],
+    [ctx.id, expandedTileKeyRef, insertSplitMode, isSingleDocShare, setMosaicState],
   )
 
   return (
