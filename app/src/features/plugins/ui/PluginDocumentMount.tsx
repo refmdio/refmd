@@ -31,6 +31,7 @@ export function PluginDocumentMount({
 }) {
   const { activeWorkspaceId } = useAuthContext()
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const disposeRef = useRef<(() => void) | null>(null)
   const [mountError, setMountError] = useState<string | null>(null)
 
   const normalizedDocId = docId.trim()
@@ -67,17 +68,23 @@ export function PluginDocumentMount({
     const container = containerRef.current
     const match = pluginQuery.data ?? null
     if (!container) return
-    if (!match) {
-      return
+    let cancelled = false
+
+    if (disposeRef.current) {
+      try {
+        disposeRef.current()
+      } catch {
+        /* noop */
+      }
+      disposeRef.current = null
     }
 
-    let disposed = false
-    let dispose: (() => void) | null = null
+    if (!match) return
     setMountError(null)
 
     ;(async () => {
       try {
-        dispose = (await mountResolvedPlugin(
+        const dispose = (await mountResolvedPlugin(
           match,
           container,
           mode,
@@ -117,8 +124,21 @@ export function PluginDocumentMount({
               }
             : {},
         )) as any
+
+        if (cancelled) {
+          if (typeof dispose === 'function') {
+            try {
+              dispose()
+            } catch {
+              /* noop */
+            }
+          }
+          return
+        }
+
+        disposeRef.current = typeof dispose === 'function' ? dispose : null
       } catch (err) {
-        if (!disposed) {
+        if (!cancelled) {
           const message = err instanceof Error ? err.message : String(err)
           setMountError(message || 'Failed to mount plugin')
         }
@@ -126,12 +146,13 @@ export function PluginDocumentMount({
     })()
 
     return () => {
-      disposed = true
+      cancelled = true
       try {
-        dispose?.()
+        disposeRef.current?.()
       } catch {
         /* noop */
       }
+      disposeRef.current = null
     }
   }, [mode, mountNodeKey, pluginQuery.data, variant])
 

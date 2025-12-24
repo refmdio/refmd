@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal, flushSync } from 'react-dom'
+import { createPortal } from 'react-dom'
 
 import type { ViewMode } from '@/shared/types/view-mode'
 
@@ -127,11 +127,18 @@ export function mountSplitEditorPreviewStage(container: HTMLElement, options: Om
 function useSplitEditorMounts() {
   const [, forceUpdate] = useState(0)
   useEffect(() => {
+    let queued = false
     const listener = () => {
-      try {
-        flushSync(() => forceUpdate((n) => n + 1))
-      } catch {
+      if (queued) return
+      queued = true
+      const run = () => {
+        queued = false
         forceUpdate((n) => n + 1)
+      }
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(run)
+      } else {
+        Promise.resolve().then(run)
       }
     }
     listeners.add(listener)

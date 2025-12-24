@@ -1759,6 +1759,7 @@ function PluginDocumentTileMount({
   className?: string
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const disposeRef = useRef<(() => void) | null>(null)
   const mountNodeKey = useMemo(() => {
     const pluginId = match?.manifest?.id ? String(match.manifest.id) : 'none'
     return `${pluginId}:${match.docId}:${match.route}:${match.token ?? ''}:${mode}:${variant}`
@@ -1767,11 +1768,18 @@ function PluginDocumentTileMount({
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    let dispose: (() => void) | null = null
+    let cancelled = false
+
+    if (disposeRef.current) {
+      try {
+        disposeRef.current()
+      } catch {}
+      disposeRef.current = null
+    }
 
     ;(async () => {
       try {
-        dispose = (await mountResolvedPlugin(
+        const dispose = (await mountResolvedPlugin(
           match,
           container,
           mode,
@@ -1811,14 +1819,26 @@ function PluginDocumentTileMount({
               }
             : {},
         )) as any
+
+        if (cancelled) {
+          if (typeof dispose === 'function') {
+            try {
+              dispose()
+            } catch {}
+          }
+          return
+        }
+        disposeRef.current = typeof dispose === 'function' ? dispose : null
       } catch (err) {
         console.error('[plugins] failed to mount plugin in tile', err)
       }
     })()
     return () => {
+      cancelled = true
       try {
-        dispose?.()
+        disposeRef.current?.()
       } catch {}
+      disposeRef.current = null
     }
   }, [match, mode, mountNodeKey])
 
