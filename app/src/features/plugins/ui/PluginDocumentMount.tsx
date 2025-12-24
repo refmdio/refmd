@@ -53,7 +53,8 @@ export function PluginDocumentMount({
 
   const pluginQuery = useQuery({
     queryKey: ['plugin-document', normalizedDocId, resolvedPluginId, token ?? null, workspaceKey || null],
-    queryFn: async () => resolvePluginForDocumentById(normalizedDocId, resolvedPluginId, token ?? null),
+    queryFn: async () =>
+      resolvePluginForDocumentById(normalizedDocId, resolvedPluginId, token ?? null, { workspaceId: activeWorkspaceId ?? null }),
     staleTime: 60_000,
     enabled: Boolean(normalizedDocId && resolvedPluginId),
   })

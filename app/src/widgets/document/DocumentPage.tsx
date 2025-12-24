@@ -21,8 +21,10 @@ import {
 } from '@/features/document-download'
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
+import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
 import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
 import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
+import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
 
 export type DocumentLoaderData = {
   title: string
@@ -265,6 +267,10 @@ function DocumentClient({
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { user } = useAuthContext()
+  const { documentTitle: realtimeTitle, documentActions, setDocumentActions, documentPluginId } = useRealtime()
+  const pluginIdHintFromLoader = typeof loaderData?.createdByPlugin === 'string' ? loaderData.createdByPlugin.trim() : ''
+  const pluginIdHintFromRealtime = typeof documentPluginId === 'string' ? documentPluginId.trim() : ''
+  const pluginIdHint = pluginIdHintFromLoader || pluginIdHintFromRealtime
   const [showSnapshots, setShowSnapshots] = useState(false)
   const openSnapshots = useCallback(() => setShowSnapshots(true), [])
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
@@ -281,7 +287,6 @@ function DocumentClient({
   const [hunkAnchors, setHunkAnchors] = useState<Array<{ hunkId: string; line: number }>>([])
   const lastPayloadRef = useRef<GitPullResolution[]>([])
   const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
-  const { documentTitle: realtimeTitle, documentActions, setDocumentActions } = useRealtime()
   const hasDoc = Boolean(doc)
   const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
   useEffect(() => {
@@ -759,6 +764,21 @@ function DocumentClient({
 
   const previewOverrideValue = showConflictUI && !isBinaryConflict ? previewContent || oursText : undefined
 
+  const usePluginPreview = Boolean(pluginIdHint) && !conflictMode
+  const renderPluginPreview = useCallback(
+    (_props: PreviewPaneProps) => (
+      <PluginDocumentMount
+        docId={id}
+        token={shareToken}
+        pluginIdHint={pluginIdHint}
+        variant="preview"
+        mode="primary"
+        className="h-full w-full overflow-auto"
+      />
+    ),
+    [id, pluginIdHint, shareToken],
+  )
+
   const markdownEditorProps = hasEditorSession
     ? ({
         doc: doc!,
@@ -775,6 +795,7 @@ function DocumentClient({
         conflictControls,
         previewOverride: previewOverrideValue,
         extraRight: undefined,
+        renderPreview: usePluginPreview ? renderPluginPreview : undefined,
       } satisfies Parameters<typeof MarkdownEditor>[0])
     : null
 
@@ -799,7 +820,7 @@ function DocumentClient({
     render(renderContext)
   ) : (
     <div className="relative flex h-full flex-1 min-h-0 flex-col">
-      {showOverlay && <EditorOverlay label={overlayLabel} />}
+      {showOverlay ? <EditorOverlay label={overlayLabel} /> : null}
       {showEditor && markdownEditorProps ? <MarkdownEditor key={id} {...markdownEditorProps} /> : null}
     </div>
   )

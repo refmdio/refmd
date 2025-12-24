@@ -29,8 +29,14 @@ const pluginManifestCache = new Map<
   { ts: number; value?: PluginManifestItem[]; promise?: Promise<PluginManifestItem[]> }
 >()
 
-async function getPluginManifestCached(token?: string | null): Promise<PluginManifestItem[]> {
-  const key = token ?? ''
+function buildPluginManifestCacheKey(args: { token?: string | null; workspaceId?: string | null }) {
+  const token = args.token ?? ''
+  const workspaceId = args.workspaceId ?? ''
+  return `${workspaceId}:${token}`
+}
+
+async function getPluginManifestCached(args: { token?: string | null; workspaceId?: string | null }): Promise<PluginManifestItem[]> {
+  const key = buildPluginManifestCacheKey(args)
   const now = Date.now()
   const cached = pluginManifestCache.get(key)
   if (cached) {
@@ -42,7 +48,7 @@ async function getPluginManifestCached(token?: string | null): Promise<PluginMan
     }
   }
 
-  const promise = getPluginManifest(token ?? undefined)
+  const promise = getPluginManifest(args.token ?? undefined)
     .then((value) => {
       pluginManifestCache.set(key, { ts: Date.now(), value })
       return value
@@ -61,10 +67,10 @@ async function getPluginManifestCached(token?: string | null): Promise<PluginMan
 
 export async function resolvePluginForRoute(
   path: string,
-  options: { token?: string | null } = {},
+  options: { token?: string | null; workspaceId?: string | null } = {},
 ): Promise<RoutePluginMatch | null> {
   const token = options.token ?? extractTokenFromPath(path)
-  const manifest = await getPluginManifestCached(token ?? undefined)
+  const manifest = await getPluginManifestCached({ token: token ?? undefined, workspaceId: options.workspaceId ?? null })
 
   for (const item of manifest) {
     const mounts = Array.isArray(item.mounts) ? item.mounts : []
@@ -92,11 +98,11 @@ export async function resolvePluginForDocumentById(
   docId: string,
   pluginId: string,
   token?: string | null,
-  options: { source?: 'primary' | 'secondary'; document?: { type?: string | null } } = {},
+  options: { source?: 'primary' | 'secondary'; document?: { type?: string | null }; workspaceId?: string | null } = {},
 ): Promise<DocumentPluginMatch | null> {
   const trimmedPluginId = pluginId?.trim?.() ?? ''
   if (!trimmedPluginId) return null
-  const manifest = await getPluginManifestCached(token ?? undefined)
+  const manifest = await getPluginManifestCached({ token: token ?? undefined, workspaceId: options.workspaceId ?? null })
   const apiOrigin = getApiOrigin()
 
   const item = (manifest as PluginManifestItem[]).find((entry) => String(entry?.id) === trimmedPluginId)
@@ -193,9 +199,9 @@ export async function resolvePluginForDocumentById(
 export async function resolvePluginForDocument(
   docId: string,
   token?: string | null,
-  options: { source?: 'primary' | 'secondary'; document?: { type?: string | null } } = {},
+  options: { source?: 'primary' | 'secondary'; document?: { type?: string | null }; workspaceId?: string | null } = {},
 ): Promise<DocumentPluginMatch | null> {
-  const manifest = await getPluginManifestCached(token ?? undefined)
+  const manifest = await getPluginManifestCached({ token: token ?? undefined, workspaceId: options.workspaceId ?? null })
   const apiOrigin = getApiOrigin()
 
   for (const item of manifest) {

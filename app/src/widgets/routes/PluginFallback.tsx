@@ -14,7 +14,7 @@ import {
 
 export default function PluginFallback() {
   const navigate = useNavigate()
-  const { user, loading: authLoading } = useAuthContext()
+  const { user, loading: authLoading, activeWorkspaceId } = useAuthContext()
   const realtime = useRealtime()
   const shareTokenFromContext = useShareToken()
   const routerState = useRouterState()
@@ -107,7 +107,7 @@ export default function PluginFallback() {
 
     ;(async () => {
       try {
-        const match = await resolvePluginForRoute(path, { token: shareToken ?? undefined })
+        const match = await resolvePluginForRoute(path, { token: shareToken ?? undefined, workspaceId: activeWorkspaceId ?? null })
         if (cancelled) return
         if (!match) {
           setError('Not Found')
@@ -128,7 +128,7 @@ export default function PluginFallback() {
     return () => {
       cancelled = true
     }
-  }, [pluginAccessReady, shareToken])
+  }, [activeWorkspaceId, pluginAccessReady, shareToken])
 
   React.useEffect(() => {
     if (!pluginAccessReady) return
@@ -145,7 +145,11 @@ export default function PluginFallback() {
         disposeRef.current = null
       }
       if (container) {
-        // Let React/portal unmount clear DOM to avoid removeChild races.
+        try {
+          container.innerHTML = ''
+        } catch {
+          /* noop */
+        }
       }
       realtime.setDocumentId(undefined)
       realtime.setDocumentTitle(undefined)
@@ -156,6 +160,7 @@ export default function PluginFallback() {
       return
     }
 
+    container.innerHTML = ''
     setPluginMounting(true)
 
     ;(async () => {
@@ -205,13 +210,18 @@ export default function PluginFallback() {
         }
         disposeRef.current = null
       }
+      try {
+        container.innerHTML = ''
+      } catch {
+        /* noop */
+      }
       realtime.setDocumentId(undefined)
       realtime.setDocumentTitle(undefined)
       realtime.setDocumentStatus(undefined)
       realtime.setDocumentBadge(undefined)
       realtime.setDocumentActions([])
     }
-  }, [mountNodeKey, plugin, pluginAccessReady, navigate, realtime])
+  }, [plugin, navigate, pluginAccessReady])
 
   if (!pluginAccessReady) {
     if (authLoading && !allowAnonymous) {

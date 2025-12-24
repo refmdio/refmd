@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Columns, Eye, FileCode, Link2, Menu, Moon, Search, Share2, Sun } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
@@ -16,7 +16,7 @@ import { Button } from '@/shared/ui/button'
 import { SidebarTrigger, useSidebar } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
-import { createDocument, documentKeys } from '@/entities/document'
+import { createDocument, documentKeys, fetchDocumentMeta } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
@@ -34,6 +34,8 @@ interface HeaderProps {
   variant?: 'overlay' | 'mobile'
 }
 
+const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
+
 const defaultRealtimeState: HeaderRealtimeState = {
   connected: false,
   showEditorFeatures: false,
@@ -49,8 +51,6 @@ const defaultRealtimeState: HeaderRealtimeState = {
 
 type ViewMode = 'editor' | 'split' | 'preview'
 type ViewModeButtonItem = { mode: ViewMode; icon: ReactElement; tooltip: string }
-
-const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
 
 const HeaderViewModeControls = memo(function HeaderViewModeControls({
   buttons,
@@ -137,7 +137,6 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const [searchPresetTag, setSearchPresetTag] = useState<string | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [splitCapablePluginDocs, setSplitCapablePluginDocs] = useState<Set<string>>(() => new Set())
   const documentBadge = rt.documentBadge
   const documentStatus = rt.documentStatus
   const documentActions = rt.documentActions ?? []
@@ -165,23 +164,6 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   const canShare = Boolean(rt.documentId)
   focusedDocumentIdRef.current = rt.documentId
   const iconClass = 'h-[18px] w-[18px]'
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ docId?: string }>).detail
-      const docId = typeof detail?.docId === 'string' ? detail.docId.trim() : ''
-      if (!docId) return
-      setSplitCapablePluginDocs((prev) => {
-        if (prev.has(docId)) return prev
-        const next = new Set(prev)
-        next.add(docId)
-        return next
-      })
-    }
-    window.addEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
-    return () => window.removeEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
-  }, [])
 
   useEffect(() => { setMounted(true) }, [])
   useEffect(() => {
@@ -311,12 +293,56 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   // Dropped save-status pill and compatibility props
 
   const effectiveViewMode = headerViewMode
-  const isPluginDocument = Boolean(rt.documentPluginId && rt.documentPluginId.trim().length > 0)
-  const pluginViewPolicy: 'normal' | 'splitCapable' | 'previewOnly' = !isPluginDocument
-    ? 'normal'
-    : rt.documentId && splitCapablePluginDocs.has(rt.documentId)
-      ? 'splitCapable'
-      : 'previewOnly'
+  const [splitCapablePluginDocs, setSplitCapablePluginDocs] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ docId?: string }>).detail
+      const docId = typeof detail?.docId === 'string' ? detail.docId.trim() : ''
+      if (!docId) return
+      setSplitCapablePluginDocs((prev) => {
+        if (prev.has(docId)) return prev
+        const next = new Set(prev)
+        next.add(docId)
+        return next
+      })
+    }
+    window.addEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+    return () => window.removeEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+  }, [])
+
+  const pluginDocMetaQuery = useQuery({
+    queryKey: ['document-meta', rt.documentId ?? null, 'header'],
+    queryFn: async () => {
+      const docId = typeof rt.documentId === 'string' ? rt.documentId.trim() : ''
+      if (!docId) return null as any
+      const token = (() => {
+        if (typeof window === 'undefined') return undefined
+        try {
+          const params = new URLSearchParams(window.location.search)
+          const raw = params.get('token')
+          return raw && raw.trim().length > 0 ? raw.trim() : undefined
+        } catch {
+          return undefined
+        }
+      })()
+      return fetchDocumentMeta(docId, token)
+    },
+    staleTime: 60_000,
+    enabled: Boolean(rt.documentId),
+  })
+  const pluginIdFromMeta = useMemo(() => {
+    const raw = (pluginDocMetaQuery.data as any)?.created_by_plugin
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : ''
+  }, [pluginDocMetaQuery.data])
+  const pluginIdHint = typeof rt.documentPluginId === 'string' ? rt.documentPluginId.trim() : ''
+  const isPluginDocument = Boolean(pluginIdFromMeta || pluginIdHint)
+  const pluginViewPolicy = useMemo<'normal' | 'splitCapable' | 'previewOnly'>(() => {
+    if (!rt.documentId) return 'normal'
+    if (!isPluginDocument) return 'normal'
+    return splitCapablePluginDocs.has(rt.documentId) ? 'splitCapable' : 'previewOnly'
+  }, [isPluginDocument, rt.documentId, splitCapablePluginDocs])
+  const disallowSplit = pluginViewPolicy === 'previewOnly'
   const changeView = useCallback(
     (mode: ViewMode) => {
       const normalized = pluginViewPolicy === 'previewOnly' ? 'preview' : mode
@@ -329,7 +355,6 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       const focusedDocumentId = focusedDocumentIdRef.current
       if (focusedDocumentId) {
         dispatchMosaicSetViewMode(focusedDocumentId, nextMode)
-        return
       }
       vc.setViewMode(nextMode)
     },
@@ -339,11 +364,16 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   useEffect(() => {
     if (!mounted) return
     if (pluginViewPolicy !== 'previewOnly') return
-    const focusedDocumentId = rt.documentId
-    if (!focusedDocumentId) return
     setHeaderViewMode('preview')
-    dispatchMosaicSetViewMode(focusedDocumentId, 'preview')
-  }, [mounted, pluginViewPolicy, rt.documentId])
+    const focusedDocumentId = rt.documentId
+    if (focusedDocumentId) {
+      dispatchMosaicSetViewMode(focusedDocumentId, 'preview')
+    }
+    if (isMobile) {
+      vc.setViewMode('preview')
+    }
+  }, [isMobile, mounted, pluginViewPolicy, rt.documentId, vc])
+
   const shareHandler = () => {
     if (!rt.documentId) return
     setShareOpen(true)
@@ -430,15 +460,15 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
 
   const viewModeButtons = useMemo(() => {
     if (pluginViewPolicy === 'previewOnly') {
-      return [{ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' }] as ViewModeButtonItem[]
+      return [{ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' }] satisfies ViewModeButtonItem[]
     }
-    const order: ViewMode[] = isCompact ? ['editor', 'preview'] : ['editor', 'split', 'preview']
+    const order: ViewMode[] = disallowSplit || isCompact ? ['editor', 'preview'] : ['editor', 'split', 'preview']
     return order.map((mode) => {
       if (mode === 'editor') return { mode, icon: <FileCode className={iconClass} />, tooltip: 'Editor only' }
       if (mode === 'split') return { mode, icon: <Columns className={iconClass} />, tooltip: 'Split view' }
       return { mode, icon: <Eye className={iconClass} />, tooltip: 'Preview only' }
     })
-  }, [iconClass, isCompact, pluginViewPolicy])
+  }, [disallowSplit, iconClass, isCompact, pluginViewPolicy])
 
   const desktopToolbar = (
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex justify-center px-4 sm:px-5 md:px-6">
@@ -629,8 +659,12 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         onToggleTheme={() => { toggleTheme(); setMobileMenuOpen(false) }}
         onSignOut={() => { handleSignOut(); setMobileMenuOpen(false) }}
         documentActions={documentActions}
-        viewMode={rt.showEditorFeatures ? (effectiveViewMode === 'editor' ? 'editor' : 'preview') : undefined}
-        onChangeViewMode={rt.showEditorFeatures ? (mode) => changeView(mode) : undefined}
+        viewMode={
+          rt.showEditorFeatures && pluginViewPolicy !== 'previewOnly'
+            ? (effectiveViewMode === 'editor' ? 'editor' : 'preview')
+            : undefined
+        }
+        onChangeViewMode={rt.showEditorFeatures && pluginViewPolicy !== 'previewOnly' ? (mode) => changeView(mode) : undefined}
       />
       {rt.documentId && (
         <ShareDialog open={shareOpen} onOpenChange={setShareOpen} targetId={rt.documentId} />
