@@ -181,7 +181,7 @@
   .refmd-mosaic-theme .mosaic-window .mosaic-window-controls,
   .refmd-mosaic-theme .mosaic-preview .mosaic-window-controls {
     max-width: 46px;
-    /* In collapsed state, show only the ⋯ button without the pill background. */
+    /* In collapsed state, show only the “more” button without the pill background. */
     border-color: transparent;
     background: transparent;
     backdrop-filter: none;
@@ -244,18 +244,6 @@
 
 .refmd-mosaic-theme .mosaic-default-control:active {
   background: color-mix(in oklab, var(--accent) 28%, var(--background));
-}
-
-.refmd-mosaic-theme .mosaic-default-control.close-button::before {
-  content: '×';
-}
-
-.refmd-mosaic-theme .mosaic-default-control.expand-button::before {
-  content: '⤢';
-}
-
-.refmd-mosaic-theme .mosaic-default-control::before {
-  display: inline-block;
 }
 
 .refmd-mosaic-theme .mosaic-window .mosaic-window-body,

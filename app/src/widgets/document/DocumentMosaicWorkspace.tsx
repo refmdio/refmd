@@ -2,12 +2,13 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { Columns2, Eye, FileCode, Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { Columns2, Eye, FileCode, Loader2, Maximize2, MoreHorizontal, X } from 'lucide-react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import {
   Mosaic,
+  MosaicContext,
   MosaicWindow,
-  RemoveButton,
+  MosaicWindowContext,
   Separator,
   createExpandUpdate,
   getLeaves,
@@ -144,7 +145,30 @@ function tileControlsToggle(key = 'more') {
       aria-label="Tile actions"
       title="Tile actions"
     >
-      ⋯
+      <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+    </button>
+  )
+}
+
+function TileCloseButton() {
+  const mosaic = useContext(MosaicContext)
+  const mosaicWindow = useContext(MosaicWindowContext)
+
+  return (
+    <button
+      type="button"
+      className="mosaic-default-control close-button"
+      aria-label="Close tile"
+      title="Close tile"
+      onClick={() => {
+        try {
+          mosaic.mosaicActions.remove(mosaicWindow.mosaicWindowActions.getPath())
+        } catch {
+          /* noop */
+        }
+      }}
+    >
+      <X className="h-4 w-4" aria-hidden="true" />
     </button>
   )
 }
@@ -1953,7 +1977,7 @@ function DocumentMosaicBody({
           const spec = mosaicState.tiles[tileId]
           if (!spec) {
             return (
-              <MosaicWindow<TileKey> path={path} title="" toolbarControls={[<RemoveButton key="close" />]}>
+              <MosaicWindow<TileKey> path={path} title="" toolbarControls={[<TileCloseButton key="close" />]}>
                 <div className="p-4 text-sm text-muted-foreground">Missing tile state.</div>
               </MosaicWindow>
             )
@@ -2220,8 +2244,11 @@ function MosaicPreviewTile({
         className="mosaic-default-control expand-button"
         onClick={onToggleExpand}
         aria-label="Expand tile"
-      />,
-      <RemoveButton key="close" />,
+        title="Expand tile"
+      >
+        <Maximize2 className="h-4 w-4" aria-hidden="true" />
+      </button>,
+      <TileCloseButton key="close" />,
       tileControlsToggle(),
     ]
   }, [allowSplitControls, isSingleDocShare, onSplit, onSwitchToEditor, onToggleExpand])
@@ -2331,8 +2358,11 @@ function BacklinksTile({
           className="mosaic-default-control expand-button"
           onClick={onToggleExpand}
           aria-label="Expand tile"
-        />,
-        <RemoveButton key="close" />,
+          title="Expand tile"
+        >
+          <Maximize2 className="h-4 w-4" aria-hidden="true" />
+        </button>,
+        <TileCloseButton key="close" />,
         tileControlsToggle(),
       ]}
     >
@@ -2425,8 +2455,11 @@ function EditorTile({
                   className="mosaic-default-control expand-button"
                   onClick={onToggleExpand}
                   aria-label="Expand tile"
-                />,
-                <RemoveButton key="close" />,
+                  title="Expand tile"
+                >
+                  <Maximize2 className="h-4 w-4" aria-hidden="true" />
+                </button>,
+                <TileCloseButton key="close" />,
                 tileControlsToggle(),
               ]
             : [
@@ -2455,8 +2488,11 @@ function EditorTile({
                 className="mosaic-default-control expand-button"
                 onClick={onToggleExpand}
                 aria-label="Expand tile"
-              />,
-              <RemoveButton key="close" />,
+                title="Expand tile"
+              >
+                <Maximize2 className="h-4 w-4" aria-hidden="true" />
+              </button>,
+              <TileCloseButton key="close" />,
               tileControlsToggle(),
             ]
       }
