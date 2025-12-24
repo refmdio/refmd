@@ -17,7 +17,6 @@ import { useViewController } from '../public/useViewController'
 export type PreviewPaneProps = {
   content: string
   viewMode?: ViewMode
-  isSecondaryViewer?: boolean
   onScroll?: (scrollTop: number, scrollPercentage: number) => void
   onScrollAnchorLine?: (line: number) => void
   scrollPercentage?: number
@@ -31,12 +30,12 @@ export type PreviewPaneProps = {
   taskToggleDisabled?: boolean
 }
 
-function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer = false, onScroll, onScrollAnchorLine, scrollPercentage, documentIdOverride, onNavigate, forceFloatingToc = false, stickToBottom = false, scrollToLine, onToggleTask, taskToggleDisabled }: PreviewPaneProps) {
+function PreviewPaneComponent({ content, viewMode = 'preview', onScroll, onScrollAnchorLine, scrollPercentage, documentIdOverride, onNavigate, forceFloatingToc = false, stickToBottom = false, scrollToLine, onToggleTask, taskToggleDisabled }: PreviewPaneProps) {
   const vc = useViewController()
   const onTagClickStable = React.useCallback((tag: string) => {
     vc.openSearch(tag)
   }, [vc])
-  // Track when user is actively interacting with preview to enable preview->editor sync
+  // Track user interaction to avoid overriding scroll position during active scrolling.
   useEffect(() => {
     const el = previewRef.current
     if (!el) return
@@ -67,6 +66,20 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
   const previewRef = useRef<HTMLDivElement | null>(null)
   const scrollRafId = useRef<number | null>(null)
   const anchorsRef = useRef<Array<{ line: number; top: number }>>([])
+  const suppressSyncEmitRef = useRef(false)
+  const suppressSyncEmitTimerRef = useRef<number | null>(null)
+
+  const suppressSyncEmit = React.useCallback((ms = 140) => {
+    if (typeof window === 'undefined') return
+    suppressSyncEmitRef.current = true
+    if (suppressSyncEmitTimerRef.current != null) {
+      window.clearTimeout(suppressSyncEmitTimerRef.current)
+    }
+    suppressSyncEmitTimerRef.current = window.setTimeout(() => {
+      suppressSyncEmitTimerRef.current = null
+      suppressSyncEmitRef.current = false
+    }, ms)
+  }, [])
 
   // Build anchors from data-sourcepos (requires ReactMarkdown sourcePos)
   const rebuildAnchors = React.useCallback(() => {
@@ -99,11 +112,10 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
     cn(
       'prose prose-neutral dark:prose-invert break-words overflow-wrap-anywhere',
       viewMode === 'preview' ? 'max-w-6xl mx-auto' : 'max-w-none',
-      isSecondaryViewer && 'markdown-preview-secondary'
-    ), [viewMode, isSecondaryViewer])
+    ), [viewMode])
 
-  const showAsideToc = viewMode === 'preview' && !isMobile && !isSecondaryViewer && !forceFloatingToc
-  const showFloatingTrigger = viewMode === 'split' || (viewMode === 'preview' && isMobile) || isSecondaryViewer || forceFloatingToc
+  const showAsideToc = viewMode === 'preview' && !isMobile && !forceFloatingToc
+  const showFloatingTrigger = viewMode === 'split' || (viewMode === 'preview' && isMobile) || forceFloatingToc
 
   // Apply external scroll percentage to container (fallback when no anchor line)
   useEffect(() => {
@@ -115,8 +127,9 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
     if ((el as any).__userInteracting === true) return
     const { scrollHeight, clientHeight } = el
     const denom = Math.max(1, scrollHeight - clientHeight)
+    suppressSyncEmit()
     el.scrollTop = Math.round(denom * Math.min(1, Math.max(0, scrollPercentage)))
-  }, [scrollPercentage, scrollToLine])
+  }, [scrollPercentage, scrollToLine, suppressSyncEmit])
 
   // If editor is at bottom (pct≈1) and content grows, keep preview pinned to bottom
   useEffect(() => {
@@ -128,11 +141,12 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
     const pin = () => {
       const { scrollHeight, clientHeight } = el
       const denom = Math.max(0, scrollHeight - clientHeight)
+      suppressSyncEmit()
       el.scrollTop = denom
     }
     // Wait for layout after content change
     requestAnimationFrame(() => { requestAnimationFrame(pin) })
-  }, [content, scrollPercentage, stickToBottom, scrollToLine])
+  }, [content, scrollPercentage, stickToBottom, scrollToLine, suppressSyncEmit])
 
   // Rebuild anchors after content or container size changes
   useEffect(() => {
@@ -168,17 +182,24 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
     const maxTop = Math.max(0, container.scrollHeight - container.clientHeight)
     const nextTop = Math.max(0, Math.min(maxTop, targetTop - margin))
     requestAnimationFrame(() => {
+      suppressSyncEmit()
       container.scrollTop = nextTop
     })
-  }, [scrollToLine])
+  }, [scrollToLine, suppressSyncEmit])
 
   // Cleanup rAF
-  useEffect(() => () => { if (scrollRafId.current != null) cancelAnimationFrame(scrollRafId.current) }, [])
+  useEffect(() => () => {
+    if (scrollRafId.current != null) cancelAnimationFrame(scrollRafId.current)
+    if (suppressSyncEmitTimerRef.current != null) {
+      window.clearTimeout(suppressSyncEmitTimerRef.current)
+      suppressSyncEmitTimerRef.current = null
+    }
+  }, [])
 
   const handleFloatingItemClick = React.useCallback(() => setShowFloatingToc(false), [])
 
   return (
-    <div className="relative flex flex-1 min-h-0 flex-col bg-background overflow-hidden">
+    <div className="relative flex h-full w-full flex-1 min-h-0 flex-col bg-background overflow-hidden">
       <div
         className="flex-1 overflow-auto"
         ref={previewRef}
@@ -193,10 +214,8 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
             const denom = Math.max(1, scrollHeight - clientHeight)
             const pct = Math.min(1, Math.max(0, scrollTop / denom))
             const anchors = anchorsRef.current
-            // Only propagate when user is interacting with preview (wheel/drag)
-            const isUser = (target as any).__userInteracting === true
-            const nearBottom = (scrollHeight - clientHeight - scrollTop) <= 4
-            if (isUser) {
+            if (!suppressSyncEmitRef.current) {
+              const nearBottom = (scrollHeight - clientHeight - scrollTop) <= 4
               if (nearBottom && onScroll) {
                 // At bottom: force editor to bottom using percentage sync to avoid partial reveal
                 onScroll(scrollTop, 1)
@@ -238,7 +257,6 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           </div>
           <aside className={cn('w-64 shrink-0', showAsideToc ? 'hidden lg:block' : 'hidden')}>
             <Toc
-              contentSelector={isSecondaryViewer ? '.markdown-preview-secondary' : '.markdown-preview:not(.markdown-preview-secondary)'}
               containerRef={!isMobile ? (previewRef as React.RefObject<HTMLElement>) : undefined}
             />
           </aside>
@@ -250,7 +268,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           onClick={() => setShowFloatingToc((s) => !s)}
           className={cn(
             'p-3 rounded-full border border-primary/60 bg-primary text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl z-40',
-            (isMobile || forceFloatingToc) ? 'fixed bottom-6 right-6' : 'absolute bottom-6 right-6'
+            isMobile ? 'fixed bottom-6 right-6' : 'absolute bottom-6 right-6'
           )}
           title="Table of Contents"
           size="icon"
@@ -264,7 +282,7 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           ref={floatingTocRef}
           className={cn(
             overlayPanelClass,
-            (isMobile || forceFloatingToc)
+            isMobile
               ? 'fixed bottom-24 right-6 w-[min(320px,calc(100%-2.5rem))] z-40'
               : 'absolute bottom-20 right-6 w-[300px] max-w-[calc(100%-3rem)] z-40',
           )}
@@ -282,7 +300,6 @@ function PreviewPaneComponent({ content, viewMode = 'preview', isSecondaryViewer
           </div>
           <div className="max-h-[60vh] overflow-y-auto">
             <Toc
-              contentSelector={isSecondaryViewer ? '.markdown-preview-secondary' : '.markdown-preview:not(.markdown-preview-secondary)'}
               containerRef={!isMobile ? (previewRef as React.RefObject<HTMLElement>) : undefined}
               onItemClick={handleFloatingItemClick}
               floating

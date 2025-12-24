@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@tanstack/start-client-core': resolve(__dirname, 'src/shared/lib/stubs/tanstack-start-client-core.ts'),
+      '@tanstack/start-storage-context': resolve(__dirname, 'src/shared/lib/stubs/tanstack-start-storage-context.ts'),
     },
   },
   build: {

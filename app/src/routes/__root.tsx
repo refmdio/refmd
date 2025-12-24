@@ -3,7 +3,7 @@ import { HeadContent, Scripts, Outlet, createRootRouteWithContext, useRouter, us
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
 
-import '@/styles.css'
+import '../styles.css'
 
 import { RealtimeProvider, useRealtime } from '@/shared/contexts/realtime-context'
 import { ShareTokenProvider } from '@/shared/contexts/share-token-context'
@@ -19,12 +19,12 @@ import { Toaster } from '@/shared/ui/sonner'
 
 import { AuthProvider, useAuthContext } from '@/features/auth'
 import { EditorProvider, ViewProvider } from '@/features/edit-document'
-import { SecondaryViewerProvider } from '@/features/secondary-viewer'
 import { ShortcutRegistryProvider } from '@/features/shortcuts'
 
 import { Header } from '@/widgets/header/Header'
 import AuthLayout from '@/widgets/layouts/AuthLayout'
 import PublicLayout from '@/widgets/layouts/PublicLayout'
+import { SplitEditorPortalRenderer } from '@/widgets/plugins/SplitEditorHost'
 import PluginFallback from '@/widgets/routes/PluginFallback'
 import AppSidebar from '@/widgets/sidebar/AppSidebar'
 
@@ -122,12 +122,10 @@ function RootComponent() {
         <AuthProvider>
           <ShortcutRegistryBoundary>
             <RealtimeProvider>
-              <SecondaryViewerProvider>
-                <ShareTokenProvider token={shareToken}>
-                  <LayoutContent layout={layout} />
-                </ShareTokenProvider>
-                <Toaster richColors position="bottom-right" />
-              </SecondaryViewerProvider>
+              <ShareTokenProvider token={shareToken}>
+                <LayoutContent layout={layout} />
+              </ShareTokenProvider>
+              <Toaster richColors position="bottom-right" />
             </RealtimeProvider>
           </ShortcutRegistryBoundary>
         </AuthProvider>
@@ -138,7 +136,7 @@ function RootComponent() {
 
 function RootDocument({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
@@ -223,6 +221,7 @@ function AppShellLayout({ realtime, children }: { realtime?: HeaderRealtimeState
       onOpenChange={setSidebarOpen}
       className={isMobile ? 'flex-col' : undefined}
     >
+      <SplitEditorPortalRenderer />
       {isMobile ? (
         <>
           <Header variant="mobile" realtime={realtime} />

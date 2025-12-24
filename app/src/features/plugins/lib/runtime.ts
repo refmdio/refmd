@@ -23,7 +23,7 @@ import {
   mountSplitEditorStage,
   type SplitEditorPreviewDelegate,
   type SplitEditorDocumentApi,
-} from '@/widgets/plugins/SplitEditorHost'
+} from '@/features/plugins/ui/SplitEditorHost'
 
 export type HostMode = 'primary' | 'secondary'
 
@@ -265,6 +265,15 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
         if (!docId) {
           target.innerHTML = '<div class="p-4 text-sm text-muted-foreground">No document selected.</div>'
           return undefined
+        }
+        try {
+          window.dispatchEvent(
+            new CustomEvent<{ docId: string }>('refmd:plugin:uses-split-editor', {
+              detail: { docId },
+            }),
+          )
+        } catch {
+          /* noop */
         }
         return mountSplitEditorStage(target, {
           docId,

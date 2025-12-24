@@ -11,12 +11,10 @@ import {
   type RoutePluginMatch,
 } from '@/features/plugins'
 
-import { SplitEditorPortalRenderer } from '@/widgets/plugins/SplitEditorHost'
-
 
 export default function PluginFallback() {
   const navigate = useNavigate()
-  const { user, loading: authLoading } = useAuthContext()
+  const { user, loading: authLoading, activeWorkspaceId } = useAuthContext()
   const realtime = useRealtime()
   const shareTokenFromContext = useShareToken()
   const routerState = useRouterState()
@@ -55,6 +53,16 @@ export default function PluginFallback() {
   const [plugin, setPlugin] = React.useState<RoutePluginMatch | null>(null)
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const disposeRef = React.useRef<null | (() => void)>(null)
+  const routeKey = React.useMemo(() => {
+    const pathname = routerState.location?.pathname ?? ''
+    const hash = routerState.location?.hash ?? ''
+    const searchPart = search ? (search.startsWith('?') ? search : `?${search}`) : ''
+    return `${pathname}${searchPart}${hash}`
+  }, [routerState.location?.hash, routerState.location?.pathname, search])
+  const mountNodeKey = React.useMemo(() => {
+    const pluginId = plugin?.manifest?.id ? String(plugin.manifest.id) : 'none'
+    return `${pluginId}:${routeKey}`
+  }, [plugin, routeKey])
 
   React.useEffect(() => {
     if (allowAnonymous || authLoading || authReady) return
@@ -99,7 +107,7 @@ export default function PluginFallback() {
 
     ;(async () => {
       try {
-        const match = await resolvePluginForRoute(path, { token: shareToken ?? undefined })
+        const match = await resolvePluginForRoute(path, { token: shareToken ?? undefined, workspaceId: activeWorkspaceId ?? null })
         if (cancelled) return
         if (!match) {
           setError('Not Found')
@@ -120,7 +128,7 @@ export default function PluginFallback() {
     return () => {
       cancelled = true
     }
-  }, [pluginAccessReady, shareToken])
+  }, [activeWorkspaceId, pluginAccessReady, shareToken])
 
   React.useEffect(() => {
     if (!pluginAccessReady) return
@@ -232,8 +240,9 @@ export default function PluginFallback() {
 
   return (
     <div className="relative h-full w-full">
-      <SplitEditorPortalRenderer />
-      <div ref={containerRef} className="h-full w-full overflow-auto" />
+      <div className="h-full w-full overflow-auto">
+        <div key={mountNodeKey} ref={containerRef} className="h-full w-full" />
+      </div>
       {(pluginMounting || manifestLoading) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80">
           <p className="text-sm text-muted-foreground">Preparing plugin…</p>

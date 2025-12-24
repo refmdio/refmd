@@ -1,5 +1,5 @@
-import { getClientWorkspaceId } from '@/shared/api/client.config'
 import type { GitPullConflictItem, GitPullResolution } from '@/shared/api'
+import { getClientWorkspaceId } from '@/shared/api/client.config'
 
 export const GIT_CONFLICT_EVENT = 'refmd:git-conflicts-updated'
 export const GIT_SESSION_EVENT = 'refmd:git-session-updated'

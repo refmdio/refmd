@@ -1,6 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
-import { useShortcut } from '@/shared/hooks/use-shortcut'
 import type { ViewMode } from '@/shared/types/view-mode'
 
 const VIEW_MODE_STORAGE_KEY = 'refmd-view-mode'
@@ -12,9 +11,6 @@ type Ctx = {
   setViewMode: (mode: ViewModeSetter) => void
   viewModeHydrated: boolean
   hasPersistentViewMode: boolean
-  showBacklinks: boolean
-  setShowBacklinks: (v: boolean) => void
-  toggleBacklinks: () => void
   // Search request trigger for Header's SearchDialog
   searchPresetTag: string | null
   searchNonce: number
@@ -24,10 +20,9 @@ type Ctx = {
 const ViewCtx = createContext<Ctx | null>(null)
 
 export function ViewProvider({ children }: { children: React.ReactNode }) {
-  const [viewMode, setViewModeState] = useState<ViewMode>('split')
+  const [viewMode, setViewModeState] = useState<ViewMode>('editor')
   const [viewModeHydrated, setViewModeHydrated] = useState(() => typeof window === 'undefined')
   const [hasPersistentViewMode, setHasPersistentViewMode] = useState(false)
-  const [showBacklinks, setShowBacklinks] = useState(false)
   const [searchPresetTag, setSearchPresetTag] = useState<string | null>(null)
   const [searchNonce, setSearchNonce] = useState(0)
 
@@ -37,8 +32,12 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-      if (saved === 'editor' || saved === 'split' || saved === 'preview') {
+      if (saved === 'editor' || saved === 'preview') {
         setViewModeState(saved)
+        setHasPersistentViewMode(true)
+      } else if (saved === 'split') {
+        setViewModeState('editor')
+        try { localStorage.setItem(VIEW_MODE_STORAGE_KEY, 'editor') } catch {}
         setHasPersistentViewMode(true)
       }
     } catch {
@@ -64,7 +63,6 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const toggleBacklinks = useCallback(() => setShowBacklinks((v) => !v), [])
   const openSearch = useCallback((presetTag?: string | null) => {
     setSearchPresetTag(presetTag ?? null)
     setSearchNonce((n) => n + 1)
@@ -81,46 +79,15 @@ export function ViewProvider({ children }: { children: React.ReactNode }) {
     return () => { window.removeEventListener('refmd:open-search', handler as EventListener) }
   }, [openSearch])
 
-  useShortcut(
-    'view.mode.editor',
-    useCallback(() => {
-      setViewMode('editor')
-    }, [setViewMode]),
-  )
-
-  useShortcut(
-    'view.mode.split',
-    useCallback(() => {
-      setViewMode('split')
-    }, [setViewMode]),
-  )
-
-  useShortcut(
-    'view.mode.preview',
-    useCallback(() => {
-      setViewMode('preview')
-    }, [setViewMode]),
-  )
-
-  useShortcut(
-    'view.backlinks.toggle',
-    useCallback(() => {
-      toggleBacklinks()
-    }, [toggleBacklinks]),
-  )
-
   const value = useMemo<Ctx>(() => ({
     viewMode,
     viewModeHydrated,
     hasPersistentViewMode,
     setViewMode,
-    showBacklinks,
-    setShowBacklinks,
-    toggleBacklinks,
     searchPresetTag,
     searchNonce,
     openSearch,
-  }), [viewMode, viewModeHydrated, hasPersistentViewMode, showBacklinks, toggleBacklinks, searchPresetTag, searchNonce, openSearch, setViewMode])
+  }), [viewMode, viewModeHydrated, hasPersistentViewMode, searchPresetTag, searchNonce, openSearch, setViewMode])
 
   return <ViewCtx.Provider value={value}>{children}</ViewCtx.Provider>
 }

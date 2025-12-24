@@ -11,6 +11,7 @@ type TocProps = {
   onItemClick?: (id: string) => void
   className?: string
   containerRef?: React.RefObject<HTMLElement>
+  scopePrefix?: string
   small?: boolean
   floating?: boolean
 }
@@ -42,6 +43,7 @@ function TocComponent({
   onItemClick,
   className,
   containerRef,
+  scopePrefix,
   small,
   floating,
 }: TocProps) {
@@ -52,8 +54,17 @@ function TocComponent({
   const containerSelectorRef = useRef(contentSelector)
   const slugCountsRef = useRef<Map<string, number>>(new Map())
 
+  const resolveContentRoot = useCallback(() => {
+    const container = containerRef?.current
+    if (container) {
+      return (container.querySelector(contentSelector) as Element | null) ?? container
+    }
+    return document.querySelector(contentSelector)
+  }, [containerRef, contentSelector])
+
   const assignId = useCallback((el: Element, text: string) => {
     const doc = el.ownerDocument || document
+    const prefix = scopePrefix ? `${scopePrefix}--` : ''
     const base = text
       .toLowerCase()
       .trim()
@@ -63,18 +74,18 @@ function TocComponent({
       .replace(/^-+|-+$/g, '') || 'section'
     const counts = slugCountsRef.current
     const usedCount = counts.get(base) ?? 0
-    let slug = usedCount === 0 ? base : `${base}-${usedCount}`
+    let slug = usedCount === 0 ? `${prefix}${base}` : `${prefix}${base}-${usedCount}`
     let counter = usedCount + 1
     while (doc.getElementById(slug)) {
-      slug = `${base}-${counter++}`
+      slug = `${prefix}${base}-${counter++}`
     }
     counts.set(base, counter)
     ;(el as HTMLElement).id = slug
     return slug
-  }, [])
+  }, [scopePrefix])
 
   const scanHeadings = useCallback(() => {
-    const container = document.querySelector(containerSelectorRef.current)
+    const container = resolveContentRoot()
     if (!container) { setNodes([]); return }
     slugCountsRef.current.clear()
     const headings = Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6'))
@@ -102,13 +113,13 @@ function TocComponent({
       restore(tree)
       return next
     })
-  }, [])
+  }, [assignId, resolveContentRoot])
 
   useEffect(() => {
     containerSelectorRef.current = contentSelector
     let raf = 0
     const setup = () => {
-      const target = document.querySelector(contentSelector)
+      const target = resolveContentRoot()
       if (!target) {
         raf = requestAnimationFrame(setup)
         return
@@ -127,7 +138,7 @@ function TocComponent({
       observerRef.current?.disconnect()
       observerRef.current = null
     }
-  }, [contentSelector, scanHeadings])
+  }, [contentSelector, resolveContentRoot, scanHeadings])
 
   useEffect(() => {
     if (!activeId) return

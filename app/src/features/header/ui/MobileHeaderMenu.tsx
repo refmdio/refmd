@@ -1,42 +1,37 @@
 import { Link } from '@tanstack/react-router'
-import { Blocks, Columns, Eye, FileCode, FileText, Github, LogOut, Share2, Sun, X } from 'lucide-react'
+import { Blocks, Eye, FileCode, FileText, Github, LogOut, Share2, Sun, X } from 'lucide-react'
 
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import { Button } from '@/shared/ui/button'
 
+type MobileViewMode = 'editor' | 'preview'
+
 type MobileHeaderMenuProps = {
   open: boolean
   onClose: () => void
-  showEditorFeatures: boolean
-  headerViewMode: 'editor' | 'split' | 'preview'
-  changeView: (mode: 'editor' | 'split' | 'preview') => void
-  isCompact: boolean
   canShare: boolean
   onShare: () => void
   onToggleTheme: () => void
   onSignOut: () => void
   documentActions?: DocumentHeaderAction[]
+  viewMode?: MobileViewMode
+  onChangeViewMode?: (mode: MobileViewMode) => void
 }
 
 export function MobileHeaderMenu({
   open,
   onClose,
-  showEditorFeatures,
-  headerViewMode,
-  changeView,
-  isCompact,
   canShare,
   onShare,
   onToggleTheme,
   onSignOut,
   documentActions = [],
+  viewMode,
+  onChangeViewMode,
 }: MobileHeaderMenuProps) {
   if (!open) return null
 
-  const handleSelect = (mode: 'editor' | 'split' | 'preview') => {
-    changeView(mode)
-    onClose()
-  }
+  const showViewModeToggle = Boolean(viewMode && onChangeViewMode)
 
   return (
     <>
@@ -50,37 +45,27 @@ export function MobileHeaderMenu({
         </div>
 
         <div className="p-4 space-y-4">
-          {showEditorFeatures && (
-            <div className="border-b pb-4">
-              <h3 className="text-sm font-medium mb-2">View Mode</h3>
-              <div className="flex flex-col gap-2">
+          {showViewModeToggle ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">View</p>
+              <div className="grid grid-cols-2 gap-2">
                 <Button
-                  onClick={() => handleSelect('editor')}
-                  variant={headerViewMode === 'editor' ? 'secondary' : 'ghost'}
-                  className="w-full justify-start"
+                  onClick={() => { onChangeViewMode?.('editor'); onClose() }}
+                  variant={viewMode === 'editor' ? 'secondary' : 'ghost'}
+                  className="justify-start"
                 >
-                  <FileCode className="h-4 w-4 mr-2" /> Editor only
+                  <FileCode className="h-4 w-4 mr-2" /> Editor
                 </Button>
-                {!isCompact && (
-                  <Button
-                    onClick={() => handleSelect('split')}
-                    variant={headerViewMode === 'split' ? 'secondary' : 'ghost'}
-                    className="w-full justify-start"
-                  >
-                    <Columns className="h-4 w-4 mr-2" /> Split view
-                  </Button>
-                )}
                 <Button
-                  onClick={() => handleSelect('preview')}
-                  variant={headerViewMode === 'preview' ? 'secondary' : 'ghost'}
-                  className="w-full justify-start"
+                  onClick={() => { onChangeViewMode?.('preview'); onClose() }}
+                  variant={viewMode === 'preview' ? 'secondary' : 'ghost'}
+                  className="justify-start"
                 >
-                  <Eye className="h-4 w-4 mr-2" /> Preview only
+                  <Eye className="h-4 w-4 mr-2" /> Preview
                 </Button>
               </div>
             </div>
-          )}
-
+          ) : null}
           <div className="flex flex-col gap-2">
             <Button asChild variant="ghost" className="justify-start">
               <Link to="/dashboard">

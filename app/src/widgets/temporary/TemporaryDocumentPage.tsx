@@ -139,7 +139,7 @@ export default function TemporaryDocumentPage({ tempId }: Props) {
             doc={doc}
             awareness={awareness}
             connected={false}
-            initialView="split"
+            initialView="editor"
             documentId={tempId}
             readOnly={false}
           />

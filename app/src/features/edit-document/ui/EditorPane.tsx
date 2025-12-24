@@ -20,7 +20,7 @@ export default function EditorPane({ theme, onBeforeMount, readOnly, onMount, on
 
   return (
     <div
-      className="relative flex-1 min-h-0 h-full"
+      className="relative flex-1 min-h-0 min-w-0 h-full w-full"
       onDragEnter={(e) => { if (e.dataTransfer?.types?.includes('Files')) { dragCounterRef.current++; setIsDragging(true) } }}
       onDragLeave={() => { dragCounterRef.current = Math.max(0, dragCounterRef.current - 1); if (dragCounterRef.current === 0) setIsDragging(false) }}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setIsDragging(true) } }}

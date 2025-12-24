@@ -6,6 +6,7 @@ export type HeaderRealtimeState = {
   documentTitle?: string
   documentId?: string
   documentPath?: string
+  documentPluginId?: string
   documentStatus?: string
   documentBadge?: string
   documentActions?: DocumentHeaderAction[]

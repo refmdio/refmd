@@ -1,11 +1,13 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Columns, Eye, FileCode, Link2, Menu, Moon, Search, Share2, Sun } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { toast } from 'sonner'
 
 import { useTheme } from '@/shared/contexts/theme-context'
+import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
+import { MOSAIC_CURRENT_VIEW_MODE_EVENT, dispatchMosaicSetViewMode, dispatchOpenBacklinksTile } from '@/shared/lib/mosaic-events'
 import { cn } from '@/shared/lib/utils'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import type { HeaderRealtimeState } from '@/shared/types/header'
@@ -14,7 +16,7 @@ import { Button } from '@/shared/ui/button'
 import { SidebarTrigger, useSidebar } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
-import { createDocument, documentKeys } from '@/entities/document'
+import { createDocument, documentKeys, fetchDocumentMeta } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext, useViewController } from '@/features/edit-document'
@@ -32,33 +34,108 @@ interface HeaderProps {
   variant?: 'overlay' | 'mobile'
 }
 
+const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
+
 const defaultRealtimeState: HeaderRealtimeState = {
   connected: false,
   showEditorFeatures: false,
   documentTitle: undefined,
   documentId: undefined,
   documentPath: undefined,
+  documentPluginId: undefined,
   documentStatus: undefined,
   documentBadge: undefined,
   documentActions: [],
   onlineUsers: [],
 }
 
+type ViewMode = 'editor' | 'split' | 'preview'
+type ViewModeButtonItem = { mode: ViewMode; icon: ReactElement; tooltip: string }
+
+const HeaderViewModeControls = memo(function HeaderViewModeControls({
+  buttons,
+  activeMode,
+  onChange,
+  showBacklinksButton,
+  onBacklinksClick,
+  iconClass,
+}: {
+  buttons: ViewModeButtonItem[]
+  activeMode: ViewMode
+  onChange: (mode: ViewMode) => void
+  showBacklinksButton: boolean
+  onBacklinksClick: () => void
+  iconClass: string
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-1 py-0.5">
+      {buttons.map((item, idx) => {
+        const first = idx === 0
+        const last = idx === buttons.length - 1
+        const isActive = activeMode === item.mode
+        return (
+          <Tooltip key={item.mode}>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  onClick={() => onChange(item.mode)}
+                  variant="ghost"
+                  className={cn(
+                    'h-8 rounded-full px-2 text-sm transition-colors',
+                    first && 'pl-3',
+                    last && 'pr-3',
+                    isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted/70',
+                  )}
+                >
+                  {item.icon}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{item.tooltip}</TooltipContent>
+          </Tooltip>
+        )
+      })}
+      {showBacklinksButton && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                onClick={onBacklinksClick}
+                variant="ghost"
+                className={cn('h-8 w-8 rounded-full transition-colors hover:bg-muted/70')}
+              >
+                <Link2 className={iconClass} />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Open backlinks tile</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  )
+})
+
 export function Header({ className, realtime, variant = 'overlay' }: HeaderProps) {
   const { isDarkMode, toggleTheme } = useTheme()
   const { signOut } = useAuthContext()
   const queryClient = useQueryClient()
   const rt = realtime ?? defaultRealtimeState
+  const isMobile = useIsMobile()
   const vc = useViewController()
   const { editor } = useEditorContext()
   const { toggleSidebar } = useSidebar()
   const navigate = useNavigate()
+  const focusedDocumentIdRef = useRef<string | undefined>(undefined)
+  const mosaicViewModeRef = useRef<Map<string, ViewMode>>(new Map())
   const [mounted, setMounted] = useState(false)
+  const [isCompact, setIsCompact] = useState(false)
+  const [headerViewMode, setHeaderViewMode] = useState<'editor' | 'split' | 'preview'>(() => {
+    const initial = vc.viewMode
+    return initial === 'editor' || initial === 'split' || initial === 'preview' ? initial : 'split'
+  })
   const [searchOpenLocal, setSearchOpenLocal] = useState(false)
   const [searchPresetTag, setSearchPresetTag] = useState<string | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
-  const [headerViewMode, setHeaderViewMode] = useState<'editor' | 'split' | 'preview'>('split')
-  const [isCompact, setIsCompact] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const documentBadge = rt.documentBadge
   const documentStatus = rt.documentStatus
@@ -85,9 +162,50 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   }, [])
   
   const canShare = Boolean(rt.documentId)
+  focusedDocumentIdRef.current = rt.documentId
   const iconClass = 'h-[18px] w-[18px]'
 
   useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    if (rt.documentId) return
+    const mode = vc.viewMode
+    if (mode === 'editor' || mode === 'split' || mode === 'preview') {
+      setHeaderViewMode(mode)
+    }
+  }, [rt.documentId, vc.viewMode])
+
+  useEffect(() => {
+    if (!rt.documentId) return
+    const mode = mosaicViewModeRef.current.get(rt.documentId)
+    if (!mode) return
+    setHeaderViewMode(mode)
+  }, [rt.documentId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string; mode?: string }>).detail
+      const documentId = typeof detail?.documentId === 'string' ? detail.documentId.trim() : ''
+      const mode = detail?.mode
+      if (!documentId) return
+      if (mode !== 'editor' && mode !== 'split' && mode !== 'preview') return
+      mosaicViewModeRef.current.set(documentId, mode)
+      if (focusedDocumentIdRef.current !== documentId) return
+      setHeaderViewMode(mode)
+    }
+    window.addEventListener(MOSAIC_CURRENT_VIEW_MODE_EVENT, handler as EventListener)
+    return () => window.removeEventListener(MOSAIC_CURRENT_VIEW_MODE_EVENT, handler as EventListener)
+  }, [])
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(max-width: 1024px)')
+    const update = (event?: MediaQueryListEvent) => {
+      setIsCompact(event ? event.matches : mq.matches)
+    }
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
   useShortcut(
     'global.search.open',
     useCallback(
@@ -168,37 +286,94 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       toggleSidebar()
     }, [toggleSidebar]),
   )
-  useEffect(() => { setHeaderViewMode(vc.viewMode) }, [vc.viewMode])
   useEffect(() => {
     setSearchPresetTag(vc.searchPresetTag)
     if (vc.searchNonce > 0) setSearchOpenLocal(true)
   }, [vc.searchNonce, vc.searchPresetTag])
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const mq = window.matchMedia('(max-width: 1024px)')
-    const update = (event?: MediaQueryListEvent) => {
-      setIsCompact(event ? event.matches : mq.matches)
-    }
-    update()
-    mq.addEventListener('change', update)
-    return () => mq.removeEventListener('change', update)
-  }, [])
-  useEffect(() => {
-    if (!mounted) return
-    if (isCompact && vc.viewMode === 'split') {
-      vc.setViewMode('preview')
-    }
-  }, [isCompact, vc, vc.viewMode, mounted])
   // Dropped save-status pill and compatibility props
 
   const effectiveViewMode = headerViewMode
-  const changeView = useCallback((mode: 'editor' | 'split' | 'preview') => {
-    if (mode === 'split' && isCompact) {
-      vc.setViewMode('preview')
-      return
+  const [splitCapablePluginDocs, setSplitCapablePluginDocs] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ docId?: string }>).detail
+      const docId = typeof detail?.docId === 'string' ? detail.docId.trim() : ''
+      if (!docId) return
+      setSplitCapablePluginDocs((prev) => {
+        if (prev.has(docId)) return prev
+        const next = new Set(prev)
+        next.add(docId)
+        return next
+      })
     }
-    vc.setViewMode(mode)
-  }, [isCompact, vc])
+    window.addEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+    return () => window.removeEventListener(PLUGIN_USES_SPLIT_EDITOR_EVENT, handler as EventListener)
+  }, [])
+
+  const pluginDocMetaQuery = useQuery({
+    queryKey: ['document-meta', rt.documentId ?? null, 'header'],
+    queryFn: async () => {
+      const docId = typeof rt.documentId === 'string' ? rt.documentId.trim() : ''
+      if (!docId) return null as any
+      const token = (() => {
+        if (typeof window === 'undefined') return undefined
+        try {
+          const params = new URLSearchParams(window.location.search)
+          const raw = params.get('token')
+          return raw && raw.trim().length > 0 ? raw.trim() : undefined
+        } catch {
+          return undefined
+        }
+      })()
+      return fetchDocumentMeta(docId, token)
+    },
+    staleTime: 60_000,
+    enabled: Boolean(rt.documentId),
+  })
+  const pluginIdFromMeta = useMemo(() => {
+    const raw = (pluginDocMetaQuery.data as any)?.created_by_plugin
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : ''
+  }, [pluginDocMetaQuery.data])
+  const pluginIdHint = typeof rt.documentPluginId === 'string' ? rt.documentPluginId.trim() : ''
+  const isPluginDocument = Boolean(pluginIdFromMeta || pluginIdHint)
+  const pluginViewPolicy = useMemo<'normal' | 'splitCapable' | 'previewOnly'>(() => {
+    if (!rt.documentId) return 'normal'
+    if (!isPluginDocument) return 'normal'
+    return splitCapablePluginDocs.has(rt.documentId) ? 'splitCapable' : 'previewOnly'
+  }, [isPluginDocument, rt.documentId, splitCapablePluginDocs])
+  const disallowSplit = pluginViewPolicy === 'previewOnly'
+  const changeView = useCallback(
+    (mode: ViewMode) => {
+      const normalized = pluginViewPolicy === 'previewOnly' ? 'preview' : mode
+      const nextMode = normalized === 'split' && isCompact ? 'preview' : normalized
+      setHeaderViewMode(nextMode)
+      if (isMobile) {
+        vc.setViewMode(nextMode)
+        return
+      }
+      const focusedDocumentId = focusedDocumentIdRef.current
+      if (focusedDocumentId) {
+        dispatchMosaicSetViewMode(focusedDocumentId, nextMode)
+      }
+      vc.setViewMode(nextMode)
+    },
+    [isCompact, isMobile, pluginViewPolicy, vc],
+  )
+
+  useEffect(() => {
+    if (!mounted) return
+    if (pluginViewPolicy !== 'previewOnly') return
+    setHeaderViewMode('preview')
+    const focusedDocumentId = rt.documentId
+    if (focusedDocumentId) {
+      dispatchMosaicSetViewMode(focusedDocumentId, 'preview')
+    }
+    if (isMobile) {
+      vc.setViewMode('preview')
+    }
+  }, [isMobile, mounted, pluginViewPolicy, rt.documentId, vc])
+
   const shareHandler = () => {
     if (!rt.documentId) return
     setShareOpen(true)
@@ -207,11 +382,38 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     void signOut()
   }, [signOut])
   const handleBacklinksClick = useCallback(() => {
-    if (!isCompact) {
+    const focusedDocumentId = focusedDocumentIdRef.current
+    if (!focusedDocumentId) return
+    dispatchOpenBacklinksTile(focusedDocumentId)
+  }, [])
+
+  useShortcut(
+    'view.mode.editor',
+    useCallback(() => {
+      changeView('editor')
+    }, [changeView]),
+  )
+
+  useShortcut(
+    'view.mode.preview',
+    useCallback(() => {
+      changeView('preview')
+    }, [changeView]),
+  )
+
+  useShortcut(
+    'view.mode.split',
+    useCallback(() => {
       changeView('split')
-    }
-    vc.toggleBacklinks()
-  }, [vc, changeView, isCompact])
+    }, [changeView]),
+  )
+
+  useShortcut(
+    'view.backlinks.toggle',
+    useCallback(() => {
+      handleBacklinksClick()
+    }, [handleBacklinksClick]),
+  )
 
   useEffect(() => {
     if (!rt.documentId && shareOpen) {
@@ -242,16 +444,31 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
     [editor],
   )
 
-  const viewModeButtons = useMemo(() => {
-    const items: Array<{ mode: 'editor' | 'split' | 'preview'; icon: ReactElement; tooltip: string }> = [
-      { mode: 'editor', icon: <FileCode className={iconClass} />, tooltip: 'Editor only' },
-    ]
-    if (!isCompact) {
-      items.push({ mode: 'split', icon: <Columns className={iconClass} />, tooltip: 'Split view' })
+  useEffect(() => {
+    if (!mounted) return
+    if (isCompact && headerViewMode === 'split') {
+      setHeaderViewMode('preview')
     }
-    items.push({ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' })
-    return items
-  }, [isCompact])
+  }, [headerViewMode, isCompact, mounted])
+
+  useEffect(() => {
+    if (!isMobile) return
+    const next = vc.viewMode === 'split' ? 'preview' : vc.viewMode
+    if (next === headerViewMode) return
+    setHeaderViewMode(next)
+  }, [headerViewMode, isMobile, vc.viewMode])
+
+  const viewModeButtons = useMemo(() => {
+    if (pluginViewPolicy === 'previewOnly') {
+      return [{ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' }] satisfies ViewModeButtonItem[]
+    }
+    const order: ViewMode[] = disallowSplit || isCompact ? ['editor', 'preview'] : ['editor', 'split', 'preview']
+    return order.map((mode) => {
+      if (mode === 'editor') return { mode, icon: <FileCode className={iconClass} />, tooltip: 'Editor only' }
+      if (mode === 'split') return { mode, icon: <Columns className={iconClass} />, tooltip: 'Split view' }
+      return { mode, icon: <Eye className={iconClass} />, tooltip: 'Preview only' }
+    })
+  }, [disallowSplit, iconClass, isCompact, pluginViewPolicy])
 
   const desktopToolbar = (
     <div className="pointer-events-none absolute inset-x-0 top-5 z-30 flex justify-center px-4 sm:px-5 md:px-6">
@@ -300,6 +517,16 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         </div>
 
         <div className="flex items-center gap-2">
+          {rt.showEditorFeatures && (
+            <HeaderViewModeControls
+              buttons={viewModeButtons}
+              activeMode={effectiveViewMode}
+              onChange={changeView}
+              showBacklinksButton={Boolean(rt.documentId)}
+              onBacklinksClick={handleBacklinksClick}
+              iconClass={iconClass}
+            />
+          )}
           {textActions.length > 0 && (
             <div className="flex items-center gap-1">
               {textActions.map((action) => (
@@ -313,55 +540,6 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
                   {action.label}
                 </Button>
               ))}
-            </div>
-          )}
-          {rt.showEditorFeatures && (
-            <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-1 py-0.5">
-              {viewModeButtons.map((item, idx) => {
-                const first = idx === 0
-                const last = idx === viewModeButtons.length - 1
-                const isActive = effectiveViewMode === item.mode
-                return (
-                  <Tooltip key={item.mode}>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <Button
-                          onClick={() => changeView(item.mode)}
-                          variant="ghost"
-                          className={cn(
-                            'h-8 rounded-full px-2 text-sm transition-colors',
-                            first && 'pl-3',
-                            last && 'pr-3',
-                            isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted/70',
-                          )}
-                        >
-                          {item.icon}
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{item.tooltip}</TooltipContent>
-                  </Tooltip>
-                )
-              })}
-              {rt.documentId && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        onClick={handleBacklinksClick}
-                        variant="ghost"
-                        className={cn(
-                          'h-8 w-8 rounded-full transition-colors hover:bg-muted/70',
-                          (vc.showBacklinks || false) && 'bg-accent text-accent-foreground',
-                        )}
-                      >
-                        <Link2 className={iconClass} />
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Toggle backlinks</TooltipContent>
-                </Tooltip>
-              )}
             </div>
           )}
 
@@ -422,7 +600,11 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="h-9 w-9 rounded-xl border border-border/50 bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground" />
-              <Button onClick={() => setSearchOpenLocal(true)} variant="ghost" className="grid h-9 w-9 place-items-center rounded-xl border border-border/50 bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+              <Button
+                onClick={() => setSearchOpenLocal(true)}
+                variant="ghost"
+                className="grid h-9 w-9 place-items-center rounded-xl border border-border/50 bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
                 <Search className="h-4 w-4" />
               </Button>
             </div>
@@ -472,15 +654,17 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       <MobileHeaderMenu
         open={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
-        showEditorFeatures={rt.showEditorFeatures}
-        headerViewMode={headerViewMode}
-        changeView={changeView}
-        isCompact={isCompact}
         canShare={canShare}
         onShare={shareHandler}
         onToggleTheme={() => { toggleTheme(); setMobileMenuOpen(false) }}
         onSignOut={() => { handleSignOut(); setMobileMenuOpen(false) }}
         documentActions={documentActions}
+        viewMode={
+          rt.showEditorFeatures && pluginViewPolicy !== 'previewOnly'
+            ? (effectiveViewMode === 'editor' ? 'editor' : 'preview')
+            : undefined
+        }
+        onChangeViewMode={rt.showEditorFeatures && pluginViewPolicy !== 'previewOnly' ? (mode) => changeView(mode) : undefined}
       />
       {rt.documentId && (
         <ShareDialog open={shareOpen} onOpenChange={setShareOpen} targetId={rt.documentId} />

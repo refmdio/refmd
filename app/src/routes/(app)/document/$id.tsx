@@ -1,17 +1,22 @@
 import { createFileRoute, useParams } from '@tanstack/react-router'
 
+import { useIsMobile } from '@/shared/hooks/use-mobile'
+
 import { fetchDocumentMeta } from '@/entities/document'
 import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 
 import { documentBeforeLoadGuard } from '@/features/auth'
 
+import DocumentMosaicWorkspace from '@/widgets/document/DocumentMosaicWorkspace'
 import DocumentPage, { type DocumentLoaderData } from '@/widgets/document/DocumentPage'
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
-import SecondaryViewer from '@/widgets/secondary-viewer/SecondaryViewer'
 
 export type DocumentRouteSearch = {
   token?: string
+  shareScope?: 'folder' | 'document'
+  shareMount?: string
+  share_mount?: string
   conflict?: string
   [key: string]: string | string[] | undefined
 }
@@ -97,15 +102,37 @@ function DocumentRouteComponent() {
   const { id } = useParams({ from: '/(app)/document/$id' })
   const loaderData = Route.useLoaderData() as LoaderData | undefined
   const search = Route.useSearch() as DocumentRouteSearch
+  const isMobile = useIsMobile()
   const shareToken = loaderData?.token ?? (typeof search.token === 'string' && search.token.trim().length > 0 ? search.token.trim() : undefined)
+  const shareScope = search.shareScope === 'folder' || search.shareScope === 'document' ? search.shareScope : undefined
+  const isShareMount = (() => {
+    const raw = search.shareMount ?? search.share_mount
+    if (raw == null) return false
+    if (typeof raw === 'string') {
+      const normalized = raw.trim().toLowerCase()
+      return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+    }
+    return Boolean(raw)
+  })()
   const conflictMode = Object.prototype.hasOwnProperty.call(search, 'conflict')
+  if (isMobile) {
+    return (
+      <DocumentPage
+        id={id}
+        loaderData={loaderData}
+        shareToken={shareToken}
+        conflictMode={conflictMode}
+      />
+    )
+  }
   return (
-    <DocumentPage
+    <DocumentMosaicWorkspace
       id={id}
       loaderData={loaderData}
       shareToken={shareToken}
+      shareScope={shareScope}
+      isShareMount={isShareMount}
       conflictMode={conflictMode}
-      secondaryViewerRenderer={(props) => <SecondaryViewer {...props} />}
     />
   )
 }

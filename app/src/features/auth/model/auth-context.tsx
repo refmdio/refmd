@@ -1,6 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { getGlobalStartContext } from '@tanstack/start-client-core'
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '@/shared/api'
@@ -53,13 +52,7 @@ type SignInOptions = {
 const Ctx = createContext<AuthState | null>(null)
 
 function readInitialAuthContext(): AuthMiddlewareContext | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const context = getGlobalStartContext() as { auth?: AuthMiddlewareContext } | undefined
-    return context?.auth ?? null
-  } catch {
-    return null
-  }
+  return null
 }
 
 function readStoredWorkspaceId() {

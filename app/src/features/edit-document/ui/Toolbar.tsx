@@ -29,6 +29,7 @@ export interface EditorToolbarProps {
   className?: string
   syncScroll?: boolean
   onSyncScrollToggle?: () => void
+  syncScrollAvailable?: boolean
   onFileUpload?: () => void
   viewMode?: ViewMode
   isVimMode?: boolean
@@ -48,6 +49,7 @@ function EditorToolbarComponent({
   className,
   syncScroll,
   onSyncScrollToggle,
+  syncScrollAvailable = false,
   onFileUpload,
   viewMode,
   isVimMode,
@@ -111,8 +113,9 @@ function EditorToolbarComponent({
     )
   }, [onCommand, readOnly])
 
+  const showSyncScrollToggle = Boolean(onSyncScrollToggle) && (viewMode === 'split' || syncScrollAvailable)
   const hasUtilityControls = Boolean(
-    (onFileUpload && !readOnly) || (viewMode === 'split' && onSyncScrollToggle) || onVimModeToggle,
+    (onFileUpload && !readOnly) || showSyncScrollToggle || onVimModeToggle,
   )
 
   return (
@@ -156,7 +159,7 @@ function EditorToolbarComponent({
                 </Tooltip>
               )}
 
-              {viewMode === 'split' && onSyncScrollToggle && (
+              {showSyncScrollToggle && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span>

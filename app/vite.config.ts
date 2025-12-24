@@ -7,20 +7,58 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Plugin } from 'vite'
+import type { Plugin as EsbuildPlugin } from 'esbuild'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-export default defineConfig({
+function tanstackStartStorageContextClientStub(): Plugin {
+  const stubId = resolve(__dirname, './src/shared/lib/stubs/tanstack-start-storage-context.ts')
+  return {
+    name: 'refmd:tanstack-start-storage-context-client-stub',
+    enforce: 'pre',
+    resolveId(source, _importer, options) {
+      if (options?.ssr) return null
+      if (source === '@tanstack/start-storage-context') {
+        return stubId
+      }
+      return null
+    },
+  }
+}
+
+function tanstackStartStorageContextOptimizeDepsStub(): EsbuildPlugin {
+  const stubId = resolve(__dirname, './src/shared/lib/stubs/tanstack-start-storage-context.ts')
+  return {
+    name: 'refmd:tanstack-start-storage-context-optimize-deps-stub',
+    setup(build) {
+      build.onResolve({ filter: /^@tanstack\/start-storage-context$/ }, () => ({
+        path: stubId,
+      }))
+    },
+  }
+}
+
+export default defineConfig(() => {
+  const enablePwaDev = process.env.VITE_PWA_DEV === 'true'
+
+  return {
   optimizeDeps: {
     exclude: [
       'nitropack',
       'nitropack/runtime',
+      '@tanstack/start-client-core',
+      '@tanstack/start-storage-context',
       '@resvg/resvg-js',
       '@resvg/resvg-js-linux-x64-gnu',
       '@resvg/resvg-js-linux-x64-musl',
     ],
+    esbuildOptions: {
+      plugins: [tanstackStartStorageContextOptimizeDepsStub()],
+    },
   },
   plugins: [
+    tanstackStartStorageContextClientStub(),
     tanstackStart(),
     nitroV2Plugin({
       preset: 'node-server',
@@ -102,7 +140,7 @@ export default defineConfig({
         ],
       },
       devOptions: {
-        enabled: true,
+        enabled: enablePwaDev,
         navigateFallback: '/',
         suppressWarnings: true,
       },
@@ -112,6 +150,7 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, './src'),
     },
+    dedupe: ['react', 'react-dom'],
   },
   build: {
     rollupOptions: {
@@ -136,4 +175,5 @@ export default defineConfig({
       },
     },
   },
+  }
 })

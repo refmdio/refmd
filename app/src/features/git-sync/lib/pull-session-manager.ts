@@ -1,5 +1,6 @@
-import { finalizePullSession, resolvePullSession, startPullSession } from '@/entities/git'
 import { ApiError, type GitPullConflictItem, type GitPullResolution, type GitPullSessionResponse } from '@/shared/api'
+
+import { finalizePullSession, resolvePullSession, startPullSession } from '@/entities/git'
 
 import { clearAllConflicts, clearSession, clearResolutions, readConflicts, readResolutions, readSessionId, setConflicts, setSessionId } from './git-conflict-store'
 
