@@ -35,12 +35,32 @@ const invalidShareTokenToastShown = new Set<string>()
 const SHARE_TOKEN_VALIDATION_STALE_MS = 5 * 60 * 1000
 const DOCUMENT_META_STALE_MS = 60 * 1000
 
-function buildCacheKey(documentId: string, token: string | undefined, disablePersistence: boolean) {
-  return `${documentId}::${token ?? ''}::p:${disablePersistence ? '0' : '1'}`
+function buildCollaborativeDocumentConnectionCacheKey(args: {
+  documentId: string
+  token: string | undefined
+  disablePersistence: boolean
+  workspaceId: string | null | undefined
+}) {
+  const workspaceScope = typeof args.workspaceId === 'string' ? args.workspaceId.trim() : ''
+  return `${args.documentId}::${args.token ?? ''}::ws:${workspaceScope}::p:${args.disablePersistence ? '0' : '1'}`
 }
 
-async function acquireConnection(documentId: string, token: string | undefined, disablePersistence: boolean) {
-  const cacheKey = buildCacheKey(documentId, token, disablePersistence)
+function buildCacheKey(
+  documentId: string,
+  token: string | undefined,
+  disablePersistence: boolean,
+  workspaceId: string | null | undefined,
+) {
+  return buildCollaborativeDocumentConnectionCacheKey({ documentId, token, disablePersistence, workspaceId })
+}
+
+async function acquireConnection(
+  documentId: string,
+  token: string | undefined,
+  disablePersistence: boolean,
+  workspaceId: string | null | undefined,
+) {
+  const cacheKey = buildCacheKey(documentId, token, disablePersistence, workspaceId)
   const existing = connectionCache.get(cacheKey)
   if (existing) {
     existing.refs += 1
@@ -81,7 +101,7 @@ export function useCollaborativeDocument(
   options: UseCollaborativeDocumentOptions = {},
 ) {
   const queryClient = useQueryClient()
-  const { permissions, loading: authLoading } = useAuthContext()
+  const { permissions, loading: authLoading, activeWorkspaceId } = useAuthContext()
   const enabled = options.enabled ?? true
   const contributeToRealtimeContext = options.contributeToRealtimeContext ?? true
   const useUrlShareTokenFallback = options.useUrlShareTokenFallback ?? true
@@ -247,7 +267,7 @@ export function useCollaborativeDocument(
       try {
         const urlShareToken = resolveShareToken(shareToken, useUrlShareTokenFallback)
 
-        const acquired = await acquireConnection(id, urlShareToken ?? undefined, disablePersistence)
+        const acquired = await acquireConnection(id, urlShareToken ?? undefined, disablePersistence, activeWorkspaceId)
         if (cancelled) {
           releaseConnection(acquired.cacheKey)
           return
@@ -429,7 +449,17 @@ export function useCollaborativeDocument(
       setIsReadOnly(false)
       setError(null)
     }
-  }, [id, shareToken, loadMeta, contributeToRealtimeContext, disablePersistence, enabled, useUrlShareTokenFallback, trackAwareness])
+  }, [
+    id,
+    shareToken,
+    loadMeta,
+    contributeToRealtimeContext,
+    disablePersistence,
+    enabled,
+    useUrlShareTokenFallback,
+    trackAwareness,
+    activeWorkspaceId,
+  ])
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return

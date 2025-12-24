@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { fetchDocumentMeta } from '@/entities/document'
 
+import { useAuthContext } from '@/features/auth'
 import { mountSplitEditorPreviewStage } from '@/features/plugins/ui/SplitEditorHost'
 
 import { mountResolvedPlugin, resolvePluginForDocumentById } from '../lib/resolution'
@@ -28,15 +29,17 @@ export function PluginDocumentMount({
   mode?: 'primary' | 'secondary'
   className?: string
 }) {
+  const { activeWorkspaceId } = useAuthContext()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [mountError, setMountError] = useState<string | null>(null)
 
   const normalizedDocId = docId.trim()
   const normalizedHint = typeof pluginIdHint === 'string' ? pluginIdHint.trim() : ''
   const tokenKey = typeof token === 'string' ? token : ''
+  const workspaceKey = typeof activeWorkspaceId === 'string' ? activeWorkspaceId : ''
 
   const metaQuery = useQuery({
-    queryKey: ['document-meta', normalizedDocId, token ?? null],
+    queryKey: ['document-meta', normalizedDocId, token ?? null, workspaceKey || null],
     queryFn: async () => fetchDocumentMeta(normalizedDocId, token ?? undefined),
     staleTime: 60_000,
     enabled: Boolean(normalizedDocId && !normalizedHint),
@@ -49,15 +52,15 @@ export function PluginDocumentMount({
   }, [metaQuery.data, normalizedHint])
 
   const pluginQuery = useQuery({
-    queryKey: ['plugin-document', normalizedDocId, resolvedPluginId, token ?? null],
+    queryKey: ['plugin-document', normalizedDocId, resolvedPluginId, token ?? null, workspaceKey || null],
     queryFn: async () => resolvePluginForDocumentById(normalizedDocId, resolvedPluginId, token ?? null),
     staleTime: 60_000,
     enabled: Boolean(normalizedDocId && resolvedPluginId),
   })
 
   const mountNodeKey = useMemo(() => {
-    return `${normalizedDocId}:${resolvedPluginId || 'none'}:${variant}:${mode}:${tokenKey}`
-  }, [mode, normalizedDocId, resolvedPluginId, tokenKey, variant])
+    return `${normalizedDocId}:${resolvedPluginId || 'none'}:${variant}:${mode}:${tokenKey}:${workspaceKey}`
+  }, [mode, normalizedDocId, resolvedPluginId, tokenKey, variant, workspaceKey])
 
   useEffect(() => {
     const container = containerRef.current

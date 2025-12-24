@@ -57,12 +57,19 @@ type MosaicState = {
 
 type ShareScope = 'document' | 'folder'
 
-const STORAGE_KEY = 'refmd-document-mosaic-state-v3'
+const STORAGE_KEY_PREFIX = 'refmd-document-mosaic-state-v3'
 const FORCE_FLOATING_TOC_MAX_WIDTH_PX = 1024
 const EXPAND_PERCENTAGE = 80
 const UNEXPAND_PERCENTAGE = 50
 const PLUGIN_USES_SPLIT_EDITOR_EVENT = 'refmd:plugin:uses-split-editor'
 const PLUGIN_TILE_MOUNT_EVENT = 'refmd:plugin:tile-mount'
+
+function buildMosaicStorageKey(args: { userId: string | null | undefined; workspaceId: string | null | undefined }) {
+  const userId = typeof args.userId === 'string' ? args.userId.trim() : ''
+  const workspaceId = typeof args.workspaceId === 'string' ? args.workspaceId.trim() : ''
+  if (!workspaceId) return null
+  return `${STORAGE_KEY_PREFIX}:${userId || 'anon'}:${workspaceId}`
+}
 
 function updateParentSplitPercentage(
   layout: MosaicNode<TileKey> | null,
@@ -553,10 +560,10 @@ function sanitizeState(state: MosaicState, activeDocumentId: string): MosaicStat
   return { layout: prunedLayout, tiles: nextTiles }
 }
 
-function loadState(activeDocumentId: string): MosaicState {
+function loadState(activeDocumentId: string, storageKey: string): MosaicState {
   if (typeof window === 'undefined') return defaultState(activeDocumentId)
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(storageKey)
     if (!raw) return defaultState(activeDocumentId)
     const parsed = JSON.parse(raw) as unknown
     if (!parsed || typeof parsed !== 'object') return defaultState(activeDocumentId)
@@ -570,9 +577,9 @@ function loadState(activeDocumentId: string): MosaicState {
   }
 }
 
-function saveState(state: MosaicState) {
+function saveState(state: MosaicState, storageKey: string) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    localStorage.setItem(storageKey, JSON.stringify(state))
   } catch {
     /* noop */
   }
@@ -586,9 +593,15 @@ type Props = Pick<DocumentPageProps, 'id' | 'loaderData' | 'shareToken' | 'confl
 export default function DocumentMosaicWorkspace(props: Props) {
   const { id, loaderData, shareToken, shareScope: shareScopeProp, isShareMount = false, conflictMode } = props
   const navigate = useNavigate()
+  const { user, activeWorkspaceId } = useAuthContext()
   const shareLinkToken = shareToken && !isShareMount ? shareToken : undefined
+  const mosaicStorageKey = useMemo(() => {
+    if (shareLinkToken) return null
+    return buildMosaicStorageKey({ userId: user?.id ?? null, workspaceId: activeWorkspaceId })
+  }, [activeWorkspaceId, shareLinkToken, user?.id])
+  const mosaicStorageKeyRef = useRef<string | null>(mosaicStorageKey)
   const [mosaicState, setMosaicState] = useState<MosaicState>(() => {
-    return shareLinkToken ? defaultState(id) : loadState(id)
+    return mosaicStorageKey ? loadState(id, mosaicStorageKey) : defaultState(id)
   })
   const [activeDocumentId, setActiveDocumentId] = useState(id)
   const activeDocumentIdRef = useRef(activeDocumentId)
@@ -648,6 +661,16 @@ export default function DocumentMosaicWorkspace(props: Props) {
   useEffect(() => {
     latestStateRef.current = mosaicState
   }, [mosaicState])
+
+  useEffect(() => {
+    if (!mosaicStorageKey) return
+    if (mosaicStorageKeyRef.current === mosaicStorageKey) return
+    mosaicStorageKeyRef.current = mosaicStorageKey
+    activeTileRef.current = null
+    previousTileKeyRef.current = null
+    expandedTileKeyRef.current = null
+    setMosaicState(loadState(id, mosaicStorageKey))
+  }, [id, mosaicStorageKey, setMosaicState])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -1217,7 +1240,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
   }, [applyViewModeForDocument, clearNonSplitPluginCollapseTimer, isSingleDocShare])
 
   useEffect(() => {
-    if (shareLinkToken) return
+    if (!mosaicStorageKeyRef.current) return
     if (typeof window === 'undefined') return
     if (saveTimerRef.current != null) {
       window.clearTimeout(saveTimerRef.current)
@@ -1225,7 +1248,9 @@ export default function DocumentMosaicWorkspace(props: Props) {
     }
     saveTimerRef.current = window.setTimeout(() => {
       saveTimerRef.current = null
-      saveState(mosaicState)
+      const key = mosaicStorageKeyRef.current
+      if (!key) return
+      saveState(mosaicState, key)
     }, 250)
     return () => {
       if (saveTimerRef.current != null) {
@@ -1238,10 +1263,13 @@ export default function DocumentMosaicWorkspace(props: Props) {
   useEffect(() => {
     return () => {
       if (shareLinkTokenRef.current) return
+      const key = mosaicStorageKeyRef.current
       if (clearSavedLayoutRef.current) {
-        try {
-          localStorage.removeItem(STORAGE_KEY)
-        } catch {}
+        if (key) {
+          try {
+            localStorage.removeItem(key)
+          } catch {}
+        }
         return
       }
       if (saveTimerRef.current != null) {
@@ -1250,7 +1278,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
         } catch {}
         saveTimerRef.current = null
       }
-      saveState(latestStateRef.current)
+      if (key) saveState(latestStateRef.current, key)
     }
   }, [])
 
@@ -1263,9 +1291,12 @@ export default function DocumentMosaicWorkspace(props: Props) {
       } catch {}
       saveTimerRef.current = null
     }
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {}
+    const key = mosaicStorageKeyRef.current
+    if (key) {
+      try {
+        localStorage.removeItem(key)
+      } catch {}
+    }
     navigate({ to: '/dashboard', replace: true })
   }, [navigate])
 

@@ -429,23 +429,15 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
   }, [headerViewMode, isMobile, vc.viewMode])
 
   const viewModeButtons = useMemo(() => {
-    const items: Array<{ mode: 'editor' | 'split' | 'preview'; icon: ReactElement; tooltip: string }> = [
-      {
-        mode: 'editor',
-        icon: <FileCode className={iconClass} />,
-        tooltip: 'Editor only',
-      },
-    ]
     if (pluginViewPolicy === 'previewOnly') {
       return [{ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' }] as ViewModeButtonItem[]
     }
-    if (!isCompact && pluginViewPolicy !== 'normal') {
-      items.push({ mode: 'split', icon: <Columns className={iconClass} />, tooltip: 'Split view' })
-    }
-    if (pluginViewPolicy !== 'normal') {
-      items.push({ mode: 'preview', icon: <Eye className={iconClass} />, tooltip: 'Preview only' })
-    }
-    return items
+    const order: ViewMode[] = isCompact ? ['editor', 'preview'] : ['editor', 'split', 'preview']
+    return order.map((mode) => {
+      if (mode === 'editor') return { mode, icon: <FileCode className={iconClass} />, tooltip: 'Editor only' }
+      if (mode === 'split') return { mode, icon: <Columns className={iconClass} />, tooltip: 'Split view' }
+      return { mode, icon: <Eye className={iconClass} />, tooltip: 'Preview only' }
+    })
   }, [iconClass, isCompact, pluginViewPolicy])
 
   const desktopToolbar = (
