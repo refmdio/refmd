@@ -81,6 +81,11 @@ export const FolderNode = memo(function FolderNode({
   const [isEditing, setIsEditing] = useState(false)
   const [editingTitle, setEditingTitle] = useState(node.title)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const renameInputRef = useRef<HTMLInputElement | null>(null)
+  const renameBlurRafRef = useRef<number | null>(null)
+  const renameFocusRafRef = useRef<number | null>(null)
+  const renameFocusAttemptsRef = useRef(0)
+  const selectAllOnFocusRef = useRef(false)
   const isMobile = useIsMobile()
   const menuGuardRef = useRef<{ block: boolean; timer?: number }>({ block: false })
   const isArchived = Boolean(node.archived)
@@ -116,6 +121,23 @@ export const FolderNode = memo(function FolderNode({
     void action()
   }, [])
 
+  const clearRenameBlurRaf = useCallback(() => {
+    if (typeof window === 'undefined') return
+    if (renameBlurRafRef.current != null) {
+      window.cancelAnimationFrame(renameBlurRafRef.current)
+      renameBlurRafRef.current = null
+    }
+  }, [])
+
+  const clearRenameFocusRaf = useCallback(() => {
+    if (typeof window === 'undefined') return
+    if (renameFocusRafRef.current != null) {
+      window.cancelAnimationFrame(renameFocusRafRef.current)
+      renameFocusRafRef.current = null
+    }
+    renameFocusAttemptsRef.current = 0
+  }, [])
+
   const handleToggle = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onToggle(node.id) }, [node.id, onToggle])
   const handleStartRename = useCallback(() => {
     if (isArchived || isShareMount) return
@@ -123,16 +145,20 @@ export const FolderNode = memo(function FolderNode({
     setEditingTitle(node.title)
   }, [node.title, isArchived, isShareMount])
   const handleCancelRename = useCallback(() => {
+    clearRenameBlurRaf()
+    clearRenameFocusRaf()
     setIsEditing(false)
     setEditingTitle('')
     clearRenameTarget()
-  }, [clearRenameTarget])
+  }, [clearRenameBlurRaf, clearRenameFocusRaf, clearRenameTarget])
   const handleSaveRename = useCallback(() => {
     if (isArchived || isShareMount) return
+    clearRenameBlurRaf()
+    clearRenameFocusRaf()
     if (editingTitle.trim()) onRename(node.id, editingTitle.trim())
     setIsEditing(false)
     clearRenameTarget()
-  }, [editingTitle, node.id, onRename, clearRenameTarget, isArchived, isShareMount])
+  }, [clearRenameBlurRaf, clearRenameFocusRaf, editingTitle, node.id, onRename, clearRenameTarget, isArchived, isShareMount])
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => { if (e.key === 'Enter') handleSaveRename(); else if (e.key === 'Escape') handleCancelRename() }, [handleSaveRename, handleCancelRename])
   const handleDelete = useCallback(() => {
     onDelete(node)
@@ -200,6 +226,66 @@ export const FolderNode = memo(function FolderNode({
     }
   }, [renameTarget, node.id, node.title, isEditing, isArchived, isShareMount])
 
+  useEffect(() => {
+    if (!isEditing) return
+    if (typeof window === 'undefined') return
+    if (typeof document === 'undefined') return
+
+    selectAllOnFocusRef.current = true
+    clearRenameBlurRaf()
+    clearRenameFocusRaf()
+
+    let cancelled = false
+    const attemptFocus = () => {
+      if (cancelled) return
+      renameFocusAttemptsRef.current += 1
+      const el = renameInputRef.current
+      if (el) {
+        if (document.activeElement !== el) {
+          try {
+            el.focus({ preventScroll: true } as any)
+          } catch {
+            try { el.focus() } catch {}
+          }
+        }
+        if (selectAllOnFocusRef.current && document.activeElement === el) {
+          try { el.select() } catch {}
+          selectAllOnFocusRef.current = false
+        }
+      }
+      if (renameFocusAttemptsRef.current < 10) {
+        renameFocusRafRef.current = window.requestAnimationFrame(attemptFocus)
+      } else {
+        renameFocusRafRef.current = null
+      }
+    }
+
+    renameFocusRafRef.current = window.requestAnimationFrame(attemptFocus)
+    return () => {
+      cancelled = true
+      clearRenameBlurRaf()
+      clearRenameFocusRaf()
+    }
+  }, [clearRenameBlurRaf, clearRenameFocusRaf, isEditing])
+
+  const handleRenameInputFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    if (!selectAllOnFocusRef.current) return
+    try { e.currentTarget.select() } catch {}
+    selectAllOnFocusRef.current = false
+  }, [])
+
+  const handleRenameInputBlur = useCallback(() => {
+    if (typeof window === 'undefined') return
+    if (typeof document === 'undefined') return
+    clearRenameBlurRaf()
+    renameBlurRafRef.current = window.requestAnimationFrame(() => {
+      renameBlurRafRef.current = null
+      const el = renameInputRef.current
+      if (el && document.activeElement === el) return
+      handleSaveRename()
+    })
+  }, [clearRenameBlurRaf, handleSaveRename])
+
   const shouldShowDropHighlight = isDropTarget || (hasChildDropTarget && isExpanded)
   const actionButtonClass = 'h-8 w-8 rounded-xl border border-border/40 bg-background/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground'
   const togglePillClass = 'mr-2 h-8 w-8 rounded-xl border border-border/40 bg-background/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground'
@@ -263,13 +349,13 @@ export const FolderNode = memo(function FolderNode({
             </Button>
             {isExpanded ? <FolderOpen className="mr-2 h-4 w-4 text-primary" /> : <Folder className="mr-2 h-4 w-4 text-primary" />}
             <Input
+              ref={renameInputRef}
               value={editingTitle}
               onChange={(e) => setEditingTitle(e.target.value)}
-              onBlur={handleSaveRename}
+              onBlur={handleRenameInputBlur}
               onKeyDown={handleKeyDown}
               className="h-9 flex-1 rounded-xl border-border/50 bg-background/80 text-sm"
-              autoFocus
-              onFocus={(e) => (e.currentTarget as HTMLInputElement).select()}
+              onFocus={handleRenameInputFocus}
             />
           </div>
         ) : (
