@@ -3,6 +3,7 @@ pub mod delete_plan;
 pub mod doc_type;
 pub mod document;
 pub mod hierarchy;
+pub mod keys;
 pub mod meta;
 pub mod path;
 pub mod permissions;
