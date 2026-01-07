@@ -153,61 +153,14 @@ impl StorageIngestHandler for StorageIngestService {
             return Ok(());
         }
 
+        // E2EE: No front-matter resolution - document ID must be resolved from storage path
+        // New documents are created via API, not from storage ingest
         if event.kind == StorageIngestKind::Upsert && rel_path.ends_with(".md") {
-            let payload = match self.load_markdown_payload(&rel_path).await {
-                Ok(payload) => payload,
-                Err(err) if is_not_found_error(&err) => {
-                    info!(
-                        user_id = %event.workspace_id,
-                        repo_path = repo_path,
-                        "storage_ingest_missing_source_skipped"
-                    );
-                    self.storage_projection
-                        .delete_relative_path(&rel_path)
-                        .await?;
-                    return Ok(());
-                }
-                Err(err) => return Err(err),
-            };
-            if let Some(doc) = self
-                .resolve_doc_from_front_matter(event.workspace_id, &payload)
-                .await?
-            {
-                if doc.is_folder() {
-                    warn!(
-                        doc_id = %doc.id,
-                        repo_path = repo_path,
-                        "storage_ingest_folder_event_skipped"
-                    );
-                } else if doc.is_archived() {
-                    warn!(
-                        doc_id = %doc.id,
-                        repo_path = repo_path,
-                        "storage_ingest_archived_doc_skipped"
-                    );
-                } else {
-                    if !self
-                        .reconcile_repo_path(&doc, event.workspace_id, &rel_path)
-                        .await?
-                    {
-                        warn!(
-                            doc_id = %doc.id,
-                            repo_path = repo_path,
-                            "storage_ingest_repo_path_rejected"
-                        );
-                        return Ok(());
-                    }
-                    self.handle_doc_upsert(
-                        &doc,
-                        &repo_path,
-                        event,
-                        payload,
-                        payload_previous_repo_path.as_deref(),
-                    )
-                    .await?;
-                }
-                return Ok(());
-            }
+            info!(
+                user_id = %event.workspace_id,
+                repo_path = repo_path,
+                "storage_ingest_orphan_encrypted_file"
+            );
         }
 
         if event.kind == StorageIngestKind::Delete {

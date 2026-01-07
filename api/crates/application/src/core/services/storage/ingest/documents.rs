@@ -9,12 +9,13 @@ impl StorageIngestService {
         payload: MarkdownIngestPayload,
         previous_repo_path: Option<&str>,
     ) -> anyhow::Result<()> {
+        // E2EE: Skip recent export check using encrypted_hash
         if event.backend.is_fs_watcher()
             && event.actor_id.is_none()
             && self.recent_exports.is_recent_match(
                 event.workspace_id,
                 repo_path,
-                &payload.content_hash,
+                &payload.encrypted_hash,
             )
         {
             debug!(
@@ -24,25 +25,15 @@ impl StorageIngestService {
             );
             return Ok(());
         }
-        let snapshot = snapshot_from_markdown(&payload.body);
-        self.realtime
-            .apply_snapshot(&doc.id.to_string(), snapshot.as_slice())
-            .await?;
-        // Persist back to storage only for API/actor initiated ingests; fs_watcher/reconcile events
-        // originate from the filesystem itself and writing would re-trigger the watcher endlessly.
-        if event.actor_id.is_some()
-            && let Err(err) = self.realtime.force_persist(&doc.id.to_string()).await
-        {
-            warn!(
-                error = ?err,
-                doc_id = %doc.id,
-                "storage_ingest_force_persist_failed"
-            );
-        }
+
+        // E2EE: No Yjs snapshot conversion - encrypted data is handled by client via WebSocket
+        // Server only stores encrypted bytes as-is
+
         let mut payload_obj = serde_json::Map::new();
         payload_obj.insert("repo_path".into(), json!(repo_path));
         payload_obj.insert("backend".into(), json!(event.backend.as_str()));
-        payload_obj.insert("content_hash".into(), json!(payload.content_hash));
+        payload_obj.insert("encrypted_hash".into(), json!(payload.encrypted_hash));
+        payload_obj.insert("size".into(), json!(payload.size));
         payload_obj.insert("doc_type".into(), json!(doc.doc_type.as_str()));
         if let Some(prev) = previous_repo_path {
             payload_obj.insert("previous_path".into(), json!(prev));
@@ -73,28 +64,7 @@ impl StorageIngestService {
         parse_markdown_payload(bytes)
     }
 
-    pub(super) async fn resolve_doc_from_front_matter(
-        &self,
-        user_id: Uuid,
-        payload: &MarkdownIngestPayload,
-    ) -> anyhow::Result<Option<ResolvedDocument>> {
-        let Some(doc_id) = payload.doc_id_hint else {
-            return Ok(None);
-        };
-        let Some(meta) = self
-            .document_repo
-            .get_meta_for_owner(doc_id, user_id)
-            .await?
-        else {
-            return Ok(None);
-        };
-        Ok(Some(ResolvedDocument::new(
-            doc_id,
-            meta.doc_type,
-            meta.path,
-            meta.archived_at.is_some(),
-        )))
-    }
+    // E2EE: resolve_doc_from_front_matter removed - document ID resolved from storage path
 
     pub(super) async fn handle_doc_delete(
         &self,

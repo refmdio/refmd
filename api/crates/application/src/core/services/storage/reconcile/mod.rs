@@ -1,3 +1,9 @@
+//! Storage reconciliation service
+//!
+//! E2EE: This service operates on encrypted files (RME1 format).
+//! It only performs path-level consistency checks without reading file contents.
+//! Actual content verification (RME1 magic, encrypted_hash) is done by ingest handlers.
+
 use std::collections::HashSet;
 use std::sync::Arc;
 

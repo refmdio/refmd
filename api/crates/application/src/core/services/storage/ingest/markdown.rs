@@ -2,78 +2,24 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub(super) struct MarkdownIngestPayload {
-    pub(super) doc_id_hint: Option<Uuid>,
-    pub(super) body: String,
-    pub(super) content_hash: String,
+    pub(super) encrypted_hash: String,
+    pub(super) size: i64,
 }
 
-#[derive(Debug, Deserialize)]
-struct MarkdownFrontMatter {
-    id: Option<Uuid>,
-}
-
+/// Parse encrypted file payload (RME1 format)
 pub(super) fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownIngestPayload> {
-    let content_hash = sha256_hex(&bytes);
-    // Accept lossy UTF-8 to avoid retry storms on malformed files; non-UTF8 bytes become U+FFFD.
-    let text = String::from_utf8_lossy(&bytes).to_string();
-    let trimmed = text.trim_start_matches('\u{feff}');
-    if let Some((front, body)) = split_front_matter(trimmed)
-        && let Ok(front_matter) = serde_yaml::from_str::<MarkdownFrontMatter>(front)
-        && let Some(doc_id) = front_matter.id
-    {
-        return Ok(MarkdownIngestPayload {
-            doc_id_hint: Some(doc_id),
-            body: body.to_string(),
-            content_hash,
-        });
+    // Validate RME1 magic number
+    if bytes.len() < 4 || &bytes[0..4] != RME1_MAGIC {
+        anyhow::bail!("Invalid RME1 format: missing or invalid magic number");
     }
+
+    let encrypted_hash = sha256_hex(&bytes);
+    let size = bytes.len() as i64;
+
     Ok(MarkdownIngestPayload {
-        doc_id_hint: None,
-        body: trimmed.to_string(),
-        content_hash,
+        encrypted_hash,
+        size,
     })
-}
-
-fn split_front_matter(input: &str) -> Option<(&str, &str)> {
-    let after_open = input
-        .strip_prefix("---\r\n")
-        .or_else(|| input.strip_prefix("---\n"))?;
-    if let Some((front_len, body_start)) = find_front_matter_end(after_open) {
-        let front = &after_open[..front_len];
-        let body = &after_open[body_start..];
-        return Some((front, body));
-    }
-    None
-}
-
-fn find_front_matter_end(s: &str) -> Option<(usize, usize)> {
-    let bytes = s.as_bytes();
-    let mut idx = 0;
-    while idx < bytes.len() {
-        if bytes[idx] == b'\n' {
-            let after_newline = &s[idx + 1..];
-            if after_newline.starts_with("---") {
-                let mut body_start = idx + 1 + 3;
-                let mut remainder = &s[body_start..];
-                // Skip any trailing newlines so we don't feed extra blank lines
-                // back into the realtime layer when the projection re-imports.
-                while remainder.starts_with("\r\n") || remainder.starts_with('\n') {
-                    if remainder.starts_with("\r\n") {
-                        body_start += 2;
-                        let (_, rest) = remainder.split_at(2);
-                        remainder = rest;
-                    } else {
-                        body_start += 1;
-                        let (_, rest) = remainder.split_at(1);
-                        remainder = rest;
-                    }
-                }
-                return Some((idx, body_start));
-            }
-        }
-        idx += 1;
-    }
-    None
 }
 
 #[cfg(test)]
@@ -81,19 +27,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preserves_body_when_front_matter_has_no_id() {
-        let markdown = "---\ntitle: Foo\n---\n\nBody".to_string();
-        let payload = parse_markdown_payload(markdown.clone().into_bytes()).unwrap();
-        assert!(payload.doc_id_hint.is_none());
-        assert_eq!(payload.body, markdown);
+    fn parses_valid_rme1_format() {
+        let mut bytes = b"RME1".to_vec();
+        bytes.extend_from_slice(&[0x01, 0x00, 0x00, 0x00, 0x10]); // version + header length
+        bytes.extend_from_slice(&[0u8; 16]); // dummy header
+        bytes.extend_from_slice(&[0u8; 24]); // dummy content nonce
+        bytes.extend_from_slice(b"encrypted content");
+
+        let payload = parse_markdown_payload(bytes.clone()).unwrap();
+        assert_eq!(payload.size, bytes.len() as i64);
+        assert!(!payload.encrypted_hash.is_empty());
     }
 
     #[test]
-    fn extracts_id_when_front_matter_is_valid() {
-        let doc_id = Uuid::new_v4();
-        let markdown = format!("---\nid: {}\n---\n\nHello", doc_id);
-        let payload = parse_markdown_payload(markdown.into_bytes()).unwrap();
-        assert_eq!(payload.doc_id_hint, Some(doc_id));
-        assert_eq!(payload.body.trim_start_matches('\n'), "Hello");
+    fn rejects_invalid_magic() {
+        let bytes = b"XXXX invalid data".to_vec();
+        let result = parse_markdown_payload(bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_too_short_data() {
+        let bytes = b"RM".to_vec();
+        let result = parse_markdown_payload(bytes);
+        assert!(result.is_err());
     }
 }

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -19,7 +18,6 @@ use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::realtime::realtime_port::RealtimeEngine;
 use crate::documents::services::DocumentService;
-use crate::documents::services::realtime::snapshot::snapshot_from_markdown;
 use crate::workspaces::services::{
     WorkspacePermissionResolver, permission_snapshot::permission_set_from_snapshot,
 };
@@ -34,6 +32,9 @@ mod permissions;
 mod resolved_document;
 mod utils;
 
+/// RME1 (RefMD Encrypted v1) magic number for E2EE file format
+pub const RME1_MAGIC: &[u8; 4] = b"RME1";
+
 pub use domain::documents::path::normalize_repo_path;
 
 use markdown::{MarkdownIngestPayload, parse_markdown_payload};
@@ -46,9 +47,13 @@ pub trait StorageIngestHandler: Send + Sync {
 }
 
 pub struct StorageIngestService {
+    // TODO(e2ee): Remove after E2EE migration complete - was used for resolve_doc_from_front_matter
+    #[allow(dead_code)]
     document_repo: Arc<dyn DocumentRepository>,
     document_paths: Arc<dyn DocumentPathRepository>,
     files_repo: Arc<dyn FilesRepository>,
+    // TODO(e2ee): Remove after E2EE migration complete - was used for Yjs snapshot conversion
+    #[allow(dead_code)]
     realtime: Arc<dyn RealtimeEngine>,
     storage: Arc<dyn StorageResolverPort>,
     storage_projection: Arc<dyn StorageProjectionPort>,

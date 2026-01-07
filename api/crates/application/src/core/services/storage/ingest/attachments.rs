@@ -27,17 +27,29 @@ impl StorageIngestService {
             }
             Err(err) => return Err(err.into()),
         };
+
+        // E2EE: Validate RME1 format
+        if bytes.len() < 4 || &bytes[0..4] != RME1_MAGIC {
+            warn!(
+                file_id = %file_id,
+                doc_id = %doc_id,
+                repo_path = repo_path,
+                "storage_ingest_attachment_invalid_rme1_format"
+            );
+            return Ok(());
+        }
+
         let size = bytes.len() as i64;
-        let hash = sha256_hex(&bytes);
+        let encrypted_hash = sha256_hex(&bytes);
         self.files_repo
-            .update_hash_and_size(file_id, size, &hash)
+            .update_hash_and_size(file_id, size, &encrypted_hash)
             .await?;
         let mut payload_obj = serde_json::Map::new();
         payload_obj.insert("repo_path".into(), json!(repo_path));
         payload_obj.insert("storage_path".into(), json!(rel_path));
         payload_obj.insert("backend".into(), json!(event.backend.as_str()));
         payload_obj.insert("size".into(), json!(size));
-        payload_obj.insert("content_hash".into(), json!(hash));
+        payload_obj.insert("encrypted_hash".into(), json!(encrypted_hash));
         if let Some(prev) = previous_repo_path {
             payload_obj.insert("previous_path".into(), json!(prev));
         }

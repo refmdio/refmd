@@ -12,7 +12,7 @@ use uuid::Uuid;
 use application::core::ports::storage::storage_ingest_queue::{
     StorageIngestKind, StorageIngestQueue,
 };
-use application::core::services::storage::ingest::normalize_repo_path;
+use application::core::services::storage::ingest::{normalize_repo_path, RME1_MAGIC};
 use application::core::services::utils::hash::sha256_hex;
 use domain::access::permissions::PermissionSet;
 use domain::storage::ingest_backend::StorageIngestBackend;
@@ -177,6 +177,8 @@ impl FsIngestWatcher {
         Ok(())
     }
 
+    /// E2EE: Capture metadata for encrypted files (RME1 format)
+    /// Hash is computed on encrypted bytes - content is not interpreted
     async fn capture_file_metadata(
         &self,
         path: &Path,
@@ -184,13 +186,24 @@ impl FsIngestWatcher {
     ) -> (Option<String>, Option<Value>) {
         match tokio::fs::read(path).await {
             Ok(bytes) => {
-                let hash = sha256_hex(&bytes);
+                // E2EE: Validate RME1 magic number
+                let is_valid_rme1 = bytes.len() >= 4 && &bytes[0..4] == RME1_MAGIC;
+                if !is_valid_rme1 {
+                    warn!(
+                        repo_path = repo_path,
+                        size = bytes.len(),
+                        "fs_ingest_invalid_rme1_format"
+                    );
+                }
+
+                // E2EE: Hash computed on encrypted bytes (used as encrypted_hash)
+                let encrypted_hash = sha256_hex(&bytes);
                 let payload = serde_json::json!({
                     "file_kind": file_kind(repo_path),
-                    "is_text": repo_path.ends_with(".md"),
+                    "is_encrypted": is_valid_rme1,
                     "size": bytes.len(),
                 });
-                (Some(hash), Some(payload))
+                (Some(encrypted_hash), Some(payload))
             }
             Err(err) => {
                 warn!(error = ?err, repo_path = repo_path, "fs_ingest_metadata_failed");
