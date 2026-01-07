@@ -1,4 +1,5 @@
 mod invitations;
+mod keys;
 mod members;
 mod permissions;
 mod roles;
@@ -12,6 +13,10 @@ use axum::routing::{delete, get, patch, post};
 use crate::context::AppContext;
 
 pub use invitations::{accept_invitation, create_invitation, list_invitations, revoke_invitation};
+pub use keys::{
+    delete_key_version, get_my_workspace_key, get_workspace_key_version, list_workspace_keys,
+    rotate_workspace_key, store_workspace_key, DeleteKeyVersionResponse,
+};
 pub use members::{list_members, remove_member, update_member_role};
 pub use permissions::get_workspace_permissions;
 pub use roles::{create_role, delete_role, list_roles, update_role};
@@ -23,6 +28,7 @@ pub use workspace::{
 
 pub mod openapi {
     pub use super::invitations::*;
+    pub use super::keys::*;
     pub use super::members::*;
     pub use super::permissions::*;
     pub use super::roles::*;
@@ -66,6 +72,18 @@ pub fn routes(ctx: AppContext) -> Router {
         .route(
             "/workspace-invitations/:token/accept",
             post(accept_invitation),
+        )
+        // E2EE workspace keys
+        .route(
+            "/workspaces/:id/keys",
+            get(list_workspace_keys).post(store_workspace_key),
+        )
+        .route("/workspaces/:id/keys/me", get(get_my_workspace_key))
+        .route("/workspaces/:id/keys/version", get(get_workspace_key_version))
+        .route("/workspaces/:id/keys/rotate", post(rotate_workspace_key))
+        .route(
+            "/workspaces/:id/keys/:version",
+            delete(delete_key_version),
         )
         .with_state(ctx)
 }

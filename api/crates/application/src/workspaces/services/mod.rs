@@ -12,6 +12,7 @@ use domain::workspaces::roles::{WorkspaceBaseRole, WorkspaceRoleKind, WorkspaceS
 
 pub mod permission_snapshot;
 mod slug;
+pub mod workspace_keys;
 use crate::core::services::errors::ServiceError;
 use crate::workspaces::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceMemberRow,

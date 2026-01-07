@@ -2,8 +2,9 @@ use utoipa::OpenApi;
 
 use crate::http::core::{health, markdown, storage_ingest};
 use crate::http::documents::files;
+use crate::http::documents::keys as document_keys;
 use crate::http::documents::{publishing as public, sharing as shares, tagging as tags};
-use crate::http::identity::{api_tokens, auth, shortcuts};
+use crate::http::identity::{api_tokens, auth, keys, shortcuts};
 use crate::http::{documents, git, plugins, workspaces};
 use crate::ws;
 
@@ -25,6 +26,22 @@ use crate::ws;
         api_tokens::openapi::revoke_api_token,
         shortcuts::openapi::get_user_shortcuts,
         shortcuts::openapi::update_user_shortcuts,
+        keys::openapi::register_public_key,
+        keys::openapi::get_my_public_key,
+        keys::openapi::get_user_public_key,
+        keys::openapi::store_master_key_backup,
+        keys::openapi::get_master_key_backup,
+        keys::openapi::store_encrypted_private_key,
+        keys::openapi::get_encrypted_private_key,
+        keys::openapi::mark_e2ee_setup_complete,
+        keys::openapi::get_e2ee_status,
+        document_keys::openapi::get_document_key,
+        document_keys::openapi::store_document_key,
+        document_keys::openapi::rotate_document_key,
+        document_keys::openapi::get_share_key,
+        document_keys::openapi::get_share_salt,
+        document_keys::openapi::store_share_key,
+        document_keys::openapi::store_password_protected_share_key,
         auth::openapi::delete_account,
         ws::documents::yjs::openapi::axum_ws_entry,
         tags::openapi::list_tags,
@@ -124,6 +141,12 @@ use crate::ws;
         workspaces::openapi::revoke_invitation,
         workspaces::openapi::accept_invitation,
         workspaces::openapi::download_workspace_archive,
+        workspaces::openapi::get_my_workspace_key,
+        workspaces::openapi::store_workspace_key,
+        workspaces::openapi::list_workspace_keys,
+        workspaces::openapi::get_workspace_key_version,
+        workspaces::openapi::delete_key_version,
+        workspaces::openapi::rotate_workspace_key,
         health::openapi::health,
     ),
     components(schemas(
@@ -143,6 +166,23 @@ use crate::ws;
         api_tokens::ApiTokenCreateResponse,
         shortcuts::UserShortcutResponse,
         shortcuts::UpdateUserShortcutRequest,
+        keys::UserPublicKeyResponse,
+        keys::RegisterPublicKeyRequest,
+        keys::MasterKeyBackupResponse,
+        keys::StoreMasterKeyBackupRequest,
+        keys::KdfParamsResponse,
+        keys::EncryptedPrivateKeyResponse,
+        keys::StoreEncryptedPrivateKeyRequest,
+        keys::E2eeStatusResponse,
+        document_keys::DocumentKeyResponse,
+        document_keys::StoreDocumentKeyRequest,
+        document_keys::RotateDocumentKeyRequest,
+        document_keys::RotateDocumentKeyResponse,
+        document_keys::ShareKeyResponse,
+        document_keys::ShareSaltResponse,
+        document_keys::StoreShareKeyRequest,
+        document_keys::StorePasswordProtectedShareKeyRequest,
+        document_keys::KdfParamsResponse,
         tags::TagItem,
         documents::Document,
         documents::DocumentListResponse,
@@ -236,6 +276,13 @@ use crate::ws;
         workspaces::WorkspaceInvitationResponse,
         workspaces::CreateWorkspaceInvitationRequest,
         workspaces::DownloadWorkspaceQuery,
+        workspaces::WorkspaceKeyResponse,
+        workspaces::StoreWorkspaceKeyRequest,
+        workspaces::WorkspaceKeyVersionResponse,
+        workspaces::DeleteKeyVersionResponse,
+        workspaces::RotationMemberKey,
+        workspaces::RotateWorkspaceKeyRequest,
+        workspaces::RotateWorkspaceKeyResponse,
         storage_ingest::IngestBatchRequest,
         storage_ingest::IngestEventRequest,
         storage_ingest::IngestKindParam,
@@ -243,6 +290,7 @@ use crate::ws;
     )),
     tags(
         (name = "Auth", description = "Authentication"),
+        (name = "E2EE", description = "End-to-end encryption key management"),
         (name = "Documents", description = "Documents management"),
         (name = "Files", description = "File management"),
         (name = "Sharing", description = "Document sharing"),

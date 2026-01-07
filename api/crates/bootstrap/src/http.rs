@@ -36,6 +36,10 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
         )
         .nest("/api", presentation::http::documents::routes(ctx.clone()))
         .nest(
+            "/api",
+            presentation::http::documents::keys::routes(ctx.clone()),
+        )
+        .nest(
             "/api/auth",
             presentation::http::identity::auth::routes(ctx.clone()),
         )
@@ -69,6 +73,10 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
         .nest(
             "/api",
             presentation::http::identity::shortcuts::routes(ctx.clone()),
+        )
+        .nest(
+            "/api",
+            presentation::http::identity::keys::routes(ctx.clone()),
         )
         .nest(
             "/api/public",

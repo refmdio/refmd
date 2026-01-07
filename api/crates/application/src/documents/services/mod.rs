@@ -31,6 +31,7 @@ mod downloads;
 mod events;
 pub mod files;
 mod jobs;
+pub mod keys;
 mod lifecycle;
 pub mod linkgraph;
 mod links;

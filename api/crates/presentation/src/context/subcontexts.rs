@@ -1,4 +1,5 @@
 use super::*;
+use application::documents::services::keys::DocumentKeysServiceFacade;
 
 #[derive(Clone)]
 pub struct CoreContext {
@@ -90,6 +91,7 @@ pub struct DocumentsContext {
     pub cfg: PresentationConfig,
     authorization: Arc<dyn AuthorizationServiceFacade>,
     document_service: Arc<dyn DocumentServiceFacade>,
+    document_keys_service: Arc<dyn DocumentKeysServiceFacade>,
     file_service: Arc<dyn FileServiceFacade>,
     public_service: Arc<dyn PublicServiceFacade>,
     share_service: Arc<dyn ShareServiceFacade>,
@@ -122,6 +124,10 @@ impl DocumentsContext {
 
     pub fn document_service(&self) -> Arc<dyn DocumentServiceFacade> {
         self.document_service.clone()
+    }
+
+    pub fn document_keys_service(&self) -> Arc<dyn DocumentKeysServiceFacade> {
+        self.document_keys_service.clone()
     }
 
     pub fn file_service(&self) -> Arc<dyn FileServiceFacade> {
@@ -171,6 +177,7 @@ impl FromRef<AppContext> for DocumentsContext {
             cfg: ctx.cfg.clone(),
             authorization: ctx.authorization(),
             document_service: ctx.document_service(),
+            document_keys_service: ctx.document_keys_service(),
             file_service: ctx.file_service(),
             public_service: ctx.public_service(),
             share_service: ctx.share_service(),
@@ -242,6 +249,7 @@ pub struct IdentityContext {
     pub cfg: PresentationConfig,
     api_token_service: Arc<dyn ApiTokenServiceFacade>,
     user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
+    user_keys_service: Arc<dyn UserKeysServiceFacade>,
     account_service: Arc<dyn AccountServiceFacade>,
     auth_service: Arc<dyn AuthServiceFacade>,
     session_service: Arc<dyn UserSessionServiceFacade>,
@@ -256,6 +264,10 @@ impl IdentityContext {
 
     pub fn user_shortcut_service(&self) -> Arc<dyn UserShortcutServiceFacade> {
         self.user_shortcut_service.clone()
+    }
+
+    pub fn user_keys_service(&self) -> Arc<dyn UserKeysServiceFacade> {
+        self.user_keys_service.clone()
     }
 
     pub fn account_service(&self) -> Arc<dyn AccountServiceFacade> {
@@ -301,6 +313,7 @@ impl FromRef<AppContext> for IdentityContext {
             cfg: ctx.cfg.clone(),
             api_token_service: ctx.api_token_service(),
             user_shortcut_service: ctx.user_shortcut_service(),
+            user_keys_service: ctx.user_keys_service(),
             account_service: ctx.account_service(),
             auth_service: ctx.auth_service(),
             session_service: ctx.session_service(),
@@ -422,6 +435,7 @@ impl FromRef<AppContext> for PluginsContext {
 pub struct WorkspacesContext {
     pub cfg: PresentationConfig,
     workspace_service: Arc<dyn WorkspaceServiceFacade>,
+    workspace_keys_service: Arc<dyn WorkspaceKeysServiceFacade>,
     account_service: Arc<dyn AccountServiceFacade>,
     document_service: Arc<dyn DocumentServiceFacade>,
     auth_service: Arc<dyn AuthServiceFacade>,
@@ -431,6 +445,10 @@ pub struct WorkspacesContext {
 impl WorkspacesContext {
     pub fn workspace_service(&self) -> Arc<dyn WorkspaceServiceFacade> {
         self.workspace_service.clone()
+    }
+
+    pub fn workspace_keys_service(&self) -> Arc<dyn WorkspaceKeysServiceFacade> {
+        self.workspace_keys_service.clone()
     }
 
     pub fn account_service(&self) -> Arc<dyn AccountServiceFacade> {
@@ -471,6 +489,7 @@ impl FromRef<AppContext> for WorkspacesContext {
         Self {
             cfg: ctx.cfg.clone(),
             workspace_service: ctx.workspace_service(),
+            workspace_keys_service: ctx.workspace_keys_service(),
             account_service: ctx.account_service(),
             document_service: ctx.document_service(),
             auth_service: ctx.auth_service(),

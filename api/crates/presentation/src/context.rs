@@ -15,6 +15,7 @@ pub use application::documents::ports::realtime::realtime_types::{
 };
 use application::documents::services::DocumentServiceFacade;
 use application::documents::services::files::FileServiceFacade;
+use application::documents::services::keys::DocumentKeysServiceFacade;
 use application::documents::services::publishing::PublicServiceFacade;
 use application::documents::services::sharing::ShareServiceFacade;
 use application::documents::services::tagging::TagServiceFacade;
@@ -24,6 +25,7 @@ use application::identity::services::auth::account::AccountServiceFacade;
 use application::identity::services::auth::auth_service::AuthServiceFacade;
 use application::identity::services::auth::external::ExternalAuthRegistryFacade;
 use application::identity::services::auth::user_sessions::UserSessionServiceFacade;
+use application::identity::services::user_keys::UserKeysServiceFacade;
 use application::identity::services::user_shortcuts::UserShortcutServiceFacade;
 use application::plugins::ports::plugin_event_publisher::PluginScopedEvent;
 use application::plugins::ports::plugin_event_subscriber::PluginEventSubscriber;
@@ -32,6 +34,7 @@ use application::plugins::services::execution::PluginExecutionServiceFacade;
 use application::plugins::services::management::PluginManagementServiceFacade;
 use application::plugins::services::permissions::PluginPermissionServiceFacade;
 use application::workspaces::services::WorkspaceServiceFacade;
+use application::workspaces::services::workspace_keys::WorkspaceKeysServiceFacade;
 
 mod traits;
 pub use traits::{HasAuthServices, HasAuthorizationService, HasShareService, HasWorkspaceService};
@@ -83,6 +86,7 @@ pub struct CoreServicesDeps {
 #[derive(Clone)]
 pub struct DocumentServicesDeps {
     pub document_service: Arc<dyn DocumentServiceFacade>,
+    pub document_keys_service: Arc<dyn DocumentKeysServiceFacade>,
     pub share_service: Arc<dyn ShareServiceFacade>,
     pub file_service: Arc<dyn FileServiceFacade>,
     pub public_service: Arc<dyn PublicServiceFacade>,
@@ -99,6 +103,7 @@ pub struct GitServicesDeps {
 pub struct IdentityServicesDeps {
     pub api_token_service: Arc<dyn ApiTokenServiceFacade>,
     pub user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
+    pub user_keys_service: Arc<dyn UserKeysServiceFacade>,
     pub account_service: Arc<dyn AccountServiceFacade>,
     pub auth_service: Arc<dyn AuthServiceFacade>,
     pub session_service: Arc<dyn UserSessionServiceFacade>,
@@ -117,6 +122,7 @@ pub struct PluginServicesDeps {
 #[derive(Clone)]
 pub struct WorkspaceServicesDeps {
     pub workspace_service: Arc<dyn WorkspaceServiceFacade>,
+    pub workspace_keys_service: Arc<dyn WorkspaceKeysServiceFacade>,
 }
 
 #[derive(Clone)]
@@ -131,6 +137,7 @@ struct CoreServices {
 #[derive(Clone)]
 struct DocumentServices {
     document_service: Arc<dyn DocumentServiceFacade>,
+    document_keys_service: Arc<dyn DocumentKeysServiceFacade>,
     share_service: Arc<dyn ShareServiceFacade>,
     file_service: Arc<dyn FileServiceFacade>,
     public_service: Arc<dyn PublicServiceFacade>,
@@ -147,6 +154,7 @@ struct GitServices {
 struct IdentityServices {
     api_token_service: Arc<dyn ApiTokenServiceFacade>,
     user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
+    user_keys_service: Arc<dyn UserKeysServiceFacade>,
     account_service: Arc<dyn AccountServiceFacade>,
     auth_service: Arc<dyn AuthServiceFacade>,
     session_service: Arc<dyn UserSessionServiceFacade>,
@@ -165,6 +173,7 @@ struct PluginServices {
 #[derive(Clone)]
 struct WorkspaceServices {
     workspace_service: Arc<dyn WorkspaceServiceFacade>,
+    workspace_keys_service: Arc<dyn WorkspaceKeysServiceFacade>,
 }
 
 mod subcontexts;
@@ -185,6 +194,7 @@ impl AppServices {
             },
             documents: DocumentServices {
                 document_service: deps.documents.document_service,
+                document_keys_service: deps.documents.document_keys_service,
                 share_service: deps.documents.share_service,
                 file_service: deps.documents.file_service,
                 public_service: deps.documents.public_service,
@@ -197,6 +207,7 @@ impl AppServices {
             identity: IdentityServices {
                 api_token_service: deps.identity.api_token_service,
                 user_shortcut_service: deps.identity.user_shortcut_service,
+                user_keys_service: deps.identity.user_keys_service,
                 account_service: deps.identity.account_service,
                 auth_service: deps.identity.auth_service,
                 session_service: deps.identity.session_service,
@@ -211,6 +222,7 @@ impl AppServices {
             },
             workspaces: WorkspaceServices {
                 workspace_service: deps.workspaces.workspace_service,
+                workspace_keys_service: deps.workspaces.workspace_keys_service,
             },
         }
     }
@@ -235,6 +247,10 @@ impl AppContext {
 
     pub fn document_service(&self) -> Arc<dyn DocumentServiceFacade> {
         self.services.documents.document_service.clone()
+    }
+
+    pub fn document_keys_service(&self) -> Arc<dyn DocumentKeysServiceFacade> {
+        self.services.documents.document_keys_service.clone()
     }
 
     pub fn share_service(&self) -> Arc<dyn ShareServiceFacade> {
@@ -267,6 +283,10 @@ impl AppContext {
 
     pub fn workspace_service(&self) -> Arc<dyn WorkspaceServiceFacade> {
         self.services.workspaces.workspace_service.clone()
+    }
+
+    pub fn workspace_keys_service(&self) -> Arc<dyn WorkspaceKeysServiceFacade> {
+        self.services.workspaces.workspace_keys_service.clone()
     }
 
     pub fn storage_ingest_queue(&self) -> Arc<dyn StorageIngestQueue> {
@@ -334,6 +354,10 @@ impl AppContext {
 
     pub fn api_token_service(&self) -> Arc<dyn ApiTokenServiceFacade> {
         self.services.identity.api_token_service.clone()
+    }
+
+    pub fn user_keys_service(&self) -> Arc<dyn UserKeysServiceFacade> {
+        self.services.identity.user_keys_service.clone()
     }
 
     pub fn realtime_engine(&self) -> Arc<dyn RealtimeEngine> {

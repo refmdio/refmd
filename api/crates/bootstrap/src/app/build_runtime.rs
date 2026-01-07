@@ -20,6 +20,7 @@ use application::core::services::storage::reconcile_scheduler::StorageReconcileS
 use application::documents::ports::doc_event_log::DocEventLog;
 use application::documents::services::DocumentService;
 use application::documents::services::files::FileService;
+use application::documents::services::keys::DocumentKeysService;
 use application::documents::services::publishing::PublicService;
 use application::documents::services::realtime::snapshot::MarkdownExportProvider;
 use application::documents::services::sharing::ShareService;
@@ -28,6 +29,7 @@ use application::identity::ports::secret_hasher::SecretHasher;
 use application::identity::services::api_tokens::ApiTokenService;
 use application::identity::services::auth::account::AccountService;
 use application::identity::services::auth::token_validation::TokenValidationService;
+use application::identity::services::user_keys::UserKeysService;
 use application::identity::services::user_shortcuts::UserShortcutService;
 use application::plugins::ports::plugin_event_publisher::PluginEventPublisher;
 use application::plugins::ports::plugin_event_subscriber::PluginEventSubscriber;
@@ -36,6 +38,7 @@ use application::plugins::services::data::PluginDataService;
 use application::plugins::services::execution::PluginExecutionService;
 use application::plugins::services::management::PluginManagementService;
 use application::plugins::services::permissions::PluginPermissionService;
+use application::workspaces::services::workspace_keys::WorkspaceKeysService;
 use application::workspaces::services::{WorkspacePermissionResolver, WorkspaceService};
 use infrastructure::core::storage::{
     FsIngestWatcher, PgStorageIngestQueue, PgStorageReconcileJobs, StorageConsistencyMonitor,
@@ -154,6 +157,20 @@ pub async fn build_runtime(
         ),
     );
     let share_service = Arc::new(ShareService::new(shares_repo_impl.clone()));
+    let document_keys_repo = Arc::new(
+        infrastructure::documents::db::repositories::document_keys_repository_sqlx::SqlxDocumentKeysRepository::new(
+            pool.clone(),
+        ),
+    );
+    let share_keys_repo = Arc::new(
+        infrastructure::documents::db::repositories::share_keys_repository_sqlx::SqlxShareKeysRepository::new(
+            pool.clone(),
+        ),
+    );
+    let document_keys_service = Arc::new(DocumentKeysService::new(
+        document_keys_repo.clone(),
+        share_keys_repo.clone(),
+    ));
     let access_repo = Arc::new(
         infrastructure::documents::db::repositories::access_repository_sqlx::SqlxAccessRepository::new(
             pool.clone(),
@@ -192,6 +209,12 @@ pub async fn build_runtime(
         ),
     );
     let workspace_service = Arc::new(WorkspaceService::new(workspace_repo.clone()));
+    let workspace_keys_repo = Arc::new(
+        infrastructure::workspaces::db::repositories::workspace_keys_repository_sqlx::SqlxWorkspaceKeysRepository::new(
+            pool.clone(),
+        ),
+    );
+    let workspace_keys_service = Arc::new(WorkspaceKeysService::new(workspace_keys_repo.clone()));
     let workspace_permissions: Arc<dyn WorkspacePermissionResolver> = workspace_service.clone();
     {
         let reconcile_service = Arc::new(StorageReconcileService::new(
@@ -259,6 +282,12 @@ pub async fn build_runtime(
     );
     let user_shortcut_service =
         Arc::new(UserShortcutService::new(user_shortcuts.clone(), 32 * 1024));
+    let user_keys_repo = Arc::new(
+        infrastructure::identity::db::repositories::user_keys_repository_sqlx::SqlxUserKeysRepository::new(
+            pool.clone(),
+        ),
+    );
+    let user_keys_service = Arc::new(UserKeysService::new(user_keys_repo.clone()));
     let realtime_stack = realtime::build_realtime_stack(
         &cfg,
         &pool,
@@ -442,6 +471,7 @@ pub async fn build_runtime(
         },
         documents: DocumentServicesDeps {
             document_service: document_service.clone(),
+            document_keys_service: document_keys_service.clone(),
             share_service: share_service.clone(),
             file_service: file_service.clone(),
             public_service: public_service.clone(),
@@ -454,6 +484,7 @@ pub async fn build_runtime(
         identity: IdentityServicesDeps {
             api_token_service: api_token_service.clone(),
             user_shortcut_service: user_shortcut_service.clone(),
+            user_keys_service: user_keys_service.clone(),
             account_service: account_service.clone(),
             auth_service: auth_stack.auth_service.clone(),
             session_service: auth_stack.session_service.clone(),
@@ -468,6 +499,7 @@ pub async fn build_runtime(
         },
         workspaces: WorkspaceServicesDeps {
             workspace_service: workspace_service.clone(),
+            workspace_keys_service: workspace_keys_service.clone(),
         },
     });
 

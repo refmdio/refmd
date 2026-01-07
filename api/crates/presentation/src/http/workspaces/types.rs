@@ -310,3 +310,106 @@ pub fn normalize_overrides(
     }
     Ok(out)
 }
+
+// ============================================================================
+// E2EE Workspace Key Types
+// ============================================================================
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceKeyResponse {
+    pub id: Uuid,
+    pub workspace_id: Uuid,
+    pub user_id: Uuid,
+    #[schema(value_type = String, format = "byte")]
+    pub encrypted_kek: String, // base64 encoded
+    pub key_version: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<application::workspaces::dtos::WorkspaceEncryptedKeyDto> for WorkspaceKeyResponse {
+    fn from(dto: application::workspaces::dtos::WorkspaceEncryptedKeyDto) -> Self {
+        use base64::Engine;
+        Self {
+            id: dto.id,
+            workspace_id: dto.workspace_id,
+            user_id: dto.user_id,
+            encrypted_kek: base64::engine::general_purpose::STANDARD.encode(&dto.encrypted_kek),
+            key_version: dto.key_version,
+            created_at: dto.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StoreWorkspaceKeyRequest {
+    /// Base64 encoded encrypted KEK
+    #[schema(value_type = String, format = "byte")]
+    pub encrypted_kek: String,
+    /// Key version (for key rotation tracking)
+    pub key_version: i32,
+}
+
+impl StoreWorkspaceKeyRequest {
+    pub fn decode(&self) -> Result<Vec<u8>, &'static str> {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(&self.encrypted_kek)
+            .map_err(|_| "invalid_base64")
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceKeyVersionResponse {
+    pub workspace_id: Uuid,
+    pub key_version: Option<i32>,
+}
+
+// ============================================================================
+// E2EE Key Rotation Types
+// ============================================================================
+
+/// A single member's encrypted KEK for key rotation
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RotationMemberKey {
+    /// User ID of the member
+    pub user_id: Uuid,
+    /// Base64 encoded encrypted KEK for this member
+    #[schema(value_type = String, format = "byte")]
+    pub encrypted_kek: String,
+}
+
+/// Request body for KEK rotation
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RotateWorkspaceKeyRequest {
+    /// Encrypted KEKs for all workspace members
+    pub member_keys: Vec<RotationMemberKey>,
+}
+
+impl RotateWorkspaceKeyRequest {
+    pub fn decode(&self) -> Result<Vec<(Uuid, Vec<u8>)>, &'static str> {
+        use base64::Engine;
+        self.member_keys
+            .iter()
+            .map(|mk| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(&mk.encrypted_kek)
+                    .map(|bytes| (mk.user_id, bytes))
+                    .map_err(|_| "invalid_base64")
+            })
+            .collect()
+    }
+}
+
+/// Response for KEK rotation
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RotateWorkspaceKeyResponse {
+    pub workspace_id: Uuid,
+    pub new_key_version: i32,
+    pub keys_updated: usize,
+}
