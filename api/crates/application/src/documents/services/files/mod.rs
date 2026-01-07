@@ -12,29 +12,39 @@ use crate::documents::ports::access_repository::AccessRepository;
 use crate::documents::ports::doc_event_log::DocEventLog;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
-use crate::documents::use_cases::files::upload_file::{UploadFile, UploadedFile};
+use crate::documents::use_cases::files::upload_file::{FileUploadInput, UploadFile, UploadedFile};
 use async_trait::async_trait;
 use domain::documents::path as doc_path;
 
+/// File payload with optional E2EE metadata (unified for both plaintext and E2EE)
 pub struct FilePayload {
     pub bytes: Vec<u8>,
     pub content_type: Option<String>,
+    /// E2EE: encrypted file metadata
+    pub encrypted_metadata: Option<Vec<u8>>,
+    /// E2EE: nonce for encrypted metadata
+    pub encrypted_metadata_nonce: Option<Vec<u8>>,
+    /// E2EE: encrypted hash of the file content
+    pub encrypted_hash: Option<String>,
 }
 
 #[async_trait]
 pub trait FileServiceFacade: Send + Sync {
+    /// Upload a file with optional E2EE metadata.
+    /// For plaintext files: pass encrypted_* fields as None in FileUploadInput
+    /// For E2EE files: pass encrypted_* fields with values
     #[allow(clippy::too_many_arguments)]
     async fn upload_file(
         &self,
         workspace_id: Uuid,
         actor_id: Uuid,
         doc_id: Uuid,
-        bytes: Vec<u8>,
-        orig_filename: Option<String>,
-        content_type: Option<String>,
+        input: FileUploadInput,
         public_base_url: Option<String>,
     ) -> Result<UploadedFile, ServiceError>;
 
+    /// Download file with optional E2EE metadata.
+    /// Returns FilePayload with bytes and optional E2EE fields.
     async fn download_owned_file(
         &self,
         actor: &Actor,
@@ -65,21 +75,11 @@ impl FileServiceFacade for FileService {
         workspace_id: Uuid,
         actor_id: Uuid,
         doc_id: Uuid,
-        bytes: Vec<u8>,
-        orig_filename: Option<String>,
-        content_type: Option<String>,
+        input: FileUploadInput,
         public_base_url: Option<String>,
     ) -> Result<UploadedFile, ServiceError> {
-        self.upload_file(
-            workspace_id,
-            actor_id,
-            doc_id,
-            bytes,
-            orig_filename,
-            content_type,
-            public_base_url,
-        )
-        .await
+        self.upload_file(workspace_id, actor_id, doc_id, input, public_base_url)
+            .await
     }
 
     async fn download_owned_file(
@@ -135,15 +135,14 @@ impl FileService {
         }
     }
 
+    /// Upload a file with optional E2EE metadata.
     #[allow(clippy::too_many_arguments)]
     pub async fn upload_file(
         &self,
         workspace_id: Uuid,
         actor_id: Uuid,
         doc_id: Uuid,
-        bytes: Vec<u8>,
-        orig_filename: Option<String>,
-        content_type: Option<String>,
+        input: FileUploadInput,
         public_base_url: Option<String>,
     ) -> Result<UploadedFile, ServiceError> {
         let uc = UploadFile {
@@ -152,7 +151,7 @@ impl FileService {
             public_base_url,
         };
         let uploaded = uc
-            .execute(workspace_id, doc_id, bytes, orig_filename, content_type)
+            .execute(workspace_id, doc_id, input)
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::Forbidden)?;
@@ -161,6 +160,7 @@ impl FileService {
         Ok(uploaded)
     }
 
+    /// Download file with optional E2EE metadata.
     pub async fn download_owned_file(
         &self,
         actor: &Actor,
@@ -192,6 +192,9 @@ impl FileService {
         Ok(FilePayload {
             bytes,
             content_type: meta.content_type,
+            encrypted_metadata: meta.encrypted_metadata,
+            encrypted_metadata_nonce: meta.encrypted_metadata_nonce,
+            encrypted_hash: meta.encrypted_hash,
         })
     }
 
@@ -224,6 +227,9 @@ impl FileService {
         Ok(FilePayload {
             bytes,
             content_type: meta.content_type,
+            encrypted_metadata: None,
+            encrypted_metadata_nonce: None,
+            encrypted_hash: None,
         })
     }
 
@@ -256,6 +262,9 @@ impl FileService {
         Ok(FilePayload {
             bytes,
             content_type,
+            encrypted_metadata: None,
+            encrypted_metadata_nonce: None,
+            encrypted_hash: None,
         })
     }
 

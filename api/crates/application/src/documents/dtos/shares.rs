@@ -70,6 +70,7 @@ pub struct ShareBrowseResponseDto {
 
 #[derive(Debug, Clone)]
 pub struct CreatedShareDto {
+    pub share_id: Uuid,
     pub token: String,
     pub document_id: Uuid,
     pub document_type: String,

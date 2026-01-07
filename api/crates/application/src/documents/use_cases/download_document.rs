@@ -221,6 +221,8 @@ where
             None,
             None,
             None,
+            None, // encrypted_title
+            None, // encrypted_title_nonce
         );
         nodes.insert(root.id(), root);
 

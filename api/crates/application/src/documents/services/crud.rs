@@ -181,7 +181,7 @@ impl DocumentService {
 
         let result = async {
             let updated_doc = self
-                .update_content(&actor, new_doc.id(), &source_content)
+                .update_content_from_markdown(&actor, new_doc.id(), &source_content)
                 .await?;
 
             self.copy_attachments(&updated_doc, &attachments, actor_id)
@@ -424,6 +424,19 @@ impl DocumentService {
             repo: self.document_repo.as_ref(),
         };
         uc.execute(workspace_id, query, limit)
+            .await
+            .map_err(ServiceError::from)
+    }
+
+    /// Update encrypted title fields for E2EE documents
+    pub async fn update_encrypted_title(
+        &self,
+        doc_id: Uuid,
+        encrypted_title: Vec<u8>,
+        encrypted_title_nonce: Vec<u8>,
+    ) -> Result<(), ServiceError> {
+        self.document_repo
+            .update_encrypted_title(doc_id, encrypted_title, encrypted_title_nonce)
             .await
             .map_err(ServiceError::from)
     }

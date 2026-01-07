@@ -91,14 +91,17 @@ impl DocumentService {
                 .relative_from_uploads(&target_path)
                 .replace('\\', "/");
             self.files_repo
-                .insert_file(
-                    target_doc.id(),
-                    &filename,
-                    attachment.content_type.as_deref(),
-                    attachment.bytes.len() as i64,
-                    &storage_path,
-                    &attachment.content_hash,
-                )
+                .insert_file(crate::documents::ports::files::files_repository::FileInsert {
+                    doc_id: target_doc.id(),
+                    filename: &filename,
+                    content_type: attachment.content_type.as_deref(),
+                    size: attachment.bytes.len() as i64,
+                    storage_path: &storage_path,
+                    content_hash: &attachment.content_hash,
+                    encrypted_metadata: None,
+                    encrypted_metadata_nonce: None,
+                    encrypted_hash: None,
+                })
                 .await
                 .map_err(ServiceError::from)?;
             if let Some(repo_path) =

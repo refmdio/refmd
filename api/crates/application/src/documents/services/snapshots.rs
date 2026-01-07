@@ -2,7 +2,9 @@ use uuid::Uuid;
 
 use crate::core::services::access::{self, Actor};
 use crate::core::services::errors::ServiceError;
-use crate::documents::dtos::{SnapshotDiffBaseMode, SnapshotDiffDto, SnapshotSummaryDto};
+use crate::documents::dtos::{
+    SnapshotDetailDto, SnapshotDiffBaseMode, SnapshotDiffDto, SnapshotSummaryDto,
+};
 use crate::documents::use_cases::list_snapshots::ListSnapshots;
 use crate::documents::use_cases::restore_snapshot::RestoreSnapshot;
 use crate::documents::use_cases::snapshot_diff::SnapshotDiff;
@@ -137,5 +139,44 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)
+    }
+
+    /// Get a single snapshot with its encrypted content (E2EE format)
+    pub async fn get_snapshot(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+        snapshot_id: Uuid,
+    ) -> Result<SnapshotDetailDto, ServiceError> {
+        access::require_view(
+            self.access_repo.as_ref(),
+            self.share_access.as_ref(),
+            actor,
+            doc_id,
+        )
+        .await
+        .map_err(|err| match err {
+            ServiceError::Forbidden => ServiceError::Unauthorized,
+            other => other,
+        })?;
+
+        let entry = self
+            .snapshot_service
+            .get_snapshot_entry(snapshot_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
+
+        // Verify the snapshot belongs to the requested document
+        if entry.record.document_id != doc_id {
+            return Err(ServiceError::NotFound);
+        }
+
+        Ok(SnapshotDetailDto {
+            id: entry.record.id,
+            content: entry.bytes,
+            nonce: entry.record.nonce,
+            created_at: entry.record.created_at,
+        })
     }
 }

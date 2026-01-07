@@ -9,6 +9,7 @@ pub struct CreateShare<'a, R: SharesRepository + ?Sized> {
 }
 
 pub struct CreateShareResult {
+    pub share_id: Uuid,
     pub token: String,
     pub document_id: Uuid,
     pub document_type: DocumentType,
@@ -28,6 +29,7 @@ impl<'a, R: SharesRepository + ?Sized> CreateShare<'a, R> {
             .create_share(workspace_id, actor_id, document_id, permission, expires_at)
             .await?;
         Ok(CreateShareResult {
+            share_id: created.share_id,
             token: created.token,
             document_id,
             document_type: created.document_type,

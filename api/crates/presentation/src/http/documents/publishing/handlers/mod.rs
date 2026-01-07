@@ -11,7 +11,7 @@ use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 
-use super::types::{PublicDocumentSummary, PublishResponse};
+use super::types::{PublicDocumentSummary, PublishRequest, PublishResponse};
 
 fn map_public_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "public_service_error")
@@ -22,18 +22,31 @@ fn map_public_error(err: ServiceError) -> crate::http::error::ApiError {
     path = "/api/public/documents/{id}",
     tag = "Public Documents",
     params(("id" = Uuid, Path, description = "Document ID")),
+    request_body(content = Option<PublishRequest>, description = "Optional plaintext content for E2EE workspaces"),
     responses((status = 200, description = "Published", body = PublishResponse))
 )]
 pub async fn publish_document(
     State(ctx): State<DocumentsContext>,
     auth: WorkspaceAuth,
     Path(id): Path<Uuid>,
+    body: Option<Json<PublishRequest>>,
 ) -> Result<Json<PublishResponse>, ApiError> {
-    let service = ctx.public_service();
-    let out = service
-        .publish_document(auth.workspace_id, &auth.permissions, id)
+    let (plaintext_title, plaintext_content) = body
+        .map(|Json(req)| (req.plaintext_title, req.plaintext_content))
+        .unwrap_or((None, None));
+
+    let out = ctx
+        .public_service()
+        .publish_document(
+            auth.workspace_id,
+            &auth.permissions,
+            id,
+            plaintext_title.as_deref(),
+            plaintext_content.as_deref(),
+        )
         .await
         .map_err(map_public_error)?;
+
     Ok(Json(PublishResponse {
         slug: out.slug,
         public_url: out.public_url,

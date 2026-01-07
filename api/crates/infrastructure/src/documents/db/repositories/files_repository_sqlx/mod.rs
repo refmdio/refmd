@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::core::db::PgPool;
 use application::core::ports::errors::PortResult;
 use application::documents::ports::files::files_repository::{
-    FileMeta, FilePathMeta, FileRecord, FilesRepository, StoredFileScope,
+    FileInsert, FileMeta, FilePathMeta, FileRecord, FilesRepository, StoredFileScope,
 };
 
 pub struct SqlxFilesRepository {
@@ -50,27 +50,25 @@ impl FilesRepository for SqlxFilesRepository {
         out.map_err(Into::into)
     }
 
-    async fn insert_file(
-        &self,
-        doc_id: Uuid,
-        filename: &str,
-        content_type: Option<&str>,
-        size: i64,
-        storage_path: &str,
-        content_hash: &str,
-    ) -> PortResult<Uuid> {
+    async fn insert_file(&self, input: FileInsert<'_>) -> PortResult<Uuid> {
         let out: anyhow::Result<Uuid> = async {
             let row = sqlx::query(
-                r#"INSERT INTO files (document_id, filename, content_type, size, storage_path, content_hash)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id"#,
+                r#"INSERT INTO files (
+                    document_id, filename, content_type, size, storage_path, content_hash,
+                    encrypted_metadata, encrypted_metadata_nonce, encrypted_hash
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING id"#,
             )
-            .bind(doc_id)
-            .bind(filename)
-            .bind(content_type)
-            .bind(size)
-            .bind(storage_path)
-            .bind(content_hash)
+            .bind(input.doc_id)
+            .bind(input.filename)
+            .bind(input.content_type)
+            .bind(input.size)
+            .bind(input.storage_path)
+            .bind(input.content_hash)
+            .bind(input.encrypted_metadata)
+            .bind(input.encrypted_metadata_nonce)
+            .bind(input.encrypted_hash)
             .fetch_one(&self.pool)
             .await?;
             Ok(row.get("id"))
@@ -82,7 +80,8 @@ impl FilesRepository for SqlxFilesRepository {
     async fn get_file_meta(&self, file_id: Uuid) -> PortResult<Option<FileMeta>> {
         let out: anyhow::Result<Option<FileMeta>> = async {
             let row = sqlx::query(
-                r#"SELECT f.storage_path, f.content_type, f.document_id, d.workspace_id
+                r#"SELECT f.storage_path, f.content_type, f.document_id, d.workspace_id,
+                          f.encrypted_metadata, f.encrypted_metadata_nonce, f.encrypted_hash
                FROM files f JOIN documents d ON f.document_id = d.id
                WHERE f.id = $1"#,
             )
@@ -94,6 +93,9 @@ impl FilesRepository for SqlxFilesRepository {
                 content_type: r.try_get("content_type").ok(),
                 document_id: r.get("document_id"),
                 workspace_id: r.get("workspace_id"),
+                encrypted_metadata: r.try_get("encrypted_metadata").ok(),
+                encrypted_metadata_nonce: r.try_get("encrypted_metadata_nonce").ok(),
+                encrypted_hash: r.try_get("encrypted_hash").ok(),
             }))
         }
         .await;
@@ -140,7 +142,8 @@ impl FilesRepository for SqlxFilesRepository {
     async fn list_files_for_document(&self, doc_id: Uuid) -> PortResult<Vec<FileRecord>> {
         let out: anyhow::Result<Vec<FileRecord>> = async {
             let rows = sqlx::query(
-                r#"SELECT id, filename, content_type, size, storage_path, content_hash
+                r#"SELECT id, filename, content_type, size, storage_path, content_hash,
+                          encrypted_metadata, encrypted_metadata_nonce, encrypted_hash
                FROM files
                WHERE document_id = $1"#,
             )
@@ -156,6 +159,9 @@ impl FilesRepository for SqlxFilesRepository {
                     size: r.get("size"),
                     storage_path: r.get("storage_path"),
                     content_hash: r.get("content_hash"),
+                    encrypted_metadata: r.try_get("encrypted_metadata").ok(),
+                    encrypted_metadata_nonce: r.try_get("encrypted_metadata_nonce").ok(),
+                    encrypted_hash: r.try_get("encrypted_hash").ok(),
                 })
                 .collect())
         }
@@ -262,4 +268,5 @@ impl FilesRepository for SqlxFilesRepository {
         .await;
         out.map_err(Into::into)
     }
+
 }

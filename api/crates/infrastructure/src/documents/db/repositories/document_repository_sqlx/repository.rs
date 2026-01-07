@@ -326,6 +326,26 @@ impl DocumentRepository for SqlxDocumentRepository {
             .collect::<anyhow::Result<Vec<_>>>()
             .map_err(DocumentRepositoryError::from)
     }
+
+    async fn update_encrypted_title(
+        &self,
+        doc_id: Uuid,
+        encrypted_title: Vec<u8>,
+        encrypted_title_nonce: Vec<u8>,
+    ) -> DocumentRepoResult<()> {
+        sqlx::query(
+            r#"UPDATE documents
+               SET encrypted_title = $2, encrypted_title_nonce = $3, updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(doc_id)
+        .bind(&encrypted_title)
+        .bind(&encrypted_title_nonce)
+        .execute(&self.pool)
+        .await
+        .map_err(unexpected_sqlx)?;
+        Ok(())
+    }
 }
 
 #[async_trait]

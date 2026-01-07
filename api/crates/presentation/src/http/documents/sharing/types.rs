@@ -38,10 +38,23 @@ pub fn map_share_error(err: ServiceError) -> crate::http::error::ApiError {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateShareRequest {
     pub document_id: Uuid,
     pub permission: Option<String>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    // E2EE fields - encrypted DEK for share access
+    /// Base64 encoded encrypted DEK (encrypted with share key derived from password)
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub encrypted_dek: Option<String>,
+    /// Base64 encoded salt for key derivation
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub salt: Option<String>,
+    /// KDF parameters (e.g., Argon2id settings)
+    #[serde(default)]
+    pub kdf_params: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -86,11 +99,24 @@ impl From<ApplicableShareDto> for ApplicableShareItem {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ShareDocumentResponse {
     pub id: Uuid,
     pub title: String,
     pub permission: String,
     pub content: Option<String>,
+    // E2EE fields
+    /// Base64 encoded encrypted DEK (encrypted with share key)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub encrypted_dek: Option<String>,
+    /// Base64 encoded salt for password-protected shares
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub salt: Option<String>,
+    /// KDF parameters for password-protected shares
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kdf_params: Option<serde_json::Value>,
 }
 
 impl From<ShareDocumentDto> for ShareDocumentResponse {
@@ -100,6 +126,9 @@ impl From<ShareDocumentDto> for ShareDocumentResponse {
             title: d.title,
             permission: d.permission,
             content: d.content,
+            encrypted_dek: None,
+            salt: None,
+            kdf_params: None,
         }
     }
 }
@@ -107,6 +136,21 @@ impl From<ShareDocumentDto> for ShareDocumentResponse {
 #[derive(Debug, Deserialize)]
 pub struct ShareTokenQuery {
     pub token: String,
+}
+
+/// Response for share salt challenge (for password-protected shares)
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareSaltResponse {
+    /// Whether this share is password-protected
+    pub password_protected: bool,
+    /// Base64 encoded salt for key derivation (only present if password-protected)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub salt: Option<String>,
+    /// KDF parameters for key derivation (only present if password-protected)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kdf_params: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

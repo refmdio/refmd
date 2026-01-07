@@ -31,6 +31,9 @@ pub struct SnapshotSummaryDto {
     pub created_by: Option<Uuid>,
     pub byte_size: i64,
     pub content_hash: String,
+    // E2EE fields
+    pub nonce: Option<Vec<u8>>,
+    pub signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +66,32 @@ impl From<SnapshotArchiveRecord> for SnapshotSummaryDto {
             created_by: record.created_by,
             byte_size: record.byte_size,
             content_hash: record.content_hash,
+            nonce: record.nonce,
+            signature: record.signature,
         }
     }
+}
+
+/// Snapshot detail DTO
+/// - For E2EE documents: content is encrypted, nonce is Some
+/// - For non-E2EE documents: content is plaintext Yjs state, nonce is None
+#[derive(Debug, Clone)]
+pub struct SnapshotDetailDto {
+    pub id: Uuid,
+    /// Yjs snapshot bytes (encrypted for E2EE, plaintext for non-E2EE)
+    pub content: Vec<u8>,
+    /// Nonce for decryption (present for E2EE documents)
+    pub nonce: Option<Vec<u8>>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Document content DTO (unified for both plaintext and E2EE)
+/// - For E2EE: content is encrypted bytes, nonce is present
+/// - For plaintext: content is Yjs state bytes, nonce is None
+#[derive(Debug, Clone)]
+pub struct ContentDto {
+    /// Document content as Yjs snapshot bytes (encrypted for E2EE, plaintext for non-E2EE)
+    pub content: Vec<u8>,
+    /// Nonce for decryption (present for E2EE documents)
+    pub nonce: Option<Vec<u8>>,
 }

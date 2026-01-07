@@ -23,11 +23,16 @@ pub struct PublicService {
 
 #[async_trait]
 pub trait PublicServiceFacade: Send + Sync {
+    /// Publish document.
+    /// For E2EE mode: pass plaintext_title and plaintext_content
+    /// For non-E2EE mode: pass None for both
     async fn publish_document(
         &self,
         workspace_id: Uuid,
         permissions: &PermissionSet,
         doc_id: Uuid,
+        plaintext_title: Option<&str>,
+        plaintext_content: Option<&str>,
     ) -> Result<PublishResponseDto, ServiceError>;
 
     async fn unpublish_document(
@@ -69,8 +74,10 @@ impl PublicServiceFacade for PublicService {
         workspace_id: Uuid,
         permissions: &PermissionSet,
         doc_id: Uuid,
+        plaintext_title: Option<&str>,
+        plaintext_content: Option<&str>,
     ) -> Result<PublishResponseDto, ServiceError> {
-        self.publish_document(workspace_id, permissions, doc_id)
+        self.publish_document(workspace_id, permissions, doc_id, plaintext_title, plaintext_content)
             .await
     }
 
@@ -125,21 +132,44 @@ impl PublicService {
         Self { repo, realtime }
     }
 
+    /// Publish document.
+    /// For E2EE mode: pass plaintext_title and plaintext_content
+    /// For non-E2EE mode: pass None for both
     pub async fn publish_document(
         &self,
         workspace_id: Uuid,
         permissions: &PermissionSet,
         doc_id: Uuid,
+        plaintext_title: Option<&str>,
+        plaintext_content: Option<&str>,
     ) -> Result<PublishResponseDto, ServiceError> {
         public_policy::ensure_public_publish_allowed(permissions)
             .map_err(|_| ServiceError::Forbidden)?;
+
         let uc = PublishDocument {
             repo: self.repo.as_ref(),
         };
-        uc.execute(workspace_id, doc_id)
+        let publish_result = uc
+            .execute(workspace_id, doc_id)
             .await
             .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
+            .ok_or(ServiceError::NotFound)?;
+
+        // For E2EE mode: store plaintext content for public access
+        if let (Some(title), Some(content)) = (plaintext_title, plaintext_content) {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(title);
+            hasher.update(content);
+            let content_hash = hex::encode(hasher.finalize());
+
+            self.repo
+                .store_public_content(doc_id, title, content, &content_hash)
+                .await
+                .map_err(ServiceError::from)?;
+        }
+
+        Ok(publish_result)
     }
 
     pub async fn unpublish_document(
@@ -150,6 +180,13 @@ impl PublicService {
     ) -> Result<bool, ServiceError> {
         public_policy::ensure_public_unpublish_allowed(permissions)
             .map_err(|_| ServiceError::Forbidden)?;
+
+        // Delete stored public content (E2EE mode)
+        self.repo
+            .delete_public_content(doc_id)
+            .await
+            .map_err(ServiceError::from)?;
+
         let uc = UnpublishDocument {
             repo: self.repo.as_ref(),
         };
@@ -217,6 +254,18 @@ impl PublicService {
         if !exists {
             return Err(ServiceError::NotFound);
         }
+
+        // Prefer stored plaintext content (E2EE mode) over realtime
+        if let Some(stored) = self
+            .repo
+            .get_public_content(doc_id)
+            .await
+            .map_err(ServiceError::from)?
+        {
+            return Ok(stored.content);
+        }
+
+        // Fall back to realtime content for non-E2EE documents
         let content = self
             .realtime
             .get_content(&doc_id.to_string())

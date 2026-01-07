@@ -125,24 +125,43 @@ pub trait DocumentServiceFacade: Send + Sync {
         permissions: &PermissionSet,
     ) -> Result<DomainDocument, ServiceError>;
 
+    /// Get document content as Yjs snapshot bytes.
+    /// Returns ContentDto with content bytes and optional nonce (for E2EE documents).
     async fn get_content(
         &self,
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
-    ) -> Result<String, ServiceError>;
+    ) -> Result<crate::documents::dtos::ContentDto, ServiceError>;
 
+    /// Update document content.
+    /// - For plaintext mode: pass content bytes (Yjs state), nonce and signature as None
+    /// - For E2EE mode: pass encrypted content bytes with nonce and optional signature
     async fn update_content(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        content: &[u8],
+        nonce: Option<&[u8]>,
+        signature: Option<&[u8]>,
+    ) -> Result<DomainDocument, ServiceError>;
+
+    /// Update document content from markdown string (convenience method for plaintext mode).
+    async fn update_content_from_markdown(
         &self,
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
         content: &str,
     ) -> Result<DomainDocument, ServiceError>;
 
+    /// Patch document content.
+    /// - For plaintext mode: pass DocumentPatchOperation with text
+    /// - For E2EE mode: pass EncryptedUpdate with encrypted data and nonce
     async fn patch_content(
         &self,
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
-        operations: &[DocumentPatchOperation],
+        plaintext_operations: Option<&[DocumentPatchOperation]>,
+        encrypted_updates: Option<&[crate::documents::ports::realtime::realtime_port::EncryptedUpdate]>,
     ) -> Result<DomainDocument, ServiceError>;
 
     async fn download_document(
@@ -191,6 +210,14 @@ pub trait DocumentServiceFacade: Send + Sync {
         snapshot_id: Uuid,
     ) -> Result<crate::documents::use_cases::snapshot_download::SnapshotDownload, ServiceError>;
 
+    /// Get a single snapshot with its encrypted content (E2EE format)
+    async fn get_snapshot(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        snapshot_id: Uuid,
+    ) -> Result<crate::documents::dtos::SnapshotDetailDto, ServiceError>;
+
     async fn backlinks(
         &self,
         actor: &crate::core::services::access::Actor,
@@ -204,6 +231,14 @@ pub trait DocumentServiceFacade: Send + Sync {
         workspace_id: Uuid,
         doc_id: Uuid,
     ) -> Result<Vec<DomainOutgoingLink>, ServiceError>;
+
+    /// Update encrypted title fields for E2EE documents
+    async fn update_encrypted_title(
+        &self,
+        doc_id: Uuid,
+        encrypted_title: Vec<u8>,
+        encrypted_title_nonce: Vec<u8>,
+    ) -> Result<(), ServiceError>;
 }
 
 #[async_trait]
@@ -334,7 +369,7 @@ impl DocumentServiceFacade for DocumentService {
         &self,
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
-    ) -> Result<String, ServiceError> {
+    ) -> Result<crate::documents::dtos::ContentDto, ServiceError> {
         self.get_content(actor, doc_id).await
     }
 
@@ -342,18 +377,30 @@ impl DocumentServiceFacade for DocumentService {
         &self,
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
+        content: &[u8],
+        nonce: Option<&[u8]>,
+        signature: Option<&[u8]>,
+    ) -> Result<DomainDocument, ServiceError> {
+        self.update_content(actor, doc_id, content, nonce, signature).await
+    }
+
+    async fn update_content_from_markdown(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
         content: &str,
     ) -> Result<DomainDocument, ServiceError> {
-        self.update_content(actor, doc_id, content).await
+        self.update_content_from_markdown(actor, doc_id, content).await
     }
 
     async fn patch_content(
         &self,
         actor: &crate::core::services::access::Actor,
         doc_id: Uuid,
-        operations: &[DocumentPatchOperation],
+        plaintext_operations: Option<&[DocumentPatchOperation]>,
+        encrypted_updates: Option<&[crate::documents::ports::realtime::realtime_port::EncryptedUpdate]>,
     ) -> Result<DomainDocument, ServiceError> {
-        self.patch_content(actor, doc_id, operations).await
+        self.patch_content(actor, doc_id, plaintext_operations, encrypted_updates).await
     }
 
     async fn download_document(
@@ -417,6 +464,15 @@ impl DocumentServiceFacade for DocumentService {
         self.download_snapshot(actor, doc_id, snapshot_id).await
     }
 
+    async fn get_snapshot(
+        &self,
+        actor: &crate::core::services::access::Actor,
+        doc_id: Uuid,
+        snapshot_id: Uuid,
+    ) -> Result<crate::documents::dtos::SnapshotDetailDto, ServiceError> {
+        self.get_snapshot(actor, doc_id, snapshot_id).await
+    }
+
     async fn backlinks(
         &self,
         actor: &crate::core::services::access::Actor,
@@ -433,6 +489,16 @@ impl DocumentServiceFacade for DocumentService {
         doc_id: Uuid,
     ) -> Result<Vec<DomainOutgoingLink>, ServiceError> {
         self.outgoing_links(actor, workspace_id, doc_id).await
+    }
+
+    async fn update_encrypted_title(
+        &self,
+        doc_id: Uuid,
+        encrypted_title: Vec<u8>,
+        encrypted_title_nonce: Vec<u8>,
+    ) -> Result<(), ServiceError> {
+        self.update_encrypted_title(doc_id, encrypted_title, encrypted_title_nonce)
+            .await
     }
 }
 

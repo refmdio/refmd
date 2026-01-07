@@ -21,6 +21,24 @@ pub struct PersistenceTask {
 pub struct SnapshotEntry {
     pub version: i64,
     pub bytes: Vec<u8>,
+    pub nonce: Option<Vec<u8>>,
+    pub signature: Option<Vec<u8>>,
+}
+
+/// Encryption metadata for E2EE content
+#[derive(Debug, Clone, Default)]
+pub struct ContentEncryptionMeta {
+    pub nonce: Option<Vec<u8>>,
+    pub signature: Option<Vec<u8>>,
+}
+
+/// Encrypted update data for E2EE documents
+#[derive(Debug, Clone)]
+pub struct EncryptedUpdateData {
+    pub data: Vec<u8>,
+    pub nonce: Option<Vec<u8>>,
+    pub signature: Option<Vec<u8>>,
+    pub public_key: Option<Vec<u8>>,
 }
 
 #[async_trait]
@@ -32,6 +50,14 @@ pub trait DocPersistencePort: Send + Sync {
         update: &[u8],
     ) -> PortResult<()>;
 
+    /// Append encrypted update with E2EE metadata
+    async fn append_encrypted_update_with_seq(
+        &self,
+        doc_id: &Uuid,
+        seq: i64,
+        update: &EncryptedUpdateData,
+    ) -> PortResult<()>;
+
     async fn latest_update_seq(&self, doc_id: &Uuid) -> PortResult<Option<i64>>;
 
     async fn persist_snapshot(
@@ -39,6 +65,7 @@ pub trait DocPersistencePort: Send + Sync {
         doc_id: &Uuid,
         version: i64,
         snapshot: &[u8],
+        encryption_meta: Option<&ContentEncryptionMeta>,
     ) -> PortResult<()>;
 
     async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> PortResult<Option<SnapshotEntry>>;

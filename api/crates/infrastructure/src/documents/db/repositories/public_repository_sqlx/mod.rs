@@ -6,7 +6,8 @@ use uuid::Uuid;
 use crate::core::db::PgPool;
 use application::core::ports::errors::PortResult;
 use application::documents::ports::publishing::public_repository::{
-    PublicDocumentSummaryRow, PublicRepository, PublishStatusRow, WorkspaceTitleAndSlug,
+    PublicContentRow, PublicDocumentSummaryRow, PublicRepository, PublishStatusRow,
+    WorkspaceTitleAndSlug,
 };
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document;
@@ -214,6 +215,8 @@ impl PublicRepository for SqlxPublicRepository {
                     r.try_get("archived_at").ok(),
                     r.try_get("archived_by").ok(),
                     r.try_get("archived_parent_id").ok(),
+                    r.try_get("encrypted_title").ok(),
+                    r.try_get("encrypted_title_nonce").ok(),
                 ))
             })
             .transpose()
@@ -246,6 +249,69 @@ impl PublicRepository for SqlxPublicRepository {
             .fetch_one(&self.pool)
             .await?;
             Ok(n > 0)
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn store_public_content(
+        &self,
+        doc_id: Uuid,
+        title: &str,
+        content: &str,
+        content_hash: &str,
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"INSERT INTO public_document_contents (document_id, title, content, content_hash, updated_at)
+                   VALUES ($1, $2, $3, $4, now())
+                   ON CONFLICT (document_id) DO UPDATE SET
+                       title = EXCLUDED.title,
+                       content = EXCLUDED.content,
+                       content_hash = EXCLUDED.content_hash,
+                       updated_at = now()"#,
+            )
+            .bind(doc_id)
+            .bind(title)
+            .bind(content)
+            .bind(content_hash)
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn get_public_content(&self, doc_id: Uuid) -> PortResult<Option<PublicContentRow>> {
+        let out: anyhow::Result<Option<PublicContentRow>> = async {
+            let row = sqlx::query(
+                r#"SELECT document_id, title, content, content_hash, updated_at
+                   FROM public_document_contents
+                   WHERE document_id = $1"#,
+            )
+            .bind(doc_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row.map(|r| PublicContentRow {
+                document_id: r.get("document_id"),
+                title: r.get("title"),
+                content: r.get("content"),
+                content_hash: r.get("content_hash"),
+                updated_at: r.get("updated_at"),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn delete_public_content(&self, doc_id: Uuid) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(r#"DELETE FROM public_document_contents WHERE document_id = $1"#)
+                .bind(doc_id)
+                .execute(&self.pool)
+                .await?;
+            Ok(())
         }
         .await;
         out.map_err(Into::into)

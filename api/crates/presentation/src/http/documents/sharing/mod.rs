@@ -19,7 +19,7 @@ pub use mounts::{
 };
 pub use shares::{create_share, delete_share, list_document_shares};
 pub use types::*;
-pub use validation::{browse_share, validate_share_token};
+pub use validation::{browse_share, get_share_salt, validate_share_token};
 
 pub mod openapi {
     pub use super::active::*;
@@ -38,6 +38,7 @@ pub fn routes(ctx: AppContext) -> Router {
         )
         .route("/shares/browse", get(browse_share))
         .route("/shares/validate", get(validate_share_token))
+        .route("/shares/salt", get(get_share_salt))
         .route("/shares/documents/:id", get(list_document_shares))
         .route("/shares/applicable", get(list_applicable_shares))
         .route(

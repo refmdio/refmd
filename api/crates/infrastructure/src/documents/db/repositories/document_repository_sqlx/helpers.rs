@@ -64,6 +64,8 @@ impl SqlxDocumentRepository {
             row.try_get("archived_at").ok(),
             row.try_get("archived_by").ok(),
             row.try_get("archived_parent_id").ok(),
+            row.try_get("encrypted_title").ok(),
+            row.try_get("encrypted_title_nonce").ok(),
         ))
     }
 

@@ -22,6 +22,9 @@ pub struct Document {
     archived_at: Option<chrono::DateTime<chrono::Utc>>,
     archived_by: Option<Uuid>,
     archived_parent_id: Option<Uuid>,
+    // E2EE fields
+    encrypted_title: Option<Vec<u8>>,
+    encrypted_title_nonce: Option<Vec<u8>>,
 }
 
 impl Document {
@@ -43,6 +46,8 @@ impl Document {
         archived_at: Option<chrono::DateTime<chrono::Utc>>,
         archived_by: Option<Uuid>,
         archived_parent_id: Option<Uuid>,
+        encrypted_title: Option<Vec<u8>>,
+        encrypted_title_nonce: Option<Vec<u8>>,
     ) -> Self {
         Self {
             id,
@@ -61,6 +66,8 @@ impl Document {
             archived_at,
             archived_by,
             archived_parent_id,
+            encrypted_title,
+            encrypted_title_nonce,
         }
     }
 
@@ -126,6 +133,14 @@ impl Document {
 
     pub fn archived_parent_id(&self) -> Option<Uuid> {
         self.archived_parent_id
+    }
+
+    pub fn encrypted_title(&self) -> Option<&[u8]> {
+        self.encrypted_title.as_deref()
+    }
+
+    pub fn encrypted_title_nonce(&self) -> Option<&[u8]> {
+        self.encrypted_title_nonce.as_deref()
     }
 }
 

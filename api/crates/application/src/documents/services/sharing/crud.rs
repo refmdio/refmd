@@ -36,6 +36,7 @@ impl ShareService {
         uc.execute(workspace_id, actor_id, document_id, permission, expires_at)
             .await
             .map(|res| CreatedShareDto {
+                share_id: res.share_id,
                 token: res.token,
                 document_id: res.document_id,
                 document_type: res.document_type.as_str().to_string(),

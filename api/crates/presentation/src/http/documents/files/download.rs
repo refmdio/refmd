@@ -31,6 +31,7 @@ pub async fn get_file(
         .download_owned_file(&actor, auth.workspace_id, id)
         .await
         .map_err(map_file_error)?;
+
     Ok(file_payload_response(payload))
 }
 

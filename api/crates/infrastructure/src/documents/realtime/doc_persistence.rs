@@ -5,7 +5,8 @@ use uuid::Uuid;
 use crate::core::db::PgPool;
 use application::core::ports::errors::PortResult;
 use application::documents::ports::realtime::realtime_persistence_port::{
-    DocPersistencePort, DocumentMissingError, SnapshotEntry,
+    ContentEncryptionMeta, DocPersistencePort, DocumentMissingError, EncryptedUpdateData,
+    SnapshotEntry,
 };
 
 #[derive(Clone)]
@@ -42,6 +43,31 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
         out.map_err(Into::into)
     }
 
+    async fn append_encrypted_update_with_seq(
+        &self,
+        doc_id: &Uuid,
+        seq: i64,
+        update: &EncryptedUpdateData,
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            sqlx::query(
+                r#"INSERT INTO document_updates (document_id, seq, update, nonce, signature, public_key)
+                   VALUES ($1, $2, $3, $4, $5, $6)"#,
+            )
+            .bind(doc_id)
+            .bind(seq)
+            .bind(&update.data)
+            .bind(update.nonce.as_deref())
+            .bind(update.signature.as_deref())
+            .bind(update.public_key.as_deref())
+            .execute(&self.pool)
+            .await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
     async fn latest_update_seq(&self, doc_id: &Uuid) -> PortResult<Option<i64>> {
         let out: anyhow::Result<Option<i64>> = async {
             let row = sqlx::query(
@@ -61,15 +87,21 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
         doc_id: &Uuid,
         version: i64,
         snapshot: &[u8],
+        encryption_meta: Option<&ContentEncryptionMeta>,
     ) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
+            let (nonce, signature) = encryption_meta
+                .map(|m| (m.nonce.as_deref(), m.signature.as_deref()))
+                .unwrap_or((None, None));
             let result = sqlx::query(
-                "INSERT INTO document_snapshots (document_id, version, snapshot) VALUES ($1, $2, $3)
-             ON CONFLICT (document_id, version) DO UPDATE SET snapshot = EXCLUDED.snapshot",
+                "INSERT INTO document_snapshots (document_id, version, snapshot, nonce, signature) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (document_id, version) DO UPDATE SET snapshot = EXCLUDED.snapshot, nonce = EXCLUDED.nonce, signature = EXCLUDED.signature",
             )
             .bind(doc_id)
             .bind(version as i32)
             .bind(snapshot)
+            .bind(nonce)
+            .bind(signature)
             .execute(&self.pool)
             .await;
 
@@ -96,7 +128,7 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
     async fn latest_snapshot_entry(&self, doc_id: &Uuid) -> PortResult<Option<SnapshotEntry>> {
         let out: anyhow::Result<Option<SnapshotEntry>> = async {
             let row = sqlx::query(
-                "SELECT version, snapshot FROM document_snapshots WHERE document_id = $1
+                "SELECT version, snapshot, nonce, signature FROM document_snapshots WHERE document_id = $1
              ORDER BY version DESC LIMIT 1",
             )
             .bind(doc_id)
@@ -105,6 +137,8 @@ impl DocPersistencePort for SqlxDocPersistenceAdapter {
             Ok(row.map(|row| SnapshotEntry {
                 version: row.get::<i32, _>("version") as i64,
                 bytes: row.get("snapshot"),
+                nonce: row.try_get("nonce").ok(),
+                signature: row.try_get("signature").ok(),
             }))
         }
         .await;

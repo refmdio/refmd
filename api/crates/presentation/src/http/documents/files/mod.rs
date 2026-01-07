@@ -22,7 +22,7 @@ pub mod openapi {
 
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
-        .route("/files", post(upload_file))
+        .route("/documents/:doc_id/files", post(upload_file))
         .route("/files/:id", get(get_file))
         .route("/files/documents/:filename", get(get_file_by_name))
         .with_state(ctx)

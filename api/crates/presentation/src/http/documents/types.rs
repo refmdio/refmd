@@ -32,9 +32,17 @@ pub struct Document {
     pub archived_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived_by: Option<Uuid>,
     pub archived_parent_id: Option<Uuid>,
+    // E2EE fields
+    #[serde(skip_serializing_if = "Option::is_none", rename = "encryptedTitle")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub encrypted_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "encryptedTitleNonce")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub encrypted_title_nonce: Option<String>,
 }
 
 pub fn to_http_document(doc: domain::Document) -> Document {
+    use base64::Engine;
     Document {
         id: doc.id(),
         // NOTE: Older clients used `owner_id` to identify the workspace.
@@ -53,6 +61,12 @@ pub fn to_http_document(doc: domain::Document) -> Document {
         archived_at: doc.archived_at(),
         archived_by: doc.archived_by(),
         archived_parent_id: doc.archived_parent_id(),
+        encrypted_title: doc
+            .encrypted_title()
+            .map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
+        encrypted_title_nonce: doc
+            .encrypted_title_nonce()
+            .map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
     }
 }
 
@@ -76,6 +90,13 @@ pub struct SnapshotSummary {
     pub created_by: Option<Uuid>,
     pub byte_size: i64,
     pub content_hash: String,
+    // E2EE fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub nonce: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub signature: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -128,7 +149,25 @@ pub struct SnapshotRestoreResponse {
     pub snapshot: SnapshotSummary,
 }
 
+/// Response for GET /api/documents/{id}/snapshots/{snapshotId}
+/// - For E2EE documents: content is encrypted, nonce is present
+/// - For non-E2EE documents: content is plaintext Yjs state, nonce is None
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotDetailResponse {
+    pub id: Uuid,
+    /// Base64 encoded Yjs snapshot (encrypted for E2EE, plaintext for non-E2EE)
+    #[schema(value_type = String, format = "byte")]
+    pub content: String,
+    /// Base64 encoded nonce (present for E2EE documents)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub nonce: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 pub fn snapshot_summary_from(record: SnapshotSummaryDto) -> SnapshotSummary {
+    use base64::Engine;
     SnapshotSummary {
         id: record.id,
         document_id: record.document_id,
@@ -139,6 +178,12 @@ pub fn snapshot_summary_from(record: SnapshotSummaryDto) -> SnapshotSummary {
         created_by: record.created_by,
         byte_size: record.byte_size,
         content_hash: record.content_hash,
+        nonce: record
+            .nonce
+            .map(|b| base64::engine::general_purpose::STANDARD.encode(&b)),
+        signature: record
+            .signature
+            .map(|b| base64::engine::general_purpose::STANDARD.encode(&b)),
     }
 }
 
@@ -158,10 +203,55 @@ pub fn snapshot_diff_side_response_from(side: SnapshotDiffSideDto) -> SnapshotDi
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateDocumentRequest {
     pub title: Option<String>,
     pub parent_id: Option<Uuid>,
     pub r#type: Option<String>,
+    // E2EE fields
+    /// Base64 encoded encrypted title (for E2EE clients)
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub encrypted_title: Option<String>,
+    /// Base64 encoded nonce for encrypted title
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub encrypted_title_nonce: Option<String>,
+    /// Encrypted DEK for this document (optional, for E2EE clients)
+    #[serde(default)]
+    pub dek: Option<CreateDocumentDekPayload>,
+}
+
+/// DEK payload for document creation
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDocumentDekPayload {
+    /// Base64 encoded encrypted DEK
+    #[schema(value_type = String, format = "byte")]
+    pub encrypted_dek: String,
+    /// Base64 encoded nonce
+    #[schema(value_type = String, format = "byte")]
+    pub nonce: String,
+    /// Key version
+    #[serde(default = "default_key_version")]
+    pub key_version: i32,
+}
+
+fn default_key_version() -> i32 {
+    1
+}
+
+impl CreateDocumentDekPayload {
+    pub fn decode(&self) -> Result<(Vec<u8>, Vec<u8>, i32), &'static str> {
+        use base64::Engine;
+        let encrypted_dek = base64::engine::general_purpose::STANDARD
+            .decode(&self.encrypted_dek)
+            .map_err(|_| "invalid_encrypted_dek_base64")?;
+        let nonce = base64::engine::general_purpose::STANDARD
+            .decode(&self.nonce)
+            .map_err(|_| "invalid_nonce_base64")?;
+        Ok((encrypted_dek, nonce, self.key_version))
+    }
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -244,16 +334,39 @@ impl From<DocumentStateFilter> for DocumentListFilter {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateDocumentContentRequest {
+    /// Document content (plaintext or Base64-encoded encrypted Yjs state for E2EE)
     pub content: String,
+    /// Base64 encoded nonce (required for E2EE content)
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub nonce: Option<String>,
+    /// Base64 encoded signature for integrity verification (optional for E2EE)
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub signature: Option<String>,
 }
 
+/// Patch operation for document content.
+/// For plaintext mode: use `text` field.
+/// For E2EE mode: use `encrypted_data` and `nonce` fields instead of `text`.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum DocumentPatchOperationRequest {
     Insert {
         offset: usize,
-        text: String,
+        /// Plaintext to insert (for non-E2EE documents)
+        #[serde(default)]
+        text: Option<String>,
+        /// Base64 encoded encrypted data (for E2EE documents)
+        #[serde(default)]
+        #[schema(value_type = Option<String>, format = "byte")]
+        encrypted_data: Option<String>,
+        /// Base64 encoded nonce (required when encrypted_data is provided)
+        #[serde(default)]
+        #[schema(value_type = Option<String>, format = "byte")]
+        nonce: Option<String>,
     },
     Delete {
         offset: usize,
@@ -262,35 +375,67 @@ pub enum DocumentPatchOperationRequest {
     Replace {
         offset: usize,
         length: usize,
-        text: String,
+        /// Plaintext replacement (for non-E2EE documents)
+        #[serde(default)]
+        text: Option<String>,
+        /// Base64 encoded encrypted data (for E2EE documents)
+        #[serde(default)]
+        #[schema(value_type = Option<String>, format = "byte")]
+        encrypted_data: Option<String>,
+        /// Base64 encoded nonce (required when encrypted_data is provided)
+        #[serde(default)]
+        #[schema(value_type = Option<String>, format = "byte")]
+        nonce: Option<String>,
     },
 }
 
-impl From<DocumentPatchOperationRequest> for DocumentPatchOperation {
-    fn from(value: DocumentPatchOperationRequest) -> Self {
-        match value {
-            DocumentPatchOperationRequest::Insert { offset, text } => {
-                DocumentPatchOperation::Insert { offset, text }
+impl DocumentPatchOperationRequest {
+    /// Check if this operation is for E2EE (has encrypted_data)
+    pub fn is_encrypted(&self) -> bool {
+        match self {
+            DocumentPatchOperationRequest::Insert { encrypted_data, .. } => encrypted_data.is_some(),
+            DocumentPatchOperationRequest::Delete { .. } => false,
+            DocumentPatchOperationRequest::Replace { encrypted_data, .. } => encrypted_data.is_some(),
+        }
+    }
+
+    /// Convert to plaintext DocumentPatchOperation (for non-E2EE mode)
+    pub fn to_plaintext_operation(&self) -> Option<DocumentPatchOperation> {
+        match self {
+            DocumentPatchOperationRequest::Insert { offset, text, .. } => {
+                text.as_ref().map(|t| DocumentPatchOperation::Insert {
+                    offset: *offset,
+                    text: t.clone(),
+                })
             }
             DocumentPatchOperationRequest::Delete { offset, length } => {
-                DocumentPatchOperation::Delete { offset, length }
+                Some(DocumentPatchOperation::Delete {
+                    offset: *offset,
+                    length: *length,
+                })
             }
-            DocumentPatchOperationRequest::Replace {
-                offset,
-                length,
-                text,
-            } => DocumentPatchOperation::Replace {
-                offset,
-                length,
-                text,
-            },
+            DocumentPatchOperationRequest::Replace { offset, length, text, .. } => {
+                text.as_ref().map(|t| DocumentPatchOperation::Replace {
+                    offset: *offset,
+                    length: *length,
+                    text: t.clone(),
+                })
+            }
         }
     }
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct PatchDocumentContentRequest {
+    /// Patch operations. Each operation can be either plaintext (using `text` field)
+    /// or encrypted (using `encryptedData` and `nonce` fields).
+    #[serde(default)]
     pub operations: Vec<DocumentPatchOperationRequest>,
+    /// Base64 encoded signature for integrity verification (optional for E2EE)
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub signature: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -469,4 +614,19 @@ pub struct OutgoingLink {
 pub struct OutgoingLinksResponse {
     pub links: Vec<OutgoingLink>,
     pub total_count: usize,
+}
+
+/// Response for GET /api/documents/{id}/content
+/// - For E2EE documents: content is encrypted, nonce is present
+/// - For non-E2EE documents: content is plaintext Yjs state, nonce is None
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GetContentResponse {
+    /// Base64 encoded Yjs snapshot bytes (encrypted for E2EE, plaintext for non-E2EE)
+    #[schema(value_type = String, format = "byte")]
+    pub content: String,
+    /// Base64 encoded nonce for decryption (present for E2EE documents)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub nonce: Option<String>,
 }

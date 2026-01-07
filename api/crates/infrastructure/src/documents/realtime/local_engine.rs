@@ -1,5 +1,7 @@
 use application::core::ports::errors::PortResult;
-use application::documents::ports::realtime::realtime_port::RealtimeEngine;
+use application::documents::ports::realtime::realtime_port::{
+    EncryptedUpdate, RealtimeEngine, SnapshotData,
+};
 use application::documents::ports::realtime::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 use application::documents::services::realtime::snapshot::doc_from_snapshot_bytes;
 
@@ -26,6 +28,10 @@ impl RealtimeEngine for LocalRealtimeEngine {
         self.hub.get_content(doc_id).await.map_err(Into::into)
     }
 
+    async fn get_snapshot(&self, doc_id: &str) -> PortResult<Option<SnapshotData>> {
+        self.hub.get_snapshot(doc_id).await.map_err(Into::into)
+    }
+
     async fn force_persist(&self, doc_id: &str) -> PortResult<()> {
         self.hub.force_save_to_fs(doc_id).await.map_err(Into::into)
     }
@@ -44,5 +50,21 @@ impl RealtimeEngine for LocalRealtimeEngine {
             .set_document_editable(doc_id, editable)
             .await
             .map_err(Into::into)
+    }
+
+    async fn apply_encrypted_updates(
+        &self,
+        doc_id: &str,
+        updates: &[EncryptedUpdate],
+    ) -> PortResult<()> {
+        // For E2EE documents, we apply updates as encrypted snapshots
+        // The hub will store the data without decrypting
+        for update in updates {
+            self.hub
+                .apply_encrypted_update(doc_id, &update.data, update.nonce.as_deref())
+                .await
+                .map_err(|e| application::core::ports::errors::PortError::from(e))?;
+        }
+        Ok(())
     }
 }

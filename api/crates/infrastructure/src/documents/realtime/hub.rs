@@ -394,6 +394,98 @@ impl Hub {
         let txn = hydrated.doc.transact();
         Ok(Some(txt.get_string(&txn)))
     }
+
+    /// Get Yjs snapshot with E2EE metadata (nonce, signature)
+    pub async fn get_snapshot(
+        &self,
+        doc_id: &str,
+    ) -> anyhow::Result<Option<application::documents::ports::realtime::realtime_port::SnapshotData>>
+    {
+        use application::documents::ports::realtime::realtime_port::SnapshotData;
+
+        let uuid = match Uuid::parse_str(doc_id) {
+            Ok(id) => id,
+            Err(_) => return Ok(None),
+        };
+
+        // First try to get from in-memory room (for current state)
+        if let Some(room) = self.inner.read().await.get(doc_id).cloned() {
+            let txn = room.doc.transact();
+            let data = txn.encode_state_as_update_v1(&yrs::StateVector::default());
+
+            // Get nonce/signature from DB if available
+            if let Ok(Some(entry)) = self.persistence.latest_snapshot_entry(&uuid).await {
+                return Ok(Some(SnapshotData {
+                    data,
+                    nonce: entry.nonce,
+                    signature: entry.signature,
+                }));
+            }
+
+            return Ok(Some(SnapshotData {
+                data,
+                nonce: None,
+                signature: None,
+            }));
+        }
+
+        // No in-memory room, get from persistence directly
+        if let Ok(Some(entry)) = self.persistence.latest_snapshot_entry(&uuid).await {
+            return Ok(Some(SnapshotData {
+                data: entry.bytes,
+                nonce: entry.nonce,
+                signature: entry.signature,
+            }));
+        }
+
+        // Fallback: hydrate and encode
+        let hydrated = self
+            .hydration_service
+            .hydrate(&uuid, HydrationOptions::default())
+            .await?;
+        let txn = hydrated.doc.transact();
+        Ok(Some(SnapshotData {
+            data: txn.encode_state_as_update_v1(&yrs::StateVector::default()),
+            nonce: None,
+            signature: None,
+        }))
+    }
+
+    /// Apply encrypted update for E2EE documents
+    /// This stores the encrypted update data directly without processing it in Yjs
+    pub async fn apply_encrypted_update(
+        &self,
+        doc_id: &str,
+        data: &[u8],
+        nonce: Option<&[u8]>,
+    ) -> anyhow::Result<()> {
+        use application::documents::ports::realtime::realtime_persistence_port::EncryptedUpdateData;
+
+        let doc_uuid = Uuid::parse_str(doc_id)?;
+
+        // Get the current seq number (create room if needed to track seq)
+        let room = self.get_or_create(doc_id).await?;
+        let seq = {
+            let mut guard = room.seq.lock().await;
+            *guard += 1;
+            *guard
+        };
+
+        // Store the encrypted update with metadata
+        let update_data = EncryptedUpdateData {
+            data: data.to_vec(),
+            nonce: nonce.map(|n| n.to_vec()),
+            signature: None,
+            public_key: None,
+        };
+
+        self.persistence
+            .append_encrypted_update_with_seq(&doc_uuid, seq, &update_data)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to persist encrypted update: {:?}", e))?;
+
+        Ok(())
+    }
 }
 
 impl Hub {

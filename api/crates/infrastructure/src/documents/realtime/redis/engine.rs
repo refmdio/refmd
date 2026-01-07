@@ -37,7 +37,9 @@ use application::documents::ports::realtime::realtime_hydration_port::{
 use application::documents::ports::realtime::realtime_persistence_port::{
     DocPersistencePort, DocumentMissingError,
 };
-use application::documents::ports::realtime::realtime_port::RealtimeEngine as RealtimeEngineTrait;
+use application::documents::ports::realtime::realtime_port::{
+    EncryptedUpdate, RealtimeEngine as RealtimeEngineTrait, SnapshotData,
+};
 use application::documents::ports::realtime::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 use application::documents::ports::tagging::tagging_repository::TaggingRepository;
 use application::documents::services::realtime::doc_hydration::{
@@ -56,6 +58,7 @@ pub struct RedisRealtimeEngine {
     bus: Arc<RedisClusterBus>,
     hydration_service: Arc<DocHydrationService>,
     snapshot_service: Arc<SnapshotService>,
+    persistence: Arc<dyn DocPersistencePort>,
     task_debounce: Duration,
     awareness_ttl: Duration,
     _worker: Option<JoinHandle<()>>,
@@ -107,7 +110,7 @@ impl RedisRealtimeEngine {
             Arc::new(SqlxDocumentSnapshotArchiveRepository::new(pool.clone()));
         let snapshot_service = Arc::new(SnapshotService::new(
             doc_state_reader,
-            doc_persistence,
+            doc_persistence.clone(),
             linkgraph_repo,
             tagging_repo,
             archive_repo,
@@ -137,6 +140,7 @@ impl RedisRealtimeEngine {
             bus,
             hydration_service,
             snapshot_service,
+            persistence: doc_persistence,
             task_debounce: Duration::from_millis(cfg.task_debounce_ms),
             awareness_ttl: Duration::from_millis(cfg.awareness_ttl_ms),
             _worker: worker,
@@ -398,6 +402,31 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         Ok(Some(txt.get_string(&txn)))
     }
 
+    async fn get_snapshot(&self, doc_id: &str) -> PortResult<Option<SnapshotData>> {
+        let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
+
+        // Try to get from persistence first (for E2EE documents with stored nonce/signature)
+        if let Ok(Some(entry)) = self.persistence.latest_snapshot_entry(&uuid).await {
+            return Ok(Some(SnapshotData {
+                data: entry.bytes,
+                nonce: entry.nonce,
+                signature: entry.signature,
+            }));
+        }
+
+        // Fallback: hydrate and encode (no nonce/signature)
+        let hydrated = self
+            .hydration_service
+            .hydrate(&uuid, HydrationOptions::default())
+            .await?;
+        let txn = hydrated.doc.transact();
+        Ok(Some(SnapshotData {
+            data: txn.encode_state_as_update_v1(&yrs::StateVector::default()),
+            nonce: None,
+            signature: None,
+        }))
+    }
+
     async fn force_persist(&self, doc_id: &str) -> PortResult<()> {
         let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
         let hydrated = self
@@ -459,6 +488,46 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
     async fn set_document_editable(&self, doc_id: &str, editable: bool) -> PortResult<()> {
         let flag = self.ensure_edit_flag(doc_id).await;
         flag.store(editable, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn apply_encrypted_updates(
+        &self,
+        doc_id: &str,
+        updates: &[EncryptedUpdate],
+    ) -> PortResult<()> {
+        use application::documents::ports::realtime::realtime_persistence_port::EncryptedUpdateData;
+
+        let doc_uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
+
+        // Get current seq from persistence
+        let mut seq = self
+            .persistence
+            .latest_update_seq(&doc_uuid)
+            .await?
+            .unwrap_or(0);
+
+        // Store each encrypted update
+        for update in updates {
+            seq += 1;
+            let update_data = EncryptedUpdateData {
+                data: update.data.clone(),
+                nonce: update.nonce.clone(),
+                signature: update.signature.clone(),
+                public_key: None,
+            };
+
+            self.persistence
+                .append_encrypted_update_with_seq(&doc_uuid, seq, &update_data)
+                .await
+                .map_err(|e| {
+                    application::core::ports::errors::PortError::from(anyhow::anyhow!(
+                        "failed to persist encrypted update: {:?}",
+                        e
+                    ))
+                })?;
+        }
+
         Ok(())
     }
 }

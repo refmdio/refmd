@@ -3,6 +3,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
+use base64::Engine;
 use uuid::Uuid;
 
 use crate::context::DocumentsContext;
@@ -10,6 +11,7 @@ use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use application::core::services::access;
 use domain::documents::share::SHARE_PERMISSION_VIEW;
+use domain::identity::keys::KdfParams;
 
 use application::documents::dtos::ShareItemDto;
 
@@ -48,6 +50,42 @@ pub async fn create_share(
         )
         .await
         .map_err(map_share_error)?;
+
+    // Store encrypted DEK if provided (E2EE mode)
+    if let Some(encrypted_dek_b64) = req.encrypted_dek {
+        let encrypted_dek = base64::engine::general_purpose::STANDARD
+            .decode(&encrypted_dek_b64)
+            .map_err(|_| ApiError::bad_request("invalid_encrypted_dek_base64"))?;
+
+        let keys_service = ctx.document_keys_service();
+
+        if let (Some(salt_b64), Some(kdf_params_json)) = (req.salt, req.kdf_params) {
+            // Password-protected share
+            let salt = base64::engine::general_purpose::STANDARD
+                .decode(&salt_b64)
+                .map_err(|_| ApiError::bad_request("invalid_salt_base64"))?;
+            let kdf_params: KdfParams = serde_json::from_value(kdf_params_json)
+                .map_err(|_| ApiError::bad_request("invalid_kdf_params"))?;
+
+            keys_service
+                .store_password_protected_share_key(res.share_id, encrypted_dek, salt, kdf_params)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = ?e, "failed_to_store_share_key");
+                    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "failed_to_store_share_key")
+                })?;
+        } else {
+            // URL fragment based share (no password)
+            keys_service
+                .store_share_key(res.share_id, encrypted_dek)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = ?e, "failed_to_store_share_key");
+                    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "failed_to_store_share_key")
+                })?;
+        }
+    }
+
     let base = frontend_base(&ctx.cfg);
     let url = build_share_url(&base, &res.document_type, res.document_id, &res.token);
     Ok(Json(CreateShareResponse {

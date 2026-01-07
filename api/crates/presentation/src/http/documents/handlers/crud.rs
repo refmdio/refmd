@@ -54,12 +54,35 @@ pub async fn create_document(
     auth: WorkspaceAuth,
     Json(req): Json<CreateDocumentRequest>,
 ) -> Result<Json<Document>, ApiError> {
+    use base64::Engine;
+
     let title = req.title.unwrap_or_else(|| "Untitled".into());
     let dtype = req
         .r#type
         .unwrap_or_else(|| DocumentType::Document.as_str().to_string());
     let doc_type = DocumentType::try_from(dtype.as_str())
         .map_err(|_| ApiError::bad_request("invalid_document_type"))?;
+
+    // Decode E2EE fields if provided
+    let encrypted_title = req
+        .encrypted_title
+        .as_ref()
+        .map(|s| {
+            base64::engine::general_purpose::STANDARD
+                .decode(s)
+                .map_err(|_| ApiError::bad_request("invalid_encrypted_title_base64"))
+        })
+        .transpose()?;
+    let encrypted_title_nonce = req
+        .encrypted_title_nonce
+        .as_ref()
+        .map(|s| {
+            base64::engine::general_purpose::STANDARD
+                .decode(s)
+                .map_err(|_| ApiError::bad_request("invalid_encrypted_title_nonce_base64"))
+        })
+        .transpose()?;
+
     let service = ctx.document_service();
     let doc = service
         .create_for_user(
@@ -73,6 +96,30 @@ pub async fn create_document(
         )
         .await
         .map_err(map_service_error)?;
+
+    // Store DEK if provided (E2EE mode)
+    if let Some(dek_payload) = req.dek {
+        let (encrypted_dek, nonce, key_version) = dek_payload
+            .decode()
+            .map_err(|e| ApiError::bad_request(e))?;
+        let keys_service = ctx.document_keys_service();
+        keys_service
+            .store_document_key(doc.id(), encrypted_dek, nonce, key_version)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = ?e, "failed_to_store_document_key");
+                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "failed_to_store_document_key")
+            })?;
+    }
+
+    // Store encrypted title if provided (E2EE mode)
+    // TODO: In the future, combine this with document creation in a single transaction
+    if let (Some(enc_title), Some(enc_nonce)) = (encrypted_title, encrypted_title_nonce) {
+        service
+            .update_encrypted_title(doc.id(), enc_title, enc_nonce)
+            .await
+            .map_err(map_service_error)?;
+    }
 
     Ok(Json(to_http_document(doc)))
 }

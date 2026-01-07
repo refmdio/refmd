@@ -29,6 +29,9 @@ pub struct SnapshotArchiveRecord {
     pub created_by: Option<Uuid>,
     pub byte_size: i64,
     pub content_hash: String,
+    // E2EE fields
+    pub nonce: Option<Vec<u8>>,
+    pub signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]

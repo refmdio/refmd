@@ -1,8 +1,21 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use application::documents::dtos::PublicDocumentSummaryDto;
+
+/// Request to publish a document. For E2EE workspaces, plaintext title and content
+/// must be provided so public pages can be rendered without decryption.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishRequest {
+    /// Plaintext title (required for E2EE mode)
+    #[serde(default)]
+    pub plaintext_title: Option<String>,
+    /// Plaintext content (required for E2EE mode)
+    #[serde(default)]
+    pub plaintext_content: Option<String>,
+}
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PublishResponse {

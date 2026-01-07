@@ -47,7 +47,9 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     created_at,
                     created_by,
                     byte_size,
-                    content_hash"#,
+                    content_hash,
+                    nonce,
+                    signature"#,
             )
             .bind(input.document_id)
             .bind(input.version as i32)
@@ -75,7 +77,9 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                             created_at,
                             created_by,
                             byte_size,
-                            content_hash
+                            content_hash,
+                            nonce,
+                            signature
                        FROM document_snapshot_archives
                        WHERE document_id = $1 AND version = $2"#,
                     )
@@ -97,6 +101,8 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                 created_by: row.try_get("created_by").ok(),
                 byte_size: row.get("byte_size"),
                 content_hash: row.get("content_hash"),
+                nonce: row.try_get("nonce").ok(),
+                signature: row.try_get("signature").ok(),
             })
         }
         .await;
@@ -117,7 +123,9 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     created_at,
                     created_by,
                     byte_size,
-                    content_hash
+                    content_hash,
+                    nonce,
+                    signature
                FROM document_snapshot_archives
                WHERE id = $1"#,
             )
@@ -137,6 +145,8 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     created_by: row.try_get("created_by").ok(),
                     byte_size: row.get("byte_size"),
                     content_hash: row.get("content_hash"),
+                    nonce: row.try_get("nonce").ok(),
+                    signature: row.try_get("signature").ok(),
                 },
                 bytes: row.get("snapshot"),
             }))
@@ -163,7 +173,9 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     created_at,
                     created_by,
                     byte_size,
-                    content_hash
+                    content_hash,
+                    nonce,
+                    signature
                FROM document_snapshot_archives
                WHERE document_id = $1
                ORDER BY created_at DESC
@@ -188,6 +200,8 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     created_by: row.try_get("created_by").ok(),
                     byte_size: row.get("byte_size"),
                     content_hash: row.get("content_hash"),
+                    nonce: row.try_get("nonce").ok(),
+                    signature: row.try_get("signature").ok(),
                 })
                 .collect())
         }
@@ -213,7 +227,9 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     created_at,
                     created_by,
                     byte_size,
-                    content_hash
+                    content_hash,
+                    nonce,
+                    signature
                FROM document_snapshot_archives
                WHERE document_id = $1 AND version < $2
                ORDER BY version DESC
@@ -236,6 +252,8 @@ impl DocumentSnapshotArchiveRepository for SqlxDocumentSnapshotArchiveRepository
                     created_by: row.try_get("created_by").ok(),
                     byte_size: row.get("byte_size"),
                     content_hash: row.get("content_hash"),
+                    nonce: row.try_get("nonce").ok(),
+                    signature: row.try_get("signature").ok(),
                 },
                 bytes: row.get("snapshot"),
             }))

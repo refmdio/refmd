@@ -54,4 +54,29 @@ pub trait PublicRepository: Send + Sync {
         workspace_slug: &str,
         doc_id: Uuid,
     ) -> PortResult<bool>;
+
+    /// Store or update plaintext content for a published document (for E2EE mode)
+    async fn store_public_content(
+        &self,
+        doc_id: Uuid,
+        title: &str,
+        content: &str,
+        content_hash: &str,
+    ) -> PortResult<()>;
+
+    /// Get stored plaintext content for a published document
+    async fn get_public_content(&self, doc_id: Uuid) -> PortResult<Option<PublicContentRow>>;
+
+    /// Delete stored public content when unpublishing
+    async fn delete_public_content(&self, doc_id: Uuid) -> PortResult<()>;
+}
+
+/// Stored plaintext content for published document
+#[derive(Debug, Clone)]
+pub struct PublicContentRow {
+    pub document_id: Uuid,
+    pub title: String,
+    pub content: String,
+    pub content_hash: String,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }

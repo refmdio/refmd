@@ -12,7 +12,8 @@ use crate::core::ports::storage::storage_projection_queue::{
 use crate::core::services::tagging;
 use crate::core::services::utils::hash::sha256_hex;
 use crate::documents::ports::document_snapshot_archive_repository::{
-    DocumentSnapshotArchiveRepository, SnapshotArchiveInsert, SnapshotArchiveRecord,
+    DocumentSnapshotArchiveRepository, SnapshotArchiveEntry, SnapshotArchiveInsert,
+    SnapshotArchiveRecord,
 };
 use crate::documents::ports::linkgraph_repository::LinkGraphRepository;
 use crate::documents::ports::realtime::realtime_hydration_port::DocStateReader;
@@ -129,7 +130,7 @@ impl SnapshotService {
         let snapshot_bin = encode_doc_snapshot(doc);
         let (current_version, previous_snapshot) = if options.skip_if_unchanged {
             match self.persistence.latest_snapshot_entry(doc_id).await? {
-                Some(SnapshotEntry { version, bytes }) => (version, Some(bytes)),
+                Some(SnapshotEntry { version, bytes, .. }) => (version, Some(bytes)),
                 None => (0, None),
             }
         } else {
@@ -165,7 +166,7 @@ impl SnapshotService {
         }
         let next_version = current_version + 1;
         self.persistence
-            .persist_snapshot(doc_id, next_version, &snapshot_bin)
+            .persist_snapshot(doc_id, next_version, &snapshot_bin, None)
             .await?;
         if options.clear_updates {
             self.persistence.clear_updates(doc_id).await?;
@@ -326,6 +327,17 @@ impl SnapshotService {
             return Ok(Some((entry.record, markdown)));
         }
         Ok(None)
+    }
+
+    /// Get a snapshot entry (record + bytes) by ID
+    pub async fn get_snapshot_entry(
+        &self,
+        snapshot_id: Uuid,
+    ) -> anyhow::Result<Option<SnapshotArchiveEntry>> {
+        self.archive_repo
+            .get_by_id(snapshot_id)
+            .await
+            .map_err(Into::into)
     }
 }
 

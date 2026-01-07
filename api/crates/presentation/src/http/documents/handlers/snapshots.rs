@@ -12,9 +12,9 @@ use crate::security::token::{self, Bearer};
 
 #[allow(unused_imports)]
 use crate::http::documents::types::{
-    DocumentArchiveBinary, SnapshotDiffBaseParam, SnapshotDiffQuery, SnapshotDiffResponse,
-    SnapshotListResponse, SnapshotRestoreResponse, SnapshotTokenQuery, map_service_error,
-    snapshot_diff_side_response_from, snapshot_summary_from,
+    DocumentArchiveBinary, SnapshotDetailResponse, SnapshotDiffBaseParam, SnapshotDiffQuery,
+    SnapshotDiffResponse, SnapshotListResponse, SnapshotRestoreResponse, SnapshotTokenQuery,
+    map_service_error, snapshot_diff_side_response_from, snapshot_summary_from,
 };
 
 #[utoipa::path(
@@ -53,6 +53,48 @@ pub async fn list_document_snapshots(
     let items = records.into_iter().map(snapshot_summary_from).collect();
 
     Ok(Json(SnapshotListResponse { items }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/documents/{id}/snapshots/{snapshot_id}",
+    tag = "Documents",
+    params(
+        ("id" = Uuid, Path, description = "Document ID"),
+        ("snapshot_id" = Uuid, Path, description = "Snapshot ID"),
+        ("token" = Option<String>, Query, description = "Share token (optional)")
+    ),
+    responses((status = 200, body = SnapshotDetailResponse))
+)]
+pub async fn get_document_snapshot(
+    State(ctx): State<DocumentsContext>,
+    bearer: Option<Bearer>,
+    Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
+    q: Option<Query<SnapshotTokenQuery>>,
+) -> Result<Json<SnapshotDetailResponse>, ApiError> {
+    use base64::Engine;
+
+    let params = q.map(|Query(v)| v).unwrap_or_default();
+    let token = params.token.as_deref();
+    let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
+        .await
+        .map_err(token::map_actor_error)?
+        .ok_or(ApiError::unauthorized("unauthorized"))?;
+
+    let service = ctx.document_service();
+    let detail = service
+        .get_snapshot(&actor, id, snapshot_id)
+        .await
+        .map_err(map_service_error)?;
+
+    Ok(Json(SnapshotDetailResponse {
+        id: detail.id,
+        content: base64::engine::general_purpose::STANDARD.encode(&detail.content),
+        nonce: detail
+            .nonce
+            .map(|n| base64::engine::general_purpose::STANDARD.encode(&n)),
+        created_at: detail.created_at,
+    }))
 }
 
 #[utoipa::path(
@@ -155,6 +197,8 @@ pub async fn download_document_snapshot(
     Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
     q: Option<Query<SnapshotTokenQuery>>,
 ) -> Result<Response, ApiError> {
+    use base64::Engine;
+
     let params = q.map(|Query(v)| v).unwrap_or_default();
     let token = params.token.as_deref();
     let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
@@ -177,6 +221,26 @@ pub async fn download_document_snapshot(
     let content_disposition = HeaderValue::from_str(&disposition)
         .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))?;
     headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
+
+    // Add E2EE headers if present
+    if let Some(nonce) = &download.snapshot.nonce {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(nonce);
+        if let Ok(val) = HeaderValue::from_str(&encoded) {
+            headers.insert(
+                axum::http::header::HeaderName::from_static("x-snapshot-nonce"),
+                val,
+            );
+        }
+    }
+    if let Some(signature) = &download.snapshot.signature {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(signature);
+        if let Ok(val) = HeaderValue::from_str(&encoded) {
+            headers.insert(
+                axum::http::header::HeaderName::from_static("x-snapshot-signature"),
+                val,
+            );
+        }
+    }
 
     Ok((headers, download.bytes).into_response())
 }
