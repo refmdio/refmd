@@ -367,6 +367,14 @@ pub enum DocumentPatchOperationRequest {
         #[serde(default)]
         #[schema(value_type = Option<String>, format = "byte")]
         nonce: Option<String>,
+        /// Base64 encoded Ed25519 signature (for E2EE documents)
+        #[serde(default)]
+        #[schema(value_type = Option<String>, format = "byte")]
+        signature: Option<String>,
+        /// Base64 encoded Ed25519 public key (for E2EE documents)
+        #[serde(default)]
+        #[schema(value_type = Option<String>, format = "byte")]
+        public_key: Option<String>,
     },
     Delete {
         offset: usize,
@@ -386,6 +394,14 @@ pub enum DocumentPatchOperationRequest {
         #[serde(default)]
         #[schema(value_type = Option<String>, format = "byte")]
         nonce: Option<String>,
+        /// Base64 encoded Ed25519 signature (for E2EE documents)
+        #[serde(default)]
+        #[schema(value_type = Option<String>, format = "byte")]
+        signature: Option<String>,
+        /// Base64 encoded Ed25519 public key (for E2EE documents)
+        #[serde(default)]
+        #[schema(value_type = Option<String>, format = "byte")]
+        public_key: Option<String>,
     },
 }
 

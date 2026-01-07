@@ -166,11 +166,15 @@ pub async fn patch_document_content(
                     DocumentPatchOperationRequest::Insert {
                         encrypted_data: Some(encrypted_data),
                         nonce,
+                        signature,
+                        public_key,
                         ..
                     }
                     | DocumentPatchOperationRequest::Replace {
                         encrypted_data: Some(encrypted_data),
                         nonce,
+                        signature,
+                        public_key,
                         ..
                     } => {
                         let data = base64::engine::general_purpose::STANDARD
@@ -179,10 +183,17 @@ pub async fn patch_document_content(
                         let nonce_bytes = nonce.as_ref().and_then(|n| {
                             base64::engine::general_purpose::STANDARD.decode(n).ok()
                         });
+                        let signature_bytes = signature.as_ref().and_then(|s| {
+                            base64::engine::general_purpose::STANDARD.decode(s).ok()
+                        });
+                        let public_key_bytes = public_key.as_ref().and_then(|p| {
+                            base64::engine::general_purpose::STANDARD.decode(p).ok()
+                        });
                         Some(EncryptedUpdate {
                             data,
                             nonce: nonce_bytes,
-                            signature: None,
+                            signature: signature_bytes,
+                            public_key: public_key_bytes,
                         })
                     }
                     _ => None,

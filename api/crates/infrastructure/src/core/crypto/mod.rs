@@ -1,3 +1,7 @@
+pub mod ed25519;
+
+pub use ed25519::Ed25519Verifier;
+
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::Engine as _;

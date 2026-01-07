@@ -1,333 +1,148 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::Context;
-use chrono::Utc;
-use futures_util::SinkExt;
-use tokio::sync::mpsc;
+use base64::Engine;
+use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{Mutex, RwLock};
-use tokio::time::{Duration, Instant, sleep};
+use tokio::time::Duration;
 use uuid::Uuid;
-use yrs::GetString;
-use yrs::block::ClientID;
-use yrs::encoding::write::Write as YWrite;
-use yrs::sync::awareness::AwarenessUpdate;
-use yrs::sync::protocol::{MSG_SYNC, MSG_SYNC_UPDATE};
-use yrs::sync::{DefaultProtocol, Error as SyncError, Protocol};
-use yrs::updates::decoder::Decode;
-use yrs::updates::encoder::{Encoder, EncoderV1};
-use yrs::{Doc, ReadTxn, StateVector, Text, Transact, Update};
-use yrs_warp::AwarenessRef;
-use yrs_warp::broadcast::BroadcastGroup;
 
-use crate::documents::realtime::utils::wrap_stream_with_edit_guard;
+use crate::core::crypto::Ed25519Verifier;
 use crate::documents::realtime::{DynRealtimeSink, DynRealtimeStream};
 use application::documents::ports::realtime::realtime_persistence_port::{
-    DocPersistencePort, DocumentMissingError,
+    ContentEncryptionMeta, DocPersistencePort, EncryptedUpdateData,
 };
-use application::documents::services::realtime::doc_hydration::{
-    DocHydrationService, HydrationOptions,
+use application::documents::ports::realtime::realtime_types::{
+    MessageType, RealtimeMessage,
 };
-use application::documents::services::realtime::snapshot::{
-    SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
-};
+use application::documents::services::realtime::snapshot::SnapshotService;
 
 type SharedRealtimeSink = Arc<Mutex<DynRealtimeSink>>;
 
+/// E2EE Document Room - simple relay without CRDT merge
+/// Server only relays encrypted messages and verifies signatures
 #[derive(Clone)]
-pub struct DocumentRoom {
-    pub doc: Doc,
-    pub awareness: AwarenessRef,
-    pub broadcast: Arc<BroadcastGroup>,
-    #[allow(dead_code)]
-    persist_sub: yrs::Subscription,
-    pub seq: Arc<Mutex<i64>>, // latest persisted seq
+pub struct E2EEDocumentRoom {
+    /// Connected clients for broadcasting
+    clients: Arc<RwLock<Vec<SharedRealtimeSink>>>,
+    /// Latest persisted sequence number
+    pub seq: Arc<Mutex<i64>>,
+    /// Flag to skip filesystem persistence (e.g., after ingest)
     pub skip_fs_persist: Arc<AtomicBool>,
 }
 
+impl E2EEDocumentRoom {
+    pub fn new(start_seq: i64) -> Self {
+        Self {
+            clients: Arc::new(RwLock::new(Vec::new())),
+            seq: Arc::new(Mutex::new(start_seq)),
+            skip_fs_persist: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Add a client to the room
+    pub async fn add_client(&self, sink: SharedRealtimeSink) {
+        self.clients.write().await.push(sink);
+    }
+
+    /// Remove a client from the room
+    pub async fn remove_client(&self, sink: &SharedRealtimeSink) {
+        let mut clients = self.clients.write().await;
+        clients.retain(|c| !Arc::ptr_eq(c, sink));
+    }
+
+    /// Broadcast message to all clients except the sender
+    pub async fn broadcast_except(&self, message: &[u8], sender: &SharedRealtimeSink) {
+        let clients = self.clients.read().await;
+        for client in clients.iter() {
+            if Arc::ptr_eq(client, sender) {
+                continue;
+            }
+            let mut guard = client.lock().await;
+            if let Err(e) = guard.send(message.to_vec()).await {
+                tracing::debug!(error = %e, "e2ee_broadcast_send_failed");
+            }
+        }
+    }
+
+    /// Get current client count
+    pub async fn client_count(&self) -> usize {
+        self.clients.read().await.len()
+    }
+}
+
+/// E2EE Hub - manages document rooms with encrypted relay
 #[derive(Clone)]
 pub struct Hub {
-    inner: Arc<RwLock<HashMap<String, Arc<DocumentRoom>>>>,
-    hydration_service: Arc<DocHydrationService>,
+    /// Document rooms by document ID
+    inner: Arc<RwLock<HashMap<String, Arc<E2EEDocumentRoom>>>>,
+    /// Snapshot service for persistence
     snapshot_service: Arc<SnapshotService>,
+    /// Document persistence port
     persistence: Arc<dyn DocPersistencePort>,
-    save_flags: Arc<Mutex<HashMap<String, bool>>>,
-    auto_archive_interval: Duration,
-    last_auto_archive: Arc<Mutex<HashMap<String, Instant>>>,
+    /// Edit flags per document
     edit_flags: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
+    /// Auto archive interval (0 = disabled)
+    #[allow(dead_code)]
+    auto_archive_interval: Duration,
 }
 
 impl Hub {
+    /// Create a new Hub
+    ///
+    /// Note: hydration_service parameter is kept for API compatibility but not used
+    /// (clients handle hydration with their own keys)
     pub fn new(
-        hydration_service: Arc<DocHydrationService>,
+        _hydration_service: Arc<dyn std::any::Any + Send + Sync>,
         snapshot_service: Arc<SnapshotService>,
         persistence: Arc<dyn DocPersistencePort>,
         auto_archive_interval: Duration,
     ) -> Self {
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
-            hydration_service,
             snapshot_service,
             persistence,
-            save_flags: Arc::new(Mutex::new(HashMap::new())),
-            auto_archive_interval,
-            last_auto_archive: Arc::new(Mutex::new(HashMap::new())),
             edit_flags: Arc::new(RwLock::new(HashMap::new())),
+            auto_archive_interval,
         }
     }
-    pub async fn get_or_create(&self, doc_id: &str) -> anyhow::Result<Arc<DocumentRoom>> {
+
+    /// Get or create a document room
+    ///
+    /// The room is a simple relay structure without Yjs Doc.
+    /// The server doesn't process document content, only relays encrypted messages.
+    pub async fn get_or_create(&self, doc_id: &str) -> anyhow::Result<Arc<E2EEDocumentRoom>> {
+        // Return existing room if available
         if let Some(r) = self.inner.read().await.get(doc_id).cloned() {
             return Ok(r);
         }
 
-        // Create Doc; hydration will run asynchronously after room is registered to avoid blocking WS
-        let doc = Doc::new();
         let doc_uuid = Uuid::parse_str(doc_id)?;
 
-        let awareness: AwarenessRef = Arc::new(yrs::sync::Awareness::new(doc.clone()));
-        let bcast = Arc::new(BroadcastGroup::new(awareness.clone(), 64).await);
-
-        let save_flags = self.save_flags.clone();
-        let skip_fs_persist_flag = Arc::new(AtomicBool::new(false));
+        // Get the latest sequence number from persistence
         let start_seq = self
             .persistence
             .latest_update_seq(&doc_uuid)
             .await?
             .unwrap_or(0);
-        let seq = Arc::new(Mutex::new(start_seq));
-        // Persist updates through a channel. We'll await send in a spawned task to avoid dropping updates.
-        let (tx, mut rx) = mpsc::channel::<Vec<u8>>(512);
-        let persistence = self.persistence.clone();
-        let snapshot_service = self.snapshot_service.clone();
-        let last_auto_archive = self.last_auto_archive.clone();
-        let auto_archive_interval = self.auto_archive_interval;
-        let persist_doc = doc_uuid;
-        let persist_seq = seq.clone();
-        let doc_for_snap = doc.clone();
-        tokio::spawn(async move {
-            while let Some(bytes) = rx.recv().await {
-                let mut guard = persist_seq.lock().await;
-                *guard += 1;
-                let s = *guard;
-                if let Err(e) = persistence
-                    .append_update_with_seq(&persist_doc, s, &bytes)
-                    .await
-                {
-                    tracing::error!(
-                        document_id = %persist_doc,
-                        seq = s,
-                        error = ?e,
-                        "persist_document_update_failed"
-                    );
-                }
-                if s % 100 == 0 && !auto_archive_interval.is_zero() {
-                    let should_archive = {
-                        let mut guard = last_auto_archive.lock().await;
-                        let now = Instant::now();
-                        match guard.get(&persist_doc.to_string()) {
-                            Some(last) if now.duration_since(*last) < auto_archive_interval => {
-                                false
-                            }
-                            _ => {
-                                guard.insert(persist_doc.to_string(), now);
-                                true
-                            }
-                        }
-                    };
 
-                    if should_archive {
-                        match snapshot_service
-                            .persist_snapshot(
-                                &persist_doc,
-                                &doc_for_snap,
-                                SnapshotPersistOptions {
-                                    clear_updates: false,
-                                    skip_if_unchanged: true,
-                                    ..Default::default()
-                                },
-                            )
-                            .await
-                        {
-                            Ok(result) => {
-                                if result.persisted {
-                                    let label = format!(
-                                        "Snapshot {}",
-                                        Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-                                    );
-                                    if let Err(e) = snapshot_service
-                                        .archive_snapshot(
-                                            &persist_doc,
-                                            &result.snapshot_bytes,
-                                            result.version,
-                                            SnapshotArchiveOptions {
-                                                label: label.as_str(),
-                                                notes: None,
-                                                kind: SnapshotArchiveKind::Automatic,
-                                                created_by: None,
-                                            },
-                                        )
-                                        .await
-                                    {
-                                        tracing::debug!(
-                                            document_id = %persist_doc,
-                                            version = result.version,
-                                            error = ?e,
-                                            "persist_document_snapshot_archive_failed"
-                                        );
-                                    }
-                                } else {
-                                    tracing::debug!(
-                                        document_id = %persist_doc,
-                                        version = result.version,
-                                        "persist_document_snapshot_skipped_no_changes"
-                                    );
-                                }
-                            }
-                            Err(err) if err.downcast_ref::<DocumentMissingError>().is_some() => {
-                                tracing::debug!(
-                                    document_id = %persist_doc,
-                                    "persist_document_snapshot_missing_document"
-                                );
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    document_id = %persist_doc,
-                                    version = s,
-                                    error = ?e,
-                                    "persist_document_snapshot_failed"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        // Create a simple E2EE room (no Yjs Doc needed)
+        let room = Arc::new(E2EEDocumentRoom::new(start_seq));
 
-        let tx_obs = tx.clone();
-        let hub_for_save = self.clone();
-        let doc_id_str = doc_uuid.to_string();
-        let doc_for_markdown = doc.clone();
-        let skip_flag_for_updates = skip_fs_persist_flag.clone();
-        let persist_sub = doc
-            .observe_update_v1(move |_txn, u| {
-                // Send to the channel asynchronously to avoid blocking and prevent drops under load
-                let tx_clone = tx_obs.clone();
-                let bytes = u.update.clone();
-                tokio::spawn(async move {
-                    let _ = tx_clone.send(bytes).await;
-                });
-                // schedule fs save (debounced)
-                let save_flags = save_flags.clone();
-                let doc_id_s = doc_id_str.clone();
-                let hub_clone = hub_for_save.clone();
-                let doc_for_markdown = doc_for_markdown.clone();
-                let skip_flag = skip_flag_for_updates.clone();
-                tokio::spawn(async move {
-                    // simple debounce: set flag and sleep; if still set after sleep, run
-                    {
-                        let mut m = save_flags.lock().await;
-                        m.insert(doc_id_s.clone(), true);
-                    }
-                    sleep(Duration::from_millis(600)).await;
-                    let should_run = {
-                        let mut m = save_flags.lock().await;
-                        m.remove(&doc_id_s).is_some()
-                    };
-                    if should_run {
-                        if let Ok(doc_uuid) = Uuid::parse_str(&doc_id_s) {
-                            if skip_flag.swap(false, Ordering::SeqCst) {
-                                tracing::debug!(
-                                    document_id = %doc_id_s,
-                                    "debounced_save_skipped_after_ingest"
-                                );
-                                return;
-                            }
-                            if let Err(e) = hub_clone
-                                .snapshot_service
-                                .write_markdown(&doc_uuid, &doc_for_markdown)
-                                .await
-                            {
-                                tracing::error!(
-                                    document_id = %doc_id_s,
-                                    error = ?e,
-                                    "debounced_save_failed"
-                                );
-                            }
-                        }
-                    }
-                });
-            })
-            .unwrap();
-
-        let room = Arc::new(DocumentRoom {
-            doc: doc.clone(),
-            awareness: awareness.clone(),
-            broadcast: bcast.clone(),
-            persist_sub,
-            seq: seq.clone(),
-            skip_fs_persist: skip_fs_persist_flag.clone(),
-        });
+        // Register the room
         self.inner
             .write()
             .await
             .insert(doc_id.to_string(), room.clone());
         let _ = self.ensure_edit_flag(doc_id).await;
-        // Hydrate in background (snapshot + updates). Non-blocking for WS subscription
-        let bcast_h = bcast.clone();
-        let hydration = self.hydration_service.clone();
-        let seq_for_hydrate = seq.clone();
-        let skip_flag_for_hydrate = skip_fs_persist_flag.clone();
-        tokio::spawn(async move {
-            tracing::debug!(%doc_uuid, "hydrate:start");
-            match hydration
-                .hydrate(&doc_uuid, HydrationOptions::default())
-                .await
-            {
-                Ok(hydrated_state) => {
-                    let update_bin = {
-                        let txn = hydrated_state.doc.transact();
-                        txn.encode_state_as_update_v1(&StateVector::default())
-                    };
-                    if let Ok(update) = Update::decode_v1(&update_bin) {
-                        let mut txn = doc.transact_mut();
-                        if let Err(e) = txn.apply_update(update) {
-                            tracing::debug!(document_id = %doc_uuid, error = ?e, "hydrate_apply_failed");
-                        } else {
-                            skip_flag_for_hydrate.store(true, Ordering::SeqCst);
-                        }
-                    }
 
-                    {
-                        let mut guard = seq_for_hydrate.lock().await;
-                        if hydrated_state.last_seq > *guard {
-                            *guard = hydrated_state.last_seq;
-                        }
-                    }
+        tracing::debug!(
+            document_id = %doc_id,
+            start_seq = start_seq,
+            "e2ee_room_created"
+        );
 
-                    let txn = doc.transact();
-                    let bin = txn.encode_state_as_update_v1(&StateVector::default());
-                    drop(txn);
-                    let mut enc = EncoderV1::new();
-                    enc.write_var(MSG_SYNC);
-                    enc.write_var(MSG_SYNC_UPDATE);
-                    enc.write_buf(&bin);
-                    let msg = enc.to_vec();
-                    if let Err(e) = bcast_h.broadcast(msg) {
-                        tracing::debug!(
-                            document_id = %doc_uuid,
-                            error = %e,
-                            "hydrate:broadcast_failed"
-                        );
-                    }
-                    tracing::debug!(document_id = %doc_uuid, "hydrate:complete");
-                }
-                Err(e) => {
-                    tracing::error!(document_id = %doc_uuid, error = ?e, "hydrate_failed");
-                }
-            }
-        });
         Ok(room)
     }
 
@@ -335,67 +150,10 @@ impl Hub {
         self.snapshot_service.clone()
     }
 
-    pub async fn apply_snapshot(&self, doc_id: &str, snapshot: &Doc) -> anyhow::Result<()> {
-        let room = self.get_or_create(doc_id).await?;
-        let new_markdown = {
-            let txt_new = snapshot.get_or_insert_text("content");
-            let txn = snapshot.transact();
-            txt_new.get_string(&txn)
-        };
-
-        let update_bytes = {
-            let txt = room.doc.get_or_insert_text("content");
-            let mut txn = room.doc.transact_mut();
-            let len = txt.len(&txn);
-            if len > 0 {
-                txt.remove_range(&mut txn, 0, len);
-            }
-            if !new_markdown.is_empty() {
-                txt.insert(&mut txn, 0, &new_markdown);
-            }
-            txn.encode_update_v1()
-        };
-
-        if update_bytes.is_empty() {
-            return Ok(());
-        }
-
-        room.skip_fs_persist.store(true, Ordering::SeqCst);
-
-        let mut encoder = EncoderV1::new();
-        encoder.write_var(MSG_SYNC);
-        encoder.write_var(MSG_SYNC_UPDATE);
-        encoder.write_buf(&update_bytes);
-        let frame = encoder.to_vec();
-        room.broadcast
-            .broadcast(frame)
-            .map_err(|err| anyhow::anyhow!(err))
-            .context("broadcast_snapshot_update")?;
-
-        Ok(())
-    }
-
-    pub async fn get_content(&self, doc_id: &str) -> anyhow::Result<Option<String>> {
-        if let Some(room) = self.inner.read().await.get(doc_id).cloned() {
-            let txt = room.doc.get_or_insert_text("content");
-            let txn = room.doc.transact();
-            return Ok(Some(txt.get_string(&txn)));
-        }
-
-        let uuid = match Uuid::parse_str(doc_id) {
-            Ok(id) => id,
-            Err(_) => return Ok(None),
-        };
-        let hydrated = self
-            .hydration_service
-            .hydrate(&uuid, HydrationOptions::default())
-            .await?;
-        let txt = hydrated.doc.get_or_insert_text("content");
-        let txn = hydrated.doc.transact();
-        Ok(Some(txt.get_string(&txn)))
-    }
-
-    /// Get Yjs snapshot with E2EE metadata (nonce, signature)
+    /// Get encrypted snapshot with metadata (nonce, signature, seq_at_snapshot)
+    ///
+    /// Returns the encrypted snapshot directly from persistence.
+    /// The server cannot decode the content.
     pub async fn get_snapshot(
         &self,
         doc_id: &str,
@@ -408,59 +166,94 @@ impl Hub {
             Err(_) => return Ok(None),
         };
 
-        // First try to get from in-memory room (for current state)
-        if let Some(room) = self.inner.read().await.get(doc_id).cloned() {
-            let txn = room.doc.transact();
-            let data = txn.encode_state_as_update_v1(&yrs::StateVector::default());
-
-            // Get nonce/signature from DB if available
-            if let Ok(Some(entry)) = self.persistence.latest_snapshot_entry(&uuid).await {
-                return Ok(Some(SnapshotData {
-                    data,
-                    nonce: entry.nonce,
-                    signature: entry.signature,
-                }));
-            }
-
-            return Ok(Some(SnapshotData {
-                data,
-                nonce: None,
-                signature: None,
-            }));
-        }
-
-        // No in-memory room, get from persistence directly
+        // Get encrypted snapshot from persistence
         if let Ok(Some(entry)) = self.persistence.latest_snapshot_entry(&uuid).await {
             return Ok(Some(SnapshotData {
                 data: entry.bytes,
                 nonce: entry.nonce,
                 signature: entry.signature,
+                seq_at_snapshot: entry.seq_at_snapshot,
             }));
         }
 
-        // Fallback: hydrate and encode
-        let hydrated = self
-            .hydration_service
-            .hydrate(&uuid, HydrationOptions::default())
-            .await?;
-        let txn = hydrated.doc.transact();
-        Ok(Some(SnapshotData {
-            data: txn.encode_state_as_update_v1(&yrs::StateVector::default()),
-            nonce: None,
-            signature: None,
-        }))
+        Ok(None)
     }
 
-    /// Apply encrypted update for E2EE documents
-    /// This stores the encrypted update data directly without processing it in Yjs
+    /// Get plaintext content is not available
+    ///
+    /// Returns None as the server cannot decrypt content.
+    pub async fn get_content(&self, _doc_id: &str) -> anyhow::Result<Option<String>> {
+        // Server cannot access plaintext content
+        Ok(None)
+    }
+
+    /// Apply plaintext snapshot is not available
+    ///
+    /// Use apply_encrypted_snapshot instead.
+    pub async fn apply_snapshot(
+        &self,
+        _doc_id: &str,
+        _snapshot: &yrs::Doc,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("apply_snapshot not available, use apply_encrypted_snapshot")
+    }
+
+    /// Apply encrypted snapshot
+    pub async fn apply_encrypted_snapshot(
+        &self,
+        doc_id: &str,
+        data: &[u8],
+        nonce: Option<&[u8]>,
+        signature: Option<&[u8]>,
+    ) -> anyhow::Result<()> {
+        let doc_uuid = Uuid::parse_str(doc_id)?;
+
+        // Get the next version number
+        let version = self
+            .persistence
+            .latest_snapshot_version(&doc_uuid)
+            .await?
+            .unwrap_or(0)
+            + 1;
+
+        // Get current seq to record in snapshot (for E2EE sync)
+        let room = self.get_or_create(doc_id).await?;
+        let current_seq = {
+            let guard = room.seq.lock().await;
+            *guard
+        };
+
+        // Store the encrypted snapshot with metadata including seq_at_snapshot
+        let encryption_meta = Some(ContentEncryptionMeta {
+            nonce: nonce.map(|n| n.to_vec()),
+            signature: signature.map(|s| s.to_vec()),
+            seq_at_snapshot: Some(current_seq),
+        });
+
+        self.persistence
+            .persist_snapshot(&doc_uuid, version, data, encryption_meta.as_ref())
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to persist encrypted snapshot: {:?}", e))?;
+
+        tracing::debug!(
+            document_id = %doc_id,
+            version = version,
+            seq_at_snapshot = current_seq,
+            "e2ee_snapshot_persisted"
+        );
+
+        Ok(())
+    }
+
+    /// Apply encrypted update
     pub async fn apply_encrypted_update(
         &self,
         doc_id: &str,
         data: &[u8],
         nonce: Option<&[u8]>,
+        signature: Option<&[u8]>,
+        public_key: Option<&[u8]>,
     ) -> anyhow::Result<()> {
-        use application::documents::ports::realtime::realtime_persistence_port::EncryptedUpdateData;
-
         let doc_uuid = Uuid::parse_str(doc_id)?;
 
         // Get the current seq number (create room if needed to track seq)
@@ -475,8 +268,8 @@ impl Hub {
         let update_data = EncryptedUpdateData {
             data: data.to_vec(),
             nonce: nonce.map(|n| n.to_vec()),
-            signature: None,
-            public_key: None,
+            signature: signature.map(|s| s.to_vec()),
+            public_key: public_key.map(|p| p.to_vec()),
         };
 
         self.persistence
@@ -484,17 +277,27 @@ impl Hub {
             .await
             .map_err(|e| anyhow::anyhow!("failed to persist encrypted update: {:?}", e))?;
 
+        tracing::debug!(
+            document_id = %doc_id,
+            seq = seq,
+            "e2ee_update_persisted"
+        );
+
         Ok(())
     }
 }
 
 impl Hub {
+    /// Prune old updates for all documents
+    ///
+    /// Snapshot creation is client-driven. This method only
+    /// prunes old encrypted updates after the window.
     pub async fn snapshot_all(
         &self,
-        keep_versions: i64,
+        _keep_versions: i64,
         updates_keep_window: i64,
     ) -> anyhow::Result<()> {
-        let rooms: Vec<(String, Arc<DocumentRoom>)> = {
+        let rooms: Vec<(String, Arc<E2EEDocumentRoom>)> = {
             let map = self.inner.read().await;
             map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
         };
@@ -508,40 +311,40 @@ impl Hub {
                 *guard
             };
             let cutoff = (current_seq - updates_keep_window).max(0);
-            self.snapshot_service
-                .persist_snapshot(
-                    &doc_uuid,
-                    &room.doc,
-                    SnapshotPersistOptions {
-                        clear_updates: false,
-                        skip_if_unchanged: true,
-                        prune_snapshots: Some(keep_versions),
-                        prune_updates_before: Some(cutoff),
-                    },
-                )
-                .await?;
+
+            // Prune old updates (encrypted updates before cutoff)
+            if let Err(e) = self.persistence.prune_updates_before(&doc_uuid, cutoff).await {
+                tracing::warn!(
+                    document_id = %doc_id,
+                    error = %e,
+                    "e2ee_prune_updates_failed"
+                );
+            }
         }
         Ok(())
     }
 
+    /// Force save to filesystem is not available
+    ///
+    /// The server cannot decrypt content to write markdown.
     pub async fn force_save_to_fs(&self, doc_id: &str) -> anyhow::Result<()> {
-        let uuid = Uuid::parse_str(doc_id)?;
-        if let Some(room) = self.inner.read().await.get(doc_id).cloned() {
-            self.snapshot_service
-                .write_markdown(&uuid, &room.doc)
-                .await?;
-        } else {
-            let hydrated = self
-                .hydration_service
-                .hydrate(&uuid, HydrationOptions::default())
-                .await?;
-            self.snapshot_service
-                .write_markdown(&uuid, &hydrated.doc)
-                .await?;
-        }
+        tracing::warn!(
+            document_id = %doc_id,
+            "force_save_to_fs called - server cannot decrypt content"
+        );
+        // We cannot write plaintext markdown
+        // This is a no-op but we don't fail to maintain API compatibility
         Ok(())
     }
 
+    /// Subscribe to a document room for realtime collaboration
+    ///
+    /// This method:
+    /// 1. Sends initial encrypted snapshot to the client
+    /// 2. Processes incoming E2EE messages (JSON format)
+    /// 3. Verifies Ed25519 signatures
+    /// 4. Relays valid messages to other clients
+    /// 5. Persists encrypted updates to the database
     pub async fn subscribe(
         &self,
         doc_id: &str,
@@ -553,62 +356,235 @@ impl Hub {
         let sink: SharedRealtimeSink = Arc::new(Mutex::new(sink));
         let edit_flag = self.ensure_edit_flag(doc_id).await;
         let effective_can_edit = can_edit && edit_flag.load(Ordering::Relaxed);
-        let guarded_stream =
-            wrap_stream_with_edit_guard(stream, doc_id.to_string(), edit_flag.clone());
-        let tracked_clients: Arc<StdMutex<HashMap<ClientID, u32>>> =
-            Arc::new(StdMutex::new(HashMap::new()));
-        let awareness = room.awareness.clone();
-        let result = if effective_can_edit {
-            let subscription = room.broadcast.subscribe_with(
-                sink.clone(),
-                guarded_stream,
-                TrackingProtocol::new(DefaultProtocol, tracked_clients.clone()),
-            );
-            Self::send_protocol_start(sink.clone(), awareness.clone(), DefaultProtocol).await?;
-            subscription.completed().await
+
+        // Add client to room for broadcast
+        room.add_client(sink.clone()).await;
+
+        // Send initial encrypted snapshot if available
+        let snapshot_seq = if let Ok(Some(snapshot)) = self.get_snapshot(doc_id).await {
+            let init_msg = serde_json::json!({
+                "type": "init",
+                "snapshot": {
+                    "data": base64::engine::general_purpose::STANDARD.encode(&snapshot.data),
+                    "nonce": snapshot.nonce.map(|n| base64::engine::general_purpose::STANDARD.encode(&n)),
+                    "signature": snapshot.signature.map(|s| base64::engine::general_purpose::STANDARD.encode(&s)),
+                    "seq_at_snapshot": snapshot.seq_at_snapshot,
+                }
+            });
+            let msg_bytes = serde_json::to_vec(&init_msg)?;
+            let mut guard = sink.lock().await;
+            if let Err(e) = guard.send(msg_bytes).await {
+                tracing::debug!(error = %e, "e2ee_init_send_failed");
+            }
+            drop(guard);
+            // Use seq_at_snapshot to determine which updates to send
+            snapshot.seq_at_snapshot.unwrap_or(0)
         } else {
-            let subscription = room.broadcast.subscribe_with(
-                sink.clone(),
-                guarded_stream,
-                TrackingProtocol::new(ReadOnlyProtocol, tracked_clients.clone()),
-            );
-            Self::send_protocol_start(sink.clone(), awareness.clone(), ReadOnlyProtocol).await?;
-            subscription.completed().await
+            0
         };
 
-        Self::cleanup_tracked_clients(awareness, tracked_clients);
-        result.map_err(|e| anyhow::anyhow!(e))
-    }
-
-    fn cleanup_tracked_clients(
-        awareness: AwarenessRef,
-        tracked: Arc<StdMutex<HashMap<ClientID, u32>>>,
-    ) {
-        // Remove awareness states owned by a connection once it disconnects to avoid ghost cursors.
-        let tracked_clients: Vec<(ClientID, u32)> = {
-            let mut guard = tracked.lock().expect("tracked clients mutex poisoned");
-            guard.drain().collect()
-        };
-        if tracked_clients.is_empty() {
-            return;
+        // Send pending encrypted updates since last snapshot (only updates after snapshot)
+        let doc_uuid = Uuid::parse_str(doc_id)?;
+        if let Ok(updates) = self.persistence.get_updates_since(&doc_uuid, snapshot_seq).await {
+            for update in updates {
+                let update_msg = serde_json::json!({
+                    "type": "sync_update",
+                    "update": {
+                        "data": base64::engine::general_purpose::STANDARD.encode(&update.data),
+                        "nonce": update.nonce.map(|n| base64::engine::general_purpose::STANDARD.encode(&n)),
+                        "signature": update.signature.map(|s| base64::engine::general_purpose::STANDARD.encode(&s)),
+                        "public_key": update.public_key.map(|p| base64::engine::general_purpose::STANDARD.encode(&p)),
+                        "seq": update.seq,
+                    }
+                });
+                let msg_bytes = serde_json::to_vec(&update_msg)?;
+                let mut guard = sink.lock().await;
+                if let Err(e) = guard.send(msg_bytes).await {
+                    tracing::debug!(error = %e, "e2ee_sync_update_send_failed");
+                    break;
+                }
+                drop(guard);
+            }
         }
 
-        let active_clients: HashSet<ClientID> = awareness
-            .iter()
-            .filter(|(_, state)| state.data.is_some())
-            .map(|(id, _)| id)
-            .collect();
+        // Process incoming messages
+        let mut stream = stream;
+        while let Some(result) = stream.next().await {
+            let data = match result {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::debug!(error = %e, "e2ee_stream_error");
+                    break;
+                }
+            };
 
-        for (client_id, recorded_clock) in tracked_clients {
-            if !active_clients.contains(&client_id) {
+            // Parse E2EE message (secsync-compatible format)
+            let msg: RealtimeMessage = match serde_json::from_slice(&data) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::debug!(error = %e, "e2ee_parse_error");
+                    continue;
+                }
+            };
+
+            // Extract public key from publicData based on message type
+            let (pub_key_b64, msg_doc_id) = match msg.msg_type {
+                MessageType::Update => {
+                    match msg.parse_update_public_data() {
+                        Ok(pd) => (pd.pub_key, pd.doc_id),
+                        Err(e) => {
+                            tracing::debug!(error = %e, "e2ee_parse_update_public_data_error");
+                            continue;
+                        }
+                    }
+                }
+                MessageType::Snapshot => {
+                    match msg.parse_snapshot_public_data() {
+                        Ok(pd) => (pd.pub_key, pd.doc_id),
+                        Err(e) => {
+                            tracing::debug!(error = %e, "e2ee_parse_snapshot_public_data_error");
+                            continue;
+                        }
+                    }
+                }
+                MessageType::Awareness => {
+                    match msg.parse_ephemeral_public_data() {
+                        Ok(pd) => (pd.pub_key, pd.doc_id),
+                        Err(e) => {
+                            tracing::debug!(error = %e, "e2ee_parse_ephemeral_public_data_error");
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            // Verify document ID matches
+            if msg_doc_id != doc_id {
+                tracing::warn!(
+                    expected = %doc_id,
+                    actual = %msg_doc_id,
+                    "e2ee_doc_id_mismatch"
+                );
                 continue;
             }
-            if let Some((current_clock, _)) = awareness.meta(client_id) {
-                if current_clock == recorded_clock {
-                    awareness.remove_state(client_id);
+
+            // Check edit permission for updates/snapshots
+            if !effective_can_edit
+                && matches!(msg.msg_type, MessageType::Update | MessageType::Snapshot)
+            {
+                tracing::debug!("e2ee_write_rejected_readonly");
+                continue;
+            }
+
+            // Decode signature components
+            let public_key = match base64::engine::general_purpose::STANDARD.decode(&pub_key_b64) {
+                Ok(k) => k,
+                Err(e) => {
+                    tracing::debug!(error = %e, "e2ee_public_key_decode_error");
+                    continue;
+                }
+            };
+            let signature =
+                match base64::engine::general_purpose::STANDARD.decode(&msg.signature) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "e2ee_signature_decode_error");
+                        continue;
+                    }
+                };
+
+            // Verify Ed25519 signature (secsync format: domain + canonicalize({nonce, ciphertext, publicData}))
+            let signing_message = Ed25519Verifier::build_signing_message(
+                msg.signature_domain(),
+                &msg.nonce,
+                &msg.ciphertext,
+                &msg.public_data,
+            );
+
+            match Ed25519Verifier::verify(&public_key, &signing_message, &signature) {
+                Ok(true) => {
+                    // Signature valid
+                }
+                Ok(false) => {
+                    tracing::warn!(
+                        document_id = %doc_id,
+                        "e2ee_signature_invalid"
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        document_id = %doc_id,
+                        error = %e,
+                        "e2ee_signature_verify_error"
+                    );
+                    continue;
                 }
             }
+
+            // Decode ciphertext and nonce for persistence
+            let ciphertext =
+                match base64::engine::general_purpose::STANDARD.decode(&msg.ciphertext) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "e2ee_ciphertext_decode_error");
+                        continue;
+                    }
+                };
+            let nonce = match base64::engine::general_purpose::STANDARD.decode(&msg.nonce) {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::debug!(error = %e, "e2ee_nonce_decode_error");
+                    continue;
+                }
+            };
+
+            // Process message by type
+            match msg.msg_type {
+                MessageType::Update => {
+                    // Persist encrypted update
+                    if let Err(e) = self
+                        .apply_encrypted_update(
+                            doc_id,
+                            &ciphertext,
+                            Some(&nonce),
+                            Some(&signature),
+                            Some(&public_key),
+                        )
+                        .await
+                    {
+                        tracing::warn!(error = %e, "e2ee_persist_update_failed");
+                    }
+                }
+                MessageType::Snapshot => {
+                    // Persist encrypted snapshot
+                    if let Err(e) = self
+                        .apply_encrypted_snapshot(doc_id, &ciphertext, Some(&nonce), Some(&signature))
+                        .await
+                    {
+                        tracing::warn!(error = %e, "e2ee_persist_snapshot_failed");
+                    }
+                }
+                MessageType::Awareness => {
+                    // Awareness messages are ephemeral, no persistence
+                }
+            }
+
+            // Relay to other clients
+            room.broadcast_except(&data, &sink).await;
         }
+
+        // Remove client from room
+        room.remove_client(&sink).await;
+
+        let remaining = room.client_count().await;
+        tracing::debug!(
+            document_id = %doc_id,
+            remaining_clients = remaining,
+            "e2ee_client_disconnected"
+        );
+
+        Ok(())
     }
 
     async fn ensure_edit_flag(&self, doc_id: &str) -> Arc<AtomicBool> {
@@ -622,143 +598,6 @@ impl Hub {
     pub async fn set_document_editable(&self, doc_id: &str, editable: bool) -> anyhow::Result<()> {
         let flag = self.ensure_edit_flag(doc_id).await;
         flag.store(editable, Ordering::SeqCst);
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ReadOnlyProtocol;
-
-impl yrs::sync::Protocol for ReadOnlyProtocol {
-    fn handle_sync_step2(
-        &self,
-        _awareness: &yrs::sync::Awareness,
-        _update: yrs::Update,
-    ) -> Result<Option<yrs::sync::Message>, yrs::sync::Error> {
-        Ok(None)
-    }
-
-    fn handle_update(
-        &self,
-        _awareness: &yrs::sync::Awareness,
-        _update: yrs::Update,
-    ) -> Result<Option<yrs::sync::Message>, yrs::sync::Error> {
-        Ok(None)
-    }
-}
-
-struct TrackingProtocol<P> {
-    inner: P,
-    tracked: Arc<StdMutex<HashMap<ClientID, u32>>>,
-}
-
-impl<P> TrackingProtocol<P> {
-    fn new(inner: P, tracked: Arc<StdMutex<HashMap<ClientID, u32>>>) -> Self {
-        Self { inner, tracked }
-    }
-}
-
-impl<P> Protocol for TrackingProtocol<P>
-where
-    P: Protocol + Send + Sync,
-{
-    fn start<E>(&self, awareness: &yrs::sync::Awareness, encoder: &mut E) -> Result<(), SyncError>
-    where
-        E: Encoder,
-    {
-        Protocol::start(&self.inner, awareness, encoder)
-    }
-
-    fn handle_sync_step1(
-        &self,
-        awareness: &yrs::sync::Awareness,
-        sv: StateVector,
-    ) -> Result<Option<yrs::sync::Message>, SyncError> {
-        Protocol::handle_sync_step1(&self.inner, awareness, sv)
-    }
-
-    fn handle_sync_step2(
-        &self,
-        awareness: &yrs::sync::Awareness,
-        update: Update,
-    ) -> Result<Option<yrs::sync::Message>, SyncError> {
-        Protocol::handle_sync_step2(&self.inner, awareness, update)
-    }
-
-    fn handle_update(
-        &self,
-        awareness: &yrs::sync::Awareness,
-        update: Update,
-    ) -> Result<Option<yrs::sync::Message>, SyncError> {
-        Protocol::handle_update(&self.inner, awareness, update)
-    }
-
-    fn handle_auth(
-        &self,
-        awareness: &yrs::sync::Awareness,
-        deny_reason: Option<String>,
-    ) -> Result<Option<yrs::sync::Message>, SyncError> {
-        Protocol::handle_auth(&self.inner, awareness, deny_reason)
-    }
-
-    fn handle_awareness_query(
-        &self,
-        awareness: &yrs::sync::Awareness,
-    ) -> Result<Option<yrs::sync::Message>, SyncError> {
-        Protocol::handle_awareness_query(&self.inner, awareness)
-    }
-
-    fn handle_awareness_update(
-        &self,
-        awareness: &yrs::sync::Awareness,
-        update: AwarenessUpdate,
-    ) -> Result<Option<yrs::sync::Message>, SyncError> {
-        {
-            let mut guard = self.tracked.lock().expect("tracked clients mutex poisoned");
-            for (&client_id, entry) in update.clients.iter() {
-                if entry.json.as_ref() == "null" {
-                    guard.remove(&client_id);
-                } else {
-                    guard.insert(client_id, entry.clock);
-                }
-            }
-        }
-        awareness.apply_update(update)?;
-        Ok(None)
-    }
-
-    fn missing_handle(
-        &self,
-        awareness: &yrs::sync::Awareness,
-        tag: u8,
-        data: Vec<u8>,
-    ) -> Result<Option<yrs::sync::Message>, SyncError> {
-        Protocol::missing_handle(&self.inner, awareness, tag, data)
-    }
-}
-
-impl Hub {
-    async fn send_protocol_start<P>(
-        sink: SharedRealtimeSink,
-        awareness: AwarenessRef,
-        protocol: P,
-    ) -> anyhow::Result<()>
-    where
-        P: Protocol,
-    {
-        let mut encoder = EncoderV1::new();
-        protocol
-            .start::<EncoderV1>(awareness.as_ref(), &mut encoder)
-            .map_err(|err| anyhow::anyhow!(err))?;
-        let frame = encoder.to_vec();
-        if frame.is_empty() {
-            return Ok(());
-        }
-        let mut guard = sink.lock().await;
-        guard
-            .send(frame)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
         Ok(())
     }
 }

@@ -3,7 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
+use base64::Engine;
 use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{Mutex, RwLock};
@@ -11,43 +12,36 @@ use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
-use yrs::encoding::write::Write as YWrite;
-use yrs::sync::awareness::Awareness;
-use yrs::sync::protocol::{MSG_SYNC, MSG_SYNC_UPDATE};
-use yrs::sync::{DefaultProtocol, Protocol};
-use yrs::updates::encoder::{Encoder, EncoderV1};
-use yrs::{Doc, GetString, ReadTxn, StateVector, Text, Transact};
 
+use crate::core::crypto::Ed25519Verifier;
 use crate::core::db::PgPool;
 use crate::documents::db::repositories::document_snapshot_archive_repository_sqlx::SqlxDocumentSnapshotArchiveRepository;
 use crate::documents::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository;
 use crate::documents::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository;
-use crate::documents::realtime::awareness::{AwarenessService, encode_awareness_state};
-use crate::documents::realtime::utils::{analyse_frame, wrap_stream_with_edit_guard};
 use crate::documents::realtime::{SqlxDocPersistenceAdapter, SqlxDocStateReader};
 use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_port::StorageResolverPort;
 use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::documents::ports::document_snapshot_archive_repository::DocumentSnapshotArchiveRepository;
 use application::documents::ports::linkgraph_repository::LinkGraphRepository;
-use application::documents::ports::realtime::awareness_port::AwarenessPublisher;
 use application::documents::ports::realtime::realtime_hydration_port::{
     DocStateReader, RealtimeBacklogReader,
 };
 use application::documents::ports::realtime::realtime_persistence_port::{
-    DocPersistencePort, DocumentMissingError,
+    ContentEncryptionMeta, DocPersistencePort, DocumentMissingError, EncryptedUpdateData,
 };
 use application::documents::ports::realtime::realtime_port::{
     EncryptedUpdate, RealtimeEngine as RealtimeEngineTrait, SnapshotData,
 };
-use application::documents::ports::realtime::realtime_types::{DynRealtimeSink, DynRealtimeStream};
+use application::documents::ports::realtime::realtime_types::{
+    DynRealtimeSink, DynRealtimeStream, MessageType, RealtimeMessage,
+};
 use application::documents::ports::tagging::tagging_repository::TaggingRepository;
 use application::documents::services::realtime::doc_hydration::{
     DocHydrationService, HydrationOptions,
 };
 use application::documents::services::realtime::snapshot::{
     SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
-    doc_from_snapshot_bytes,
 };
 
 use super::cluster_bus::{RedisClusterBus, StreamItem};
@@ -152,76 +146,35 @@ impl RedisRealtimeEngine {
         self.snapshot_service.clone()
     }
 
-    async fn send_initial_sync(&self, doc: &Doc, sink: &SharedRealtimeSink) -> anyhow::Result<()> {
-        let bin = {
-            let txn = doc.transact();
-            txn.encode_state_as_update_v1(&StateVector::default())
-        };
-        let mut enc = EncoderV1::new();
-        enc.write_var(MSG_SYNC);
-        enc.write_var(MSG_SYNC_UPDATE);
-        enc.write_buf(&bin);
-        let frame = enc.to_vec();
-
-        let mut guard = sink.lock().await;
-        guard
-            .send(frame)
-            .await
-            .map_err(|e| anyhow!("initial_sync_send_failed: {e}"))?;
-        Ok(())
-    }
-
-    async fn flush_awareness_backlog(
-        &self,
-        sink: &SharedRealtimeSink,
-        frames: &[Vec<u8>],
-        doc_id: &str,
-        awareness_manager: &AwarenessService,
-    ) -> anyhow::Result<()> {
-        for payload in frames {
-            awareness_manager.apply_remote_frame(payload).await?;
-            let mut guard = sink.lock().await;
-            if let Err(e) = guard.send(payload.clone()).await {
-                return Err(anyhow!("initial_awareness_send_failed: {e}"));
-            }
-        }
-        tracing::debug!(
-            document_id = doc_id,
-            count = frames.len(),
-            "redis_cluster_awareness_prefill"
-        );
-        Ok(())
-    }
-
-    fn spawn_forward_task(
+    /// Spawn a task to forward E2EE messages from Redis to the client
+    fn spawn_e2ee_forward_task(
         mut stream: UnboundedReceiverStream<anyhow::Result<StreamItem>>,
         sink: SharedRealtimeSink,
         doc_id: String,
         channel: &'static str,
-        awareness_manager: Option<AwarenessService>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             while let Some(item) = stream.next().await {
                 match item {
                     Ok((_id, frame)) => {
-                        if let Some(manager) = &awareness_manager {
-                            if let Err(e) = manager.apply_remote_frame(&frame).await {
-                                tracing::debug!(
-                                    document_id = %doc_id,
-                                    channel,
-                                    error = ?e,
-                                    "redis_cluster_awareness_apply_failed"
-                                );
-                            }
-                        }
                         let mut guard = sink.lock().await;
                         if let Err(e) = guard.send(frame).await {
-                            tracing::debug!(document_id = %doc_id, channel, error = %e, "redis_cluster_forward_sink_closed");
+                            tracing::debug!(
+                                document_id = %doc_id,
+                                channel,
+                                error = %e,
+                                "redis_e2ee_forward_sink_closed"
+                            );
                             break;
                         }
                     }
                     Err(e) => {
-                        tracing::warn!(document_id = %doc_id, channel, error = ?e, "redis_cluster_forward_stream_error");
+                        tracing::warn!(
+                            document_id = %doc_id,
+                            channel,
+                            error = ?e,
+                            "redis_e2ee_forward_stream_error"
+                        );
                     }
                 }
             }
@@ -235,10 +188,98 @@ impl RedisRealtimeEngine {
             .or_insert_with(|| Arc::new(AtomicBool::new(true)))
             .clone()
     }
+
+    /// Get the current seq for a document
+    async fn get_current_seq(&self, doc_id: &Uuid) -> i64 {
+        self.persistence
+            .latest_update_seq(doc_id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(0)
+    }
+
+    /// Apply encrypted snapshot with seq tracking
+    async fn apply_encrypted_snapshot(
+        &self,
+        doc_id: &Uuid,
+        data: &[u8],
+        nonce: Option<&[u8]>,
+        signature: Option<&[u8]>,
+    ) -> anyhow::Result<()> {
+        let version = self
+            .persistence
+            .latest_snapshot_version(doc_id)
+            .await?
+            .unwrap_or(0)
+            + 1;
+
+        let current_seq = self.get_current_seq(doc_id).await;
+
+        let encryption_meta = Some(ContentEncryptionMeta {
+            nonce: nonce.map(|n| n.to_vec()),
+            signature: signature.map(|s| s.to_vec()),
+            seq_at_snapshot: Some(current_seq),
+        });
+
+        self.persistence
+            .persist_snapshot(doc_id, version, data, encryption_meta.as_ref())
+            .await
+            .map_err(|e| anyhow!("failed to persist encrypted snapshot: {:?}", e))?;
+
+        tracing::debug!(
+            document_id = %doc_id,
+            version = version,
+            seq_at_snapshot = current_seq,
+            "redis_e2ee_snapshot_persisted"
+        );
+
+        Ok(())
+    }
+
+    /// Apply encrypted update with seq tracking
+    async fn apply_encrypted_update(
+        &self,
+        doc_id: &Uuid,
+        data: &[u8],
+        nonce: Option<&[u8]>,
+        signature: Option<&[u8]>,
+        public_key: Option<&[u8]>,
+    ) -> anyhow::Result<()> {
+        let seq = self.get_current_seq(doc_id).await + 1;
+
+        let update_data = EncryptedUpdateData {
+            data: data.to_vec(),
+            nonce: nonce.map(|n| n.to_vec()),
+            signature: signature.map(|s| s.to_vec()),
+            public_key: public_key.map(|p| p.to_vec()),
+        };
+
+        self.persistence
+            .append_encrypted_update_with_seq(doc_id, seq, &update_data)
+            .await
+            .map_err(|e| anyhow!("failed to persist encrypted update: {:?}", e))?;
+
+        tracing::debug!(
+            document_id = %doc_id,
+            seq = seq,
+            "redis_e2ee_update_persisted"
+        );
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
 impl RealtimeEngineTrait for RedisRealtimeEngine {
+    /// Subscribe to a document for E2EE realtime collaboration via Redis
+    ///
+    /// This method:
+    /// 1. Sends initial encrypted snapshot to the client
+    /// 2. Processes incoming E2EE messages (JSON format)
+    /// 3. Verifies Ed25519 signatures
+    /// 4. Relays valid messages to other clients via Redis
+    /// 5. Persists encrypted updates to the database
     async fn subscribe(
         &self,
         doc_id: &str,
@@ -248,127 +289,264 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
     ) -> PortResult<()> {
         let sink: SharedRealtimeSink = Arc::new(Mutex::new(sink));
         let doc_uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
-        let hydrated = self
-            .hydration_service
-            .hydrate(&doc_uuid, HydrationOptions::default())
-            .await?;
-        let awareness_publisher: Arc<dyn AwarenessPublisher> = self.bus.clone();
-        let awareness_service = AwarenessService::new(
-            hydrated.doc.clone(),
-            self.awareness_ttl,
-            awareness_publisher,
-            doc_id.to_string(),
-        );
-        let ttl_handle = awareness_service.spawn_ttl_task();
+        let edit_flag = self.ensure_edit_flag(doc_id).await;
+        let effective_can_edit = can_edit && edit_flag.load(Ordering::Relaxed);
+
         let mut updates_handle: Option<JoinHandle<()>> = None;
         let mut awareness_handle: Option<JoinHandle<()>> = None;
 
         let result: anyhow::Result<()> = async {
-            let edit_flag = self.ensure_edit_flag(doc_id).await;
-            let session_can_edit = can_edit && edit_flag.load(Ordering::Relaxed);
-            let mut guarded_stream =
-                wrap_stream_with_edit_guard(stream, doc_id.to_string(), edit_flag.clone());
-
-            self.send_initial_sync(&hydrated.doc, &sink).await?;
-            self.flush_awareness_backlog(
-                &sink,
-                &hydrated.awareness_frames,
-                doc_id,
-                &awareness_service,
-            )
-            .await?;
-            if let Ok(Some(frame)) = encode_awareness_state(&awareness_service.awareness()) {
+            // Send initial encrypted snapshot if available
+            let snapshot_seq = if let Ok(Some(entry)) =
+                self.persistence.latest_snapshot_entry(&doc_uuid).await
+            {
+                let init_msg = serde_json::json!({
+                    "type": "init",
+                    "snapshot": {
+                        "data": base64::engine::general_purpose::STANDARD.encode(&entry.bytes),
+                        "nonce": entry.nonce.map(|n| base64::engine::general_purpose::STANDARD.encode(&n)),
+                        "signature": entry.signature.map(|s| base64::engine::general_purpose::STANDARD.encode(&s)),
+                        "seq_at_snapshot": entry.seq_at_snapshot,
+                    }
+                });
+                let msg_bytes = serde_json::to_vec(&init_msg)?;
                 let mut guard = sink.lock().await;
-                let _ = guard.send(frame).await;
+                if let Err(e) = guard.send(msg_bytes).await {
+                    tracing::debug!(error = %e, "redis_e2ee_init_send_failed");
+                }
+                drop(guard);
+                entry.seq_at_snapshot.unwrap_or(0)
+            } else {
+                0
+            };
+
+            // Send pending encrypted updates since last snapshot
+            if let Ok(updates) = self
+                .persistence
+                .get_updates_since(&doc_uuid, snapshot_seq)
+                .await
+            {
+                for update in updates {
+                    let update_msg = serde_json::json!({
+                        "type": "sync_update",
+                        "update": {
+                            "data": base64::engine::general_purpose::STANDARD.encode(&update.data),
+                            "nonce": update.nonce.map(|n| base64::engine::general_purpose::STANDARD.encode(&n)),
+                            "signature": update.signature.map(|s| base64::engine::general_purpose::STANDARD.encode(&s)),
+                            "public_key": update.public_key.map(|p| base64::engine::general_purpose::STANDARD.encode(&p)),
+                            "seq": update.seq,
+                        }
+                    });
+                    let msg_bytes = serde_json::to_vec(&update_msg)?;
+                    let mut guard = sink.lock().await;
+                    if let Err(e) = guard.send(msg_bytes).await {
+                        tracing::debug!(error = %e, "redis_e2ee_sync_update_send_failed");
+                        break;
+                    }
+                    drop(guard);
+                }
             }
-            Self::send_protocol_start(
-                sink.clone(),
-                awareness_service.awareness(),
-                session_can_edit,
-            )
-            .await
-            .context("redis_cluster_send_protocol_start")?;
 
-            let updates_stream = self
-                .bus
-                .subscribe_updates(doc_id, hydrated.last_update_stream_id.clone())
-                .await?;
-            let awareness_stream = self
-                .bus
-                .subscribe_awareness(doc_id, hydrated.last_awareness_stream_id.clone())
-                .await?;
+            // Subscribe to Redis streams for updates from other clients
+            let updates_stream = self.bus.subscribe_updates(doc_id, None).await?;
+            let awareness_stream = self.bus.subscribe_awareness(doc_id, None).await?;
 
-            updates_handle = Some(Self::spawn_forward_task(
+            updates_handle = Some(Self::spawn_e2ee_forward_task(
                 updates_stream,
                 sink.clone(),
                 doc_id.to_string(),
                 "updates",
-                None,
             ));
-            awareness_handle = Some(Self::spawn_forward_task(
+            awareness_handle = Some(Self::spawn_e2ee_forward_task(
                 awareness_stream,
                 sink.clone(),
                 doc_id.to_string(),
                 "awareness",
-                Some(awareness_service.clone()),
             ));
 
-            while let Some(frame) = guarded_stream.next().await {
-                match frame {
-                    Ok(bytes) => match analyse_frame(&bytes) {
-                        Ok(summary) => {
-                            if summary.has_update {
-                                let allow_edit = can_edit && edit_flag.load(Ordering::Relaxed);
-                                if !allow_edit {
-                                    tracing::warn!(
-                                        document_id = %doc_id,
-                                        "ignored_update_from_readonly_client"
-                                    );
-                                } else if let Err(e) =
-                                    self.bus.publish_update(doc_id, bytes.clone()).await
-                                {
-                                    tracing::warn!(
-                                        document_id = %doc_id,
-                                        error = ?e,
-                                        "redis_cluster_publish_update_failed"
-                                    );
-                                    sleep(self.task_debounce).await;
-                                }
-                            }
-                            if summary.has_awareness {
-                                awareness_service.record_local_frame(&bytes).await.ok();
-                                if let Err(e) =
-                                    self.bus.publish_awareness(doc_id, bytes.clone()).await
-                                {
-                                    tracing::debug!(
-                                        document_id = %doc_id,
-                                        error = ?e,
-                                        "redis_cluster_publish_awareness_failed"
-                                    );
-                                }
-                            }
-                            if !summary.has_update && !summary.has_awareness {
-                                tracing::debug!(
-                                    document_id = %doc_id,
-                                    "redis_cluster_dropped_unknown_frame"
-                                );
-                            }
-                        }
+            // Process incoming E2EE messages
+            let mut stream = stream;
+            while let Some(result) = stream.next().await {
+                let data = match result {
+                    Ok(d) => d,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "redis_e2ee_stream_error");
+                        break;
+                    }
+                };
+
+                // Parse E2EE message (secsync-compatible format)
+                let msg: RealtimeMessage = match serde_json::from_slice(&data) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "redis_e2ee_parse_error");
+                        continue;
+                    }
+                };
+
+                // Extract public key from publicData based on message type
+                let (pub_key_b64, msg_doc_id) = match msg.msg_type {
+                    MessageType::Update => match msg.parse_update_public_data() {
+                        Ok(pd) => (pd.pub_key, pd.doc_id),
                         Err(e) => {
+                            tracing::debug!(error = %e, "redis_e2ee_parse_update_public_data_error");
+                            continue;
+                        }
+                    },
+                    MessageType::Snapshot => match msg.parse_snapshot_public_data() {
+                        Ok(pd) => (pd.pub_key, pd.doc_id),
+                        Err(e) => {
+                            tracing::debug!(error = %e, "redis_e2ee_parse_snapshot_public_data_error");
+                            continue;
+                        }
+                    },
+                    MessageType::Awareness => match msg.parse_ephemeral_public_data() {
+                        Ok(pd) => (pd.pub_key, pd.doc_id),
+                        Err(e) => {
+                            tracing::debug!(error = %e, "redis_e2ee_parse_ephemeral_public_data_error");
+                            continue;
+                        }
+                    },
+                };
+
+                // Verify document ID matches
+                if msg_doc_id != doc_id {
+                    tracing::warn!(
+                        expected = %doc_id,
+                        actual = %msg_doc_id,
+                        "redis_e2ee_doc_id_mismatch"
+                    );
+                    continue;
+                }
+
+                // Check edit permission for updates/snapshots
+                if !effective_can_edit
+                    && matches!(msg.msg_type, MessageType::Update | MessageType::Snapshot)
+                {
+                    tracing::debug!("redis_e2ee_write_rejected_readonly");
+                    continue;
+                }
+
+                // Decode signature components
+                let public_key =
+                    match base64::engine::general_purpose::STANDARD.decode(&pub_key_b64) {
+                        Ok(k) => k,
+                        Err(e) => {
+                            tracing::debug!(error = %e, "redis_e2ee_public_key_decode_error");
+                            continue;
+                        }
+                    };
+                let signature =
+                    match base64::engine::general_purpose::STANDARD.decode(&msg.signature) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::debug!(error = %e, "redis_e2ee_signature_decode_error");
+                            continue;
+                        }
+                    };
+
+                // Verify Ed25519 signature
+                let signing_message = Ed25519Verifier::build_signing_message(
+                    msg.signature_domain(),
+                    &msg.nonce,
+                    &msg.ciphertext,
+                    &msg.public_data,
+                );
+
+                match Ed25519Verifier::verify(&public_key, &signing_message, &signature) {
+                    Ok(true) => {
+                        // Signature valid
+                    }
+                    Ok(false) => {
+                        tracing::warn!(
+                            document_id = %doc_id,
+                            "redis_e2ee_signature_invalid"
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            document_id = %doc_id,
+                            error = %e,
+                            "redis_e2ee_signature_verify_error"
+                        );
+                        continue;
+                    }
+                }
+
+                // Decode ciphertext and nonce for persistence
+                let ciphertext =
+                    match base64::engine::general_purpose::STANDARD.decode(&msg.ciphertext) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::debug!(error = %e, "redis_e2ee_ciphertext_decode_error");
+                            continue;
+                        }
+                    };
+                let nonce = match base64::engine::general_purpose::STANDARD.decode(&msg.nonce) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "redis_e2ee_nonce_decode_error");
+                        continue;
+                    }
+                };
+
+                // Process message by type
+                match msg.msg_type {
+                    MessageType::Update => {
+                        // Persist encrypted update
+                        if let Err(e) = self
+                            .apply_encrypted_update(
+                                &doc_uuid,
+                                &ciphertext,
+                                Some(&nonce),
+                                Some(&signature),
+                                Some(&public_key),
+                            )
+                            .await
+                        {
+                            tracing::warn!(error = %e, "redis_e2ee_persist_update_failed");
+                        }
+                    }
+                    MessageType::Snapshot => {
+                        // Persist encrypted snapshot
+                        if let Err(e) = self
+                            .apply_encrypted_snapshot(
+                                &doc_uuid,
+                                &ciphertext,
+                                Some(&nonce),
+                                Some(&signature),
+                            )
+                            .await
+                        {
+                            tracing::warn!(error = %e, "redis_e2ee_persist_snapshot_failed");
+                        }
+                    }
+                    MessageType::Awareness => {
+                        // Awareness messages are ephemeral, no persistence
+                    }
+                }
+
+                // Relay to other clients via Redis
+                match msg.msg_type {
+                    MessageType::Update | MessageType::Snapshot => {
+                        if let Err(e) = self.bus.publish_update(doc_id, data.clone()).await {
                             tracing::warn!(
                                 document_id = %doc_id,
                                 error = ?e,
-                                "redis_cluster_frame_decode_failed"
+                                "redis_e2ee_publish_update_failed"
+                            );
+                            sleep(self.task_debounce).await;
+                        }
+                    }
+                    MessageType::Awareness => {
+                        if let Err(e) = self.bus.publish_awareness(doc_id, data.clone()).await {
+                            tracing::debug!(
+                                document_id = %doc_id,
+                                error = ?e,
+                                "redis_e2ee_publish_awareness_failed"
                             );
                         }
-                    },
-                    Err(e) => {
-                        tracing::debug!(
-                            document_id = %doc_id,
-                            error = %e,
-                            "redis_cluster_inbound_closed"
-                        );
-                        break;
                     }
                 }
             }
@@ -383,106 +561,56 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         if let Some(handle) = awareness_handle {
             handle.abort();
         }
-        if let Err(err) = awareness_service.clear_local_clients().await {
-            tracing::debug!(document_id = %doc_id, error = ?err, "redis_cluster_awareness_clear_failed");
-        }
-        ttl_handle.abort();
+
+        tracing::debug!(
+            document_id = %doc_id,
+            "redis_e2ee_client_disconnected"
+        );
 
         result.map_err(Into::into)
     }
 
-    async fn get_content(&self, doc_id: &str) -> PortResult<Option<String>> {
-        let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
-        let hydrated = self
-            .hydration_service
-            .hydrate(&uuid, HydrationOptions::default())
-            .await?;
-        let txt = hydrated.doc.get_or_insert_text("content");
-        let txn = hydrated.doc.transact();
-        Ok(Some(txt.get_string(&txn)))
+    async fn get_content(&self, _doc_id: &str) -> PortResult<Option<String>> {
+        // In E2EE mode, server cannot decrypt content
+        Ok(None)
     }
 
     async fn get_snapshot(&self, doc_id: &str) -> PortResult<Option<SnapshotData>> {
         let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
 
-        // Try to get from persistence first (for E2EE documents with stored nonce/signature)
+        // Get encrypted snapshot from persistence (E2EE mode)
         if let Ok(Some(entry)) = self.persistence.latest_snapshot_entry(&uuid).await {
             return Ok(Some(SnapshotData {
                 data: entry.bytes,
                 nonce: entry.nonce,
                 signature: entry.signature,
+                seq_at_snapshot: entry.seq_at_snapshot,
             }));
         }
 
-        // Fallback: hydrate and encode (no nonce/signature)
-        let hydrated = self
-            .hydration_service
-            .hydrate(&uuid, HydrationOptions::default())
-            .await?;
-        let txn = hydrated.doc.transact();
-        Ok(Some(SnapshotData {
-            data: txn.encode_state_as_update_v1(&yrs::StateVector::default()),
-            nonce: None,
-            signature: None,
-        }))
+        Ok(None)
     }
 
     async fn force_persist(&self, doc_id: &str) -> PortResult<()> {
-        let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
-        let hydrated = self
-            .hydration_service
-            .hydrate(&uuid, HydrationOptions::default())
-            .await?;
-        self.snapshot_service
-            .write_markdown(&uuid, &hydrated.doc)
-            .await?;
-        self.snapshot_service
-            .persist_snapshot(
-                &uuid,
-                &hydrated.doc,
-                SnapshotPersistOptions {
-                    clear_updates: true,
-                    ..Default::default()
-                },
-            )
-            .await?;
+        // In E2EE mode, server cannot write plaintext markdown
+        // Snapshot persistence is handled by clients via WebSocket
+        tracing::warn!(
+            document_id = %doc_id,
+            "force_persist called in E2EE mode - server cannot decrypt content"
+        );
         Ok(())
     }
 
-    async fn apply_snapshot(&self, doc_id: &str, snapshot: &[u8]) -> PortResult<()> {
-        let doc = doc_from_snapshot_bytes(snapshot)?;
-        let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
-        let hydrated = self
-            .hydration_service
-            .hydrate(&uuid, HydrationOptions::default())
-            .await?;
-        let update_bytes = {
-            let txt_new = doc.get_or_insert_text("content");
-            let txn_new = doc.transact();
-            let new_markdown = txt_new.get_string(&txn_new);
-            drop(txn_new);
-
-            let txt = hydrated.doc.get_or_insert_text("content");
-            let mut txn = hydrated.doc.transact_mut();
-            let len = txt.len(&txn);
-            if len > 0 {
-                txt.remove_range(&mut txn, 0, len);
-            }
-            if !new_markdown.is_empty() {
-                txt.insert(&mut txn, 0, &new_markdown);
-            }
-            txn.encode_update_v1()
-        };
-        if update_bytes.is_empty() {
-            return Ok(());
-        }
-        let mut encoder = EncoderV1::new();
-        encoder.write_var(MSG_SYNC);
-        encoder.write_var(MSG_SYNC_UPDATE);
-        encoder.write_buf(&update_bytes);
-        let frame = encoder.to_vec();
-        self.bus.publish_update(doc_id, frame).await?;
-        Ok(())
+    async fn apply_snapshot(&self, doc_id: &str, _snapshot: &[u8]) -> PortResult<()> {
+        // In E2EE mode, plaintext snapshot application is not supported
+        // Use apply_encrypted_updates or WebSocket snapshot messages instead
+        tracing::warn!(
+            document_id = %doc_id,
+            "apply_snapshot called in E2EE mode - not supported"
+        );
+        Err(application::core::ports::errors::PortError::from(
+            anyhow!("apply_snapshot not available in E2EE mode"),
+        ))
     }
 
     async fn set_document_editable(&self, doc_id: &str, editable: bool) -> PortResult<()> {
@@ -514,7 +642,7 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                 data: update.data.clone(),
                 nonce: update.nonce.clone(),
                 signature: update.signature.clone(),
-                public_key: None,
+                public_key: update.public_key.clone(),
             };
 
             self.persistence
@@ -718,51 +846,4 @@ fn spawn_persistence_worker(
 
         tracing::info!("redis_persistence_worker_stopped");
     }))
-}
-
-impl RedisRealtimeEngine {
-    async fn send_protocol_start(
-        sink: SharedRealtimeSink,
-        awareness: Arc<Awareness>,
-        writable: bool,
-    ) -> anyhow::Result<()> {
-        let mut encoder = EncoderV1::new();
-        if writable {
-            DefaultProtocol
-                .start::<EncoderV1>(awareness.as_ref(), &mut encoder)
-                .map_err(|err| anyhow!(err))?;
-        } else {
-            ReadOnlyProtocol
-                .start::<EncoderV1>(awareness.as_ref(), &mut encoder)
-                .map_err(|err| anyhow!(err))?;
-        }
-        let frame = encoder.to_vec();
-        if frame.is_empty() {
-            return Ok(());
-        }
-        let mut guard = sink.lock().await;
-        guard.send(frame).await.map_err(|err| anyhow!(err))?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ReadOnlyProtocol;
-
-impl yrs::sync::Protocol for ReadOnlyProtocol {
-    fn handle_sync_step2(
-        &self,
-        _awareness: &yrs::sync::Awareness,
-        _update: yrs::Update,
-    ) -> Result<Option<yrs::sync::Message>, yrs::sync::Error> {
-        Ok(None)
-    }
-
-    fn handle_update(
-        &self,
-        _awareness: &yrs::sync::Awareness,
-        _update: yrs::Update,
-    ) -> Result<Option<yrs::sync::Message>, yrs::sync::Error> {
-        Ok(None)
-    }
 }

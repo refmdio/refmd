@@ -23,6 +23,8 @@ pub struct SnapshotEntry {
     pub bytes: Vec<u8>,
     pub nonce: Option<Vec<u8>>,
     pub signature: Option<Vec<u8>>,
+    /// The seq number at the time this snapshot was created (for E2EE sync)
+    pub seq_at_snapshot: Option<i64>,
 }
 
 /// Encryption metadata for E2EE content
@@ -30,11 +32,23 @@ pub struct SnapshotEntry {
 pub struct ContentEncryptionMeta {
     pub nonce: Option<Vec<u8>>,
     pub signature: Option<Vec<u8>>,
+    /// The seq number at the time this snapshot was created (for E2EE sync)
+    pub seq_at_snapshot: Option<i64>,
 }
 
 /// Encrypted update data for E2EE documents
 #[derive(Debug, Clone)]
 pub struct EncryptedUpdateData {
+    pub data: Vec<u8>,
+    pub nonce: Option<Vec<u8>>,
+    pub signature: Option<Vec<u8>>,
+    pub public_key: Option<Vec<u8>>,
+}
+
+/// Encrypted update entry with sequence number (for retrieval)
+#[derive(Debug, Clone)]
+pub struct EncryptedUpdateEntry {
+    pub seq: i64,
     pub data: Vec<u8>,
     pub nonce: Option<Vec<u8>>,
     pub signature: Option<Vec<u8>>,
@@ -77,6 +91,13 @@ pub trait DocPersistencePort: Send + Sync {
     async fn prune_updates_before(&self, doc_id: &Uuid, seq_inclusive: i64) -> PortResult<()>;
 
     async fn clear_updates(&self, doc_id: &Uuid) -> PortResult<()>;
+
+    /// Get encrypted updates since a given sequence number (for E2EE sync)
+    async fn get_updates_since(
+        &self,
+        doc_id: &Uuid,
+        since_seq: i64,
+    ) -> PortResult<Vec<EncryptedUpdateEntry>>;
 }
 
 #[async_trait]

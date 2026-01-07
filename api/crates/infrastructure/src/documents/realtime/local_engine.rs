@@ -57,11 +57,17 @@ impl RealtimeEngine for LocalRealtimeEngine {
         doc_id: &str,
         updates: &[EncryptedUpdate],
     ) -> PortResult<()> {
-        // For E2EE documents, we apply updates as encrypted snapshots
+        // For E2EE documents, we apply updates as encrypted data
         // The hub will store the data without decrypting
         for update in updates {
             self.hub
-                .apply_encrypted_update(doc_id, &update.data, update.nonce.as_deref())
+                .apply_encrypted_update(
+                    doc_id,
+                    &update.data,
+                    update.nonce.as_deref(),
+                    update.signature.as_deref(),
+                    update.public_key.as_deref(),
+                )
                 .await
                 .map_err(|e| application::core::ports::errors::PortError::from(e))?;
         }

@@ -80,6 +80,7 @@ pub struct EncryptedUpdate {
     pub data: Vec<u8>,
     pub nonce: Option<Vec<u8>>,
     pub signature: Option<Vec<u8>>,
+    pub public_key: Option<Vec<u8>>,
 }
 
 /// Snapshot data with E2EE metadata
@@ -91,4 +92,6 @@ pub struct SnapshotData {
     pub nonce: Option<Vec<u8>>,
     /// Signature for verification
     pub signature: Option<Vec<u8>>,
+    /// The seq number at the time this snapshot was created (for E2EE sync)
+    pub seq_at_snapshot: Option<i64>,
 }

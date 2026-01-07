@@ -101,10 +101,11 @@ ALTER TABLE document_updates
     ADD COLUMN IF NOT EXISTS signature BYTEA,
     ADD COLUMN IF NOT EXISTS public_key BYTEA;
 
--- Document snapshots: encryption metadata and signature
+-- Document snapshots: encryption metadata, signature, and seq tracking
 ALTER TABLE document_snapshots
     ADD COLUMN IF NOT EXISTS nonce BYTEA,
-    ADD COLUMN IF NOT EXISTS signature BYTEA;
+    ADD COLUMN IF NOT EXISTS signature BYTEA,
+    ADD COLUMN IF NOT EXISTS seq_at_snapshot BIGINT;
 
 -- Files: encrypted metadata
 ALTER TABLE files

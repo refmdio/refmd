@@ -61,3 +61,4 @@ extism = { version = "1" }
 pandoc = "0.8"
 
 base64 = "0.21"
+ed25519-dalek = { version = "2", features = ["std"] }
