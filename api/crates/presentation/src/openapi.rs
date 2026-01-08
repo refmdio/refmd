@@ -4,7 +4,7 @@ use crate::http::core::{health, markdown, storage_ingest};
 use crate::http::documents::files;
 use crate::http::documents::keys as document_keys;
 use crate::http::documents::{publishing as public, sharing as shares, tagging as tags};
-use crate::http::identity::{api_tokens, auth, keys, shortcuts};
+use crate::http::identity::{api_tokens, auth, keys, migration, shortcuts};
 use crate::http::{documents, git, plugins, workspaces};
 use crate::ws;
 
@@ -35,6 +35,8 @@ use crate::ws;
         keys::openapi::get_encrypted_private_key,
         keys::openapi::mark_e2ee_setup_complete,
         keys::openapi::get_e2ee_status,
+        migration::openapi::migrate_to_e2ee,
+        migration::openapi::needs_migration,
         document_keys::openapi::get_document_key,
         document_keys::openapi::store_document_key,
         document_keys::openapi::rotate_document_key,
@@ -178,6 +180,11 @@ use crate::ws;
         keys::EncryptedPrivateKeyResponse,
         keys::StoreEncryptedPrivateKeyRequest,
         keys::E2eeStatusResponse,
+        migration::MigrateRequest,
+        migration::MemberEncryptedKekRequest,
+        migration::EncryptedDekRequest,
+        migration::MigrationResponse,
+        migration::NeedsMigrationResponse,
         document_keys::DocumentKeyResponse,
         document_keys::StoreDocumentKeyRequest,
         document_keys::RotateDocumentKeyRequest,

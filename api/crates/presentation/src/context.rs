@@ -25,6 +25,7 @@ use application::identity::services::auth::account::AccountServiceFacade;
 use application::identity::services::auth::auth_service::AuthServiceFacade;
 use application::identity::services::auth::external::ExternalAuthRegistryFacade;
 use application::identity::services::auth::user_sessions::UserSessionServiceFacade;
+use application::identity::services::migration::MigrationServiceFacade;
 use application::identity::services::user_keys::UserKeysServiceFacade;
 use application::identity::services::user_shortcuts::UserShortcutServiceFacade;
 use application::plugins::ports::plugin_event_publisher::PluginScopedEvent;
@@ -104,6 +105,7 @@ pub struct IdentityServicesDeps {
     pub api_token_service: Arc<dyn ApiTokenServiceFacade>,
     pub user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
     pub user_keys_service: Arc<dyn UserKeysServiceFacade>,
+    pub migration_service: Arc<dyn MigrationServiceFacade>,
     pub account_service: Arc<dyn AccountServiceFacade>,
     pub auth_service: Arc<dyn AuthServiceFacade>,
     pub session_service: Arc<dyn UserSessionServiceFacade>,
@@ -155,6 +157,7 @@ struct IdentityServices {
     api_token_service: Arc<dyn ApiTokenServiceFacade>,
     user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
     user_keys_service: Arc<dyn UserKeysServiceFacade>,
+    migration_service: Arc<dyn MigrationServiceFacade>,
     account_service: Arc<dyn AccountServiceFacade>,
     auth_service: Arc<dyn AuthServiceFacade>,
     session_service: Arc<dyn UserSessionServiceFacade>,
@@ -208,6 +211,7 @@ impl AppServices {
                 api_token_service: deps.identity.api_token_service,
                 user_shortcut_service: deps.identity.user_shortcut_service,
                 user_keys_service: deps.identity.user_keys_service,
+                migration_service: deps.identity.migration_service,
                 account_service: deps.identity.account_service,
                 auth_service: deps.identity.auth_service,
                 session_service: deps.identity.session_service,
@@ -358,6 +362,10 @@ impl AppContext {
 
     pub fn user_keys_service(&self) -> Arc<dyn UserKeysServiceFacade> {
         self.services.identity.user_keys_service.clone()
+    }
+
+    pub fn migration_service(&self) -> Arc<dyn MigrationServiceFacade> {
+        self.services.identity.migration_service.clone()
     }
 
     pub fn realtime_engine(&self) -> Arc<dyn RealtimeEngine> {

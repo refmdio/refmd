@@ -1,6 +1,8 @@
 pub mod ed25519;
+pub mod xchacha20;
 
 pub use ed25519::Ed25519Verifier;
+pub use xchacha20::{encrypt, decrypt, encrypt_dek, decrypt_dek, generate_nonce, SecretKey, CryptoError};
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};

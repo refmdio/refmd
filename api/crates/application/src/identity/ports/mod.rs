@@ -1,5 +1,7 @@
 pub mod api_token_repository;
 pub mod jwt_codec;
+pub mod migration_repository;
+pub mod migration_tx_runner;
 pub mod secret_hasher;
 pub mod user_keys_repository;
 pub mod user_repository;

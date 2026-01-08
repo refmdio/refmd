@@ -29,6 +29,7 @@ use application::identity::ports::secret_hasher::SecretHasher;
 use application::identity::services::api_tokens::ApiTokenService;
 use application::identity::services::auth::account::AccountService;
 use application::identity::services::auth::token_validation::TokenValidationService;
+use application::identity::services::migration::MigrationService;
 use application::identity::services::user_keys::UserKeysService;
 use application::identity::services::user_shortcuts::UserShortcutService;
 use application::plugins::ports::plugin_event_publisher::PluginEventPublisher;
@@ -288,6 +289,21 @@ pub async fn build_runtime(
         ),
     );
     let user_keys_service = Arc::new(UserKeysService::new(user_keys_repo.clone()));
+    let migration_repo = Arc::new(
+        infrastructure::identity::db::repositories::migration_repository_sqlx::SqlxMigrationRepository::new(
+            pool.clone(),
+        ),
+    );
+    let migration_tx_runner: Arc<dyn application::identity::ports::migration_tx_runner::MigrationTxRunner> = Arc::new(
+        infrastructure::identity::db::repositories::migration_tx_runner_sqlx::SqlxMigrationTxRunner::new(
+            pool.clone(),
+            migration_repo.clone(),
+        ),
+    );
+    let migration_service = Arc::new(MigrationService::new(
+        migration_repo.clone(),
+        migration_tx_runner,
+    ));
     let realtime_stack = realtime::build_realtime_stack(
         &cfg,
         &pool,
@@ -485,6 +501,7 @@ pub async fn build_runtime(
             api_token_service: api_token_service.clone(),
             user_shortcut_service: user_shortcut_service.clone(),
             user_keys_service: user_keys_service.clone(),
+            migration_service: migration_service.clone(),
             account_service: account_service.clone(),
             auth_service: auth_stack.auth_service.clone(),
             session_service: auth_stack.session_service.clone(),

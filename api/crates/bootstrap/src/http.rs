@@ -79,6 +79,10 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
             presentation::http::identity::keys::routes(ctx.clone()),
         )
         .nest(
+            "/api",
+            presentation::http::identity::migration::routes(ctx.clone()),
+        )
+        .nest(
             "/api/public",
             presentation::http::documents::publishing::routes(ctx.clone()),
         )

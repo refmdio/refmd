@@ -244,12 +244,15 @@ impl FromRef<AppContext> for GitContext {
     }
 }
 
+use application::identity::services::migration::MigrationServiceFacade;
+
 #[derive(Clone)]
 pub struct IdentityContext {
     pub cfg: PresentationConfig,
     api_token_service: Arc<dyn ApiTokenServiceFacade>,
     user_shortcut_service: Arc<dyn UserShortcutServiceFacade>,
     user_keys_service: Arc<dyn UserKeysServiceFacade>,
+    migration_service: Arc<dyn MigrationServiceFacade>,
     account_service: Arc<dyn AccountServiceFacade>,
     auth_service: Arc<dyn AuthServiceFacade>,
     session_service: Arc<dyn UserSessionServiceFacade>,
@@ -268,6 +271,10 @@ impl IdentityContext {
 
     pub fn user_keys_service(&self) -> Arc<dyn UserKeysServiceFacade> {
         self.user_keys_service.clone()
+    }
+
+    pub fn migration_service(&self) -> Arc<dyn MigrationServiceFacade> {
+        self.migration_service.clone()
     }
 
     pub fn account_service(&self) -> Arc<dyn AccountServiceFacade> {
@@ -314,6 +321,7 @@ impl FromRef<AppContext> for IdentityContext {
             api_token_service: ctx.api_token_service(),
             user_shortcut_service: ctx.user_shortcut_service(),
             user_keys_service: ctx.user_keys_service(),
+            migration_service: ctx.migration_service(),
             account_service: ctx.account_service(),
             auth_service: ctx.auth_service(),
             session_service: ctx.session_service(),
