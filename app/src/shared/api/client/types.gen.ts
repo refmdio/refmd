@@ -76,8 +76,35 @@ export type CheckIgnoredRequest = {
     path: string;
 };
 
+/**
+ * DEK payload for document creation
+ */
+export type CreateDocumentDekPayload = {
+    /**
+     * Base64 encoded encrypted DEK
+     */
+    encryptedDek: string;
+    /**
+     * Key version
+     */
+    keyVersion?: number;
+    /**
+     * Base64 encoded nonce
+     */
+    nonce: string;
+};
+
 export type CreateDocumentRequest = {
-    parent_id?: (string) | null;
+    dek?: ((CreateDocumentDekPayload) | null);
+    /**
+     * Base64 encoded encrypted title (for E2EE clients)
+     */
+    encryptedTitle?: (string) | null;
+    /**
+     * Base64 encoded nonce for encrypted title
+     */
+    encryptedTitleNonce?: (string) | null;
+    parentId?: (string) | null;
     title?: (string) | null;
     type?: (string) | null;
 };
@@ -100,9 +127,21 @@ export type CreateShareMountRequest = {
 };
 
 export type CreateShareRequest = {
-    document_id: string;
-    expires_at?: (string) | null;
+    documentId: string;
+    /**
+     * Base64 encoded encrypted DEK (encrypted with share key derived from password)
+     */
+    encryptedDek?: (string) | null;
+    expiresAt?: (string) | null;
+    /**
+     * KDF parameters (e.g., Argon2id settings)
+     */
+    kdfParams?: unknown;
     permission?: (string) | null;
+    /**
+     * Base64 encoded salt for key derivation
+     */
+    salt?: (string) | null;
 };
 
 export type CreateShareResponse = {
@@ -132,6 +171,12 @@ export type CreateWorkspaceRoleRequest = {
     priority?: (number) | null;
 };
 
+export type DeleteKeyVersionResponse = {
+    deletedCount: number;
+    keyVersion: number;
+    workspaceId: string;
+};
+
 export type Document = {
     archived_at?: (string) | null;
     archived_by?: (string) | null;
@@ -140,6 +185,8 @@ export type Document = {
     created_by?: (string) | null;
     created_by_plugin?: (string) | null;
     desired_path: string;
+    encryptedTitle?: (string) | null;
+    encryptedTitleNonce?: (string) | null;
     id: string;
     /**
      * Legacy alias for `workspace_id` kept for backward compatibility with older clients.
@@ -158,23 +205,75 @@ export type DocumentArchiveBinary = Blob | File;
 
 export type DocumentDownloadBinary = Blob | File;
 
+export type DocumentKeyResponse = {
+    createdAt: string;
+    documentId: string;
+    encryptedDek: string;
+    keyVersion: number;
+    nonce: string;
+    updatedAt: string;
+};
+
 export type DocumentListResponse = {
     items: Array<Document>;
 };
 
+/**
+ * Patch operation for document content.
+ * For plaintext mode: use `text` field.
+ * For E2EE mode: use `encrypted_data` and `nonce` fields instead of `text`.
+ */
 export type DocumentPatchOperationRequest = {
+    /**
+     * Base64 encoded encrypted data (for E2EE documents)
+     */
+    encrypted_data?: (string) | null;
+    /**
+     * Base64 encoded nonce (required when encrypted_data is provided)
+     */
+    nonce?: (string) | null;
     offset: number;
     op: 'insert';
-    text: string;
+    /**
+     * Base64 encoded Ed25519 public key (for E2EE documents)
+     */
+    public_key?: (string) | null;
+    /**
+     * Base64 encoded Ed25519 signature (for E2EE documents)
+     */
+    signature?: (string) | null;
+    /**
+     * Plaintext to insert (for non-E2EE documents)
+     */
+    text?: (string) | null;
 } | {
     length: number;
     offset: number;
     op: 'delete';
 } | {
+    /**
+     * Base64 encoded encrypted data (for E2EE documents)
+     */
+    encrypted_data?: (string) | null;
     length: number;
+    /**
+     * Base64 encoded nonce (required when encrypted_data is provided)
+     */
+    nonce?: (string) | null;
     offset: number;
     op: 'replace';
-    text: string;
+    /**
+     * Base64 encoded Ed25519 public key (for E2EE documents)
+     */
+    public_key?: (string) | null;
+    /**
+     * Base64 encoded Ed25519 signature (for E2EE documents)
+     */
+    signature?: (string) | null;
+    /**
+     * Plaintext replacement (for non-E2EE documents)
+     */
+    text?: (string) | null;
 };
 
 export namespace DocumentPatchOperationRequest {
@@ -182,6 +281,25 @@ export namespace DocumentPatchOperationRequest {
         INSERT = 'insert'
     }
 }
+
+/**
+ * Tag entry in document tags response
+ */
+export type DocumentTagEntry = {
+    createdAt: string;
+    /**
+     * Base64 encoded deterministically encrypted tag name
+     */
+    encryptedName: string;
+    id: string;
+};
+
+/**
+ * Response for GET /api/documents/{id}/tags
+ */
+export type DocumentTagsResponse = {
+    tags: Array<DocumentTagEntry>;
+};
 
 export type DownloadDocumentQuery = {
     format?: DownloadFormat;
@@ -199,6 +317,41 @@ export type DuplicateDocumentRequest = {
     title?: (string) | null;
 };
 
+export type E2eeStatusResponse = {
+    isSetupCompleted: boolean;
+};
+
+/**
+ * Encrypted DEK for a document (request).
+ */
+export type EncryptedDekRequest = {
+    /**
+     * Base64-encoded encrypted DEK.
+     */
+    encryptedDek: string;
+    /**
+     * Base64-encoded nonce.
+     */
+    nonce: string;
+};
+
+export type EncryptedPrivateKeyResponse = {
+    createdAt: string;
+    encryptedPrivateKey: string;
+    nonce: string;
+    updatedAt: string;
+};
+
+/**
+ * Single encrypted tag in request
+ */
+export type EncryptedTagInput = {
+    /**
+     * Base64 encoded deterministically encrypted tag name
+     */
+    encryptedName: string;
+};
+
 export type ExecBody = {
     payload?: unknown;
 };
@@ -208,6 +361,22 @@ export type ExecResultResponse = {
     effects: Array<unknown>;
     error?: unknown;
     ok: boolean;
+};
+
+/**
+ * Response for GET /api/documents/{id}/content
+ * - For E2EE documents: content is encrypted, nonce is present
+ * - For non-E2EE documents: content is plaintext Yjs state, nonce is None
+ */
+export type GetContentResponse = {
+    /**
+     * Base64 encoded Yjs snapshot bytes (encrypted for E2EE, plaintext for non-E2EE)
+     */
+    content: string;
+    /**
+     * Base64 encoded nonce for decryption (present for E2EE documents)
+     */
+    nonce?: (string) | null;
 };
 
 export type GitChangeItem = {
@@ -348,12 +517,25 @@ export type InstallResponse = {
     version: string;
 };
 
+export type KdfParamsResponse = {
+    iterations?: (number) | null;
+    memory?: (number) | null;
+    parallelism?: (number) | null;
+};
+
 export type KvValueBody = {
     value: unknown;
 };
 
 export type KvValueResponse = {
     value: unknown;
+};
+
+/**
+ * Response for GET /api/tags
+ */
+export type ListTagsResponse = {
+    tags: Array<TagEntry>;
 };
 
 export type LoginRequest = {
@@ -381,8 +563,91 @@ export type ManifestItem = {
     version: string;
 };
 
+export type MasterKeyBackupResponse = {
+    createdAt: string;
+    encryptedKey: string;
+    kdfParams: KdfParamsResponse;
+    kdfType: string;
+    salt: string;
+    updatedAt: string;
+};
+
 export type MaterializeResponse = {
     created: number;
+};
+
+/**
+ * Encrypted KEK for a workspace member (request).
+ */
+export type MemberEncryptedKekRequest = {
+    /**
+     * Base64-encoded encrypted KEK.
+     */
+    encryptedKek: string;
+    /**
+     * User ID.
+     */
+    userId: string;
+};
+
+/**
+ * Request to migrate user data to E2EE.
+ */
+export type MigrateRequest = {
+    /**
+     * Document DEKs (Data Encryption Keys).
+     * Maps document_id (string) -> base64-encoded raw DEK.
+     */
+    documentDeks: {
+        [key: string]: string;
+    };
+    /**
+     * Encrypted DEKs to store for each document.
+     * Maps document_id (string) -> encrypted DEK with nonce.
+     */
+    encryptedDocumentDeks: {
+        [key: string]: EncryptedDekRequest;
+    };
+    /**
+     * Encrypted workspace KEKs to store for each member.
+     * Maps workspace_id (string) -> array of member encrypted KEKs.
+     */
+    encryptedWorkspaceKeks: {
+        [key: string]: Array<MemberEncryptedKekRequest>;
+    };
+    /**
+     * Workspace KEKs (Key Encryption Keys).
+     * Maps workspace_id (string) -> base64-encoded raw KEK.
+     */
+    workspaceKeks: {
+        [key: string]: string;
+    };
+};
+
+/**
+ * Response for migration result.
+ */
+export type MigrationResponse = {
+    /**
+     * Number of documents encrypted.
+     */
+    documentsEncrypted: number;
+    /**
+     * Number of files with encrypted metadata.
+     */
+    filesEncrypted: number;
+    /**
+     * Migration status.
+     */
+    status: string;
+    /**
+     * Total number of Yjs updates cleared.
+     */
+    updatesCleared: number;
+};
+
+export type NeedsMigrationResponse = {
+    needsMigration: boolean;
 };
 
 export type OAuthLoginRequest = {
@@ -414,7 +679,15 @@ export type OutgoingLinksResponse = {
 };
 
 export type PatchDocumentContentRequest = {
-    operations: Array<DocumentPatchOperationRequest>;
+    /**
+     * Patch operations. Each operation can be either plaintext (using `text` field)
+     * or encrypted (using `encryptedData` and `nonce` fields).
+     */
+    operations?: Array<DocumentPatchOperationRequest>;
+    /**
+     * Base64 encoded signature for integrity verification (optional for E2EE)
+     */
+    signature?: (string) | null;
 };
 
 export type PermissionOverridePayload = {
@@ -435,6 +708,21 @@ export type PublicDocumentSummary = {
     updated_at: string;
 };
 
+/**
+ * Request to publish a document. For E2EE workspaces, plaintext title and content
+ * must be provided so public pages can be rendered without decryption.
+ */
+export type PublishRequest = {
+    /**
+     * Plaintext content (required for E2EE mode)
+     */
+    plaintextContent?: (string) | null;
+    /**
+     * Plaintext title (required for E2EE mode)
+     */
+    plaintextTitle?: (string) | null;
+};
+
 export type PublishResponse = {
     public_url: string;
     slug: string;
@@ -446,6 +734,17 @@ export type RecordsResponse = {
 
 export type RefreshResponse = {
     access_token: string;
+};
+
+export type RegisterPublicKeyRequest = {
+    /**
+     * Key type (e.g., "ecdh-p256")
+     */
+    keyType: string;
+    /**
+     * Base64 encoded public key
+     */
+    publicKey: string;
 };
 
 export type RegisterRequest = {
@@ -485,6 +784,61 @@ export type RenderResponseBody = {
     placeholders?: Array<PlaceholderItemPayload>;
 };
 
+/**
+ * Request body for document DEK rotation
+ */
+export type RotateDocumentKeyRequest = {
+    /**
+     * Base64 encoded new encrypted DEK
+     */
+    encryptedDek: string;
+    /**
+     * Base64 encoded nonce
+     */
+    nonce: string;
+};
+
+/**
+ * Response for document DEK rotation
+ */
+export type RotateDocumentKeyResponse = {
+    documentId: string;
+    newKeyVersion: number;
+};
+
+/**
+ * Request body for KEK rotation
+ */
+export type RotateWorkspaceKeyRequest = {
+    /**
+     * Encrypted KEKs for all workspace members
+     */
+    memberKeys: Array<RotationMemberKey>;
+};
+
+/**
+ * Response for KEK rotation
+ */
+export type RotateWorkspaceKeyResponse = {
+    keysUpdated: number;
+    newKeyVersion: number;
+    workspaceId: string;
+};
+
+/**
+ * A single member's encrypted KEK for key rotation
+ */
+export type RotationMemberKey = {
+    /**
+     * Base64 encoded encrypted KEK for this member
+     */
+    encryptedKek: string;
+    /**
+     * User ID of the member
+     */
+    userId: string;
+};
+
 export type SearchResult = {
     document_type: string;
     id: string;
@@ -520,8 +874,20 @@ export type ShareBrowseTreeItem = {
 
 export type ShareDocumentResponse = {
     content?: (string) | null;
+    /**
+     * Base64 encoded encrypted DEK (encrypted with share key)
+     */
+    encryptedDek?: (string) | null;
     id: string;
+    /**
+     * KDF parameters for password-protected shares
+     */
+    kdfParams?: unknown;
     permission: string;
+    /**
+     * Base64 encoded salt for password-protected shares
+     */
+    salt?: (string) | null;
     title: string;
 };
 
@@ -535,6 +901,15 @@ export type ShareItem = {
     url: string;
 };
 
+export type ShareKeyResponse = {
+    createdAt: string;
+    encryptedDek: string;
+    isPasswordProtected: boolean;
+    kdfParams?: ((KdfParamsResponse) | null);
+    salt?: (string) | null;
+    shareId: string;
+};
+
 export type ShareMountItem = {
     created_at: string;
     id: string;
@@ -544,6 +919,42 @@ export type ShareMountItem = {
     target_document_type: string;
     target_title: string;
     token: string;
+};
+
+/**
+ * Response for share salt challenge (for password-protected shares)
+ */
+export type ShareSaltResponse = {
+    /**
+     * KDF parameters for key derivation (only present if password-protected)
+     */
+    kdfParams?: unknown;
+    /**
+     * Whether this share is password-protected
+     */
+    passwordProtected: boolean;
+    /**
+     * Base64 encoded salt for key derivation (only present if password-protected)
+     */
+    salt?: (string) | null;
+};
+
+/**
+ * Response for GET /api/documents/{id}/snapshots/{snapshotId}
+ * - For E2EE documents: content is encrypted, nonce is present
+ * - For non-E2EE documents: content is plaintext Yjs state, nonce is None
+ */
+export type SnapshotDetailResponse = {
+    /**
+     * Base64 encoded Yjs snapshot (encrypted for E2EE, plaintext for non-E2EE)
+     */
+    content: string;
+    createdAt: string;
+    id: string;
+    /**
+     * Base64 encoded nonce (present for E2EE documents)
+     */
+    nonce?: (string) | null;
 };
 
 export type SnapshotDiffBaseParam = 'auto' | 'current' | 'previous';
@@ -579,16 +990,96 @@ export type SnapshotSummary = {
     id: string;
     kind: string;
     label: string;
+    nonce?: (string) | null;
     notes?: (string) | null;
+    signature?: (string) | null;
+};
+
+export type StoreDocumentKeyRequest = {
+    /**
+     * Base64 encoded encrypted DEK
+     */
+    encryptedDek: string;
+    /**
+     * Key version
+     */
+    keyVersion: number;
+    /**
+     * Base64 encoded nonce
+     */
+    nonce: string;
+};
+
+export type StoreEncryptedPrivateKeyRequest = {
+    /**
+     * Base64 encoded encrypted private key
+     */
+    encryptedPrivateKey: string;
+    /**
+     * Base64 encoded nonce
+     */
+    nonce: string;
+};
+
+export type StoreMasterKeyBackupRequest = {
+    /**
+     * Base64 encoded encrypted master key
+     */
+    encryptedKey: string;
+    kdfParams: KdfParamsResponse;
+    /**
+     * KDF type (e.g., "argon2id", "pbkdf2")
+     */
+    kdfType: string;
+    /**
+     * Base64 encoded salt
+     */
+    salt: string;
+};
+
+export type StorePasswordProtectedShareKeyRequest = {
+    /**
+     * Base64 encoded encrypted DEK
+     */
+    encryptedDek: string;
+    kdfParams: KdfParamsResponse;
+    /**
+     * Base64 encoded salt
+     */
+    salt: string;
+};
+
+export type StoreShareKeyRequest = {
+    /**
+     * Base64 encoded encrypted DEK
+     */
+    encryptedDek: string;
+};
+
+export type StoreWorkspaceKeyRequest = {
+    /**
+     * Base64 encoded encrypted KEK
+     */
+    encryptedKek: string;
+    /**
+     * Key version (for key rotation tracking)
+     */
+    keyVersion: number;
 };
 
 export type SwitchWorkspaceResponse = {
     access_token: string;
 };
 
-export type TagItem = {
-    count: number;
-    name: string;
+/**
+ * Tag entry in list response (E2EE format)
+ */
+export type TagEntry = {
+    documentCount: number;
+    /**
+     * Base64 encoded deterministically encrypted tag name
+     */
+    encryptedName: string;
 };
 
 export type TextDiffLine = {
@@ -612,12 +1103,30 @@ export type UninstallBody = {
 };
 
 export type UpdateDocumentContentRequest = {
+    /**
+     * Document content (plaintext or Base64-encoded encrypted Yjs state for E2EE)
+     */
     content: string;
+    /**
+     * Base64 encoded nonce (required for E2EE content)
+     */
+    nonce?: (string) | null;
+    /**
+     * Base64 encoded signature for integrity verification (optional for E2EE)
+     */
+    signature?: (string) | null;
 };
 
 export type UpdateDocumentRequest = {
     parent_id?: (string) | null;
     title?: (string) | null;
+};
+
+/**
+ * Request for PUT /api/documents/{id}/tags
+ */
+export type UpdateDocumentTagsRequest = {
+    encryptedTags: Array<EncryptedTagInput>;
 };
 
 export type UpdateGitConfigRequest = {
@@ -659,17 +1168,37 @@ export type UpdateWorkspaceRoleRequest = {
     priority?: (number) | null;
 };
 
+/**
+ * Multipart upload schema for OpenAPI
+ */
 export type UploadFileMultipart = {
-    document_id: string;
+    /**
+     * Encrypted file binary (.rme format)
+     */
     file: Blob | File;
+    /**
+     * JSON metadata containing encrypted file metadata
+     */
+    metadata?: (string) | null;
 };
 
+/**
+ * Response for file upload (E2EE format per design)
+ */
 export type UploadFileResponse = {
-    content_type?: (string) | null;
-    filename: string;
+    /**
+     * SHA256 hash of encrypted file content
+     */
+    encryptedHash: string;
     id: string;
     size: number;
-    url: string;
+};
+
+export type UserPublicKeyResponse = {
+    createdAt: string;
+    keyType: string;
+    publicKey: string;
+    updatedAt: string;
 };
 
 export type UserResponse = {
@@ -704,6 +1233,20 @@ export type WorkspaceInvitationResponse = {
     system_role?: (string) | null;
     token: string;
     workspace_id: string;
+};
+
+export type WorkspaceKeyResponse = {
+    createdAt: string;
+    encryptedKek: string;
+    id: string;
+    keyVersion: number;
+    userId: string;
+    workspaceId: string;
+};
+
+export type WorkspaceKeyVersionResponse = {
+    keyVersion?: (number) | null;
+    workspaceId: string;
 };
 
 export type WorkspaceMemberResponse = {
@@ -842,6 +1385,16 @@ export type SearchDocumentsData = {
 
 export type SearchDocumentsResponse = (Array<SearchResult>);
 
+export type UploadFileData = {
+    /**
+     * Document ID
+     */
+    docId: string;
+    formData: UploadFileMultipart;
+};
+
+export type UploadFileResponse2 = (UploadFileResponse);
+
 export type GetDocumentData = {
     /**
      * Document ID
@@ -899,7 +1452,7 @@ export type GetDocumentContentData = {
     id: string;
 };
 
-export type GetDocumentContentResponse = (unknown);
+export type GetDocumentContentResponse = (GetContentResponse);
 
 export type UpdateDocumentContentData = {
     /**
@@ -956,6 +1509,35 @@ export type DuplicateDocumentData = {
 
 export type DuplicateDocumentResponse = (Document);
 
+export type GetDocumentKeyData = {
+    /**
+     * Document ID
+     */
+    id: string;
+};
+
+export type GetDocumentKeyResponse = (DocumentKeyResponse);
+
+export type StoreDocumentKeyData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: StoreDocumentKeyRequest;
+};
+
+export type StoreDocumentKeyResponse = (DocumentKeyResponse);
+
+export type RotateDocumentKeyData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: RotateDocumentKeyRequest;
+};
+
+export type RotateDocumentKeyResponse2 = (RotateDocumentKeyResponse);
+
 export type GetOutgoingLinksData = {
     /**
      * Document ID
@@ -985,6 +1567,23 @@ export type ListDocumentSnapshotsData = {
 };
 
 export type ListDocumentSnapshotsResponse = (SnapshotListResponse);
+
+export type GetDocumentSnapshotData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    /**
+     * Snapshot ID
+     */
+    snapshotId: string;
+    /**
+     * Share token (optional)
+     */
+    token?: (string) | null;
+};
+
+export type GetDocumentSnapshotResponse = (SnapshotDetailResponse);
 
 export type GetDocumentSnapshotDiffData = {
     /**
@@ -1045,6 +1644,25 @@ export type RestoreDocumentSnapshotData = {
 
 export type RestoreDocumentSnapshotResponse = (SnapshotRestoreResponse);
 
+export type GetDocumentTagsData = {
+    /**
+     * Document ID
+     */
+    id: string;
+};
+
+export type GetDocumentTagsResponse = (DocumentTagsResponse);
+
+export type UpdateDocumentTagsData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    requestBody: UpdateDocumentTagsRequest;
+};
+
+export type UpdateDocumentTagsResponse = (DocumentTagsResponse);
+
 export type UnarchiveDocumentData = {
     /**
      * Document ID
@@ -1053,12 +1671,6 @@ export type UnarchiveDocumentData = {
 };
 
 export type UnarchiveDocumentResponse = (Document);
-
-export type UploadFileData = {
-    formData: UploadFileMultipart;
-};
-
-export type UploadFileResponse2 = (UploadFileResponse);
 
 export type GetFileByNameData = {
     /**
@@ -1219,6 +1831,34 @@ export type RevokeApiTokenData = {
 
 export type RevokeApiTokenResponse = (void);
 
+export type MigrateToE2EeData = {
+    requestBody: MigrateRequest;
+};
+
+export type MigrateToE2EeResponse = (MigrationResponse);
+
+export type NeedsMigrationResponse2 = (NeedsMigrationResponse);
+
+export type MarkE2EeSetupCompleteResponse = (void);
+
+export type GetE2EeStatusResponse = (E2eeStatusResponse);
+
+export type GetMyPublicKeyResponse = (UserPublicKeyResponse);
+
+export type RegisterPublicKeyData = {
+    requestBody: RegisterPublicKeyRequest;
+};
+
+export type RegisterPublicKeyResponse = (UserPublicKeyResponse);
+
+export type GetMasterKeyBackupResponse = (MasterKeyBackupResponse);
+
+export type StoreMasterKeyBackupData = {
+    requestBody: StoreMasterKeyBackupRequest;
+};
+
+export type StoreMasterKeyBackupResponse = (MasterKeyBackupResponse);
+
 export type PluginsInstallFromUrlData = {
     requestBody: InstallFromUrlBody;
 };
@@ -1234,6 +1874,14 @@ export type PluginsUninstallData = {
 export type PluginsUninstallResponse = (void);
 
 export type SseUpdatesResponse = (unknown);
+
+export type GetEncryptedPrivateKeyResponse = (EncryptedPrivateKeyResponse);
+
+export type StoreEncryptedPrivateKeyData = {
+    requestBody: StoreEncryptedPrivateKeyRequest;
+};
+
+export type StoreEncryptedPrivateKeyResponse = (EncryptedPrivateKeyResponse);
 
 export type GetUserShortcutsResponse = (UserShortcutResponse);
 
@@ -1385,6 +2033,10 @@ export type PublishDocumentData = {
      * Document ID
      */
     id: string;
+    /**
+     * Optional plaintext content for E2EE workspaces
+     */
+    requestBody?: ((PublishRequest) | null);
 };
 
 export type PublishDocumentResponse = (PublishResponse);
@@ -1494,6 +2146,15 @@ export type DeleteShareMountData = {
 
 export type DeleteShareMountResponse = (void);
 
+export type GetShareSaltData = {
+    /**
+     * Share token
+     */
+    token: string;
+};
+
+export type GetShareSaltResponse = (ShareSaltResponse);
+
 export type ValidateShareTokenData = {
     /**
      * Share token
@@ -1502,6 +2163,44 @@ export type ValidateShareTokenData = {
 };
 
 export type ValidateShareTokenResponse = (ShareDocumentResponse);
+
+export type GetShareKeyData = {
+    /**
+     * Share ID
+     */
+    id: string;
+};
+
+export type GetShareKeyResponse = (ShareKeyResponse);
+
+export type StoreShareKeyData = {
+    /**
+     * Share ID
+     */
+    id: string;
+    requestBody: StoreShareKeyRequest;
+};
+
+export type StoreShareKeyResponse = (ShareKeyResponse);
+
+export type StorePasswordProtectedShareKeyData = {
+    /**
+     * Share ID
+     */
+    id: string;
+    requestBody: StorePasswordProtectedShareKeyRequest;
+};
+
+export type StorePasswordProtectedShareKeyResponse = (ShareKeyResponse);
+
+export type GetShareSalt1Data = {
+    /**
+     * Share ID
+     */
+    id: string;
+};
+
+export type GetShareSalt1Response = (ShareSaltResponse);
 
 export type DeleteShareData = {
     /**
@@ -1520,12 +2219,21 @@ export type EnqueueIngestEventsResponse = (unknown);
 
 export type ListTagsData = {
     /**
-     * Filter contains
+     * Base64 encoded encrypted tag for exact match filter
      */
     q?: (string) | null;
 };
 
-export type ListTagsResponse = (Array<TagItem>);
+export type ListTagsResponse2 = (ListTagsResponse);
+
+export type GetUserPublicKeyData = {
+    /**
+     * User ID
+     */
+    userId: string;
+};
+
+export type GetUserPublicKeyResponse = (UserPublicKeyResponse);
 
 export type AcceptInvitationData = {
     /**
@@ -1616,6 +2324,66 @@ export type RevokeInvitationData = {
 };
 
 export type RevokeInvitationResponse = (WorkspaceInvitationResponse);
+
+export type ListWorkspaceKeysData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type ListWorkspaceKeysResponse = (Array<WorkspaceKeyResponse>);
+
+export type StoreWorkspaceKeyData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    requestBody: StoreWorkspaceKeyRequest;
+};
+
+export type StoreWorkspaceKeyResponse = (WorkspaceKeyResponse);
+
+export type GetMyWorkspaceKeyData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type GetMyWorkspaceKeyResponse = (WorkspaceKeyResponse);
+
+export type RotateWorkspaceKeyData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    requestBody: RotateWorkspaceKeyRequest;
+};
+
+export type RotateWorkspaceKeyResponse2 = (RotateWorkspaceKeyResponse);
+
+export type GetWorkspaceKeyVersionData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+};
+
+export type GetWorkspaceKeyVersionResponse = (WorkspaceKeyVersionResponse);
+
+export type DeleteKeyVersionData = {
+    /**
+     * Workspace ID
+     */
+    id: string;
+    /**
+     * Key version to delete
+     */
+    version: number;
+};
+
+export type DeleteKeyVersionResponse2 = (DeleteKeyVersionResponse);
 
 export type LeaveWorkspaceData = {
     /**

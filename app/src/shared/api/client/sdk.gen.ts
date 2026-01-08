@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, OauthLoginData, OauthLoginResponse, OauthStateData, OauthStateResponse, ListOauthProvidersResponse, RefreshSessionResponse, RegisterData, RegisterResponse, ListSessionsResponse, RevokeSessionData, RevokeSessionResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, PatchDocumentContentData, PatchDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, DuplicateDocumentData, DuplicateDocumentResponse, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, UploadFileData, UploadFileResponse2, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, ImportRepositoryData, ImportRepositoryResponse, InitRepositoryResponse, PullRepositoryData, PullRepositoryResponse, GetPullSessionData, GetPullSessionResponse, FinalizePullSessionData, FinalizePullSessionResponse, ResolvePullSessionData, ResolvePullSessionResponse, StartPullSessionResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetAssetData, PluginsGetAssetResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListWorkspacePublicDocumentsData, ListWorkspacePublicDocumentsResponse, GetPublicByWorkspaceAndIdData, GetPublicByWorkspaceAndIdResponse, GetPublicContentByWorkspaceAndIdData, GetPublicContentByWorkspaceAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ListShareMountsResponse, CreateShareMountData, CreateShareMountResponse, DeleteShareMountData, DeleteShareMountResponse, ValidateShareTokenData, ValidateShareTokenResponse, DeleteShareData, DeleteShareResponse, EnqueueIngestEventsData, EnqueueIngestEventsResponse, ListTagsData, ListTagsResponse, AcceptInvitationData, AcceptInvitationResponse, ListWorkspacesResponse, CreateWorkspaceData, CreateWorkspaceResponse, GetWorkspaceDetailData, GetWorkspaceDetailResponse, UpdateWorkspaceData, UpdateWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, DownloadWorkspaceArchiveData, DownloadWorkspaceArchiveResponse, ListInvitationsData, ListInvitationsResponse, CreateInvitationData, CreateInvitationResponse, RevokeInvitationData, RevokeInvitationResponse, LeaveWorkspaceData, LeaveWorkspaceResponse, ListMembersData, ListMembersResponse, RemoveMemberData, RemoveMemberResponse, UpdateMemberRoleData, UpdateMemberRoleResponse, GetWorkspacePermissionsData, GetWorkspacePermissionsResponse, ListRolesData, ListRolesResponse, CreateRoleData, CreateRoleResponse, DeleteRoleData, DeleteRoleResponse, UpdateRoleData, UpdateRoleResponse, SwitchWorkspaceData, SwitchWorkspaceResponse2, AxumWsEntryData } from './types.gen';
+import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, OauthLoginData, OauthLoginResponse, OauthStateData, OauthStateResponse, ListOauthProvidersResponse, RefreshSessionResponse, RegisterData, RegisterResponse, ListSessionsResponse, RevokeSessionData, RevokeSessionResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, SearchDocumentsData, SearchDocumentsResponse, UploadFileData, UploadFileResponse2, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, PatchDocumentContentData, PatchDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, DuplicateDocumentData, DuplicateDocumentResponse, GetDocumentKeyData, GetDocumentKeyResponse, StoreDocumentKeyData, StoreDocumentKeyResponse, RotateDocumentKeyData, RotateDocumentKeyResponse2, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotData, GetDocumentSnapshotResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, GetDocumentTagsData, GetDocumentTagsResponse, UpdateDocumentTagsData, UpdateDocumentTagsResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, GetFileByNameData, GetFileByNameResponse, GetFileData, GetFileResponse, GetChangesResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, DeinitRepositoryResponse, GetCommitDiffData, GetCommitDiffResponse, GetWorkingDiffResponse, CheckPathIgnoredData, CheckPathIgnoredResponse, GetGitignorePatternsResponse, AddGitignorePatternsData, AddGitignorePatternsResponse, GetHistoryResponse, IgnoreDocumentData, IgnoreDocumentResponse, IgnoreFolderData, IgnoreFolderResponse, ImportRepositoryData, ImportRepositoryResponse, InitRepositoryResponse, PullRepositoryData, PullRepositoryResponse, GetPullSessionData, GetPullSessionResponse, FinalizePullSessionData, FinalizePullSessionResponse, ResolvePullSessionData, ResolvePullSessionResponse, StartPullSessionResponse, GetStatusResponse, SyncNowData, SyncNowResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, MigrateToE2EeData, MigrateToE2EeResponse, NeedsMigrationResponse2, MarkE2EeSetupCompleteResponse, GetE2EeStatusResponse, GetMyPublicKeyResponse, RegisterPublicKeyData, RegisterPublicKeyResponse, GetMasterKeyBackupResponse, StoreMasterKeyBackupData, StoreMasterKeyBackupResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetEncryptedPrivateKeyResponse, StoreEncryptedPrivateKeyData, StoreEncryptedPrivateKeyResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetAssetData, PluginsGetAssetResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListWorkspacePublicDocumentsData, ListWorkspacePublicDocumentsResponse, GetPublicByWorkspaceAndIdData, GetPublicByWorkspaceAndIdResponse, GetPublicContentByWorkspaceAndIdData, GetPublicContentByWorkspaceAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ListShareMountsResponse, CreateShareMountData, CreateShareMountResponse, DeleteShareMountData, DeleteShareMountResponse, GetShareSaltData, GetShareSaltResponse, ValidateShareTokenData, ValidateShareTokenResponse, GetShareKeyData, GetShareKeyResponse, StoreShareKeyData, StoreShareKeyResponse, StorePasswordProtectedShareKeyData, StorePasswordProtectedShareKeyResponse, GetShareSalt1Data, GetShareSalt1Response, DeleteShareData, DeleteShareResponse, EnqueueIngestEventsData, EnqueueIngestEventsResponse, ListTagsData, ListTagsResponse2, GetUserPublicKeyData, GetUserPublicKeyResponse, AcceptInvitationData, AcceptInvitationResponse, ListWorkspacesResponse, CreateWorkspaceData, CreateWorkspaceResponse, GetWorkspaceDetailData, GetWorkspaceDetailResponse, UpdateWorkspaceData, UpdateWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, DownloadWorkspaceArchiveData, DownloadWorkspaceArchiveResponse, ListInvitationsData, ListInvitationsResponse, CreateInvitationData, CreateInvitationResponse, RevokeInvitationData, RevokeInvitationResponse, ListWorkspaceKeysData, ListWorkspaceKeysResponse, StoreWorkspaceKeyData, StoreWorkspaceKeyResponse, GetMyWorkspaceKeyData, GetMyWorkspaceKeyResponse, RotateWorkspaceKeyData, RotateWorkspaceKeyResponse2, GetWorkspaceKeyVersionData, GetWorkspaceKeyVersionResponse, DeleteKeyVersionData, DeleteKeyVersionResponse2, LeaveWorkspaceData, LeaveWorkspaceResponse, ListMembersData, ListMembersResponse, RemoveMemberData, RemoveMemberResponse, UpdateMemberRoleData, UpdateMemberRoleResponse, GetWorkspacePermissionsData, GetWorkspacePermissionsResponse, ListRolesData, ListRolesResponse, CreateRoleData, CreateRoleResponse, DeleteRoleData, DeleteRoleResponse, UpdateRoleData, UpdateRoleResponse, SwitchWorkspaceData, SwitchWorkspaceResponse2, AxumWsEntryData } from './types.gen';
 
 /**
  * @param data The data for the request.
@@ -205,6 +205,25 @@ export const searchDocuments = (data: SearchDocumentsData = {}): CancelablePromi
 
 /**
  * @param data The data for the request.
+ * @param data.docId Document ID
+ * @param data.formData
+ * @returns UploadFileResponse File uploaded
+ * @throws ApiError
+ */
+export const uploadFile = (data: UploadFileData): CancelablePromise<UploadFileResponse2> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/documents/{docId}/files',
+        path: {
+            docId: data.docId
+        },
+        formData: data.formData,
+        mediaType: 'multipart/form-data'
+    });
+};
+
+/**
+ * @param data The data for the request.
  * @param data.id Document ID
  * @param data.token Share token (optional)
  * @returns Document
@@ -297,7 +316,7 @@ export const getBacklinks = (data: GetBacklinksData): CancelablePromise<GetBackl
 /**
  * @param data The data for the request.
  * @param data.id Document ID
- * @returns unknown
+ * @returns GetContentResponse
  * @throws ApiError
  */
 export const getDocumentContent = (data: GetDocumentContentData): CancelablePromise<GetDocumentContentResponse> => {
@@ -404,6 +423,67 @@ export const duplicateDocument = (data: DuplicateDocumentData): CancelablePromis
 /**
  * @param data The data for the request.
  * @param data.id Document ID
+ * @returns DocumentKeyResponse
+ * @throws ApiError
+ */
+export const getDocumentKey = (data: GetDocumentKeyData): CancelablePromise<GetDocumentKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/documents/{id}/keys',
+        path: {
+            id: data.id
+        },
+        errors: {
+            404: 'Document key not found'
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Document ID
+ * @param data.requestBody
+ * @returns DocumentKeyResponse
+ * @throws ApiError
+ */
+export const storeDocumentKey = (data: StoreDocumentKeyData): CancelablePromise<StoreDocumentKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/documents/{id}/keys',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Document ID
+ * @param data.requestBody
+ * @returns RotateDocumentKeyResponse
+ * @throws ApiError
+ */
+export const rotateDocumentKey = (data: RotateDocumentKeyData): CancelablePromise<RotateDocumentKeyResponse2> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/documents/{id}/keys/rotate',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json',
+        errors: {
+            400: 'Invalid request',
+            403: 'Permission denied'
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Document ID
  * @returns OutgoingLinksResponse
  * @throws ApiError
  */
@@ -437,6 +517,28 @@ export const listDocumentSnapshots = (data: ListDocumentSnapshotsData): Cancelab
             token: data.token,
             limit: data.limit,
             offset: data.offset
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Document ID
+ * @param data.snapshotId Snapshot ID
+ * @param data.token Share token (optional)
+ * @returns SnapshotDetailResponse
+ * @throws ApiError
+ */
+export const getDocumentSnapshot = (data: GetDocumentSnapshotData): CancelablePromise<GetDocumentSnapshotResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/documents/{id}/snapshots/{snapshot_id}',
+        path: {
+            id: data.id,
+            snapshot_id: data.snapshotId
+        },
+        query: {
+            token: data.token
         }
     });
 };
@@ -516,6 +618,43 @@ export const restoreDocumentSnapshot = (data: RestoreDocumentSnapshotData): Canc
 };
 
 /**
+ * Get tags for a specific document (E2EE format)
+ * @param data The data for the request.
+ * @param data.id Document ID
+ * @returns DocumentTagsResponse
+ * @throws ApiError
+ */
+export const getDocumentTags = (data: GetDocumentTagsData): CancelablePromise<GetDocumentTagsResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/documents/{id}/tags',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * Replace tags for a document (E2EE format)
+ * @param data The data for the request.
+ * @param data.id Document ID
+ * @param data.requestBody
+ * @returns DocumentTagsResponse
+ * @throws ApiError
+ */
+export const updateDocumentTags = (data: UpdateDocumentTagsData): CancelablePromise<UpdateDocumentTagsResponse> => {
+    return __request(OpenAPI, {
+        method: 'PUT',
+        url: '/api/documents/{id}/tags',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
  * @param data The data for the request.
  * @param data.id Document ID
  * @returns Document
@@ -532,21 +671,6 @@ export const unarchiveDocument = (data: UnarchiveDocumentData): CancelablePromis
             404: 'Document not found',
             409: 'Document is not archived'
         }
-    });
-};
-
-/**
- * @param data The data for the request.
- * @param data.formData
- * @returns UploadFileResponse File uploaded
- * @throws ApiError
- */
-export const uploadFile = (data: UploadFileData): CancelablePromise<UploadFileResponse2> => {
-    return __request(OpenAPI, {
-        method: 'POST',
-        url: '/api/files',
-        formData: data.formData,
-        mediaType: 'multipart/form-data'
     });
 };
 
@@ -989,6 +1113,123 @@ export const revokeApiToken = (data: RevokeApiTokenData): CancelablePromise<Revo
 };
 
 /**
+ * Migrate user data to E2EE.
+ * This endpoint receives encryption keys from the client and encrypts
+ * all of the user's existing plaintext data on the server.
+ *
+ * The operation is atomic - either all data is encrypted or none is.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns MigrationResponse Migration completed successfully
+ * @throws ApiError
+ */
+export const migrateToE2Ee = (data: MigrateToE2EeData): CancelablePromise<MigrateToE2EeResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/me/e2ee/migrate',
+        body: data.requestBody,
+        mediaType: 'application/json',
+        errors: {
+            400: 'Invalid request (e.g., missing DEK for document)',
+            409: 'Migration already completed',
+            500: 'Migration failed'
+        }
+    });
+};
+
+/**
+ * Check if migration is needed for the current user.
+ * @returns NeedsMigrationResponse
+ * @throws ApiError
+ */
+export const needsMigration = (): CancelablePromise<NeedsMigrationResponse2> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/me/e2ee/needs-migration'
+    });
+};
+
+/**
+ * @returns void
+ * @throws ApiError
+ */
+export const markE2EeSetupComplete = (): CancelablePromise<MarkE2EeSetupCompleteResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/me/e2ee/setup-complete'
+    });
+};
+
+/**
+ * @returns E2eeStatusResponse
+ * @throws ApiError
+ */
+export const getE2EeStatus = (): CancelablePromise<GetE2EeStatusResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/me/e2ee/status'
+    });
+};
+
+/**
+ * @returns UserPublicKeyResponse
+ * @throws ApiError
+ */
+export const getMyPublicKey = (): CancelablePromise<GetMyPublicKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/me/keys',
+        errors: {
+            404: 'Public key not found'
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns UserPublicKeyResponse
+ * @throws ApiError
+ */
+export const registerPublicKey = (data: RegisterPublicKeyData): CancelablePromise<RegisterPublicKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/me/keys',
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @returns MasterKeyBackupResponse
+ * @throws ApiError
+ */
+export const getMasterKeyBackup = (): CancelablePromise<GetMasterKeyBackupResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/me/master-key/backup',
+        errors: {
+            404: 'Master key backup not found'
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns MasterKeyBackupResponse
+ * @throws ApiError
+ */
+export const storeMasterKeyBackup = (data: StoreMasterKeyBackupData): CancelablePromise<StoreMasterKeyBackupResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/me/master-key/backup',
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
  * @param data The data for the request.
  * @param data.requestBody
  * @returns InstallResponse
@@ -1037,6 +1278,35 @@ export const sseUpdates = (): CancelablePromise<SseUpdatesResponse> => {
     return __request(OpenAPI, {
         method: 'GET',
         url: '/api/me/plugins/updates'
+    });
+};
+
+/**
+ * @returns EncryptedPrivateKeyResponse
+ * @throws ApiError
+ */
+export const getEncryptedPrivateKey = (): CancelablePromise<GetEncryptedPrivateKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/me/private-key/encrypted',
+        errors: {
+            404: 'Encrypted private key not found'
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns EncryptedPrivateKeyResponse
+ * @throws ApiError
+ */
+export const storeEncryptedPrivateKey = (data: StoreEncryptedPrivateKeyData): CancelablePromise<StoreEncryptedPrivateKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/me/private-key/encrypted',
+        body: data.requestBody,
+        mediaType: 'application/json'
     });
 };
 
@@ -1253,6 +1523,7 @@ export const getPublishStatus = (data: GetPublishStatusData): CancelablePromise<
 /**
  * @param data The data for the request.
  * @param data.id Document ID
+ * @param data.requestBody Optional plaintext content for E2EE workspaces
  * @returns PublishResponse Published
  * @throws ApiError
  */
@@ -1262,7 +1533,9 @@ export const publishDocument = (data: PublishDocumentData): CancelablePromise<Pu
         url: '/api/public/documents/{id}',
         path: {
             id: data.id
-        }
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
     });
 };
 
@@ -1467,6 +1740,23 @@ export const deleteShareMount = (data: DeleteShareMountData): CancelablePromise<
 };
 
 /**
+ * Get salt for password-protected share (for password challenge)
+ * @param data The data for the request.
+ * @param data.token Share token
+ * @returns ShareSaltResponse Salt info for password-protected share
+ * @throws ApiError
+ */
+export const getShareSalt = (data: GetShareSaltData): CancelablePromise<GetShareSaltResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/shares/salt',
+        query: {
+            token: data.token
+        }
+    });
+};
+
+/**
  * @param data The data for the request.
  * @param data.token Share token
  * @returns ShareDocumentResponse Document info
@@ -1478,6 +1768,79 @@ export const validateShareToken = (data: ValidateShareTokenData): CancelableProm
         url: '/api/shares/validate',
         query: {
             token: data.token
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Share ID
+ * @returns ShareKeyResponse
+ * @throws ApiError
+ */
+export const getShareKey = (data: GetShareKeyData): CancelablePromise<GetShareKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/shares/{id}/keys',
+        path: {
+            id: data.id
+        },
+        errors: {
+            404: 'Share key not found'
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Share ID
+ * @param data.requestBody
+ * @returns ShareKeyResponse
+ * @throws ApiError
+ */
+export const storeShareKey = (data: StoreShareKeyData): CancelablePromise<StoreShareKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/shares/{id}/keys',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Share ID
+ * @param data.requestBody
+ * @returns ShareKeyResponse
+ * @throws ApiError
+ */
+export const storePasswordProtectedShareKey = (data: StorePasswordProtectedShareKeyData): CancelablePromise<StorePasswordProtectedShareKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/shares/{id}/keys/password-protected',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Share ID
+ * @returns ShareSaltResponse
+ * @throws ApiError
+ */
+export const getShareSalt1 = (data: GetShareSalt1Data): CancelablePromise<GetShareSalt1Response> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/shares/{id}/salt',
+        path: {
+            id: data.id
         }
     });
 };
@@ -1517,17 +1880,37 @@ export const enqueueIngestEvents = (data: EnqueueIngestEventsData): CancelablePr
 };
 
 /**
+ * List all tags in the workspace (E2EE format)
  * @param data The data for the request.
- * @param data.q Filter contains
- * @returns TagItem
+ * @param data.q Base64 encoded encrypted tag for exact match filter
+ * @returns ListTagsResponse
  * @throws ApiError
  */
-export const listTags = (data: ListTagsData = {}): CancelablePromise<ListTagsResponse> => {
+export const listTags = (data: ListTagsData = {}): CancelablePromise<ListTagsResponse2> => {
     return __request(OpenAPI, {
         method: 'GET',
         url: '/api/tags',
         query: {
             q: data.q
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.userId User ID
+ * @returns UserPublicKeyResponse
+ * @throws ApiError
+ */
+export const getUserPublicKey = (data: GetUserPublicKeyData): CancelablePromise<GetUserPublicKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/users/{user_id}/keys',
+        path: {
+            user_id: data.userId
+        },
+        errors: {
+            404: 'Public key not found'
         }
     });
 };
@@ -1698,6 +2081,120 @@ export const revokeInvitation = (data: RevokeInvitationData): CancelablePromise<
         path: {
             id: data.id,
             invitation_id: data.invitationId
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns WorkspaceKeyResponse
+ * @throws ApiError
+ */
+export const listWorkspaceKeys = (data: ListWorkspaceKeysData): CancelablePromise<ListWorkspaceKeysResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces/{id}/keys',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.requestBody
+ * @returns WorkspaceKeyResponse
+ * @throws ApiError
+ */
+export const storeWorkspaceKey = (data: StoreWorkspaceKeyData): CancelablePromise<StoreWorkspaceKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/workspaces/{id}/keys',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json'
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns WorkspaceKeyResponse
+ * @throws ApiError
+ */
+export const getMyWorkspaceKey = (data: GetMyWorkspaceKeyData): CancelablePromise<GetMyWorkspaceKeyResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces/{id}/keys/me',
+        path: {
+            id: data.id
+        },
+        errors: {
+            404: 'Key not found'
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.requestBody
+ * @returns RotateWorkspaceKeyResponse
+ * @throws ApiError
+ */
+export const rotateWorkspaceKey = (data: RotateWorkspaceKeyData): CancelablePromise<RotateWorkspaceKeyResponse2> => {
+    return __request(OpenAPI, {
+        method: 'POST',
+        url: '/api/workspaces/{id}/keys/rotate',
+        path: {
+            id: data.id
+        },
+        body: data.requestBody,
+        mediaType: 'application/json',
+        errors: {
+            400: 'Invalid request',
+            403: 'Permission denied'
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @returns WorkspaceKeyVersionResponse
+ * @throws ApiError
+ */
+export const getWorkspaceKeyVersion = (data: GetWorkspaceKeyVersionData): CancelablePromise<GetWorkspaceKeyVersionResponse> => {
+    return __request(OpenAPI, {
+        method: 'GET',
+        url: '/api/workspaces/{id}/keys/version',
+        path: {
+            id: data.id
+        }
+    });
+};
+
+/**
+ * @param data The data for the request.
+ * @param data.id Workspace ID
+ * @param data.version Key version to delete
+ * @returns DeleteKeyVersionResponse
+ * @throws ApiError
+ */
+export const deleteKeyVersion = (data: DeleteKeyVersionData): CancelablePromise<DeleteKeyVersionResponse2> => {
+    return __request(OpenAPI, {
+        method: 'DELETE',
+        url: '/api/workspaces/{id}/keys/{version}',
+        path: {
+            id: data.id,
+            version: data.version
+        },
+        errors: {
+            403: 'Permission denied'
         }
     });
 };
