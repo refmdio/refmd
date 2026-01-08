@@ -678,18 +678,8 @@
 .collapsible-toc .toc-list.toc-expanded { @apply max-h-96 opacity-100 scale-y-100; }
 .toc-expand-icon { @apply inline-flex items-center text-muted-foreground; }
 
-/* Prevent Monaco's iPad keyboard toggle from overlapping our editor tooltip on mobile */
-@media (pointer: coarse) {
-  .monaco-editor .iPadShowKeyboard {
-    left: 28px !important;   /* nudge right slightly to balance spacing */
-    right: auto !important;
-    transform: translateY(-6px); /* slight lift to clear editor padding */
-  }
-}
-
-/* Remove focus outlines inside conflict diff viewer (Monaco defaults to a blue outline) */
-.conflict-diff .monaco-diff-editor *:focus,
-.conflict-diff .monaco-diff-editor .synthetic-focus,
-.conflict-diff .monaco-editor {
+/* Remove focus outlines inside conflict diff viewer */
+.conflict-diff .cm-mergeView *:focus,
+.conflict-diff .cm-editor {
   outline: none !important;
 }

@@ -1,19 +1,19 @@
-import type * as monaco from 'monaco-editor'
+import { EditorView } from '@codemirror/view'
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 
 type Ctx = {
-  editor: monaco.editor.IStandaloneCodeEditor | null
-  setEditor: (ed: monaco.editor.IStandaloneCodeEditor | null) => void
-  registerEditor: (ed: monaco.editor.IStandaloneCodeEditor) => () => void
+  editor: EditorView | null
+  setEditor: (ed: EditorView | null) => void
+  registerEditor: (ed: EditorView) => () => void
 }
 
 const EditorCtx = createContext<Ctx | null>(null)
 
 export function EditorProvider({ children }: { children: React.ReactNode }) {
-  const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
-  const editorsRef = useRef<Set<monaco.editor.IStandaloneCodeEditor>>(new Set())
+  const [editor, setEditor] = useState<EditorView | null>(null)
+  const editorsRef = useRef<Set<EditorView>>(new Set())
 
-  const registerEditor = useCallback((ed: monaco.editor.IStandaloneCodeEditor) => {
+  const registerEditor = useCallback((ed: EditorView) => {
     editorsRef.current.add(ed)
     setEditor((current) => current ?? ed)
     let released = false

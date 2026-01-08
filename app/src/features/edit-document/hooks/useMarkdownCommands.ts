@@ -1,4 +1,4 @@
-import type * as monacoNs from 'monaco-editor'
+import { EditorView } from '@codemirror/view'
 import { useCallback } from 'react'
 
 export type MarkdownCommand =
@@ -16,49 +16,46 @@ export type MarkdownCommand =
   | 'link'
 
 export function useMarkdownCommands(
-  editorRef: React.MutableRefObject<monacoNs.editor.IStandaloneCodeEditor | null>,
+  editorRef: React.MutableRefObject<EditorView | null>,
 ) {
   const applyEdit = useCallback(
-    (fn: (editor: monacoNs.editor.IStandaloneCodeEditor) => void) => {
-      const editor = editorRef.current
-      if (!editor) return
-      fn(editor)
+    (fn: (view: EditorView) => void) => {
+      const view = editorRef.current
+      if (!view) return
+      fn(view)
     },
     [editorRef],
   )
 
   const insertAround = useCallback(
     (start: string, end: string = start) =>
-      applyEdit((editor) => {
-        const selection = editor.getSelection()
-        if (!selection) return
-        const model = editor.getModel()
-        if (!model) return
-        const selected = model.getValueInRange(selection)
-        editor.executeEdits('insertAround', [
-          { range: selection, text: `${start}${selected}${end}`, forceMoveMarkers: true },
-        ])
-        editor.focus()
+      applyEdit((view) => {
+        const { from, to } = view.state.selection.main
+        const selected = view.state.sliceDoc(from, to)
+        view.dispatch({
+          changes: { from, to, insert: `${start}${selected}${end}` },
+          selection: { anchor: from + start.length, head: to + start.length },
+        })
+        view.focus()
       }),
     [applyEdit],
   )
 
   const prefixLines = useCallback(
     (prefix: string) =>
-      applyEdit((editor) => {
-        const selection = editor.getSelection()
-        if (!selection) return
-        const model = editor.getModel()
-        if (!model) return
-        const startLine = selection.startLineNumber
-        const endLine = selection.endLineNumber
-        const edits: monacoNs.editor.IIdentifiedSingleEditOperation[] = []
-        for (let line = startLine; line <= endLine; line += 1) {
-          const range = new (window as any).monaco.Range(line, 1, line, 1)
-          edits.push({ range, text: prefix })
+      applyEdit((view) => {
+        const { from, to } = view.state.selection.main
+        const startLine = view.state.doc.lineAt(from)
+        const endLine = view.state.doc.lineAt(to)
+        const changes: { from: number; insert: string }[] = []
+
+        for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
+          const line = view.state.doc.line(lineNum)
+          changes.push({ from: line.from, insert: prefix })
         }
-        editor.executeEdits('prefixLines', edits)
-        editor.focus()
+
+        view.dispatch({ changes })
+        view.focus()
       }),
     [applyEdit],
   )
@@ -83,54 +80,47 @@ export function useMarkdownCommands(
         case 'quote':
           return prefixLines('> ')
         case 'code':
-          return applyEdit((editor) => {
-            const selection = editor.getSelection()
-            if (!selection) return
-            const model = editor.getModel()
-            if (!model) return
-            const text = model.getValueInRange(selection)
+          return applyEdit((view) => {
+            const { from, to } = view.state.selection.main
+            const text = view.state.sliceDoc(from, to)
             if (!text.includes('\n')) {
-              editor.executeEdits('codeInline', [
-                { range: selection, text: `\`${text}\``, forceMoveMarkers: true },
-              ])
+              view.dispatch({
+                changes: { from, to, insert: `\`${text}\`` },
+                selection: { anchor: from + 1, head: to + 1 },
+              })
             } else {
-              editor.executeEdits('codeBlock', [
-                {
-                  range: selection,
-                  text: `\n\n\`\`\`\n${text}\n\`\`\`\n\n`,
-                  forceMoveMarkers: true,
-                },
-              ])
+              view.dispatch({
+                changes: { from, to, insert: `\n\n\`\`\`\n${text}\n\`\`\`\n\n` },
+              })
             }
+            view.focus()
           })
         case 'table':
-          return applyEdit((editor) => {
-            const selection = editor.getSelection()
-            if (!selection) return
+          return applyEdit((view) => {
+            const { from, to } = view.state.selection.main
             const snippet = '\n\n| Header 1 | Header 2 |\n| --- | --- |\n| Cell 1 | Cell 2 |\n\n'
-            editor.executeEdits('table', [
-              { range: selection, text: snippet, forceMoveMarkers: true },
-            ])
+            view.dispatch({
+              changes: { from, to, insert: snippet },
+            })
+            view.focus()
           })
         case 'horizontal-rule':
-          return applyEdit((editor) => {
-            const selection = editor.getSelection()
-            if (!selection) return
-            editor.executeEdits('hr', [
-              { range: selection, text: '\n\n---\n\n', forceMoveMarkers: true },
-            ])
+          return applyEdit((view) => {
+            const { from, to } = view.state.selection.main
+            view.dispatch({
+              changes: { from, to, insert: '\n\n---\n\n' },
+            })
+            view.focus()
           })
         case 'link':
-          return applyEdit((editor) => {
-            const selection = editor.getSelection()
-            if (!selection) return
-            const model = editor.getModel()
-            if (!model) return
-            const text = model.getValueInRange(selection) || 'text'
+          return applyEdit((view) => {
+            const { from, to } = view.state.selection.main
+            const text = view.state.sliceDoc(from, to) || 'text'
             const url = prompt('URL?') || 'https://'
-            editor.executeEdits('link', [
-              { range: selection, text: `[${text}](${url})`, forceMoveMarkers: true },
-            ])
+            view.dispatch({
+              changes: { from, to, insert: `[${text}](${url})` },
+            })
+            view.focus()
           })
         default:
           return undefined

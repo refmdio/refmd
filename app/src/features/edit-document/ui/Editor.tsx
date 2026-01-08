@@ -1,6 +1,5 @@
-import type { OnMount } from '@monaco-editor/react'
+import { EditorView } from '@codemirror/view'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import type * as monacoNs from 'monaco-editor'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Awareness } from 'y-protocols/awareness'
@@ -15,17 +14,14 @@ import type { ViewMode } from '@/shared/types/view-mode'
 
 import { listDocuments } from '@/entities/document'
 
-import { useAwarenessStyles } from '@/features/edit-document/hooks/useAwarenessStyles'
+import { useEditorBinding } from '@/features/edit-document/hooks/useEditorBinding'
 import { useEditorUploads } from '@/features/edit-document/hooks/useEditorUploads'
 import { useMarkdownCommands, type MarkdownCommand } from '@/features/edit-document/hooks/useMarkdownCommands'
-import { useMonacoBinding } from '@/features/edit-document/hooks/useMonacoBinding'
 import { useScrollSync } from '@/features/edit-document/hooks/useScrollSync'
-import { ensureRefmdThemes, REFMD_DARK_THEME, REFMD_LIGHT_THEME } from '@/features/edit-document/lib/monaco/theme'
-import { registerWikiLinkCompletion } from '@/features/edit-document/lib/monaco/wiki-link-provider'
+import { awarenessExtension, awarenessStyles } from '@/features/edit-document/lib/editor/awareness'
+import { enableVimMode, disableVimMode } from '@/features/edit-document/lib/editor/vim'
 import { useEditorContext } from '@/features/edit-document/model/editor-context'
 import { useViewContext } from '@/features/edit-document/model/view-context'
-
-import { loadMonacoVim } from '../lib/monaco/vim-loader'
 
 import CursorDisplay from './CursorDisplay'
 import EditorLayout from './EditorLayout'
@@ -33,9 +29,6 @@ import type { PreviewPaneProps } from './PreviewPane'
 import EditorToolbar from './Toolbar'
 
 const logEditorError = (scope: string, error: unknown) => {
-  if (error instanceof Error && /InstantiationService has been disposed/i.test(error.message)) {
-    return
-  }
   if (error instanceof Error) {
     console.error(`[editor] ${scope}:`, error)
   } else {
@@ -89,7 +82,6 @@ export type MarkdownEditorProps = {
   renderPreview?: (props: PreviewPaneProps) => React.ReactNode
 }
 
-
 export function MarkdownEditor(props: MarkdownEditorProps) {
   const {
     doc,
@@ -110,12 +102,14 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     previewOverride,
     renderPreview,
   } = props
+
   const { isDarkMode } = useTheme()
   const isMobile = useIsMobile()
   const { editor: activeEditor, setEditor, registerEditor } = useEditorContext()
   const { viewMode, setViewMode, viewModeHydrated, hasPersistentViewMode } = useViewContext()
   const navigate = useNavigate()
   const shareToken = useShareToken()
+
   const shareScope = useRouterState({
     select: (state) => {
       const raw = (state.location?.search as any)?.shareScope
@@ -123,6 +117,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       return scope === 'folder' || scope === 'document' ? scope : null
     },
   })
+
   const isShareMount = useRouterState({
     select: (state) => {
       const search = (state.location?.search ?? {}) as Record<string, unknown>
@@ -136,14 +131,14 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       return Boolean(raw)
     },
   })
+
   const isShareLink = Boolean(shareToken && !isShareMount)
-  const brandedMonacoTheme = isDarkMode ? REFMD_DARK_THEME : REFMD_LIGHT_THEME
-  const monacoTheme = brandedMonacoTheme
   const view = forcedView ?? viewMode
+
   const [isVimMode, setIsVimMode] = useState<boolean>(() => typeof window !== 'undefined' && localStorage.getItem('editorVimMode') === 'true')
   const [syncScroll, setSyncScroll] = useState<boolean>(true)
   const [toolbarOpen, setToolbarOpen] = useState(false)
-  const [editorMountNonce, setEditorMountNonce] = useState(0)
+
   const readOnlyWarningRef = useRef(0)
   const emitReadOnlyWarning = useCallback(() => {
     if (!readOnly) return
@@ -152,77 +147,84 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     readOnlyWarningRef.current = now
     toast.info('Document is read-only')
   }, [readOnly])
+
   const syncScrollRef = useRef<boolean>(true)
-  useEffect(() => { syncScrollRef.current = syncScroll }, [syncScroll])
-  const vimModeRef = useRef<{ dispose: () => void } | null>(null)
+  useEffect(() => {
+    syncScrollRef.current = syncScroll
+  }, [syncScroll])
+
   const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const viewRef = useRef<ViewMode>(forcedView ?? initialViewProp)
+  const unregisterEditorRef = useRef<null | (() => void)>(null)
+
   useEffect(() => {
     viewRef.current = view as ViewMode
   }, [view])
-  const { onMount: onMonacoMount, text: boundText, editorRef } = useMonacoBinding({
-    doc,
-    awareness,
-    language: 'markdown',
-    onTextChange: () => {},
-  })
+
   const mosaicGroupIdRef = useRef<string | null>(scrollSyncGroupId)
   useEffect(() => {
     mosaicGroupIdRef.current = scrollSyncGroupId
   }, [scrollSyncGroupId])
+
   const mosaicScrollRafRef = useRef<number | null>(null)
   const suppressMosaicEmitRef = useRef(false)
   const suppressMosaicTimeoutRef = useRef<number | null>(null)
-  const unregisterEditorRef = useRef<null | (() => void)>(null)
-  const focusDisposableRef = useRef<null | { dispose: () => void }>(null)
-  const blurDisposableRef = useRef<null | { dispose: () => void }>(null)
 
-  const isThisEditorActive = useCallback(() => {
-    const ed = editorRef.current
-    if (!ed) return false
-    return activeEditor === ed
-  }, [activeEditor, editorRef])
+  // Set up awareness user info
+  useEffect(() => {
+    if (!awareness || (awareness as any)?._destroyed) return
 
-  const ensureThisEditorActive = useCallback(() => {
-    const ed = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null
-    if (!ed) return
-    if (activeEditor !== ed) setEditor(ed as any)
-  }, [activeEditor, editorRef, setEditor])
-  const disableVimMode = useCallback(() => {
-    if (vimModeRef.current) {
-      safeExecute('disable vim mode', () => vimModeRef.current?.dispose())
-      vimModeRef.current = null
+    const generateUserColor = (id?: string, light = false): string => {
+      let hash = 0
+      const str = id || Math.random().toString()
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i)
+        hash = ((hash << 5) - hash) + char
+        hash = hash & hash
+      }
+      const hue = Math.abs(hash) % 360
+      const saturation = light ? 30 : 70
+      const lightness = light ? 80 : 50
+      return `hsl(${hue}, ${saturation}%, ${lightness}%)`
     }
-    if (vimStatusBarRef.current) {
-      vimStatusBarRef.current.textContent = ''
+
+    const info = {
+      name: userName || `User-${awareness.clientID}`,
+      color: generateUserColor(userId),
+      colorLight: generateUserColor(userId, true),
+      id: userId || String(awareness.clientID),
     }
-  }, [])
-  const enableVimMode = useCallback(async (targetEditor?: monacoNs.editor.IStandaloneCodeEditor) => {
-    const editorInstance = targetEditor ?? (editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null)
-    const statusBar = vimStatusBarRef.current
-    if (!editorInstance || !statusBar) return
-    disableVimMode()
-    try {
-      const { initVimMode } = await loadMonacoVim()
-      statusBar.textContent = ''
-      vimModeRef.current = initVimMode(editorInstance, statusBar)
-      editorInstance.focus()
-    } catch (error) {
-      logEditorError('enable vim mode', error)
-    }
-  }, [disableVimMode, editorRef])
-  const { previewScrollPct, previewAnchorLine, handleEditorScroll, handlePreviewScroll, onEditorContentChange, onCaretAtEndChange, lockActive } = useScrollSync(editorRef)
+    awareness.setLocalStateField('user', info)
+  }, [awareness, userId, userName])
+
+  // Editor binding hook
+  const { text: boundText, editorRef, bindingExtensions, setEditorView } = useEditorBinding({
+    doc,
+    awareness,
+    onTextChange: () => {},
+  })
+
+  // Create awareness extensions
+  const awarenessExts = useMemo(() => {
+    return [awarenessExtension(awareness), awarenessStyles()]
+  }, [awareness])
+
+  // Combined extensions
+  const editorExtensions = useMemo(() => {
+    return [...bindingExtensions, ...awarenessExts]
+  }, [bindingExtensions, awarenessExts])
+
+  const { previewScrollPct, previewAnchorLine, handleEditorScroll, handlePreviewScroll, lockActive } = useScrollSync(editorRef)
   const { runCommand } = useMarkdownCommands(editorRef)
+
   const handleToolbarCommand = useCallback(
     (cmd: string, value?: number) => {
       runCommand(cmd as MarkdownCommand, value)
     },
     [runCommand],
   )
-  // Wire the actual callback now that hook is ready
-  ;(onMonacoMount as any)._onTextChange = onEditorContentChange
-  ;(onMonacoMount as any)._onCaretAtEnd = onCaretAtEndChange
+
   useEffect(() => {
     if (!viewModeHydrated) return
     if (forcedView) return
@@ -232,44 +234,11 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     safeExecute('set initial view mode', () => setViewMode(initialViewProp))
   }, [forcedView, hasPersistentViewMode, initialViewProp, setViewMode, viewMode, viewModeHydrated])
 
-  useAwarenessStyles(awareness, { userId, userName })
-
   const { uploadFiles, uploadStatus } = useEditorUploads(documentId, readOnly, emitReadOnlyWarning)
   const uploadFilesRef = useRef(uploadFiles)
   useEffect(() => {
     uploadFilesRef.current = uploadFiles
   }, [uploadFiles])
-
-  const setReadOnlyOverlay = useCallback(
-    (
-      editor: (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | undefined,
-      monacoInstance: typeof monacoNs | undefined,
-      enabled: boolean,
-    ) => {
-      if (!editor || !monacoInstance) return
-      const existing = editor.__readOnlyOverlay
-      if (enabled) {
-        if (existing) return
-        const domNode = document.createElement('div')
-        domNode.className = 'pointer-events-none select-none text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground bg-background/85 border border-border/60 rounded-full px-3 py-1 shadow-sm'
-        domNode.textContent = 'Read-only'
-        const widget: monacoNs.editor.IOverlayWidget = {
-          getId: () => 'read-only-overlay',
-          getDomNode: () => domNode,
-          getPosition: () => ({
-            preference: monacoInstance.editor.OverlayWidgetPositionPreference.TOP_RIGHT_CORNER,
-          }),
-        }
-        editor.addOverlayWidget(widget)
-        editor.__readOnlyOverlay = { widget, domNode }
-      } else if (existing) {
-        try { editor.removeOverlayWidget(existing.widget) } catch {}
-        try { existing.domNode.remove() } catch {}
-        delete editor.__readOnlyOverlay
-      }
-    },
-    [],
-  )
 
   const handleTaskToggle = useCallback((lineNumber: number, checked: boolean) => {
     if (readOnly) {
@@ -283,16 +252,13 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     let currentLine = 1
     while (currentLine < lineNumber) {
       const nextNewline = text.indexOf('\n', offset)
-      if (nextNewline === -1) {
-        return
-      }
+      if (nextNewline === -1) return
       offset = nextNewline + 1
       currentLine += 1
     }
     const nextNewline = text.indexOf('\n', offset)
     const lineEnd = nextNewline === -1 ? text.length : nextNewline
     const lineText = text.slice(offset, lineEnd)
-    // Allow optional blockquote and ordered list prefixes before the task checkbox
     const taskMatch = lineText.match(/^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s*\[)([ xX])(\]\s*)(.*)$/)
     if (!taskMatch) return
     const [, prefix, currentChar, closing, rest] = taskMatch
@@ -306,127 +272,58 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     })
   }, [doc, readOnly, emitReadOnlyWarning])
 
-  const handleBeforeMount = useCallback((monaco: Parameters<OnMount>[1]) => {
-    ensureRefmdThemes(monaco as any)
-    monaco.editor.setTheme(brandedMonacoTheme)
-  }, [brandedMonacoTheme])
+  const isThisEditorActive = useCallback(() => {
+    const ed = editorRef.current
+    if (!ed) return false
+    return activeEditor === ed
+  }, [activeEditor, editorRef])
 
-  const handleMount: OnMount = useCallback((editor, monaco) => {
-    // First, bind Monaco to Yjs via hook
-    onMonacoMount(editor, monaco)
-    ;(editor as any).__monaco = monaco
-    setReadOnlyOverlay(editor as any, monaco as any, readOnly)
-    // Register wiki-link completion provider
-    try {
-      const disp = registerWikiLinkCompletion(monaco as any)
-      ;(editor as any).__disposeWiki = () => safeExecute('dispose wiki completion', () => disp?.dispose?.())
-    } catch (error) {
-      logEditorError('register wiki completion', error)
+  const ensureThisEditorActive = useCallback(() => {
+    const ed = editorRef.current
+    if (!ed) return
+    if (activeEditor !== ed) setEditor(ed)
+  }, [activeEditor, editorRef, setEditor])
+
+  // Handle editor view creation
+  const handleEditorViewCreated = useCallback((view: EditorView) => {
+    setEditorView(view)
+
+    // Register editor
+    unregisterEditorRef.current?.()
+    unregisterEditorRef.current = registerEditor(view)
+
+    // Set up scroll listener for split view sync
+    const scrollHandler = () => {
+      if (!syncScrollRef.current || viewRef.current !== 'split') return
+      handleEditorScroll()
     }
+    view.scrollDOM.addEventListener('scroll', scrollHandler)
 
-    // Activate monaco-markdown extension for lists/enter/tab/completions (lazy load)
-    ;(async () => {
-      try {
-        const mod = await import('monaco-markdown')
-        const ext = new mod.MonacoMarkdownExtension()
-        ext.activate(editor as any)
-        ;(editor as any).__disposeMonacoMd = () => {}
-      } catch (error) {
-        logEditorError('load monaco-markdown', error)
-      }
-    })()
+    // Set up mosaic scroll sync
+    const mosaicScrollHandler = () => {
+      const groupId = mosaicGroupIdRef.current
+      if (!groupId) return
+      if (!syncScrollRef.current) return
+      if (suppressMosaicEmitRef.current) return
+      if (mosaicScrollRafRef.current != null) return
 
-    const cursorDispose = editor.onDidChangeCursorSelection((_e) => {})
-    ;(editor as any).__disposeCursor = () => safeExecute('dispose cursor listener', () => cursorDispose.dispose())
-
-    const shouldWarnForKey = (ev: any) => {
-      if (!readOnly) return false
-      const native = ev?.browserEvent ?? ev
-      if (!native) return false
-      const { ctrlKey, metaKey, altKey } = native
-      if (ctrlKey || metaKey || altKey) return false
-      const key = native.key ?? native.code ?? ''
-      if (key === ' ' || key === 'Spacebar') return true
-      const editingKeys = ['Backspace', 'Delete', 'Enter', 'Tab']
-      if (editingKeys.includes(key)) return true
-      if (typeof key === 'string' && key.length === 1) return true
-      return false
-    }
-
-    // Pre-lock preview to bottom when user hits Enter at file end
-    try {
-      const keydownDispose = editor.onKeyDown((e: any) => {
+      mosaicScrollRafRef.current = window.requestAnimationFrame(() => {
+        mosaicScrollRafRef.current = null
         try {
-          if (shouldWarnForKey(e)) {
-            emitReadOnlyWarning()
-            return
-          }
-          const KeyCode = (monaco as any)?.KeyCode
-          const isEnter = KeyCode ? e.keyCode === KeyCode.Enter : e.code === 'Enter' || e.keyCode === 13
-          if (!isEnter) return
-          const model = editor.getModel()
-          const pos = editor.getPosition()
-          if (!model || !pos) return
-          const lastLine = model.getLineCount()
-          const atLastLine = pos.lineNumber >= lastLine
-          if (!atLastLine) return
-          const maxCol = model.getLineMaxColumn(lastLine)
-          const atEndOfDoc = pos.column >= maxCol
-          if (atEndOfDoc) {
-            safeExecute('handle enter at end of doc', () => onEditorContentChange())
-          }
+          const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop)
+          const line = view.state.doc.lineAt(block.from).number
+          if (!Number.isFinite(line) || line < 1) return
+          dispatchMosaicScrollSync({ groupId, source: 'editor', line })
         } catch (error) {
-          logEditorError('keydown handler', error)
+          logEditorError('mosaic scroll sync emit', error)
         }
       })
-      ;(editor as any).__disposeKeydown = () => safeExecute('dispose keydown listener', () => keydownDispose.dispose())
-    } catch (error) {
-      logEditorError('register keydown handler', error)
     }
+    view.scrollDOM.addEventListener('scroll', mosaicScrollHandler)
 
-    // Hook editor scroll for sync
-    const scrollDispose = editor.onDidScrollChange?.((e) => {
-      if (!syncScrollRef.current || viewRef.current !== 'split') return
-      handleEditorScroll(e)
-    })
-    ;(editor as any).__disposeScroll = () => safeExecute('dispose scroll listener', () => scrollDispose?.dispose?.())
-
-    // Mosaic scroll sync: emit current top line to paired preview tile (by group)
-    try {
-      const mosaicScrollDispose = editor.onDidScrollChange?.(() => {
-        const groupId = mosaicGroupIdRef.current
-        if (!groupId) return
-        if (!syncScrollRef.current) return
-        if (suppressMosaicEmitRef.current) return
-        if (mosaicScrollRafRef.current != null) return
-        mosaicScrollRafRef.current = window.requestAnimationFrame(() => {
-          mosaicScrollRafRef.current = null
-          try {
-            if ((editor as any)?._isDisposed === true) return
-            const domNode = editor.getDomNode?.()
-            if (!domNode) return
-            const range = editor.getVisibleRanges?.()?.[0]
-            const line = range?.startLineNumber ?? editor.getPosition?.()?.lineNumber ?? 1
-            if (!Number.isFinite(line) || line < 1) return
-            dispatchMosaicScrollSync({ groupId, source: 'editor', line })
-          } catch (error) {
-            logEditorError('mosaic scroll sync emit', error)
-          }
-        })
-      })
-      ;(editor as any).__disposeMosaicScroll = () => safeExecute('dispose mosaic scroll listener', () => mosaicScrollDispose?.dispose?.())
-    } catch (error) {
-      logEditorError('register mosaic scroll listener', error)
-    }
-
-    // Handle paste (Ctrl+V) with files from clipboard
-    const dom = editor.getDomNode() as HTMLElement | null
+    // Set up paste handler
     const pasteHandler = async (event: ClipboardEvent) => {
       try {
-        const editorDomNode = dom
-        const target = event.target as HTMLElement | null
-        if (!editorDomNode || !target || !editorDomNode.contains(target)) return
-
         const clipboardData = event.clipboardData
         const fileList = clipboardData?.files
         if (!fileList || fileList.length === 0) return
@@ -444,85 +341,51 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         logEditorError('paste handler', error)
       }
     }
+    view.contentDOM.addEventListener('paste', pasteHandler)
 
-    if (typeof document !== 'undefined') {
-      document.addEventListener('paste', pasteHandler as any, true)
+    // Apply vim mode if enabled
+    if (isVimMode) {
+      enableVimMode(view)
     }
 
-    ;(editor as any).__disposePaste = () => {
-      safeExecute('remove document paste listener', () => {
-        if (typeof document !== 'undefined') {
-          document.removeEventListener('paste', pasteHandler as any, true)
+    // Store cleanup function on view
+    ;(view as any).__cleanup = () => {
+      view.scrollDOM.removeEventListener('scroll', scrollHandler)
+      view.scrollDOM.removeEventListener('scroll', mosaicScrollHandler)
+      view.contentDOM.removeEventListener('paste', pasteHandler)
+    }
+  }, [setEditorView, registerEditor, handleEditorScroll, isVimMode])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      const view = editorRef.current
+      if (view) {
+        safeExecute('cleanup editor', () => (view as any).__cleanup?.())
+      }
+      safeExecute('unregister editor', () => unregisterEditorRef.current?.())
+      unregisterEditorRef.current = null
+      safeExecute('cancel mosaic scroll raf', () => {
+        if (mosaicScrollRafRef.current != null) {
+          window.cancelAnimationFrame(mosaicScrollRafRef.current)
+          mosaicScrollRafRef.current = null
         }
       })
+      safeExecute('cancel mosaic suppress timeout', () => {
+        if (suppressMosaicTimeoutRef.current != null) {
+          window.clearTimeout(suppressMosaicTimeoutRef.current)
+          suppressMosaicTimeoutRef.current = null
+        }
+        suppressMosaicEmitRef.current = false
+      })
     }
+  }, [editorRef])
 
-    // Apply vim if enabled
-    if (isVimMode) {
-      void enableVimMode(editor)
-    }
-  }, [onMonacoMount, isVimMode, syncScroll, handleEditorScroll, emitReadOnlyWarning, readOnly, setReadOnlyOverlay, enableVimMode, brandedMonacoTheme])
-
-  useEffect(() => {
-    const editorInstance = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | null
-    if (!editorInstance) return
-    const monacoInstance = editorInstance.__monaco
-    setReadOnlyOverlay(editorInstance, monacoInstance, readOnly)
-  }, [readOnly, setReadOnlyOverlay])
-
-  useEffect(() => {
-    const editorInstance = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __monaco?: typeof monacoNs }) | null
-    const monacoInstance = editorInstance?.__monaco
-    if (!monacoInstance) return
-    ensureRefmdThemes(monacoInstance)
-    monacoInstance.editor.setTheme(brandedMonacoTheme)
-  }, [brandedMonacoTheme, editorRef])
-
-  useEffect(() => () => {
-    const anyEditor = editorRef.current as (monacoNs.editor.IStandaloneCodeEditor & { __readOnlyOverlay?: { widget: monacoNs.editor.IOverlayWidget; domNode: HTMLElement }; __monaco?: typeof monacoNs }) | undefined
-    safeExecute('dispose change listener', () => (anyEditor as any)?.__disposeChange?.())
-    safeExecute('dispose scroll listener', () => (anyEditor as any)?.__disposeScroll?.())
-    safeExecute('dispose mosaic scroll listener', () => (anyEditor as any)?.__disposeMosaicScroll?.())
-    safeExecute('dispose paste handler', () => (anyEditor as any)?.__disposePaste?.())
-    safeExecute('dispose wiki handler', () => (anyEditor as any)?.__disposeWiki?.())
-    safeExecute('dispose cursor handler', () => (anyEditor as any)?.__disposeCursor?.())
-    safeExecute('dispose monaco markdown handler', () => (anyEditor as any)?.__disposeMonacoMd?.())
-    safeExecute('dispose keydown handler', () => (anyEditor as any)?.__disposeKeydown?.())
-    safeExecute('dispose read-only overlay', () => {
-      if (anyEditor?.__readOnlyOverlay) {
-        try { anyEditor.removeOverlayWidget(anyEditor.__readOnlyOverlay.widget) } catch {}
-        try { anyEditor.__readOnlyOverlay.domNode.remove() } catch {}
-        delete anyEditor.__readOnlyOverlay
-      }
-      if (anyEditor && '__monaco' in anyEditor) {
-        delete (anyEditor as any).__monaco
-      }
-    })
-    safeExecute('dispose editor focus listener', () => focusDisposableRef.current?.dispose())
-    focusDisposableRef.current = null
-    safeExecute('dispose editor blur listener', () => blurDisposableRef.current?.dispose())
-    blurDisposableRef.current = null
-    safeExecute('unregister editor instance', () => unregisterEditorRef.current?.())
-    unregisterEditorRef.current = null
-    safeExecute('cancel mosaic scroll raf', () => {
-      if (mosaicScrollRafRef.current != null) {
-        window.cancelAnimationFrame(mosaicScrollRafRef.current)
-        mosaicScrollRafRef.current = null
-      }
-    })
-    safeExecute('cancel mosaic suppress timeout', () => {
-      if (suppressMosaicTimeoutRef.current != null) {
-        window.clearTimeout(suppressMosaicTimeoutRef.current)
-        suppressMosaicTimeoutRef.current = null
-      }
-      suppressMosaicEmitRef.current = false
-    })
-    disableVimMode()
-  }, [editorRef, setEditor, disableVimMode])
-
+  // Listen for mosaic scroll sync from preview
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!scrollSyncGroupId) return
+
     const handler = (event: Event) => {
       try {
         if (!syncScrollRef.current) return
@@ -532,30 +395,23 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         const line = detail.line
         if (!Number.isFinite(line) || (line as number) < 1) return
 
-        const editorInstance = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null
-        if (!editorInstance) return
-        if ((editorInstance as any)?._isDisposed === true) return
-        const domNode = editorInstance.getDomNode?.()
-        if (!domNode) return
+        const view = editorRef.current
+        if (!view) return
 
-        const model = editorInstance.getModel?.()
-        if (!model) return
-        const maxLine = model.getLineCount?.() ?? null
-        const clamped = maxLine
-          ? Math.min(maxLine, Math.max(1, Math.floor(line as number)))
-          : Math.max(1, Math.floor(line as number))
+        const maxLine = view.state.doc.lines
+        const clamped = maxLine ? Math.min(maxLine, Math.max(1, Math.floor(line as number))) : Math.max(1, Math.floor(line as number))
 
         if (suppressMosaicTimeoutRef.current != null) {
           window.clearTimeout(suppressMosaicTimeoutRef.current)
           suppressMosaicTimeoutRef.current = null
         }
         suppressMosaicEmitRef.current = true
+
         try {
-          ;(editorInstance as any).revealLineNearTop?.(clamped)
-        } catch (error) {
-          // Avoid noisy errors when editor is being disposed during tile close/layout changes.
-          if (error instanceof Error && /InstantiationService has been disposed/i.test(error.message)) return
-          throw error
+          const lineInfo = view.state.doc.line(clamped)
+          view.dispatch({
+            effects: EditorView.scrollIntoView(lineInfo.from, { y: 'start' }),
+          })
         } finally {
           suppressMosaicTimeoutRef.current = window.setTimeout(() => {
             suppressMosaicTimeoutRef.current = null
@@ -566,22 +422,27 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         logEditorError('mosaic scroll sync receive', error)
       }
     }
+
     window.addEventListener(MOSAIC_SCROLL_SYNC_EVENT, handler as EventListener)
     return () => {
       window.removeEventListener(MOSAIC_SCROLL_SYNC_EVENT, handler as EventListener)
     }
   }, [editorRef, scrollSyncGroupId])
 
-  const toggleVim = useCallback(async () => {
+  const toggleVim = useCallback(() => {
     const next = !isVimMode
     setIsVimMode(next)
     if (typeof window !== 'undefined') localStorage.setItem('editorVimMode', String(next))
+
+    const view = editorRef.current
+    if (!view) return
+
     if (next) {
-      await enableVimMode()
+      enableVimMode(view)
     } else {
-      disableVimMode()
+      disableVimMode(view)
     }
-  }, [isVimMode, enableVimMode, disableVimMode])
+  }, [isVimMode, editorRef])
 
   const handleFileUpload = useCallback(() => {
     if (readOnly) {
@@ -591,10 +452,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     ensureThisEditorActive()
     if (fileInputRef.current) fileInputRef.current.click()
   }, [emitReadOnlyWarning, readOnly, ensureThisEditorActive])
-
-  // uploadFiles provided by hook
-
-  // View mode is now controlled via ViewContext
 
   const Toolbar = useMemo(() => (
     <EditorToolbar
@@ -614,10 +471,12 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     if (!isThisEditorActive()) return
     setSyncScroll((value) => !value)
   }, [isThisEditorActive])
+
   const shortcutToggleVim = useCallback(() => {
     if (!isThisEditorActive()) return
-    void toggleVim()
+    toggleVim()
   }, [isThisEditorActive, toggleVim])
+
   const shortcutUpload = useCallback(() => {
     if (!isThisEditorActive()) return
     handleFileUpload()
@@ -666,73 +525,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     }
   }, [isShareLink, isShareMount, navigate, shareScope, shareToken])
 
-  // Ensure Monaco relayouts when view/layout changes or container resizes
-  useEffect(() => {
-    const ed = editorRef.current as monacoNs.editor.IStandaloneCodeEditor | null
-    if (!ed) return
-    const relayoutToContainer = () => {
-      safeExecute('editor relayout', () => {
-        const container = (ed as any).getContainerDomNode?.() as HTMLElement | null
-        const node = ed.getDomNode?.() as HTMLElement | null
-        const target = container || node?.parentElement || node
-        if (!target) {
-          ed.layout()
-          return
-        }
-        const rect = target.getBoundingClientRect()
-        if (!rect.width || !rect.height) {
-          ed.layout()
-          return
-        }
-        ed.layout({ width: rect.width, height: rect.height })
-      })
-    }
-    // immediate relayout on view change
-    relayoutToContainer()
-    // also schedule once after transition
-    const t = setTimeout(relayoutToContainer, 120)
-    // observe parent size changes
-    let ro: ResizeObserver | null = null
-    try {
-      const container = (ed as any).getContainerDomNode?.() as HTMLElement | null
-      const node = ed.getDomNode() as HTMLElement | null
-      const target = container || node?.parentElement || node
-      if (target && 'ResizeObserver' in window) {
-        ro = new ResizeObserver(() => relayoutToContainer())
-        ro.observe(target)
-      }
-    } catch (error) {
-      logEditorError('init resize observer', error)
-    }
-    // window resize
-    window.addEventListener('resize', relayoutToContainer)
-    return () => {
-      clearTimeout(t)
-      safeExecute('disconnect resize observer', () => {
-        if (ro) ro.disconnect()
-      })
-      window.removeEventListener('resize', relayoutToContainer)
-    }
-  }, [editorMountNonce, view, editorRef])
-
-  const handleEditorMount = useCallback(
-    (editor: monacoNs.editor.IStandaloneCodeEditor, monaco: Parameters<OnMount>[1]) => {
-      unregisterEditorRef.current?.()
-      unregisterEditorRef.current = registerEditor(editor as any)
-      safeExecute('dispose editor focus listener', () => focusDisposableRef.current?.dispose())
-      safeExecute('dispose editor blur listener', () => blurDisposableRef.current?.dispose())
-      focusDisposableRef.current = editor.onDidFocusEditorWidget(() => {
-        try { setEditor(editor as any) } catch {}
-      })
-      blurDisposableRef.current = editor.onDidBlurEditorWidget(() => {
-        // Keep last active editor; do not clear on blur to avoid losing target when clicking chrome.
-      })
-      handleMount(editor, monaco)
-      setEditorMountNonce((n) => n + 1)
-    },
-    [handleMount, registerEditor, setEditor],
-  )
-
   const handleEditorDropFiles = useCallback(
     async (files: File[]) => {
       ensureThisEditorActive()
@@ -740,8 +532,6 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     },
     [ensureThisEditorActive, uploadFiles],
   )
-
-  
 
   return (
     <div
@@ -772,11 +562,11 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         toolbar={Toolbar}
         toolbarOpen={toolbarOpen}
         onToolbarOpenChange={setToolbarOpen}
-        monacoTheme={monacoTheme}
-        onEditorBeforeMount={handleBeforeMount}
+        isDarkMode={isDarkMode}
         readOnly={readOnly}
         onEditorDropFiles={handleEditorDropFiles}
-        onEditorMount={handleEditorMount}
+        onEditorViewCreated={handleEditorViewCreated}
+        editorExtensions={editorExtensions}
         editorRef={editorRef}
         syncScroll={syncScroll}
         onPreviewScroll={handlePreviewScroll}
@@ -795,14 +585,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         conflictControls={conflictControls}
         conflictBadgeText={conflictBadgeText}
         conflictHunkWidgets={conflictHunkWidgets}
-        conflictView={
-          conflictView
-            ? {
-                ...conflictView,
-                theme: monacoTheme,
-              }
-            : undefined
-        }
+        conflictView={conflictView}
       />
 
       <CursorDisplay awareness={awareness} className={embedded ? 'top-12' : undefined} />

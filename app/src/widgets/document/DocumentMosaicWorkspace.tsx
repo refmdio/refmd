@@ -806,16 +806,13 @@ export default function DocumentMosaicWorkspace(props: Props) {
       const leaves = getLeavesSafe(safe.layout)
       if (!leaves.includes(tileKey)) return false
 
-      const monacoInput =
-        el.querySelector<HTMLElement>('.monaco-editor textarea.inputarea') ??
-        el.querySelector<HTMLElement>('.monaco-editor textarea') ??
-        el.querySelector<HTMLElement>('textarea.inputarea')
-      if (monacoInput) {
+      const cmContent = el.querySelector<HTMLElement>('.cm-editor .cm-content')
+      if (cmContent) {
         try {
-          monacoInput.focus({ preventScroll: true } as any)
+          cmContent.focus({ preventScroll: true } as any)
         } catch {
           try {
-            monacoInput.focus()
+            cmContent.focus()
           } catch {}
         }
         return true
@@ -837,7 +834,7 @@ export default function DocumentMosaicWorkspace(props: Props) {
     }
 
     if (focusInside()) return
-    // Monaco might mount a tick later; try a few times.
+    // Editor might mount a tick later; try a few times.
     let tries = 0
     const retry = () => {
       if (focusRequestIdRef.current !== requestId) return

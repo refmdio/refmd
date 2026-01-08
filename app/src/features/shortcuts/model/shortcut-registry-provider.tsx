@@ -102,8 +102,8 @@ export function ShortcutRegistryProvider({ children, currentUserId }: ShortcutRe
         if (!action) continue
         if (!action.allowInInputs && isTextInputEvent(event)) {
           const target = event.target as HTMLElement | null
-          const insideMonaco = target?.closest('.monaco-editor')
-          if (!insideMonaco) {
+          const insideEditor = target?.closest('.cm-editor')
+          if (!insideEditor) {
             continue
           }
         }

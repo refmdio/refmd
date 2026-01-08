@@ -1,4 +1,4 @@
-import type * as monacoNs from 'monaco-editor'
+import { EditorView } from '@codemirror/view'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -52,30 +52,28 @@ export function useEditorUploads(documentId: string, readOnly?: boolean, onReadO
       try {
         const resp = await uploadAttachment(documentId, f)
         const name: string = (resp as any).filename || f.name
-        const ed = editor
-        if (ed) {
-          const selection = ed.getSelection() as monacoNs.Selection | null
-          let targetRange: monacoNs.IRange | null = selection || null
-          if (!targetRange) {
+        const view = editor as EditorView | null
+        if (view) {
+          const { from, to } = view.state.selection.main
+          let targetFrom = from
+          let targetTo = to
+
+          // If no selection, insert at end of document
+          if (from === to && from === 0) {
             try {
-              const model = ed.getModel()
-              if (model) {
-                const lastLine = model.getLineCount()
-                const lastCol = model.getLineMaxColumn(lastLine)
-                targetRange = {
-                  startLineNumber: lastLine,
-                  startColumn: lastCol,
-                  endLineNumber: lastLine,
-                  endColumn: lastCol,
-                }
-              }
+              const docLength = view.state.doc.length
+              targetFrom = docLength
+              targetTo = docLength
             } catch {}
           }
-          if (!targetRange) continue
+
           const rel = `./attachments/${(resp as any).filename || f.name}`
           const text = f.type.startsWith('image/') ? `![${name}](${rel})` : `[${name}](${rel})`
-          ed.executeEdits('insertUpload', [{ range: targetRange, text, forceMoveMarkers: true }])
-          ed.focus()
+          view.dispatch({
+            changes: { from: targetFrom, to: targetTo, insert: text },
+            selection: { anchor: targetFrom + text.length },
+          })
+          view.focus()
         }
         completed += 1
       } catch {

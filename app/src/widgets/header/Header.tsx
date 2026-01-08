@@ -214,8 +214,8 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
         if (target) {
           const tagName = target.tagName
           const isInputElement = tagName === 'INPUT' || tagName === 'TEXTAREA' || target.isContentEditable
-          const insideMonacoEditor = Boolean(target.closest('.monaco-editor'))
-          if (isInputElement && !insideMonacoEditor) {
+          const insideEditor = Boolean(target.closest('.cm-editor'))
+          if (isInputElement && !insideEditor) {
             return
           }
         }
