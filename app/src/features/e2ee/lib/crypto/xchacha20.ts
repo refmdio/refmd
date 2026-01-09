@@ -5,7 +5,7 @@
  * Note: This does NOT include robustnessTag (differs from secsync)
  */
 
-import { getSodium, type Sodium } from './sodium'
+import { getSodium } from './sodium'
 
 /** XChaCha20-Poly1305 nonce size (24 bytes) */
 export const NONCE_SIZE = 24

@@ -10,7 +10,7 @@
  * - parallelism: 4
  */
 
-import argon2 from 'argon2-browser'
+import { argon2id } from 'hash-wasm'
 import { getSodium } from './sodium'
 
 /** Salt size for Argon2id (16 bytes) */
@@ -63,17 +63,22 @@ export async function deriveKey(
     throw new Error(`Invalid salt length: expected ${SALT_SIZE}, got ${salt.length}`)
   }
 
-  const result = await argon2.hash({
-    pass: passphrase,
+  const hashHex = await argon2id({
+    password: passphrase,
     salt,
-    time: params.iterations,
-    mem: params.memory,
+    iterations: params.iterations,
+    memorySize: params.memory,
     parallelism: params.parallelism,
-    hashLen: KEY_SIZE,
-    type: argon2.ArgonType.Argon2id,
+    hashLength: KEY_SIZE,
+    outputType: 'hex',
   })
 
-  return result.hash
+  // Convert hex string to Uint8Array
+  const bytes = new Uint8Array(KEY_SIZE)
+  for (let i = 0; i < KEY_SIZE; i++) {
+    bytes[i] = parseInt(hashHex.slice(i * 2, i * 2 + 2), 16)
+  }
+  return bytes
 }
 
 /**
@@ -101,14 +106,14 @@ export async function deriveKeyWithNewSalt(
 export async function isArgon2Supported(): Promise<boolean> {
   try {
     // Try a minimal hash to check if Argon2 WASM is working
-    await argon2.hash({
-      pass: 'test',
+    await argon2id({
+      password: 'test',
       salt: new Uint8Array(16),
-      time: 1,
-      mem: 1024,
+      iterations: 1,
+      memorySize: 1024,
       parallelism: 1,
-      hashLen: 32,
-      type: argon2.ArgonType.Argon2id,
+      hashLength: 32,
+      outputType: 'hex',
     })
     return true
   } catch {

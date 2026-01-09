@@ -122,8 +122,16 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
     let cancelled = false
     ;(async () => {
       try {
-        const res = (await listTags(undefined)) as TagHit[]
-        if (!cancelled) setTags(res ?? [])
+        const res = await listTags(undefined)
+        if (!cancelled) {
+          // Map API TagEntry to internal TagHit format
+          // TODO: Decrypt encryptedName when E2EE is implemented
+          const mapped = (res?.tags ?? []).map((tag) => ({
+            name: tag.encryptedName, // Will be decrypted later
+            count: tag.documentCount,
+          }))
+          setTags(mapped)
+        }
       } catch {
         if (!cancelled) setTags([])
       }

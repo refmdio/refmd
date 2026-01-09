@@ -5,9 +5,9 @@
  * Uses @noble/curves for elliptic curve operations.
  */
 
-import { p256 } from '@noble/curves/p256'
-import { hkdf } from '@noble/hashes/hkdf'
-import { sha256 } from '@noble/hashes/sha256'
+import { p256 } from '@noble/curves/nist.js'
+import { hkdf } from '@noble/hashes/hkdf.js'
+import { sha256 } from '@noble/hashes/sha2.js'
 
 /** P-256 private key size (32 bytes) */
 export const PRIVATE_KEY_SIZE = 32
@@ -33,7 +33,7 @@ export interface EcdhKeyPair {
  * @returns New ECDH key pair
  */
 export function generateKeyPair(): EcdhKeyPair {
-  const privateKey = p256.utils.randomPrivateKey()
+  const privateKey = p256.utils.randomSecretKey()
   const publicKey = p256.getPublicKey(privateKey, false) // uncompressed
 
   return { privateKey, publicKey }
@@ -159,9 +159,8 @@ export async function decryptKeyFromSender(
  */
 export function isValidPublicKey(publicKey: Uint8Array): boolean {
   try {
-    // Try to create a point from the public key
-    p256.ProjectivePoint.fromHex(publicKey)
-    return true
+    // Try to validate the public key
+    return p256.utils.isValidPublicKey(publicKey)
   } catch {
     return false
   }

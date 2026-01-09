@@ -5,6 +5,8 @@ import viteReact from '@vitejs/plugin-react'
 import viteTsConfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import wasm from 'vite-plugin-wasm'
+import topLevelAwait from 'vite-plugin-top-level-await'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Plugin } from 'vite'
@@ -58,6 +60,8 @@ export default defineConfig(() => {
     },
   },
   plugins: [
+    wasm(),
+    topLevelAwait(),
     tanstackStartStorageContextClientStub(),
     tanstackStart(),
     nitroV2Plugin({

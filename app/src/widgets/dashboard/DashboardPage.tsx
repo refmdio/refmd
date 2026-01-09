@@ -48,7 +48,7 @@ export default function DashboardPage() {
   const createFirstDocument = async () => {
     setCreating(true)
     try {
-      const doc = await createDoc.mutateAsync({ title: 'Untitled', parent_id: null })
+      const doc = await createDoc.mutateAsync({ title: 'Untitled', parentId: null })
       navigate({ to: '/document/$id', params: { id: doc.id } })
       toast.success('Document created')
     } finally {

@@ -177,11 +177,11 @@ export async function downloadSnapshot(params: {
 export function useCreateDocument() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { title?: string; parent_id?: string | null; type?: 'folder' | 'document' }) =>
+    mutationFn: (input: { title?: string; parentId?: string | null; type?: 'folder' | 'document' }) =>
       apiCreateDocument({
         requestBody: {
           title: input.title ?? 'Untitled',
-          parent_id: input.parent_id ?? null,
+          parentId: input.parentId ?? null,
           type: input.type,
         },
       }),

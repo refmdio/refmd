@@ -10,6 +10,7 @@ import { fetchDocumentMeta } from '@/entities/document'
 import { validateShareToken } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
+import { getKeyManager, SessionLockedError } from '@/features/e2ee'
 
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
@@ -73,6 +74,7 @@ async function acquireConnection(
     token: token ?? null,
     connect: false,
     disablePersistence,
+    workspaceId: workspaceId ?? undefined,
   })
   connectionCache.set(cacheKey, entry)
   try {
@@ -128,6 +130,8 @@ export function useCollaborativeDocument(
   const [archived, setArchived] = React.useState(false)
   const [shareReadOnly, setShareReadOnly] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [e2eeUnlocked, setE2eeUnlocked] = React.useState<boolean | null>(null)
+  const [needsE2EEUnlock, setNeedsE2EEUnlock] = React.useState(false)
   const connectionRef = React.useRef<YjsConnection | null>(null)
   const cacheKeyRef = React.useRef<string | null>(null)
 
@@ -179,6 +183,77 @@ export function useCollaborativeDocument(
     shouldValidateShareToken,
     useUrlShareTokenFallback,
   ])
+
+  // Check E2EE unlock status before connecting
+  React.useEffect(() => {
+    if (!enabled) {
+      setE2eeUnlocked(null)
+      setNeedsE2EEUnlock(false)
+      return
+    }
+
+    // Share token access doesn't require E2EE unlock (share keys handle decryption)
+    const token = resolveShareToken(shareToken, useUrlShareTokenFallback)
+    if (token) {
+      setE2eeUnlocked(true)
+      setNeedsE2EEUnlock(false)
+      return
+    }
+
+    // No workspace = no E2EE required
+    if (!activeWorkspaceId) {
+      setE2eeUnlocked(true)
+      setNeedsE2EEUnlock(false)
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const keyManager = await getKeyManager()
+
+        // Check if E2EE is set up for this user
+        const hasKeys = await keyManager.hasKeys()
+        if (!hasKeys) {
+          // E2EE not set up - allow connection (will fail at key fetch if needed)
+          if (!cancelled) {
+            setE2eeUnlocked(true)
+            setNeedsE2EEUnlock(false)
+          }
+          return
+        }
+
+        // E2EE is set up - check if session is unlocked
+        if (keyManager.isUnlocked) {
+          if (!cancelled) {
+            setE2eeUnlocked(true)
+            setNeedsE2EEUnlock(false)
+          }
+        } else {
+          // Session locked - need unlock
+          if (!cancelled) {
+            setE2eeUnlocked(false)
+            setNeedsE2EEUnlock(true)
+          }
+        }
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof SessionLockedError) {
+          setE2eeUnlocked(false)
+          setNeedsE2EEUnlock(true)
+        } else {
+          // Other errors - allow connection attempt
+          console.warn('[collaboration] E2EE check failed', err)
+          setE2eeUnlocked(true)
+          setNeedsE2EEUnlock(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [enabled, shareToken, useUrlShareTokenFallback, activeWorkspaceId])
 
   React.useEffect(() => {
     if (!enabled) return
@@ -249,6 +324,19 @@ export function useCollaborativeDocument(
       return () => {}
     }
 
+    // Wait for E2EE check to complete
+    if (e2eeUnlocked === null) {
+      setStatus('connecting')
+      return () => {}
+    }
+
+    // E2EE unlock required - don't connect
+    if (needsE2EEUnlock) {
+      setStatus('disconnected')
+      setError('E2EE session locked. Please unlock to continue.')
+      return () => {}
+    }
+
     setStatus('connecting')
     setError(null)
     connectionRef.current = null
@@ -306,17 +394,9 @@ export function useCollaborativeDocument(
 
         const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine
         provider.shouldConnect = isOnline
-        const isProviderConnected = (() => {
-          const anyProvider = provider as any
-          if (typeof anyProvider?.wsconnected === 'boolean') return anyProvider.wsconnected
-          const ws = anyProvider?.ws
-          return Boolean(ws && typeof ws.readyState === 'number' && ws.readyState === 1)
-        })()
 
         if (!isOnline) {
           updateStatus('disconnected')
-        } else if (isProviderConnected) {
-          updateStatus('connected')
         } else {
           updateStatus('connecting')
           provider.connect()
@@ -459,6 +539,8 @@ export function useCollaborativeDocument(
     useUrlShareTokenFallback,
     trackAwareness,
     activeWorkspaceId,
+    e2eeUnlocked,
+    needsE2EEUnlock,
   ])
 
   React.useEffect(() => {
@@ -484,6 +566,7 @@ export function useCollaborativeDocument(
     awareness: connectionRef.current?.provider.awareness ?? null,
     error,
     archived,
+    needsE2EEUnlock,
   }
 }
 

@@ -511,7 +511,8 @@ async function executeHostAction(
         const file: File | undefined = args?.file
         if (!(file instanceof File)) throw fail('BAD_REQUEST', 'file required')
         const response = await uploadFile({
-          formData: { document_id: docId, file } as any,
+          docId,
+          formData: { file },
         })
         return ok(response)
       }

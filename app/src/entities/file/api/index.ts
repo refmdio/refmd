@@ -6,6 +6,7 @@ export const fileKeys = {
 
 export async function uploadAttachment(documentId: string, file: File) {
   return apiUploadFile({
-    formData: { file: file as any, document_id: documentId } as any,
+    docId: documentId,
+    formData: { file },
   })
 }

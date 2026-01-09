@@ -1,8 +1,9 @@
+import type { Awareness } from 'y-protocols/awareness'
 import type { IndexeddbPersistence } from 'y-indexeddb'
-import type { WebsocketProvider } from 'y-websocket'
 import type * as Y from 'yjs'
 
 import { YJS_SERVER_URL } from '@/shared/lib/config'
+import { createSecureConnection, type StatusEventHandler } from './realtime'
 
 export type YjsConnectionOptions = {
   token?: string | null
@@ -10,17 +11,36 @@ export type YjsConnectionOptions = {
   params?: Record<string, string>
   disablePersistence?: boolean
   persistenceKey?: string
+  workspaceId?: string
+}
+
+/** Status event handler type (compatible with y-websocket) */
+type ProviderStatusHandler = (event: { status: string }) => void
+
+/**
+ * Provider-like interface for compatibility with existing code.
+ * Wraps SecureConnection to provide WebsocketProvider-compatible API.
+ */
+export interface ProviderLike {
+  awareness: Awareness
+  shouldConnect: boolean
+  connect(): void
+  disconnect(): void
+  on(event: 'status', handler: ProviderStatusHandler): void
+  off(event: 'status', handler: ProviderStatusHandler): void
 }
 
 export type YjsConnection = {
   doc: Y.Doc
-  provider: WebsocketProvider
+  provider: ProviderLike
   persistence: IndexeddbPersistence | null
 }
 
-export async function createYjsConnection(documentId: string, options: YjsConnectionOptions = {}): Promise<YjsConnection> {
+export async function createYjsConnection(
+  documentId: string,
+  options: YjsConnectionOptions = {}
+): Promise<YjsConnection> {
   const { Doc } = await import('yjs')
-  const { WebsocketProvider } = await import('y-websocket')
 
   const doc = new Doc() as unknown as Y.Doc
   const persistenceKey = options.persistenceKey ?? `refmd:${documentId}`
@@ -46,20 +66,8 @@ export async function createYjsConnection(documentId: string, options: YjsConnec
       persistence = null
     }
   }
-  const params: Record<string, string> = { ...(options.params ?? {}) }
-  const token = options.token ?? null
-  if (token) params.token = token
 
-  const provider = new WebsocketProvider(
-    YJS_SERVER_URL,
-    documentId,
-    doc as any,
-    {
-      connect: options.connect ?? true,
-      params,
-    },
-  ) as WebsocketProvider
-
+  // Wait for IndexedDB to sync before creating connection
   if (persistenceReady) {
     try {
       await persistenceReady
@@ -68,15 +76,50 @@ export async function createYjsConnection(documentId: string, options: YjsConnec
     }
   }
 
+  // Create E2EE secure connection
+  const workspaceId = options.workspaceId ?? ''
+  if (!workspaceId) {
+    console.warn('[yjs] No workspaceId provided - E2EE will not work correctly')
+  }
+
+  const connection = await createSecureConnection(YJS_SERVER_URL, doc, documentId, {
+    token: options.token,
+    connect: options.connect ?? true,
+    workspaceId,
+  })
+
+  // Create provider-like wrapper for compatibility
+  const provider: ProviderLike = {
+    awareness: connection.awareness,
+    get shouldConnect() {
+      return connection.shouldConnect
+    },
+    set shouldConnect(value: boolean) {
+      connection.shouldConnect = value
+    },
+    connect: () => connection.connect(),
+    disconnect: () => connection.disconnect(),
+    on: (event: 'status', handler: ProviderStatusHandler) => {
+      // Cast handler to StatusEventHandler - our status events are compatible
+      connection.on(event, handler as StatusEventHandler)
+    },
+    off: (event: 'status', handler: ProviderStatusHandler) => {
+      connection.off(event, handler as StatusEventHandler)
+    },
+  }
+
   return { doc, provider, persistence }
 }
 
 export function destroyYjsConnection(connection: YjsConnection | null | undefined) {
   if (!connection) return
   const { provider, doc, persistence } = connection
-  try { provider.disconnect() } catch {}
-  try { provider.destroy() } catch {}
-  try { (doc as any)?.destroy?.() } catch {}
+  try {
+    provider.disconnect()
+  } catch {}
+  try {
+    (doc as any)?.destroy?.()
+  } catch {}
   if (persistence) {
     try {
       void persistence.destroy()
