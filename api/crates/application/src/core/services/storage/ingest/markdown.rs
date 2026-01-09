@@ -4,14 +4,13 @@ use super::*;
 pub(super) struct MarkdownIngestPayload {
     pub(super) encrypted_hash: String,
     pub(super) size: i64,
+    /// True if file is encrypted (RME1 format), false if legacy plaintext
+    pub(super) is_encrypted: bool,
 }
 
-/// Parse encrypted file payload (RME1 format)
+/// Parse file payload - supports both RME1 encrypted format and legacy plaintext
 pub(super) fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownIngestPayload> {
-    // Validate RME1 magic number
-    if bytes.len() < 4 || &bytes[0..4] != RME1_MAGIC {
-        anyhow::bail!("Invalid RME1 format: missing or invalid magic number");
-    }
+    let is_encrypted = bytes.len() >= 4 && &bytes[0..4] == RME1_MAGIC;
 
     let encrypted_hash = sha256_hex(&bytes);
     let size = bytes.len() as i64;
@@ -19,6 +18,7 @@ pub(super) fn parse_markdown_payload(bytes: Vec<u8>) -> anyhow::Result<MarkdownI
     Ok(MarkdownIngestPayload {
         encrypted_hash,
         size,
+        is_encrypted,
     })
 }
 
@@ -37,19 +37,23 @@ mod tests {
         let payload = parse_markdown_payload(bytes.clone()).unwrap();
         assert_eq!(payload.size, bytes.len() as i64);
         assert!(!payload.encrypted_hash.is_empty());
+        assert!(payload.is_encrypted);
     }
 
     #[test]
-    fn rejects_invalid_magic() {
-        let bytes = b"XXXX invalid data".to_vec();
-        let result = parse_markdown_payload(bytes);
-        assert!(result.is_err());
+    fn parses_legacy_plaintext() {
+        let bytes = b"# Hello World\n\nThis is plaintext markdown.".to_vec();
+        let payload = parse_markdown_payload(bytes.clone()).unwrap();
+        assert_eq!(payload.size, bytes.len() as i64);
+        assert!(!payload.encrypted_hash.is_empty());
+        assert!(!payload.is_encrypted);
     }
 
     #[test]
-    fn rejects_too_short_data() {
+    fn parses_short_data_as_plaintext() {
         let bytes = b"RM".to_vec();
-        let result = parse_markdown_payload(bytes);
-        assert!(result.is_err());
+        let payload = parse_markdown_payload(bytes.clone()).unwrap();
+        assert_eq!(payload.size, bytes.len() as i64);
+        assert!(!payload.is_encrypted);
     }
 }

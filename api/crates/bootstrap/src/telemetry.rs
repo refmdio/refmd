@@ -1,10 +1,17 @@
 pub fn init_tracing() {
+    use std::io;
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+
+    let filter = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| "api=debug,warp=info,axum=info,tower_http=info".into());
+
     tracing_subscriber::fmt()
-        .with_env_filter(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "api=debug,warp=info,axum=info,tower_http=info".into()),
-        )
+        .with_env_filter(&filter)
+        .with_writer(io::stderr.with_max_level(tracing::Level::TRACE))
+        .with_ansi(false)
         .init();
+
+    eprintln!("[telemetry] tracing initialized with filter: {filter}");
 }
 
 #[cfg(test)]
