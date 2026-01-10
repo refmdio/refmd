@@ -36,6 +36,7 @@ import {
   getSodium,
   fromBase64,
 } from '@/features/e2ee'
+import { getMyWorkspaceKey, getDocumentKey } from '@/shared/api/client'
 
 // ============================================
 // Types
@@ -214,33 +215,16 @@ export class SecureSync {
 
     // Get KEK for this workspace
     const fetchKek = this.options.fetchKek ?? (async () => {
-      // Default: call API to get workspace KEK
-      const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-      const response = await fetch(`${baseUrl}/api/workspaces/${this.workspaceId}/kek`, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-        credentials: 'include',
-      })
-      if (!response.ok) {
-        throw new Error(`Failed to fetch KEK: ${response.status}`)
-      }
-      const data = await response.json()
-      return data.encryptedKek
+      const response = await getMyWorkspaceKey({ id: this.workspaceId })
+      return response.encryptedKek
     })
 
     const kek = await keyManager.getWorkspaceKek(this.workspaceId, fetchKek)
 
     // Get DEK for this document
     const fetchDek = this.options.fetchDek ?? (async () => {
-      // Default: call API to get document DEK
-      const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-      const response = await fetch(`${baseUrl}/api/documents/${this.documentId}/dek`, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-        credentials: 'include',
-      })
-      if (!response.ok) {
-        throw new Error(`Failed to fetch DEK: ${response.status}`)
-      }
-      return response.json()
+      const response = await getDocumentKey({ id: this.documentId })
+      return { encryptedDek: response.encryptedDek, nonce: response.nonce }
     })
 
     this.dek = await keyManager.getDocumentDek(this.documentId, kek, fetchDek)
@@ -329,14 +313,8 @@ export class SecureSync {
    * Connect to the WebSocket server.
    */
   connect(): void {
-    if (this._destroyed) {
-      console.warn('SecureSync is destroyed, cannot connect')
-      return
-    }
-
-    if (this.ws) {
-      return // Already connected or connecting
-    }
+    if (this._destroyed) return
+    if (this.ws) return // Already connected or connecting
 
     this.setState({ status: 'connecting', error: null })
     this.emitStatus('connecting')
@@ -481,8 +459,7 @@ export class SecureSync {
     }
   }
 
-  private handleError(event: Event): void {
-    console.error('[SecureSync] WebSocket error:', event)
+  private handleError(_event: Event): void {
     this.setState({ status: 'error', error: 'WebSocket error' })
   }
 
@@ -536,8 +513,6 @@ export class SecureSync {
       this.setState({ lastSeq: Math.max(this.state.lastSeq, seq) })
 
       // Check if we've received all sync updates
-      // The server sends all updates after init, then we're ready
-      // We consider ourselves ready after receiving updates
       if (this.state.status === 'syncing') {
         this.setState({ status: 'ready' })
       }

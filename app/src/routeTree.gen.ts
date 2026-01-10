@@ -19,6 +19,7 @@ import { Route as appSettingsIndexRouteImport } from './routes/(app)/settings/in
 import { Route as shareShareTokenRouteImport } from './routes/(share)/share/$token'
 import { Route as authAuthSignupRouteImport } from './routes/(auth)/auth/signup'
 import { Route as authAuthSigninRouteImport } from './routes/(auth)/auth/signin'
+import { Route as authAuthSetupRouteImport } from './routes/(auth)/auth/setup'
 import { Route as appTemporaryIdRouteImport } from './routes/(app)/temporary/$id'
 import { Route as appSettingsVisibilityRouteImport } from './routes/(app)/settings/visibility'
 import { Route as appSettingsShortcutsRouteImport } from './routes/(app)/settings/shortcuts'
@@ -78,6 +79,11 @@ const authAuthSignupRoute = authAuthSignupRouteImport.update({
 const authAuthSigninRoute = authAuthSigninRouteImport.update({
   id: '/(auth)/auth/signin',
   path: '/auth/signin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authAuthSetupRoute = authAuthSetupRouteImport.update({
+  id: '/(auth)/auth/setup',
+  path: '/auth/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const appTemporaryIdRoute = appTemporaryIdRouteImport.update({
@@ -144,6 +150,7 @@ export interface FileRoutesByFullPath {
   '/settings/shortcuts': typeof appSettingsShortcutsRoute
   '/settings/visibility': typeof appSettingsVisibilityRoute
   '/temporary/$id': typeof appTemporaryIdRoute
+  '/auth/setup': typeof authAuthSetupRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
   '/share/$token': typeof shareShareTokenRoute
@@ -166,6 +173,7 @@ export interface FileRoutesByTo {
   '/settings/shortcuts': typeof appSettingsShortcutsRoute
   '/settings/visibility': typeof appSettingsVisibilityRoute
   '/temporary/$id': typeof appTemporaryIdRoute
+  '/auth/setup': typeof authAuthSetupRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
   '/share/$token': typeof shareShareTokenRoute
@@ -189,6 +197,7 @@ export interface FileRoutesById {
   '/(app)/settings/shortcuts': typeof appSettingsShortcutsRoute
   '/(app)/settings/visibility': typeof appSettingsVisibilityRoute
   '/(app)/temporary/$id': typeof appTemporaryIdRoute
+  '/(auth)/auth/setup': typeof authAuthSetupRoute
   '/(auth)/auth/signin': typeof authAuthSigninRoute
   '/(auth)/auth/signup': typeof authAuthSignupRoute
   '/(share)/share/$token': typeof shareShareTokenRoute
@@ -213,6 +222,7 @@ export interface FileRouteTypes {
     | '/settings/shortcuts'
     | '/settings/visibility'
     | '/temporary/$id'
+    | '/auth/setup'
     | '/auth/signin'
     | '/auth/signup'
     | '/share/$token'
@@ -235,6 +245,7 @@ export interface FileRouteTypes {
     | '/settings/shortcuts'
     | '/settings/visibility'
     | '/temporary/$id'
+    | '/auth/setup'
     | '/auth/signin'
     | '/auth/signup'
     | '/share/$token'
@@ -257,6 +268,7 @@ export interface FileRouteTypes {
     | '/(app)/settings/shortcuts'
     | '/(app)/settings/visibility'
     | '/(app)/temporary/$id'
+    | '/(auth)/auth/setup'
     | '/(auth)/auth/signin'
     | '/(auth)/auth/signup'
     | '/(share)/share/$token'
@@ -279,6 +291,7 @@ export interface RootRouteChildren {
   appSettingsPluginsRoute: typeof appSettingsPluginsRoute
   appSettingsShortcutsRoute: typeof appSettingsShortcutsRoute
   appSettingsVisibilityRoute: typeof appSettingsVisibilityRoute
+  authAuthSetupRoute: typeof authAuthSetupRoute
   authAuthSigninRoute: typeof authAuthSigninRoute
   authAuthSignupRoute: typeof authAuthSignupRoute
   shareShareTokenRoute: typeof shareShareTokenRoute
@@ -359,6 +372,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/signin'
       fullPath: '/auth/signin'
       preLoaderRoute: typeof authAuthSigninRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/auth/setup': {
+      id: '/(auth)/auth/setup'
+      path: '/auth/setup'
+      fullPath: '/auth/setup'
+      preLoaderRoute: typeof authAuthSetupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(app)/temporary/$id': {
@@ -458,6 +478,7 @@ const rootRouteChildren: RootRouteChildren = {
   appSettingsPluginsRoute: appSettingsPluginsRoute,
   appSettingsShortcutsRoute: appSettingsShortcutsRoute,
   appSettingsVisibilityRoute: appSettingsVisibilityRoute,
+  authAuthSetupRoute: authAuthSetupRoute,
   authAuthSigninRoute: authAuthSigninRoute,
   authAuthSignupRoute: authAuthSignupRoute,
   shareShareTokenRoute: shareShareTokenRoute,

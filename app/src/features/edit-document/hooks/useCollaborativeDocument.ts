@@ -1,6 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 import { toast } from 'sonner'
+import type * as Y from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
 
 import { useRealtime } from '@/shared/contexts/realtime-context'
 import { createYjsConnection, destroyYjsConnection } from '@/shared/lib/yjsConnection'
@@ -82,9 +84,9 @@ async function acquireConnection(
     entry.connection = connection
     entry.promise = null
     return { cacheKey, connection }
-  } catch (error) {
+  } catch {
     connectionCache.delete(cacheKey)
-    throw error
+    throw new Error('Failed to create Yjs connection')
   }
 }
 
@@ -103,7 +105,7 @@ export function useCollaborativeDocument(
   options: UseCollaborativeDocumentOptions = {},
 ) {
   const queryClient = useQueryClient()
-  const { permissions, loading: authLoading, activeWorkspaceId } = useAuthContext()
+  const { user, permissions, loading: authLoading, activeWorkspaceId } = useAuthContext()
   const enabled = options.enabled ?? true
   const contributeToRealtimeContext = options.contributeToRealtimeContext ?? true
   const useUrlShareTokenFallback = options.useUrlShareTokenFallback ?? true
@@ -132,8 +134,18 @@ export function useCollaborativeDocument(
   const [error, setError] = React.useState<string | null>(null)
   const [e2eeUnlocked, setE2eeUnlocked] = React.useState<boolean | null>(null)
   const [needsE2EEUnlock, setNeedsE2EEUnlock] = React.useState(false)
+  const [e2eeCheckKey, setE2eeCheckKey] = React.useState(0)
+  const [doc, setDoc] = React.useState<Y.Doc | null>(null)
+  const [awareness, setAwareness] = React.useState<Awareness | null>(null)
   const connectionRef = React.useRef<YjsConnection | null>(null)
   const cacheKeyRef = React.useRef<string | null>(null)
+
+  // Callback to retry E2EE check after unlock
+  const retryE2EECheck = React.useCallback(() => {
+    setE2eeUnlocked(null)
+    setNeedsE2EEUnlock(false)
+    setE2eeCheckKey((k) => k + 1)
+  }, [])
 
   // Validate share token and set readonly. Also set documentId early for attachments.
   React.useEffect(() => {
@@ -200,20 +212,34 @@ export function useCollaborativeDocument(
       return
     }
 
-    // No workspace = no E2EE required
-    if (!activeWorkspaceId) {
-      setE2eeUnlocked(true)
+    // Wait for auth to load - activeWorkspaceId will be set once ready
+    if (authLoading) {
+      setE2eeUnlocked(null)
       setNeedsE2EEUnlock(false)
       return
     }
 
+    // User not authenticated - don't attempt connection
+    if (!user) {
+      setE2eeUnlocked(null)
+      setNeedsE2EEUnlock(false)
+      return
+    }
+
+    // Reset state to pending before async E2EE check
+    // This ensures main effect waits for check to complete
+    setE2eeUnlocked(null)
+    setNeedsE2EEUnlock(false)
+
     let cancelled = false
     ;(async () => {
       try {
-        const keyManager = await getKeyManager()
+        const keyManager = getKeyManager()
+        await keyManager.initialize()
 
         // Check if E2EE is set up for this user
         const hasKeys = await keyManager.hasKeys()
+
         if (!hasKeys) {
           // E2EE not set up - allow connection (will fail at key fetch if needed)
           if (!cancelled) {
@@ -243,7 +269,6 @@ export function useCollaborativeDocument(
           setNeedsE2EEUnlock(true)
         } else {
           // Other errors - allow connection attempt
-          console.warn('[collaboration] E2EE check failed', err)
           setE2eeUnlocked(true)
           setNeedsE2EEUnlock(false)
         }
@@ -253,7 +278,9 @@ export function useCollaborativeDocument(
     return () => {
       cancelled = true
     }
-  }, [enabled, shareToken, useUrlShareTokenFallback, activeWorkspaceId])
+  // Note: activeWorkspaceId removed from deps - E2EE unlock status doesn't depend on workspace
+  // The check uses authLoading and user which already handle auth state changes
+  }, [enabled, shareToken, useUrlShareTokenFallback, authLoading, user, e2eeCheckKey])
 
   React.useEffect(() => {
     if (!enabled) return
@@ -316,11 +343,6 @@ export function useCollaborativeDocument(
     if (!enabled) {
       setStatus('disconnected')
       setError(null)
-      if (cacheKeyRef.current) {
-        releaseConnection(cacheKeyRef.current)
-        cacheKeyRef.current = null
-      }
-      connectionRef.current = null
       return () => {}
     }
 
@@ -334,6 +356,13 @@ export function useCollaborativeDocument(
     if (needsE2EEUnlock) {
       setStatus('disconnected')
       setError('E2EE session locked. Please unlock to continue.')
+      return () => {}
+    }
+
+    // For authenticated access (no share token), require activeWorkspaceId
+    const urlShareToken = resolveShareToken(shareToken, useUrlShareTokenFallback)
+    if (!urlShareToken && !activeWorkspaceId) {
+      setStatus('connecting')
       return () => {}
     }
 
@@ -353,8 +382,6 @@ export function useCollaborativeDocument(
 
     ;(async () => {
       try {
-        const urlShareToken = resolveShareToken(shareToken, useUrlShareTokenFallback)
-
         const acquired = await acquireConnection(id, urlShareToken ?? undefined, disablePersistence, activeWorkspaceId)
         if (cancelled) {
           releaseConnection(acquired.cacheKey)
@@ -364,6 +391,10 @@ export function useCollaborativeDocument(
         cacheKeyRef.current = cacheKey
         connectionRef.current = connection
         cleanupCacheKey = cacheKey
+
+        // Set doc and awareness state to trigger re-render
+        setDoc(connection.doc)
+        setAwareness(connection.provider.awareness)
 
         const { provider } = connection
         cleanupProvider = provider
@@ -465,8 +496,7 @@ export function useCollaborativeDocument(
         }
 
         await loadMeta()
-      } catch (err) {
-        console.error('[collaboration] failed to initialise realtime session', id, err)
+      } catch {
         if (!cancelled) {
           setStatus('disconnected')
           setError('Failed to establish realtime connection. Please reload.')
@@ -528,6 +558,8 @@ export function useCollaborativeDocument(
       setShareReadOnly(false)
       setIsReadOnly(false)
       setError(null)
+      setDoc(null)
+      setAwareness(null)
     }
   }, [
     id,
@@ -562,11 +594,12 @@ export function useCollaborativeDocument(
     status,
     isReadOnly,
     setIsReadOnly,
-    doc: connectionRef.current?.doc ?? null,
-    awareness: connectionRef.current?.provider.awareness ?? null,
+    doc,
+    awareness,
     error,
     archived,
     needsE2EEUnlock,
+    retryE2EECheck,
   }
 }
 

@@ -19,6 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 import { createDocument, documentKeys, fetchDocumentMeta } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
+import { createDocumentDekIfNeeded } from '@/features/e2ee'
 import { useEditorContext, useViewController } from '@/features/edit-document'
 import { DocumentPresence } from '@/features/header/ui/DocumentPresence'
 import { MobileHeaderMenu } from '@/features/header/ui/MobileHeaderMenu'
@@ -117,7 +118,7 @@ const HeaderViewModeControls = memo(function HeaderViewModeControls({
 
 export function Header({ className, realtime, variant = 'overlay' }: HeaderProps) {
   const { isDarkMode, toggleTheme } = useTheme()
-  const { signOut } = useAuthContext()
+  const { signOut, activeWorkspaceId } = useAuthContext()
   const queryClient = useQueryClient()
   const rt = realtime ?? defaultRealtimeState
   const isMobile = useIsMobile()
@@ -252,6 +253,8 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
       ;(async () => {
         try {
           const doc = await createDocument({ parent_id: null })
+          // Generate DEK for E2EE if enabled
+          await createDocumentDekIfNeeded(doc.id, activeWorkspaceId)
           await queryClient.invalidateQueries({ queryKey: documentKeys.all })
           toast.success('Document created')
           navigate({ to: '/document/$id', params: { id: doc.id } })
@@ -263,7 +266,7 @@ export function Header({ className, realtime, variant = 'overlay' }: HeaderProps
           creatingDocumentRef.current = false
         }
       })()
-    }, [navigate, queryClient]),
+    }, [activeWorkspaceId, navigate, queryClient]),
   )
 
   useShortcut(

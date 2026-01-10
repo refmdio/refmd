@@ -111,11 +111,18 @@ export function useEditorBinding(params: UseEditorBindingParams) {
     }
   }, [])
 
+  // Get initial Y.Text content for editor initialization
+  const getInitialContent = useCallback(() => {
+    const ytext = doc.getText('content')
+    return ytext.toString()
+  }, [doc])
+
   return {
     text,
     editorRef,
     bindingExtensions,
     setEditorView,
+    getInitialContent,
   }
 }
 

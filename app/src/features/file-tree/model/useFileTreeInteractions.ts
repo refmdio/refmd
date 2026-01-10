@@ -11,6 +11,7 @@ import {
 import { usePluginExecutor, usePluginManifest, type PluginCommand } from '@/entities/plugin'
 import { deleteShareMount } from '@/entities/share'
 
+import { createDocumentDekIfNeeded } from '@/features/e2ee'
 import type { DocumentNode } from '@/features/file-tree/model/types'
 
 export type PluginMenuItem = {
@@ -26,6 +27,7 @@ type UseFileTreeInteractionsOptions = {
   shareToken: string
   isShare: boolean
   documents: DocumentNode[]
+  workspaceId: string | null
   getSelectedDocumentId: () => string | null
   setSelectedDocumentId: (id: string | null) => void
   refreshDocuments: () => void
@@ -119,6 +121,7 @@ export function useFileTreeInteractions({
   shareToken,
   isShare,
   documents,
+  workspaceId,
   getSelectedDocumentId,
   setSelectedDocumentId,
   refreshDocuments,
@@ -178,6 +181,8 @@ export function useFileTreeInteractions({
       const parent = parentId ?? null
       try {
         const doc = await createDocumentApi({ title: 'Untitled', parent_id: parent })
+        // Generate DEK for E2EE if enabled
+        await createDocumentDekIfNeeded(doc.id, workspaceId)
         requestRename(doc.id)
         refreshDocuments()
         if (parent) expandFolder(parent)
@@ -190,7 +195,7 @@ export function useFileTreeInteractions({
         return null
       }
     },
-    [expandFolder, refreshDocuments, requestRename],
+    [expandFolder, refreshDocuments, requestRename, workspaceId],
   )
 
   const createFolder = useCallback(
@@ -243,6 +248,8 @@ export function useFileTreeInteractions({
       if (node.type === 'folder') return
       try {
         const duplicated = await duplicateDocumentApi({ id: node.id })
+        // Generate DEK for E2EE if enabled
+        await createDocumentDekIfNeeded(duplicated.id, workspaceId)
         refreshDocuments()
         setSelectedDocumentId(duplicated.id)
         navigate({ to: '/document/$id', params: { id: duplicated.id } })
@@ -252,7 +259,7 @@ export function useFileTreeInteractions({
         toast.error('Failed to duplicate document')
       }
     },
-    [isShareView, navigate, refreshDocuments, setSelectedDocumentId],
+    [isShareView, navigate, refreshDocuments, setSelectedDocumentId, workspaceId],
   )
 
   const deleteNode = useCallback(

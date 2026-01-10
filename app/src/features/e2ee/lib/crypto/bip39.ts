@@ -5,6 +5,8 @@
  * The mnemonic encodes 256 bits of entropy (the UMK).
  */
 
+// Import Buffer polyfill first (side-effect import must be before bip39)
+import './buffer-polyfill'
 import * as bip39Lib from 'bip39'
 
 /** Number of words in the recovery key */

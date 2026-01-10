@@ -10,6 +10,7 @@ type Props = {
   readOnly?: boolean
   isMobile?: boolean
   extensions?: Extension[]
+  getInitialContent?: () => string
   onViewCreated?: (view: EditorView) => void
   onDropFiles?: (files: File[]) => Promise<void> | void
   vimStatusBarRef: MutableRefObject<HTMLDivElement | null>
@@ -21,6 +22,7 @@ export default function EditorPane({
   readOnly = false,
   isMobile = false,
   extensions = [],
+  getInitialContent,
   onViewCreated,
   onDropFiles,
   vimStatusBarRef,
@@ -31,9 +33,12 @@ export default function EditorPane({
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
 
-  // Create and mount the editor
+  // Create and mount the editor - recreate when extensions change
   useEffect(() => {
     if (!containerRef.current) return
+
+    // Get initial content from Y.Text - this is crucial for yCollab to work
+    const initialContent = getInitialContent?.() ?? ''
 
     const baseExtensions = createEditorExtensions({
       isDarkMode,
@@ -44,7 +49,7 @@ export default function EditorPane({
     })
 
     const state = EditorState.create({
-      doc: '',
+      doc: initialContent,
       extensions: [...baseExtensions, ...extensions],
     })
 
@@ -60,7 +65,7 @@ export default function EditorPane({
       view.destroy()
       viewRef.current = null
     }
-  }, []) // Only run once on mount
+  }, [extensions])
 
   // Update theme when isDarkMode changes
   useEffect(() => {

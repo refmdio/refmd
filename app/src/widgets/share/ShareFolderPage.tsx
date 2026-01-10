@@ -24,7 +24,7 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
     navigate({
       to: '/document/$id',
       params: { id },
-      search: (prev: Record<string, unknown>) => ({ ...prev, token, shareScope: 'folder' }),
+      search: (prev: { token?: string; shareScope?: 'document' | 'folder' }) => ({ ...prev, token, shareScope: 'folder' as const }),
     })
   }
 

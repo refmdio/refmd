@@ -13,6 +13,7 @@ import { Label } from '@/shared/ui/label'
 import { createDocument, updateDocumentContent } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
+import { createDocumentDekIfNeeded } from '@/features/e2ee'
 import { EditorOverlay, MarkdownEditor } from '@/features/edit-document'
 import { TEMPORARY_DOCUMENT_TTL_MS, useTemporaryDocument } from '@/features/temporary-document'
 
@@ -22,7 +23,7 @@ type Props = {
 
 export default function TemporaryDocumentPage({ tempId }: Props) {
   const navigate = useNavigate()
-  const { user } = useAuthContext()
+  const { user, activeWorkspaceId } = useAuthContext()
   const { setDocumentTitle, setDocumentBadge, setDocumentStatus, setDocumentActions, setShowEditorFeatures, setDocumentId } = useRealtime()
   const [saveDialogOpen, setSaveDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -108,6 +109,8 @@ export default function TemporaryDocumentPage({ tempId }: Props) {
     setSaving(true)
     try {
       const created = await createDocument({ title: title.trim() || 'Untitled', parent_id: null })
+      // Generate DEK for E2EE if enabled
+      await createDocumentDekIfNeeded(created.id, activeWorkspaceId)
       await updateDocumentContent({ id: created.id, content: snapshot })
       toast.success('Temporary document saved')
       setSaveDialogOpen(false)
@@ -119,7 +122,7 @@ export default function TemporaryDocumentPage({ tempId }: Props) {
     } finally {
       setSaving(false)
     }
-  }, [getContentSnapshot, removeEntry, navigate])
+  }, [activeWorkspaceId, getContentSnapshot, removeEntry, navigate])
 
   const handleDeleteTemporary = useCallback(async () => {
     await removeEntry()

@@ -21,6 +21,7 @@ import {
 } from '@/features/document-download'
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
+import { UnlockPrompt } from '@/features/e2ee'
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
 import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
 import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
@@ -286,7 +287,7 @@ function DocumentClient({
   const [hunkDefaultSide, setHunkDefaultSide] = useState<'ours' | 'theirs'>('ours')
   const [hunkAnchors, setHunkAnchors] = useState<Array<{ hunkId: string; line: number }>>([])
   const lastPayloadRef = useRef<GitPullResolution[]>([])
-  const { status, doc, awareness, isReadOnly, error: realtimeError } = useCollaborativeDocument(id, shareToken)
+  const { status, doc, awareness, isReadOnly, error: realtimeError, needsE2EEUnlock, retryE2EECheck } = useCollaborativeDocument(id, shareToken)
   const hasDoc = Boolean(doc)
   const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
   useEffect(() => {
@@ -814,6 +815,21 @@ function DocumentClient({
     markdownEditorProps,
     previewOverride: previewOverrideValue,
     resolvedTitle: resolvedTitle || '',
+  }
+
+  // Handle E2EE unlock requirement
+  const handleUnlocked = useCallback(() => {
+    // Retry E2EE check to reinitialize the document connection with unlocked keys
+    retryE2EECheck()
+  }, [retryE2EECheck])
+
+  // Show unlock prompt if E2EE is locked
+  if (needsE2EEUnlock) {
+    return (
+      <div className="flex h-full items-center justify-center p-4">
+        <UnlockPrompt onUnlocked={handleUnlocked} />
+      </div>
+    )
   }
 
   const body = render ? (

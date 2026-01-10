@@ -13,8 +13,32 @@ import {
   oauthState as apiOauthState,
   refreshSession as apiRefreshSession,
   listOauthProviders as apiListOauthProviders,
+  // Security / E2EE APIs
+  getE2EeStatus as apiGetSecurityStatus,
+  needsMigration as apiNeedsMigration,
+  migrateToE2Ee as apiMigrateUserData,
+  markE2EeSetupComplete as apiMarkSecuritySetupComplete,
+  getMyPublicKey as apiGetMyPublicKey,
+  registerPublicKey as apiRegisterPublicKey,
+  getMasterKeyBackup as apiGetMasterKeyBackup,
+  storeMasterKeyBackup as apiStoreMasterKeyBackup,
+  getEncryptedPrivateKey as apiGetEncryptedPrivateKey,
+  storeEncryptedPrivateKey as apiStoreEncryptedPrivateKey,
 } from '@/shared/api'
-import type { SessionResponse, AuthProvidersResponse } from '@/shared/api'
+import type {
+  SessionResponse,
+  AuthProvidersResponse,
+  E2eeStatusResponse,
+  NeedsMigrationResponse,
+  MigrationResponse,
+  UserPublicKeyResponse,
+  MasterKeyBackupResponse,
+  EncryptedPrivateKeyResponse,
+  MigrateRequest,
+  RegisterPublicKeyRequest,
+  StoreMasterKeyBackupRequest,
+  StoreEncryptedPrivateKeyRequest,
+} from '@/shared/api'
 
 export const userKeys = {
   me: () => ['me'] as const,
@@ -125,4 +149,84 @@ export function useRevokeSession(options?: {
       options?.onError?.(error, sessionId)
     },
   })
+}
+
+// ============================================
+// Security / E2EE
+// ============================================
+
+export const securityKeys = {
+  status: () => ['security', 'status'] as const,
+  needsMigration: () => ['security', 'needs-migration'] as const,
+  publicKey: () => ['security', 'public-key'] as const,
+  masterKeyBackup: () => ['security', 'master-key-backup'] as const,
+  encryptedPrivateKey: () => ['security', 'encrypted-private-key'] as const,
+}
+
+// API wrapper functions
+export async function getSecurityStatus(): Promise<E2eeStatusResponse> {
+  return apiGetSecurityStatus()
+}
+
+export async function checkNeedsMigration(): Promise<NeedsMigrationResponse> {
+  return apiNeedsMigration()
+}
+
+export async function migrateUserData(request: MigrateRequest): Promise<MigrationResponse> {
+  return apiMigrateUserData({ requestBody: request })
+}
+
+export async function markSecuritySetupComplete(): Promise<void> {
+  await apiMarkSecuritySetupComplete()
+}
+
+export async function getMyPublicKey(): Promise<UserPublicKeyResponse> {
+  return apiGetMyPublicKey()
+}
+
+export async function registerPublicKey(request: RegisterPublicKeyRequest): Promise<UserPublicKeyResponse> {
+  return apiRegisterPublicKey({ requestBody: request })
+}
+
+export async function getMasterKeyBackup(): Promise<MasterKeyBackupResponse> {
+  return apiGetMasterKeyBackup()
+}
+
+export async function storeMasterKeyBackup(request: StoreMasterKeyBackupRequest): Promise<MasterKeyBackupResponse> {
+  return apiStoreMasterKeyBackup({ requestBody: request })
+}
+
+export async function getEncryptedPrivateKey(): Promise<EncryptedPrivateKeyResponse> {
+  return apiGetEncryptedPrivateKey()
+}
+
+export async function storeEncryptedPrivateKey(request: StoreEncryptedPrivateKeyRequest): Promise<EncryptedPrivateKeyResponse> {
+  return apiStoreEncryptedPrivateKey({ requestBody: request })
+}
+
+// Query definitions
+export const securityStatusQuery = () => ({
+  queryKey: securityKeys.status(),
+  queryFn: () => getSecurityStatus(),
+  staleTime: 30_000,
+})
+
+export const needsMigrationQuery = () => ({
+  queryKey: securityKeys.needsMigration(),
+  queryFn: () => checkNeedsMigration(),
+  staleTime: 30_000,
+})
+
+// Re-export types
+export type {
+  E2eeStatusResponse as SecurityStatusResponse,
+  NeedsMigrationResponse,
+  MigrationResponse,
+  UserPublicKeyResponse,
+  MasterKeyBackupResponse,
+  EncryptedPrivateKeyResponse,
+  MigrateRequest,
+  RegisterPublicKeyRequest,
+  StoreMasterKeyBackupRequest,
+  StoreEncryptedPrivateKeyRequest,
 }

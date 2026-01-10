@@ -321,11 +321,21 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
             };
 
             // Send pending encrypted updates since last snapshot
+            tracing::info!(
+                document_id = %doc_uuid,
+                snapshot_seq = snapshot_seq,
+                "redis_e2ee_loading_updates_since"
+            );
             if let Ok(updates) = self
                 .persistence
                 .get_updates_since(&doc_uuid, snapshot_seq)
                 .await
             {
+                tracing::info!(
+                    document_id = %doc_uuid,
+                    update_count = updates.len(),
+                    "redis_e2ee_sending_sync_updates"
+                );
                 for update in updates {
                     let update_msg = serde_json::json!({
                         "type": "sync_update",
@@ -343,6 +353,11 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                         tracing::debug!(error = %e, "redis_e2ee_sync_update_send_failed");
                         break;
                     }
+                    tracing::debug!(
+                        document_id = %doc_uuid,
+                        seq = update.seq,
+                        "redis_e2ee_sync_update_sent"
+                    );
                     drop(guard);
                 }
             }

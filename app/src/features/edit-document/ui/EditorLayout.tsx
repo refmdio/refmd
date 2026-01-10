@@ -28,6 +28,7 @@ export type EditorLayoutProps = {
   onEditorDropFiles: (files: File[]) => Promise<void>
   onEditorViewCreated: (view: EditorView) => void
   editorExtensions?: Extension[]
+  getInitialContent?: () => string
   editorRef: MutableRefObject<EditorView | null>
   syncScroll: boolean
   onPreviewScroll: (percentage: number) => void
@@ -80,6 +81,7 @@ export function EditorLayout({
   onEditorDropFiles,
   onEditorViewCreated,
   editorExtensions,
+  getInitialContent,
   editorRef,
   syncScroll,
   onPreviewScroll,
@@ -347,6 +349,7 @@ export function EditorLayout({
                     readOnly={readOnly}
                     isMobile={isMobile}
                     extensions={editorExtensions}
+                    getInitialContent={getInitialContent}
                     onViewCreated={onEditorViewCreated}
                     onDropFiles={async (files) => {
                       if (!readOnly) await onEditorDropFiles(files)

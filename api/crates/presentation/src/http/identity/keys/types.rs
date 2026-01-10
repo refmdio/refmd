@@ -38,8 +38,8 @@ pub struct RegisterPublicKeyRequest {
     /// Base64 encoded public key
     #[schema(value_type = String, format = "byte")]
     pub public_key: String,
-    /// Key type (e.g., "ecdh-p256")
-    #[schema(example = "ecdh-p256")]
+    /// Key type (x25519, ed25519, or ecdh-p256)
+    #[schema(example = "x25519")]
     pub key_type: String,
 }
 

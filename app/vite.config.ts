@@ -46,6 +46,7 @@ export default defineConfig(() => {
 
   return {
   optimizeDeps: {
+    include: ['buffer', 'bip39'],
     exclude: [
       'nitropack',
       'nitropack/runtime',
@@ -153,6 +154,7 @@ export default defineConfig(() => {
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      buffer: 'buffer/',
     },
     dedupe: ['react', 'react-dom'],
   },

@@ -4,7 +4,7 @@ import { redirect } from '@tanstack/react-router'
 import type { UserResponse } from '@/shared/api'
 
 import { validateShareToken } from '@/entities/share'
-import { me as fetchCurrentUser, userKeys } from '@/entities/user'
+import { me as fetchCurrentUser, userKeys, getSecurityStatus, securityKeys } from '@/entities/user'
 
 import { getRuntimeAuthContext } from './runtime-context'
 import type { AuthMiddlewareContext, AuthRedirectTarget, AuthResolution } from './types'
@@ -135,6 +135,26 @@ function isAuthRoute(pathname: string) {
   return pathname.startsWith('/auth/')
 }
 
+async function needsSecuritySetup(ctx?: any): Promise<boolean> {
+  // Check cached status first
+  const queryClient = ctx?.context?.queryClient as QueryClient | undefined
+  if (queryClient) {
+    const cachedStatus = queryClient.getQueryData(securityKeys.status())
+    if (cachedStatus && typeof cachedStatus === 'object' && 'isSetupCompleted' in cachedStatus) {
+      return !(cachedStatus as { isSetupCompleted: boolean }).isSetupCompleted
+    }
+  }
+
+  // Fetch status from API
+  try {
+    const status = await getSecurityStatus()
+    return !status.isSetupCompleted
+  } catch {
+    // If we can't determine, assume setup is not needed to avoid blocking
+    return false
+  }
+}
+
 function getCachedUser(ctx?: any): UserResponse | null {
   const queryClient = ctx?.context?.queryClient as QueryClient | undefined
   if (!queryClient) return null
@@ -217,9 +237,19 @@ export async function resolveAuthRedirect(ctx?: any): Promise<AuthResolution> {
 }
 
 export async function appBeforeLoadGuard(ctx?: any) {
-  const { redirect: target } = await resolveAuthRedirect(ctx)
+  const { pathname } = resolveLocation(ctx)
+  const { redirect: target, authenticated } = await resolveAuthRedirect(ctx)
   if (target) {
     throw redirect(target)
+  }
+
+  // Check if E2EE setup is needed for authenticated users
+  // Skip for auth routes (/auth/*) to prevent redirect loops
+  if (authenticated && !isAuthRoute(pathname)) {
+    const setupNeeded = await needsSecuritySetup(ctx)
+    if (setupNeeded) {
+      throw redirect({ to: '/auth/setup' as '/dashboard' })
+    }
   }
 }
 

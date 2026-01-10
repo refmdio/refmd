@@ -6,6 +6,8 @@ use uuid::Uuid;
 pub const KDF_TYPE_ARGON2ID: &str = "argon2id";
 pub const KDF_TYPE_PBKDF2: &str = "pbkdf2";
 pub const KEY_TYPE_ECDH_P256: &str = "ecdh-p256";
+pub const KEY_TYPE_X25519: &str = "x25519";
+pub const KEY_TYPE_ED25519: &str = "ed25519";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KdfType {
@@ -33,12 +35,16 @@ impl KdfType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyType {
     EcdhP256,
+    X25519,
+    Ed25519,
 }
 
 impl KeyType {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             KEY_TYPE_ECDH_P256 => Some(Self::EcdhP256),
+            KEY_TYPE_X25519 => Some(Self::X25519),
+            KEY_TYPE_ED25519 => Some(Self::Ed25519),
             _ => None,
         }
     }
@@ -46,6 +52,8 @@ impl KeyType {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::EcdhP256 => KEY_TYPE_ECDH_P256,
+            Self::X25519 => KEY_TYPE_X25519,
+            Self::Ed25519 => KEY_TYPE_ED25519,
         }
     }
 }
@@ -117,6 +125,8 @@ mod tests {
     #[test]
     fn key_type_parses() {
         assert_eq!(KeyType::parse("ecdh-p256"), Some(KeyType::EcdhP256));
+        assert_eq!(KeyType::parse("x25519"), Some(KeyType::X25519));
+        assert_eq!(KeyType::parse("ed25519"), Some(KeyType::Ed25519));
         assert_eq!(KeyType::parse("unknown"), None);
     }
 }

@@ -963,10 +963,10 @@ export default function DocumentMosaicWorkspace(props: Props) {
           to: '/document/$id',
           params: { id: trimmed },
           replace: true,
-          search: (prev: Record<string, unknown>) => {
-            const next: Record<string, unknown> = { ...(prev || {}) }
+          search: (prev: { token?: string; shareScope?: 'document' | 'folder'; shareMount?: string }) => {
+            const next = { ...(prev || {}) }
             if (shareToken) next.token = shareToken
-            if (shareScopeProp) next.shareScope = shareScopeProp
+            if (shareScopeProp) next.shareScope = shareScopeProp as 'document' | 'folder'
             if (isShareMount) next.shareMount = '1'
             return next
           },

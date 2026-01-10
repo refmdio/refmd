@@ -1,10 +1,12 @@
 import {
-  OpenAPI,
   acceptInvitation as apiAcceptWorkspaceInvitation,
   createInvitation as apiCreateWorkspaceInvitation,
   createRole as apiCreateWorkspaceRole,
   createWorkspace as apiCreateWorkspace,
   deleteRole as apiDeleteWorkspaceRole,
+  deleteWorkspace as apiDeleteWorkspace,
+  getWorkspaceDetail as apiGetWorkspaceDetail,
+  leaveWorkspace as apiLeaveWorkspace,
   listInvitations as apiListWorkspaceInvitations,
   listMembers as apiListWorkspaceMembers,
   listRoles as apiListWorkspaceRoles,
@@ -12,6 +14,7 @@ import {
   revokeInvitation as apiRevokeWorkspaceInvitation,
   updateMemberRole as apiUpdateWorkspaceMemberRole,
   updateRole as apiUpdateWorkspaceRole,
+  updateWorkspace as apiUpdateWorkspace,
 } from '@/shared/api'
 import type {
   PermissionOverridePayload as ApiPermissionOverridePayload,
@@ -20,7 +23,6 @@ import type {
   WorkspaceResponse,
   WorkspaceRoleResponse as ApiWorkspaceRoleResponse,
 } from '@/shared/api'
-import { request as __request } from '@/shared/api/client/core/request'
 
 export const workspaceKeys = {
   members: (workspaceId?: string | null) => ['workspace-members', workspaceId] as const,
@@ -46,37 +48,19 @@ export type WorkspaceMemberResponse = ApiWorkspaceMemberResponse
 export type WorkspaceRoleResponse = ApiWorkspaceRoleResponse
 
 export function getWorkspace(id: string): Promise<WorkspaceResponse> {
-  return __request(OpenAPI, {
-    method: 'GET',
-    url: '/api/workspaces/{id}',
-    path: { id },
-  }) as Promise<WorkspaceResponse>
+  return apiGetWorkspaceDetail({ id }) as Promise<WorkspaceResponse>
 }
 
 export function updateWorkspace(id: string, body: UpdateWorkspacePayload): Promise<WorkspaceResponse> {
-  return __request(OpenAPI, {
-    method: 'PUT',
-    url: '/api/workspaces/{id}',
-    path: { id },
-    body,
-    mediaType: 'application/json',
-  }) as Promise<WorkspaceResponse>
+  return apiUpdateWorkspace({ id, requestBody: body }) as Promise<WorkspaceResponse>
 }
 
 export function deleteWorkspace(id: string): Promise<void> {
-  return __request(OpenAPI, {
-    method: 'DELETE',
-    url: '/api/workspaces/{id}',
-    path: { id },
-  }) as Promise<void>
+  return apiDeleteWorkspace({ id }) as Promise<void>
 }
 
 export function leaveWorkspace(id: string): Promise<void> {
-  return __request(OpenAPI, {
-    method: 'POST',
-    url: '/api/workspaces/{id}/leave',
-    path: { id },
-  }) as Promise<void>
+  return apiLeaveWorkspace({ id }) as Promise<void>
 }
 
 export function createWorkspace(body: CreateWorkspacePayload) {

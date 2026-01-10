@@ -21,6 +21,7 @@ export interface EditorConfig {
 
 export const themeCompartment = new Compartment()
 export const readOnlyCompartment = new Compartment()
+export const collabCompartment = new Compartment()
 
 export function createBaseExtensions(config: EditorConfig): Extension[] {
   const theme = config.isDarkMode ? refmdDarkTheme : refmdLightTheme

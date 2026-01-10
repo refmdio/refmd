@@ -199,7 +199,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   }, [awareness, userId, userName])
 
   // Editor binding hook
-  const { text: boundText, editorRef, bindingExtensions, setEditorView } = useEditorBinding({
+  const { text: boundText, editorRef, bindingExtensions, setEditorView, getInitialContent } = useEditorBinding({
     doc,
     awareness,
     onTextChange: () => {},
@@ -567,6 +567,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
         onEditorDropFiles={handleEditorDropFiles}
         onEditorViewCreated={handleEditorViewCreated}
         editorExtensions={editorExtensions}
+        getInitialContent={getInitialContent}
         editorRef={editorRef}
         syncScroll={syncScroll}
         onPreviewScroll={handlePreviewScroll}

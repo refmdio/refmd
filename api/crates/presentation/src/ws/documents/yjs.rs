@@ -156,7 +156,10 @@ impl Stream for WsBinaryStream {
                 std::task::Poll::Ready(Some(Ok(AxumMessage::Binary(b)))) => {
                     return std::task::Poll::Ready(Some(Ok(b)));
                 }
-                std::task::Poll::Ready(Some(Ok(AxumMessage::Text(_)))) => continue,
+                // E2EE messages are sent as JSON text - convert to bytes
+                std::task::Poll::Ready(Some(Ok(AxumMessage::Text(t)))) => {
+                    return std::task::Poll::Ready(Some(Ok(t.into_bytes())));
+                }
                 std::task::Poll::Ready(Some(Ok(AxumMessage::Ping(_)))) => continue,
                 std::task::Poll::Ready(Some(Ok(AxumMessage::Pong(_)))) => continue,
                 std::task::Poll::Ready(Some(Ok(AxumMessage::Close(_)))) => {

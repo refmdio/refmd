@@ -16,6 +16,7 @@ export {
   SessionLockedError,
   KeyNotFoundError,
   type E2EESetupResult,
+  type EncryptedKeysBundle,
 } from './key-manager'
 
 // Key Store (IndexedDB)

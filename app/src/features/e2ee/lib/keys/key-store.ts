@@ -8,9 +8,10 @@
 import type { Argon2Params, Pbkdf2Params } from '../types'
 
 const DB_NAME = 'refmd-e2ee'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE_NAME = 'keys'
 const KEYS_ID = 'user-keys'
+const SESSION_ID = 'session-umk'
 
 /** Stored key data structure */
 export interface StoredKeys {
@@ -213,6 +214,84 @@ export class KeyStore {
 
       request.onerror = () => {
         reject(new Error(`Failed to clear keys: ${request.error?.message}`))
+      }
+
+      request.onsuccess = () => {
+        resolve()
+      }
+    })
+  }
+
+  /**
+   * Save session UMK to IndexedDB for session continuity.
+   * This allows the session to persist across page reloads.
+   */
+  async saveSessionUmk(umk: Uint8Array): Promise<void> {
+    const db = await this.ensureDb()
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite')
+      const store = transaction.objectStore(STORE_NAME)
+
+      const data = {
+        id: SESSION_ID,
+        umk: Array.from(umk),
+        savedAt: Date.now(),
+      }
+
+      const request = store.put(data)
+
+      request.onerror = () => {
+        reject(new Error(`Failed to save session UMK: ${request.error?.message}`))
+      }
+
+      request.onsuccess = () => {
+        resolve()
+      }
+    })
+  }
+
+  /**
+   * Load session UMK from IndexedDB.
+   * Returns null if no session UMK is stored.
+   */
+  async loadSessionUmk(): Promise<Uint8Array | null> {
+    const db = await this.ensureDb()
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly')
+      const store = transaction.objectStore(STORE_NAME)
+      const request = store.get(SESSION_ID)
+
+      request.onerror = () => {
+        reject(new Error(`Failed to load session UMK: ${request.error?.message}`))
+      }
+
+      request.onsuccess = () => {
+        if (!request.result || !request.result.umk) {
+          resolve(null)
+          return
+        }
+
+        resolve(new Uint8Array(request.result.umk))
+      }
+    })
+  }
+
+  /**
+   * Clear session UMK from IndexedDB.
+   * Called on logout or manual lock.
+   */
+  async clearSessionUmk(): Promise<void> {
+    const db = await this.ensureDb()
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite')
+      const store = transaction.objectStore(STORE_NAME)
+      const request = store.delete(SESSION_ID)
+
+      request.onerror = () => {
+        reject(new Error(`Failed to clear session UMK: ${request.error?.message}`))
       }
 
       request.onsuccess = () => {

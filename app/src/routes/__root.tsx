@@ -18,6 +18,7 @@ import { SidebarProvider, Sidebar, SidebarInset } from '@/shared/ui/sidebar'
 import { Toaster } from '@/shared/ui/sonner'
 
 import { AuthProvider, useAuthContext } from '@/features/auth'
+import { E2EEProvider } from '@/features/e2ee'
 import { EditorProvider, ViewProvider } from '@/features/edit-document'
 import { ShortcutRegistryProvider } from '@/features/shortcuts'
 
@@ -120,14 +121,16 @@ function RootComponent() {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <ShortcutRegistryBoundary>
-            <RealtimeProvider>
-              <ShareTokenProvider token={shareToken}>
-                <LayoutContent layout={layout} />
-              </ShareTokenProvider>
-              <Toaster richColors position="bottom-right" />
-            </RealtimeProvider>
-          </ShortcutRegistryBoundary>
+          <E2EEProvider>
+            <ShortcutRegistryBoundary>
+              <RealtimeProvider>
+                <ShareTokenProvider token={shareToken}>
+                  <LayoutContent layout={layout} />
+                </ShareTokenProvider>
+                <Toaster richColors position="bottom-right" />
+              </RealtimeProvider>
+            </ShortcutRegistryBoundary>
+          </E2EEProvider>
         </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>

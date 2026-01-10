@@ -412,6 +412,7 @@ function FileTreeInner() {
     shareToken,
     isShare,
     documents,
+    workspaceId: activeWorkspace?.id ?? null,
     getSelectedDocumentId: () => selectedDocId,
     setSelectedDocumentId: setSelectedDocId,
     refreshDocuments,

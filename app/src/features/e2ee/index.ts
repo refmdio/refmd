@@ -103,6 +103,7 @@ export {
   SessionLockedError,
   KeyNotFoundError,
   type E2EESetupResult,
+  type EncryptedKeysBundle,
   // KeyStore
   KeyStore,
   getKeyStore,
@@ -174,3 +175,29 @@ export {
   URL_FRAGMENT_PREFIX,
   type EncryptedShareKeyForApi,
 } from './lib/keys'
+
+// Hooks
+export { useSecurityStatus, useNeedsSecuritySetup } from './hooks/useSecurityStatus'
+export { useKeyManager } from './hooks/useKeyManager'
+export { useServerBackup, type ServerBackup } from './hooks/useServerBackup'
+
+// Context
+export { E2EEProvider, useE2EE, type E2EEState } from './context/e2ee-context'
+
+// UI Components
+export {
+  PassphraseInput,
+  RecoveryKeyDisplay,
+  RecoveryKeyVerify,
+  MigrationProgress,
+  SecuritySetupWizard,
+  UnlockPrompt,
+  RestorePrompt,
+} from './ui'
+
+// Document key helpers
+export {
+  createDocumentDek,
+  createDocumentDekIfNeeded,
+  isE2EEReady,
+} from './lib/document-keys'
