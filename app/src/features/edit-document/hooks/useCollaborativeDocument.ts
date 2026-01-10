@@ -12,7 +12,8 @@ import { fetchDocumentMeta } from '@/entities/document'
 import { validateShareToken } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
-import { getKeyManager, SessionLockedError } from '@/features/e2ee'
+
+import { useE2EEStatus } from './useE2EEStatus'
 
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
@@ -105,7 +106,7 @@ export function useCollaborativeDocument(
   options: UseCollaborativeDocumentOptions = {},
 ) {
   const queryClient = useQueryClient()
-  const { user, permissions, loading: authLoading, activeWorkspaceId } = useAuthContext()
+  const { permissions, loading: authLoading, activeWorkspaceId } = useAuthContext()
   const enabled = options.enabled ?? true
   const contributeToRealtimeContext = options.contributeToRealtimeContext ?? true
   const useUrlShareTokenFallback = options.useUrlShareTokenFallback ?? true
@@ -127,25 +128,22 @@ export function useCollaborativeDocument(
     setOnlineUsers,
     userCount,
   } = useRealtime()
+  // E2EE status check
+  const { e2eeUnlocked, needsE2EEUnlock, retryE2EECheck } = useE2EEStatus({
+    enabled,
+    shareToken,
+    useUrlShareTokenFallback,
+  })
+
   const [status, setStatus] = React.useState<RealtimeStatus>('connecting')
   const [isReadOnly, setIsReadOnly] = React.useState(false)
   const [archived, setArchived] = React.useState(false)
   const [shareReadOnly, setShareReadOnly] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [e2eeUnlocked, setE2eeUnlocked] = React.useState<boolean | null>(null)
-  const [needsE2EEUnlock, setNeedsE2EEUnlock] = React.useState(false)
-  const [e2eeCheckKey, setE2eeCheckKey] = React.useState(0)
   const [doc, setDoc] = React.useState<Y.Doc | null>(null)
   const [awareness, setAwareness] = React.useState<Awareness | null>(null)
   const connectionRef = React.useRef<YjsConnection | null>(null)
   const cacheKeyRef = React.useRef<string | null>(null)
-
-  // Callback to retry E2EE check after unlock
-  const retryE2EECheck = React.useCallback(() => {
-    setE2eeUnlocked(null)
-    setNeedsE2EEUnlock(false)
-    setE2eeCheckKey((k) => k + 1)
-  }, [])
 
   // Validate share token and set readonly. Also set documentId early for attachments.
   React.useEffect(() => {
@@ -195,92 +193,6 @@ export function useCollaborativeDocument(
     shouldValidateShareToken,
     useUrlShareTokenFallback,
   ])
-
-  // Check E2EE unlock status before connecting
-  React.useEffect(() => {
-    if (!enabled) {
-      setE2eeUnlocked(null)
-      setNeedsE2EEUnlock(false)
-      return
-    }
-
-    // Share token access doesn't require E2EE unlock (share keys handle decryption)
-    const token = resolveShareToken(shareToken, useUrlShareTokenFallback)
-    if (token) {
-      setE2eeUnlocked(true)
-      setNeedsE2EEUnlock(false)
-      return
-    }
-
-    // Wait for auth to load - activeWorkspaceId will be set once ready
-    if (authLoading) {
-      setE2eeUnlocked(null)
-      setNeedsE2EEUnlock(false)
-      return
-    }
-
-    // User not authenticated - don't attempt connection
-    if (!user) {
-      setE2eeUnlocked(null)
-      setNeedsE2EEUnlock(false)
-      return
-    }
-
-    // Reset state to pending before async E2EE check
-    // This ensures main effect waits for check to complete
-    setE2eeUnlocked(null)
-    setNeedsE2EEUnlock(false)
-
-    let cancelled = false
-    ;(async () => {
-      try {
-        const keyManager = getKeyManager()
-        await keyManager.initialize()
-
-        // Check if E2EE is set up for this user
-        const hasKeys = await keyManager.hasKeys()
-
-        if (!hasKeys) {
-          // E2EE not set up - allow connection (will fail at key fetch if needed)
-          if (!cancelled) {
-            setE2eeUnlocked(true)
-            setNeedsE2EEUnlock(false)
-          }
-          return
-        }
-
-        // E2EE is set up - check if session is unlocked
-        if (keyManager.isUnlocked) {
-          if (!cancelled) {
-            setE2eeUnlocked(true)
-            setNeedsE2EEUnlock(false)
-          }
-        } else {
-          // Session locked - need unlock
-          if (!cancelled) {
-            setE2eeUnlocked(false)
-            setNeedsE2EEUnlock(true)
-          }
-        }
-      } catch (err) {
-        if (cancelled) return
-        if (err instanceof SessionLockedError) {
-          setE2eeUnlocked(false)
-          setNeedsE2EEUnlock(true)
-        } else {
-          // Other errors - allow connection attempt
-          setE2eeUnlocked(true)
-          setNeedsE2EEUnlock(false)
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  // Note: activeWorkspaceId removed from deps - E2EE unlock status doesn't depend on workspace
-  // The check uses authLoading and user which already handle auth state changes
-  }, [enabled, shareToken, useUrlShareTokenFallback, authLoading, user, e2eeCheckKey])
 
   React.useEffect(() => {
     if (!enabled) return

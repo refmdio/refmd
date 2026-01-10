@@ -85,17 +85,14 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authLoading, user, isUnlocked])
 
-  // Update unlock state periodically (in case of external changes)
+  // Subscribe to unlock state changes
   useEffect(() => {
     if (!isInitialized) return
 
-    const checkUnlockState = () => {
-      const km = getKeyManager()
+    const km = getKeyManager()
+    return km.onUnlockChange(() => {
       setIsUnlocked(km.isUnlocked)
-    }
-
-    const interval = setInterval(checkUnlockState, 1000)
-    return () => clearInterval(interval)
+    })
   }, [isInitialized])
 
   const unlock = useCallback(async (passphrase: string) => {

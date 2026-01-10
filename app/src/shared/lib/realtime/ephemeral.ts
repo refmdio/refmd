@@ -111,10 +111,10 @@ export interface VerifyResult {
  *
  * @returns Base64-encoded session ID (24 bytes)
  */
-export function generateSessionId(): string {
+export async function generateSessionId(): Promise<string> {
   const bytes = new Uint8Array(SESSION_ID_LENGTH)
   crypto.getRandomValues(bytes)
-  return uint8ArrayToBase64(bytes)
+  return toBase64(bytes)
 }
 
 /**
@@ -135,9 +135,9 @@ function generateInitialCounter(): number {
  *
  * @returns New session with random ID and counter
  */
-export function createEphemeralSession(): EphemeralSession {
+export async function createEphemeralSession(): Promise<EphemeralSession> {
   return {
-    id: generateSessionId(),
+    id: await generateSessionId(),
     counter: generateInitialCounter(),
     validSessions: {},
   }
@@ -174,7 +174,7 @@ export async function createEphemeralMessage(
   const updatedSession = { ...session, counter: newCounter }
 
   // Build prefixed content: [type] + [sessionId] + [counter] + [content]
-  const sessionIdBytes = base64ToUint8Array(session.id)
+  const sessionIdBytes = await fromBase64(session.id)
   const prefixedContent = prefixWithSessionInfo(
     content,
     messageTypes[messageType],
@@ -286,7 +286,7 @@ export async function verifyAndDecryptEphemeralMessage(
     }
 
     // Parse prefix: [type (1)] + [sessionId (24)] + [counter (4)] + [content]
-    const { type, sessionId, counter, content } = parsePrefix(decrypted)
+    const { type, sessionId, counter, content } = await parsePrefix(decrypted)
     const senderPublicKeyBase64 = message.publicData.pubKey
 
     // Handle by message type
@@ -502,15 +502,15 @@ function prefixWithSessionInfo(
 /**
  * Parse prefix from decrypted content.
  */
-function parsePrefix(data: Uint8Array): {
+async function parsePrefix(data: Uint8Array): Promise<{
   type: number
   sessionId: string
   counter: number
   content: Uint8Array
-} {
+}> {
   const type = data[0]
   const sessionIdBytes = data.slice(1, 1 + SESSION_ID_LENGTH)
-  const sessionId = uint8ArrayToBase64(sessionIdBytes)
+  const sessionId = await toBase64(sessionIdBytes)
   const counterBytes = data.slice(1 + SESSION_ID_LENGTH, 1 + SESSION_ID_LENGTH + COUNTER_LENGTH)
   const counter = uint8ArrayToInt(counterBytes)
   const content = data.slice(1 + SESSION_ID_LENGTH + COUNTER_LENGTH)
@@ -535,27 +535,4 @@ function intToUint8Array(num: number): Uint8Array {
  */
 function uint8ArrayToInt(arr: Uint8Array): number {
   return (arr[0] << 24) | (arr[1] << 16) | (arr[2] << 8) | arr[3]
-}
-
-/**
- * Convert Uint8Array to Base64.
- */
-function uint8ArrayToBase64(arr: Uint8Array): string {
-  let binary = ''
-  for (let i = 0; i < arr.length; i++) {
-    binary += String.fromCharCode(arr[i])
-  }
-  return btoa(binary)
-}
-
-/**
- * Convert Base64 to Uint8Array.
- */
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const arr = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    arr[i] = binary.charCodeAt(i)
-  }
-  return arr
 }

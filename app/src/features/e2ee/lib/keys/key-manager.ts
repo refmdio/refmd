@@ -90,6 +90,33 @@ export class SessionLockedError extends Error {
   }
 }
 
+/** KDF parameters with type discriminator */
+type KdfParams =
+  | { type: 'argon2id'; memory: number; iterations: number; parallelism: number }
+  | { type: 'pbkdf2'; iterations: number }
+
+/**
+ * Build KDF parameters from server backup data.
+ * Handles null/undefined values with sensible defaults.
+ */
+function buildKdfParams(
+  kdfType: 'argon2id' | 'pbkdf2',
+  rawParams: { memory?: number | null; iterations?: number | null; parallelism?: number | null }
+): KdfParams {
+  if (kdfType === 'argon2id') {
+    return {
+      type: 'argon2id',
+      memory: rawParams.memory ?? 65536,
+      iterations: rawParams.iterations ?? 3,
+      parallelism: rawParams.parallelism ?? 4,
+    }
+  }
+  return {
+    type: 'pbkdf2',
+    iterations: rawParams.iterations ?? 600000,
+  }
+}
+
 /** Key not found error */
 export class KeyNotFoundError extends Error {
   constructor(keyType: string, id: string) {
@@ -106,9 +133,23 @@ export class KeyManager {
   private umk: Uint8Array | null = null
   private userKeys: UserKeySet | null = null
   private _isInitialized = false
+  private unlockListeners = new Set<() => void>()
 
   constructor(keyStore?: KeyStore) {
     this.keyStore = keyStore ?? getKeyStore()
+  }
+
+  /**
+   * Subscribe to unlock state changes.
+   * @returns Unsubscribe function
+   */
+  onUnlockChange(listener: () => void): () => void {
+    this.unlockListeners.add(listener)
+    return () => this.unlockListeners.delete(listener)
+  }
+
+  private notifyUnlockChange(): void {
+    this.unlockListeners.forEach(l => l())
   }
 
   /**
@@ -145,6 +186,7 @@ export class KeyManager {
       const userKeys = await decryptUserKeys(storedKeys, storedUmk)
       this.umk = storedUmk
       this.userKeys = userKeys
+      this.notifyUnlockChange()
     } catch {
       // Failed to auto-unlock, clear invalid UMK
       await this.keyStore.clearSessionUmk()
@@ -196,17 +238,7 @@ export class KeyManager {
     const encryptedKeys = await encryptUserKeys(userKeys, umkResult.umk)
 
     // Store in IndexedDB
-    const kdfParams = umkResult.kdf === 'argon2id'
-      ? {
-          type: 'argon2id' as const,
-          memory: (umkResult.kdfParams as { memory: number; iterations: number; parallelism: number }).memory,
-          iterations: (umkResult.kdfParams as { memory: number; iterations: number; parallelism: number }).iterations,
-          parallelism: (umkResult.kdfParams as { memory: number; iterations: number; parallelism: number }).parallelism,
-        }
-      : {
-          type: 'pbkdf2' as const,
-          iterations: (umkResult.kdfParams as { iterations: number }).iterations,
-        }
+    const kdfParams = buildKdfParams(umkResult.kdf, umkResult.kdfParams)
 
     const storedKeys: StoredKeys = {
       ...encryptedKeys,
@@ -266,7 +298,6 @@ export class KeyManager {
       throw new Error('No E2EE keys found. Please set up E2EE first.')
     }
 
-    // Derive UMK from passphrase
     const umk = await deriveUmkFromPassphrase(
       passphrase,
       storedKeys.salt,
@@ -274,19 +305,7 @@ export class KeyManager {
       storedKeys.kdfParams
     )
 
-    // Try to decrypt user keys to verify passphrase
-    try {
-      const userKeys = await decryptUserKeys(storedKeys, umk)
-      this.umk = umk
-      this.userKeys = userKeys
-
-      // Persist UMK for session continuity (auto-unlock on page reload)
-      await this.keyStore.saveSessionUmk(umk)
-    } catch {
-      // Zero out UMK on failure
-      umk.fill(0)
-      throw new Error('Incorrect passphrase')
-    }
+    await this.performUnlock(umk, storedKeys, 'Incorrect passphrase')
   }
 
   /**
@@ -303,28 +322,15 @@ export class KeyManager {
       throw new Error('No E2EE keys found. Please set up E2EE first.')
     }
 
-    // Restore UMK from recovery key
     const umk = restoreUmkFromRecoveryKey(recoveryKey)
-
-    // Try to decrypt user keys to verify recovery key
-    try {
-      const userKeys = await decryptUserKeys(storedKeys, umk)
-      this.umk = umk
-      this.userKeys = userKeys
-
-      // Persist UMK for session continuity (auto-unlock on page reload)
-      await this.keyStore.saveSessionUmk(umk)
-    } catch {
-      // Zero out UMK on failure
-      umk.fill(0)
-      throw new Error('Incorrect recovery key')
-    }
+    await this.performUnlock(umk, storedKeys, 'Incorrect recovery key')
   }
 
   /**
    * Lock the session - clears all keys from memory.
    */
   lock(): void {
+    const wasUnlocked = this.isUnlocked
     if (this.umk) {
       zeroUmk(this.umk)
       this.umk = null
@@ -337,6 +343,10 @@ export class KeyManager {
 
     // Clear all cached KEKs and DEKs
     clearAllCaches()
+
+    if (wasUnlocked) {
+      this.notifyUnlockChange()
+    }
   }
 
   /**
@@ -375,23 +385,9 @@ export class KeyManager {
   ): Promise<void> {
     await this.ensureInitialized()
 
-    // Parse salt from base64
     const salt = await fromBase64(serverBackup.salt)
+    const kdfParams = buildKdfParams(serverBackup.kdfType, serverBackup.kdfParams)
 
-    // Build KDF params
-    const kdfParams = serverBackup.kdfType === 'argon2id'
-      ? {
-          type: 'argon2id' as const,
-          memory: serverBackup.kdfParams.memory ?? 65536,
-          iterations: serverBackup.kdfParams.iterations ?? 3,
-          parallelism: serverBackup.kdfParams.parallelism ?? 4,
-        }
-      : {
-          type: 'pbkdf2' as const,
-          iterations: serverBackup.kdfParams.iterations ?? 600000,
-        }
-
-    // Derive UMK from passphrase
     const umk = await deriveUmkFromPassphrase(
       passphrase,
       salt,
@@ -399,39 +395,7 @@ export class KeyManager {
       kdfParams
     )
 
-    // Parse encrypted keys from base64
-    const bundle = serverBackup.encryptedKeysBundle
-    const storedKeys: StoredKeys = {
-      encryptedEcdhPrivateKey: await fromBase64(bundle.encryptedEcdhPrivateKey),
-      encryptedEcdhPrivateKeyNonce: await fromBase64(bundle.encryptedEcdhPrivateKeyNonce),
-      encryptedSigningPrivateKey: await fromBase64(bundle.encryptedSigningPrivateKey),
-      encryptedSigningPrivateKeyNonce: await fromBase64(bundle.encryptedSigningPrivateKeyNonce),
-      ecdhPublicKey: await fromBase64(bundle.ecdhPublicKey),
-      signingPublicKey: await fromBase64(bundle.signingPublicKey),
-      salt,
-      kdf: serverBackup.kdfType,
-      kdfParams,
-      createdAt: Date.now(),
-    }
-
-    // Try to decrypt user keys to verify passphrase
-    try {
-      const userKeys = await decryptUserKeys(storedKeys, umk)
-
-      // Save to local IndexedDB
-      await this.keyStore.saveKeys(storedKeys)
-
-      // Persist UMK for session continuity (auto-unlock on page reload)
-      await this.keyStore.saveSessionUmk(umk)
-
-      // Keep in memory
-      this.umk = umk
-      this.userKeys = userKeys
-    } catch {
-      // Zero out UMK on failure
-      umk.fill(0)
-      throw new Error('Incorrect passphrase')
-    }
+    await this.performRestore(umk, serverBackup, 'Incorrect passphrase')
   }
 
   /**
@@ -451,58 +415,8 @@ export class KeyManager {
   ): Promise<void> {
     await this.ensureInitialized()
 
-    // Restore UMK from recovery key
     const umk = restoreUmkFromRecoveryKey(recoveryKey)
-
-    // Parse salt from base64
-    const salt = await fromBase64(serverBackup.salt)
-
-    // Build KDF params
-    const kdfParams = serverBackup.kdfType === 'argon2id'
-      ? {
-          type: 'argon2id' as const,
-          memory: serverBackup.kdfParams.memory ?? 65536,
-          iterations: serverBackup.kdfParams.iterations ?? 3,
-          parallelism: serverBackup.kdfParams.parallelism ?? 4,
-        }
-      : {
-          type: 'pbkdf2' as const,
-          iterations: serverBackup.kdfParams.iterations ?? 600000,
-        }
-
-    // Parse encrypted keys from base64
-    const bundle = serverBackup.encryptedKeysBundle
-    const storedKeys: StoredKeys = {
-      encryptedEcdhPrivateKey: await fromBase64(bundle.encryptedEcdhPrivateKey),
-      encryptedEcdhPrivateKeyNonce: await fromBase64(bundle.encryptedEcdhPrivateKeyNonce),
-      encryptedSigningPrivateKey: await fromBase64(bundle.encryptedSigningPrivateKey),
-      encryptedSigningPrivateKeyNonce: await fromBase64(bundle.encryptedSigningPrivateKeyNonce),
-      ecdhPublicKey: await fromBase64(bundle.ecdhPublicKey),
-      signingPublicKey: await fromBase64(bundle.signingPublicKey),
-      salt,
-      kdf: serverBackup.kdfType,
-      kdfParams,
-      createdAt: Date.now(),
-    }
-
-    // Try to decrypt user keys to verify recovery key
-    try {
-      const userKeys = await decryptUserKeys(storedKeys, umk)
-
-      // Save to local IndexedDB
-      await this.keyStore.saveKeys(storedKeys)
-
-      // Persist UMK for session continuity (auto-unlock on page reload)
-      await this.keyStore.saveSessionUmk(umk)
-
-      // Keep in memory
-      this.umk = umk
-      this.userKeys = userKeys
-    } catch {
-      // Zero out UMK on failure
-      umk.fill(0)
-      throw new Error('Incorrect recovery key')
-    }
+    await this.performRestore(umk, serverBackup, 'Incorrect recovery key')
   }
 
   // ============================================
@@ -727,19 +641,7 @@ export class KeyManager {
 
     // Re-encrypt user keys with new UMK
     const encryptedKeys = await encryptUserKeys(this.userKeys!, umkResult.umk)
-
-    // Build KDF params with type discriminator
-    const kdfParams = umkResult.kdf === 'argon2id'
-      ? {
-          type: 'argon2id' as const,
-          memory: (umkResult.kdfParams as { memory: number; iterations: number; parallelism: number }).memory,
-          iterations: (umkResult.kdfParams as { memory: number; iterations: number; parallelism: number }).iterations,
-          parallelism: (umkResult.kdfParams as { memory: number; iterations: number; parallelism: number }).parallelism,
-        }
-      : {
-          type: 'pbkdf2' as const,
-          iterations: (umkResult.kdfParams as { iterations: number }).iterations,
-        }
+    const kdfParams = buildKdfParams(umkResult.kdf, umkResult.kdfParams)
 
     // Store updated keys
     const storedKeys: StoredKeys = {
@@ -798,6 +700,69 @@ export class KeyManager {
   private ensureUnlocked(): void {
     if (!this.isUnlocked) {
       throw new SessionLockedError()
+    }
+  }
+
+  /**
+   * Common unlock logic shared by unlockWithPassphrase and unlockWithRecoveryKey.
+   */
+  private async performUnlock(
+    umk: Uint8Array,
+    storedKeys: StoredKeys,
+    errorMessage: string
+  ): Promise<void> {
+    try {
+      const userKeys = await decryptUserKeys(storedKeys, umk)
+      this.umk = umk
+      this.userKeys = userKeys
+      await this.keyStore.saveSessionUmk(umk)
+      this.notifyUnlockChange()
+    } catch {
+      umk.fill(0)
+      throw new Error(errorMessage)
+    }
+  }
+
+  /**
+   * Common restore logic shared by restoreFromServer and restoreFromServerWithRecoveryKey.
+   */
+  private async performRestore(
+    umk: Uint8Array,
+    serverBackup: {
+      encryptedKeysBundle: EncryptedKeysBundle
+      salt: string
+      kdfType: 'argon2id' | 'pbkdf2'
+      kdfParams: { memory?: number | null; iterations?: number | null; parallelism?: number | null }
+    },
+    errorMessage: string
+  ): Promise<void> {
+    const salt = await fromBase64(serverBackup.salt)
+    const kdfParams = buildKdfParams(serverBackup.kdfType, serverBackup.kdfParams)
+
+    const bundle = serverBackup.encryptedKeysBundle
+    const storedKeys: StoredKeys = {
+      encryptedEcdhPrivateKey: await fromBase64(bundle.encryptedEcdhPrivateKey),
+      encryptedEcdhPrivateKeyNonce: await fromBase64(bundle.encryptedEcdhPrivateKeyNonce),
+      encryptedSigningPrivateKey: await fromBase64(bundle.encryptedSigningPrivateKey),
+      encryptedSigningPrivateKeyNonce: await fromBase64(bundle.encryptedSigningPrivateKeyNonce),
+      ecdhPublicKey: await fromBase64(bundle.ecdhPublicKey),
+      signingPublicKey: await fromBase64(bundle.signingPublicKey),
+      salt,
+      kdf: serverBackup.kdfType,
+      kdfParams,
+      createdAt: Date.now(),
+    }
+
+    try {
+      const userKeys = await decryptUserKeys(storedKeys, umk)
+      await this.keyStore.saveKeys(storedKeys)
+      await this.keyStore.saveSessionUmk(umk)
+      this.umk = umk
+      this.userKeys = userKeys
+      this.notifyUnlockChange()
+    } catch {
+      umk.fill(0)
+      throw new Error(errorMessage)
     }
   }
 }

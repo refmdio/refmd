@@ -230,7 +230,7 @@ export class SecureSync {
     this.dek = await keyManager.getDocumentDek(this.documentId, kek, fetchDek)
 
     // Create ephemeral session for awareness
-    this.ephemeralSession = createEphemeralSession()
+    this.ephemeralSession = await createEphemeralSession()
 
     // Initialize Awareness
     const { Awareness } = await import('y-protocols/awareness')
@@ -402,25 +402,37 @@ export class SecureSync {
    * Send initialize message to announce presence to other clients.
    */
   private async sendInitializeMessage(): Promise<void> {
-    if (!this._connected || !this.ws || !this.dek || !this.signingKeyPair || !this.publicKeyBase64 || !this.ephemeralSession) {
+    // Capture references at the start to avoid race conditions during async operations
+    const ws = this.ws
+    const dek = this.dek
+    const signingKeyPair = this.signingKeyPair
+    const publicKeyBase64 = this.publicKeyBase64
+    const ephemeralSession = this.ephemeralSession
+
+    if (!this._connected || !ws || !dek || !signingKeyPair || !publicKeyBase64 || !ephemeralSession) {
       return
     }
 
     try {
       const publicData: EphemeralPublicDataFromEphemeral = {
         docId: this.documentId,
-        pubKey: this.publicKeyBase64,
+        pubKey: publicKeyBase64,
       }
 
       const { message, updatedSession } = await createInitializeMessage(
         publicData,
-        this.dek,
-        this.signingKeyPair,
-        this.ephemeralSession
+        dek,
+        signingKeyPair,
+        ephemeralSession
       )
       this.ephemeralSession = updatedSession
 
-      this.ws.send(JSON.stringify({ type: 'awareness', ...message }))
+      // Check if WebSocket is still open before sending
+      if (ws.readyState !== WebSocket.OPEN) {
+        return
+      }
+
+      ws.send(JSON.stringify({ type: 'awareness', ...message }))
     } catch (err) {
       console.error('[SecureSync] Error sending initialize message:', err)
     }
@@ -635,14 +647,21 @@ export class SecureSync {
     proof: Uint8Array,
     requestProof: boolean
   ): Promise<void> {
-    if (!this._connected || !this.ws || !this.dek || !this.signingKeyPair || !this.publicKeyBase64 || !this.ephemeralSession) {
+    // Capture references at the start to avoid race conditions during async operations
+    const ws = this.ws
+    const dek = this.dek
+    const signingKeyPair = this.signingKeyPair
+    const publicKeyBase64 = this.publicKeyBase64
+    const ephemeralSession = this.ephemeralSession
+
+    if (!this._connected || !ws || !dek || !signingKeyPair || !publicKeyBase64 || !ephemeralSession) {
       return
     }
 
     try {
       const publicData: EphemeralPublicDataFromEphemeral = {
         docId: this.documentId,
-        pubKey: this.publicKeyBase64,
+        pubKey: publicKeyBase64,
       }
 
       const messageType = requestProof ? 'proofAndRequestProof' : 'proof'
@@ -650,13 +669,18 @@ export class SecureSync {
         proof,
         messageType,
         publicData,
-        this.dek,
-        this.signingKeyPair,
-        this.ephemeralSession
+        dek,
+        signingKeyPair,
+        ephemeralSession
       )
       this.ephemeralSession = updatedSession
 
-      this.ws.send(JSON.stringify({ type: 'awareness', ...message }))
+      // Check if WebSocket is still open before sending
+      if (ws.readyState !== WebSocket.OPEN) {
+        return
+      }
+
+      ws.send(JSON.stringify({ type: 'awareness', ...message }))
     } catch (err) {
       console.error('[SecureSync] Error sending proof response:', err)
     }
@@ -702,7 +726,13 @@ export class SecureSync {
   }
 
   private async handleLocalUpdate(update: Uint8Array): Promise<void> {
-    if (!this._connected || !this.ws || !this.dek || !this.signingKeyPair || !this.publicKeyBase64) {
+    // Capture references at the start to avoid race conditions during async operations
+    const ws = this.ws
+    const dek = this.dek
+    const signingKeyPair = this.signingKeyPair
+    const publicKeyBase64 = this.publicKeyBase64
+
+    if (!this._connected || !ws || !dek || !signingKeyPair || !publicKeyBase64) {
       // Queue update for later
       this.pendingUpdates.push(update)
       return
@@ -713,14 +743,21 @@ export class SecureSync {
 
     const publicData: UpdatePublicData = {
       docId: this.documentId,
-      pubKey: this.publicKeyBase64,
+      pubKey: publicKeyBase64,
       refSnapshotId: this.state.currentSnapshotId ?? '',
       clock: this.state.localClock,
     }
 
     try {
-      const message = await createUpdate(update, this.dek, this.signingKeyPair, publicData)
-      this.ws.send(JSON.stringify(message))
+      const message = await createUpdate(update, dek, signingKeyPair, publicData)
+
+      // Check if WebSocket is still open before sending
+      if (ws.readyState !== WebSocket.OPEN) {
+        this.pendingUpdates.push(update)
+        return
+      }
+
+      ws.send(JSON.stringify(message))
 
       this.updatesSinceSnapshot++
 
@@ -734,17 +771,25 @@ export class SecureSync {
   }
 
   private async handleLocalAwarenessChange(changedClients: number[]): Promise<void> {
-    if (!this._connected || !this.ws || !this.dek || !this.signingKeyPair || !this.publicKeyBase64 || !this.awareness || !this.ephemeralSession) {
+    // Capture references at the start to avoid race conditions during async operations
+    const ws = this.ws
+    const dek = this.dek
+    const signingKeyPair = this.signingKeyPair
+    const publicKeyBase64 = this.publicKeyBase64
+    const awareness = this.awareness
+    const ephemeralSession = this.ephemeralSession
+
+    if (!this._connected || !ws || !dek || !signingKeyPair || !publicKeyBase64 || !awareness || !ephemeralSession) {
       return
     }
 
     try {
       const { encodeAwarenessUpdate } = await import('y-protocols/awareness')
-      const awarenessUpdate = encodeAwarenessUpdate(this.awareness, changedClients)
+      const awarenessUpdate = encodeAwarenessUpdate(awareness, changedClients)
 
       const publicData: EphemeralPublicDataFromEphemeral = {
         docId: this.documentId,
-        pubKey: this.publicKeyBase64,
+        pubKey: publicKeyBase64,
       }
 
       // Use new ephemeral message API with session handshake
@@ -752,20 +797,31 @@ export class SecureSync {
         awarenessUpdate,
         'message',
         publicData,
-        this.dek,
-        this.signingKeyPair,
-        this.ephemeralSession
+        dek,
+        signingKeyPair,
+        ephemeralSession
       )
       this.ephemeralSession = updatedSession
 
-      this.ws.send(JSON.stringify({ type: 'awareness', ...message }))
+      // Check again if WebSocket is still open before sending
+      if (ws.readyState !== WebSocket.OPEN) {
+        return
+      }
+
+      ws.send(JSON.stringify({ type: 'awareness', ...message }))
     } catch (err) {
       console.error('[SecureSync] Error sending awareness:', err)
     }
   }
 
   private async createAndSendSnapshot(): Promise<void> {
-    if (!this._connected || !this.ws || !this.dek || !this.signingKeyPair || !this.publicKeyBase64) {
+    // Capture references at the start to avoid race conditions during async operations
+    const ws = this.ws
+    const dek = this.dek
+    const signingKeyPair = this.signingKeyPair
+    const publicKeyBase64 = this.publicKeyBase64
+
+    if (!this._connected || !ws || !dek || !signingKeyPair || !publicKeyBase64) {
       return
     }
 
@@ -774,7 +830,7 @@ export class SecureSync {
       const snapshot = Y.encodeStateAsUpdateV2(this.doc)
 
       // Generate snapshot ID
-      const snapshotId = generateSessionId()
+      const snapshotId = await generateSessionId()
 
       // Build update clocks record
       const updateClocks: Record<string, number> = {}
@@ -782,7 +838,7 @@ export class SecureSync {
         updateClocks[key] = value
       }
       // Include our own clock
-      updateClocks[this.publicKeyBase64] = this.state.localClock
+      updateClocks[publicKeyBase64] = this.state.localClock
 
       // Compute proof chain
       const parentSnapshotProof = this.state.currentSnapshotId
@@ -795,15 +851,21 @@ export class SecureSync {
 
       const publicData: SnapshotPublicData = {
         docId: this.documentId,
-        pubKey: this.publicKeyBase64,
+        pubKey: publicKeyBase64,
         snapshotId,
         parentSnapshotId: this.state.currentSnapshotId ?? '',
         parentSnapshotProof,
         parentSnapshotUpdateClocks: updateClocks,
       }
 
-      const message = await createSnapshot(snapshot, this.dek, this.signingKeyPair, publicData)
-      this.ws.send(JSON.stringify(message))
+      const message = await createSnapshot(snapshot, dek, signingKeyPair, publicData)
+
+      // Check if WebSocket is still open before sending
+      if (ws.readyState !== WebSocket.OPEN) {
+        return
+      }
+
+      ws.send(JSON.stringify(message))
 
       // Compute and store hash of our new snapshot's ciphertext for future proofs
       const sodium = await getSodium()
