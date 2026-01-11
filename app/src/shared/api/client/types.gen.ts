@@ -738,7 +738,7 @@ export type RefreshResponse = {
 
 export type RegisterPublicKeyRequest = {
     /**
-     * Key type (e.g., "ecdh-p256")
+     * Key type (x25519, ed25519, or ecdh-p256)
      */
     keyType: string;
     /**

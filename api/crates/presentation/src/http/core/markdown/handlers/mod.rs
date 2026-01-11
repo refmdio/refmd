@@ -16,6 +16,7 @@ use super::user_scope::resolve_user_scope_from_inputs;
 #[utoipa::path(post, path = "/api/markdown/render", tag = "Markdown",
     request_body = RenderRequest,
     responses((status = 200, body = RenderResponseBody)))]
+#[deprecated(note = "Use client-side rendering instead. This endpoint will be removed in a future release.")]
 pub async fn render_markdown(
     State(ctx): State<CoreContext>,
     bearer: Option<Bearer>,
@@ -46,6 +47,7 @@ pub async fn render_markdown(
 #[utoipa::path(post, path = "/api/markdown/render-many", tag = "Markdown",
     request_body = RenderManyRequest,
     responses((status = 200, body = RenderManyResponse)))]
+#[deprecated(note = "Use client-side rendering instead. This endpoint will be removed in a future release.")]
 pub async fn render_markdown_many(
     State(ctx): State<CoreContext>,
     bearer: Option<Bearer>,

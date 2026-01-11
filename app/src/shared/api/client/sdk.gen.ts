@@ -1041,6 +1041,7 @@ export const health = (): CancelablePromise<HealthResponse> => {
 };
 
 /**
+ * @deprecated
  * @param data The data for the request.
  * @param data.requestBody
  * @returns RenderResponseBody
@@ -1056,6 +1057,7 @@ export const renderMarkdown = (data: RenderMarkdownData): CancelablePromise<Rend
 };
 
 /**
+ * @deprecated
  * @param data The data for the request.
  * @param data.requestBody
  * @returns RenderManyResponse
