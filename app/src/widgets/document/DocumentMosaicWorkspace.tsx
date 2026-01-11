@@ -2148,7 +2148,6 @@ function MosaicPreviewTile({
     validateShareToken: false,
     loadMeta: false,
     trackAwareness: false,
-    disablePersistence: true,
   })
   const realtimeContent = useDocText(!useLiveContent ? previewSession.doc : null, undefined)
 

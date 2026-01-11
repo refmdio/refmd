@@ -25,7 +25,6 @@ export type UseCollaborativeDocumentOptions = {
   validateShareToken?: boolean
   loadMeta?: boolean
   trackAwareness?: boolean
-  disablePersistence?: boolean
 }
 
 type ConnectionCacheEntry = {
@@ -42,29 +41,26 @@ const DOCUMENT_META_STALE_MS = 60 * 1000
 function buildCollaborativeDocumentConnectionCacheKey(args: {
   documentId: string
   token: string | undefined
-  disablePersistence: boolean
   workspaceId: string | null | undefined
 }) {
   const workspaceScope = typeof args.workspaceId === 'string' ? args.workspaceId.trim() : ''
-  return `${args.documentId}::${args.token ?? ''}::ws:${workspaceScope}::p:${args.disablePersistence ? '0' : '1'}`
+  return `${args.documentId}::${args.token ?? ''}::ws:${workspaceScope}`
 }
 
 function buildCacheKey(
   documentId: string,
   token: string | undefined,
-  disablePersistence: boolean,
   workspaceId: string | null | undefined,
 ) {
-  return buildCollaborativeDocumentConnectionCacheKey({ documentId, token, disablePersistence, workspaceId })
+  return buildCollaborativeDocumentConnectionCacheKey({ documentId, token, workspaceId })
 }
 
 async function acquireConnection(
   documentId: string,
   token: string | undefined,
-  disablePersistence: boolean,
   workspaceId: string | null | undefined,
 ) {
-  const cacheKey = buildCacheKey(documentId, token, disablePersistence, workspaceId)
+  const cacheKey = buildCacheKey(documentId, token, workspaceId)
   const existing = connectionCache.get(cacheKey)
   if (existing) {
     existing.refs += 1
@@ -76,7 +72,6 @@ async function acquireConnection(
   entry.promise = createYjsConnection(documentId, {
     token: token ?? null,
     connect: false,
-    disablePersistence,
     workspaceId: workspaceId ?? undefined,
   })
   connectionCache.set(cacheKey, entry)
@@ -113,7 +108,6 @@ export function useCollaborativeDocument(
   const shouldValidateShareToken = options.validateShareToken ?? true
   const shouldLoadMeta = options.loadMeta ?? true
   const trackAwareness = options.trackAwareness ?? true
-  const disablePersistence = options.disablePersistence ?? !contributeToRealtimeContext
   const {
     setDocumentId: setRealtimeDocumentId,
     setDocumentTitle,
@@ -134,6 +128,22 @@ export function useCollaborativeDocument(
     shareToken,
     useUrlShareTokenFallback,
   })
+
+  // Track if E2EE is ready - once true, stays true (one-way transition)
+  // This prevents effect re-runs when e2eeUnlocked changes from null to true
+  const [e2eeReady, setE2eeReady] = React.useState(false)
+  React.useEffect(() => {
+    if (e2eeUnlocked === true && !e2eeReady) {
+      setE2eeReady(true)
+    }
+  }, [e2eeUnlocked, e2eeReady])
+
+  // Handle E2EE lock state separately (show error if locked)
+  React.useEffect(() => {
+    if (needsE2EEUnlock) {
+      setError('E2EE session locked. Please unlock to continue.')
+    }
+  }, [needsE2EEUnlock])
 
   const [status, setStatus] = React.useState<RealtimeStatus>('connecting')
   const [isReadOnly, setIsReadOnly] = React.useState(false)
@@ -258,16 +268,9 @@ export function useCollaborativeDocument(
       return () => {}
     }
 
-    // Wait for E2EE check to complete
-    if (e2eeUnlocked === null) {
+    // Wait for E2EE to be ready (e2eeReady transitions from false to true only once)
+    if (!e2eeReady) {
       setStatus('connecting')
-      return () => {}
-    }
-
-    // E2EE unlock required - don't connect
-    if (needsE2EEUnlock) {
-      setStatus('disconnected')
-      setError('E2EE session locked. Please unlock to continue.')
       return () => {}
     }
 
@@ -294,7 +297,7 @@ export function useCollaborativeDocument(
 
     ;(async () => {
       try {
-        const acquired = await acquireConnection(id, urlShareToken ?? undefined, disablePersistence, activeWorkspaceId)
+        const acquired = await acquireConnection(id, urlShareToken ?? undefined, activeWorkspaceId)
         if (cancelled) {
           releaseConnection(acquired.cacheKey)
           return
@@ -478,13 +481,11 @@ export function useCollaborativeDocument(
     shareToken,
     loadMeta,
     contributeToRealtimeContext,
-    disablePersistence,
     enabled,
     useUrlShareTokenFallback,
     trackAwareness,
     activeWorkspaceId,
-    e2eeUnlocked,
-    needsE2EEUnlock,
+    e2eeReady,
   ])
 
   React.useEffect(() => {

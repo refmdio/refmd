@@ -146,19 +146,26 @@ export const rehypeHighlight: Plugin<[HighlightOptions?], Root> = (options) => {
       const effectiveLang = langAvailable ? block.lang : 'text'
 
       try {
-        const highlighted = highlighter.codeToHtml(block.code, {
+        // Use codeToHast to get proper HAST nodes instead of raw HTML
+        const hast = highlighter.codeToHast(block.code, {
           lang: effectiveLang,
           theme,
         })
 
-        // Wrap in not-prose div like Comrak does
-        const wrappedHtml = `<div class="not-prose">${highlighted}</div>`
+        // The result is a root node with a single pre element
+        // Extract the pre element and wrap it in a not-prose div
+        const preElement = hast.children[0] as Element
 
-        // Replace with raw HTML
-        block.parent.children[block.index] = {
-          type: 'raw',
-          value: wrappedHtml,
-        } as unknown as Element
+        // Wrap in not-prose div like Comrak does
+        const wrapper: Element = {
+          type: 'element',
+          tagName: 'div',
+          properties: { class: 'not-prose' },
+          children: [preElement],
+        }
+
+        // Replace the original pre element with the wrapped highlighted version
+        block.parent.children[block.index] = wrapper
       } catch (error) {
         // If highlighting fails, leave the code block as-is
         console.warn(`Failed to highlight ${block.lang}:`, error)

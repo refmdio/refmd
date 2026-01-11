@@ -286,7 +286,6 @@ function PluginSplitEditorStageInner({ docId, token, host, previewDelegate, onDo
   const { status, doc, awareness, isReadOnly, error } = useCollaborativeDocument(docId, token ?? undefined, {
     contributeToRealtimeContext: false,
     useUrlShareTokenFallback: false,
-    disablePersistence: true,
   })
   const [anonIdentity] = useState(() => {
     if (user) return null
@@ -371,7 +370,6 @@ function PluginSplitPreviewStageInner({ docId, token, host, previewDelegate, onD
   const { status, doc, error } = useCollaborativeDocument(docId, token ?? undefined, {
     contributeToRealtimeContext: false,
     useUrlShareTokenFallback: false,
-    disablePersistence: true,
   })
 
   const shouldShowOverlay = Boolean(error) || !doc

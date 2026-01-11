@@ -169,3 +169,14 @@ describe('Markdown Renderer', () => {
     })
   })
 })
+
+describe('Syntax Highlighting', () => {
+  it('should highlight code when highlight feature is enabled', async () => {
+    const result = await renderMarkdown('```javascript\nconst x = 1;\n```', {
+      features: ['gfm', 'highlight'],
+    })
+    expect(result.html).toContain('not-prose')
+    expect(result.html).toContain('shiki')
+    expect(result.html).toContain('<code>')
+  })
+})
