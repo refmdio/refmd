@@ -237,12 +237,12 @@ pub async fn build_runtime(
             Duration::from_secs(60 * 60),
         );
     }
-    let tag_repo = Arc::new(
-        infrastructure::documents::db::repositories::tag_repository_sqlx::SqlxTagRepository::new(
+    let encrypted_tag_repo = Arc::new(
+        infrastructure::documents::db::repositories::encrypted_tag_repository_sqlx::SqlxEncryptedTagRepository::new(
             pool.clone(),
         ),
     );
-    let tag_service = Arc::new(TagService::new(tag_repo.clone()));
+    let tag_service = Arc::new(TagService::new(encrypted_tag_repo.clone()));
     let api_token_repo = Arc::new(
         infrastructure::identity::db::repositories::api_token_repository_sqlx::SqlxApiTokenRepository::new(
             pool.clone(),

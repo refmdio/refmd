@@ -9,7 +9,6 @@ use yrs::{Doc, GetString, ReadTxn, StateVector, Text, Transact, Update};
 use crate::core::ports::storage::storage_projection_queue::{
     StorageProjectionJobKind, StorageProjectionQueue,
 };
-use crate::core::services::tagging;
 use crate::core::services::utils::hash::sha256_hex;
 use crate::documents::ports::document_snapshot_archive_repository::{
     DocumentSnapshotArchiveRepository, SnapshotArchiveEntry, SnapshotArchiveInsert,
@@ -19,7 +18,6 @@ use crate::documents::ports::linkgraph_repository::LinkGraphRepository;
 use crate::documents::ports::realtime::realtime_hydration_port::DocStateReader;
 use crate::documents::ports::realtime::realtime_persistence_port::DocPersistencePort;
 use crate::documents::ports::realtime::realtime_persistence_port::SnapshotEntry;
-use crate::documents::ports::tagging::tagging_repository::TaggingRepository;
 use crate::documents::services::linkgraph;
 use domain::documents::doc_type::DocumentType;
 
@@ -27,7 +25,6 @@ pub struct SnapshotService {
     state_reader: Arc<dyn DocStateReader>,
     persistence: Arc<dyn DocPersistencePort>,
     linkgraph_repo: Arc<dyn LinkGraphRepository>,
-    tagging_repo: Arc<dyn TaggingRepository>,
     archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
     storage_jobs: Arc<dyn StorageProjectionQueue>,
 }
@@ -102,12 +99,10 @@ pub struct SnapshotArchiveOptions<'a> {
 }
 
 impl SnapshotService {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         state_reader: Arc<dyn DocStateReader>,
         persistence: Arc<dyn DocPersistencePort>,
         linkgraph_repo: Arc<dyn LinkGraphRepository>,
-        tagging_repo: Arc<dyn TaggingRepository>,
         archive_repo: Arc<dyn DocumentSnapshotArchiveRepository>,
         storage_jobs: Arc<dyn StorageProjectionQueue>,
     ) -> Self {
@@ -115,7 +110,6 @@ impl SnapshotService {
             state_reader,
             persistence,
             linkgraph_repo,
-            tagging_repo,
             archive_repo,
             storage_jobs,
         }
@@ -219,13 +213,8 @@ impl SnapshotService {
                 &contents,
             )
             .await;
-            let _ = tagging::update_document_tags(
-                self.tagging_repo.as_ref(),
-                *doc_id,
-                owner_id,
-                &contents,
-            )
-            .await;
+            // Note: Automatic tag extraction removed (Phase 14 E2EE)
+            // Tags are now extracted and encrypted on the client side
         }
         Ok(MarkdownPersistResult { written: true })
     }

@@ -71,9 +71,22 @@ impl DocHydrationService {
 
         for update in updates {
             if update.seq > last_seq {
-                apply_update_bytes(&doc, &update.update)?;
-                last_seq = update.seq;
-                applied_any = true;
+                match apply_update_bytes(&doc, &update.update) {
+                    Ok(()) => {
+                        last_seq = update.seq;
+                        applied_any = true;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            document_id = %doc_id,
+                            seq = update.seq,
+                            error = ?e,
+                            "hydration_skipping_corrupted_update"
+                        );
+                        // Skip corrupted update but continue with the rest
+                        last_seq = update.seq;
+                    }
+                }
             }
         }
 
@@ -83,13 +96,32 @@ impl DocHydrationService {
             .read_update_backlog(&doc_id_str, options.update_start_id)
             .await?;
         for entry in backlog {
-            let updates = extract_updates(&entry.payload)?;
-            for update in updates {
-                let mut txn = doc.transact_mut();
-                txn.apply_update(update)?;
+            match extract_updates(&entry.payload) {
+                Ok(updates) => {
+                    for update in updates {
+                        let mut txn = doc.transact_mut();
+                        if let Err(e) = txn.apply_update(update) {
+                            tracing::warn!(
+                                document_id = %doc_id,
+                                entry_id = %entry.id,
+                                error = ?e,
+                                "hydration_skipping_corrupted_backlog_update"
+                            );
+                        }
+                    }
+                    last_update_stream_id = Some(entry.id);
+                    applied_any = true;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        document_id = %doc_id,
+                        entry_id = %entry.id,
+                        error = ?e,
+                        "hydration_skipping_corrupted_backlog_entry"
+                    );
+                    last_update_stream_id = Some(entry.id);
+                }
             }
-            last_update_stream_id = Some(entry.id);
-            applied_any = true;
         }
 
         let awareness_entries = self

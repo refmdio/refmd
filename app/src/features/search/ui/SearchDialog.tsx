@@ -18,7 +18,7 @@ import {
 } from '@/shared/ui/command'
 import { Dialog, DialogContent } from '@/shared/ui/dialog'
 
-import { listTags } from '@/entities/tag'
+import { listDecryptedTags } from '@/entities/tag'
 import { useAuthContext } from '@/features/auth/model/auth-context'
 
 import { useClientSearch, type DocumentHit } from '../hooks/useClientSearch'
@@ -121,15 +121,19 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       return
     }
 
+    if (!activeWorkspaceId) {
+      setTags([])
+      return
+    }
+
     let cancelled = false
     ;(async () => {
       try {
-        const res = await listTags(undefined)
+        // Use decrypted tags API for E2EE
+        const decryptedTags = await listDecryptedTags(activeWorkspaceId)
         if (!cancelled) {
-          // Map API TagEntry to internal TagHit format
-          // TODO: Decrypt encryptedName when E2EE is implemented
-          const mapped = (res?.tags ?? []).map((tag) => ({
-            name: tag.encryptedName, // Will be decrypted later
+          const mapped = decryptedTags.map((tag) => ({
+            name: tag.name,
             count: tag.documentCount,
           }))
           setTags(mapped)
@@ -141,7 +145,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, activeWorkspaceId])
 
   React.useEffect(() => {
     if (open) {

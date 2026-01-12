@@ -20,7 +20,7 @@ use crate::http::documents::types::{
 
 #[utoipa::path(get, path = "/api/documents", tag = "Documents",
     params(
-        ("tag" = Option<String>, Query, description = "Filter by tag"),
+        ("tag" = Option<String>, Query, description = "Filter by encrypted tag (Base64 encoded)"),
         ("state" = Option<String>, Query, description = "Filter by document state (active|archived|all)")
     ),
     responses((status = 200, body = DocumentListResponse)))]
@@ -29,6 +29,9 @@ pub async fn list_documents(
     auth: WorkspaceAuth,
     q: Option<Query<ListDocumentsQuery>>,
 ) -> Result<Json<DocumentListResponse>, ApiError> {
+    use base64::Engine;
+    use std::collections::HashSet;
+
     auth.ensure_permission(PERM_DOC_VIEW)?;
     let (tag, state_param) = q
         .map(|Query(v)| (v.tag, v.state))
@@ -38,12 +41,40 @@ pub async fn list_documents(
         .unwrap_or_default();
 
     let service = ctx.document_service();
+
+    // If tag filter is provided, decode as encrypted tag and find matching documents
+    let tag_filter_ids: Option<HashSet<Uuid>> = if let Some(ref encrypted_tag_b64) = tag {
+        let encrypted_tag = base64::engine::general_purpose::STANDARD
+            .decode(encrypted_tag_b64)
+            .map_err(|_| ApiError::bad_request("invalid_encrypted_tag_base64"))?;
+
+        let tag_service = ctx.tag_service();
+        let doc_ids = tag_service
+            .find_documents_by_encrypted_tag(auth.workspace_id, encrypted_tag)
+            .await
+            .map_err(map_service_error)?;
+
+        Some(doc_ids.into_iter().collect())
+    } else {
+        None
+    };
+
+    // Get all documents (without plaintext tag filter)
     let docs = service
-        .list_for_user(auth.workspace_id, tag, state)
+        .list_for_user(auth.workspace_id, None, state)
         .await
         .map_err(map_service_error)?;
 
-    let items: Vec<Document> = docs.into_iter().map(to_http_document).collect();
+    // Filter by encrypted tag if provided
+    let filtered_docs = if let Some(ref filter_ids) = tag_filter_ids {
+        docs.into_iter()
+            .filter(|doc| filter_ids.contains(&doc.id()))
+            .collect()
+    } else {
+        docs
+    };
+
+    let items: Vec<Document> = filtered_docs.into_iter().map(to_http_document).collect();
     Ok(Json(DocumentListResponse { items }))
 }
 

@@ -201,3 +201,20 @@ export {
   createDocumentDekIfNeeded,
   isE2EEReady,
 } from './lib/document-keys'
+
+// Tag encryption (Phase 14)
+export {
+  // Extraction
+  extractTags,
+  extractTagsPreserveCase,
+  // Deterministic encryption
+  encryptTagDeterministic,
+  encryptTags,
+  buildTagLookupTable,
+  decryptTag,
+  decryptTags,
+  TagLookupManager,
+  getTagLookupManager,
+  resetTagLookupManager,
+  HMAC_KEY_SIZE,
+} from './lib/tags'

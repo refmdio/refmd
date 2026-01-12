@@ -97,6 +97,9 @@ export interface SecureConnection {
 /** Number of updates before creating a new snapshot */
 const SNAPSHOT_THRESHOLD = 100
 
+/** Debounce delay for tag updates in milliseconds (auto-save style) */
+const TAG_UPDATE_DEBOUNCE_MS = 2000
+
 /** Reconnect delay in milliseconds */
 const RECONNECT_DELAY = 1000
 
@@ -176,6 +179,8 @@ export class SecureSync {
 
   private pendingUpdates: Uint8Array[] = []
   private updatesSinceSnapshot = 0
+  private tagUpdateDebounceTimer: ReturnType<typeof setTimeout> | null = null
+  private hasUnsavedTagChanges = false
 
   // Event handlers
   private updateHandler: ((update: Uint8Array, origin: unknown) => void) | null = null
@@ -366,6 +371,19 @@ export class SecureSync {
    */
   destroy(): void {
     this._destroyed = true
+
+    // Flush pending tag update before destroying
+    if (this.tagUpdateDebounceTimer) {
+      clearTimeout(this.tagUpdateDebounceTimer)
+      this.tagUpdateDebounceTimer = null
+    }
+    // Fire and forget - don't wait for tag update to complete
+    if (this.hasUnsavedTagChanges) {
+      this.updateDocumentTags().catch(() => {
+        // Ignore errors on destroy
+      })
+    }
+
     this.disconnect()
 
     if (this.awareness) {
@@ -787,9 +805,32 @@ export class SecureSync {
       if (this.updatesSinceSnapshot >= SNAPSHOT_THRESHOLD) {
         await this.createAndSendSnapshot()
       }
+
+      // Schedule debounced tag update (auto-save style: 2s after last edit)
+      this.scheduleDebouncedTagUpdate()
     } catch (err) {
       console.error('[SecureSync] Error sending update:', err)
     }
+  }
+
+  /**
+   * Schedule a debounced tag update.
+   * Fires 2 seconds after the last edit (auto-save pattern).
+   */
+  private scheduleDebouncedTagUpdate(): void {
+    this.hasUnsavedTagChanges = true
+
+    if (this.tagUpdateDebounceTimer) {
+      clearTimeout(this.tagUpdateDebounceTimer)
+    }
+
+    this.tagUpdateDebounceTimer = setTimeout(() => {
+      this.tagUpdateDebounceTimer = null
+      this.hasUnsavedTagChanges = false
+      this.updateDocumentTags().catch((err) => {
+        console.warn('[SecureSync] Debounced tag update failed:', err)
+      })
+    }, TAG_UPDATE_DEBOUNCE_MS)
   }
 
   private async handleLocalAwarenessChange(changedClients: number[]): Promise<void> {
@@ -898,8 +939,33 @@ export class SecureSync {
       // Update state
       this.setState({ currentSnapshotId: snapshotId })
       this.updatesSinceSnapshot = 0
+
+      // Phase 14: Extract and update tags from document content
+      // Do this in background to not block the sync flow
+      this.updateDocumentTags().catch((err) => {
+        console.warn('[SecureSync] Error updating document tags:', err)
+      })
     } catch (err) {
       console.error('[SecureSync] Error sending snapshot:', err)
+    }
+  }
+
+  /**
+   * Extract tags from document content and update on server.
+   * Called automatically after each snapshot.
+   */
+  private async updateDocumentTags(): Promise<void> {
+    try {
+      // Extract text content from Yjs document
+      const content = this.doc.getText('content').toString()
+      if (!content) return
+
+      // Dynamic import to avoid circular dependencies
+      const { updateDocumentTagsFromContent } = await import('@/entities/tag')
+      await updateDocumentTagsFromContent(this.documentId, this.workspaceId, content)
+    } catch (err) {
+      // Don't throw - tag update failure shouldn't break sync
+      console.warn('[SecureSync] Tag extraction failed:', err)
     }
   }
 

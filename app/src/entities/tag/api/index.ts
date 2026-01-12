@@ -1,11 +1,226 @@
-import { listTags as apiListTags } from '@/shared/api'
+/**
+ * Tag API with E2EE support
+ *
+ * All tags are deterministically encrypted using HMAC-SHA256.
+ * This allows server-side grouping while keeping tag names private.
+ */
 
+import {
+  listTags as apiListTags,
+  getDocumentTags as apiGetDocumentTags,
+  updateDocumentTags as apiUpdateDocumentTags,
+  getMyWorkspaceKey,
+} from '@/shared/api'
+
+import {
+  getKeyManager,
+  getTagLookupManager,
+  extractTags,
+} from '@/features/e2ee'
+
+// Query keys for React Query
 export const tagKeys = {
   all: ['tags'] as const,
-  list: (q?: string) => ['tags',{ q: q ?? '' }] as const,
+  list: (workspaceId: string) => ['tags', { workspaceId }] as const,
+  document: (documentId: string) => ['tags', 'document', documentId] as const,
 }
 
-// Use-case oriented helpers
+// Types
+export interface DecryptedTag {
+  name: string
+  documentCount: number
+}
+
+export interface DecryptedDocumentTag {
+  id: string
+  name: string
+  createdAt: string
+}
+
+/**
+ * Get workspace KEK for tag encryption/decryption.
+ */
+async function getWorkspaceKek(workspaceId: string): Promise<Uint8Array> {
+  const keyManager = getKeyManager()
+
+  if (!keyManager.isUnlocked) {
+    throw new Error('E2EE session is locked')
+  }
+
+  return keyManager.getWorkspaceKek(workspaceId, async () => {
+    const response = await getMyWorkspaceKey({ id: workspaceId })
+    return response.encryptedKek
+  })
+}
+
+/**
+ * List all tags for a workspace (decrypted).
+ *
+ * @param workspaceId - Workspace ID for KEK lookup
+ * @returns Array of decrypted tags with document counts
+ */
+export async function listDecryptedTags(workspaceId: string): Promise<DecryptedTag[]> {
+  const response = await apiListTags({})
+
+  if (!response.tags || response.tags.length === 0) {
+    return []
+  }
+
+  // Get KEK and setup lookup manager
+  const kek = await getWorkspaceKek(workspaceId)
+  const lookupManager = getTagLookupManager()
+  lookupManager.setKek(kek)
+
+  // Try to decrypt each tag
+  const results: DecryptedTag[] = []
+  for (const tag of response.tags) {
+    const decrypted = await lookupManager.decrypt(tag.encryptedName)
+    results.push({
+      name: decrypted ?? tag.encryptedName, // Fallback to encrypted if unknown
+      documentCount: tag.documentCount,
+    })
+  }
+
+  return results
+}
+
+/**
+ * Get tags for a specific document (decrypted).
+ *
+ * @param documentId - Document ID
+ * @param workspaceId - Workspace ID for KEK lookup
+ * @returns Array of decrypted document tags
+ */
+export async function getDecryptedDocumentTags(
+  documentId: string,
+  workspaceId: string
+): Promise<DecryptedDocumentTag[]> {
+  const response = await apiGetDocumentTags({ id: documentId })
+
+  if (!response.tags || response.tags.length === 0) {
+    return []
+  }
+
+  // Get KEK and setup lookup manager
+  const kek = await getWorkspaceKek(workspaceId)
+  const lookupManager = getTagLookupManager()
+  lookupManager.setKek(kek)
+
+  // Try to decrypt each tag
+  const results: DecryptedDocumentTag[] = []
+  for (const tag of response.tags) {
+    const decrypted = await lookupManager.decrypt(tag.encryptedName)
+    results.push({
+      id: tag.id,
+      name: decrypted ?? tag.encryptedName,
+      createdAt: tag.createdAt,
+    })
+  }
+
+  return results
+}
+
+/**
+ * Update document tags with encryption.
+ *
+ * @param documentId - Document ID
+ * @param workspaceId - Workspace ID for KEK lookup
+ * @param tags - Array of plaintext tag names
+ */
+export async function updateEncryptedDocumentTags(
+  documentId: string,
+  workspaceId: string,
+  tags: string[]
+): Promise<void> {
+  if (tags.length === 0) {
+    // Clear all tags
+    await apiUpdateDocumentTags({
+      id: documentId,
+      requestBody: { encryptedTags: [] },
+    })
+    return
+  }
+
+  // Get KEK
+  const kek = await getWorkspaceKek(workspaceId)
+  const lookupManager = getTagLookupManager()
+  lookupManager.setKek(kek)
+
+  // Encrypt each tag and add to known tags
+  const encryptedTags = await Promise.all(
+    tags.map(async (tag) => {
+      const encrypted = await lookupManager.encrypt(tag)
+      return { encryptedName: encrypted }
+    })
+  )
+
+  await apiUpdateDocumentTags({
+    id: documentId,
+    requestBody: { encryptedTags },
+  })
+}
+
+/**
+ * Extract tags from markdown content and update document tags.
+ *
+ * This is the main function to call when a document is saved.
+ * It extracts #tags from the markdown and sends encrypted tags to the server.
+ *
+ * @param documentId - Document ID
+ * @param workspaceId - Workspace ID for KEK lookup
+ * @param markdownContent - Raw markdown content
+ * @returns Array of extracted tag names
+ */
+export async function updateDocumentTagsFromContent(
+  documentId: string,
+  workspaceId: string,
+  markdownContent: string
+): Promise<string[]> {
+  // Extract tags from markdown
+  const tags = extractTags(markdownContent)
+
+  // Update with encrypted tags
+  await updateEncryptedDocumentTags(documentId, workspaceId, tags)
+
+  return tags
+}
+
+/**
+ * Add known tags to the lookup manager for decryption.
+ *
+ * Call this when you know the plaintext of some tags
+ * (e.g., from document content extraction).
+ *
+ * @param tags - Array of plaintext tag names
+ */
+export function addKnownTags(tags: string[]): void {
+  const lookupManager = getTagLookupManager()
+  lookupManager.addKnownTags(tags)
+}
+
+/**
+ * Encrypt a plaintext tag for API calls.
+ *
+ * @param tag - Plaintext tag name
+ * @param workspaceId - Workspace ID for KEK lookup
+ * @returns Base64-encoded encrypted tag
+ */
+export async function encryptTagForApi(
+  tag: string,
+  workspaceId: string
+): Promise<string> {
+  const kek = await getWorkspaceKek(workspaceId)
+  const lookupManager = getTagLookupManager()
+  lookupManager.setKek(kek)
+  return lookupManager.encrypt(tag)
+}
+
+/**
+ * Legacy function for backward compatibility.
+ * Simply calls the API without decryption.
+ *
+ * @deprecated Use listDecryptedTags instead
+ */
 export async function listTags(q?: string) {
-  return apiListTags({ q: q as any })
+  return apiListTags({ q: q as string | undefined })
 }

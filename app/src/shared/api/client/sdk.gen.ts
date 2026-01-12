@@ -154,7 +154,7 @@ export const revokeSession = (data: RevokeSessionData): CancelablePromise<Revoke
 
 /**
  * @param data The data for the request.
- * @param data.tag Filter by tag
+ * @param data.tag Filter by encrypted tag (Base64 encoded)
  * @param data.state Filter by document state (active|archived|all)
  * @returns DocumentListResponse
  * @throws ApiError

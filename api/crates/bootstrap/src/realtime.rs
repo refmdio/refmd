@@ -77,12 +77,6 @@ pub async fn build_realtime_stack(
             pool.clone(),
         ),
     );
-    let tagging_repo: Arc<dyn application::documents::ports::tagging::tagging_repository::TaggingRepository> =
-        Arc::new(
-            infrastructure::documents::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository::new(
-                pool.clone(),
-            ),
-        );
     let hydration_service = Arc::new(DocHydrationService::new(
         doc_state_reader.clone(),
         backlog_reader,
@@ -92,7 +86,6 @@ pub async fn build_realtime_stack(
         doc_state_reader.clone(),
         doc_persistence.clone(),
         linkgraph_repo,
-        tagging_repo,
         snapshot_archive_repo.clone(),
         storage_job_queue.clone(),
     ));

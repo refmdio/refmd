@@ -17,7 +17,6 @@ use crate::core::crypto::Ed25519Verifier;
 use crate::core::db::PgPool;
 use crate::documents::db::repositories::document_snapshot_archive_repository_sqlx::SqlxDocumentSnapshotArchiveRepository;
 use crate::documents::db::repositories::linkgraph_repository_sqlx::SqlxLinkGraphRepository;
-use crate::documents::db::repositories::tagging_repository_sqlx::SqlxTaggingRepository;
 use crate::documents::realtime::{SqlxDocPersistenceAdapter, SqlxDocStateReader};
 use application::core::ports::errors::PortResult;
 use application::core::ports::storage::storage_port::StorageResolverPort;
@@ -36,7 +35,6 @@ use application::documents::ports::realtime::realtime_port::{
 use application::documents::ports::realtime::realtime_types::{
     DynRealtimeSink, DynRealtimeStream, MessageType, RealtimeMessage,
 };
-use application::documents::ports::tagging::tagging_repository::TaggingRepository;
 use application::documents::services::realtime::doc_hydration::{
     DocHydrationService, HydrationOptions,
 };
@@ -98,15 +96,12 @@ impl RedisRealtimeEngine {
             Arc::new(SqlxDocPersistenceAdapter::new(pool.clone()));
         let linkgraph_repo: Arc<dyn LinkGraphRepository> =
             Arc::new(SqlxLinkGraphRepository::new(pool.clone()));
-        let tagging_repo: Arc<dyn TaggingRepository> =
-            Arc::new(SqlxTaggingRepository::new(pool.clone()));
         let archive_repo: Arc<dyn DocumentSnapshotArchiveRepository> =
             Arc::new(SqlxDocumentSnapshotArchiveRepository::new(pool.clone()));
         let snapshot_service = Arc::new(SnapshotService::new(
             doc_state_reader,
             doc_persistence.clone(),
             linkgraph_repo,
-            tagging_repo,
             archive_repo,
             storage_jobs,
         ));

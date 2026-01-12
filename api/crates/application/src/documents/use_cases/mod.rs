@@ -12,5 +12,4 @@ pub mod restore_snapshot;
 pub mod sharing;
 pub mod snapshot_diff;
 pub mod snapshot_download;
-pub mod tagging;
 pub mod update_document;

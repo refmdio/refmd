@@ -1383,7 +1383,7 @@ export type ListDocumentsData = {
      */
     state?: (string) | null;
     /**
-     * Filter by tag
+     * Filter by encrypted tag (Base64 encoded)
      */
     tag?: (string) | null;
 };

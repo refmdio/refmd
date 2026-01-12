@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { listDocuments, type Document } from '@/entities/document'
+import { encryptTagForApi } from '@/entities/tag'
 
 import { fetchDecryptedContent } from '../lib/fetch-decrypted-content'
 import type { TitleDocument, WorkerRequest, WorkerResponse } from '../workers/search.worker'
@@ -183,7 +184,18 @@ export function useClientSearch(params: UseClientSearchParams): UseClientSearchR
 
     ;(async () => {
       try {
-        const res = await listDocuments({ tag })
+        // Encrypt tag before sending to API (Phase 14 E2EE)
+        let encryptedTag: string | null = null
+        if (tag) {
+          try {
+            encryptedTag = await encryptTagForApi(tag, workspaceId)
+          } catch (err) {
+            console.warn('[useClientSearch] Failed to encrypt tag:', err)
+            // If encryption fails (e.g., session locked), proceed without tag filter
+          }
+        }
+
+        const res = await listDocuments({ tag: encryptedTag })
         if (cancelled) return
 
         const items = ((res?.items ?? []) as DocumentHit[]).filter((item) => item.type === 'document')

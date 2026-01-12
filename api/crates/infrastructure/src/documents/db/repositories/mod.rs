@@ -8,5 +8,3 @@ pub mod linkgraph_repository_sqlx;
 pub mod public_repository_sqlx;
 pub mod share_keys_repository_sqlx;
 pub mod shares_repository_sqlx;
-pub mod tag_repository_sqlx;
-pub mod tagging_repository_sqlx;
