@@ -5,6 +5,7 @@ pub(super) struct MarkdownIngestPayload {
     pub(super) encrypted_hash: String,
     pub(super) size: i64,
     /// True if file is encrypted (RME1 format), false if legacy plaintext
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) is_encrypted: bool,
 }
 

@@ -3,7 +3,7 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use domain::access::permissions::PermissionSet;
-use domain::documents::document::{Document as DomainDocument, SearchHit};
+use domain::documents::document::Document as DomainDocument;
 use domain::documents::permissions as doc_permissions;
 use domain::documents::policy::DocumentState;
 use domain::documents::{hierarchy, path as doc_path, policy as doc_policy, title};
@@ -16,7 +16,6 @@ use crate::documents::use_cases::create_document::CreateDocument;
 use crate::documents::use_cases::delete_document::DeleteDocument;
 use crate::documents::use_cases::get_document::GetDocument;
 use crate::documents::use_cases::list_documents::ListDocuments;
-use crate::documents::use_cases::search_documents::SearchDocuments;
 use crate::documents::use_cases::update_document::UpdateDocument;
 
 use super::DocumentService;
@@ -26,14 +25,13 @@ impl DocumentService {
     pub async fn list_for_user(
         &self,
         workspace_id: Uuid,
-        query: Option<String>,
         tag: Option<String>,
         state: DocumentListFilter,
     ) -> Result<Vec<DomainDocument>, ServiceError> {
         let uc = ListDocuments {
             repo: self.document_repo.as_ref(),
         };
-        uc.execute(workspace_id, query, tag, to_repo_state(state))
+        uc.execute(workspace_id, tag, to_repo_state(state))
             .await
             .map_err(ServiceError::from)
     }
@@ -412,20 +410,6 @@ impl DocumentService {
         )
         .await;
         Ok(doc)
-    }
-
-    pub async fn search_for_user(
-        &self,
-        workspace_id: Uuid,
-        query: Option<String>,
-        limit: i64,
-    ) -> Result<Vec<SearchHit>, ServiceError> {
-        let uc = SearchDocuments {
-            repo: self.document_repo.as_ref(),
-        };
-        uc.execute(workspace_id, query, limit)
-            .await
-            .map_err(ServiceError::from)
     }
 
     /// Update encrypted title fields for E2EE documents

@@ -309,7 +309,6 @@ where
 
 #[derive(Debug, Deserialize)]
 pub struct ListDocumentsQuery {
-    pub query: Option<String>,
     pub tag: Option<String>,
     #[serde(default)]
     pub state: Option<DocumentStateFilter>,
@@ -563,20 +562,6 @@ pub struct DownloadDocumentQuery {
     pub format: DownloadFormat,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-pub struct SearchResult {
-    pub id: Uuid,
-    pub title: String,
-    pub document_type: String,
-    pub path: Option<String>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SearchQuery {
-    pub q: Option<String>,
-}
-
 #[derive(Debug, Default, Deserialize)]
 pub struct ListSnapshotsQuery {
     pub token: Option<String>,
@@ -632,17 +617,44 @@ pub struct OutgoingLinksResponse {
     pub total_count: usize,
 }
 
-/// Response for GET /api/documents/{id}/content
-/// - For E2EE documents: content is encrypted, nonce is present
-/// - For non-E2EE documents: content is plaintext Yjs state, nonce is None
+/// Encrypted update entry for E2EE documents
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct GetContentResponse {
-    /// Base64 encoded Yjs snapshot bytes (encrypted for E2EE, plaintext for non-E2EE)
+pub struct EncryptedUpdateEntry {
+    /// Sequence number of the update
+    pub seq: i64,
+    /// Base64 encoded encrypted update data
     #[schema(value_type = String, format = "byte")]
-    pub content: String,
-    /// Base64 encoded nonce for decryption (present for E2EE documents)
+    pub data: String,
+    /// Base64 encoded nonce for decryption
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, format = "byte")]
     pub nonce: Option<String>,
+    /// Base64 encoded signature
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub signature: Option<String>,
+    /// Base64 encoded public key of the signer
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub public_key: Option<String>,
+}
+
+/// Response for GET /api/documents/{id}/content (E2EE encrypted)
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GetContentResponse {
+    /// Base64 encoded encrypted Yjs snapshot bytes
+    #[schema(value_type = String, format = "byte")]
+    pub content: String,
+    /// Base64 encoded nonce for decryption
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub nonce: Option<String>,
+    /// Sequence number at which the snapshot was taken
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seq_at_snapshot: Option<i64>,
+    /// Pending encrypted updates since the snapshot
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updates: Option<Vec<EncryptedUpdateEntry>>,
 }

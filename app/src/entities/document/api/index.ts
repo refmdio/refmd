@@ -35,7 +35,6 @@ import type {
 import { ApiError } from '@/shared/api/client/core/ApiError'
 
 type DocumentListParams = {
-  query?: string
   tag?: string
   state?: 'active' | 'archived' | 'all'
   workspaceId?: string | null
@@ -49,7 +48,6 @@ export const documentKeys = {
       'list',
       params?.workspaceId ?? 'current',
       params?.state ?? 'active',
-      params?.query ?? null,
       params?.tag ?? null,
     ] as const,
   byId: (id: string) => ['documents', id] as const,
@@ -70,7 +68,6 @@ export const listDocumentsQuery = (params?: DocumentListParams) => {
     queryKey: documentKeys.list({ ...params, state }),
     queryFn: () =>
       apiListDocuments({
-        query: params?.query ?? null,
         tag: params?.tag ?? null,
         state,
       }) as Promise<DocumentListResponse>,
@@ -245,9 +242,8 @@ export async function fetchDocumentContent(id: string) {
   return apiGetDocumentContent({ id })
 }
 
-export async function listDocuments(params?: { query?: string | null; tag?: string | null; state?: 'active' | 'archived' | 'all' }) {
+export async function listDocuments(params?: { tag?: string | null; state?: 'active' | 'archived' | 'all' }) {
   return apiListDocuments({
-    query: params?.query ?? null,
     tag: params?.tag ?? null,
     state: params?.state ?? 'active',
   })

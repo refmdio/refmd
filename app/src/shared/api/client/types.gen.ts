@@ -352,6 +352,32 @@ export type EncryptedTagInput = {
     encryptedName: string;
 };
 
+/**
+ * Encrypted update entry for E2EE documents
+ */
+export type EncryptedUpdateEntry = {
+    /**
+     * Base64 encoded encrypted update data
+     */
+    data: string;
+    /**
+     * Base64 encoded nonce for decryption
+     */
+    nonce?: (string) | null;
+    /**
+     * Base64 encoded public key of the signer
+     */
+    publicKey?: (string) | null;
+    /**
+     * Sequence number of the update
+     */
+    seq: number;
+    /**
+     * Base64 encoded signature
+     */
+    signature?: (string) | null;
+};
+
 export type ExecBody = {
     payload?: unknown;
 };
@@ -364,19 +390,25 @@ export type ExecResultResponse = {
 };
 
 /**
- * Response for GET /api/documents/{id}/content
- * - For E2EE documents: content is encrypted, nonce is present
- * - For non-E2EE documents: content is plaintext Yjs state, nonce is None
+ * Response for GET /api/documents/{id}/content (E2EE encrypted)
  */
 export type GetContentResponse = {
     /**
-     * Base64 encoded Yjs snapshot bytes (encrypted for E2EE, plaintext for non-E2EE)
+     * Base64 encoded encrypted Yjs snapshot bytes
      */
     content: string;
     /**
-     * Base64 encoded nonce for decryption (present for E2EE documents)
+     * Base64 encoded nonce for decryption
      */
     nonce?: (string) | null;
+    /**
+     * Sequence number at which the snapshot was taken
+     */
+    seqAtSnapshot?: (number) | null;
+    /**
+     * Pending encrypted updates since the snapshot
+     */
+    updates?: Array<EncryptedUpdateEntry> | null;
 };
 
 export type GitChangeItem = {
@@ -837,14 +869,6 @@ export type RotationMemberKey = {
      * User ID of the member
      */
     userId: string;
-};
-
-export type SearchResult = {
-    document_type: string;
-    id: string;
-    path?: (string) | null;
-    title: string;
-    updated_at: string;
 };
 
 export type SessionResponse = {
@@ -1355,10 +1379,6 @@ export type RevokeSessionResponse = (void);
 
 export type ListDocumentsData = {
     /**
-     * Search query
-     */
-    query?: (string) | null;
-    /**
      * Filter by document state (active|archived|all)
      */
     state?: (string) | null;
@@ -1375,15 +1395,6 @@ export type CreateDocumentData = {
 };
 
 export type CreateDocumentResponse = (Document);
-
-export type SearchDocumentsData = {
-    /**
-     * Query
-     */
-    q?: (string) | null;
-};
-
-export type SearchDocumentsResponse = (Array<SearchResult>);
 
 export type UploadFileData = {
     /**

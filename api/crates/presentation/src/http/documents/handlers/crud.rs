@@ -20,7 +20,6 @@ use crate::http::documents::types::{
 
 #[utoipa::path(get, path = "/api/documents", tag = "Documents",
     params(
-        ("query" = Option<String>, Query, description = "Search query"),
         ("tag" = Option<String>, Query, description = "Filter by tag"),
         ("state" = Option<String>, Query, description = "Filter by document state (active|archived|all)")
     ),
@@ -31,16 +30,16 @@ pub async fn list_documents(
     q: Option<Query<ListDocumentsQuery>>,
 ) -> Result<Json<DocumentListResponse>, ApiError> {
     auth.ensure_permission(PERM_DOC_VIEW)?;
-    let (qstr, tag, state_param) = q
-        .map(|Query(v)| (v.query, v.tag, v.state))
-        .unwrap_or((None, None, None));
+    let (tag, state_param) = q
+        .map(|Query(v)| (v.tag, v.state))
+        .unwrap_or((None, None));
     let state = state_param
         .map(DocumentStateFilter::into)
         .unwrap_or_default();
 
     let service = ctx.document_service();
     let docs = service
-        .list_for_user(auth.workspace_id, qstr, tag, state)
+        .list_for_user(auth.workspace_id, tag, state)
         .await
         .map_err(map_service_error)?;
 

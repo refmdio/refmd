@@ -17,7 +17,7 @@ use application::documents::services::DocumentPatchOperation;
 #[allow(unused_imports)]
 use crate::http::documents::types::{
     Document, DocumentArchiveBinary, DocumentDownloadBinary, DocumentPatchOperationRequest,
-    DownloadDocumentQuery, DownloadFormat, GetContentResponse, PatchDocumentContentRequest,
+    DownloadDocumentQuery, DownloadFormat, EncryptedUpdateEntry, GetContentResponse, PatchDocumentContentRequest,
     SnapshotTokenQuery, UpdateDocumentContentRequest, map_service_error, to_http_document,
 };
 
@@ -44,11 +44,32 @@ pub async fn get_document_content(
         .await
         .map_err(map_service_error)?;
 
+    let updates = content.updates.map(|updates| {
+        updates
+            .into_iter()
+            .map(|u| EncryptedUpdateEntry {
+                seq: u.seq,
+                data: base64::engine::general_purpose::STANDARD.encode(&u.data),
+                nonce: u
+                    .nonce
+                    .map(|n| base64::engine::general_purpose::STANDARD.encode(&n)),
+                signature: u
+                    .signature
+                    .map(|s| base64::engine::general_purpose::STANDARD.encode(&s)),
+                public_key: u
+                    .public_key
+                    .map(|p| base64::engine::general_purpose::STANDARD.encode(&p)),
+            })
+            .collect()
+    });
+
     Ok(Json(GetContentResponse {
         content: base64::engine::general_purpose::STANDARD.encode(&content.content),
         nonce: content
             .nonce
             .map(|n| base64::engine::general_purpose::STANDARD.encode(&n)),
+        seq_at_snapshot: content.seq_at_snapshot,
+        updates,
     }))
 }
 

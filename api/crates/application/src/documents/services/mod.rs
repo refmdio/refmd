@@ -19,9 +19,7 @@ use async_trait::async_trait;
 use domain::access::permissions::PermissionSet;
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
-use domain::documents::document::{
-    BacklinkInfo as DomainBacklink, OutgoingLink as DomainOutgoingLink, SearchHit,
-};
+use domain::documents::document::{BacklinkInfo as DomainBacklink, OutgoingLink as DomainOutgoingLink};
 
 mod attachments;
 mod content;
@@ -51,17 +49,9 @@ pub trait DocumentServiceFacade: Send + Sync {
     async fn list_for_user(
         &self,
         workspace_id: Uuid,
-        query: Option<String>,
         tag: Option<String>,
         state: DocumentListFilter,
     ) -> Result<Vec<DomainDocument>, ServiceError>;
-
-    async fn search_for_user(
-        &self,
-        workspace_id: Uuid,
-        query: Option<String>,
-        limit: i64,
-    ) -> Result<Vec<SearchHit>, ServiceError>;
 
     #[allow(clippy::too_many_arguments)]
     async fn create_for_user(
@@ -246,20 +236,10 @@ impl DocumentServiceFacade for DocumentService {
     async fn list_for_user(
         &self,
         workspace_id: Uuid,
-        query: Option<String>,
         tag: Option<String>,
         state: DocumentListFilter,
     ) -> Result<Vec<DomainDocument>, ServiceError> {
-        self.list_for_user(workspace_id, query, tag, state).await
-    }
-
-    async fn search_for_user(
-        &self,
-        workspace_id: Uuid,
-        query: Option<String>,
-        limit: i64,
-    ) -> Result<Vec<SearchHit>, ServiceError> {
-        self.search_for_user(workspace_id, query, limit).await
+        self.list_for_user(workspace_id, tag, state).await
     }
 
     async fn create_for_user(

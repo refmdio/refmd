@@ -235,6 +235,10 @@ export class SecureSync {
     // Initialize Awareness
     const { Awareness } = await import('y-protocols/awareness')
     this.awareness = new Awareness(this.doc)
+
+    // Attach doc listeners early to capture all updates (including clock 0).
+    // Updates will be queued in pendingUpdates until WebSocket connects.
+    this.attachDocListeners()
   }
 
   /**
@@ -392,10 +396,27 @@ export class SecureSync {
     this.reconnectAttempts = 0
     this.setState({ status: 'syncing' })
     this.emitStatus('connected')
-    this.attachDocListeners()
+
+    // Doc listeners are already attached in initialize().
+    // Flush any updates that were queued before connection was ready.
+    await this.flushPendingUpdates()
 
     // Send initialize message to announce presence (4-step handshake)
     await this.sendInitializeMessage()
+  }
+
+  /**
+   * Flush pending updates that were queued before WebSocket connected.
+   */
+  private async flushPendingUpdates(): Promise<void> {
+    if (this.pendingUpdates.length === 0) return
+
+    const updates = [...this.pendingUpdates]
+    this.pendingUpdates = []
+
+    for (const update of updates) {
+      await this.handleLocalUpdate(update)
+    }
   }
 
   /**
@@ -459,7 +480,8 @@ export class SecureSync {
   private handleClose(event: CloseEvent): void {
     this._connected = false
     this.ws = null
-    this.detachDocListeners()
+    // Don't detach listeners here - keep capturing updates for when we reconnect.
+    // Listeners will be detached in disconnect() or destroy().
 
     if (!this._destroyed && event.code !== 1000 && this._shouldConnect) {
       // Abnormal close - attempt reconnect

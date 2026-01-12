@@ -10,7 +10,7 @@ use application::documents::ports::document_repository::{
     SubtreeDocument,
 };
 use domain::documents::doc_type::DocumentType;
-use domain::documents::document::{Document as DomainDocument, SearchHit};
+use domain::documents::document::Document as DomainDocument;
 use domain::documents::path as doc_path;
 use domain::documents::title::Title;
 
@@ -25,7 +25,6 @@ impl DocumentRepository for SqlxDocumentRepository {
     async fn list_for_user(
         &self,
         workspace_id: Uuid,
-        query: Option<String>,
         tag: Option<String>,
         state: DocumentListState,
     ) -> DocumentRepoResult<Vec<DomainDocument>> {
@@ -47,20 +46,6 @@ impl DocumentRepository for SqlxDocumentRepository {
             sqlx::query(&sql)
                 .bind(workspace_id)
                 .bind(t)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(unexpected_sqlx)?
-        } else if let Some(ref qq) = query.as_ref().filter(|s| !s.trim().is_empty()) {
-            let like = format!("%{}%", qq);
-            let sql = format!(
-                r#"SELECT d.*
-                   FROM documents d
-                   WHERE d.workspace_id = $1 AND {archived_condition} AND d.title ILIKE $2
-                   ORDER BY d.updated_at DESC LIMIT 100"#,
-            );
-            sqlx::query(&sql)
-                .bind(workspace_id)
-                .bind(like)
                 .fetch_all(&self.pool)
                 .await
                 .map_err(unexpected_sqlx)?
@@ -116,61 +101,6 @@ impl DocumentRepository for SqlxDocumentRepository {
             .map_err(unexpected_sqlx)?;
         row.map(|r| Self::map_row_to_document(&r))
             .transpose()
-            .map_err(DocumentRepositoryError::from)
-    }
-
-    async fn search_for_user(
-        &self,
-        workspace_id: Uuid,
-        query: Option<String>,
-        limit: i64,
-    ) -> DocumentRepoResult<Vec<SearchHit>> {
-        let q = query.unwrap_or_default();
-        let like = format!("%{}%", q);
-        let rows = if q.trim().is_empty() {
-            sqlx::query(
-                r#"SELECT id, title, type, path, updated_at, archived_at
-                   FROM documents WHERE workspace_id = $1
-                   AND archived_at IS NULL
-                   ORDER BY updated_at DESC
-                   LIMIT $2"#,
-            )
-            .bind(workspace_id)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(unexpected_sqlx)?
-        } else {
-            sqlx::query(
-                r#"SELECT id, title, type, path, updated_at, archived_at FROM documents
-                   WHERE workspace_id = $1 AND archived_at IS NULL
-                     AND (LOWER(title) LIKE LOWER($2) OR title ILIKE $2)
-                   ORDER BY CASE WHEN LOWER(title) = LOWER($3) THEN 0 ELSE 1 END, LENGTH(title), updated_at DESC
-                   LIMIT $4"#,
-            )
-            .bind(workspace_id)
-            .bind(like)
-            .bind(&q)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(unexpected_sqlx)?
-        };
-        rows.into_iter()
-            .map(|r| {
-                let doc_type_str: String = r.get("type");
-                let doc_type = DocumentType::try_from(doc_type_str.as_str())
-                    .context("invalid_document_type")?;
-                let title: String = r.get("title");
-                Ok(SearchHit {
-                    id: r.get("id"),
-                    title: Title::new(title),
-                    doc_type,
-                    path: r.try_get("path").ok(),
-                    updated_at: r.get("updated_at"),
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()
             .map_err(DocumentRepositoryError::from)
     }
 

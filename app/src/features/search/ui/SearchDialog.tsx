@@ -18,8 +18,11 @@ import {
 } from '@/shared/ui/command'
 import { Dialog, DialogContent } from '@/shared/ui/dialog'
 
-import { fetchDocumentContent, listDocuments, type Document } from '@/entities/document'
 import { listTags } from '@/entities/tag'
+import { useAuthContext } from '@/features/auth/model/auth-context'
+
+import { useClientSearch, type DocumentHit } from '../hooks/useClientSearch'
+import { fetchDecryptedContent } from '../lib/fetch-decrypted-content'
 
 const trimLeadingOwner = (segments: string[]) => {
   if (segments.length <= 1) return segments
@@ -49,16 +52,14 @@ const normalizePathValue = (path?: string | null) => {
 type Props = { open: boolean; onOpenChange: (open: boolean) => void; presetTag?: string | null }
 
 type TagHit = { name: string; count: number }
-type DocumentHit = Pick<Document, 'id' | 'title' | 'path' | 'type'>
 
 export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
+  const { activeWorkspaceId } = useAuthContext()
   const [query, setQuery] = React.useState('')
-  const [docs, setDocs] = React.useState<DocumentHit[]>([])
   const [tags, setTags] = React.useState<TagHit[]>([])
   const [selectedTag, setSelectedTag] = React.useState<string | null>(null)
-  const [loading, setLoading] = React.useState(false)
   const [activeItem, setActiveItem] = React.useState<string | null>(null)
   const [previewContent, setPreviewContent] = React.useState('')
   const [previewError, setPreviewError] = React.useState<string | null>(null)
@@ -74,6 +75,8 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
   const docQueryInput = hasPathShortcut ? normalizedQuery.slice(lastSlashIndex + 1) : normalizedQuery
   const docQuery = isTagShortcut ? '' : docQueryInput.trim()
   const serverQuery = !hasPathShortcut && !isTagShortcut ? (docQuery || null) : null
+
+  const { docs, loading } = useClientSearch({ open, query: serverQuery, tag: selectedTag, workspaceId: activeWorkspaceId })
 
   const lastDocValueRef = React.useRef<string | null>(null)
   const previewCache = React.useRef<Map<string, string>>(new Map())
@@ -108,7 +111,6 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
     if (!open) {
       setQuery('')
       setSelectedTag(null)
-      setDocs([])
       setTags([])
       setActiveItem(null)
       setPreviewContent('')
@@ -146,31 +148,6 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       setSelectedTag(presetTag ?? null)
     }
   }, [open, presetTag])
-
-  React.useEffect(() => {
-    if (!open) return
-    let active = true
-    const handle = setTimeout(async () => {
-      setLoading(true)
-      try {
-        const res = await listDocuments({
-          query: serverQuery,
-          tag: selectedTag ?? null,
-        })
-        const items = (res?.items ?? []) as DocumentHit[]
-        const onlyDocuments = items.filter((item) => item.type === 'document')
-        if (active) setDocs(onlyDocuments)
-      } catch {
-        if (active) setDocs([])
-      } finally {
-        if (active) setLoading(false)
-      }
-    }, 160)
-    return () => {
-      active = false
-      clearTimeout(handle)
-    }
-  }, [open, selectedTag, serverQuery])
 
   const folderIndex = React.useMemo(() => {
     const index = new Map<string, Array<{ normalized: string; value: string }>>()
@@ -346,6 +323,13 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
       return
     }
 
+    if (!activeWorkspaceId) {
+      setPreviewContent('')
+      setPreviewError(null)
+      setPreviewLoading(false)
+      return
+    }
+
     const cached = previewCache.current.get(activeDocId)
     if (cached !== undefined) {
       setPreviewContent(cached)
@@ -360,12 +344,8 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
 
     ;(async () => {
       try {
-        const res = await fetchDocumentContent(activeDocId)
+        const content = await fetchDecryptedContent(activeDocId, activeWorkspaceId)
         if (cancelled) return
-        const content =
-          typeof res === 'object' && res !== null && 'content' in (res as any)
-            ? ((res as any).content as string) ?? ''
-            : ''
         previewCache.current.set(activeDocId, content)
         setPreviewContent(content)
         setPreviewError(null)
@@ -382,7 +362,7 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
     return () => {
       cancelled = true
     }
-  }, [activeDocId, open])
+  }, [activeDocId, activeWorkspaceId, open])
 
   const filteredTags = React.useMemo(() => {
     if (!tags || tags.length === 0) return []

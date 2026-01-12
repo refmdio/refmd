@@ -9,7 +9,6 @@ pub mod list_documents;
 pub mod list_snapshots;
 pub mod publishing;
 pub mod restore_snapshot;
-pub mod search_documents;
 pub mod sharing;
 pub mod snapshot_diff;
 pub mod snapshot_download;

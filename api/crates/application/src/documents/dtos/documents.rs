@@ -85,13 +85,25 @@ pub struct SnapshotDetailDto {
     pub created_at: DateTime<Utc>,
 }
 
-/// Document content DTO (unified for both plaintext and E2EE)
-/// - For E2EE: content is encrypted bytes, nonce is present
-/// - For plaintext: content is Yjs state bytes, nonce is None
+/// Encrypted update entry (for E2EE documents)
+#[derive(Debug, Clone)]
+pub struct ContentUpdateEntry {
+    pub seq: i64,
+    pub data: Vec<u8>,
+    pub nonce: Option<Vec<u8>>,
+    pub signature: Option<Vec<u8>>,
+    pub public_key: Option<Vec<u8>>,
+}
+
+/// Document content DTO (E2EE encrypted)
 #[derive(Debug, Clone)]
 pub struct ContentDto {
-    /// Document content as Yjs snapshot bytes (encrypted for E2EE, plaintext for non-E2EE)
+    /// Encrypted Yjs snapshot bytes
     pub content: Vec<u8>,
-    /// Nonce for decryption (present for E2EE documents)
+    /// Nonce for decryption
     pub nonce: Option<Vec<u8>>,
+    /// Sequence number at which the snapshot was taken
+    pub seq_at_snapshot: Option<i64>,
+    /// Pending encrypted updates since the snapshot
+    pub updates: Option<Vec<ContentUpdateEntry>>,
 }

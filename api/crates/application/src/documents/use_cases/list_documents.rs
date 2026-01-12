@@ -13,12 +13,9 @@ impl<'a, R: DocumentRepository + ?Sized> ListDocuments<'a, R> {
     pub async fn execute(
         &self,
         workspace_id: Uuid,
-        query: Option<String>,
         tag: Option<String>,
         state: DocumentListState,
     ) -> DocumentRepoResult<Vec<DomainDocument>> {
-        self.repo
-            .list_for_user(workspace_id, query, tag, state)
-            .await
+        self.repo.list_for_user(workspace_id, tag, state).await
     }
 }

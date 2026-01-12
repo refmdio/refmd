@@ -50,11 +50,11 @@ type SharedRealtimeSink = Arc<Mutex<DynRealtimeSink>>;
 
 pub struct RedisRealtimeEngine {
     bus: Arc<RedisClusterBus>,
-    hydration_service: Arc<DocHydrationService>,
+    _hydration_service: Arc<DocHydrationService>,
     snapshot_service: Arc<SnapshotService>,
     persistence: Arc<dyn DocPersistencePort>,
     task_debounce: Duration,
-    awareness_ttl: Duration,
+    _awareness_ttl: Duration,
     _worker: Option<JoinHandle<()>>,
     edit_flags: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
 }
@@ -132,11 +132,11 @@ impl RedisRealtimeEngine {
 
         Ok(Self {
             bus,
-            hydration_service,
+            _hydration_service: hydration_service,
             snapshot_service,
             persistence: doc_persistence,
             task_debounce: Duration::from_millis(cfg.task_debounce_ms),
-            awareness_ttl: Duration::from_millis(cfg.awareness_ttl_ms),
+            _awareness_ttl: Duration::from_millis(cfg.awareness_ttl_ms),
             _worker: worker,
             edit_flags: Arc::new(RwLock::new(HashMap::new())),
         })
@@ -672,6 +672,30 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         }
 
         Ok(())
+    }
+
+    async fn get_updates_since(
+        &self,
+        doc_id: &str,
+        since_seq: i64,
+    ) -> PortResult<Vec<application::documents::ports::realtime::realtime_port::EncryptedUpdateEntry>>
+    {
+        use application::documents::ports::realtime::realtime_port::EncryptedUpdateEntry;
+
+        let uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
+
+        let updates = self.persistence.get_updates_since(&uuid, since_seq).await?;
+
+        Ok(updates
+            .into_iter()
+            .map(|u| EncryptedUpdateEntry {
+                seq: u.seq,
+                data: u.data,
+                nonce: u.nonce,
+                signature: u.signature,
+                public_key: u.public_key,
+            })
+            .collect())
     }
 }
 

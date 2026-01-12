@@ -495,10 +495,12 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     let id = target
     if (!uuidRe.test(target) && !shareToken) {
       try {
-        const resp = await listDocuments({ query: target })
+        const resp = await listDocuments({})
         const items = (resp.items ?? []) as unknown as Array<{ id: string; title: string }>
-        const exact = items.find((r) => (r.title || '').toLowerCase() === target.toLowerCase())
-        const pick = exact || items[0]
+        const targetLower = target.toLowerCase()
+        const exact = items.find((r) => (r.title || '').toLowerCase() === targetLower)
+        const partial = items.find((r) => (r.title || '').toLowerCase().includes(targetLower))
+        const pick = exact || partial
         if (pick?.id) id = pick.id
       } catch (error) {
         logEditorError('lookup wiki link target', error)

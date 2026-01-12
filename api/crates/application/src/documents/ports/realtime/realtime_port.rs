@@ -72,6 +72,24 @@ pub trait RealtimeEngine: Send + Sync {
     async fn set_document_editable(&self, _doc_id: &str, _editable: bool) -> PortResult<()> {
         Ok(())
     }
+
+    /// Get encrypted updates since a given sequence number (for E2EE content retrieval)
+    /// Returns empty vector if no updates exist
+    async fn get_updates_since(
+        &self,
+        doc_id: &str,
+        since_seq: i64,
+    ) -> PortResult<Vec<EncryptedUpdateEntry>>;
+}
+
+/// Encrypted update entry with sequence number (for retrieval via REST API)
+#[derive(Debug, Clone)]
+pub struct EncryptedUpdateEntry {
+    pub seq: i64,
+    pub data: Vec<u8>,
+    pub nonce: Option<Vec<u8>>,
+    pub signature: Option<Vec<u8>>,
+    pub public_key: Option<Vec<u8>>,
 }
 
 /// Encrypted Yjs update for E2EE documents

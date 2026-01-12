@@ -51,7 +51,7 @@ async function wikiLinkCompletionSource(
   // Fetch documents
   let items: SearchResult[] = []
   try {
-    const resp = await listDocuments({ query: query || null })
+    const resp = await listDocuments({})
     const docs = Array.isArray((resp as any)?.items)
       ? ((resp as any).items as Array<{
           id: string

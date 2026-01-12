@@ -14,6 +14,7 @@ use yrs::updates::decoder::DecoderV1;
 use application::documents::ports::realtime::realtime_port::RealtimeError;
 use application::documents::ports::realtime::realtime_types::DynRealtimeStream;
 
+#[allow(dead_code)]
 pub fn analyse_frame(frame: &[u8]) -> Result<FrameSummary> {
     let mut decoder = DecoderV1::new(Cursor::new(frame));
     let reader = MessageReader::new(&mut decoder);
@@ -32,12 +33,14 @@ pub fn analyse_frame(frame: &[u8]) -> Result<FrameSummary> {
     Ok(summary)
 }
 
+#[allow(dead_code)]
 #[derive(Default, Clone, Copy, Debug)]
 pub struct FrameSummary {
     pub has_update: bool,
     pub has_awareness: bool,
 }
 
+#[allow(dead_code)]
 pub fn wrap_stream_with_edit_guard(
     stream: DynRealtimeStream,
     doc_id: String,
@@ -50,6 +53,7 @@ pub fn wrap_stream_with_edit_guard(
     })
 }
 
+#[allow(dead_code)]
 struct GuardedStream {
     inner: DynRealtimeStream,
     doc_id: String,

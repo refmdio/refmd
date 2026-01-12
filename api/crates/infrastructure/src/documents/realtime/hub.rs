@@ -179,6 +179,36 @@ impl Hub {
         Ok(None)
     }
 
+    /// Get encrypted updates since a given sequence number
+    ///
+    /// Used by REST API to retrieve pending updates for content reconstruction.
+    pub async fn get_updates_since(
+        &self,
+        doc_id: &str,
+        since_seq: i64,
+    ) -> anyhow::Result<Vec<application::documents::ports::realtime::realtime_port::EncryptedUpdateEntry>>
+    {
+        use application::documents::ports::realtime::realtime_port::EncryptedUpdateEntry;
+
+        let uuid = match Uuid::parse_str(doc_id) {
+            Ok(id) => id,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        let updates = self.persistence.get_updates_since(&uuid, since_seq).await?;
+
+        Ok(updates
+            .into_iter()
+            .map(|u| EncryptedUpdateEntry {
+                seq: u.seq,
+                data: u.data,
+                nonce: u.nonce,
+                signature: u.signature,
+                public_key: u.public_key,
+            })
+            .collect())
+    }
+
     /// Get plaintext content is not available
     ///
     /// Returns None as the server cannot decrypt content.

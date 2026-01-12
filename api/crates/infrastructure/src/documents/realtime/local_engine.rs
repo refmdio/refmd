@@ -1,6 +1,6 @@
 use application::core::ports::errors::PortResult;
 use application::documents::ports::realtime::realtime_port::{
-    EncryptedUpdate, RealtimeEngine, SnapshotData,
+    EncryptedUpdate, EncryptedUpdateEntry, RealtimeEngine, SnapshotData,
 };
 use application::documents::ports::realtime::realtime_types::{DynRealtimeSink, DynRealtimeStream};
 use application::documents::services::realtime::snapshot::doc_from_snapshot_bytes;
@@ -72,5 +72,16 @@ impl RealtimeEngine for LocalRealtimeEngine {
                 .map_err(|e| application::core::ports::errors::PortError::from(e))?;
         }
         Ok(())
+    }
+
+    async fn get_updates_since(
+        &self,
+        doc_id: &str,
+        since_seq: i64,
+    ) -> PortResult<Vec<EncryptedUpdateEntry>> {
+        self.hub
+            .get_updates_since(doc_id, since_seq)
+            .await
+            .map_err(Into::into)
     }
 }

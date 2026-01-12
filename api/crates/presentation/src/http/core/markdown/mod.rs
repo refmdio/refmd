@@ -6,13 +6,16 @@ use axum::{Router, routing::post};
 
 use crate::context::AppContext;
 
+#[allow(deprecated)]
 pub use handlers::{render_markdown, render_markdown_many};
 pub use types::*;
 
 pub mod openapi {
+    #[allow(deprecated)]
     pub use super::handlers::*;
 }
 
+#[allow(deprecated)]
 pub fn routes(ctx: AppContext) -> Router {
     Router::new()
         .route("/markdown/render", post(render_markdown))

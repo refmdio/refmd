@@ -6,7 +6,7 @@ use domain::documents::document::Document as DomainDocument;
 
 use crate::core::services::access::{self, Actor};
 use crate::core::services::errors::ServiceError;
-use crate::documents::dtos::ContentDto;
+use crate::documents::dtos::{ContentDto, ContentUpdateEntry};
 use crate::documents::ports::realtime::realtime_port::EncryptedUpdate;
 use crate::documents::ports::tx_runner::run_in_tx;
 use crate::documents::services::realtime::snapshot::snapshot_from_markdown;
@@ -17,7 +17,7 @@ use super::util::map_tx_error;
 
 impl DocumentService {
     /// Get document content as Yjs snapshot bytes.
-    /// Returns ContentDto with content bytes and optional nonce (for E2EE documents).
+    /// Returns ContentDto with content bytes, optional nonce, and pending updates (for E2EE documents).
     pub async fn get_content(&self, actor: &Actor, doc_id: Uuid) -> Result<ContentDto, ServiceError> {
         access::require_view(
             self.access_repo.as_ref(),
@@ -37,16 +37,46 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?;
 
-        match snapshot {
-            Some(data) => Ok(ContentDto {
-                content: data.data,
-                nonce: data.nonce,
-            }),
-            None => Ok(ContentDto {
-                content: Vec::new(),
-                nonce: None,
-            }),
-        }
+        // All documents are E2EE
+        let (snapshot_content, snapshot_nonce, base_seq) = match &snapshot {
+            Some(data) => (
+                data.data.clone(),
+                data.nonce.clone(),
+                data.seq_at_snapshot.unwrap_or(0),
+            ),
+            None => (Vec::new(), None, 0),
+        };
+
+        // Fetch pending updates since snapshot
+        let update_entries = self
+            .realtime
+            .get_updates_since(&doc_id.to_string(), base_seq)
+            .await
+            .map_err(ServiceError::from)?;
+
+        let updates = if update_entries.is_empty() {
+            None
+        } else {
+            Some(
+                update_entries
+                    .into_iter()
+                    .map(|u| ContentUpdateEntry {
+                        seq: u.seq,
+                        data: u.data,
+                        nonce: u.nonce,
+                        signature: u.signature,
+                        public_key: u.public_key,
+                    })
+                    .collect(),
+            )
+        };
+
+        Ok(ContentDto {
+            content: snapshot_content,
+            nonce: snapshot_nonce,
+            seq_at_snapshot: Some(base_seq),
+            updates,
+        })
     }
 
     /// Update document content.

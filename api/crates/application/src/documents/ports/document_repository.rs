@@ -4,7 +4,6 @@ use uuid::Uuid;
 
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document as DomainDocument;
-use domain::documents::document::SearchHit;
 pub use domain::documents::meta::DocMeta;
 use domain::documents::path::{DesiredPath, Slug};
 use domain::documents::title::Title;
@@ -41,7 +40,6 @@ pub trait DocumentRepository: Send + Sync {
     async fn list_for_user(
         &self,
         workspace_id: Uuid,
-        query: Option<String>,
         tag: Option<String>,
         state: DocumentListState,
     ) -> DocumentRepoResult<Vec<DomainDocument>>;
@@ -54,13 +52,6 @@ pub trait DocumentRepository: Send + Sync {
     ) -> DocumentRepoResult<Vec<DomainDocument>>;
 
     async fn get_by_id(&self, id: Uuid) -> DocumentRepoResult<Option<DomainDocument>>;
-
-    async fn search_for_user(
-        &self,
-        workspace_id: Uuid,
-        query: Option<String>,
-        limit: i64,
-    ) -> DocumentRepoResult<Vec<SearchHit>>;
 
     #[allow(clippy::too_many_arguments)]
     async fn create_for_user(
