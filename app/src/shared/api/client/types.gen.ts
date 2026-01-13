@@ -564,6 +564,30 @@ export type KvValueResponse = {
 };
 
 /**
+ * Response for listing files in a document.
+ * Returns encrypted metadata for client-side decryption to build file map.
+ */
+export type ListFileResponse = {
+    /**
+     * SHA256 hash of encrypted file content
+     */
+    encryptedHash?: (string) | null;
+    /**
+     * Base64 encoded encrypted metadata (contains filename, logicalPath, mimeType)
+     */
+    encryptedMetadata?: (string) | null;
+    /**
+     * Base64 encoded nonce for encrypted metadata
+     */
+    encryptedMetadataNonce?: (string) | null;
+    id: string;
+    /**
+     * File size in bytes
+     */
+    size: number;
+};
+
+/**
  * Response for GET /api/tags
  */
 export type ListTagsResponse = {
@@ -1214,8 +1238,16 @@ export type UploadFileResponse = {
      * SHA256 hash of encrypted file content
      */
     encryptedHash: string;
+    /**
+     * Storage filename (UUID, for building relative paths)
+     */
+    filename: string;
     id: string;
     size: number;
+    /**
+     * URL to access the file (relative or absolute)
+     */
+    url: string;
 };
 
 export type UserPublicKeyResponse = {
@@ -1395,6 +1427,15 @@ export type CreateDocumentData = {
 };
 
 export type CreateDocumentResponse = (Document);
+
+export type ListFilesData = {
+    /**
+     * Document ID
+     */
+    docId: string;
+};
+
+export type ListFilesResponse = (Array<ListFileResponse>);
 
 export type UploadFileData = {
     /**
@@ -1682,19 +1723,6 @@ export type UnarchiveDocumentData = {
 };
 
 export type UnarchiveDocumentResponse = (Document);
-
-export type GetFileByNameData = {
-    /**
-     * Document ID
-     */
-    documentId: string;
-    /**
-     * File name
-     */
-    filename: string;
-};
-
-export type GetFileByNameResponse = (Blob | File);
 
 export type GetFileData = {
     /**

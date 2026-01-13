@@ -86,7 +86,8 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
           features: ['gfm', 'highlight'],
           sanitize: true,
           hardbreaks: true as any,
-          absolute_attachments: true as any,
+          // Keep attachment paths as-is (./attachments/xxx) for client-side file map resolution
+          absolute_attachments: false as any,
           base_origin: apiOrigin as any,
           doc_id: override as any,
           token: token as any,
@@ -200,11 +201,85 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
       })
     }
     const imgs = Array.from(el.querySelectorAll('img')) as HTMLImageElement[]
+    const blobUrls: string[] = []
+
+    // Process images - decrypt E2EE images and replace src with blob URL
+    for (const img of imgs) {
+      const src = img.getAttribute('src') || ''
+      const bridge = (window as any).__refmd_file_decryption__
+
+      // Check if this is a logical path (./attachments/xxx) that needs file map resolution
+      if (src.startsWith('./attachments/') || src.startsWith('attachments/')) {
+        const logicalPath = src.startsWith('./') ? src.slice(2) : src
+
+        if (bridge?.resolveFileByPath && documentIdOverride) {
+          const fileEntry = bridge.resolveFileByPath(documentIdOverride, logicalPath)
+          if (fileEntry) {
+            // Resolve to /api/files/{fileId}
+            const apiUrl = `${API_BASE_URL}/api/files/${fileEntry.fileId}`
+
+            // Show loading placeholder
+            img.style.opacity = '0.5'
+            img.alt = 'Loading encrypted image...'
+
+            // Decrypt asynchronously (pass documentId as hint since /api/files/{id} doesn't include it)
+            if (bridge?.downloadAndDecrypt) {
+              bridge.downloadAndDecrypt(apiUrl, documentIdOverride).then((result: { blobUrl: string; filename: string; mimeType: string } | null) => {
+                if (result) {
+                  img.src = result.blobUrl
+                  img.style.opacity = '1'
+                  img.alt = result.filename
+                  blobUrls.push(result.blobUrl)
+                  img.dataset.decryptedSrc = result.blobUrl
+                } else {
+                  img.style.opacity = '1'
+                }
+              }).catch(() => {
+                img.style.opacity = '1'
+              })
+            }
+          }
+        }
+      }
+      // Legacy: Check if this is an E2EE attachment URL (/api/uploads/)
+      else if (src.includes('/api/uploads/')) {
+        if (bridge?.downloadAndDecrypt) {
+          // Show loading placeholder
+          img.style.opacity = '0.5'
+          img.alt = 'Loading encrypted image...'
+
+          // Decrypt asynchronously
+          bridge.downloadAndDecrypt(src).then((result: { blobUrl: string; filename: string; mimeType: string } | null) => {
+            if (result) {
+              img.src = result.blobUrl
+              img.style.opacity = '1'
+              img.alt = result.filename
+              blobUrls.push(result.blobUrl)
+              // Store blob URL for modal
+              img.dataset.decryptedSrc = result.blobUrl
+            } else {
+              img.style.opacity = '1'
+            }
+          }).catch(() => {
+            img.style.opacity = '1'
+          })
+        }
+      }
+    }
+
+    // Cleanup blob URLs when component unmounts
+    detachFns.push(() => {
+      const bridge = (window as any).__refmd_file_decryption__
+      blobUrls.forEach((url) => bridge?.revokeBlobUrl?.(url))
+    })
+
     detachFns.push(...imgs.map((img) => {
       const handler = (e: Event) => {
         e.preventDefault()
         e.stopPropagation()
-        setModalImage({ src: img.getAttribute('src') || '', alt: img.getAttribute('alt') || undefined })
+        // Use decrypted src if available
+        const src = img.dataset.decryptedSrc || img.getAttribute('src') || ''
+        setModalImage({ src, alt: img.getAttribute('alt') || undefined })
       }
       img.addEventListener('click', handler)
       return () => img.removeEventListener('click', handler)

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useEditorContext } from '@/features/edit-document/model/editor-context'
+import { addFileToMap, getExistingPaths } from '@/entities/file'
 
 export type UploadStatus =
   | { state: 'idle'; total: 0; completed: 0 }
@@ -10,7 +11,12 @@ export type UploadStatus =
   | { state: 'success'; total: number; completed: number }
   | { state: 'error'; total: number; completed: number; failed: number }
 
-export function useEditorUploads(documentId: string, readOnly?: boolean, onReadOnlyAttempt?: () => void) {
+export function useEditorUploads(
+  documentId: string,
+  workspaceId: string | null | undefined,
+  readOnly?: boolean,
+  onReadOnlyAttempt?: () => void
+) {
   const { editor } = useEditorContext()
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ state: 'idle', total: 0, completed: 0 })
   const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -50,8 +56,25 @@ export function useEditorUploads(documentId: string, readOnly?: boolean, onReadO
         currentFile: f.name,
       })
       try {
-        const resp = await uploadAttachment(documentId, f)
-        const name: string = (resp as any).filename || f.name
+        // Get existing paths for collision detection
+        const existingPaths = getExistingPaths(documentId)
+
+        const resp = await uploadAttachment(documentId, f, {
+          workspaceId: workspaceId ?? '',
+          existingPaths,
+        })
+
+        // Use logicalPath from response (handles collision with -2, -3 suffix)
+        const logicalPath = resp.logicalPath
+
+        // Add to file map for rendering
+        addFileToMap(documentId, {
+          fileId: resp.id,
+          logicalPath,
+          filename: resp.originalFilename,
+          mimeType: resp.mimeType,
+        })
+
         const view = editor as EditorView | null
         if (view) {
           const { from, to } = view.state.selection.main
@@ -67,8 +90,10 @@ export function useEditorUploads(documentId: string, readOnly?: boolean, onReadO
             } catch {}
           }
 
-          const rel = `./attachments/${(resp as any).filename || f.name}`
-          const text = f.type.startsWith('image/') ? `![${name}](${rel})` : `[${name}](${rel})`
+          // Use logicalPath (original filename based) for Markdown
+          const rel = `./${logicalPath}`
+          const displayName = resp.originalFilename
+          const text = f.type.startsWith('image/') ? `![${displayName}](${rel})` : `[${displayName}](${rel})`
           view.dispatch({
             changes: { from: targetFrom, to: targetTo, insert: text },
             selection: { anchor: targetFrom + text.length },
@@ -91,7 +116,7 @@ export function useEditorUploads(documentId: string, readOnly?: boolean, onReadO
     } else {
       setUploadStatus({ state: 'idle', total: 0, completed: 0 })
     }
-  }, [documentId, editor, onReadOnlyAttempt, readOnly, scheduleReset])
+  }, [documentId, workspaceId, editor, onReadOnlyAttempt, readOnly, scheduleReset])
 
   return { uploadFiles, uploadStatus }
 }

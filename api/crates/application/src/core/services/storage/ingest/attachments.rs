@@ -42,7 +42,7 @@ impl StorageIngestService {
         let size = bytes.len() as i64;
         let encrypted_hash = sha256_hex(&bytes);
         self.files_repo
-            .update_hash_and_size(file_id, size, &encrypted_hash)
+            .update_size_and_hash(file_id, size, &encrypted_hash)
             .await?;
         let mut payload_obj = serde_json::Map::new();
         payload_obj.insert("repo_path".into(), json!(repo_path));

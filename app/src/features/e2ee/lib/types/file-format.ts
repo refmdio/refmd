@@ -39,6 +39,8 @@ export interface RmeMetadata {
   originalHash: string
   /** Timestamp when encrypted */
   encryptedAt: string
+  /** Logical path for Git sync (e.g., "attachments/document.pdf") */
+  logicalPath: string
   /** Additional metadata */
   extra?: Record<string, unknown>
 }
@@ -77,6 +79,8 @@ export interface EncryptFileOptions {
   filename: string
   /** MIME type (auto-detected if not provided) */
   mimeType?: string
+  /** Logical path for Git sync (e.g., "attachments/document.pdf") */
+  logicalPath?: string
   /** Additional metadata */
   extra?: Record<string, unknown>
 }

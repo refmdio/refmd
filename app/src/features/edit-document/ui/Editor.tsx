@@ -23,6 +23,8 @@ import { enableVimMode, disableVimMode } from '@/features/edit-document/lib/edit
 import { useEditorContext } from '@/features/edit-document/model/editor-context'
 import { useViewContext } from '@/features/edit-document/model/view-context'
 
+import { useAttachmentContext } from '@/features/e2ee'
+
 import CursorDisplay from './CursorDisplay'
 import EditorLayout from './EditorLayout'
 import type { PreviewPaneProps } from './PreviewPane'
@@ -55,6 +57,7 @@ export type MarkdownEditorProps = {
   userName?: string
   userId?: string
   documentId: string
+  workspaceId?: string | null
   readOnly?: boolean
   extraRight?: React.ReactNode
   conflictControls?: React.ReactNode
@@ -93,6 +96,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     userId,
     userName,
     documentId,
+    workspaceId,
     readOnly = false,
     extraRight,
     conflictControls,
@@ -109,6 +113,14 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   const { viewMode, setViewMode, viewModeHydrated, hasPersistentViewMode } = useViewContext()
   const navigate = useNavigate()
   const shareToken = useShareToken()
+
+  // Set up decryption context for attachments
+  useAttachmentContext({
+    documentId,
+    workspaceId: workspaceId ?? undefined,
+    token: shareToken ?? undefined,
+    setAsDefault: true,
+  })
 
   const shareScope = useRouterState({
     select: (state) => {
@@ -234,7 +246,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
     safeExecute('set initial view mode', () => setViewMode(initialViewProp))
   }, [forcedView, hasPersistentViewMode, initialViewProp, setViewMode, viewMode, viewModeHydrated])
 
-  const { uploadFiles, uploadStatus } = useEditorUploads(documentId, readOnly, emitReadOnlyWarning)
+  const { uploadFiles, uploadStatus } = useEditorUploads(documentId, workspaceId, readOnly, emitReadOnlyWarning)
   const uploadFilesRef = useRef(uploadFiles)
   useEffect(() => {
     uploadFilesRef.current = uploadFiles

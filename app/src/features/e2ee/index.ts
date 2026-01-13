@@ -180,6 +180,7 @@ export {
 export { useSecurityStatus, useNeedsSecuritySetup } from './hooks/useSecurityStatus'
 export { useKeyManager } from './hooks/useKeyManager'
 export { useServerBackup, type ServerBackup } from './hooks/useServerBackup'
+export { useAttachmentContext } from './hooks/useAttachmentContext'
 
 // Context
 export { E2EEProvider, useE2EE, type E2EEState } from './context/e2ee-context'

@@ -6,19 +6,22 @@ use crate::core::ports::errors::PortResult;
 #[derive(Debug, Clone)]
 pub struct FileMeta {
     pub storage_path: String,
-    pub content_type: Option<String>,
     pub document_id: Uuid,
     pub workspace_id: Uuid,
-    // E2EE fields
+    /// Encrypted file metadata (filename, content_type, etc.)
+    /// None for legacy files uploaded before E2EE
     pub encrypted_metadata: Option<Vec<u8>>,
+    /// Nonce for encrypted metadata
+    /// None for legacy files uploaded before E2EE
     pub encrypted_metadata_nonce: Option<Vec<u8>>,
+    /// Hash of encrypted content
+    /// None for legacy files uploaded before E2EE
     pub encrypted_hash: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct FilePathMeta {
     pub storage_path: String,
-    pub content_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,17 +35,10 @@ pub struct StoredFileScope {
 pub trait FilesRepository: Send + Sync {
     async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid) -> PortResult<bool>;
 
-    /// Insert a file with optional E2EE metadata.
-    /// For plaintext files: pass encrypted_* fields as None
-    /// For E2EE files: pass encrypted_* fields with values
+    /// Insert a file record
     async fn insert_file(&self, input: FileInsert<'_>) -> PortResult<Uuid>;
 
     async fn get_file_meta(&self, file_id: Uuid) -> PortResult<Option<FileMeta>>;
-    async fn get_file_path_by_doc_and_name(
-        &self,
-        doc_id: Uuid,
-        filename: &str,
-    ) -> PortResult<Option<FilePathMeta>>;
 
     async fn list_storage_paths_for_document(&self, doc_id: Uuid) -> PortResult<Vec<String>>;
 
@@ -56,11 +52,11 @@ pub trait FilesRepository: Send + Sync {
 
     async fn update_storage_path(&self, file_id: Uuid, storage_path: &str) -> PortResult<()>;
 
-    async fn update_hash_and_size(
+    async fn update_size_and_hash(
         &self,
         file_id: Uuid,
         size: i64,
-        content_hash: &str,
+        encrypted_hash: &str,
     ) -> PortResult<()>;
 
     async fn delete_by_id(&self, file_id: Uuid) -> PortResult<()>;
@@ -74,30 +70,29 @@ pub trait FilesRepositoryTx: Send {
 #[derive(Debug, Clone)]
 pub struct FileRecord {
     pub id: Uuid,
-    pub filename: String,
-    pub content_type: Option<String>,
     pub size: i64,
     pub storage_path: String,
-    pub content_hash: String,
-    // E2EE fields
+    /// Encrypted file metadata (filename, content_type, etc.)
+    /// None for legacy files uploaded before E2EE
     pub encrypted_metadata: Option<Vec<u8>>,
+    /// Nonce for encrypted metadata
+    /// None for legacy files uploaded before E2EE
     pub encrypted_metadata_nonce: Option<Vec<u8>>,
+    /// Hash of encrypted content
+    /// None for legacy files uploaded before E2EE
     pub encrypted_hash: Option<String>,
 }
 
-/// Input for file insert (unified for both plaintext and E2EE)
+/// Input for file insert
 #[derive(Debug, Clone)]
 pub struct FileInsert<'a> {
     pub doc_id: Uuid,
-    pub filename: &'a str,
-    pub content_type: Option<&'a str>,
     pub size: i64,
     pub storage_path: &'a str,
-    pub content_hash: &'a str,
-    /// E2EE: encrypted file metadata
-    pub encrypted_metadata: Option<&'a [u8]>,
-    /// E2EE: nonce for encrypted metadata
-    pub encrypted_metadata_nonce: Option<&'a [u8]>,
-    /// E2EE: encrypted hash of the file content
-    pub encrypted_hash: Option<&'a str>,
+    /// Encrypted file metadata (filename, content_type, etc.)
+    pub encrypted_metadata: &'a [u8],
+    /// Nonce for encrypted metadata
+    pub encrypted_metadata_nonce: &'a [u8],
+    /// Hash of encrypted content
+    pub encrypted_hash: &'a str,
 }

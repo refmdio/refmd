@@ -144,6 +144,7 @@ export default function TemporaryDocumentPage({ tempId }: Props) {
             connected={false}
             initialView="editor"
             documentId={tempId}
+            workspaceId={activeWorkspaceId}
             readOnly={false}
           />
         )}

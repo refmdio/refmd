@@ -33,6 +33,7 @@ export type DocumentLoaderData = {
   createdByPlugin?: string | null
   path?: string | null
   desired_path?: string | null
+  workspace_id?: string | null
 }
 
 export type DocumentPageProps = {
@@ -267,7 +268,7 @@ function DocumentClient({
 }: DocumentPageProps) {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { user } = useAuthContext()
+  const { user, activeWorkspaceId } = useAuthContext()
   const { documentTitle: realtimeTitle, documentActions, setDocumentActions, documentPluginId } = useRealtime()
   const pluginIdHintFromLoader = typeof loaderData?.createdByPlugin === 'string' ? loaderData.createdByPlugin.trim() : ''
   const pluginIdHintFromRealtime = typeof documentPluginId === 'string' ? documentPluginId.trim() : ''
@@ -789,6 +790,7 @@ function DocumentClient({
         userId: user?.id || anonIdentity?.id,
         userName: user?.name || anonIdentity?.name,
         documentId: id,
+        workspaceId: loaderData?.workspace_id ?? activeWorkspaceId,
         readOnly: isReadOnly || Boolean(activeConflict),
         conflictView,
         conflictHunkWidgets,

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use mime_guess::MimeGuess;
 use serde_json::json;
 use tracing::warn;
 use uuid::Uuid;
@@ -10,29 +9,31 @@ use crate::core::services::access::{self, Actor};
 use crate::core::services::errors::ServiceError;
 use crate::documents::ports::access_repository::AccessRepository;
 use crate::documents::ports::doc_event_log::DocEventLog;
+pub use crate::documents::ports::files::files_repository::FileRecord;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::sharing::share_access_port::ShareAccessPort;
 use crate::documents::use_cases::files::upload_file::{FileUploadInput, UploadFile, UploadedFile};
 use async_trait::async_trait;
 use domain::documents::path as doc_path;
 
-/// File payload with optional E2EE metadata (unified for both plaintext and E2EE)
+/// File payload with optional E2EE metadata
 pub struct FilePayload {
+    /// File bytes (.rme format for E2EE files, raw bytes for legacy files)
     pub bytes: Vec<u8>,
-    pub content_type: Option<String>,
-    /// E2EE: encrypted file metadata
+    /// Encrypted file metadata (filename, content_type, etc.)
+    /// None for legacy files uploaded before E2EE
     pub encrypted_metadata: Option<Vec<u8>>,
-    /// E2EE: nonce for encrypted metadata
+    /// Nonce for encrypted metadata
+    /// None for legacy files uploaded before E2EE
     pub encrypted_metadata_nonce: Option<Vec<u8>>,
-    /// E2EE: encrypted hash of the file content
+    /// Hash of encrypted content
+    /// None for legacy files uploaded before E2EE
     pub encrypted_hash: Option<String>,
 }
 
 #[async_trait]
 pub trait FileServiceFacade: Send + Sync {
-    /// Upload a file with optional E2EE metadata.
-    /// For plaintext files: pass encrypted_* fields as None in FileUploadInput
-    /// For E2EE files: pass encrypted_* fields with values
+    /// Upload an E2EE encrypted file.
     #[allow(clippy::too_many_arguments)]
     async fn upload_file(
         &self,
@@ -43,8 +44,7 @@ pub trait FileServiceFacade: Send + Sync {
         public_base_url: Option<String>,
     ) -> Result<UploadedFile, ServiceError>;
 
-    /// Download file with optional E2EE metadata.
-    /// Returns FilePayload with bytes and optional E2EE fields.
+    /// Download file with E2EE metadata.
     async fn download_owned_file(
         &self,
         actor: &Actor,
@@ -52,19 +52,20 @@ pub trait FileServiceFacade: Send + Sync {
         file_id: Uuid,
     ) -> Result<FilePayload, ServiceError>;
 
-    async fn get_file_by_name(
-        &self,
-        actor: &Actor,
-        doc_id: Uuid,
-        filename: &str,
-    ) -> Result<FilePayload, ServiceError>;
-
+    /// Serve file by storage path (for backwards compatibility with existing URLs).
     async fn serve_upload(
         &self,
         actor: &Actor,
         doc_id: Uuid,
         attachment_path: &str,
     ) -> Result<FilePayload, ServiceError>;
+
+    /// List files for a document (for building file map on client).
+    async fn list_files_for_document(
+        &self,
+        workspace_id: Uuid,
+        doc_id: Uuid,
+    ) -> Result<Vec<FileRecord>, ServiceError>;
 }
 
 #[async_trait]
@@ -91,15 +92,6 @@ impl FileServiceFacade for FileService {
         self.download_owned_file(actor, workspace_id, file_id).await
     }
 
-    async fn get_file_by_name(
-        &self,
-        actor: &Actor,
-        doc_id: Uuid,
-        filename: &str,
-    ) -> Result<FilePayload, ServiceError> {
-        self.get_file_by_name(actor, doc_id, filename).await
-    }
-
     async fn serve_upload(
         &self,
         actor: &Actor,
@@ -107,6 +99,14 @@ impl FileServiceFacade for FileService {
         attachment_path: &str,
     ) -> Result<FilePayload, ServiceError> {
         self.serve_upload(actor, doc_id, attachment_path).await
+    }
+
+    async fn list_files_for_document(
+        &self,
+        workspace_id: Uuid,
+        doc_id: Uuid,
+    ) -> Result<Vec<FileRecord>, ServiceError> {
+        self.list_files_for_document(workspace_id, doc_id).await
     }
 }
 
@@ -160,7 +160,7 @@ impl FileService {
         Ok(uploaded)
     }
 
-    /// Download file with optional E2EE metadata.
+    /// Download file with E2EE metadata.
     pub async fn download_owned_file(
         &self,
         actor: &Actor,
@@ -191,48 +191,16 @@ impl FileService {
             .map_err(ServiceError::from)?;
         Ok(FilePayload {
             bytes,
-            content_type: meta.content_type,
             encrypted_metadata: meta.encrypted_metadata,
             encrypted_metadata_nonce: meta.encrypted_metadata_nonce,
             encrypted_hash: meta.encrypted_hash,
         })
     }
 
-    pub async fn get_file_by_name(
-        &self,
-        actor: &Actor,
-        doc_id: Uuid,
-        filename: &str,
-    ) -> Result<FilePayload, ServiceError> {
-        access::require_view(
-            self.access_repo.as_ref(),
-            self.share_access.as_ref(),
-            actor,
-            doc_id,
-        )
-        .await?;
-
-        let meta = self
-            .files_repo
-            .get_file_path_by_doc_and_name(doc_id, filename)
-            .await
-            .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)?;
-        let abs_path = self.storage.absolute_from_relative(&meta.storage_path);
-        let bytes = self
-            .storage
-            .read_bytes(&abs_path)
-            .await
-            .map_err(ServiceError::from)?;
-        Ok(FilePayload {
-            bytes,
-            content_type: meta.content_type,
-            encrypted_metadata: None,
-            encrypted_metadata_nonce: None,
-            encrypted_hash: None,
-        })
-    }
-
+    /// Serve file by storage path.
+    /// For E2EE files, returns encrypted bytes with metadata headers.
+    /// For legacy files, returns raw bytes with None for E2EE fields.
+    /// Returns encrypted file with E2EE metadata.
     pub async fn serve_upload(
         &self,
         actor: &Actor,
@@ -252,20 +220,61 @@ impl FileService {
             .resolve_upload_path(doc_id, attachment_path)
             .await
             .map_err(ServiceError::from)?;
+
+        // Get the relative path to look up file record
+        let relative_path = self.storage.relative_from_uploads(&file_path);
+
+        // Look up file record by storage path to get encrypted metadata
+        let scope = self
+            .files_repo
+            .find_by_storage_path(&relative_path)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
+
+        // Get full file metadata
+        let meta = self
+            .files_repo
+            .get_file_meta(scope.file_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
+
         let bytes = self
             .storage
             .read_bytes(&file_path)
             .await
             .map_err(ServiceError::from)?;
-        let guess = MimeGuess::from_path(&file_path);
-        let content_type = Some(guess.first_or_octet_stream().essence_str().to_string());
+
         Ok(FilePayload {
             bytes,
-            content_type,
-            encrypted_metadata: None,
-            encrypted_metadata_nonce: None,
-            encrypted_hash: None,
+            encrypted_metadata: meta.encrypted_metadata,
+            encrypted_metadata_nonce: meta.encrypted_metadata_nonce,
+            encrypted_hash: meta.encrypted_hash,
         })
+    }
+
+    /// List files for a document (for building file map on client).
+    pub async fn list_files_for_document(
+        &self,
+        workspace_id: Uuid,
+        doc_id: Uuid,
+    ) -> Result<Vec<FileRecord>, ServiceError> {
+        // Verify document belongs to workspace
+        let is_workspace_doc = self
+            .files_repo
+            .is_workspace_document(doc_id, workspace_id)
+            .await
+            .map_err(ServiceError::from)?;
+        if !is_workspace_doc {
+            return Err(ServiceError::Forbidden);
+        }
+        let files = self
+            .files_repo
+            .list_files_for_document(doc_id)
+            .await
+            .map_err(ServiceError::from)?;
+        Ok(files)
     }
 
     async fn emit_attachment_upsert(
@@ -291,7 +300,7 @@ impl FileService {
                     "storage_path": file.storage_path,
                     "backend": "api",
                     "size": file.size,
-                    "content_hash": file.content_hash,
+                    "encrypted_hash": file.encrypted_hash,
                     "workspace_id": workspace_id.to_string(),
                     "actor_id": actor_id.to_string(),
                 })),

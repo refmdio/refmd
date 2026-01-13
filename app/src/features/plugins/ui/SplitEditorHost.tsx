@@ -282,7 +282,7 @@ function useDocContent(doc: any) {
 }
 
 function PluginSplitEditorStageInner({ docId, token, host, previewDelegate, onDocumentReady }: StageInnerProps) {
-  const { user } = useAuthContext()
+  const { user, activeWorkspaceId } = useAuthContext()
   const { status, doc, awareness, isReadOnly, error } = useCollaborativeDocument(docId, token ?? undefined, {
     contributeToRealtimeContext: false,
     useUrlShareTokenFallback: false,
@@ -357,6 +357,7 @@ function PluginSplitEditorStageInner({ docId, token, host, previewDelegate, onDo
           userId={user?.id || anonIdentity?.id}
           userName={user?.name || anonIdentity?.name}
           documentId={docId}
+          workspaceId={activeWorkspaceId}
           readOnly={isReadOnly}
           extraRight={undefined}
           renderPreview={renderPreview}

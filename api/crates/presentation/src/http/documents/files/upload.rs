@@ -36,8 +36,6 @@ pub async fn upload_file(
     auth.ensure_permission(PERM_FILE_UPLOAD)?;
 
     let mut file_bytes: Option<Vec<u8>> = None;
-    let mut orig_filename: Option<String> = None;
-    let mut content_type: Option<String> = None;
     let mut metadata: Option<FileUploadMetadata> = None;
 
     while let Some(field) = multipart
@@ -46,12 +44,8 @@ pub async fn upload_file(
         .map_err(|_| ApiError::bad_request("invalid_multipart"))?
     {
         let name = field.name().map(|s| s.to_string());
-        let file_name = field.file_name().map(|s| s.to_string());
-        let ct = field.content_type().map(|s| s.to_string());
         match name.as_deref() {
             Some("file") => {
-                orig_filename = file_name.clone();
-                content_type = ct.clone();
                 let data = field
                     .bytes()
                     .await
@@ -77,46 +71,59 @@ pub async fn upload_file(
     }
 
     let bytes = file_bytes.ok_or(ApiError::bad_request("missing_file"))?;
+    let metadata = metadata.ok_or(ApiError::bad_request("missing_metadata"))?;
 
-    // Extract E2EE fields from metadata
-    let (encrypted_metadata, encrypted_metadata_nonce, encrypted_hash) = if let Some(m) = metadata {
-        let em = m.encrypted_metadata.and_then(|s| {
+    // Extract E2EE fields from metadata (all required)
+    let encrypted_metadata = metadata
+        .encrypted_metadata
+        .ok_or(ApiError::bad_request("missing_encrypted_metadata"))
+        .and_then(|s| {
             base64::engine::general_purpose::STANDARD
                 .decode(&s)
-                .ok()
-        });
-        let emn = m.encrypted_metadata_nonce.and_then(|s| {
+                .map_err(|_| ApiError::bad_request("invalid_encrypted_metadata"))
+        })?;
+    let encrypted_metadata_nonce = metadata
+        .encrypted_metadata_nonce
+        .ok_or(ApiError::bad_request("missing_encrypted_metadata_nonce"))
+        .and_then(|s| {
             base64::engine::general_purpose::STANDARD
                 .decode(&s)
-                .ok()
-        });
-        (em, emn, m.encrypted_hash)
-    } else {
-        (None, None, None)
-    };
+                .map_err(|_| ApiError::bad_request("invalid_encrypted_metadata_nonce"))
+        })?;
+    let encrypted_hash = metadata
+        .encrypted_hash
+        .ok_or(ApiError::bad_request("missing_encrypted_hash"))?;
 
     let public_base_url = ctx.cfg.public_base_url.clone();
     let file_service = ctx.file_service();
 
-    // Upload file with optional E2EE metadata
+    // Upload encrypted file
     let input = FileUploadInput {
         bytes,
-        orig_filename,
-        content_type,
         encrypted_metadata,
         encrypted_metadata_nonce,
-        encrypted_hash: encrypted_hash.clone(),
+        encrypted_hash,
     };
     let f = file_service
         .upload_file(auth.workspace_id, auth.user_id, doc_id, input, public_base_url)
         .await
         .map_err(map_file_error)?;
 
+    // Extract filename from storage_path (last segment after /)
+    let filename = f
+        .storage_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(&f.id.to_string())
+        .to_string();
+
     Ok((
         StatusCode::CREATED,
         Json(UploadFileResponse {
             id: f.id,
-            encrypted_hash: f.encrypted_hash.unwrap_or_else(|| f.content_hash),
+            url: f.url,
+            filename,
+            encrypted_hash: f.encrypted_hash,
             size: f.size,
         }),
     ))

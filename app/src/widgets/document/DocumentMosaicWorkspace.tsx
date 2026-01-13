@@ -2378,7 +2378,7 @@ function BacklinksTile({
 }
 
 function useEditorIdentity() {
-  const { user } = useAuthContext()
+  const { user, activeWorkspaceId } = useAuthContext()
   const anonIdentity = useMemo(() => {
     if (user) return null
     try {
@@ -2397,6 +2397,7 @@ function useEditorIdentity() {
   return {
     userId: (user as any)?.id || anonIdentity?.id,
     userName: (user as any)?.name || anonIdentity?.name,
+    activeWorkspaceId,
   }
 }
 
@@ -2568,6 +2569,7 @@ function MarkdownEditorTileBody({
         userId={identity.userId}
         userName={identity.userName}
         documentId={documentId}
+        workspaceId={identity.activeWorkspaceId}
         readOnly={localSession.isReadOnly}
       />
     )

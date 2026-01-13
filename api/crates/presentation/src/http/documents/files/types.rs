@@ -14,6 +14,10 @@ use application::documents::services::files::FilePayload;
 #[serde(rename_all = "camelCase")]
 pub struct UploadFileResponse {
     pub id: Uuid,
+    /// URL to access the file (relative or absolute)
+    pub url: String,
+    /// Storage filename (UUID, for building relative paths)
+    pub filename: String,
     /// SHA256 hash of encrypted file content
     pub encrypted_hash: String,
     pub size: i64,
@@ -23,44 +27,44 @@ pub fn map_file_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "file_service_error")
 }
 
-/// File payload response with optional E2EE metadata in headers
+/// File payload response with optional E2EE metadata in headers.
+/// For E2EE files, returns encrypted content with metadata headers for client-side decryption.
+/// For legacy files, returns raw bytes without E2EE headers.
 pub fn file_payload_response(payload: FilePayload) -> axum::response::Response {
     use base64::Engine;
 
     let mut headers = HeaderMap::new();
-    if let Some(ct) = payload.content_type {
-        headers.insert(
-            axum::http::header::CONTENT_TYPE,
-            HeaderValue::from_str(&ct)
-                .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-        );
-    }
+    // Use octet-stream for all files (client determines type from metadata or content)
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
     headers.insert(
         axum::http::header::HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
 
-    // Add E2EE metadata headers if present
-    if let Some(encrypted_metadata) = payload.encrypted_metadata {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(&encrypted_metadata);
-        if let Ok(val) = HeaderValue::from_str(&encoded) {
+    // Add E2EE metadata headers only if present
+    if let Some(ref encrypted_metadata) = payload.encrypted_metadata {
+        let encoded_metadata = base64::engine::general_purpose::STANDARD.encode(encrypted_metadata);
+        if let Ok(val) = HeaderValue::from_str(&encoded_metadata) {
             headers.insert(
                 axum::http::header::HeaderName::from_static("x-encrypted-metadata"),
                 val,
             );
         }
     }
-    if let Some(nonce) = payload.encrypted_metadata_nonce {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(&nonce);
-        if let Ok(val) = HeaderValue::from_str(&encoded) {
+    if let Some(ref encrypted_metadata_nonce) = payload.encrypted_metadata_nonce {
+        let encoded_nonce = base64::engine::general_purpose::STANDARD.encode(encrypted_metadata_nonce);
+        if let Ok(val) = HeaderValue::from_str(&encoded_nonce) {
             headers.insert(
                 axum::http::header::HeaderName::from_static("x-encrypted-metadata-nonce"),
                 val,
             );
         }
     }
-    if let Some(hash) = payload.encrypted_hash {
-        if let Ok(val) = HeaderValue::from_str(&hash) {
+    if let Some(ref encrypted_hash) = payload.encrypted_hash {
+        if let Ok(val) = HeaderValue::from_str(encrypted_hash) {
             headers.insert(
                 axum::http::header::HeaderName::from_static("x-encrypted-hash"),
                 val,
@@ -95,7 +99,19 @@ pub struct FileUploadMetadata {
     pub encrypted_hash: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct FileByNameQuery {
-    pub document_id: Uuid,
+/// Response for listing files in a document.
+/// Returns encrypted metadata for client-side decryption to build file map.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ListFileResponse {
+    pub id: Uuid,
+    /// Base64 encoded encrypted metadata (contains filename, logicalPath, mimeType)
+    pub encrypted_metadata: Option<String>,
+    /// Base64 encoded nonce for encrypted metadata
+    pub encrypted_metadata_nonce: Option<String>,
+    /// SHA256 hash of encrypted file content
+    pub encrypted_hash: Option<String>,
+    /// File size in bytes
+    pub size: i64,
 }
+

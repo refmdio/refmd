@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::core::db::PgPool;
 use application::core::ports::errors::PortResult;
 use application::documents::ports::files::files_repository::{
-    FileInsert, FileMeta, FilePathMeta, FileRecord, FilesRepository, StoredFileScope,
+    FileInsert, FileMeta, FileRecord, FilesRepository, StoredFileScope,
 };
 
 pub struct SqlxFilesRepository {
@@ -52,20 +52,18 @@ impl FilesRepository for SqlxFilesRepository {
 
     async fn insert_file(&self, input: FileInsert<'_>) -> PortResult<Uuid> {
         let out: anyhow::Result<Uuid> = async {
+            // E2EE files: filename is stored in encrypted_metadata, use placeholder for DB
             let row = sqlx::query(
                 r#"INSERT INTO files (
-                    document_id, filename, content_type, size, storage_path, content_hash,
+                    document_id, size, storage_path, filename,
                     encrypted_metadata, encrypted_metadata_nonce, encrypted_hash
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                VALUES ($1, $2, $3, '[encrypted]', $4, $5, $6)
                 RETURNING id"#,
             )
             .bind(input.doc_id)
-            .bind(input.filename)
-            .bind(input.content_type)
             .bind(input.size)
             .bind(input.storage_path)
-            .bind(input.content_hash)
             .bind(input.encrypted_metadata)
             .bind(input.encrypted_metadata_nonce)
             .bind(input.encrypted_hash)
@@ -80,7 +78,7 @@ impl FilesRepository for SqlxFilesRepository {
     async fn get_file_meta(&self, file_id: Uuid) -> PortResult<Option<FileMeta>> {
         let out: anyhow::Result<Option<FileMeta>> = async {
             let row = sqlx::query(
-                r#"SELECT f.storage_path, f.content_type, f.document_id, d.workspace_id,
+                r#"SELECT f.storage_path, f.document_id, d.workspace_id,
                           f.encrypted_metadata, f.encrypted_metadata_nonce, f.encrypted_hash
                FROM files f JOIN documents d ON f.document_id = d.id
                WHERE f.id = $1"#,
@@ -90,34 +88,11 @@ impl FilesRepository for SqlxFilesRepository {
             .await?;
             Ok(row.map(|r| FileMeta {
                 storage_path: r.get("storage_path"),
-                content_type: r.try_get("content_type").ok(),
                 document_id: r.get("document_id"),
                 workspace_id: r.get("workspace_id"),
-                encrypted_metadata: r.try_get("encrypted_metadata").ok(),
-                encrypted_metadata_nonce: r.try_get("encrypted_metadata_nonce").ok(),
-                encrypted_hash: r.try_get("encrypted_hash").ok(),
-            }))
-        }
-        .await;
-        out.map_err(Into::into)
-    }
-
-    async fn get_file_path_by_doc_and_name(
-        &self,
-        doc_id: Uuid,
-        filename: &str,
-    ) -> PortResult<Option<FilePathMeta>> {
-        let out: anyhow::Result<Option<FilePathMeta>> = async {
-            let row = sqlx::query(
-                r#"SELECT storage_path, content_type FROM files WHERE document_id = $1 AND filename = $2"#,
-            )
-            .bind(doc_id)
-            .bind(filename)
-            .fetch_optional(&self.pool)
-            .await?;
-            Ok(row.map(|r| FilePathMeta {
-                storage_path: r.get("storage_path"),
-                content_type: r.try_get("content_type").ok(),
+                encrypted_metadata: r.get::<Option<Vec<u8>>, _>("encrypted_metadata"),
+                encrypted_metadata_nonce: r.get::<Option<Vec<u8>>, _>("encrypted_metadata_nonce"),
+                encrypted_hash: r.get::<Option<String>, _>("encrypted_hash"),
             }))
         }
         .await;
@@ -142,7 +117,7 @@ impl FilesRepository for SqlxFilesRepository {
     async fn list_files_for_document(&self, doc_id: Uuid) -> PortResult<Vec<FileRecord>> {
         let out: anyhow::Result<Vec<FileRecord>> = async {
             let rows = sqlx::query(
-                r#"SELECT id, filename, content_type, size, storage_path, content_hash,
+                r#"SELECT id, size, storage_path,
                           encrypted_metadata, encrypted_metadata_nonce, encrypted_hash
                FROM files
                WHERE document_id = $1"#,
@@ -154,14 +129,11 @@ impl FilesRepository for SqlxFilesRepository {
                 .into_iter()
                 .map(|r| FileRecord {
                     id: r.get("id"),
-                    filename: r.get("filename"),
-                    content_type: r.try_get("content_type").ok(),
                     size: r.get("size"),
                     storage_path: r.get("storage_path"),
-                    content_hash: r.get("content_hash"),
-                    encrypted_metadata: r.try_get("encrypted_metadata").ok(),
-                    encrypted_metadata_nonce: r.try_get("encrypted_metadata_nonce").ok(),
-                    encrypted_hash: r.try_get("encrypted_hash").ok(),
+                    encrypted_metadata: r.get::<Option<Vec<u8>>, _>("encrypted_metadata"),
+                    encrypted_metadata_nonce: r.get::<Option<Vec<u8>>, _>("encrypted_metadata_nonce"),
+                    encrypted_hash: r.get::<Option<String>, _>("encrypted_hash"),
                 })
                 .collect())
         }
@@ -235,20 +207,20 @@ impl FilesRepository for SqlxFilesRepository {
         out.map_err(Into::into)
     }
 
-    async fn update_hash_and_size(
+    async fn update_size_and_hash(
         &self,
         file_id: Uuid,
         size: i64,
-        content_hash: &str,
+        encrypted_hash: &str,
     ) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
             sqlx::query(
-                r#"UPDATE files SET size = $2, content_hash = $3, updated_at = now()
+                r#"UPDATE files SET size = $2, encrypted_hash = $3, updated_at = now()
                WHERE id = $1"#,
             )
             .bind(file_id)
             .bind(size)
-            .bind(content_hash)
+            .bind(encrypted_hash)
             .execute(&self.pool)
             .await?;
             Ok(())

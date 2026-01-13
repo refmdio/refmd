@@ -65,7 +65,7 @@ impl MigrationRepository for SqlxMigrationRepository {
 
     async fn list_user_files(&self, user_id: Uuid) -> PortResult<Vec<MigrationFile>> {
         let out: anyhow::Result<Vec<MigrationFile>> = async {
-            // Get all files from documents in workspaces where the user is a member
+            // Get all plaintext files (not yet encrypted) from workspaces where the user is a member
             let rows = sqlx::query(
                 r#"
                 SELECT f.id, f.document_id, d.workspace_id, f.filename, f.content_type, f.storage_path

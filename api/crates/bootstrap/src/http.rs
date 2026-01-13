@@ -87,6 +87,7 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
             presentation::http::documents::publishing::routes(ctx.clone()),
         )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
+        .nest("/api/uploads", upload_router)
         .layer(middleware::from_fn_with_state(
             identity_ctx.clone(),
             presentation::http::identity::auth::refresh_middleware,
@@ -117,8 +118,6 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
         )
         .with_state(ctx.clone());
     let api_router = api_router.merge(metrics_router);
-
-    let api_router = api_router.nest("/api/uploads", upload_router);
 
     Ok(api_router)
 }
@@ -154,7 +153,12 @@ fn build_cors(cfg: &Config) -> anyhow::Result<CorsLayer> {
         http::header::AUTHORIZATION,
         http::header::HeaderName::from_static("x-workspace-id"),
     ];
-    let cors_expose_headers = [http::header::WWW_AUTHENTICATE];
+    let cors_expose_headers = [
+        http::header::WWW_AUTHENTICATE,
+        http::header::HeaderName::from_static("x-encrypted-metadata"),
+        http::header::HeaderName::from_static("x-encrypted-metadata-nonce"),
+        http::header::HeaderName::from_static("x-encrypted-hash"),
+    ];
     let cors = if let Some(origin) = frontend_origin.clone() {
         CorsLayer::new()
             .allow_origin(origin)

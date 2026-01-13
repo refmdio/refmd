@@ -16,28 +16,26 @@ where
 pub struct UploadedFile {
     pub id: Uuid,
     pub url: String,
-    pub filename: String,
-    pub content_type: Option<String>,
     pub size: i64,
     pub storage_path: String,
-    pub content_hash: String,
-    // E2EE fields
-    pub encrypted_metadata: Option<Vec<u8>>,
-    pub encrypted_metadata_nonce: Option<Vec<u8>>,
-    pub encrypted_hash: Option<String>,
+    /// Encrypted file metadata (filename, content_type, etc.)
+    pub encrypted_metadata: Vec<u8>,
+    /// Nonce for encrypted metadata
+    pub encrypted_metadata_nonce: Vec<u8>,
+    /// Hash of encrypted content
+    pub encrypted_hash: String,
 }
 
-/// Input for file upload (unified for both plaintext and E2EE)
+/// Input for file upload (E2EE encrypted)
 pub struct FileUploadInput {
+    /// Encrypted file bytes (.rme format)
     pub bytes: Vec<u8>,
-    pub orig_filename: Option<String>,
-    pub content_type: Option<String>,
-    /// E2EE: encrypted file metadata
-    pub encrypted_metadata: Option<Vec<u8>>,
-    /// E2EE: nonce for encrypted metadata
-    pub encrypted_metadata_nonce: Option<Vec<u8>>,
-    /// E2EE: encrypted hash of the file content
-    pub encrypted_hash: Option<String>,
+    /// Encrypted file metadata (filename, content_type, etc.)
+    pub encrypted_metadata: Vec<u8>,
+    /// Nonce for encrypted metadata
+    pub encrypted_metadata_nonce: Vec<u8>,
+    /// Hash of encrypted content (for deduplication/verification)
+    pub encrypted_hash: String,
 }
 
 impl<'a, R, S> UploadFile<'a, R, S>
@@ -45,9 +43,8 @@ where
     R: FilesRepository + ?Sized,
     S: StorageResolverPort + ?Sized,
 {
-    /// Upload a file with optional E2EE metadata.
-    /// For plaintext files: pass encrypted_* fields as None in FileUploadInput
-    /// For E2EE files: pass encrypted_* fields with values
+    /// Upload an E2EE encrypted file.
+    /// All files are encrypted - filename and content_type are stored in encrypted_metadata.
     pub async fn execute(
         &self,
         workspace_id: Uuid,
@@ -61,9 +58,10 @@ where
         {
             return Ok(None);
         }
+        // Store with None for original_filename - we use UUID for storage path
         let stored = self
             .storage
-            .store_doc_attachment(doc_id, input.orig_filename.as_deref(), &input.bytes)
+            .store_doc_attachment(doc_id, None, &input.bytes)
             .await
             .map_err(|err| {
                 tracing::error!(error = ?err, doc_id = %doc_id, "store_doc_attachment_failed");
@@ -73,14 +71,11 @@ where
             .repo
             .insert_file(FileInsert {
                 doc_id,
-                filename: &stored.filename,
-                content_type: input.content_type.as_deref(),
                 size: stored.size,
                 storage_path: &stored.relative_path,
-                content_hash: &stored.content_hash,
-                encrypted_metadata: input.encrypted_metadata.as_deref(),
-                encrypted_metadata_nonce: input.encrypted_metadata_nonce.as_deref(),
-                encrypted_hash: input.encrypted_hash.as_deref(),
+                encrypted_metadata: &input.encrypted_metadata,
+                encrypted_metadata_nonce: &input.encrypted_metadata_nonce,
+                encrypted_hash: &input.encrypted_hash,
             })
             .await
             .map_err(|err| {
@@ -88,21 +83,22 @@ where
                 err
             })?;
         let storage_path = stored.relative_path.clone();
-        let relative = stored.relative_path.trim_start_matches('/');
+        // URL format: /api/uploads/{doc_id}/attachments/{filename}
+        // This matches what serve_upload expects (doc_id as first segment)
         let url = if let Some(base) = self.public_base_url.as_deref() {
             let origin = base.trim_end_matches('/');
-            format!("{}/api/uploads/{}", origin, relative)
+            format!(
+                "{}/api/uploads/{}/attachments/{}",
+                origin, doc_id, stored.filename
+            )
         } else {
-            format!("/api/uploads/{}", relative)
+            format!("/api/uploads/{}/attachments/{}", doc_id, stored.filename)
         };
         Ok(Some(UploadedFile {
             id,
             url,
-            filename: stored.filename,
-            content_type: input.content_type,
             size: stored.size,
             storage_path,
-            content_hash: stored.content_hash,
             encrypted_metadata: input.encrypted_metadata,
             encrypted_metadata_nonce: input.encrypted_metadata_nonce,
             encrypted_hash: input.encrypted_hash,

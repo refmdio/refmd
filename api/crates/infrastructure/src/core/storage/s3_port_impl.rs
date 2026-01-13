@@ -302,21 +302,6 @@ fn normalize_prefix(root: &Path) -> String {
     parts.join("/")
 }
 
-fn sanitize_filename(name: &str) -> String {
-    let mut s = name.trim().to_string();
-    let invalid = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'];
-    for ch in invalid {
-        s = s.replace(ch, "-");
-    }
-    if s.is_empty() {
-        s = "attachment".into();
-    }
-    if s.len() > 120 {
-        s.truncate(120);
-    }
-    s
-}
-
 #[async_trait]
 impl StorageProjectionPort for S3StoragePort {
     async fn move_folder_subtree(&self, folder_id: Uuid) -> PortResult<usize> {
@@ -547,32 +532,14 @@ impl StorageResolverPort for S3StoragePort {
             let attachments_dir = base_dir.join("attachments");
             let _ = fs::create_dir_all(&attachments_dir).await;
 
-            let sanitized = sanitize_filename(original_filename.unwrap_or("attachment"));
-            let mut target = attachments_dir.join(&sanitized);
-            let mut relative =
+            // Use UUID for storage filename to hide the original filename (E2EE)
+            // Original filename is stored in encrypted_metadata
+            let _original = original_filename; // Kept for API compatibility, but not used in path
+            let file_uuid = Uuid::new_v4();
+            let safe = file_uuid.to_string();
+            let target = attachments_dir.join(&safe);
+            let relative =
                 crate::core::storage::relative_from_uploads(&self.root, &target).replace('\\', "/");
-            let mut counter = 1;
-            loop {
-                let key = self.relative_to_key(&relative);
-                if !self.object_exists(&key).await? {
-                    break;
-                }
-                let stem = target
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("attachment");
-                let ext = target
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| format!(".{s}"))
-                    .unwrap_or_default();
-                let new_name = format!("{stem}-{counter}{ext}");
-                target = attachments_dir.join(&new_name);
-                relative = crate::core::storage::relative_from_uploads(&self.root, &target)
-                    .replace('\\', "/");
-                counter += 1;
-            }
 
             if let Some(parent) = target.parent() {
                 let _ = fs::create_dir_all(parent).await;
@@ -582,11 +549,7 @@ impl StorageResolverPort for S3StoragePort {
             let size = bytes.len() as i64;
             let hash = sha256_hex(bytes);
             Ok(StoredAttachment {
-                filename: target
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("attachment")
-                    .to_string(),
+                filename: safe,
                 relative_path: relative,
                 size,
                 content_hash: hash,

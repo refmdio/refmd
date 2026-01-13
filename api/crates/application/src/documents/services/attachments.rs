@@ -10,12 +10,18 @@ use crate::core::services::utils::hash::sha256_hex;
 
 use super::DocumentService;
 
+/// Snapshot of an encrypted attachment for document duplication.
+/// All fields contain encrypted data from the original file.
 #[derive(Debug, Clone)]
 pub(super) struct AttachmentSnapshot {
-    filename: String,
-    content_type: Option<String>,
+    /// Encrypted file bytes (.rme format)
     bytes: Vec<u8>,
-    content_hash: String,
+    /// Encrypted file metadata
+    encrypted_metadata: Vec<u8>,
+    /// Nonce for encrypted metadata
+    encrypted_metadata_nonce: Vec<u8>,
+    /// Hash of encrypted content
+    encrypted_hash: String,
 }
 
 impl DocumentService {
@@ -30,6 +36,17 @@ impl DocumentService {
             .map_err(ServiceError::from)?;
         let mut snapshots = Vec::new();
         for file in files {
+            // Skip legacy files without E2EE metadata
+            let (Some(encrypted_metadata), Some(encrypted_metadata_nonce), Some(encrypted_hash)) =
+                (file.encrypted_metadata, file.encrypted_metadata_nonce, file.encrypted_hash)
+            else {
+                warn!(
+                    document_id = %doc_id,
+                    storage_path = %file.storage_path,
+                    "duplicate_attachment_skipped_legacy"
+                );
+                continue;
+            };
             let abs_path = self.storage.absolute_from_relative(&file.storage_path);
             let exists = self
                 .storage
@@ -49,12 +66,11 @@ impl DocumentService {
                 .read_bytes(&abs_path)
                 .await
                 .map_err(ServiceError::from)?;
-            let content_hash = hash_bytes(&bytes);
             snapshots.push(AttachmentSnapshot {
-                filename: file.filename,
-                content_type: file.content_type,
                 bytes,
-                content_hash,
+                encrypted_metadata,
+                encrypted_metadata_nonce,
+                encrypted_hash,
             });
         }
         Ok(snapshots)
@@ -75,13 +91,9 @@ impl DocumentService {
             .await
             .map_err(ServiceError::from)?;
         for attachment in attachments {
-            let filename = std::path::Path::new(&attachment.filename)
-                .file_name()
-                .and_then(|f| f.to_str())
-                .map(str::to_string)
-                .filter(|f| !f.is_empty())
-                .unwrap_or_else(|| attachment.filename.clone());
-            let target_path = base_dir.join("attachments").join(&filename);
+            // Use UUID for storage filename (E2EE - no plaintext filename)
+            let file_uuid = Uuid::new_v4();
+            let target_path = base_dir.join("attachments").join(file_uuid.to_string());
             self.storage
                 .write_bytes(&target_path, &attachment.bytes)
                 .await
@@ -93,14 +105,11 @@ impl DocumentService {
             self.files_repo
                 .insert_file(crate::documents::ports::files::files_repository::FileInsert {
                     doc_id: target_doc.id(),
-                    filename: &filename,
-                    content_type: attachment.content_type.as_deref(),
                     size: attachment.bytes.len() as i64,
                     storage_path: &storage_path,
-                    content_hash: &attachment.content_hash,
-                    encrypted_metadata: None,
-                    encrypted_metadata_nonce: None,
-                    encrypted_hash: None,
+                    encrypted_metadata: &attachment.encrypted_metadata,
+                    encrypted_metadata_nonce: &attachment.encrypted_metadata_nonce,
+                    encrypted_hash: &attachment.encrypted_hash,
                 })
                 .await
                 .map_err(ServiceError::from)?;
@@ -112,7 +121,7 @@ impl DocumentService {
                     "storage_path": storage_path,
                     "backend": "api",
                     "size": attachment.bytes.len() as i64,
-                    "content_hash": attachment.content_hash,
+                    "encrypted_hash": attachment.encrypted_hash,
                     "workspace_id": target_doc.workspace_id().to_string(),
                     "actor_id": actor_id.to_string(),
                 });
@@ -129,6 +138,6 @@ impl DocumentService {
     }
 }
 
-fn hash_bytes(bytes: &[u8]) -> String {
+fn _hash_bytes(bytes: &[u8]) -> String {
     sha256_hex(bytes)
 }

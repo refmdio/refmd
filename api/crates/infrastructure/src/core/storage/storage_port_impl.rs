@@ -246,47 +246,12 @@ impl StorageResolverPort for FsStoragePort {
             let attachments_dir = base_dir.join("attachments");
             let _ = fs::create_dir_all(&attachments_dir).await;
 
-            let original = original_filename.unwrap_or("file.bin");
-            let mut safe = crate::core::storage::sanitize_title(original);
-
-            let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-            let (stem, ext) = {
-                let p = Path::new(&safe);
-                let stem = p
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("file")
-                    .to_string();
-                let ext = p
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                (stem, ext)
-            };
-
-            safe = if ext.is_empty() {
-                format!("{}_{}", stem, ts)
-            } else {
-                format!("{}_{}.{}", stem, ts, ext)
-            };
-
-            let mut candidate = attachments_dir.join(&safe);
-            let mut counter = 1;
-            while fs::try_exists(&candidate).await.unwrap_or(false) {
-                let p = Path::new(&safe);
-                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
-                let new_name = if ext.is_empty() {
-                    format!("{}-{}", stem, counter)
-                } else {
-                    format!("{}-{}.{}", stem, counter, ext)
-                };
-                candidate = attachments_dir.join(&new_name);
-                safe = new_name;
-                counter += 1;
-            }
+            // Use UUID for storage filename to hide the original filename (E2EE)
+            // Original filename is stored in encrypted_metadata
+            let _original = original_filename; // Kept for API compatibility, but not used in path
+            let file_uuid = Uuid::new_v4();
+            let safe = file_uuid.to_string();
+            let candidate = attachments_dir.join(&safe);
 
             fs::write(&candidate, bytes).await?;
             let relative = crate::core::storage::relative_from_uploads(
