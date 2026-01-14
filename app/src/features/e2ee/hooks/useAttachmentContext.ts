@@ -5,7 +5,7 @@
  * so that the attachment Web Component can decrypt files.
  */
 
-import { useLayoutEffect, useEffect, useRef } from 'react'
+import { useLayoutEffect, useEffect } from 'react'
 
 import {
   setDecryptionContext,
@@ -33,20 +33,29 @@ export interface UseAttachmentContextOptions {
  * the context so that attachments can be decrypted when downloaded
  * or previewed.
  *
- * Context is set synchronously during render to ensure it's available
- * before child components' useLayoutEffect runs.
+ * Context and file map initialization are started synchronously during render
+ * to ensure they're available before child components' useLayoutEffect runs.
  */
 export function useAttachmentContext(options: UseAttachmentContextOptions): void {
   const { documentId, workspaceId, token, setAsDefault } = options
-  const mountedRef = useRef(true)
 
-  // Set context synchronously during render (before children's useLayoutEffect)
+  // Set context and start file map init synchronously during render
+  // (before children's useLayoutEffect)
   if (workspaceId) {
     const context = { workspaceId, token }
     if (setAsDefault) {
       setDefaultDecryptionContext(context)
     } else if (documentId) {
       setDecryptionContext(documentId, context)
+    }
+
+    // Start file map initialization for specific document
+    if (documentId) {
+      // Start immediately (async but started sync)
+      // This ensures waitForFileMap can return the pending promise
+      initFileMap(documentId, workspaceId).catch(() => {
+        // Errors handled by waitForFileMap callers
+      })
     }
   }
 
@@ -63,23 +72,9 @@ export function useAttachmentContext(options: UseAttachmentContextOptions): void
     }
   }, [documentId, workspaceId, token, setAsDefault])
 
-  // Initialize file map asynchronously
+  // Cleanup file map on unmount
   useEffect(() => {
-    mountedRef.current = true
-
-    if (!documentId || !workspaceId) return
-
-    // Initialize file map for this document
-    initFileMap(documentId, workspaceId).catch((error) => {
-      // Only log if still mounted (avoid logging for cancelled requests)
-      if (mountedRef.current) {
-        console.warn('[useAttachmentContext] Failed to initialize file map:', error)
-      }
-    })
-
     return () => {
-      mountedRef.current = false
-      // Clear file map on cleanup
       if (documentId) {
         clearFileMap(documentId)
       }

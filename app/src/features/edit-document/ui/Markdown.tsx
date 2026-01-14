@@ -147,9 +147,20 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
       wrapper.innerHTML = html
       morphdom(el, wrapper, {
         childrenOnly: true,
-        onBeforeElUpdated: (fromEl) => {
+        onBeforeElUpdated: (fromEl, toEl) => {
           if (fromEl.tagName === 'REFMD-WIKILINK' || fromEl.tagName === 'REFMD-ATTACHMENT') {
             return false
+          }
+          // Preserve decrypted images - don't let morphdom reset their src
+          if (fromEl.tagName === 'IMG' && (fromEl as HTMLImageElement).dataset.decryptedSrc) {
+            const fromImg = fromEl as HTMLImageElement
+            const toImg = toEl as HTMLImageElement
+            const toSrc = toImg.getAttribute('src') || ''
+            // Only skip update if the original src (before decryption) matches
+            // This preserves the decrypted blob URL while allowing updates if the image actually changed
+            if (fromImg.dataset.e2eeProcessedSrc === toSrc || fromImg.dataset.e2eeProcessing === toSrc) {
+              return false
+            }
           }
           return true
         },
@@ -160,7 +171,7 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
     const detachFns: Array<() => void> = []
 
     try {
-      const maybeFns = upgradeAll(el)
+      const maybeFns = upgradeAll(el, documentIdOverride)
       if (Array.isArray(maybeFns)) detachFns.push(...maybeFns)
     } catch {}
 
@@ -201,77 +212,69 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
       })
     }
     const imgs = Array.from(el.querySelectorAll('img')) as HTMLImageElement[]
-    const blobUrls: string[] = []
 
     // Process images - decrypt E2EE images and replace src with blob URL
     for (const img of imgs) {
       const src = img.getAttribute('src') || ''
+
+      // Skip if already processing this exact src
+      if (img.dataset.e2eeProcessing === src) {
+        continue
+      }
+
+      // Skip if already processed this exact src
+      if (img.dataset.e2eeProcessedSrc === src) {
+        continue
+      }
+
       const bridge = (window as any).__refmd_file_decryption__
 
-      // Check if this is a logical path (./attachments/xxx) that needs file map resolution
-      if (src.startsWith('./attachments/') || src.startsWith('attachments/')) {
-        const logicalPath = src.startsWith('./') ? src.slice(2) : src
+      // Check if this is a logical path (./attachments/xxx) that needs decryption
+      if ((src.startsWith('./attachments/') || src.startsWith('attachments/')) && documentIdOverride && bridge?.resolveAndDecrypt) {
+        // Mark as processing with the specific src
+        img.dataset.e2eeProcessing = src
+        img.style.opacity = '0.5'
+        img.alt = 'Loading encrypted image...'
 
-        if (bridge?.resolveFileByPath && documentIdOverride) {
-          const fileEntry = bridge.resolveFileByPath(documentIdOverride, logicalPath)
-          if (fileEntry) {
-            // Resolve to /api/files/{fileId}
-            const apiUrl = `${API_BASE_URL}/api/files/${fileEntry.fileId}`
+        // Capture the original src to verify later
+        const originalSrc = src
 
-            // Show loading placeholder
-            img.style.opacity = '0.5'
-            img.alt = 'Loading encrypted image...'
+        bridge.resolveAndDecrypt(src, documentIdOverride)
+          .then((result: { blobUrl: string; filename: string; mimeType: string } | null) => {
+            // Verify the image still has the same src we started with
+            // (morphdom might have reused this element for a different image)
+            const currentSrc = img.getAttribute('src') || ''
+            const currentProcessing = img.dataset.e2eeProcessing
 
-            // Decrypt asynchronously (pass documentId as hint since /api/files/{id} doesn't include it)
-            if (bridge?.downloadAndDecrypt) {
-              bridge.downloadAndDecrypt(apiUrl, documentIdOverride).then((result: { blobUrl: string; filename: string; mimeType: string } | null) => {
-                if (result) {
-                  img.src = result.blobUrl
-                  img.style.opacity = '1'
-                  img.alt = result.filename
-                  blobUrls.push(result.blobUrl)
-                  img.dataset.decryptedSrc = result.blobUrl
-                } else {
-                  img.style.opacity = '1'
-                }
-              }).catch(() => {
-                img.style.opacity = '1'
-              })
+            // Only apply result if this element still corresponds to the original src
+            // Either the src hasn't changed, or the processing marker matches
+            if (currentSrc !== originalSrc && currentProcessing !== originalSrc) {
+              // Element was reused for a different image, skip this result
+              return
             }
-          }
-        }
-      }
-      // Legacy: Check if this is an E2EE attachment URL (/api/uploads/)
-      else if (src.includes('/api/uploads/')) {
-        if (bridge?.downloadAndDecrypt) {
-          // Show loading placeholder
-          img.style.opacity = '0.5'
-          img.alt = 'Loading encrypted image...'
 
-          // Decrypt asynchronously
-          bridge.downloadAndDecrypt(src).then((result: { blobUrl: string; filename: string; mimeType: string } | null) => {
+            delete img.dataset.e2eeProcessing
+            img.dataset.e2eeProcessedSrc = originalSrc
             if (result) {
               img.src = result.blobUrl
-              img.style.opacity = '1'
               img.alt = result.filename
-              blobUrls.push(result.blobUrl)
-              // Store blob URL for modal
               img.dataset.decryptedSrc = result.blobUrl
-            } else {
-              img.style.opacity = '1'
             }
-          }).catch(() => {
             img.style.opacity = '1'
           })
-        }
+          .catch(() => {
+            // Only clear processing state if it still matches
+            if (img.dataset.e2eeProcessing === originalSrc) {
+              delete img.dataset.e2eeProcessing
+              img.style.opacity = '1'
+            }
+          })
       }
     }
 
-    // Cleanup blob URLs when component unmounts
-    detachFns.push(() => {
-      const bridge = (window as any).__refmd_file_decryption__
-      blobUrls.forEach((url) => bridge?.revokeBlobUrl?.(url))
-    })
+    // Note: Blob URLs are NOT revoked here because they are cached in blobUrlCache
+    // and may be reused across renders. They are cleaned up when clearFileMap is called
+    // (e.g., when navigating away from the document).
 
     detachFns.push(...imgs.map((img) => {
       const handler = (e: Event) => {
@@ -306,7 +309,7 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
     detachFns.push(() => el.removeEventListener('click', onTagClickHandler))
 
     return () => { detachFns.forEach((fn) => fn()) }
-  }, [html, onTagClick])
+  }, [html, onTagClick, documentIdOverride])
 
   return (
     <>

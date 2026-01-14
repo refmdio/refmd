@@ -64,7 +64,7 @@ function loadingSvg(): string {
  * Get decryption bridge from global
  */
 function getDecryptionBridge(): {
-  downloadAndDecrypt: (url: string) => Promise<{ blobUrl: string; filename: string; mimeType: string } | null>
+  resolveAndDecrypt: (logicalPath: string, documentId: string) => Promise<{ blobUrl: string; filename: string; mimeType: string } | null>
   revokeBlobUrl: (url: string) => void
 } | null {
   if (typeof window === 'undefined') return null
@@ -98,7 +98,7 @@ if (canUseCustomElements) {
       }
     }
 
-    static get observedAttributes() { return ['href','label'] }
+    static get observedAttributes() { return ['href','label','data-document-id'] }
 
     attributeChangedCallback() {
       this.render()
@@ -114,11 +114,11 @@ if (canUseCustomElements) {
         return
       }
 
-      // Check if E2EE is available
+      const documentId = this.getAttribute('data-document-id')
       const bridge = getDecryptionBridge()
-      if (!bridge) {
-        // Fallback to direct download
-        window.location.href = href
+      if (!bridge || !documentId) {
+        this.decryptError = 'Decryption not available'
+        this.render()
         return
       }
 
@@ -128,20 +128,17 @@ if (canUseCustomElements) {
       this.render()
 
       try {
-        const result = await bridge.downloadAndDecrypt(href)
+        const result = await bridge.resolveAndDecrypt(href, documentId)
         if (result) {
           this.decryptedBlobUrl = result.blobUrl
           this.decryptedFilename = result.filename
           this.triggerDownload(result.blobUrl, result.filename)
         } else {
-          // E2EE not set up or file not encrypted - fallback to direct download
-          window.location.href = href
+          throw new Error('Decryption failed')
         }
       } catch (err) {
         console.error('[E2EE] Download failed:', err)
-        this.decryptError = 'Decryption failed'
-        // Fallback to direct download
-        window.location.href = href
+        this.decryptError = 'Download failed'
       } finally {
         this.isDecrypting = false
         this.render()
@@ -165,11 +162,11 @@ if (canUseCustomElements) {
         return
       }
 
-      // Check if E2EE is available
+      const documentId = this.getAttribute('data-document-id')
       const bridge = getDecryptionBridge()
-      if (!bridge) {
-        // No E2EE, use original URL
-        this.previewOpen = !this.previewOpen
+      if (!bridge || !documentId) {
+        this.decryptError = 'Decryption not available'
+        this.previewOpen = true
         this.render()
         return
       }
@@ -181,10 +178,12 @@ if (canUseCustomElements) {
       this.render()
 
       try {
-        const result = await bridge.downloadAndDecrypt(href)
+        const result = await bridge.resolveAndDecrypt(href, documentId)
         if (result) {
           this.decryptedBlobUrl = result.blobUrl
           this.decryptedFilename = result.filename
+        } else {
+          throw new Error('Decryption failed')
         }
       } catch (err) {
         console.error('[E2EE] Preview decryption failed:', err)
@@ -214,7 +213,7 @@ if (canUseCustomElements) {
       if (!previewable) this.previewOpen = false
 
       const downloadIcon = this.isDecrypting ? loadingSvg() : downloadSvg()
-      const preview = this.previewOpen && previewable ? this.previewContent(ext, href) : ''
+      const preview = this.previewOpen && previewable ? this.previewContent(ext) : ''
 
       this.innerHTML = `
         <div class="w-full">
@@ -244,10 +243,7 @@ if (canUseCustomElements) {
       })
     }
 
-    private previewContent(ext: string, originalHref: string): string {
-      // Use decrypted blob URL if available, otherwise fall back to original
-      const src = this.decryptedBlobUrl || originalHref
-
+    private previewContent(ext: string): string {
       if (this.isDecrypting) {
         return `<div class="mt-3 p-4 border rounded-md bg-background flex items-center justify-center text-muted-foreground">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-5 w-5 animate-spin mr-2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -255,11 +251,13 @@ if (canUseCustomElements) {
         </div>`
       }
 
-      if (this.decryptError) {
+      if (this.decryptError || !this.decryptedBlobUrl) {
         return `<div class="mt-3 p-4 border rounded-md bg-destructive/10 text-destructive text-sm">
           Failed to decrypt file. The file may be corrupted or you may not have access.
         </div>`
       }
+
+      const src = this.decryptedBlobUrl
 
       if (['mp3','wav','flac','aac','ogg','wma'].includes(ext)) {
         return `<div class="mt-3 p-4 border rounded-md bg-background"><audio controls class="w-full" src="${src}"></audio></div>`
@@ -267,11 +265,8 @@ if (canUseCustomElements) {
       if (['mp4','avi','mov','wmv','flv','webm','mkv'].includes(ext)) {
         return `<div class="mt-3 p-4 border rounded-md bg-background"><video controls class="w-full rounded" src="${src}"></video></div>`
       }
-      // PDF - use blob URL for decrypted files
-      if (this.decryptedBlobUrl) {
-        return `<div class="mt-3 p-4 border rounded-md bg-background"><iframe class="w-full h-[600px] border-0" src="${this.decryptedBlobUrl}" title="PDF Viewer"></iframe></div>`
-      }
-      return `<div class="mt-3 p-4 border rounded-md bg-background"><iframe class="w-full h-[600px] border-0" src="${originalHref}" title="PDF Viewer"></iframe></div>`
+      // PDF
+      return `<div class="mt-3 p-4 border rounded-md bg-background"><iframe class="w-full h-[600px] border-0" src="${src}" title="PDF Viewer"></iframe></div>`
     }
   }
 

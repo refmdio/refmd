@@ -37,10 +37,10 @@ export type { RealtimeMessage, UpdatePublicData, SnapshotPublicData, EphemeralPu
 export interface ServerInitMessage {
   type: 'init'
   snapshot: {
-    data: string // Base64 encrypted Yjs state
-    nonce: string // Base64 nonce
-    signature: string // Base64 Ed25519 signature
-    seq_at_snapshot: number // Sequence number at snapshot
+    data: string // Base64 encrypted Yjs state (or unencrypted if nonce is null)
+    nonce: string | null // Base64 nonce (null for unencrypted/empty docs)
+    signature: string | null // Base64 Ed25519 signature (null for unencrypted/empty docs)
+    seq_at_snapshot: number | null // Sequence number at snapshot (null for empty docs)
   }
 }
 
@@ -257,8 +257,8 @@ export async function verifyAndDecryptSnapshot(
 
 /** Result of decrypting an init message */
 export interface DecryptedInit {
-  /** Decrypted Yjs snapshot bytes */
-  snapshot: Uint8Array
+  /** Decrypted Yjs snapshot bytes (null for empty docs) */
+  snapshot: Uint8Array | null
   /** Sequence number at snapshot */
   seqAtSnapshot: number
 }
@@ -285,13 +285,27 @@ export async function decryptInitSnapshot(
   message: ServerInitMessage,
   dek: Uint8Array
 ): Promise<DecryptedInit> {
+  // Handle unencrypted/empty snapshots (nonce is null)
+  if (message.snapshot.nonce === null) {
+    // Data is unencrypted - just decode from Base64
+    const snapshot = await fromBase64(message.snapshot.data)
+    // Check if it's an empty/invalid snapshot (too short to be valid Yjs data)
+    // Valid Yjs updates are at least a few bytes long
+    const isEmpty = snapshot.length < 4
+    return {
+      snapshot: isEmpty ? null : snapshot,
+      seqAtSnapshot: message.snapshot.seq_at_snapshot ?? 0,
+    }
+  }
+
+  // Encrypted snapshot - decrypt normally
   const ciphertext = await fromBase64(message.snapshot.data)
   const nonce = await fromBase64(message.snapshot.nonce)
   const snapshot = await decrypt(dek, ciphertext, nonce)
 
   return {
     snapshot,
-    seqAtSnapshot: message.snapshot.seq_at_snapshot,
+    seqAtSnapshot: message.snapshot.seq_at_snapshot ?? 0,
   }
 }
 
@@ -327,11 +341,25 @@ export async function decryptSyncUpdate(
  * Check if a message is a server init message.
  */
 export function isServerInitMessage(msg: unknown): msg is ServerInitMessage {
+  if (
+    typeof msg !== 'object' ||
+    msg === null ||
+    (msg as ServerInitMessage).type !== 'init' ||
+    !('snapshot' in msg)
+  ) {
+    return false
+  }
+
+  const snapshot = (msg as ServerInitMessage).snapshot
+  // Validate snapshot object exists and has data field
+  // nonce, signature, seq_at_snapshot can be null for unencrypted/empty docs
   return (
-    typeof msg === 'object' &&
-    msg !== null &&
-    (msg as ServerInitMessage).type === 'init' &&
-    'snapshot' in msg
+    typeof snapshot === 'object' &&
+    snapshot !== null &&
+    typeof snapshot.data === 'string' &&
+    (snapshot.nonce === null || typeof snapshot.nonce === 'string') &&
+    (snapshot.signature === null || typeof snapshot.signature === 'string') &&
+    (snapshot.seq_at_snapshot === null || typeof snapshot.seq_at_snapshot === 'number')
   )
 }
 

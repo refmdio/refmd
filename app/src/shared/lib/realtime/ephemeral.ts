@@ -12,6 +12,7 @@ import {
   verify,
   toBase64,
   fromBase64,
+  fromBase64Json,
   canonicalizeAndToBase64,
   getSodium,
   SIGNATURE_DOMAINS,
@@ -85,7 +86,7 @@ export interface EphemeralMessage {
   ciphertext: string // Base64
   nonce: string // Base64
   signature: string // Base64 Ed25519
-  publicData: EphemeralPublicData
+  publicData: string // Base64-encoded canonicalized JSON
 }
 
 /** Result of verifying and decrypting an ephemeral message */
@@ -205,7 +206,7 @@ export async function createEphemeralMessage(
     ciphertext: ciphertextBase64,
     nonce: nonceBase64,
     signature: signatureBase64,
-    publicData,
+    publicData: publicDataBase64,
   }
 
   return { message, updatedSession }
@@ -253,19 +254,22 @@ export async function verifyAndDecryptEphemeralMessage(
   signatureKeyPair: Ed25519KeyPair
 ): Promise<VerifyResult> {
   try {
+    // Decode publicData from Base64 string to object
+    const publicData = await fromBase64Json<EphemeralPublicData>(message.publicData)
+
     // Validate document ID
-    if (message.publicData.docId !== currentDocId) {
+    if (publicData.docId !== currentDocId) {
       return { validSessions: session.validSessions }
     }
 
-    const senderPublicKey = await fromBase64(message.publicData.pubKey)
-    const publicDataBase64 = await canonicalizeAndToBase64(message.publicData)
+    const senderPublicKey = await fromBase64(publicData.pubKey)
 
     // Build signing message for verification
+    // Use message.publicData directly since it's already Base64-encoded
     const signingMessage: SigningMessage = {
       ciphertext: message.ciphertext,
       nonce: message.nonce,
-      publicData: publicDataBase64,
+      publicData: message.publicData,
     }
 
     // Verify signature
@@ -287,7 +291,7 @@ export async function verifyAndDecryptEphemeralMessage(
 
     // Parse prefix: [type (1)] + [sessionId (24)] + [counter (4)] + [content]
     const { type, sessionId, counter, content } = await parsePrefix(decrypted)
-    const senderPublicKeyBase64 = message.publicData.pubKey
+    const senderPublicKeyBase64 = publicData.pubKey
 
     // Handle by message type
     switch (type) {

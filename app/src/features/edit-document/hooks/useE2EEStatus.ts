@@ -1,7 +1,7 @@
 import * as React from 'react'
 
 import { useAuthContext } from '@/features/auth'
-import { getKeyManager, SessionLockedError } from '@/features/e2ee'
+import { getKeyManager, SessionLockedError, useE2EE } from '@/features/e2ee'
 
 function normalizeShareToken(token?: string | null): string | undefined {
   if (typeof token !== 'string') return undefined
@@ -46,6 +46,7 @@ export type UseE2EEStatusReturn = {
 export function useE2EEStatus(options: UseE2EEStatusOptions): UseE2EEStatusReturn {
   const { enabled, shareToken, useUrlShareTokenFallback } = options
   const { user, loading: authLoading } = useAuthContext()
+  const { needsRestore, loading: e2eeLoading } = useE2EE()
 
   const [e2eeUnlocked, setE2eeUnlocked] = React.useState<boolean | null>(null)
   const [needsE2EEUnlock, setNeedsE2EEUnlock] = React.useState(false)
@@ -72,8 +73,8 @@ export function useE2EEStatus(options: UseE2EEStatusOptions): UseE2EEStatusRetur
       return
     }
 
-    // Wait for auth to load
-    if (authLoading) {
+    // Wait for auth and E2EE context to load
+    if (authLoading || e2eeLoading) {
       setE2eeUnlocked(null)
       setNeedsE2EEUnlock(false)
       return
@@ -100,7 +101,18 @@ export function useE2EEStatus(options: UseE2EEStatusOptions): UseE2EEStatusRetur
         const hasKeys = await keyManager.hasKeys()
 
         if (!hasKeys) {
-          // E2EE not set up - allow connection (will fail at key fetch if needed)
+          // No local keys - check if we need to restore from server
+          // Skip needsRestore check if this is a retry (e2eeCheckKey > 0)
+          // because the user just completed restore and context might not be updated yet
+          if (e2eeCheckKey === 0 && needsRestore) {
+            // First check and needs restore - show unlock prompt
+            if (!cancelled) {
+              setE2eeUnlocked(false)
+              setNeedsE2EEUnlock(true)
+            }
+            return
+          }
+          // E2EE not set up or just restored - allow connection
           if (!cancelled) {
             setE2eeUnlocked(true)
             setNeedsE2EEUnlock(false)
@@ -137,7 +149,7 @@ export function useE2EEStatus(options: UseE2EEStatusOptions): UseE2EEStatusRetur
     return () => {
       cancelled = true
     }
-  }, [enabled, shareToken, useUrlShareTokenFallback, authLoading, user, e2eeCheckKey])
+  }, [enabled, shareToken, useUrlShareTokenFallback, authLoading, e2eeLoading, user, needsRestore, e2eeCheckKey])
 
   return {
     e2eeUnlocked,

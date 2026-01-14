@@ -5,8 +5,8 @@ import { upgradeCodeBlocks } from '../code/upgrade'
 import { upgradePluginHydrators } from '../placeholder/hydrate'
 import { upgradeWikiLinks } from '../wiki/upgrade'
 
-export function upgradeAll(root: Element) {
-  upgradeAttachments(root)
+export function upgradeAll(root: Element, documentId?: string) {
+  upgradeAttachments(root, documentId)
   upgradeWikiLinks(root)
   upgradePluginHydrators(root)
   return upgradeCodeBlocks(root)

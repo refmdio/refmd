@@ -5,11 +5,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
 use base64::Engine;
-use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, sleep};
+use tokio::time::sleep;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
 
@@ -27,7 +26,7 @@ use application::documents::ports::realtime::realtime_hydration_port::{
     DocStateReader, RealtimeBacklogReader,
 };
 use application::documents::ports::realtime::realtime_persistence_port::{
-    ContentEncryptionMeta, DocPersistencePort, DocumentMissingError, EncryptedUpdateData,
+    ContentEncryptionMeta, DocPersistencePort, EncryptedUpdateData,
 };
 use application::documents::ports::realtime::realtime_port::{
     EncryptedUpdate, RealtimeEngine as RealtimeEngineTrait, SnapshotData,
@@ -35,12 +34,8 @@ use application::documents::ports::realtime::realtime_port::{
 use application::documents::ports::realtime::realtime_types::{
     DynRealtimeSink, DynRealtimeStream, MessageType, RealtimeMessage,
 };
-use application::documents::services::realtime::doc_hydration::{
-    DocHydrationService, HydrationOptions,
-};
-use application::documents::services::realtime::snapshot::{
-    SnapshotArchiveKind, SnapshotArchiveOptions, SnapshotPersistOptions, SnapshotService,
-};
+use application::documents::services::realtime::doc_hydration::DocHydrationService;
+use application::documents::services::realtime::snapshot::SnapshotService;
 
 use super::cluster_bus::{RedisClusterBus, StreamItem};
 
@@ -105,24 +100,17 @@ impl RedisRealtimeEngine {
             archive_repo,
             storage_jobs,
         ));
-        let auto_archive_interval = Duration::from_secs(cfg.snapshot_archive_interval_secs);
-        let last_auto_archive: Arc<Mutex<HashMap<String, Instant>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-
         let trim_lifetime = if cfg.min_message_lifetime_ms > 0 {
             Some(Duration::from_millis(cfg.min_message_lifetime_ms))
         } else {
             None
         };
 
+        // E2EE mode: persistence worker only trims Redis streams
         let worker = spawn_persistence_worker(
             cfg.spawn_persistence_worker,
             bus.clone(),
-            hydration_service.clone(),
-            snapshot_service.clone(),
             trim_lifetime,
-            auto_archive_interval,
-            last_auto_archive.clone(),
         );
 
         Ok(Self {
@@ -386,10 +374,15 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                 };
 
                 // Parse E2EE message (secsync-compatible format)
+                tracing::info!(
+                    document_id = %doc_id,
+                    data_len = data.len(),
+                    "redis_e2ee_received_message"
+                );
                 let msg: RealtimeMessage = match serde_json::from_slice(&data) {
                     Ok(m) => m,
                     Err(e) => {
-                        tracing::debug!(error = %e, "redis_e2ee_parse_error");
+                        tracing::warn!(error = %e, data_preview = %String::from_utf8_lossy(&data[..data.len().min(200)]), "redis_e2ee_parse_error");
                         continue;
                     }
                 };
@@ -505,6 +498,14 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                 match msg.msg_type {
                     MessageType::Update => {
                         // Persist encrypted update
+                        tracing::info!(
+                            document_id = %doc_id,
+                            ciphertext_len = ciphertext.len(),
+                            nonce_len = nonce.len(),
+                            signature_len = signature.len(),
+                            public_key_len = public_key.len(),
+                            "redis_e2ee_persisting_update"
+                        );
                         if let Err(e) = self
                             .apply_encrypted_update(
                                 &doc_uuid,
@@ -516,6 +517,8 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                             .await
                         {
                             tracing::warn!(error = %e, "redis_e2ee_persist_update_failed");
+                        } else {
+                            tracing::info!(document_id = %doc_id, "redis_e2ee_update_persisted_ok");
                         }
                     }
                     MessageType::Snapshot => {
@@ -694,14 +697,20 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
     }
 }
 
+/// E2EE persistence worker - only trims Redis streams
+///
+/// In E2EE mode, the server is a relay only:
+/// - Snapshots are created by clients (shouldSendSnapshot)
+/// - Updates are stored encrypted via WebSocket handler
+/// - Markdown rendering is done client-side
+///
+/// This worker only:
+/// 1. Acknowledges tasks from Redis
+/// 2. Trims old messages from Redis streams
 fn spawn_persistence_worker(
     enabled: bool,
     bus: Arc<RedisClusterBus>,
-    hydration_service: Arc<DocHydrationService>,
-    snapshot_service: Arc<SnapshotService>,
     trim_lifetime: Option<Duration>,
-    auto_archive_interval: Duration,
-    last_auto_archive: Arc<Mutex<HashMap<String, Instant>>>,
 ) -> Option<JoinHandle<()>> {
     if !enabled {
         return None;
@@ -719,158 +728,23 @@ fn spawn_persistence_worker(
 
         while let Some(task) = tasks.next().await {
             match task {
-                Ok((entry_id, doc_id_str)) => match Uuid::parse_str(&doc_id_str) {
-                    Ok(doc_uuid) => match hydration_service
-                        .hydrate(&doc_uuid, HydrationOptions::default())
-                        .await
-                    {
-                        Ok(hydrated) => {
-                            let doc_id_owned = doc_uuid.to_string();
-                            if let Err(e) = snapshot_service
-                                .write_markdown(&doc_uuid, &hydrated.doc)
-                                .await
-                            {
-                                tracing::error!(
-                                    document_id = %doc_uuid,
-                                    error = ?e,
-                                    "redis_worker_markdown_failed"
-                                );
-                            }
-                            match snapshot_service
-                                .persist_snapshot(
-                                    &doc_uuid,
-                                    &hydrated.doc,
-                                    SnapshotPersistOptions {
-                                        clear_updates: true,
-                                        skip_if_unchanged: true,
-                                        ..Default::default()
-                                    },
-                                )
-                                .await
-                            {
-                                Ok(result) => {
-                                    if !auto_archive_interval.is_zero() {
-                                        let should_archive = {
-                                            let mut guard = last_auto_archive.lock().await;
-                                            let now = Instant::now();
-                                            match guard.get(&doc_id_owned) {
-                                                Some(last)
-                                                    if now.duration_since(*last)
-                                                        < auto_archive_interval =>
-                                                {
-                                                    false
-                                                }
-                                                _ => {
-                                                    guard.insert(doc_id_owned.clone(), now);
-                                                    true
-                                                }
-                                            }
-                                        };
-                                        if should_archive && result.persisted {
-                                            let label = format!(
-                                                "Snapshot {}",
-                                                Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-                                            );
-                                            if let Err(e) = snapshot_service
-                                                .archive_snapshot(
-                                                    &doc_uuid,
-                                                    &result.snapshot_bytes,
-                                                    result.version,
-                                                    SnapshotArchiveOptions {
-                                                        label: label.as_str(),
-                                                        notes: None,
-                                                        kind: SnapshotArchiveKind::Automatic,
-                                                        created_by: None,
-                                                    },
-                                                )
-                                                .await
-                                            {
-                                                tracing::debug!(
-                                                    document_id = %doc_uuid,
-                                                    version = result.version,
-                                                    error = ?e,
-                                                    "redis_worker_snapshot_archive_failed"
-                                                );
-                                            }
-                                        } else if should_archive {
-                                            tracing::debug!(
-                                                document_id = %doc_uuid,
-                                                version = result.version,
-                                                "redis_worker_snapshot_skipped_no_changes"
-                                            );
-                                        }
-                                    }
-                                }
-                                Err(err)
-                                    if err.downcast_ref::<DocumentMissingError>().is_some() =>
-                                {
-                                    tracing::debug!(
-                                        document_id = %doc_uuid,
-                                        "redis_worker_snapshot_missing_document"
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        document_id = %doc_uuid,
-                                        error = ?e,
-                                        "redis_worker_snapshot_failed"
-                                    );
-                                }
-                            }
-                            if let Err(e) = bus.ack_task(&entry_id).await {
-                                tracing::debug!(
-                                    document_id = %doc_uuid,
-                                    error = ?e,
-                                    "redis_worker_ack_failed"
-                                );
-                            }
-                            if let Some(lifetime) = trim_lifetime {
-                                let cutoff = SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis()
-                                    as i64
-                                    - lifetime.as_millis() as i64;
-                                if cutoff > 0 {
-                                    let min_id = format!("{}-0", cutoff);
-                                    if let Err(e) =
-                                        bus.trim_updates_minid(&doc_id_owned, &min_id).await
-                                    {
-                                        tracing::debug!(
-                                            document_id = %doc_uuid,
-                                            error = ?e,
-                                            "redis_worker_trim_updates_failed"
-                                        );
-                                    }
-                                    if let Err(e) =
-                                        bus.trim_awareness_minid(&doc_id_owned, &min_id).await
-                                    {
-                                        tracing::debug!(
-                                            document_id = %doc_uuid,
-                                            error = ?e,
-                                            "redis_worker_trim_awareness_failed"
-                                        );
-                                    }
-                                }
-                            }
+                Ok((entry_id, doc_id_str)) => {
+                    // E2EE mode: just ack the task and trim Redis streams
+                    let _ = bus.ack_task(&entry_id).await;
+
+                    if let Some(lifetime) = trim_lifetime {
+                        let cutoff = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64
+                            - lifetime.as_millis() as i64;
+                        if cutoff > 0 {
+                            let min_id = format!("{}-0", cutoff);
+                            let _ = bus.trim_updates_minid(&doc_id_str, &min_id).await;
+                            let _ = bus.trim_awareness_minid(&doc_id_str, &min_id).await;
                         }
-                        Err(e) => {
-                            tracing::error!(
-                                document_id = %doc_uuid,
-                                error = ?e,
-                                "redis_worker_hydrate_failed"
-                            );
-                        }
-                    },
-                    Err(e) => {
-                        tracing::warn!(
-                            document_id = %doc_id_str,
-                            error = %e,
-                            "redis_worker_invalid_doc_id"
-                        );
-                        let _ = bus.ack_task(&entry_id).await;
                     }
-                },
+                }
                 Err(e) => {
                     tracing::warn!(error = ?e, "redis_worker_stream_error");
                     sleep(Duration::from_secs(1)).await;

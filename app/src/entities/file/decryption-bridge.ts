@@ -5,6 +5,8 @@
  * without direct access to React context.
  */
 
+import { API_BASE_URL } from '@/shared/lib/config'
+
 import {
   downloadAttachment,
   extractDocumentIdFromUrl,
@@ -25,6 +27,14 @@ let defaultContext: DecryptionContext | null = null
 // File map registry: documentId → FileMap
 const fileMapRegistry = new Map<string, FileMap>()
 const fileMapInitPromises = new Map<string, Promise<FileMap>>()
+// Store workspaceId used for each document's file map (for fallback context)
+const fileMapWorkspaceRegistry = new Map<string, string>()
+
+// Blob URL cache: "documentId:logicalPath" → { blobUrl, filename, mimeType }
+// This ensures each unique path gets a consistent blob URL across renders
+const blobUrlCache = new Map<string, { blobUrl: string; filename: string; mimeType: string }>()
+// In-flight decryption requests to prevent duplicate downloads
+const pendingDecryptions = new Map<string, Promise<{ blobUrl: string; filename: string; mimeType: string } | null>>()
 
 /**
  * Set decryption context for a specific document
@@ -76,15 +86,18 @@ export async function downloadAndDecrypt(
   }
 
   const context = getDecryptionContext(documentId) ?? defaultContext
-  if (!context?.workspaceId) {
+  // Fallback to workspaceId stored during initFileMap if context is not available
+  // This handles race conditions during SPA navigation where cleanup runs after new context is set
+  const workspaceId = context?.workspaceId ?? fileMapWorkspaceRegistry.get(documentId)
+  if (!workspaceId) {
     console.warn('[Decrypt] No context available for document:', documentId)
     return null
   }
 
   try {
     const result = await downloadAttachment(documentId, url, {
-      workspaceId: context.workspaceId,
-      token: context.token,
+      workspaceId,
+      token: context?.token,
     })
 
     const blobUrl = URL.createObjectURL(result.blob)
@@ -97,6 +110,82 @@ export async function downloadAndDecrypt(
     console.error('[Decrypt] Failed to decrypt file:', error)
     return null
   }
+}
+
+/**
+ * Resolve a logical path and decrypt the file
+ *
+ * This is the unified entry point for decrypting files from logical paths.
+ * It handles: file map lookup → API URL construction → download & decrypt
+ *
+ * @param logicalPath - Logical path (e.g., "./attachments/photo.png" or "attachments/photo.png")
+ * @param documentId - Document ID
+ * @returns Object with blob URL, filename, and mimeType, or null if failed
+ */
+export async function resolveAndDecrypt(
+  logicalPath: string,
+  documentId: string
+): Promise<{ blobUrl: string; filename: string; mimeType: string } | null> {
+  // Normalize path (remove leading ./)
+  const normalizedPath = logicalPath.startsWith('./') ? logicalPath.slice(2) : logicalPath
+  const cacheKey = `${documentId}:${normalizedPath}`
+
+  // Check cache first
+  const cached = blobUrlCache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  // Check if there's already a pending request for this path
+  const pending = pendingDecryptions.get(cacheKey)
+  if (pending) {
+    return pending
+  }
+
+  // Create the decryption promise
+  const decryptionPromise = (async (): Promise<{ blobUrl: string; filename: string; mimeType: string } | null> => {
+    try {
+      // Wait for file map to be ready
+      let fileMap = await waitForFileMap(documentId)
+
+      // If file map not initialized yet, try to initialize with default context
+      // This handles SPA navigation where the context is set but initFileMap hasn't been called yet
+      if (!fileMap) {
+        const context = getDecryptionContext(documentId) ?? defaultContext
+        if (context?.workspaceId) {
+          fileMap = await initFileMap(documentId, context.workspaceId)
+        }
+      }
+
+      if (!fileMap) {
+        console.warn('[resolveAndDecrypt] No file map available for document:', documentId)
+        return null
+      }
+
+      // Look up file entry directly from the returned map (not from registry again)
+      // This avoids race conditions where the registry might have changed
+      const fileEntry = fileMap.get(normalizedPath)
+      if (!fileEntry) {
+        return null
+      }
+
+      // Build API URL and decrypt
+      const apiUrl = `${API_BASE_URL}/api/files/${fileEntry.fileId}`
+      const result = await downloadAndDecrypt(apiUrl, documentId)
+
+      // Cache successful results
+      if (result) {
+        blobUrlCache.set(cacheKey, result)
+      }
+
+      return result
+    } finally {
+      pendingDecryptions.delete(cacheKey)
+    }
+  })()
+
+  pendingDecryptions.set(cacheKey, decryptionPromise)
+  return decryptionPromise
 }
 
 /**
@@ -117,22 +206,38 @@ export function revokeBlobUrl(blobUrl: string): void {
  * logicalPath → fileId mapping.
  */
 export async function initFileMap(documentId: string, workspaceId: string): Promise<FileMap> {
-  // Check if already initialized
-  const existing = fileMapRegistry.get(documentId)
-  if (existing) {
-    return existing
-  }
-
   // Check if initialization is in progress
   const inProgress = fileMapInitPromises.get(documentId)
   if (inProgress) {
     return inProgress
   }
 
+  // Check if already initialized (and no pending uploads)
+  const existing = fileMapRegistry.get(documentId)
+  if (existing && existing.size > 0) {
+    return existing
+  }
+
+  // Store workspaceId for fallback context
+  fileMapWorkspaceRegistry.set(documentId, workspaceId)
+
   // Start initialization
   const initPromise = (async () => {
     try {
       const fileMap = await buildFileMap(documentId, workspaceId)
+
+      // Merge with any entries added while we were fetching
+      // (e.g., from concurrent uploads via addFileToMap)
+      const currentMap = fileMapRegistry.get(documentId)
+      if (currentMap) {
+        for (const [key, value] of currentMap) {
+          // Only add if not already in server response
+          if (!fileMap.has(key)) {
+            fileMap.set(key, value)
+          }
+        }
+      }
+
       fileMapRegistry.set(documentId, fileMap)
       return fileMap
     } finally {
@@ -152,11 +257,50 @@ export function getFileMap(documentId: string): FileMap | undefined {
 }
 
 /**
+ * Wait for file map initialization to complete
+ * Returns the file map if initialized, or waits for pending initialization
+ */
+export async function waitForFileMap(documentId: string): Promise<FileMap | undefined> {
+  const existing = fileMapRegistry.get(documentId)
+  if (existing) {
+    return existing
+  }
+
+  const pending = fileMapInitPromises.get(documentId)
+  if (pending) {
+    return pending
+  }
+
+  return undefined
+}
+
+/**
  * Clear file map for a document
  */
 export function clearFileMap(documentId: string): void {
   fileMapRegistry.delete(documentId)
   fileMapInitPromises.delete(documentId)
+  fileMapWorkspaceRegistry.delete(documentId)
+
+  // Also clear blob URL cache for this document
+  const prefix = `${documentId}:`
+  for (const [key, value] of blobUrlCache) {
+    if (key.startsWith(prefix)) {
+      try {
+        URL.revokeObjectURL(value.blobUrl)
+      } catch {
+        // Ignore errors
+      }
+      blobUrlCache.delete(key)
+    }
+  }
+
+  // Clear any pending decryptions
+  for (const key of pendingDecryptions.keys()) {
+    if (key.startsWith(prefix)) {
+      pendingDecryptions.delete(key)
+    }
+  }
 }
 
 /**
@@ -191,9 +335,10 @@ export function addFileToMap(documentId: string, entry: FileMapEntry): void {
 
 /**
  * Get existing logical paths for collision detection
+ * Waits for file map initialization if pending
  */
-export function getExistingPaths(documentId: string): Set<string> {
-  const fileMap = fileMapRegistry.get(documentId)
+export async function getExistingPaths(documentId: string): Promise<Set<string>> {
+  const fileMap = await waitForFileMap(documentId)
   if (!fileMap) {
     return new Set()
   }
@@ -204,6 +349,7 @@ export function getExistingPaths(documentId: string): Set<string> {
 if (typeof window !== 'undefined') {
   ;(window as any).__refmd_file_decryption__ = {
     downloadAndDecrypt,
+    resolveAndDecrypt,
     revokeBlobUrl,
     setDecryptionContext,
     clearDecryptionContext,
@@ -212,6 +358,7 @@ if (typeof window !== 'undefined') {
     // File map functions
     initFileMap,
     getFileMap,
+    waitForFileMap,
     clearFileMap,
     resolveFileByPath,
     addFileToMap,

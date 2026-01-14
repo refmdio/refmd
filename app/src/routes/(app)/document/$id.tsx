@@ -6,6 +6,7 @@ import { fetchDocumentMeta } from '@/entities/document'
 import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 
 import { documentBeforeLoadGuard } from '@/features/auth'
+import { useAttachmentContext } from '@/features/e2ee'
 
 import DocumentMosaicWorkspace from '@/widgets/document/DocumentMosaicWorkspace'
 import DocumentPage, { type DocumentLoaderData } from '@/widgets/document/DocumentPage'
@@ -105,6 +106,17 @@ function DocumentRouteComponent() {
   const search = Route.useSearch() as DocumentRouteSearch
   const isMobile = useIsMobile()
   const shareToken = loaderData?.token ?? (typeof search.token === 'string' && search.token.trim().length > 0 ? search.token.trim() : undefined)
+  const workspaceId = loaderData?.workspace_id ?? null
+
+  // Initialize attachment context at page level (before any child components)
+  // This ensures file map is ready when Markdown renders
+  useAttachmentContext({
+    documentId: id,
+    workspaceId,
+    token: shareToken,
+    setAsDefault: true,
+  })
+
   const shareScope = search.shareScope === 'folder' || search.shareScope === 'document' ? search.shareScope : undefined
   const isShareMount = (() => {
     const raw = search.shareMount ?? search.share_mount

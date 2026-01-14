@@ -201,7 +201,7 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
         if (!root) return
         const wc = await import('@/entities/document/wc')
         try {
-          wc.upgradeAttachments(root)
+          wc.upgradeAttachments(root, ctx.docId ?? undefined)
         } catch {}
       },
       hydrateWikiLinks: async (root: Element) => {
@@ -215,7 +215,7 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
         if (!root) return
         const wc = await import('@/entities/document/wc')
         try {
-          wc.upgradeAll(root)
+          wc.upgradeAll(root, ctx.docId ?? undefined)
         } catch {}
       },
       setDocumentTitle: (title?: string | null) => {

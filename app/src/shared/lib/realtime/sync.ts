@@ -18,6 +18,7 @@ import {
   isServerSyncUpdate,
   isRealtimeMessage,
   type ServerMessage,
+  type ServerInitMessage,
   type UpdatePublicData,
   type SnapshotPublicData,
 } from './messages'
@@ -28,6 +29,7 @@ import {
   verifyAndDecryptEphemeralMessage,
   generateSessionId,
   type EphemeralSession,
+  type EphemeralMessage,
   type EphemeralPublicData as EphemeralPublicDataFromEphemeral,
 } from './ephemeral'
 import {
@@ -536,13 +538,15 @@ export class SecureSync {
     }
   }
 
-  private async handleInitMessage(message: { type: 'init'; snapshot: { data: string; nonce: string; signature: string; seq_at_snapshot: number } }): Promise<void> {
+  private async handleInitMessage(message: ServerInitMessage): Promise<void> {
     try {
       const { snapshot, seqAtSnapshot } = await decryptInitSnapshot(message, this.dek!)
 
-      // Apply snapshot to document
-      const Y = await import('yjs')
-      Y.applyUpdateV2(this.doc, snapshot, 'e2ee-remote')
+      // Apply snapshot to document (skip if null/empty)
+      if (snapshot !== null) {
+        const Y = await import('yjs')
+        Y.applyUpdateV2(this.doc, snapshot, 'e2ee-remote')
+      }
 
       this.setState({
         lastSeq: seqAtSnapshot,
@@ -629,17 +633,20 @@ export class SecureSync {
       return
     }
 
-    // Convert wire format to EphemeralMessage
-    const ephemeralMessage = {
+    // Parse publicData for pubKey check (the original is a Base64 string)
+    const parsedPublicData = JSON.parse(atob(message.publicData)) as EphemeralPublicDataFromEphemeral
+
+    // Skip our own messages
+    if (parsedPublicData.pubKey === this.publicKeyBase64) {
+      return
+    }
+
+    // Convert wire format to EphemeralMessage (publicData stays as Base64 string)
+    const ephemeralMessage: EphemeralMessage = {
       ciphertext: message.ciphertext,
       nonce: message.nonce,
       signature: message.signature,
-      publicData: JSON.parse(atob(message.publicData)) as EphemeralPublicDataFromEphemeral,
-    }
-
-    // Skip our own messages
-    if (ephemeralMessage.publicData.pubKey === this.publicKeyBase64) {
-      return
+      publicData: message.publicData,
     }
 
     // Verify, decrypt, and handle session handshake
@@ -662,7 +669,7 @@ export class SecureSync {
     // Send proof response if requested
     if (result.proof) {
       await this.sendProofResponse(
-        ephemeralMessage.publicData,
+        parsedPublicData,
         result.proof,
         result.requestProof ?? false
       )

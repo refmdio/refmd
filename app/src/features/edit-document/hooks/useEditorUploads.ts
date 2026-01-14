@@ -56,8 +56,8 @@ export function useEditorUploads(
         currentFile: f.name,
       })
       try {
-        // Get existing paths for collision detection
-        const existingPaths = getExistingPaths(documentId)
+        // Get existing paths for collision detection (await for file map init)
+        const existingPaths = await getExistingPaths(documentId)
 
         const resp = await uploadAttachment(documentId, f, {
           workspaceId: workspaceId ?? '',

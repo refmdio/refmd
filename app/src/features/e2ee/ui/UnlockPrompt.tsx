@@ -1,4 +1,4 @@
-import { Lock, Key, AlertCircle, Loader2 } from 'lucide-react'
+import { Lock, Key, AlertCircle, Loader2, Download } from 'lucide-react'
 import { useState, useCallback } from 'react'
 
 import { cn } from '@/shared/lib/utils'
@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/sha
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
+import { useE2EE } from '../context/e2ee-context'
 import { useKeyManager } from '../hooks/useKeyManager'
 
 type UnlockMode = 'passphrase' | 'recovery'
@@ -28,10 +29,25 @@ export function UnlockPrompt({
   title = 'Unlock your data',
   description = 'Enter your passphrase to access your data',
 }: UnlockPromptProps) {
-  const { unlock, unlockWithRecoveryKey, loading, error, clearError } = useKeyManager()
+  const { unlock, unlockWithRecoveryKey, loading: keyManagerLoading, error: keyManagerError, clearError: clearKeyManagerError } = useKeyManager()
+  const {
+    needsRestore,
+    restoreFromServer,
+    restoreFromServerWithRecoveryKey,
+    loading: e2eeLoading,
+    error: e2eeError,
+    clearError: clearE2EEError,
+  } = useE2EE()
   const [mode, setMode] = useState<UnlockMode>('passphrase')
   const [passphrase, setPassphrase] = useState('')
   const [recoveryKey, setRecoveryKey] = useState('')
+
+  const loading = keyManagerLoading || e2eeLoading
+  const error = keyManagerError || e2eeError
+  const clearError = useCallback(() => {
+    clearKeyManagerError()
+    clearE2EEError()
+  }, [clearKeyManagerError, clearE2EEError])
 
   const handlePassphraseSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -39,13 +55,19 @@ export function UnlockPrompt({
       if (!passphrase.trim() || loading) return
 
       try {
-        await unlock(passphrase)
+        if (needsRestore) {
+          // Restore keys from server backup
+          await restoreFromServer(passphrase)
+        } else {
+          // Unlock existing local keys
+          await unlock(passphrase)
+        }
         onUnlocked?.()
       } catch {
-        // Error is handled by useKeyManager
+        // Error is handled by context/useKeyManager
       }
     },
-    [passphrase, loading, unlock, onUnlocked]
+    [passphrase, loading, needsRestore, restoreFromServer, unlock, onUnlocked]
   )
 
   const handleRecoverySubmit = useCallback(
@@ -54,13 +76,19 @@ export function UnlockPrompt({
       if (!recoveryKey.trim() || loading) return
 
       try {
-        await unlockWithRecoveryKey(recoveryKey)
+        if (needsRestore) {
+          // Restore keys from server backup using recovery key
+          await restoreFromServerWithRecoveryKey(recoveryKey)
+        } else {
+          // Unlock existing local keys with recovery key
+          await unlockWithRecoveryKey(recoveryKey)
+        }
         onUnlocked?.()
       } catch {
-        // Error is handled by useKeyManager
+        // Error is handled by context/useKeyManager
       }
     },
-    [recoveryKey, loading, unlockWithRecoveryKey, onUnlocked]
+    [recoveryKey, loading, needsRestore, restoreFromServerWithRecoveryKey, unlockWithRecoveryKey, onUnlocked]
   )
 
   const switchMode = useCallback(
@@ -75,6 +103,21 @@ export function UnlockPrompt({
 
   const content = (
     <div className="space-y-6">
+      {/* Info Banner for restore mode */}
+      {needsRestore && (
+        <div className="rounded-lg bg-blue-50 dark:bg-blue-950 p-4 text-sm text-blue-800 dark:text-blue-200">
+          <div className="flex items-start gap-3">
+            <Download className="h-5 w-5 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium">New device detected</p>
+              <p className="mt-1 text-blue-600 dark:text-blue-300">
+                Your encryption keys will be restored from the server backup.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mode Tabs */}
       <div className="flex rounded-lg bg-muted p-1">
         <button
@@ -132,12 +175,12 @@ export function UnlockPrompt({
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Unlocking...
+                {needsRestore ? 'Restoring keys...' : 'Unlocking...'}
               </>
             ) : (
               <>
-                <Lock className="mr-2 h-4 w-4" />
-                Unlock
+                {needsRestore ? <Download className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
+                {needsRestore ? 'Restore Keys' : 'Unlock'}
               </>
             )}
           </Button>
@@ -173,12 +216,12 @@ export function UnlockPrompt({
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Recovering...
+                {needsRestore ? 'Restoring keys...' : 'Recovering...'}
               </>
             ) : (
               <>
                 <Key className="mr-2 h-4 w-4" />
-                Recover with key
+                {needsRestore ? 'Restore with Recovery Key' : 'Recover with key'}
               </>
             )}
           </Button>

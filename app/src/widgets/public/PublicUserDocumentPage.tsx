@@ -4,6 +4,7 @@ import React, { Suspense, lazy } from 'react'
 import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
 
+import { useAttachmentContext } from '@/features/e2ee'
 import { Markdown } from '@/features/edit-document'
 
 import PublicShell from '@/widgets/public/PublicShell'
@@ -21,6 +22,7 @@ export type PublicDocumentMeta = {
   created_at: string
   updated_at: string
   path?: string | null
+  workspace_id?: string | null
 }
 
 type Props = {
@@ -31,6 +33,13 @@ type Props = {
 
 export default function PublicUserDocumentPage({ slug, meta, content }: Props) {
   const [showToc, setShowToc] = React.useState(false)
+
+  // Initialize attachment context for E2EE file decryption
+  useAttachmentContext({
+    documentId: meta.id,
+    workspaceId: meta.workspace_id,
+    setAsDefault: true,
+  })
 
   return (
     <PublicShell pageType="document" title={meta.title} author={{ name: slug }} workspaceSlug={slug} publishedDate={meta.updated_at}>

@@ -1,4 +1,4 @@
-export function upgradeAttachments(root: Element) {
+export function upgradeAttachments(root: Element, documentId?: string) {
   if (typeof document === 'undefined' || typeof customElements === 'undefined') return
 
   const anchors = Array.from(root.querySelectorAll('a.file-attachment, a[href^="/api/uploads/"], a[href^="./attachments/"], a[href^="attachments/"]')) as HTMLAnchorElement[]
@@ -10,6 +10,7 @@ export function upgradeAttachments(root: Element) {
     el.setAttribute('href', href)
     const text = (a.textContent || '').trim()
     if (text && text !== href) el.setAttribute('label', text)
+    if (documentId) el.setAttribute('data-document-id', documentId)
     a.replaceWith(el)
   }
 }
