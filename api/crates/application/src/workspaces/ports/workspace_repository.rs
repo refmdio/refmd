@@ -90,6 +90,9 @@ pub struct WorkspaceInvitationRecord {
     pub accepted_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    // E2EE fields
+    pub encrypted_kek_for_invite: Option<String>,
+    pub kek_version: Option<i32>,
 }
 
 #[derive(Debug)]
@@ -236,6 +239,15 @@ pub trait WorkspaceRepository: Send + Sync {
         &self,
         workspace_id: Uuid,
         invitation_id: Uuid,
+    ) -> PortResult<Option<WorkspaceInvitationRecord>>;
+
+    /// Update invitation with encrypted KEK for E2EE
+    async fn update_invitation_kek(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+        encrypted_kek_for_invite: &str,
+        kek_version: i32,
     ) -> PortResult<Option<WorkspaceInvitationRecord>>;
 
     async fn list_all_workspace_ids(&self) -> PortResult<Vec<Uuid>>;

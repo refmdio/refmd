@@ -103,6 +103,23 @@ pub struct WorkspaceInvitationResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    // E2EE fields (camelCase)
+    #[serde(skip_serializing_if = "Option::is_none", rename = "encryptedKekForInvite")]
+    pub encrypted_kek_for_invite: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "kekVersion")]
+    pub kek_version: Option<i32>,
+}
+
+/// Response for accepting a workspace invitation
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptInvitationResponse {
+    pub workspace_id: Uuid,
+    // E2EE: encrypted KEK (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_kek_for_invite: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kek_version: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -148,6 +165,16 @@ pub struct CreateWorkspaceInvitationRequest {
     pub system_role: Option<String>,
     pub custom_role_id: Option<Uuid>,
     pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// Request to update invitation with encrypted KEK
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInvitationKekRequest {
+    /// Base64 encoded encrypted KEK (encrypted with key derived from invitation token)
+    pub encrypted_kek_for_invite: String,
+    /// KEK version at the time of invitation
+    pub kek_version: i32,
 }
 
 pub fn to_response(row: WorkspaceListItem) -> WorkspaceResponse {
@@ -216,6 +243,8 @@ pub fn invitation_response_from(record: WorkspaceInvitationRecord) -> WorkspaceI
         accepted_at: record.accepted_at,
         revoked_at: record.revoked_at,
         created_at: record.created_at,
+        encrypted_kek_for_invite: record.encrypted_kek_for_invite,
+        kek_version: record.kek_version,
     }
 }
 

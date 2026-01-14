@@ -9,7 +9,6 @@
 import { getKeyManager } from '@/features/e2ee/lib/keys/key-manager'
 import { encrypt, decrypt } from '@/features/e2ee/lib/crypto/xchacha20'
 import { getSodium } from '@/features/e2ee'
-import { getMyWorkspaceKey } from '@/shared/api/client'
 import { createOrUpdateConfig, getConfig, deleteConfig } from '@/entities/git'
 
 export interface GitCredentials {
@@ -41,11 +40,8 @@ export async function saveGitCredentials(
     throw new Error('E2EE is locked')
   }
 
-  // Get workspace KEK
-  const kek = await keyManager.getWorkspaceKek(workspaceId, async () => {
-    const response = await getMyWorkspaceKey({ id: workspaceId })
-    return response.encryptedKek
-  })
+  // Get or create workspace KEK
+  const kek = await keyManager.getOrCreateWorkspaceKek(workspaceId)
 
   // Prepare auth data to encrypt
   const authDataPlain = {
@@ -110,11 +106,8 @@ export async function loadGitCredentials(
     }
   }
 
-  // Get workspace KEK
-  const kek = await keyManager.getWorkspaceKek(workspaceId, async () => {
-    const response = await getMyWorkspaceKey({ id: workspaceId })
-    return response.encryptedKek
-  })
+  // Get or create workspace KEK
+  const kek = await keyManager.getOrCreateWorkspaceKek(workspaceId)
 
   // Decrypt auth data
   const sodium = await getSodium()

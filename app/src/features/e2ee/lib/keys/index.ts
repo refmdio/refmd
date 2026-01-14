@@ -113,3 +113,12 @@ export {
   type ShareKey,
   type EncryptedShareKeyForApi,
 } from './share-key'
+
+// Invitation KEK
+export {
+  deriveKeyFromInvitationToken,
+  encryptKekForInvitation,
+  decryptKekFromInvitation,
+  encodeInvitationKekForApi,
+  decodeInvitationKekFromApi,
+} from './invitation-kek'

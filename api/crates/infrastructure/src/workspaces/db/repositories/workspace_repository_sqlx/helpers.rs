@@ -132,6 +132,9 @@ impl SqlxWorkspaceRepository {
                 .ok()
                 .flatten(),
             created_at: row.get("created_at"),
+            // E2EE fields
+            encrypted_kek_for_invite: row.try_get("encrypted_kek_for_invite").ok().flatten(),
+            kek_version: row.try_get("kek_version").ok().flatten(),
         })
     }
 

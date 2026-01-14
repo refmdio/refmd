@@ -12,6 +12,7 @@ import {
   listRoles as apiListWorkspaceRoles,
   removeMember as apiRemoveWorkspaceMember,
   revokeInvitation as apiRevokeWorkspaceInvitation,
+  updateInvitationKek as apiUpdateInvitationKek,
   updateMemberRole as apiUpdateWorkspaceMemberRole,
   updateRole as apiUpdateWorkspaceRole,
   updateWorkspace as apiUpdateWorkspace,
@@ -147,4 +148,27 @@ export function updateWorkspaceRole(
 
 export function deleteWorkspaceRole(workspaceId: string, roleId: string) {
   return apiDeleteWorkspaceRole({ id: workspaceId, roleId })
+}
+
+/**
+ * Update invitation with encrypted KEK.
+ * Called after creating an invitation to attach the encrypted workspace KEK.
+ *
+ * @param workspaceId - Workspace ID
+ * @param invitationId - Invitation ID
+ * @param payload - Encrypted KEK data
+ */
+export async function updateInvitationKek(
+  workspaceId: string,
+  invitationId: string,
+  payload: {
+    encryptedKekForInvite: string
+    kekVersion: number
+  }
+): Promise<void> {
+  await apiUpdateInvitationKek({
+    id: workspaceId,
+    invitationId,
+    requestBody: payload,
+  })
 }

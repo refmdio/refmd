@@ -29,7 +29,17 @@ import {
   invalidateCachedKek,
   createKekForMember,
   decryptKekFromApiResponse,
+  encryptKekForRecipient,
+  encodeKekForApi,
 } from './workspace-kek'
+import {
+  encryptKekForInvitation,
+  decryptKekFromInvitation,
+  encodeInvitationKekForApi,
+  decodeInvitationKekFromApi,
+} from './invitation-kek'
+import { getKekCache } from './key-cache'
+import { storeWorkspaceKey, getMyWorkspaceKey } from '@/shared/api/client'
 import {
   generateDocumentDek,
   getOrFetchDek,
@@ -501,6 +511,135 @@ export class KeyManager {
    */
   invalidateKekCache(workspaceId: string): void {
     invalidateCachedKek(workspaceId)
+  }
+
+  /**
+   * Create and store a new workspace KEK.
+   * Used when creating a new workspace.
+   *
+   * @param workspaceId - Workspace ID
+   * @returns The raw KEK (for immediate use)
+   */
+  async createAndStoreWorkspaceKek(workspaceId: string): Promise<Uint8Array> {
+    this.ensureUnlocked()
+
+    // 1. Generate new KEK
+    const kek = await generateWorkspaceKek()
+
+    // 2. Encrypt for self
+    const userPublicKey = this.userKeys!.ecdh.publicKey
+    const { encryptedKek, ephemeralPublicKey, nonce } = await encryptKekForRecipient(
+      kek,
+      userPublicKey
+    )
+
+    // 3. Encode and store via API
+    const encryptedKekBase64 = await encodeKekForApi(encryptedKek, ephemeralPublicKey, nonce)
+    await storeWorkspaceKey({
+      id: workspaceId,
+      requestBody: { encryptedKek: encryptedKekBase64, keyVersion: 1 },
+    })
+
+    // 4. Cache
+    getKekCache().setKek(workspaceId, kek)
+
+    return kek
+  }
+
+  /**
+   * Get or create workspace KEK.
+   * If no KEK exists for the workspace, creates one automatically.
+   *
+   * @param workspaceId - Workspace ID
+   * @returns The raw KEK
+   */
+  async getOrCreateWorkspaceKek(workspaceId: string): Promise<Uint8Array> {
+    this.ensureUnlocked()
+
+    // Check cache first
+    const cachedKek = getKekCache().getKek(workspaceId)
+    if (cachedKek) {
+      return cachedKek
+    }
+
+    // Try to fetch from server
+    try {
+      const response = await getMyWorkspaceKey({ id: workspaceId })
+      return await this.decryptKek(response.encryptedKek)
+    } catch (error: unknown) {
+      // If 404, create new KEK
+      if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
+        console.log(`[KeyManager] No KEK found for workspace ${workspaceId}, creating new one`)
+        return this.createAndStoreWorkspaceKek(workspaceId)
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Encrypt workspace KEK for an invitation.
+   * The KEK is encrypted using a key derived from the invitation token.
+   *
+   * @param workspaceId - Workspace ID
+   * @param invitationToken - The invitation token
+   * @returns Base64-encoded encrypted KEK for API storage
+   */
+  async encryptKekForInvitationToken(
+    workspaceId: string,
+    invitationToken: string
+  ): Promise<string> {
+    this.ensureUnlocked()
+
+    // Get or create workspace KEK
+    const kek = await this.getOrCreateWorkspaceKek(workspaceId)
+
+    // Encrypt KEK with token-derived key
+    const { ciphertext, nonce } = await encryptKekForInvitation(kek, invitationToken)
+
+    // Encode for API
+    return encodeInvitationKekForApi(ciphertext, nonce)
+  }
+
+  /**
+   * Decrypt KEK from invitation and store for self.
+   * Called when accepting a workspace invitation.
+   *
+   * @param workspaceId - Workspace ID
+   * @param invitationToken - The invitation token
+   * @param encryptedKekBase64 - Base64-encoded encrypted KEK from invitation
+   * @param keyVersion - Key version
+   */
+  async acceptInvitationAndStoreKek(
+    workspaceId: string,
+    invitationToken: string,
+    encryptedKekBase64: string,
+    keyVersion: number
+  ): Promise<void> {
+    this.ensureUnlocked()
+
+    // 1. Decode invitation-encrypted KEK
+    const { nonce, ciphertext } = await decodeInvitationKekFromApi(encryptedKekBase64)
+
+    // 2. Decrypt KEK using invitation token
+    const kek = await decryptKekFromInvitation(ciphertext, nonce, invitationToken)
+
+    // 3. Re-encrypt for self
+    const userPublicKey = this.userKeys!.ecdh.publicKey
+    const encrypted = await encryptKekForRecipient(kek, userPublicKey)
+    const encryptedKekForSelf = await encodeKekForApi(
+      encrypted.encryptedKek,
+      encrypted.ephemeralPublicKey,
+      encrypted.nonce
+    )
+
+    // 4. Store via API
+    await storeWorkspaceKey({
+      id: workspaceId,
+      requestBody: { encryptedKek: encryptedKekForSelf, keyVersion },
+    })
+
+    // 5. Cache
+    getKekCache().setKek(workspaceId, kek)
   }
 
   // ============================================

@@ -12,8 +12,9 @@ use application::core::services::errors::ServiceError;
 use domain::access::permissions::PERM_MEMBER_INVITE;
 
 use super::types::{
-    CreateWorkspaceInvitationRequest, WorkspaceInvitationResponse, invitation_response_from,
-    map_service_error, parse_role_kind, parse_system_role, require_permission,
+    AcceptInvitationResponse, CreateWorkspaceInvitationRequest, UpdateInvitationKekRequest,
+    WorkspaceInvitationResponse, invitation_response_from, map_service_error, parse_role_kind,
+    parse_system_role, require_permission,
 };
 
 #[utoipa::path(
@@ -117,13 +118,13 @@ pub async fn revoke_invitation(
     path = "/api/workspace-invitations/{token}/accept",
     tag = "Workspaces",
     params(("token" = String, Path, description = "Invitation token")),
-    responses((status = 204))
+    responses((status = 200, body = AcceptInvitationResponse))
 )]
 pub async fn accept_invitation(
     State(ctx): State<WorkspacesContext>,
     auth: AuthedUser,
     Path(token): Path<String>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<Json<AcceptInvitationResponse>, ApiError> {
     let user = ctx
         .account_service()
         .get_me(auth.user_id)
@@ -142,10 +143,48 @@ pub async fn accept_invitation(
         })?
         .ok_or(ApiError::unauthorized("unauthorized"))?;
 
-    ctx.workspace_service()
+    let record = ctx
+        .workspace_service()
         .accept_invitation(&token, auth.user_id, &user.email)
         .await
         .map_err(map_service_error)?;
 
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(AcceptInvitationResponse {
+        workspace_id: record.workspace_id,
+        encrypted_kek_for_invite: record.encrypted_kek_for_invite,
+        kek_version: record.kek_version,
+    }))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/workspaces/{id}/invitations/{invitation_id}/kek",
+    tag = "Workspaces",
+    params(
+        ("id" = Uuid, Path, description = "Workspace ID"),
+        ("invitation_id" = Uuid, Path, description = "Invitation ID"),
+    ),
+    request_body = UpdateInvitationKekRequest,
+    responses((status = 200, body = WorkspaceInvitationResponse))
+)]
+pub async fn update_invitation_kek(
+    State(ctx): State<WorkspacesContext>,
+    auth: AuthedUser,
+    Path((workspace_id, invitation_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<UpdateInvitationKekRequest>,
+) -> Result<Json<WorkspaceInvitationResponse>, ApiError> {
+    require_permission(&ctx, workspace_id, auth.user_id, PERM_MEMBER_INVITE).await?;
+
+    let record = ctx
+        .workspace_service()
+        .update_invitation_kek(
+            workspace_id,
+            invitation_id,
+            &body.encrypted_kek_for_invite,
+            body.kek_version,
+        )
+        .await
+        .map_err(map_service_error)?;
+
+    Ok(Json(invitation_response_from(record)))
 }

@@ -26,7 +26,7 @@ impl SqlxWorkspaceRepository {
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 RETURNING id, workspace_id, email, role_kind, system_role, custom_role_id,
                           invited_by, token, expires_at, accepted_by, accepted_at, revoked_at,
-                          created_at"#,
+                          created_at, encrypted_kek_for_invite, kek_version"#,
         )
         .bind(workspace_id)
         .bind(email)
@@ -47,7 +47,7 @@ impl SqlxWorkspaceRepository {
         let rows = sqlx::query(
             r#"SELECT id, workspace_id, email, role_kind, system_role, custom_role_id,
                       invited_by, token, expires_at, accepted_by, accepted_at, revoked_at,
-                      created_at
+                      created_at, encrypted_kek_for_invite, kek_version
                FROM workspace_invitations
                WHERE workspace_id = $1
                ORDER BY created_at DESC"#,
@@ -69,7 +69,7 @@ impl SqlxWorkspaceRepository {
         let row = sqlx::query(
             r#"SELECT id, workspace_id, email, role_kind, system_role, custom_role_id,
                       invited_by, token, expires_at, accepted_by, accepted_at, revoked_at,
-                      created_at
+                      created_at, encrypted_kek_for_invite, kek_version
                FROM workspace_invitations
                WHERE token = $1
                FOR UPDATE"#,
@@ -151,10 +151,35 @@ impl SqlxWorkspaceRepository {
                    WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL AND accepted_at IS NULL
                    RETURNING id, workspace_id, email, role_kind, system_role, custom_role_id,
                              invited_by, token, expires_at, accepted_by, accepted_at, revoked_at,
-                             created_at"#,
+                             created_at, encrypted_kek_for_invite, kek_version"#,
         )
         .bind(invitation_id)
         .bind(workspace_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| self.map_invitation_row(&row)).transpose()
+    }
+
+    /// Update invitation with encrypted KEK
+    pub(super) async fn update_invitation_kek_impl(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+        encrypted_kek_for_invite: &str,
+        kek_version: i32,
+    ) -> anyhow::Result<Option<WorkspaceInvitationRecord>> {
+        let row = sqlx::query(
+            r#"UPDATE workspace_invitations
+                   SET encrypted_kek_for_invite = $3, kek_version = $4
+                   WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL AND accepted_at IS NULL
+                   RETURNING id, workspace_id, email, role_kind, system_role, custom_role_id,
+                             invited_by, token, expires_at, accepted_by, accepted_at, revoked_at,
+                             created_at, encrypted_kek_for_invite, kek_version"#,
+        )
+        .bind(invitation_id)
+        .bind(workspace_id)
+        .bind(encrypted_kek_for_invite)
+        .bind(kek_version)
         .fetch_optional(&self.pool)
         .await?;
         row.map(|row| self.map_invitation_row(&row)).transpose()

@@ -12,7 +12,10 @@ use axum::routing::{delete, get, patch, post};
 
 use crate::context::AppContext;
 
-pub use invitations::{accept_invitation, create_invitation, list_invitations, revoke_invitation};
+pub use invitations::{
+    accept_invitation, create_invitation, list_invitations, revoke_invitation,
+    update_invitation_kek,
+};
 pub use keys::{
     delete_key_version, get_my_workspace_key, get_workspace_key_version, list_workspace_keys,
     rotate_workspace_key, store_workspace_key, DeleteKeyVersionResponse,
@@ -67,6 +70,10 @@ pub fn routes(ctx: AppContext) -> Router {
         .route(
             "/workspaces/:id/invitations/:invitation_id",
             delete(revoke_invitation),
+        )
+        .route(
+            "/workspaces/:id/invitations/:invitation_id/kek",
+            patch(update_invitation_kek),
         )
         .route("/workspaces/:id/download", get(download_workspace_archive))
         .route(

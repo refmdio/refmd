@@ -294,6 +294,18 @@ impl WorkspaceRepository for SqlxWorkspaceRepository {
             .map_err(Into::into)
     }
 
+    async fn update_invitation_kek(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+        encrypted_kek_for_invite: &str,
+        kek_version: i32,
+    ) -> PortResult<Option<WorkspaceInvitationRecord>> {
+        self.update_invitation_kek_impl(workspace_id, invitation_id, encrypted_kek_for_invite, kek_version)
+            .await
+            .map_err(Into::into)
+    }
+
     async fn list_all_workspace_ids(&self) -> PortResult<Vec<Uuid>> {
         self.list_all_workspace_ids_impl().await.map_err(Into::into)
     }

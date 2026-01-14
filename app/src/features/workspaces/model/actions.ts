@@ -11,8 +11,11 @@ import {
   updateWorkspace,
   updateWorkspaceMemberRole,
   updateWorkspaceRole,
+  updateInvitationKek,
   type PermissionOverridePayload,
 } from '@/entities/workspace/api'
+import { getKeyManager } from '@/features/e2ee'
+import { getWorkspaceKeyVersion } from '@/shared/api/client'
 
 import type { SystemRole } from './permissions'
 
@@ -21,11 +24,30 @@ export type WorkspaceRoleSelection =
   | { kind: 'custom'; customRoleId: string }
 
 export async function createWorkspaceAction(params: { name: string; description?: string; icon?: string }) {
-  return createWorkspace({
+  // 1. Create workspace
+  const workspace = await createWorkspace({
     name: params.name.trim(),
     description: params.description?.trim() || undefined,
     icon: params.icon,
   })
+
+  // 2. Create KEK if E2EE is unlocked
+  const keyManager = getKeyManager()
+  await keyManager.initialize()
+  console.log('[workspace] Creating KEK for workspace:', workspace.id, 'isUnlocked:', keyManager.isUnlocked)
+  if (keyManager.isUnlocked) {
+    try {
+      await keyManager.createAndStoreWorkspaceKek(workspace.id)
+      console.log('[workspace] KEK created successfully for workspace:', workspace.id)
+    } catch (error) {
+      console.error('[workspace] Failed to create KEK:', error)
+      // Don't throw - workspace is created, KEK can be created later
+    }
+  } else {
+    console.warn('[workspace] E2EE is not unlocked, skipping KEK creation')
+  }
+
+  return workspace
 }
 
 export async function updateWorkspaceSettingsAction(params: {
@@ -54,14 +76,46 @@ export async function sendWorkspaceInvitationAction(params: {
   email: string
   selection: WorkspaceRoleSelection
 }) {
+  const keyManager = getKeyManager()
+  await keyManager.initialize()
+
+  // 1. Build role payload
   const payload =
     params.selection.kind === 'custom'
       ? { role_kind: 'custom' as const, custom_role_id: params.selection.customRoleId }
       : { role_kind: 'system' as const, system_role: params.selection.systemRole }
-  return createWorkspaceInvitation(params.workspaceId, {
+
+  // 2. Create invitation (token returned)
+  const invitation = await createWorkspaceInvitation(params.workspaceId, {
     email: params.email.trim(),
     ...payload,
   })
+
+  // 3. If E2EE unlocked, encrypt KEK for invitation
+  if (keyManager.isUnlocked && invitation.token) {
+    try {
+      // Get current key version
+      const versionResponse = await getWorkspaceKeyVersion({ id: params.workspaceId })
+      const kekVersion = versionResponse.keyVersion ?? 1
+
+      // Encrypt KEK with invitation token
+      const encryptedKekForInvite = await keyManager.encryptKekForInvitationToken(
+        params.workspaceId,
+        invitation.token
+      )
+
+      // Update invitation with encrypted KEK
+      await updateInvitationKek(params.workspaceId, invitation.id, {
+        encryptedKekForInvite,
+        kekVersion,
+      })
+    } catch (error) {
+      console.error('[workspace] Failed to encrypt KEK for invitation:', error)
+      // Don't throw - invitation is created, but KEK sharing will need manual handling
+    }
+  }
+
+  return invitation
 }
 
 export async function revokeWorkspaceInvitationAction(workspaceId: string, invitationId: string) {
@@ -69,7 +123,31 @@ export async function revokeWorkspaceInvitationAction(workspaceId: string, invit
 }
 
 export async function acceptWorkspaceInvitationAction(token: string) {
-  return acceptWorkspaceInvitation(token)
+  // 1. Accept invitation
+  const response = await acceptWorkspaceInvitation(token)
+
+  // 2. If encrypted KEK provided, decrypt and store
+  const keyManager = getKeyManager()
+  await keyManager.initialize()
+  if (
+    keyManager.isUnlocked &&
+    response.encryptedKekForInvite &&
+    response.kekVersion
+  ) {
+    try {
+      await keyManager.acceptInvitationAndStoreKek(
+        response.workspaceId,
+        token,
+        response.encryptedKekForInvite,
+        response.kekVersion
+      )
+    } catch (error) {
+      console.error('[workspace] Failed to decrypt and store KEK from invitation:', error)
+      // Don't throw - invitation is accepted, but KEK will need to be shared manually
+    }
+  }
+
+  return response
 }
 
 export async function updateWorkspaceMemberRoleAction(params: {

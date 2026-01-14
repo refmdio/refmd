@@ -161,6 +161,15 @@ pub trait WorkspaceServiceFacade: Send + Sync {
         user_email: &str,
     ) -> Result<WorkspaceInvitationRecord, ServiceError>;
 
+    /// Update invitation with encrypted KEK for E2EE
+    async fn update_invitation_kek(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+        encrypted_kek_for_invite: &str,
+        kek_version: i32,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError>;
+
     async fn ensure_owner_membership(
         &self,
         workspace_id: Uuid,
@@ -375,6 +384,17 @@ impl WorkspaceServiceFacade for WorkspaceService {
         self.accept_invitation(token, user_id, user_email).await
     }
 
+    async fn update_invitation_kek(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+        encrypted_kek_for_invite: &str,
+        kek_version: i32,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError> {
+        self.update_invitation_kek(workspace_id, invitation_id, encrypted_kek_for_invite, kek_version)
+            .await
+    }
+
     async fn ensure_owner_membership(
         &self,
         workspace_id: Uuid,
@@ -577,6 +597,25 @@ impl WorkspaceService {
         let Some(record) = self
             .repo
             .revoke_invitation(workspace_id, invitation_id)
+            .await
+            .map_err(ServiceError::from)?
+        else {
+            return Err(ServiceError::NotFound);
+        };
+        Ok(record)
+    }
+
+    /// Update invitation with encrypted KEK for E2EE
+    pub async fn update_invitation_kek(
+        &self,
+        workspace_id: Uuid,
+        invitation_id: Uuid,
+        encrypted_kek_for_invite: &str,
+        kek_version: i32,
+    ) -> Result<WorkspaceInvitationRecord, ServiceError> {
+        let Some(record) = self
+            .repo
+            .update_invitation_kek(workspace_id, invitation_id, encrypted_kek_for_invite, kek_version)
             .await
             .map_err(ServiceError::from)?
         else {
