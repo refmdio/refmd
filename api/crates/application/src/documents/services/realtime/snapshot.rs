@@ -16,8 +16,9 @@ use crate::documents::ports::document_snapshot_archive_repository::{
 };
 use crate::documents::ports::linkgraph_repository::LinkGraphRepository;
 use crate::documents::ports::realtime::realtime_hydration_port::DocStateReader;
-use crate::documents::ports::realtime::realtime_persistence_port::DocPersistencePort;
-use crate::documents::ports::realtime::realtime_persistence_port::SnapshotEntry;
+use crate::documents::ports::realtime::realtime_persistence_port::{
+    DocPersistencePort, EncryptedUpdateEntry, SnapshotEntry,
+};
 use crate::documents::services::linkgraph;
 use domain::documents::doc_type::DocumentType;
 
@@ -229,14 +230,21 @@ impl SnapshotService {
         if record.doc_type == DocumentType::Folder {
             return Ok(None);
         }
-        let doc = self.hydrate_doc_from_state(doc_id).await?;
-        let contents = extract_markdown(&doc);
-        let bytes = render_markdown_bytes(doc_id, &record.title, &contents);
+
+        // E2EE: Export encrypted snapshot + updates directly (no Yjs hydration)
+        let snapshot = self.persistence.latest_snapshot_entry(doc_id).await?;
+        let since_seq = snapshot
+            .as_ref()
+            .and_then(|s| s.seq_at_snapshot)
+            .unwrap_or(0);
+        let updates = self.persistence.get_updates_since(doc_id, since_seq).await?;
+
+        let bytes = serialize_encrypted_backup(&snapshot, &updates);
         let content_hash = sha256_hex(&bytes);
-        let repo_path = repo_path_from_record(&record);
+
         Ok(Some(MarkdownExport {
             bytes,
-            repo_path,
+            repo_path: None, // E2EE: No repo path (doc_id based path)
             owner_id: record.owner_id,
             workspace_id: record.workspace_id,
             content_hash,
@@ -424,5 +432,72 @@ fn normalize_repo_path(path: &str) -> String {
         "".into()
     } else {
         trimmed.replace('\\', "/")
+    }
+}
+
+/// Serialize encrypted snapshot and updates to a binary backup format.
+/// Format:
+/// - Magic: "RMBK" (4 bytes)
+/// - Version: 1 (1 byte)
+/// - Has snapshot: 1 byte (0 or 1)
+/// - If has snapshot:
+///   - snapshot_version: i64
+///   - snapshot_bytes_len: u32, snapshot_bytes
+///   - nonce_len: u32, nonce_bytes (0 if None)
+///   - signature_len: u32, signature_bytes (0 if None)
+///   - seq_at_snapshot: i64 (-1 if None)
+/// - update_count: u32
+/// - For each update:
+///   - seq: i64
+///   - data_len: u32, data_bytes
+///   - nonce_len: u32, nonce_bytes (0 if None)
+///   - signature_len: u32, signature_bytes (0 if None)
+///   - public_key_len: u32, public_key_bytes (0 if None)
+fn serialize_encrypted_backup(
+    snapshot: &Option<SnapshotEntry>,
+    updates: &[EncryptedUpdateEntry],
+) -> Vec<u8> {
+    let mut buf = Vec::new();
+
+    // Magic and version
+    buf.extend_from_slice(b"RMBK");
+    buf.push(1u8);
+
+    // Snapshot
+    if let Some(snap) = snapshot {
+        buf.push(1u8); // has snapshot
+        buf.extend_from_slice(&snap.version.to_le_bytes());
+        buf.extend_from_slice(&(snap.bytes.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&snap.bytes);
+        write_optional_bytes(&mut buf, snap.nonce.as_deref());
+        write_optional_bytes(&mut buf, snap.signature.as_deref());
+        buf.extend_from_slice(&snap.seq_at_snapshot.unwrap_or(-1).to_le_bytes());
+    } else {
+        buf.push(0u8); // no snapshot
+    }
+
+    // Updates
+    buf.extend_from_slice(&(updates.len() as u32).to_le_bytes());
+    for update in updates {
+        buf.extend_from_slice(&update.seq.to_le_bytes());
+        buf.extend_from_slice(&(update.data.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&update.data);
+        write_optional_bytes(&mut buf, update.nonce.as_deref());
+        write_optional_bytes(&mut buf, update.signature.as_deref());
+        write_optional_bytes(&mut buf, update.public_key.as_deref());
+    }
+
+    buf
+}
+
+fn write_optional_bytes(buf: &mut Vec<u8>, data: Option<&[u8]>) {
+    match data {
+        Some(bytes) => {
+            buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            buf.extend_from_slice(bytes);
+        }
+        None => {
+            buf.extend_from_slice(&0u32.to_le_bytes());
+        }
     }
 }

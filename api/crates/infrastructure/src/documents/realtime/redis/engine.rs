@@ -495,7 +495,7 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                 };
 
                 // Process message by type
-                match msg.msg_type {
+                let persist_error: Option<String> = match msg.msg_type {
                     MessageType::Update => {
                         // Persist encrypted update
                         tracing::info!(
@@ -506,7 +506,7 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                             public_key_len = public_key.len(),
                             "redis_e2ee_persisting_update"
                         );
-                        if let Err(e) = self
+                        match self
                             .apply_encrypted_update(
                                 &doc_uuid,
                                 &ciphertext,
@@ -516,14 +516,24 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                             )
                             .await
                         {
-                            tracing::warn!(error = %e, "redis_e2ee_persist_update_failed");
-                        } else {
-                            tracing::info!(document_id = %doc_id, "redis_e2ee_update_persisted_ok");
+                            Ok(_) => {
+                                tracing::info!(document_id = %doc_id, "redis_e2ee_update_persisted_ok");
+                                None
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    document_id = %doc_id,
+                                    error = %e,
+                                    error_debug = ?e,
+                                    "redis_e2ee_persist_update_failed"
+                                );
+                                Some(format!("Failed to persist update: {}", e))
+                            }
                         }
                     }
                     MessageType::Snapshot => {
                         // Persist encrypted snapshot
-                        if let Err(e) = self
+                        match self
                             .apply_encrypted_snapshot(
                                 &doc_uuid,
                                 &ciphertext,
@@ -532,11 +542,36 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                             )
                             .await
                         {
-                            tracing::warn!(error = %e, "redis_e2ee_persist_snapshot_failed");
+                            Ok(_) => None,
+                            Err(e) => {
+                                tracing::error!(
+                                    document_id = %doc_id,
+                                    error = %e,
+                                    error_debug = ?e,
+                                    "redis_e2ee_persist_snapshot_failed"
+                                );
+                                Some(format!("Failed to persist snapshot: {}", e))
+                            }
                         }
                     }
                     MessageType::Awareness => {
                         // Awareness messages are ephemeral, no persistence
+                        None
+                    }
+                };
+
+                // Send error response to client if persistence failed
+                if let Some(error_msg) = persist_error {
+                    let error_response = serde_json::json!({
+                        "type": "error",
+                        "error": error_msg,
+                        "document_id": doc_id,
+                    });
+                    if let Ok(error_bytes) = serde_json::to_vec(&error_response) {
+                        let mut guard = sink.lock().await;
+                        if let Err(e) = guard.send(error_bytes).await {
+                            tracing::debug!(error = %e, "redis_e2ee_error_response_send_failed");
+                        }
                     }
                 }
 

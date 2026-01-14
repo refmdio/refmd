@@ -62,6 +62,23 @@ export interface StatusEvent {
   status: 'connecting' | 'connected' | 'disconnected'
 }
 
+/** Server error message (sent when persistence fails) */
+export interface ServerErrorMessage {
+  type: 'error'
+  error: string
+  document_id: string
+}
+
+/** Check if a message is a server error message */
+function isServerErrorMessage(msg: unknown): msg is ServerErrorMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as ServerErrorMessage).type === 'error' &&
+    typeof (msg as ServerErrorMessage).error === 'string'
+  )
+}
+
 /** Status event handler */
 export type StatusEventHandler = (event: StatusEvent) => void
 
@@ -527,6 +544,12 @@ export class SecureSync {
       return
     }
 
+    // Handle error messages from server
+    if (isServerErrorMessage(message)) {
+      await this.handleErrorMessage(message)
+      return
+    }
+
     if (isServerInitMessage(message)) {
       await this.handleInitMessage(message)
     } else if (isServerSyncUpdate(message)) {
@@ -536,6 +559,14 @@ export class SecureSync {
     } else {
       console.warn('[SecureSync] Unknown message type:', message)
     }
+  }
+
+  private async handleErrorMessage(message: ServerErrorMessage): Promise<void> {
+    console.error('[SecureSync] Server error:', message.error, 'document:', message.document_id)
+    this.setState({
+      status: 'error',
+      error: message.error,
+    })
   }
 
   private async handleInitMessage(message: ServerInitMessage): Promise<void> {

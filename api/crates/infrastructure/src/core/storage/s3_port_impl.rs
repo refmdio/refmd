@@ -186,7 +186,7 @@ impl S3StoragePort {
         use sqlx::Row;
 
         let row = sqlx::query(
-            "SELECT owner_id, type, path, desired_path, archived_at FROM documents WHERE id = $1",
+            "SELECT workspace_id, owner_id, type, path, desired_path, archived_at FROM documents WHERE id = $1",
         )
         .bind(doc_id)
         .fetch_optional(&self.pool)
@@ -195,6 +195,7 @@ impl S3StoragePort {
             Some(row) => row,
             None => return Ok(()),
         };
+        let workspace_id: Uuid = row.get("workspace_id");
         let owner_id: Uuid = row.get("owner_id");
         let dtype: String = row.get("type");
         if dtype == DOC_TYPE_FOLDER {
@@ -202,19 +203,8 @@ impl S3StoragePort {
         }
         let old_rel: Option<String> = row.try_get("path").ok();
 
-        let desired_path: String = row.get("desired_path");
-        let archived = row
-            .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("archived_at")
-            .ok()
-            .flatten()
-            .is_some();
-        let target_rel =
-            crate::core::storage::owner_relative_from_desired(owner_id, &desired_path, archived);
-        let target_parent_rel = crate::core::storage::owner_relative_parent_from_desired(
-            owner_id,
-            &desired_path,
-            archived,
-        );
+        // E2EE: Use {workspace_id}/{doc_id}.md path format for document
+        let target_rel = format!("{}/{}.md", workspace_id, doc_id);
 
         if let Some(old_rel) = old_rel.clone() {
             if old_rel != target_rel {
@@ -229,6 +219,18 @@ impl S3StoragePort {
             }
         }
 
+        // Attachments: Keep original path logic (owner_id based)
+        let desired_path: String = row.get("desired_path");
+        let archived = row
+            .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("archived_at")
+            .ok()
+            .flatten()
+            .is_some();
+        let target_parent_rel = crate::core::storage::owner_relative_parent_from_desired(
+            owner_id,
+            &desired_path,
+            archived,
+        );
         let new_dir = self.root.join(&target_parent_rel);
 
         let files = sqlx::query("SELECT filename, storage_path FROM files WHERE document_id = $1")
@@ -281,8 +283,9 @@ impl S3StoragePort {
             .execute(&self.pool)
             .await?;
 
+        // E2EE: Mark as binary (not text) since content is encrypted
         let _ =
-            crate::core::storage::mark_dirty_upsert_relative(&self.pool, &target_rel, true, None)
+            crate::core::storage::mark_dirty_upsert_relative(&self.pool, &target_rel, false, None)
                 .await;
 
         Ok(())
