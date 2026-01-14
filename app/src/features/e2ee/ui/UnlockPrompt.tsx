@@ -10,7 +10,7 @@ import { Label } from '@/shared/ui/label'
 import { useE2EE } from '../context/e2ee-context'
 import { useKeyManager } from '../hooks/useKeyManager'
 
-type UnlockMode = 'passphrase' | 'recovery'
+type UnlockMode = 'passphrase' | 'recovery' | 'reset'
 
 interface UnlockPromptProps {
   /** Called when unlock is successful */
@@ -21,6 +21,8 @@ interface UnlockPromptProps {
   title?: string
   /** Custom description */
   description?: string
+  /** Called when user wants to reset passphrase (navigates to reset wizard) */
+  onResetPassphrase?: () => void
 }
 
 export function UnlockPrompt({
@@ -28,6 +30,7 @@ export function UnlockPrompt({
   inline = false,
   title = 'Unlock your data',
   description = 'Enter your passphrase to access your data',
+  onResetPassphrase,
 }: UnlockPromptProps) {
   const { unlock, unlockWithRecoveryKey, loading: keyManagerLoading, error: keyManagerError, clearError: clearKeyManagerError } = useKeyManager()
   const {
@@ -184,6 +187,16 @@ export function UnlockPrompt({
               </>
             )}
           </Button>
+
+          {onResetPassphrase && (
+            <button
+              type="button"
+              onClick={onResetPassphrase}
+              className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Forgot your passphrase?
+            </button>
+          )}
         </form>
       )}
 

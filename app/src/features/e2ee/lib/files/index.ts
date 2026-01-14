@@ -17,12 +17,7 @@ export { isRmeFile } from '../types/file-format'
 export { encryptFile, type EncryptFileResult } from './encrypt'
 
 // File decryption
-export {
-  decryptFile,
-  decryptMetadata,
-  E2EEFileError,
-  E2EE_FILE_ERROR,
-} from './decrypt'
+export { decryptFile, decryptMetadata } from './decrypt'
 
 // Chunked encryption for large files
 export {

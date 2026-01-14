@@ -1,3 +1,5 @@
 export { useSecurityStatus, useNeedsSecuritySetup } from './useSecurityStatus'
 export { useKeyManager } from './useKeyManager'
 export { useServerBackup, type ServerBackup } from './useServerBackup'
+export { useNetworkStatus, type NetworkStatus } from './useNetworkStatus'
+export { useOfflineQueue, type UseOfflineQueueOptions, type UseOfflineQueueResult } from './useOfflineQueue'

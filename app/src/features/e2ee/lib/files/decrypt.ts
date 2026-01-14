@@ -3,6 +3,7 @@
  */
 
 import { decrypt } from '../crypto/xchacha20'
+import { CryptoError, ERROR_CODES } from '../types/errors'
 import {
   isRmeFile,
   type DecryptedRmeFile,
@@ -12,35 +13,13 @@ import { parseRme } from './format'
 import { computeSha256 } from './hash'
 
 /**
- * E2EE file error codes
- */
-export const E2EE_FILE_ERROR = {
-  FORMAT_INVALID: 'E2EE_FILE_FORMAT_INVALID',
-  CORRUPTED: 'E2EE_FILE_CORRUPTED',
-  DECRYPTION_FAILED: 'E2EE_FILE_DECRYPTION_FAILED',
-} as const
-
-/**
- * E2EE file error
- */
-export class E2EEFileError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string
-  ) {
-    super(message)
-    this.name = 'E2EEFileError'
-  }
-}
-
-/**
  * Decrypt a .rme file
  *
  * @param rmeBytes - Encrypted .rme file bytes
  * @param dek - Document Encryption Key (32 bytes)
  * @param options - Decryption options
  * @returns Decrypted file content and metadata
- * @throws E2EEFileError if decryption fails
+ * @throws CryptoError if decryption fails
  */
 export async function decryptFile(
   rmeBytes: Uint8Array,
@@ -49,8 +28,8 @@ export async function decryptFile(
 ): Promise<DecryptedRmeFile> {
   // 1. Validate magic bytes
   if (!isRmeFile(rmeBytes)) {
-    throw new E2EEFileError(
-      E2EE_FILE_ERROR.FORMAT_INVALID,
+    throw new CryptoError(
+      ERROR_CODES.FILE_FORMAT_INVALID,
       'Invalid RME file: magic bytes mismatch'
     )
   }
@@ -60,9 +39,10 @@ export async function decryptFile(
   try {
     rmeFile = parseRme(rmeBytes)
   } catch (err) {
-    throw new E2EEFileError(
-      E2EE_FILE_ERROR.FORMAT_INVALID,
-      `Invalid RME file: ${err instanceof Error ? err.message : 'parse error'}`
+    throw new CryptoError(
+      ERROR_CODES.FILE_FORMAT_INVALID,
+      `Invalid RME file: ${err instanceof Error ? err.message : 'parse error'}`,
+      { cause: err instanceof Error ? err : undefined }
     )
   }
 
@@ -75,9 +55,10 @@ export async function decryptFile(
       rmeFile.metadataNonce
     )
   } catch (err) {
-    throw new E2EEFileError(
-      E2EE_FILE_ERROR.DECRYPTION_FAILED,
-      'Failed to decrypt metadata'
+    throw new CryptoError(
+      ERROR_CODES.DECRYPTION_FAILED,
+      'Failed to decrypt metadata',
+      { cause: err instanceof Error ? err : undefined }
     )
   }
 
@@ -86,10 +67,9 @@ export async function decryptFile(
     const metadataJson = new TextDecoder().decode(metadataBytes)
     metadata = JSON.parse(metadataJson)
   } catch (err) {
-    throw new E2EEFileError(
-      E2EE_FILE_ERROR.CORRUPTED,
-      'Invalid metadata format'
-    )
+    throw new CryptoError(ERROR_CODES.FILE_CORRUPTED, 'Invalid metadata format', {
+      cause: err instanceof Error ? err : undefined,
+    })
   }
 
   // 4. Decrypt content
@@ -97,16 +77,17 @@ export async function decryptFile(
   try {
     content = await decrypt(dek, rmeFile.encryptedContent, rmeFile.contentNonce)
   } catch (err) {
-    throw new E2EEFileError(
-      E2EE_FILE_ERROR.DECRYPTION_FAILED,
-      'Failed to decrypt content'
+    throw new CryptoError(
+      ERROR_CODES.DECRYPTION_FAILED,
+      'Failed to decrypt content',
+      { cause: err instanceof Error ? err : undefined }
     )
   }
 
   // 5. Validate size
   if (content.length !== metadata.originalSize) {
-    throw new E2EEFileError(
-      E2EE_FILE_ERROR.CORRUPTED,
+    throw new CryptoError(
+      ERROR_CODES.FILE_CORRUPTED,
       `Content size mismatch: expected ${metadata.originalSize}, got ${content.length}`
     )
   }
@@ -115,8 +96,8 @@ export async function decryptFile(
   if (!options?.skipHashCheck) {
     const computedHash = await computeSha256(content)
     if (computedHash !== metadata.originalHash) {
-      throw new E2EEFileError(
-        E2EE_FILE_ERROR.CORRUPTED,
+      throw new CryptoError(
+        ERROR_CODES.FILE_CORRUPTED,
         'Content hash mismatch - file may be corrupted'
       )
     }
@@ -145,9 +126,10 @@ export async function decryptMetadata(
   try {
     metadataBytes = await decrypt(dek, encryptedMetadata, nonce)
   } catch (err) {
-    throw new E2EEFileError(
-      E2EE_FILE_ERROR.DECRYPTION_FAILED,
-      'Failed to decrypt metadata'
+    throw new CryptoError(
+      ERROR_CODES.DECRYPTION_FAILED,
+      'Failed to decrypt metadata',
+      { cause: err instanceof Error ? err : undefined }
     )
   }
 
@@ -155,9 +137,8 @@ export async function decryptMetadata(
     const metadataJson = new TextDecoder().decode(metadataBytes)
     return JSON.parse(metadataJson)
   } catch (err) {
-    throw new E2EEFileError(
-      E2EE_FILE_ERROR.CORRUPTED,
-      'Invalid metadata format'
-    )
+    throw new CryptoError(ERROR_CODES.FILE_CORRUPTED, 'Invalid metadata format', {
+      cause: err instanceof Error ? err : undefined,
+    })
   }
 }
