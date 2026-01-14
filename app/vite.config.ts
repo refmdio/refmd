@@ -158,6 +158,10 @@ export default defineConfig(() => {
     },
     dedupe: ['react', 'react-dom'],
   },
+  ssr: {
+    // Bundle these CommonJS packages for SSR to avoid "require is not defined" errors
+    noExternal: ['buffer', 'bip39'],
+  },
   build: {
     rollupOptions: {
       output: {

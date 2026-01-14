@@ -7,7 +7,6 @@ use crate::core::services::errors::ServiceError;
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::ports::git_repository::GitRepository;
-use crate::git::ports::git_workspace::GitWorkspacePort;
 use crate::identity::dtos::UserDto;
 use crate::identity::ports::secret_hasher::SecretHasher;
 use crate::identity::ports::user_repository::UserRepository;
@@ -31,7 +30,6 @@ pub struct AccountService {
     plugin_repo: Arc<dyn PluginRepository>,
     plugin_assets: Arc<dyn PluginAssetStore>,
     git_repo: Arc<dyn GitRepository>,
-    git_workspace: Arc<dyn GitWorkspacePort>,
     storage_jobs: Arc<dyn StorageProjectionQueue>,
     workspace_service: Arc<WorkspaceService>,
 }
@@ -95,7 +93,6 @@ impl AccountService {
         plugin_repo: Arc<dyn PluginRepository>,
         plugin_assets: Arc<dyn PluginAssetStore>,
         git_repo: Arc<dyn GitRepository>,
-        git_workspace: Arc<dyn GitWorkspacePort>,
         storage_jobs: Arc<dyn StorageProjectionQueue>,
         workspace_service: Arc<WorkspaceService>,
     ) -> Self {
@@ -108,7 +105,6 @@ impl AccountService {
             plugin_repo,
             plugin_assets,
             git_repo,
-            git_workspace,
             storage_jobs,
             workspace_service,
         }
@@ -207,7 +203,6 @@ impl AccountService {
             plugin_repo: self.plugin_repo.as_ref(),
             plugin_assets: self.plugin_assets.clone(),
             git_repo: self.git_repo.as_ref(),
-            git_workspace: self.git_workspace.as_ref(),
             storage_jobs: self.storage_jobs.as_ref(),
         };
         uc.execute(user_id).await.map_err(ServiceError::from)

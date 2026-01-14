@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
-use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
 use application::plugins::ports::plugin_asset_store::PluginAssetStore;
 use infrastructure::core::db::PgPool;
 use presentation::context::AppContext;
@@ -21,7 +20,6 @@ pub struct AppRuntime {
     jobs: crate::jobs::Jobs,
     storage_job_queue: Arc<dyn StorageProjectionQueue>,
     storage_reconcile_jobs: Arc<dyn StorageReconcileJobs>,
-    git_rebuild_jobs: Arc<dyn GitRebuildJobQueue>,
     plugin_assets: Arc<dyn PluginAssetStore>,
 }
 

@@ -3,7 +3,6 @@ use anyhow::Result;
 use super::cli::Command;
 use super::deps::Deps;
 
-mod git;
 mod jobs;
 mod openapi;
 mod plugins;
@@ -21,7 +20,6 @@ pub(crate) async fn run(deps: &Deps, command: Command) -> Result<()> {
         Command::Users { command } => users::handle(deps, command).await,
         Command::Jobs { command } => jobs::handle(deps, command).await,
         Command::Workspaces { command } => workspaces::handle(deps, command).await,
-        Command::Git { command } => git::handle(deps, command).await,
         Command::Plugins { command } => plugins::handle(deps, command).await,
         Command::Tokens { command } => tokens::handle(deps, command).await,
         Command::Shares { command } => shares::handle(deps, command).await,

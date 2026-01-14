@@ -3,8 +3,6 @@ import { GitBranch, GitCommit, ShieldCheck } from 'lucide-react'
 import React from 'react'
 import { toast } from 'sonner'
 
-
-
 import { Badge } from '@/shared/ui/badge'
 import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
@@ -13,50 +11,73 @@ import { Label } from '@/shared/ui/label'
 import { Separator } from '@/shared/ui/separator'
 import { Textarea } from '@/shared/ui/textarea'
 
+import { useAuthContext } from '@/features/auth'
 import {
-  createOrUpdateConfig,
-  deinitRepository,
-  getConfig,
-  getStatus,
-  initRepository,
-  importRepository,
-} from '@/entities/git'
+  saveGitCredentials,
+  loadGitCredentials,
+  hasGitCredentials,
+  deleteGitCredentials,
+  getGitStatus,
+  importFromGit,
+  initGitRepository,
+  clearImportedRepository,
+  type GitCredentials,
+} from '@/features/git-sync'
 
 import { settingsNavItems } from '@/features/settings/nav'
 
 import { SettingsShell } from './SettingsShell'
 
-type RemoteCheck = { ok: boolean; message: string; reason?: string | null } | null
-
 export default function GitSyncPage() {
   const qc = useQueryClient()
-  const { data: config } = useQuery({ queryKey: ['git-config'], queryFn: () => getConfig(), retry: false })
-  const { data: status } = useQuery({ queryKey: ['git-status'], queryFn: () => getStatus(), retry: false })
+  const { activeWorkspaceId } = useAuthContext()
+
+  // Load credentials from server (E2EE decrypted)
+  const { data: credentials } = useQuery({
+    queryKey: ['git-credentials', activeWorkspaceId],
+    queryFn: () => activeWorkspaceId ? loadGitCredentials(activeWorkspaceId) : null,
+    enabled: !!activeWorkspaceId,
+    retry: false,
+  })
+
+  // Check if credentials exist
+  const { data: hasCredentialsData } = useQuery({
+    queryKey: ['git-has-credentials', activeWorkspaceId],
+    queryFn: () => hasGitCredentials(),
+    enabled: !!activeWorkspaceId,
+    retry: false,
+  })
+
+  // Get git status (client-side)
+  const { data: status } = useQuery({
+    queryKey: ['git-status', activeWorkspaceId],
+    queryFn: () => activeWorkspaceId ? getGitStatus(activeWorkspaceId) : null,
+    enabled: !!activeWorkspaceId && !!hasCredentialsData,
+    retry: false,
+  })
 
   const [repositoryUrl, setRepositoryUrl] = React.useState('')
   const [branchName, setBranchName] = React.useState('main')
-  const [authType, setAuthType] = React.useState<'ssh' | 'token'>('token')
+  const [authType, setAuthType] = React.useState<'ssh' | 'https-pat'>('https-pat')
   const [token, setToken] = React.useState('')
   const [privateKey, setPrivateKey] = React.useState('')
   const [passphrase, setPassphrase] = React.useState('')
-  const [lastCheck, setLastCheck] = React.useState<RemoteCheck>(null)
-  const lastSecretRef = React.useRef<{ token?: string; private_key?: string; passphrase?: string }>({})
-  const autoSync = false
+  const lastSecretRef = React.useRef<{ token?: string; privateKey?: string; passphrase?: string }>({})
 
   React.useEffect(() => {
-    if (config) {
-      setRepositoryUrl(config.repository_url || '')
-      setBranchName(config.branch_name || 'main')
-      setAuthType(config.auth_type === 'ssh' ? 'ssh' : 'token')
+    if (credentials) {
+      setRepositoryUrl(credentials.repositoryUrl || '')
+      setBranchName(credentials.branchName || 'main')
+      setAuthType(credentials.authType === 'ssh' ? 'ssh' : 'https-pat')
+      // Don't set sensitive fields - they're still encrypted on server
       setToken('')
       setPrivateKey('')
       setPassphrase('')
-      setLastCheck((config as any).remote_check ?? null)
     }
-  }, [config])
+  }, [credentials])
 
-  const resolveAuthData = React.useCallback(() => {
-    if (authType === 'token') {
+  const resolveAuthData = React.useCallback((): Partial<GitCredentials> => {
+    if (authType === 'https-pat') {
       const resolved = token.trim() || lastSecretRef.current.token
       if (!resolved) {
         throw new Error('Personal access token is required to save.')
@@ -64,110 +85,121 @@ export default function GitSyncPage() {
       lastSecretRef.current = { token: resolved }
       return { token: resolved }
     }
-    const resolvedKey = privateKey.trim() || lastSecretRef.current.private_key
+    const resolvedKey = privateKey.trim() || lastSecretRef.current.privateKey
     if (!resolvedKey) {
       throw new Error('SSH private key is required to save.')
     }
     const resolvedPass = passphrase.trim() || lastSecretRef.current.passphrase
-    lastSecretRef.current = { private_key: resolvedKey, passphrase: resolvedPass }
-    return resolvedPass ? { private_key: resolvedKey, passphrase: resolvedPass } : { private_key: resolvedKey }
+    lastSecretRef.current = { privateKey: resolvedKey, passphrase: resolvedPass }
+    return resolvedPass ? { privateKey: resolvedKey, passphrase: resolvedPass } : { privateKey: resolvedKey }
   }, [authType, privateKey, token, passphrase])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!activeWorkspaceId) throw new Error('No workspace selected')
       if (!repositoryUrl.trim()) throw new Error('Repository URL is required')
-      const auth_data = resolveAuthData()
-      return createOrUpdateConfig({
-        requestBody: {
-          repository_url: repositoryUrl.trim(),
-          branch_name: branchName.trim() || 'main',
-          auth_type: authType,
-          auth_data,
-          auto_sync: autoSync,
-        },
-      })
+      const authData = resolveAuthData()
+      const creds: GitCredentials = {
+        repositoryUrl: repositoryUrl.trim(),
+        branchName: branchName.trim() || 'main',
+        authType,
+        ...authData,
+      }
+      await saveGitCredentials(activeWorkspaceId, creds)
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
       toast.success('Git settings saved')
-      if (data?.remote_check) setLastCheck(data.remote_check)
-      qc.invalidateQueries({ queryKey: ['git-config'] })
-      qc.invalidateQueries({ queryKey: ['git-status'] })
+      qc.invalidateQueries({ queryKey: ['git-credentials', activeWorkspaceId] })
+      qc.invalidateQueries({ queryKey: ['git-has-credentials', activeWorkspaceId] })
+      qc.invalidateQueries({ queryKey: ['git-status', activeWorkspaceId] })
     },
-    onError: (e: any) => {
-      toast.error(`Failed to save settings: ${e?.message || e}`)
+    onError: (e: Error) => {
+      toast.error(`Failed to save settings: ${e.message}`)
     },
   })
 
   const importMutation = useMutation({
     mutationFn: async () => {
+      if (!activeWorkspaceId) throw new Error('No workspace selected')
       if (!repositoryUrl.trim()) throw new Error('Repository URL is required')
-      const auth_data = resolveAuthData()
-      return importRepository({
-        requestBody: {
-          repository_url: repositoryUrl.trim(),
-          branch_name: branchName.trim() || 'main',
-          auth_type: authType,
-          auth_data,
-          auto_sync: autoSync,
-        },
-      })
+      const authData = resolveAuthData()
+      const creds: GitCredentials = {
+        repositoryUrl: repositoryUrl.trim(),
+        branchName: branchName.trim() || 'main',
+        authType,
+        ...authData,
+      }
+      // Save credentials first
+      await saveGitCredentials(activeWorkspaceId, creds)
+      // Then import
+      return importFromGit(activeWorkspaceId, repositoryUrl.trim(), creds)
     },
-    onSuccess: (data: any) => {
-      const msg = data?.message || 'Imported from Git'
-      const docs = data?.docs_created ?? 0
-      const attachments = data?.attachments_created ?? 0
-      const extra =
-        docs || attachments ? ` (${docs} docs, ${attachments} attachments)` : ''
+    onSuccess: (result) => {
+      const msg = result.message
+      const docs = result.docsCreated ?? 0
+      const attachments = result.attachmentsFound ?? 0
+      const extra = docs || attachments ? ` (${docs} docs, ${attachments} attachments)` : ''
       toast.success(`${msg}${extra}`)
-      qc.invalidateQueries({ queryKey: ['git-status'] })
-      qc.invalidateQueries({ queryKey: ['git-config'] })
+      qc.invalidateQueries({ queryKey: ['git-status', activeWorkspaceId] })
+      qc.invalidateQueries({ queryKey: ['git-credentials', activeWorkspaceId] })
+      qc.invalidateQueries({ queryKey: ['git-has-credentials', activeWorkspaceId] })
     },
-    onError: (e: any) => {
-      const raw = e?.body?.message || e?.message || `${e}`
-      toast.error(`Import failed: ${raw}`)
+    onError: (e: Error) => {
+      toast.error(`Import failed: ${e.message}`)
     },
   })
 
   const initMutation = useMutation({
-    mutationFn: () => initRepository(),
-    onSuccess: () => {
-      toast.success('Git repository initialized')
-      qc.invalidateQueries({ queryKey: ['git-status'] })
+    mutationFn: async () => {
+      if (!activeWorkspaceId) throw new Error('No workspace selected')
+      if (!repositoryUrl.trim()) throw new Error('Repository URL is required')
+      const authData = resolveAuthData()
+      const creds: GitCredentials = {
+        repositoryUrl: repositoryUrl.trim(),
+        branchName: branchName.trim() || 'main',
+        authType,
+        ...authData,
+      }
+      // Save credentials first
+      await saveGitCredentials(activeWorkspaceId, creds)
+      // Then initialize (clone)
+      return initGitRepository(activeWorkspaceId, repositoryUrl.trim(), creds)
     },
-    onError: (e: any) => toast.error(`Initialization failed: ${e?.message || e}`),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success('Git repository initialized')
+      } else {
+        toast.error(result.message)
+      }
+      qc.invalidateQueries({ queryKey: ['git-status', activeWorkspaceId] })
+      qc.invalidateQueries({ queryKey: ['git-credentials', activeWorkspaceId] })
+      qc.invalidateQueries({ queryKey: ['git-has-credentials', activeWorkspaceId] })
+    },
+    onError: (e: Error) => toast.error(`Initialization failed: ${e.message}`),
   })
 
   const deinitMutation = useMutation({
-    mutationFn: () => deinitRepository(),
+    mutationFn: async () => {
+      if (!activeWorkspaceId) throw new Error('No workspace selected')
+      // Clear local repository data
+      await clearImportedRepository(activeWorkspaceId)
+      // Delete credentials from server
+      await deleteGitCredentials()
+    },
     onSuccess: () => {
       toast.success('Stopped using Git')
-      qc.invalidateQueries({ queryKey: ['git-config'] })
-      qc.invalidateQueries({ queryKey: ['git-status'] })
+      qc.invalidateQueries({ queryKey: ['git-credentials', activeWorkspaceId] })
+      qc.invalidateQueries({ queryKey: ['git-has-credentials', activeWorkspaceId] })
+      qc.invalidateQueries({ queryKey: ['git-status', activeWorkspaceId] })
     },
-    onError: (e: any) => {
-      toast.error(`Failed to stop: ${e?.message || e}`)
+    onError: (e: Error) => {
+      toast.error(`Failed to stop: ${e.message}`)
     },
   })
 
-  const repositoryInitialized = Boolean(status?.repository_initialized)
-  const hasRemote = Boolean(status?.has_remote)
-  const statusMessage = status?.last_sync_message || (repositoryInitialized ? 'Ready' : 'Not initialized')
-
-  const renderRemoteCheck = () => {
-    if (!lastCheck) return null
-    const warning = !lastCheck.ok
-    return (
-      <Card className="border-border/60 p-4 shadow-sm bg-muted/40">
-        <div className="flex items-start gap-3 text-sm">
-          <ShieldCheck className={`h-4 w-4 ${warning ? 'text-destructive' : 'text-primary'}`} />
-          <div className="space-y-1 text-muted-foreground">
-            <p className="text-foreground font-medium">Remote check</p>
-            <p>{lastCheck.message}</p>
-          </div>
-        </div>
-      </Card>
-    )
-  }
+  const repositoryInitialized = Boolean(status?.initialized)
+  const hasRemote = Boolean(hasCredentialsData)
+  const statusMessage = repositoryInitialized ? 'Ready' : 'Not initialized'
 
   return (
     <SettingsShell
@@ -202,7 +234,7 @@ export default function GitSyncPage() {
               ) : (
                 <Button
                   onClick={() => initMutation.mutate()}
-                  disabled={initMutation.isPending}
+                  disabled={initMutation.isPending || !repositoryUrl.trim()}
                   className="rounded-full"
                 >
                   {initMutation.isPending ? 'Enabling…' : 'Enable Git Sync'}
@@ -215,14 +247,14 @@ export default function GitSyncPage() {
               <GitBranch className="h-4 w-4 text-primary" />
               <div>
                 <p className="text-xs uppercase tracking-wide text-muted-foreground/80">Branch</p>
-                <p className="text-foreground font-semibold">{branchName || '—'}</p>
+                <p className="text-foreground font-semibold">{status?.branch || branchName || '—'}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-muted/30 px-4 py-3">
               <ShieldCheck className="h-4 w-4 text-primary" />
               <div>
                 <p className="text-xs uppercase tracking-wide text-muted-foreground/80">Auth</p>
-                <p className="text-foreground font-semibold">{authType.toUpperCase()}</p>
+                <p className="text-foreground font-semibold">{authType === 'ssh' ? 'SSH' : 'TOKEN'}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-muted/30 px-4 py-3">
@@ -239,7 +271,7 @@ export default function GitSyncPage() {
           <div className="space-y-6">
             <div className="space-y-2">
               <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] uppercase tracking-wide">Repository</Badge>
-              <p className="text-sm text-muted-foreground">Save your repository details and authentication. Tokens/keys are encrypted and never returned.</p>
+              <p className="text-sm text-muted-foreground">Save your repository details and authentication. Credentials are encrypted with your workspace key.</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -271,8 +303,8 @@ export default function GitSyncPage() {
                 <div className="flex gap-2">
                   <Button
                     type="button"
-                    variant={authType === 'token' ? 'default' : 'outline'}
-                    onClick={() => setAuthType('token')}
+                    variant={authType === 'https-pat' ? 'default' : 'outline'}
+                    onClick={() => setAuthType('https-pat')}
                     className="flex-1"
                   >
                     Token
@@ -290,7 +322,7 @@ export default function GitSyncPage() {
               </div>
             </div>
 
-            {authType === 'token' ? (
+            {authType === 'https-pat' ? (
               <div className="space-y-2">
                 <Label>Personal access token</Label>
                 <Input
@@ -355,8 +387,6 @@ export default function GitSyncPage() {
             </div>
           </div>
         </Card>
-
-        {renderRemoteCheck()}
       </div>
     </SettingsShell>
   )

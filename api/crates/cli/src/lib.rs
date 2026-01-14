@@ -2,7 +2,6 @@ mod cli;
 
 mod commands;
 mod deps;
-mod git_workspace;
 
 use anyhow::Result;
 use clap::Parser;

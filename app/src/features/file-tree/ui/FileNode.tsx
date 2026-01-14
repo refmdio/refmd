@@ -11,7 +11,6 @@ import {
   Copy,
   Globe,
   Link as LinkIcon,
-  Ban,
   AlertTriangle,
   MessageSquare,
   Blocks,
@@ -29,7 +28,7 @@ import type { LucideIcon } from 'lucide-react'
 import React, { useState, useCallback, memo, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
-import type { GitPullConflictItem } from '@/shared/api'
+import type { ConflictItem } from '@/features/git-sync'
 import useInView from '@/shared/hooks/use-in-view'
 import { dispatchOpenPreviewTile } from '@/shared/lib/mosaic-events'
 import { overlayMenuClass } from '@/shared/lib/overlay-classes'
@@ -41,7 +40,6 @@ import { Input } from '@/shared/ui/input'
 import { SidebarMenuItem, SidebarMenuButton } from '@/shared/ui/sidebar'
 
 import { useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
-import { ignoreDocument } from '@/entities/git'
 import { getPluginKv } from '@/entities/plugin'
 
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
@@ -69,8 +67,7 @@ type FileNodeProps = {
   onDrop: (e: React.DragEvent, id: string, type: 'file' | 'folder', parentId?: string) => void
   onDragOver: (e: React.DragEvent, nodeId?: string, nodeType?: 'file' | 'folder') => void
   pluginRules?: FileTreeRule[]
-  gitEnabled?: boolean
-  conflict?: GitPullConflictItem | null
+  conflict?: ConflictItem | null
 }
 
 export const FileNode = memo(function FileNode({
@@ -92,7 +89,6 @@ export const FileNode = memo(function FileNode({
   onDrop,
   onDragOver,
   pluginRules,
-  gitEnabled = false,
   conflict = null,
 }: FileNodeProps) {
   const {
@@ -614,21 +610,6 @@ export const FileNode = memo(function FileNode({
                 )}
                 {!isShareMount && (
                   <>
-                    {gitEnabled && (
-                      <DropdownMenuItem
-                        onSelect={(event) => guardMenuAction(event, async () => {
-                          try {
-                            const r = await ignoreDocument({ id: node.id })
-                            const added = (r as any).added ?? 0
-                            toast.success(`Ignored in Git (${added} pattern${added === 1 ? '' : 's'})`)
-                          } catch (e: any) {
-                            toast.error(`Failed to ignore: ${e?.message || e}`)
-                          }
-                        })}
-                      >
-                        <Ban className="h-4 w-4 mr-2" />Ignore in Git
-                      </DropdownMenuItem>
-                    )}
                     {!isArchived && (
                       <DropdownMenuItem
                         onSelect={(event) => guardMenuAction(event, handleArchive)}
@@ -679,7 +660,6 @@ export const FileNode = memo(function FileNode({
   prev.isSelected === next.isSelected &&
   prev.isDragging === next.isDragging &&
   prev.isDropTarget === next.isDropTarget &&
-  prev.gitEnabled === next.gitEnabled &&
   (prev.conflict?.path || null) === (next.conflict?.path || null)
 ))
 

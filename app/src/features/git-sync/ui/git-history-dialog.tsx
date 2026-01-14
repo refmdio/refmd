@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { GitCommit as GitCommitIcon, RefreshCw, User, Clock, AlignLeft, Columns2 } from 'lucide-react'
 import React from 'react'
 
-import type { GitCommitItem, TextDiffLineType, TextDiffResult } from '@/shared/api'
 import { useIsMobile } from '@/shared/hooks/use-mobile'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
@@ -12,7 +11,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/shared/ui/di
 import { DiffViewer } from '@/shared/ui/diff-viewer'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 
-import { getHistory, getCommitDiff } from '@/entities/git'
+import { useAuthContext } from '@/features/auth'
+import {
+  getHistory,
+  getCommitDiff,
+  type GitCommitItem,
+  type TextDiffLineType,
+  type TextDiffResult,
+} from '@/features/git-sync'
 
 import { FileExpander } from './file-expander'
 
@@ -25,6 +31,7 @@ const DIFF_LINE_TYPE = {
 
 export default function GitHistoryDialog({ open, onOpenChange }: Props) {
   const qc = useQueryClient()
+  const { activeWorkspaceId } = useAuthContext()
   const [selectedCommit, setSelectedCommit] = React.useState<GitCommitItem | null>(null)
   const [commitDiffs, setCommitDiffs] = React.useState<TextDiffResult[]>([])
   const [diffLoading, setDiffLoading] = React.useState(false)
@@ -34,16 +41,16 @@ export default function GitHistoryDialog({ open, onOpenChange }: Props) {
   const isMobile = useIsMobile()
   const [mobileView, setMobileView] = React.useState<'list' | 'detail'>('list')
   React.useEffect(() => {
-    if (open) {
-      try { qc.removeQueries({ queryKey: ['git-history'] }) } catch {}
-      qc.prefetchQuery({ queryKey: ['git-history'], queryFn: () => getHistory() })
+    if (open && activeWorkspaceId) {
+      try { qc.removeQueries({ queryKey: ['git-history', activeWorkspaceId] }) } catch {}
+      qc.prefetchQuery({ queryKey: ['git-history', activeWorkspaceId], queryFn: () => getHistory(activeWorkspaceId) })
     }
-  }, [open, qc])
+  }, [open, qc, activeWorkspaceId])
 
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: ['git-history'],
-    queryFn: () => getHistory(),
-    enabled: open,
+    queryKey: ['git-history', activeWorkspaceId],
+    queryFn: () => activeWorkspaceId ? getHistory(activeWorkspaceId) : [],
+    enabled: open && !!activeWorkspaceId,
     refetchOnMount: 'always',
     staleTime: 0,
     retry: false,
@@ -66,15 +73,16 @@ export default function GitHistoryDialog({ open, onOpenChange }: Props) {
     }
   }, [isMobile, selectedCommit])
 
-  const commits: GitCommitItem[] = data?.commits ?? []
+  const commits: GitCommitItem[] = data ?? []
 
   const fetchCommitDiffs = React.useCallback(async (commit: GitCommitItem) => {
+    if (!activeWorkspaceId) return
     try {
       setDiffLoading(true)
       setDiffError(null)
       setCommitDiffs([])
       const parent = commit.hash + '^'
-      const r = await getCommitDiff({ _from: parent, to: commit.hash })
+      const r = await getCommitDiff(activeWorkspaceId, parent, commit.hash)
       setCommitDiffs(r)
       setExpanded(new Set(r.map((d) => d.file_path)))
     } catch (e: any) {
@@ -82,7 +90,7 @@ export default function GitHistoryDialog({ open, onOpenChange }: Props) {
     } finally {
       setDiffLoading(false)
     }
-  }, [])
+  }, [activeWorkspaceId])
 
   const selectCommit = React.useCallback(
     (commit: GitCommitItem) => {
@@ -116,7 +124,7 @@ export default function GitHistoryDialog({ open, onOpenChange }: Props) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => qc.invalidateQueries({ queryKey: ['git-history'] })}
+          onClick={() => qc.invalidateQueries({ queryKey: ['git-history', activeWorkspaceId] })}
           disabled={isLoading}
         >
           <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />

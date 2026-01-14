@@ -5,7 +5,6 @@ use tracing::{error, info};
 
 use application::core::ports::storage::storage_projection_queue::StorageProjectionQueue;
 use application::core::ports::storage::storage_reconcile_jobs::StorageReconcileJobs;
-use application::git::ports::git_rebuild_job_queue::GitRebuildJobQueue;
 use application::plugins::ports::plugin_asset_store::PluginAssetStore;
 use infrastructure::core::db::PgPool;
 use presentation::context::AppContext;
@@ -21,7 +20,6 @@ type AppRuntimeParts = (
     Jobs,
     Arc<dyn StorageProjectionQueue>,
     Arc<dyn StorageReconcileJobs>,
-    Arc<dyn GitRebuildJobQueue>,
     Arc<dyn PluginAssetStore>,
 );
 
@@ -36,7 +34,6 @@ impl AppRuntime {
             self.jobs,
             self.storage_job_queue,
             self.storage_reconcile_jobs,
-            self.git_rebuild_jobs,
             self.plugin_assets,
         )
     }
@@ -50,7 +47,6 @@ impl AppRuntime {
             mut jobs,
             storage_job_queue: _,
             storage_reconcile_jobs: _,
-            git_rebuild_jobs: _,
             plugin_assets: _,
         } = self;
 

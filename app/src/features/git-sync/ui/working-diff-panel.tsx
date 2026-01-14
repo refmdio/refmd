@@ -1,14 +1,18 @@
 import { RefreshCw, GitBranch, AlignLeft, Columns2 } from 'lucide-react'
 import React from 'react'
 
-import type { TextDiffLineType, TextDiffResult } from '@/shared/api'
 import { cn } from '@/shared/lib/utils'
 import { Alert, AlertDescription } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { DiffViewer } from '@/shared/ui/diff-viewer'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 
-import { getWorkingDiff } from '@/entities/git'
+import { useAuthContext } from '@/features/auth'
+import {
+  getWorkingDiff,
+  type TextDiffLineType,
+  type TextDiffResult,
+} from '@/features/git-sync'
 
 import { FileExpander } from './file-expander'
 
@@ -32,6 +36,7 @@ function getStats(diff: TextDiffResult): { additions: number; deletions: number 
 }
 
 export function WorkingDiffPanel({ documentPath, className }: Props) {
+  const { activeWorkspaceId } = useAuthContext()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [diffs, setDiffs] = React.useState<TextDiffResult[]>([])
@@ -39,10 +44,11 @@ export function WorkingDiffPanel({ documentPath, className }: Props) {
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
 
   const load = React.useCallback(async () => {
+    if (!activeWorkspaceId) return
     try {
       setLoading(true)
       setError(null)
-      const r = await getWorkingDiff()
+      const r = await getWorkingDiff(activeWorkspaceId)
       setDiffs(r)
       if (documentPath) {
         const match = r.filter((d) => d.file_path === documentPath).map((d) => d.file_path)
@@ -54,7 +60,7 @@ export function WorkingDiffPanel({ documentPath, className }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [documentPath])
+  }, [documentPath, activeWorkspaceId])
 
   React.useEffect(() => { load() }, [load])
 

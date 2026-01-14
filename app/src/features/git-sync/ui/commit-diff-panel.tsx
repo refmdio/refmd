@@ -1,14 +1,18 @@
 import { RefreshCw } from 'lucide-react'
 import React from 'react'
 
-import type { TextDiffLineType, TextDiffResult } from '@/shared/api'
 import { cn } from '@/shared/lib/utils'
 import { Alert, AlertDescription } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { DiffViewer } from '@/shared/ui/diff-viewer'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 
-import { fetchCommitDiff } from '@/entities/git'
+import { useAuthContext } from '@/features/auth'
+import {
+  getCommitDiff,
+  type TextDiffLineType,
+  type TextDiffResult,
+} from '@/features/git-sync'
 
 import { FileExpander } from './file-expander'
 
@@ -32,6 +36,7 @@ function getStats(diff: TextDiffResult): { additions: number; deletions: number 
 }
 
 export function CommitDiffPanel({ commitId, className }: Props) {
+  const { activeWorkspaceId } = useAuthContext()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [diffs, setDiffs] = React.useState<TextDiffResult[]>([])
@@ -39,11 +44,12 @@ export function CommitDiffPanel({ commitId, className }: Props) {
   const [viewMode, setViewMode] = React.useState<ViewMode>('unified')
 
   const load = React.useCallback(async () => {
+    if (!activeWorkspaceId) return
     try {
       setLoading(true)
       setError(null)
       const parent = commitId + '^'
-      const r = await fetchCommitDiff(parent, commitId)
+      const r = await getCommitDiff(activeWorkspaceId, parent, commitId)
       setDiffs(r)
       setExpanded(new Set(r.map((d) => d.file_path)))
     } catch (e: any) {
@@ -52,7 +58,7 @@ export function CommitDiffPanel({ commitId, className }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [commitId])
+  }, [commitId, activeWorkspaceId])
 
   React.useEffect(() => { load() }, [load])
 

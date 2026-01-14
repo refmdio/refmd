@@ -62,6 +62,12 @@ pub fn decrypt_string(secret: &str, ciphertext: &str) -> anyhow::Result<String> 
 pub fn encrypt_auth_data(secret: &str, auth_data: &serde_json::Value) -> serde_json::Value {
     match auth_data {
         serde_json::Value::Object(map) => {
+            // Check if this is E2EE encrypted data from client
+            // If e2ee: true, store as-is without server-side encryption
+            if map.get("e2ee").and_then(|v| v.as_bool()).unwrap_or(false) {
+                return auth_data.clone();
+            }
+
             let mut out = serde_json::Map::new();
             for (k, v) in map {
                 if (k == "token" || k == "private_key" || k == "passphrase") && v.is_string() {

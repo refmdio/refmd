@@ -9,7 +9,6 @@ use crate::core::ports::storage::storage_projection_queue::{
 use crate::documents::ports::document_repository::DocumentRepository;
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::git::ports::git_repository::GitRepository;
-use crate::git::ports::git_workspace::GitWorkspacePort;
 use crate::identity::ports::user_repository::UserRepository;
 use crate::plugins::ports::plugin_asset_store::PluginAssetStore;
 use crate::plugins::ports::plugin_installation_repository::PluginInstallationRepository;
@@ -18,14 +17,13 @@ use domain::access::permissions::PermissionSet;
 use domain::documents::doc_type::DocumentType;
 use domain::plugins::scope::{PluginRecordScope, PluginScope};
 
-pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
+pub struct DeleteAccount<'a, UR, DR, PIR, PR, GR, SJ, FR>
 where
     UR: UserRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
     PIR: PluginInstallationRepository + ?Sized,
     PR: PluginRepository + ?Sized,
     GR: GitRepository + ?Sized,
-    GW: GitWorkspacePort + ?Sized,
     SJ: StorageProjectionQueue + ?Sized,
     FR: FilesRepository + ?Sized,
 {
@@ -35,19 +33,17 @@ where
     pub plugin_repo: &'a PR,
     pub plugin_assets: Arc<dyn PluginAssetStore>,
     pub git_repo: &'a GR,
-    pub git_workspace: &'a GW,
     pub storage_jobs: &'a SJ,
     pub files_repo: &'a FR,
 }
 
-impl<'a, UR, DR, PIR, PR, GR, GW, SJ, FR> DeleteAccount<'a, UR, DR, PIR, PR, GR, GW, SJ, FR>
+impl<'a, UR, DR, PIR, PR, GR, SJ, FR> DeleteAccount<'a, UR, DR, PIR, PR, GR, SJ, FR>
 where
     UR: UserRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
     PIR: PluginInstallationRepository + ?Sized,
     PR: PluginRepository + ?Sized,
     GR: GitRepository + ?Sized,
-    GW: GitWorkspacePort + ?Sized,
     SJ: StorageProjectionQueue + ?Sized,
     FR: FilesRepository + ?Sized,
 {
@@ -148,12 +144,8 @@ where
             }
         }
 
-        self.git_repo.delete_sync_logs(user_id).await?;
-        if let Err(err) = self.git_workspace.remove_repository(user_id).await {
-            tracing::warn!(user_id = %user_id, error = ?err, "failed to remove git workspace during account deletion");
-        }
+        // Delete git config (git repository data is stored client-side in IndexedDB for E2EE)
         let _ = self.git_repo.delete_config(user_id).await?;
-        self.git_repo.delete_repository_state(user_id).await?;
 
         let deleted = self.user_repo.delete_user(user_id).await?;
         anyhow::ensure!(deleted, "user not found");

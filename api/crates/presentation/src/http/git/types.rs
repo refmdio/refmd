@@ -1,29 +1,10 @@
 use application::core::services::errors::ServiceError;
-use application::git::dtos::UpsertGitConfigInput;
-use application::git::dtos::{
-    GitChangeItem as GitChangeDto, GitCommitInfo, GitConfigDto, GitPullConflictItemDto,
-    GitPullResolutionDto, GitPullSessionDto, GitStatusDto, GitignoreUpdateDto,
-};
+use application::git::dtos::{GitConfigDto, UpsertGitConfigInput};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 pub fn map_git_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "git_service_error")
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct GitignoreUpdateResponse {
-    pub added: usize,
-    pub patterns: Vec<String>,
-}
-
-impl From<GitignoreUpdateDto> for GitignoreUpdateResponse {
-    fn from(value: GitignoreUpdateDto) -> Self {
-        Self {
-            added: value.added,
-            patterns: value.patterns,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -36,6 +17,9 @@ pub struct GitConfigResponse {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub remote_check: Option<GitRemoteCheckResponse>,
+    /// E2EE encrypted auth data (only present for E2EE clients)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_auth_data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
@@ -66,6 +50,7 @@ impl From<GitConfigDto> for GitConfigResponse {
             created_at: d.created_at,
             updated_at: d.updated_at,
             remote_check: None,
+            encrypted_auth_data: d.encrypted_auth_data,
         }
     }
 }
@@ -87,212 +72,6 @@ impl From<CreateGitConfigRequest> for UpsertGitConfigInput {
             auth_type: r.auth_type,
             auth_data: r.auth_data,
             auto_sync: r.auto_sync,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UpdateGitConfigRequest {
-    pub repository_url: Option<String>,
-    pub branch_name: Option<String>,
-    pub auth_type: Option<String>,
-    pub auth_data: Option<serde_json::Value>,
-    pub auto_sync: Option<bool>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct GitPullResolution {
-    pub path: String,
-    pub choice: String,
-    pub content: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct GitPullRequest {
-    pub resolutions: Option<Vec<GitPullResolution>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct GitPullConflictItem {
-    pub path: String,
-    pub is_binary: bool,
-    pub ours: Option<String>,
-    pub theirs: Option<String>,
-    pub base: Option<String>,
-    pub document_id: Option<uuid::Uuid>,
-}
-
-impl From<GitPullConflictItemDto> for GitPullConflictItem {
-    fn from(value: GitPullConflictItemDto) -> Self {
-        Self {
-            path: value.path,
-            is_binary: value.is_binary,
-            ours: value.ours,
-            theirs: value.theirs,
-            base: value.base,
-            document_id: value.document_id,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct GitPullResponse {
-    pub success: bool,
-    pub message: String,
-    pub files_changed: i32,
-    pub commit_hash: Option<String>,
-    pub conflicts: Option<Vec<GitPullConflictItem>>,
-    pub git_status: Option<GitStatus>,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct GitImportResponse {
-    pub success: bool,
-    pub message: String,
-    pub files_changed: i32,
-    pub commit_hash: Option<String>,
-    pub docs_created: i32,
-    pub attachments_created: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct GitPullSessionResponse {
-    pub session_id: uuid::Uuid,
-    pub status: String,
-    pub conflicts: Vec<GitPullConflictItem>,
-    pub resolutions: Vec<GitPullResolution>,
-    pub message: Option<String>,
-}
-
-impl From<GitPullSessionDto> for GitPullSessionResponse {
-    fn from(value: GitPullSessionDto) -> Self {
-        Self {
-            session_id: value.id,
-            status: value.status.as_str().to_string(),
-            conflicts: value.conflicts.into_iter().map(Into::into).collect(),
-            resolutions: value
-                .resolutions
-                .into_iter()
-                .map(|r| GitPullResolution {
-                    path: r.path,
-                    choice: r.choice,
-                    content: r.content,
-                })
-                .collect(),
-            message: value.message,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-pub struct GitStatus {
-    pub repository_initialized: bool,
-    pub has_remote: bool,
-    pub current_branch: Option<String>,
-    pub uncommitted_changes: u32,
-    pub untracked_files: u32,
-    pub last_sync: Option<chrono::DateTime<chrono::Utc>>,
-    pub last_sync_status: Option<String>,
-    pub last_sync_message: Option<String>,
-    pub last_sync_commit_hash: Option<String>,
-    pub sync_enabled: bool,
-}
-
-impl From<GitStatusDto> for GitStatus {
-    fn from(d: GitStatusDto) -> Self {
-        GitStatus {
-            repository_initialized: d.repository_initialized,
-            has_remote: d.has_remote,
-            current_branch: d.current_branch,
-            uncommitted_changes: d.uncommitted_changes,
-            untracked_files: d.untracked_files,
-            last_sync: d.last_sync,
-            last_sync_status: d.last_sync_status,
-            last_sync_message: d.last_sync_message,
-            last_sync_commit_hash: d.last_sync_commit_hash,
-            sync_enabled: d.sync_enabled,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct GitSyncRequest {
-    pub message: Option<String>,
-    pub force: Option<bool>,
-    pub full_scan: Option<bool>,
-    pub skip_push: Option<bool>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct GitSyncResponse {
-    pub success: bool,
-    pub message: String,
-    pub commit_hash: Option<String>,
-    pub files_changed: u32,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct GitChangeItem {
-    pub path: String,
-    pub status: String,
-}
-
-impl From<GitChangeDto> for GitChangeItem {
-    fn from(value: GitChangeDto) -> Self {
-        GitChangeItem {
-            path: value.path,
-            status: value.status,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct GitChangesResponse {
-    pub files: Vec<GitChangeItem>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct GitCommitItem {
-    pub hash: String,
-    pub message: String,
-    pub author_name: String,
-    pub author_email: String,
-    pub time: chrono::DateTime<chrono::Utc>,
-}
-
-impl From<GitCommitInfo> for GitCommitItem {
-    fn from(value: GitCommitInfo) -> Self {
-        GitCommitItem {
-            hash: value.hash,
-            message: value.message,
-            author_name: value.author_name,
-            author_email: value.author_email,
-            time: value.time,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct GitHistoryResponse {
-    pub commits: Vec<GitCommitItem>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct AddPatternsRequest {
-    pub patterns: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct CheckIgnoredRequest {
-    pub path: String,
-}
-
-impl From<GitPullResolution> for GitPullResolutionDto {
-    fn from(value: GitPullResolution) -> Self {
-        GitPullResolutionDto {
-            path: value.path,
-            choice: value.choice,
-            content: value.content,
         }
     }
 }

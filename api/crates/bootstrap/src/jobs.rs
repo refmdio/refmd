@@ -9,7 +9,6 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::git::GitRebuildStack;
 use application::core::services::storage::reconcile::StorageReconcileService;
 use application::core::services::storage::reconcile_scheduler::StorageReconcileScheduler;
 use application::core::services::worker::WorkerTick;
@@ -200,38 +199,6 @@ pub fn spawn_storage_ingest_worker(
     if spawn_background_tasks {
         jobs.spawn("storage_ingest_worker", async move {
             worker.run().await;
-        });
-    }
-}
-
-pub fn spawn_git_rebuild_jobs(
-    jobs: &mut Jobs,
-    spawn_background_tasks: bool,
-    rebuild: Option<GitRebuildStack>,
-) {
-    if !spawn_background_tasks {
-        return;
-    }
-    if let Some(rebuild) = rebuild {
-        let svc = rebuild.service.clone();
-        jobs.spawn("git_rebuild_worker", async move {
-            let idle = Duration::from_secs(1);
-            loop {
-                match svc.tick().await {
-                    Ok(WorkerTick::Processed) => continue,
-                    Ok(WorkerTick::Idle) => sleep(idle).await,
-                    Err(err) => {
-                        error!(error = ?err, "git_rebuild_worker_tick_failed");
-                        sleep(idle).await;
-                    }
-                }
-            }
-        });
-        jobs.spawn("git_rebuild_scheduler", async move {
-            loop {
-                rebuild.scheduler.tick().await;
-                sleep(rebuild.interval).await;
-            }
         });
     }
 }

@@ -31,11 +31,6 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: WorkspaceCommand,
     },
-    /// Git workspace helpers
-    Git {
-        #[command(subcommand)]
-        command: GitCommand,
-    },
     /// Plugin asset utilities
     Plugins {
         #[command(subcommand)]
@@ -123,11 +118,6 @@ pub(crate) enum JobsCommand {
         #[command(subcommand)]
         command: ReconcileCommand,
     },
-    /// Git rebuild job operations
-    GitRebuild {
-        #[command(subcommand)]
-        command: GitRebuildCommand,
-    },
 }
 
 #[derive(Subcommand)]
@@ -189,19 +179,6 @@ pub(crate) enum ReconcileCommand {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum GitRebuildCommand {
-    /// Print git rebuild queue metrics
-    Stats,
-    /// Enqueue a git rebuild job for a workspace
-    Enqueue {
-        #[arg(long)]
-        workspace_id: Uuid,
-        #[arg(long)]
-        actor_id: Option<Uuid>,
-    },
-}
-
-#[derive(Subcommand)]
 pub(crate) enum WorkspaceCommand {
     /// List all workspaces
     List,
@@ -257,25 +234,6 @@ pub(crate) enum ShareCommand {
         workspace_id: Uuid,
         #[arg(long)]
         token: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum GitCommand {
-    /// Show git workspace status summary
-    Status {
-        #[arg(long)]
-        workspace_id: Uuid,
-    },
-    /// List dirty changes tracked for a workspace
-    Changes {
-        #[arg(long)]
-        workspace_id: Uuid,
-    },
-    /// Remove git workspace data (DB + storage)
-    Remove {
-        #[arg(long)]
-        workspace_id: Uuid,
     },
 }
 

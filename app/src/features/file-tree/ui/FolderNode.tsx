@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Edit, Trash2, MoreHorizontal, Users, Share2, Link as LinkIcon, Ban, Archive, ArchiveRestore, Download } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, Edit, Trash2, MoreHorizontal, Users, Share2, Link as LinkIcon, Archive, ArchiveRestore, Download } from 'lucide-react'
 import React, { useState, useCallback, memo, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
@@ -15,7 +15,6 @@ import { SidebarMenuItem, SidebarMenuButton, SidebarMenuSub } from '@/shared/ui/
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { downloadDocumentFile, useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
-import { ignoreFolder } from '@/entities/git'
 
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
 
@@ -43,7 +42,6 @@ type FolderNodeProps = {
   onDragOver: (e: React.DragEvent, nodeId?: string, nodeType?: 'file' | 'folder') => void
   renderChildren?: () => React.ReactNode
   onShareFolder?: (node: DocumentNode) => void
-  gitEnabled?: boolean
 }
 
 export const FolderNode = memo(function FolderNode({
@@ -68,7 +66,6 @@ export const FolderNode = memo(function FolderNode({
   onDragOver,
   renderChildren,
   onShareFolder,
-  gitEnabled = false,
 }: FolderNodeProps) {
   const {
     sharedFolderIds,
@@ -434,19 +431,6 @@ export const FolderNode = memo(function FolderNode({
                   >
                     <Download className="h-4 w-4 mr-2" />Download Folder
                   </DropdownMenuItem>
-                  {!isShareMount && gitEnabled && (
-                    <DropdownMenuItem onSelect={(event) => guardMenuAction(event, async () => {
-                      try {
-                        const r = await ignoreFolder({ id: node.id })
-                        const added = (r as any).added ?? 0
-                        toast.success(`Folder ignored in Git (${added} pattern${added === 1 ? '' : 's'})`)
-                      } catch (e: any) {
-                        toast.error(`Failed to ignore: ${e?.message || e}`)
-                      }
-                    })}>
-                      <Ban className="h-4 w-4 mr-2" />Ignore Folder in Git
-                    </DropdownMenuItem>
-                  )}
                   {!isArchived && !isShareMount && (
                     <DropdownMenuItem
                       onSelect={(event) => guardMenuAction(event, handleArchive)}

@@ -11,10 +11,7 @@ use infrastructure::core::db::PgPool;
 
 use application::core::ports::storage::storage_ingest_queue::StorageIngestQueue;
 
-use crate::cli::{
-    GitRebuildCommand, IngestCommand, IngestKindArg, JobsCommand, ProjectionCommand,
-    ReconcileCommand,
-};
+use crate::cli::{IngestCommand, IngestKindArg, JobsCommand, ProjectionCommand, ReconcileCommand};
 use crate::deps::Deps;
 
 pub(crate) async fn handle(deps: &Deps, cmd: JobsCommand) -> Result<()> {
@@ -58,23 +55,6 @@ pub(crate) async fn handle(deps: &Deps, cmd: JobsCommand) -> Result<()> {
                 println!(
                     "enqueued reconcile job workspace={workspace_id} scope={}",
                     scope.trim()
-                );
-                Ok(())
-            }
-        },
-        JobsCommand::GitRebuild { command } => match command {
-            GitRebuildCommand::Stats => print_git_rebuild_stats(&deps.pool).await,
-            GitRebuildCommand::Enqueue {
-                workspace_id,
-                actor_id,
-            } => {
-                let permissions = PermissionSet::all().to_vec();
-                deps.git_rebuild_jobs
-                    .enqueue(workspace_id, actor_id, &permissions)
-                    .await?;
-                println!(
-                    "enqueued git rebuild workspace={} actor_id={:?}",
-                    workspace_id, actor_id
                 );
                 Ok(())
             }
@@ -196,48 +176,6 @@ async fn print_reconcile_stats(pool: &PgPool) -> Result<()> {
             (Utc::now() - ts).num_seconds()
         ),
         None => println!("storage_reconcile.oldest_pending_age_secs=-"),
-    }
-    Ok(())
-}
-
-async fn print_git_rebuild_stats(pool: &PgPool) -> Result<()> {
-    let row = sqlx::query(
-        r#"SELECT
-                COUNT(*) FILTER (WHERE locked_at IS NULL) AS pending,
-                COUNT(*) FILTER (WHERE locked_at IS NOT NULL) AS locked,
-                COUNT(*) FILTER (WHERE pending_retry) AS retrying,
-                COUNT(*) AS total,
-                MIN(updated_at) FILTER (WHERE locked_at IS NOT NULL) AS oldest_locked_at,
-                MIN(created_at) FILTER (WHERE locked_at IS NULL) AS oldest_pending_created
-            FROM git_rebuild_jobs"#,
-    )
-    .fetch_one(pool)
-    .await?;
-
-    let pending: i64 = row.try_get("pending").unwrap_or(0);
-    let locked: i64 = row.try_get("locked").unwrap_or(0);
-    let retrying: i64 = row.try_get("retrying").unwrap_or(0);
-    let total: i64 = row.try_get("total").unwrap_or(0);
-    let oldest_locked_at: Option<DateTime<Utc>> = row.try_get("oldest_locked_at").ok();
-    let oldest_pending: Option<DateTime<Utc>> = row.try_get("oldest_pending_created").ok();
-
-    println!("git_rebuild.total={total}");
-    println!("git_rebuild.pending={pending}");
-    println!("git_rebuild.locked={locked}");
-    println!("git_rebuild.retrying={retrying}");
-    match oldest_pending {
-        Some(ts) => println!(
-            "git_rebuild.oldest_pending_age_secs={}",
-            (Utc::now() - ts).num_seconds()
-        ),
-        None => println!("git_rebuild.oldest_pending_age_secs=-"),
-    }
-    match oldest_locked_at {
-        Some(ts) => println!(
-            "git_rebuild.oldest_locked_age_secs={}",
-            (Utc::now() - ts).num_seconds()
-        ),
-        None => println!("git_rebuild.oldest_locked_age_secs=-"),
     }
     Ok(())
 }

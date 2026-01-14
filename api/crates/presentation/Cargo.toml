@@ -10,6 +10,7 @@ contracts = { path = "../contracts", features = ["openapi"] }
 
 anyhow = "1"
 base64 = "0.22"
+bytes = "1"
 axum = { version = "0.7", features = ["macros", "json", "multipart", "ws"] }
 http = "1"
 serde = { version = "1.0", features = ["derive"] }
@@ -20,6 +21,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde", "clock"] }
 futures-util = { version = "0.3", features = ["sink"] }
 rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+ssh2 = "0.9"
 utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
 yrs = { version = "0.24", features = ["sync"] }
 yrs-warp = "0.9"

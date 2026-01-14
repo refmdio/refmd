@@ -4,7 +4,7 @@ import { Archive, Building2, Check, ChevronDown, ChevronRight, FileText, Github,
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-import type { GitPullConflictItem, WorkspaceMembershipResponse } from '@/shared/api'
+import type { WorkspaceMembershipResponse } from '@/shared/api'
 import { useShortcut } from '@/shared/hooks/use-shortcut'
 import { dispatchOpenPreviewTile } from '@/shared/lib/mosaic-events'
 import { overlayMenuClass, overlayPanelClass } from '@/shared/lib/overlay-classes'
@@ -19,7 +19,6 @@ import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGrou
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { downloadWorkspaceArchive } from '@/entities/document'
-import { getPullSession } from '@/entities/git'
 
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext } from '@/features/edit-document'
@@ -32,8 +31,8 @@ import {
 import { useFileTreeDrag } from '@/features/file-tree/lib/useFileTreeDrag'
 import FileNode from '@/features/file-tree/ui/FileNode'
 import FolderNode from '@/features/file-tree/ui/FolderNode'
-import { GitSyncButton } from '@/features/git-sync'
-import { GIT_CONFLICT_EVENT, readConflicts, readSessionId, setConflicts as setGlobalConflicts, setSessionId, clearSession, clearResolutions } from '@/features/git-sync/lib/git-conflict-store'
+import { GitSyncButton, type ConflictItem } from '@/features/git-sync'
+import { GIT_CONFLICT_EVENT, readConflicts } from '@/features/git-sync/lib/git-conflict-store'
 import { ShareDialog } from '@/features/sharing'
 import {
   TEMPORARY_DOCUMENT_TTL_MS,
@@ -266,8 +265,7 @@ function FileTreeInner() {
   const [temporaryEntries, setTemporaryEntries] = useState<TemporaryDocumentMeta[]>([])
   const [shareFolderId, setShareFolderId] = useState<string | null>(null)
   const [workspaceDownloadPending, setWorkspaceDownloadPending] = useState(false)
-  const [gitConflicts, setGitConflicts] = useState<GitPullConflictItem[]>(() => readConflicts())
-  const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
+  const [gitConflicts, setGitConflicts] = useState<ConflictItem[]>(() => readConflicts())
   const openTemporaryDocument = useCallback(() => {
     if (typeof window === 'undefined') return
     const entry = createTemporaryDocumentEntry()
@@ -279,7 +277,7 @@ function FileTreeInner() {
   const refreshTempEntries = useCallback(() => {
     if (typeof window === 'undefined') return [] as TemporaryDocumentMeta[]
     return listTemporaryDocuments()
-  }, [sessionId])
+  }, [])
   const clearAllTemporaries = useCallback(() => {
     const list = refreshTempEntries()
     list.forEach((entry) => deleteTemporaryDocumentEntry(entry.id))
@@ -347,53 +345,16 @@ function FileTreeInner() {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent)?.detail
       if (Array.isArray(detail)) {
-        setGitConflicts(detail as GitPullConflictItem[])
+        setGitConflicts(detail as ConflictItem[])
       } else {
         setGitConflicts(readConflicts())
       }
     }
-    const sessionHandler = () => setSessionIdState(readSessionId())
     window.addEventListener(GIT_CONFLICT_EVENT, handler as EventListener)
     window.addEventListener('storage', handler)
-    window.addEventListener('storage', sessionHandler)
     return () => {
       window.removeEventListener(GIT_CONFLICT_EVENT, handler as EventListener)
       window.removeEventListener('storage', handler)
-      window.removeEventListener('storage', sessionHandler)
-    }
-  }, [])
-
-  useEffect(() => {
-    const sid = sessionId ?? readSessionId()
-    if (!sid) return
-    let cancelled = false
-    const syncSession = () => {
-      getPullSession({ id: sid })
-        .then((session) => {
-          if (cancelled) return
-          if ((session as any)?.status === 'stale') {
-            clearSession()
-            clearResolutions()
-            setGitConflicts([])
-            return
-          }
-          if ((session as any)?.status === 'merged' && (session.conflicts ?? []).length === 0) {
-            clearSession()
-            clearResolutions()
-            setGitConflicts([])
-            return
-          }
-          setSessionId(session.session_id)
-          setGlobalConflicts(session.conflicts ?? [])
-          setGitConflicts(session.conflicts ?? [])
-        })
-        .catch(() => {})
-    }
-    syncSession()
-    const timer = window.setInterval(syncSession, 10000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
     }
   }, [])
 
@@ -491,7 +452,7 @@ function FileTreeInner() {
   }, [])
 
   const conflictForNode = useCallback(
-    (node: DocumentNode): GitPullConflictItem | null => {
+    (node: DocumentNode): ConflictItem | null => {
       if (node.type !== 'file') return null
       const targets = [normalizeConflictPath(node.path), normalizeConflictPath(node.desiredPath)].filter(Boolean)
       const names = new Set<string>()
@@ -506,7 +467,7 @@ function FileTreeInner() {
       })
       if (!targets.length && names.size === 0) return null
       for (const conflict of gitConflicts) {
-        if (conflict.document_id && conflict.document_id === node.id) {
+        if (conflict.documentId && conflict.documentId === node.id) {
           return conflict
         }
         const candidate = normalizeConflictPath(conflict.path)
@@ -829,7 +790,6 @@ function FileTreeInner() {
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
           renderChildren={undefined}
           onShareFolder={(folder) => setShareFolderId(folder.id)}
-          gitEnabled
         />
       )
     }
@@ -857,7 +817,6 @@ function FileTreeInner() {
         onDragOver={drag.handleDragOver}
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parent) }}
         pluginRules={fileTreeRules}
-        gitEnabled
         conflict={conflict}
       />
     )
@@ -892,7 +851,6 @@ function FileTreeInner() {
           onDrop={async (e, id) => { await drag.handleDrop(e, id, 'folder') }}
           renderChildren={() => node.children?.map((c) => renderNestedNode(c, node.id, depth + 1))}
           onShareFolder={(folder) => setShareFolderId(folder.id)}
-          gitEnabled
         />
       )
     }
@@ -916,7 +874,6 @@ function FileTreeInner() {
         onDragOver={drag.handleDragOver}
         onDrop={async (e, id, type) => { await handleDrop(e, id, type, parentId) }}
         pluginRules={fileTreeRules}
-        gitEnabled
         conflict={conflictForNode(node)}
       />
     )

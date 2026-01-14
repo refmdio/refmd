@@ -338,26 +338,9 @@ pub async fn build_runtime(
     }
 
     let crate::git::GitStack {
-        workspace: git_workspace,
         service: git_service,
         repo: git_repo,
-        rebuild,
-        rebuild_jobs: git_rebuild_jobs,
-    } = git::build_git_stack(
-        &cfg,
-        &pool,
-        storage_resolver.clone(),
-        snapshot_service_arc.clone(),
-        realtime_engine.clone(),
-        document_repo.clone(),
-        document_repo.clone(),
-        files_repo.clone(),
-        workspace_permissions.clone(),
-        metrics.clone(),
-    )
-    .await?;
-
-    jobs::spawn_git_rebuild_jobs(&mut jobs, spawn_background_tasks, rebuild);
+    } = git::build_git_stack(&cfg, &pool)?;
     let plugin_repo = Arc::new(
         infrastructure::plugins::db::repositories::plugin_repository_sqlx::SqlxPluginRepository::new(
             pool.clone(),
@@ -388,7 +371,6 @@ pub async fn build_runtime(
         plugin_repo.clone(),
         plugin_assets.clone(),
         git_repo.clone(),
-        git_workspace.clone(),
         storage_job_queue.clone(),
         workspace_service.clone(),
     ));
@@ -536,7 +518,6 @@ pub async fn build_runtime(
         jobs,
         storage_job_queue,
         storage_reconcile_jobs,
-        git_rebuild_jobs,
         plugin_assets,
     })
 }

@@ -12,14 +12,26 @@ impl<'a, R: GitRepository + ?Sized> GetGitConfig<'a, R> {
             .repo
             .get_config(workspace_id)
             .await?
-            .map(|record| GitConfigDto {
-                id: record.id,
-                repository_url: record.repository_url,
-                branch_name: record.branch_name,
-                auth_type: record.auth_type.as_str().to_string(),
-                auto_sync: record.auto_sync,
-                created_at: record.created_at,
-                updated_at: record.updated_at,
+            .map(|record| {
+                // Return encrypted_auth_data only for E2EE (when e2ee flag is present)
+                let encrypted_auth_data = record.auth_data.as_ref().and_then(|data| {
+                    if data.get("e2ee").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        Some(data.clone())
+                    } else {
+                        None
+                    }
+                });
+
+                GitConfigDto {
+                    id: record.id,
+                    repository_url: record.repository_url,
+                    branch_name: record.branch_name,
+                    auth_type: record.auth_type.as_str().to_string(),
+                    auto_sync: record.auto_sync,
+                    created_at: record.created_at,
+                    updated_at: record.updated_at,
+                    encrypted_auth_data,
+                }
             }))
     }
 }

@@ -1,16 +1,15 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { BookmarkPlus, Download, History } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
-import { ApiError, type GitPullConflictItem, type GitPullResolution } from '@/shared/api'
+import { ApiError } from '@/shared/api'
 import { useRealtime } from '@/shared/contexts/realtime-context'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import { Button } from '@/shared/ui/button'
 
 import { downloadDocumentFile, type DocumentDownloadFormat } from '@/entities/document'
-import { getPullSession } from '@/entities/git'
 import { createShareMount, shareMountsQuery } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
@@ -23,8 +22,8 @@ import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
 import { UnlockPrompt } from '@/features/e2ee'
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
-import { setConflicts as setGlobalConflicts, readResolutions, setResolutions, clearResolutions, readSessionId, setSessionId, clearSession, readConflicts, subscribeSessionId } from '@/features/git-sync/lib/git-conflict-store'
-import { performPullSession } from '@/features/git-sync/lib/pull-session-manager'
+import { setConflicts as setGlobalConflicts, readConflicts, clearAllConflicts, type ConflictItem } from '@/features/git-sync/lib/git-conflict-store'
+import { finalizeConflictResolution, resolveConflict, type ConflictResolution } from '@/features/git-sync'
 import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
 
 export type DocumentLoaderData = {
@@ -199,17 +198,17 @@ const buildHunkAnchors = (
 }
 
 const matchConflictToDoc = (
-  conflicts: GitPullConflictItem[],
+  conflicts: ConflictItem[],
   docPaths: Array<string | null | undefined>,
   docId: string,
-): GitPullConflictItem | null => {
+): ConflictItem | null => {
   if (conflicts.length === 0) return null
   const targets = docPaths
     .map((p) => normalizeConflictPath(p))
     .filter((p) => p.length > 0)
 
   for (const conflict of conflicts) {
-    if (conflict.document_id && conflict.document_id === docId) return conflict
+    if (conflict.documentId && conflict.documentId === docId) return conflict
   }
 
   for (const conflict of conflicts) {
@@ -278,7 +277,8 @@ function DocumentClient({
   const [showDownloadDialog, setShowDownloadDialog] = useState(false)
   const [downloadPending, setDownloadPending] = useState(false)
   const [savingShare, setSavingShare] = useState(false)
-  const [activeConflict, setActiveConflict] = useState<GitPullConflictItem | null>(null)
+  const [activeConflict, setActiveConflict] = useState<ConflictItem | null>(null)
+  const [resolutionPending, setResolutionPending] = useState(false)
   const [modifiedText, setModifiedText] = useState<string>('')
   const [previewContent, setPreviewContent] = useState<string>('')
   const [hasInteracted, setHasInteracted] = useState(false)
@@ -287,14 +287,8 @@ function DocumentClient({
   const [hunkChoices, setHunkChoices] = useState<Record<string, 'ours' | 'theirs'>>({})
   const [hunkDefaultSide, setHunkDefaultSide] = useState<'ours' | 'theirs'>('ours')
   const [hunkAnchors, setHunkAnchors] = useState<Array<{ hunkId: string; line: number }>>([])
-  const lastPayloadRef = useRef<GitPullResolution[]>([])
   const { status, doc, awareness, isReadOnly, error: realtimeError, needsE2EEUnlock, retryE2EECheck } = useCollaborativeDocument(id, shareToken)
   const hasDoc = Boolean(doc)
-  const [sessionId, setSessionIdState] = useState<string | null>(() => readSessionId())
-  useEffect(() => {
-    const unsubscribe = subscribeSessionId((sid) => setSessionIdState(sid))
-    return () => unsubscribe()
-  }, [])
   const anonIdentity = useMemo(() => {
     if (user) return null
     try {
@@ -317,7 +311,7 @@ function DocumentClient({
   const hasEditorSession = Boolean(doc && awareness)
 
   const setConflictsForDoc = useCallback(
-    (list: GitPullConflictItem[]) => {
+    (list: ConflictItem[]) => {
       const safeList = Array.isArray(list) ? list : []
       const existing = readConflicts()
       const unchanged =
@@ -357,31 +351,9 @@ function DocumentClient({
 
   useEffect(() => {
     if (!conflictMode) return
-    const fetchConflicts = async () => {
-      try {
-        if (sessionId) {
-          const session = await getPullSession({ id: sessionId })
-          if ((session as any)?.status === 'stale') {
-            clearSession()
-            clearResolutions()
-            lastPayloadRef.current = []
-            setConflictsForDoc([])
-            toast.error('Pull session expired. Please pull again.')
-            return
-          }
-          setSessionId(session.session_id)
-          setConflictsForDoc(session.conflicts ?? [])
-          setResolutions(session.resolutions ?? [])
-          return
-        }
-        // Fallback: hydrate from local store when session is not yet available.
-        setConflictsForDoc(readConflicts())
-      } catch (error) {
-        toast.error((error as any)?.body?.message || (error as any)?.message || 'Failed to load conflicts')
-      }
-    }
-    void fetchConflicts()
-  }, [conflictMode, setConflictsForDoc, sessionId])
+    // Load conflicts from client-side store
+    setConflictsForDoc(readConflicts())
+  }, [conflictMode, setConflictsForDoc])
 
   useEffect(() => {
     if (!segments.length) return
@@ -452,61 +424,40 @@ function DocumentClient({
       replace: true,
     })
     setConflictsForDoc([])
-    clearResolutions()
-    clearSession()
-    lastPayloadRef.current = []
+    clearAllConflicts()
     qc.invalidateQueries({ queryKey: ['git-status'] })
-  }, [id, navigate, qc])
-
-  const pullMutation = useMutation({
-    mutationFn: async (resolutions: GitPullResolution[]) =>
-      performPullSession(resolutions, { sessionId }),
-    onSuccess: (result) => {
-      setSessionIdState(result.sessionId ?? null)
-      setConflictsForDoc(result.conflicts)
-
-      if (result.status === 'stale') {
-        clearSession()
-        clearResolutions()
-        lastPayloadRef.current = []
-        toast.error('Pull session expired. Please pull again.')
-        return
-      }
-
-      const stillPending = matchConflictToDoc(result.conflicts, [loaderData?.path, loaderData?.desired_path], id)
-      if (result.status === 'conflicts') {
-        const payload = lastPayloadRef.current || []
-        if (payload.length) setResolutions(payload)
-        const message =
-          result.message ||
-          (stillPending
-            ? 'Resolution applied. Another conflict remains for this document.'
-            : 'Resolution applied. Another conflict remains.')
-        toast.success(message)
-        return
-      }
-
-      if (result.status === 'merged') {
-        clearResolutions()
-        lastPayloadRef.current = []
-        handleConflictResolved()
-        toast.success(result.message || 'Conflict resolved')
-        return
-      }
-
-      toast.error(result.message || 'Failed to apply resolution')
-    },
-  })
+  }, [id, navigate, qc, setConflictsForDoc])
 
   const submitResolution = useCallback(
-    (resolution: GitPullResolution) => {
-      const preserved = readResolutions().filter((r) => r.path !== resolution.path)
-      const payload = [...preserved, resolution]
-      setResolutions(payload)
-      lastPayloadRef.current = payload
-      pullMutation.mutate(payload)
+    async (resolution: ConflictResolution) => {
+      if (!activeConflict || !activeWorkspaceId) return
+
+      setResolutionPending(true)
+      try {
+        // Resolve the conflict with the chosen content
+        await resolveConflict(
+          activeWorkspaceId,
+          resolution,
+          activeConflict.ours,
+          activeConflict.theirs
+        )
+
+        // Finalize the resolution (creates merge commit and pushes)
+        const result = await finalizeConflictResolution(activeWorkspaceId)
+
+        if (result.success) {
+          toast.success(result.message || 'Conflict resolved')
+          handleConflictResolved()
+        } else {
+          toast.error(result.message || 'Failed to apply resolution')
+        }
+      } catch (error) {
+        toast.error((error as Error)?.message || 'Failed to apply resolution')
+      } finally {
+        setResolutionPending(false)
+      }
     },
-    [pullMutation],
+    [activeConflict, activeWorkspaceId, handleConflictResolved],
   )
 
   useEffect(() => {
@@ -659,20 +610,20 @@ function DocumentClient({
   )
 
   const handleApplyResolution = useCallback(
-    (choice: GitPullResolution['choice'], customContent?: string) => {
+    (choice: ConflictResolution['choice'], customContent?: string) => {
       if (!activeConflict) return
-      if (choice === 'custom_text' && !allResolved) {
+      if (choice === 'custom' && !allResolved) {
         toast.error('Resolve all hunks before applying.')
         return
       }
-      if (choice === 'custom_text' && !(customContent ?? modifiedText).trim()) {
+      if (choice === 'custom' && !(customContent ?? modifiedText).trim()) {
         toast.error('Add your merged content before applying.')
         return
       }
-      const resolution: GitPullResolution = {
+      const resolution: ConflictResolution = {
         path: activeConflict.path,
         choice,
-        content: choice === 'custom_text' ? customContent ?? modifiedText : undefined,
+        customContent: choice === 'custom' ? customContent ?? modifiedText : undefined,
       }
       submitResolution(resolution)
     },
@@ -691,7 +642,7 @@ function DocumentClient({
           setModifiedText(val)
           setPreviewContent(val)
         },
-        readOnly: pullMutation.isPending,
+        readOnly: resolutionPending,
         actions: !isBinaryConflict
           ? {
               onKeepMine: () => {
@@ -707,7 +658,7 @@ function DocumentClient({
                 setPreviewContent(theirsText)
               },
               onApplyMerged: () => {
-                handleApplyResolution('custom_text', modifiedText)
+                handleApplyResolution('custom', modifiedText)
               },
             }
           : undefined,
@@ -723,7 +674,7 @@ function DocumentClient({
               size="sm"
               variant="outline"
               className="rounded-full px-3"
-              disabled={pullMutation.isPending}
+              disabled={resolutionPending}
               onClick={() => applyGlobalChoice('ours')}
             >
               Keep mine
@@ -732,7 +683,7 @@ function DocumentClient({
               size="sm"
               variant="outline"
               className="rounded-full px-3"
-              disabled={pullMutation.isPending}
+              disabled={resolutionPending}
               onClick={() => applyGlobalChoice('theirs')}
             >
               Take remote
@@ -741,8 +692,8 @@ function DocumentClient({
               size="sm"
               variant="default"
               className="rounded-full px-3"
-              disabled={pullMutation.isPending || !allResolved}
-              onClick={() => handleApplyResolution('custom_text', modifiedText)}
+              disabled={resolutionPending || !allResolved}
+              onClick={() => handleApplyResolution('custom', modifiedText)}
             >
               Apply merge
             </Button>

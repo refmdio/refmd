@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 
-import type { GitPullConflictItem } from '@/shared/api'
+import type { ConflictItem } from '@/features/git-sync'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -10,14 +10,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  conflicts: GitPullConflictItem[]
+  conflicts: ConflictItem[]
   isLoading: boolean
   onRetry?: () => void
-  emptyWarning?: boolean
-  sessionId?: string | null
 }
 
-export default function GitPullDialog({ open, onOpenChange, conflicts, isLoading, onRetry, emptyWarning, sessionId }: Props) {
+export default function GitPullDialog({ open, onOpenChange, conflicts, isLoading, onRetry }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={cn('max-w-2xl', overlayPanelClass)}>
@@ -29,11 +27,6 @@ export default function GitPullDialog({ open, onOpenChange, conflicts, isLoading
           <DialogDescription>
             Remote is ahead. Choose whether to keep your version or the remote version for each file, then apply.
           </DialogDescription>
-          {sessionId ? (
-            <div className="mt-2 text-xs text-muted-foreground">
-              Session ID: <span className="font-mono text-foreground">{sessionId}</span>
-            </div>
-          ) : null}
         </DialogHeader>
 
         <div className="max-h-[50vh] space-y-3 overflow-auto pr-1">
@@ -46,15 +39,8 @@ export default function GitPullDialog({ open, onOpenChange, conflicts, isLoading
             <div className="flex items-center justify-between gap-3">
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">
-                  {emptyWarning
-                    ? 'Server reported conflicts but returned no list.'
-                    : 'No conflicts reported.'}
+                  No conflicts reported.
                 </p>
-                {emptyWarning ? (
-                  <p className="text-xs text-muted-foreground">
-                    Retry the pull to attempt fetching the conflict list. If it persists, check Git server logs.
-                  </p>
-                ) : null}
               </div>
               {onRetry ? (
                 <Button size="sm" variant="outline" onClick={onRetry}>
@@ -64,7 +50,7 @@ export default function GitPullDialog({ open, onOpenChange, conflicts, isLoading
             </div>
           ) : (
             conflicts.map((conflict) => {
-              const docId = conflict.document_id
+              const docId = conflict.documentId
               const conflictLink = docId ? { id: docId } : null
               return (
                 <div

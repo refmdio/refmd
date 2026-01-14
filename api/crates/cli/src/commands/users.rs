@@ -164,7 +164,6 @@ async fn delete_user(deps: &Deps, user_id: Uuid) -> Result<()> {
         plugin_repo: &deps.plugin_repo,
         plugin_assets: deps.plugin_assets.clone(),
         git_repo: &deps.git_repo,
-        git_workspace: deps.git_workspace.as_ref(),
         storage_jobs: deps.storage_jobs.as_ref(),
         files_repo: &deps.files_repo,
     };

@@ -13,10 +13,6 @@ export type ActiveShareItem = {
     url: string;
 };
 
-export type AddPatternsRequest = {
-    patterns: Array<string>;
-};
-
 export type ApiTokenCreateRequest = {
     name?: (string) | null;
 };
@@ -70,10 +66,6 @@ export type BacklinkInfo = {
 export type BacklinksResponse = {
     backlinks: Array<BacklinkInfo>;
     total_count: number;
-};
-
-export type CheckIgnoredRequest = {
-    path: string;
 };
 
 /**
@@ -411,114 +403,25 @@ export type GetContentResponse = {
     updates?: Array<EncryptedUpdateEntry> | null;
 };
 
-export type GitChangeItem = {
-    path: string;
-    status: string;
-};
-
-export type GitChangesResponse = {
-    files: Array<GitChangeItem>;
-};
-
-export type GitCommitItem = {
-    author_email: string;
-    author_name: string;
-    hash: string;
-    message: string;
-    time: string;
-};
-
 export type GitConfigResponse = {
     auth_type: string;
     auto_sync: boolean;
     branch_name: string;
     created_at: string;
+    /**
+     * E2EE encrypted auth data (only present for E2EE clients)
+     */
+    encrypted_auth_data?: unknown;
     id: string;
     remote_check?: ((GitRemoteCheckResponse) | null);
     repository_url: string;
     updated_at: string;
 };
 
-export type GitHistoryResponse = {
-    commits: Array<GitCommitItem>;
-};
-
-export type GitImportResponse = {
-    attachments_created: number;
-    commit_hash?: (string) | null;
-    docs_created: number;
-    files_changed: number;
-    message: string;
-    success: boolean;
-};
-
-export type GitPullConflictItem = {
-    base?: (string) | null;
-    document_id?: (string) | null;
-    is_binary: boolean;
-    ours?: (string) | null;
-    path: string;
-    theirs?: (string) | null;
-};
-
-export type GitPullRequest = {
-    resolutions?: Array<GitPullResolution> | null;
-};
-
-export type GitPullResolution = {
-    choice: string;
-    content?: (string) | null;
-    path: string;
-};
-
-export type GitPullResponse = {
-    commit_hash?: (string) | null;
-    conflicts?: Array<GitPullConflictItem> | null;
-    files_changed: number;
-    git_status?: ((GitStatus) | null);
-    message: string;
-    success: boolean;
-};
-
-export type GitPullSessionResponse = {
-    conflicts: Array<GitPullConflictItem>;
-    message?: (string) | null;
-    resolutions: Array<GitPullResolution>;
-    session_id: string;
-    status: string;
-};
-
 export type GitRemoteCheckResponse = {
     message: string;
     ok: boolean;
     reason?: (string) | null;
-};
-
-export type GitStatus = {
-    current_branch?: (string) | null;
-    has_remote: boolean;
-    last_sync?: (string) | null;
-    last_sync_commit_hash?: (string) | null;
-    last_sync_message?: (string) | null;
-    last_sync_status?: (string) | null;
-    repository_initialized: boolean;
-    sync_enabled: boolean;
-    uncommitted_changes: number;
-    untracked_files: number;
-};
-
-export type GitSyncRequest = {
-    force?: (boolean) | null;
-    full_scan?: (boolean) | null;
-    message?: (string) | null;
-    skip_push?: (boolean) | null;
-};
-
-export type GitSyncResponse = {
-    commit_hash?: (string) | null;
-    files_changed: number;
-    message: string;
-    success: boolean;
 };
 
 export type HealthResp = {
@@ -1177,14 +1080,6 @@ export type UpdateDocumentTagsRequest = {
     encryptedTags: Array<EncryptedTagInput>;
 };
 
-export type UpdateGitConfigRequest = {
-    auth_data?: unknown;
-    auth_type?: (string) | null;
-    auto_sync?: (boolean) | null;
-    branch_name?: (string) | null;
-    repository_url?: (string) | null;
-};
-
 export type UpdateMemberRoleRequest = {
     custom_role_id?: (string) | null;
     role_kind: string;
@@ -1733,8 +1628,6 @@ export type GetFileData = {
 
 export type GetFileResponse = (Blob | File);
 
-export type GetChangesResponse = (GitChangesResponse);
-
 export type GetConfigResponse = (((GitConfigResponse) | null));
 
 export type CreateOrUpdateConfigData = {
@@ -1744,100 +1637,6 @@ export type CreateOrUpdateConfigData = {
 export type CreateOrUpdateConfigResponse = (GitConfigResponse);
 
 export type DeleteConfigResponse = (void);
-
-export type DeinitRepositoryResponse = (unknown);
-
-export type GetCommitDiffData = {
-    /**
-     * From
-     */
-    _from: string;
-    /**
-     * To
-     */
-    to: string;
-};
-
-export type GetCommitDiffResponse = (Array<TextDiffResult>);
-
-export type GetWorkingDiffResponse = (Array<TextDiffResult>);
-
-export type CheckPathIgnoredData = {
-    requestBody: CheckIgnoredRequest;
-};
-
-export type CheckPathIgnoredResponse = (unknown);
-
-export type GetGitignorePatternsResponse = (unknown);
-
-export type AddGitignorePatternsData = {
-    requestBody: AddPatternsRequest;
-};
-
-export type AddGitignorePatternsResponse = (unknown);
-
-export type GetHistoryResponse = (GitHistoryResponse);
-
-export type IgnoreDocumentData = {
-    /**
-     * Document ID
-     */
-    id: string;
-};
-
-export type IgnoreDocumentResponse = (unknown);
-
-export type IgnoreFolderData = {
-    /**
-     * Folder ID
-     */
-    id: string;
-};
-
-export type IgnoreFolderResponse = (unknown);
-
-export type ImportRepositoryData = {
-    requestBody: CreateGitConfigRequest;
-};
-
-export type ImportRepositoryResponse = (GitImportResponse);
-
-export type InitRepositoryResponse = (unknown);
-
-export type PullRepositoryData = {
-    requestBody: GitPullRequest;
-};
-
-export type PullRepositoryResponse = (GitPullResponse);
-
-export type GetPullSessionData = {
-    id: string;
-};
-
-export type GetPullSessionResponse = (GitPullSessionResponse);
-
-export type FinalizePullSessionData = {
-    id: string;
-};
-
-export type FinalizePullSessionResponse = (GitPullResponse);
-
-export type ResolvePullSessionData = {
-    id: string;
-    requestBody: GitPullRequest;
-};
-
-export type ResolvePullSessionResponse = (GitPullSessionResponse);
-
-export type StartPullSessionResponse = (GitPullSessionResponse);
-
-export type GetStatusResponse = (GitStatus);
-
-export type SyncNowData = {
-    requestBody: GitSyncRequest;
-};
-
-export type SyncNowResponse = (GitSyncResponse);
 
 export type HealthResponse = (HealthResp);
 

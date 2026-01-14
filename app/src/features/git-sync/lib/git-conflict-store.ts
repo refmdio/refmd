@@ -1,17 +1,20 @@
-import type { GitPullConflictItem, GitPullResolution } from '@/shared/api'
+/**
+ * Git Conflict Store for E2EE Git Sync
+ *
+ * Client-side store for tracking git merge conflicts.
+ * No server-side sessions - everything is client-side.
+ */
+
+import type { ConflictItem } from './pull'
+export type { ConflictItem }
 import { getClientWorkspaceId } from '@/shared/api/client.config'
 
 export const GIT_CONFLICT_EVENT = 'refmd:git-conflicts-updated'
-export const GIT_SESSION_EVENT = 'refmd:git-session-updated'
 
-let currentConflicts: GitPullConflictItem[] = []
-let currentResolutions: GitPullResolution[] = []
-let currentSessionId: string | null = null
+let currentConflicts: ConflictItem[] = []
 let currentWorkspaceId: string | null = null
 
 const STORAGE_CONFLICTS_KEY = 'refmd:git-conflicts'
-const STORAGE_RESOLUTIONS_KEY = 'refmd:git-conflict-resolutions'
-const STORAGE_SESSION_KEY = 'refmd:git-conflict-session'
 
 type StoredArray<T> = { items: T[]; found: boolean }
 
@@ -26,10 +29,7 @@ const scopedKey = (base: string, workspaceId: string | null) => (workspaceId ? `
 const refreshWorkspaceState = () => {
   const workspaceId = normalizeWorkspaceId(getClientWorkspaceId())
   currentWorkspaceId = workspaceId
-  currentConflicts = loadScopedArray<GitPullConflictItem>(STORAGE_CONFLICTS_KEY, currentWorkspaceId).items
-  currentResolutions = loadScopedArray<GitPullResolution>(STORAGE_RESOLUTIONS_KEY, currentWorkspaceId).items
-  const sid = loadScopedArray<string>(STORAGE_SESSION_KEY, currentWorkspaceId)
-  currentSessionId = sid.items.length ? sid.items[0] : null
+  currentConflicts = loadScopedArray<ConflictItem>(STORAGE_CONFLICTS_KEY, currentWorkspaceId).items
 }
 
 const loadFromStorage = <T>(key: string): StoredArray<T> => {
@@ -58,7 +58,7 @@ const loadScopedArray = <T>(baseKey: string, workspaceId: string | null): Stored
   const scopedValue = loadFromStorage<T>(scoped)
   if (scopedValue.found) return scopedValue
 
-  // Do not leak legacy (unscoped) values into another workspace; only use legacy when no workspace is selected.
+  // Do not leak legacy (unscoped) values into another workspace
   if (workspaceId) return { items: [], found: false }
 
   return loadFromStorage<T>(baseKey)
@@ -69,63 +69,29 @@ if (typeof window !== 'undefined') {
   refreshWorkspaceState()
 }
 
-export const readConflicts = (): GitPullConflictItem[] => {
+export const readConflicts = (): ConflictItem[] => {
   refreshWorkspaceState()
   return currentConflicts.slice()
 }
-export const readResolutions = (): GitPullResolution[] => {
-  refreshWorkspaceState()
-  return currentResolutions.slice()
-}
-export const readSessionId = (): string | null => {
-  refreshWorkspaceState()
-  return currentSessionId
-}
 
-export const setConflicts = (conflicts: GitPullConflictItem[] | null | undefined) => {
+export const setConflicts = (conflicts: ConflictItem[] | null | undefined) => {
   refreshWorkspaceState()
   currentConflicts = Array.isArray(conflicts) ? conflicts.slice() : []
   persistStorage(scopedKey(STORAGE_CONFLICTS_KEY, currentWorkspaceId), currentConflicts)
-  // Clear resolutions if conflicts are cleared
-  if (!currentConflicts.length) {
-    setResolutions([])
-  }
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(GIT_CONFLICT_EVENT, { detail: currentConflicts }))
   }
 }
 
-export const setResolutions = (resolutions: GitPullResolution[] | null | undefined) => {
-  refreshWorkspaceState()
-  currentResolutions = Array.isArray(resolutions) ? resolutions.slice() : []
-  persistStorage(scopedKey(STORAGE_RESOLUTIONS_KEY, currentWorkspaceId), currentResolutions)
-}
-
-export const clearResolutions = () => setResolutions([])
-
-export const setSessionId = (sessionId: string | null) => {
-  refreshWorkspaceState()
-  currentSessionId = sessionId || null
-  persistStorage(scopedKey(STORAGE_SESSION_KEY, currentWorkspaceId), sessionId ? [sessionId] : [])
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(GIT_SESSION_EVENT, { detail: currentSessionId }))
-  }
-}
-
-export const clearSession = () => {
-  clearAllConflicts()
-}
-
 export const clearAllConflicts = () => {
   setConflicts([])
-  setSessionId(null)
 }
 
-export const subscribeConflicts = (handler: (items: GitPullConflictItem[]) => void) => {
+export const subscribeConflicts = (handler: (items: ConflictItem[]) => void) => {
   if (typeof window === 'undefined') return () => {}
   refreshWorkspaceState()
   const listener = (event: Event) => {
-    const detail = (event as CustomEvent<GitPullConflictItem[]>).detail || currentConflicts
+    const detail = (event as CustomEvent<ConflictItem[]>).detail || currentConflicts
     handler(detail)
   }
   const storageListener = () => {
@@ -137,25 +103,5 @@ export const subscribeConflicts = (handler: (items: GitPullConflictItem[]) => vo
   return () => {
     window.removeEventListener(GIT_CONFLICT_EVENT, listener)
     window.removeEventListener('storage', storageListener)
-  }
-}
-
-export const subscribeSessionId = (handler: (sessionId: string | null) => void) => {
-  if (typeof window === 'undefined') return () => {}
-  refreshWorkspaceState()
-  const storageListener = (event: StorageEvent) => {
-    refreshWorkspaceState()
-    if (event.key && event.key !== scopedKey(STORAGE_SESSION_KEY, currentWorkspaceId)) return
-    handler(readSessionId())
-  }
-  const eventListener = (event: Event) => {
-    const detail = (event as CustomEvent<string | null>).detail
-    handler(detail ?? readSessionId())
-  }
-  window.addEventListener('storage', storageListener)
-  window.addEventListener(GIT_SESSION_EVENT, eventListener)
-  return () => {
-    window.removeEventListener('storage', storageListener)
-    window.removeEventListener(GIT_SESSION_EVENT, eventListener)
   }
 }

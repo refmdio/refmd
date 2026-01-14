@@ -1,30 +1,18 @@
-use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::git::dtos::{GitConfigDto, UpsertGitConfigInput};
 use crate::git::ports::git_repository::GitRepository;
-use crate::git::ports::git_workspace::GitWorkspacePort;
-use crate::git::ports::gitignore_port::GitignorePort;
 use domain::git::auth::GitAuthType;
 use uuid::Uuid;
 
-pub struct UpsertGitConfig<'a, R, G, S, W>
+pub struct UpsertGitConfig<'a, R>
 where
     R: GitRepository + ?Sized,
-    G: GitignorePort + ?Sized,
-    S: StorageResolverPort + ?Sized,
-    W: GitWorkspacePort + ?Sized,
 {
     pub repo: &'a R,
-    pub storage: &'a S,
-    pub gitignore: &'a G,
-    pub workspace: &'a W,
 }
 
-impl<'a, R, G, S, W> UpsertGitConfig<'a, R, G, S, W>
+impl<'a, R> UpsertGitConfig<'a, R>
 where
     R: GitRepository + ?Sized,
-    G: GitignorePort + ?Sized,
-    S: StorageResolverPort + ?Sized,
-    W: GitWorkspacePort + ?Sized,
 {
     pub async fn execute(
         &self,
@@ -36,6 +24,7 @@ where
         if !auth_type.validate_repository_url(&req.repository_url) {
             anyhow::bail!("bad_request");
         }
+
         let record = self
             .repo
             .upsert_config(
@@ -47,11 +36,19 @@ where
                 req.auto_sync,
             )
             .await?;
-        self.workspace
-            .ensure_repository(workspace_id, &record.branch_name)
-            .await?;
-        let dir = self.storage.user_repo_dir(workspace_id);
-        let _ = self.gitignore.ensure_gitignore(&dir).await?;
+
+        // Return encrypted_auth_data only for E2EE (when e2ee flag is present)
+        let encrypted_auth_data = if req
+            .auth_data
+            .get("e2ee")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            Some(req.auth_data.clone())
+        } else {
+            None
+        };
+
         Ok(GitConfigDto {
             id: record.id,
             repository_url: record.repository_url,
@@ -60,6 +57,7 @@ where
             auto_sync: record.auto_sync,
             created_at: record.created_at,
             updated_at: record.updated_at,
+            encrypted_auth_data,
         })
     }
 }
