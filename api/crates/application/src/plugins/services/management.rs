@@ -27,9 +27,11 @@ pub struct PluginManifestItem {
     pub scope: PluginScope,
     pub mounts: Vec<String>,
     pub frontend: Value,
+    pub backend: Value,
     pub permissions: Vec<String>,
     pub config: Value,
     pub ui: Value,
+    pub renderers: Value,
     pub author: Option<String>,
     pub repository: Option<String>,
 }
@@ -433,6 +435,67 @@ impl PluginManagementService {
             None => Value::Null,
         };
 
+        // Build backend with signed WASM URL
+        let backend_value = manifest.get("backend");
+        let backend = match backend_value {
+            Some(v) => {
+                let wasm_path = v
+                    .get("wasm")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("backend/plugin.wasm");
+                let normalized = match normalize_manifest_path(wasm_path) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        warn!(error = ?err, plugin = id, version = version, "backend_wasm_path_invalid");
+                        return None;
+                    }
+                };
+                let signed = self.asset_signer.sign_url(
+                    signer_scope,
+                    id,
+                    version,
+                    &normalized,
+                    self.manifest_ttl_secs,
+                );
+                serde_json::json!({
+                    "wasm": signed,
+                })
+            }
+            None => Value::Null,
+        };
+
+        // Build renderers with signed hydrate URLs
+        let renderers = manifest
+            .get("renderers")
+            .and_then(|r| r.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|renderer| {
+                        let mut r = renderer.clone();
+                        if let Some(hydrate) = r.get_mut("hydrate") {
+                            if let Some(module) = hydrate.get("module").and_then(|m| m.as_str()) {
+                                // Normalize and sign the module path
+                                if let Ok(normalized) = normalize_manifest_path(module) {
+                                    let signed = self.asset_signer.sign_url(
+                                        signer_scope,
+                                        id,
+                                        version,
+                                        &normalized,
+                                        self.manifest_ttl_secs,
+                                    );
+                                    if let Some(obj) = hydrate.as_object_mut() {
+                                        obj.insert("module".to_string(), json!(signed));
+                                    }
+                                }
+                            }
+                        }
+                        Some(r)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .map(|v| json!(v))
+            .unwrap_or_else(|| json!([]));
+
         Some(PluginManifestItem {
             id: id.to_string(),
             name,
@@ -440,9 +503,11 @@ impl PluginManagementService {
             scope: scope.as_plugin_scope(),
             mounts,
             frontend,
+            backend,
             permissions,
             config,
             ui,
+            renderers,
             author,
             repository,
         })

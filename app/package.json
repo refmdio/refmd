@@ -24,6 +24,7 @@
     "@codemirror/search": "^6.5.11",
     "@codemirror/state": "^6.5.3",
     "@codemirror/view": "^6.39.9",
+    "@extism/extism": "2.0.0-rc13",
     "@isomorphic-git/lightning-fs": "^4.6.2",
     "@lezer/markdown": "^1.6.3",
     "@noble/curves": "^2.0.1",

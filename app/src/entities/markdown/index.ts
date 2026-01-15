@@ -8,10 +8,49 @@
  */
 
 import { renderMarkdown as localRenderMarkdown } from '@/features/markdown'
-import type { RenderManyRequest, RenderManyResponse, RenderRequest, RenderResponseBody } from '@/shared/api'
+
+// Types defined locally (previously from OpenAPI, now removed for E2EE)
+export interface RenderOptionsPayload {
+  flavor?: string | null
+  features?: string[] | null
+  hardbreaks?: boolean | null
+  theme?: string | null
+  doc_id?: string | null
+  token?: string | null
+  base_origin?: string | null
+  sanitize?: boolean | null
+  absolute_attachments?: boolean | null
+  placeholder_kinds?: string[] | null
+}
+
+export interface PlaceholderItemPayload {
+  kind: string
+  id: string
+  code: string
+}
+
+export interface RenderRequest {
+  text: string
+  options?: RenderOptionsPayload | null
+}
+
+export interface RenderResponseBody {
+  html: string
+  hash?: string | null
+  placeholders?: PlaceholderItemPayload[] | null
+}
+
+export interface RenderManyRequest {
+  items: RenderRequest[]
+}
+
+export interface RenderManyResponse {
+  items: RenderResponseBody[]
+}
 
 // Re-export types for compatibility
-export type { RenderRequest as MarkdownRenderRequest, RenderResponseBody as MarkdownRenderResponse } from '@/shared/api'
+export type MarkdownRenderRequest = RenderRequest
+export type MarkdownRenderResponse = RenderResponseBody
 
 /**
  * Render Markdown to HTML using client-side renderer
@@ -32,6 +71,7 @@ export async function renderMarkdown(request: RenderRequest): Promise<RenderResp
     baseOrigin: options.base_origin ?? undefined,
     sanitize: options.sanitize ?? undefined,
     absoluteAttachments: options.absolute_attachments ?? undefined,
+    placeholderKinds: options.placeholder_kinds ?? undefined,
   })
 
   return {

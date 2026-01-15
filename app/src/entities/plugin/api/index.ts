@@ -2,7 +2,6 @@ import {
   listRecords as apiListRecords,
   pluginsCreateRecord as apiPluginsCreateRecord,
   pluginsDeleteRecord as apiPluginsDeleteRecord,
-  pluginsExecAction as apiPluginsExecAction,
   pluginsGetKv as apiPluginsGetKv,
   pluginsGetManifest as apiPluginsGetManifest,
   pluginsInstallFromUrl as apiPluginsInstallFromUrl,
@@ -40,20 +39,7 @@ export async function getPluginManifest(token?: string): Promise<PluginManifestI
   return withShareAuthorization(token, () => apiPluginsGetManifest())
 }
 
-export async function execPluginAction(
-  pluginId: string,
-  action: string,
-  payload: Record<string, unknown> | undefined,
-  token?: string,
-) {
-  return withShareAuthorization(token, () =>
-    apiPluginsExecAction({
-      plugin: pluginId,
-      action,
-      requestBody: { payload },
-    }),
-  )
-}
+// execPluginAction removed: E2EE requires client-side WASM execution (see runtime.ts)
 
 export async function listPluginRecords(
   pluginId: string,

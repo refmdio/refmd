@@ -1,5 +1,5 @@
 mod assets;
-mod exec;
+// mod exec; // Removed: E2EE requires client-side WASM execution
 mod install;
 mod kv;
 mod manifest;
@@ -16,7 +16,7 @@ use axum::{
 use crate::context::AppContext;
 
 pub use assets::get_plugin_asset;
-pub use exec::exec_action;
+// pub use exec::exec_action; // Removed: E2EE requires client-side WASM execution
 pub use install::{install_from_url, uninstall};
 pub use kv::{get_kv_value, put_kv_value};
 pub use manifest::get_manifest;
@@ -26,7 +26,7 @@ pub use updates::sse_updates;
 
 pub mod openapi {
     pub use super::assets::*;
-    pub use super::exec::*;
+    // pub use super::exec::*; // Removed: E2EE requires client-side WASM execution
     pub use super::install::*;
     pub use super::kv::*;
     pub use super::manifest::*;
@@ -40,8 +40,8 @@ pub fn routes(ctx: AppContext) -> Router {
         .route("/me/plugins/manifest", get(get_manifest))
         // SSE updates (stubbed)
         .route("/me/plugins/updates", get(sse_updates))
-        // Generic exec endpoint
-        .route("/plugins/:plugin/exec/:action", post(exec_action))
+        // Plugin exec endpoint removed: E2EE requires client-side WASM execution
+        // .route("/plugins/:plugin/exec/:action", post(exec_action))
         .route("/me/plugins/install-from-url", post(install_from_url))
         .route("/me/plugins/uninstall", post(uninstall))
         // Generic records API

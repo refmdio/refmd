@@ -7,8 +7,10 @@ import { cn } from '@/shared/lib/utils'
 
 import { upgradeAll } from '@/entities/document/wc/markdown/hydrate-all'
 import { renderMarkdown } from '@/entities/markdown'
+import { usePluginManifest } from '@/entities/plugin'
 
 import { ImageModal } from '@/features/edit-document/ui/ImageModal'
+import { collectRendererSpecs, addPlaceholderHydration } from '@/features/markdown/lib/add-placeholder-hydration'
 import '@/entities/document/wc/wiki/wikilink'
 
 // Prism for client-side highlighting to match previous theme
@@ -53,8 +55,16 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
   const previousHtmlRef = useRef<string>('')
   const { theme } = useTheme()
   const highlightTheme = useMemo(
-    () => (theme === 'dark' ? 'OneHalfDark' : 'OneHalfLight'),
+    () => (theme === 'dark' ? 'one-dark-pro' : 'github-light'),
     [theme],
+  )
+
+  // Get plugin manifests for placeholder hydration
+  const { plugins } = usePluginManifest()
+  const rendererSpecs = useMemo(() => collectRendererSpecs(plugins), [plugins])
+  const placeholderKinds = useMemo(
+    () => [...new Set(rendererSpecs.map((s) => s.kind))],
+    [rendererSpecs]
   )
 
   const requestRef = useRef<any | null>(null)
@@ -92,6 +102,7 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
           doc_id: override as any,
           token: token as any,
           theme: highlightTheme as any,
+          placeholder_kinds: placeholderKinds.length > 0 ? placeholderKinds : undefined,
         } as any,
       })
 
@@ -100,7 +111,18 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
       try {
         const out = await promise
         if (latestKeyRef.current === requestKey) {
-          const nextHtml = out?.html || ''
+          let nextHtml = out?.html || ''
+
+          // Add hydration attributes to placeholders
+          const placeholders = out?.placeholders || []
+          if (placeholders.length > 0 && rendererSpecs.length > 0) {
+            nextHtml = addPlaceholderHydration(nextHtml, placeholders, rendererSpecs, {
+              theme: highlightTheme,
+              docId: override,
+              token,
+            })
+          }
+
           lastSuccessfulHtmlRef.current = nextHtml
           setHtml(nextHtml)
         }
@@ -120,7 +142,7 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
         }
       }
     },
-    [highlightTheme],
+    [highlightTheme, rendererSpecs, placeholderKinds],
   )
 
   useEffect(() => {

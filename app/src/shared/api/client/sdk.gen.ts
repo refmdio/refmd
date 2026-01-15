@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, OauthLoginData, OauthLoginResponse, OauthStateData, OauthStateResponse, ListOauthProvidersResponse, RefreshSessionResponse, RegisterData, RegisterResponse, ListSessionsResponse, RevokeSessionData, RevokeSessionResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, ListFilesData, ListFilesResponse, UploadFileData, UploadFileResponse2, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, PatchDocumentContentData, PatchDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, DuplicateDocumentData, DuplicateDocumentResponse, GetDocumentKeyData, GetDocumentKeyResponse, StoreDocumentKeyData, StoreDocumentKeyResponse, RotateDocumentKeyData, RotateDocumentKeyResponse2, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotData, GetDocumentSnapshotResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, GetDocumentTagsData, GetDocumentTagsResponse, UpdateDocumentTagsData, UpdateDocumentTagsResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, GetFileData, GetFileResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, HealthResponse, RenderMarkdownData, RenderMarkdownResponse, RenderMarkdownManyData, RenderMarkdownManyResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, MigrateToE2EeData, MigrateToE2EeResponse, NeedsMigrationResponse2, MarkE2EeSetupCompleteResponse, GetE2EeStatusResponse, GetMyPublicKeyResponse, RegisterPublicKeyData, RegisterPublicKeyResponse, GetMasterKeyBackupResponse, StoreMasterKeyBackupData, StoreMasterKeyBackupResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetEncryptedPrivateKeyResponse, StoreEncryptedPrivateKeyData, StoreEncryptedPrivateKeyResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetAssetData, PluginsGetAssetResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsExecActionData, PluginsExecActionResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListWorkspacePublicDocumentsData, ListWorkspacePublicDocumentsResponse, GetPublicByWorkspaceAndIdData, GetPublicByWorkspaceAndIdResponse, GetPublicContentByWorkspaceAndIdData, GetPublicContentByWorkspaceAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ListShareMountsResponse, CreateShareMountData, CreateShareMountResponse, DeleteShareMountData, DeleteShareMountResponse, GetShareSaltData, GetShareSaltResponse, ValidateShareTokenData, ValidateShareTokenResponse, GetShareKeyData, GetShareKeyResponse, StoreShareKeyData, StoreShareKeyResponse, StorePasswordProtectedShareKeyData, StorePasswordProtectedShareKeyResponse, GetShareSalt1Data, GetShareSalt1Response, DeleteShareData, DeleteShareResponse, EnqueueIngestEventsData, EnqueueIngestEventsResponse, ListTagsData, ListTagsResponse2, GetUserPublicKeyData, GetUserPublicKeyResponse, AcceptInvitationData, AcceptInvitationResponse2, ListWorkspacesResponse, CreateWorkspaceData, CreateWorkspaceResponse, GetWorkspaceDetailData, GetWorkspaceDetailResponse, UpdateWorkspaceData, UpdateWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, DownloadWorkspaceArchiveData, DownloadWorkspaceArchiveResponse, ListInvitationsData, ListInvitationsResponse, CreateInvitationData, CreateInvitationResponse, RevokeInvitationData, RevokeInvitationResponse, UpdateInvitationKekData, UpdateInvitationKekResponse, ListWorkspaceKeysData, ListWorkspaceKeysResponse, StoreWorkspaceKeyData, StoreWorkspaceKeyResponse, GetMyWorkspaceKeyData, GetMyWorkspaceKeyResponse, RotateWorkspaceKeyData, RotateWorkspaceKeyResponse2, GetWorkspaceKeyVersionData, GetWorkspaceKeyVersionResponse, DeleteKeyVersionData, DeleteKeyVersionResponse2, LeaveWorkspaceData, LeaveWorkspaceResponse, ListMembersData, ListMembersResponse, RemoveMemberData, RemoveMemberResponse, UpdateMemberRoleData, UpdateMemberRoleResponse, GetWorkspacePermissionsData, GetWorkspacePermissionsResponse, ListRolesData, ListRolesResponse, CreateRoleData, CreateRoleResponse, DeleteRoleData, DeleteRoleResponse, UpdateRoleData, UpdateRoleResponse, SwitchWorkspaceData, SwitchWorkspaceResponse2, AxumWsEntryData } from './types.gen';
+import type { LoginData, LoginResponse2, LogoutResponse, MeResponse, DeleteAccountResponse, OauthLoginData, OauthLoginResponse, OauthStateData, OauthStateResponse, ListOauthProvidersResponse, RefreshSessionResponse, RegisterData, RegisterResponse, ListSessionsResponse, RevokeSessionData, RevokeSessionResponse, ListDocumentsData, ListDocumentsResponse, CreateDocumentData, CreateDocumentResponse, ListFilesData, ListFilesResponse, UploadFileData, UploadFileResponse2, GetDocumentData, GetDocumentResponse, DeleteDocumentData, DeleteDocumentResponse, UpdateDocumentData, UpdateDocumentResponse, ArchiveDocumentData, ArchiveDocumentResponse, GetBacklinksData, GetBacklinksResponse, GetDocumentContentData, GetDocumentContentResponse, UpdateDocumentContentData, UpdateDocumentContentResponse, PatchDocumentContentData, PatchDocumentContentResponse, DownloadDocumentData, DownloadDocumentResponse, DuplicateDocumentData, DuplicateDocumentResponse, GetDocumentKeyData, GetDocumentKeyResponse, StoreDocumentKeyData, StoreDocumentKeyResponse, RotateDocumentKeyData, RotateDocumentKeyResponse2, GetOutgoingLinksData, GetOutgoingLinksResponse, ListDocumentSnapshotsData, ListDocumentSnapshotsResponse, GetDocumentSnapshotData, GetDocumentSnapshotResponse, GetDocumentSnapshotDiffData, GetDocumentSnapshotDiffResponse, DownloadDocumentSnapshotData, DownloadDocumentSnapshotResponse, RestoreDocumentSnapshotData, RestoreDocumentSnapshotResponse, GetDocumentTagsData, GetDocumentTagsResponse, UpdateDocumentTagsData, UpdateDocumentTagsResponse, UnarchiveDocumentData, UnarchiveDocumentResponse, GetFileData, GetFileResponse, GetConfigResponse, CreateOrUpdateConfigData, CreateOrUpdateConfigResponse, DeleteConfigResponse, HealthResponse, ListApiTokensResponse, CreateApiTokenData, CreateApiTokenResponse, RevokeApiTokenData, RevokeApiTokenResponse, MigrateToE2EeData, MigrateToE2EeResponse, NeedsMigrationResponse2, MarkE2EeSetupCompleteResponse, GetE2EeStatusResponse, GetMyPublicKeyResponse, RegisterPublicKeyData, RegisterPublicKeyResponse, GetMasterKeyBackupResponse, StoreMasterKeyBackupData, StoreMasterKeyBackupResponse, PluginsInstallFromUrlData, PluginsInstallFromUrlResponse, PluginsGetManifestResponse, PluginsUninstallData, PluginsUninstallResponse, SseUpdatesResponse, GetEncryptedPrivateKeyResponse, StoreEncryptedPrivateKeyData, StoreEncryptedPrivateKeyResponse, GetUserShortcutsResponse, UpdateUserShortcutsData, UpdateUserShortcutsResponse, PluginsGetAssetData, PluginsGetAssetResponse, PluginsGetKvData, PluginsGetKvResponse, PluginsPutKvData, PluginsPutKvResponse, ListRecordsData, ListRecordsResponse, PluginsCreateRecordData, PluginsCreateRecordResponse, PluginsDeleteRecordData, PluginsDeleteRecordResponse, PluginsUpdateRecordData, PluginsUpdateRecordResponse, GetPublishStatusData, GetPublishStatusResponse, PublishDocumentData, PublishDocumentResponse, UnpublishDocumentData, UnpublishDocumentResponse, ListWorkspacePublicDocumentsData, ListWorkspacePublicDocumentsResponse, GetPublicByWorkspaceAndIdData, GetPublicByWorkspaceAndIdResponse, GetPublicContentByWorkspaceAndIdData, GetPublicContentByWorkspaceAndIdResponse, CreateShareData, CreateShareResponse2, ListActiveSharesResponse, ListApplicableSharesData, ListApplicableSharesResponse, BrowseShareData, BrowseShareResponse, ListDocumentSharesData, ListDocumentSharesResponse, MaterializeFolderShareData, MaterializeFolderShareResponse, ListShareMountsResponse, CreateShareMountData, CreateShareMountResponse, DeleteShareMountData, DeleteShareMountResponse, GetShareSaltData, GetShareSaltResponse, ValidateShareTokenData, ValidateShareTokenResponse, GetShareKeyData, GetShareKeyResponse, StoreShareKeyData, StoreShareKeyResponse, StorePasswordProtectedShareKeyData, StorePasswordProtectedShareKeyResponse, GetShareSalt1Data, GetShareSalt1Response, DeleteShareData, DeleteShareResponse, EnqueueIngestEventsData, EnqueueIngestEventsResponse, ListTagsData, ListTagsResponse2, GetUserPublicKeyData, GetUserPublicKeyResponse, AcceptInvitationData, AcceptInvitationResponse2, ListWorkspacesResponse, CreateWorkspaceData, CreateWorkspaceResponse, GetWorkspaceDetailData, GetWorkspaceDetailResponse, UpdateWorkspaceData, UpdateWorkspaceResponse, DeleteWorkspaceData, DeleteWorkspaceResponse, DownloadWorkspaceArchiveData, DownloadWorkspaceArchiveResponse, ListInvitationsData, ListInvitationsResponse, CreateInvitationData, CreateInvitationResponse, RevokeInvitationData, RevokeInvitationResponse, UpdateInvitationKekData, UpdateInvitationKekResponse, ListWorkspaceKeysData, ListWorkspaceKeysResponse, StoreWorkspaceKeyData, StoreWorkspaceKeyResponse, GetMyWorkspaceKeyData, GetMyWorkspaceKeyResponse, RotateWorkspaceKeyData, RotateWorkspaceKeyResponse2, GetWorkspaceKeyVersionData, GetWorkspaceKeyVersionResponse, DeleteKeyVersionData, DeleteKeyVersionResponse2, LeaveWorkspaceData, LeaveWorkspaceResponse, ListMembersData, ListMembersResponse, RemoveMemberData, RemoveMemberResponse, UpdateMemberRoleData, UpdateMemberRoleResponse, GetWorkspacePermissionsData, GetWorkspacePermissionsResponse, ListRolesData, ListRolesResponse, CreateRoleData, CreateRoleResponse, DeleteRoleData, DeleteRoleResponse, UpdateRoleData, UpdateRoleResponse, SwitchWorkspaceData, SwitchWorkspaceResponse2, AxumWsEntryData } from './types.gen';
 
 /**
  * @param data The data for the request.
@@ -741,38 +741,6 @@ export const health = (): CancelablePromise<HealthResponse> => {
 };
 
 /**
- * @deprecated
- * @param data The data for the request.
- * @param data.requestBody
- * @returns RenderResponseBody
- * @throws ApiError
- */
-export const renderMarkdown = (data: RenderMarkdownData): CancelablePromise<RenderMarkdownResponse> => {
-    return __request(OpenAPI, {
-        method: 'POST',
-        url: '/api/markdown/render',
-        body: data.requestBody,
-        mediaType: 'application/json'
-    });
-};
-
-/**
- * @deprecated
- * @param data The data for the request.
- * @param data.requestBody
- * @returns RenderManyResponse
- * @throws ApiError
- */
-export const renderMarkdownMany = (data: RenderMarkdownManyData): CancelablePromise<RenderMarkdownManyResponse> => {
-    return __request(OpenAPI, {
-        method: 'POST',
-        url: '/api/markdown/render-many',
-        body: data.requestBody,
-        mediaType: 'application/json'
-    });
-};
-
-/**
  * @returns ApiTokenItem
  * @throws ApiError
  */
@@ -1140,27 +1108,6 @@ export const pluginsCreateRecord = (data: PluginsCreateRecordData): CancelablePr
             plugin: data.plugin,
             doc_id: data.docId,
             kind: data.kind
-        },
-        body: data.requestBody,
-        mediaType: 'application/json'
-    });
-};
-
-/**
- * @param data The data for the request.
- * @param data.plugin Plugin ID
- * @param data.action Action
- * @param data.requestBody
- * @returns ExecResultResponse
- * @throws ApiError
- */
-export const pluginsExecAction = (data: PluginsExecActionData): CancelablePromise<PluginsExecActionResponse> => {
-    return __request(OpenAPI, {
-        method: 'POST',
-        url: '/api/plugins/{plugin}/exec/{action}',
-        path: {
-            plugin: data.plugin,
-            action: data.action
         },
         body: data.requestBody,
         mediaType: 'application/json'

@@ -56,10 +56,11 @@ pub async fn build_api_router(cfg: &Config, ctx: AppContext) -> anyhow::Result<R
             presentation::http::documents::tagging::routes(ctx.clone()),
         )
         .nest("/api", presentation::http::git::routes(ctx.clone()))
-        .nest(
-            "/api",
-            presentation::http::core::markdown::routes(ctx.clone()),
-        )
+        // Markdown routes removed: E2EE requires client-side rendering
+        // .nest(
+        //     "/api",
+        //     presentation::http::core::markdown::routes(ctx.clone()),
+        // )
         .nest("/api", presentation::http::plugins::routes(ctx.clone()))
         .nest(
             "/api",

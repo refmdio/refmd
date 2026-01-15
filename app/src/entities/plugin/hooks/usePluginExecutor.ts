@@ -1,14 +1,18 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 
+import { getWasmRuntime } from '@/features/plugins/lib/wasm-runtime'
+import { loadPluginWasm, hasPluginWasm } from '@/features/plugins/lib/wasm-loader'
+import { handleEffects as handleEffectsFull } from '@/features/plugins/lib/effect-handler'
 import { API_BASE_URL } from '@/shared/lib/config'
 
-import { execPluginAction, getPluginKv } from '../api'
+import { getPluginKv } from '../api'
 import type { PluginManifestItem } from '../api'
 
 type Options = {
   plugins: PluginManifestItem[]
   shareToken?: string | null
+  workspaceId?: string | null
   refreshDocuments: () => void
   navigate: (to: string) => void
   getCurrentDocumentId: () => string | null
@@ -26,6 +30,7 @@ const uuidPattern = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}
 export function usePluginExecutor({
   plugins,
   shareToken,
+  workspaceId,
   refreshDocuments,
   navigate,
   getCurrentDocumentId,
@@ -190,8 +195,21 @@ export function usePluginExecutor({
               else toast(message)
             },
             api: {
-              exec: (actionName: string, payload: any) =>
-                execPluginAction(pluginId, actionName, payload, shareToken ?? undefined),
+              exec: async (actionName: string, payload: any) => {
+                const manifest = plugins.find((p) => p.id === pluginId)
+                if (!manifest) {
+                  throw new Error(`Plugin ${pluginId} manifest not found`)
+                }
+                if (!hasPluginWasm(manifest)) {
+                  throw new Error(`Plugin ${pluginId} has no WASM module`)
+                }
+                const runtime = getWasmRuntime()
+                if (!runtime.isLoaded(pluginId)) {
+                  const wasmUrl = await loadPluginWasm(pluginId, manifest)
+                  await runtime.loadPlugin(pluginId, wasmUrl)
+                }
+                return runtime.execute(pluginId, actionName, payload, { docId: null, userId: null })
+              },
             },
           }
 
@@ -215,58 +233,76 @@ export function usePluginExecutor({
             }
           }
 
-          handleEffects(result?.effects, navigate)
-          if (!result?.effects || result.effects.length === 0) {
-            toast.success('Action executed')
+          // Handle effects with full effect handler
+          if (result?.effects && result.effects.length > 0) {
+            await handleEffectsFull(result.effects, {
+              pluginId,
+              docId: selectedDocId || null,
+              workspaceId: workspaceId ?? null,
+              documentDEK: null,
+              token: shareToken ?? null,
+              navigate,
+            })
+          } else if (result?.ok === false && result?.error) {
+            toast.error(result.error.message || result.error.code || 'Action failed')
           }
           refreshDocuments()
           return
         }
 
-        let response = await execPluginAction(pluginId, action, defaultPayload, shareToken ?? undefined)
-        const errCode = (response as any)?.error?.code
-        const errMsg = String((response as any)?.error?.message || '')
+        // Fallback: use client-side WASM execution
+        const manifest = plugins.find((p) => p.id === pluginId)
+        if (!manifest) {
+          toast.error(`Plugin ${pluginId} not found`)
+          return
+        }
+        if (!hasPluginWasm(manifest)) {
+          toast.error(`Plugin ${pluginId} has no executable module`)
+          return
+        }
+        const runtime = getWasmRuntime()
+        if (!runtime.isLoaded(pluginId)) {
+          const wasmUrl = await loadPluginWasm(pluginId, manifest)
+          await runtime.loadPlugin(pluginId, wasmUrl)
+        }
+        let response = await runtime.execute(pluginId, action, defaultPayload, { docId: null, userId: null })
+        const errCode = response?.error?.code
+        const errMsg = String(response?.error?.message || '')
         if (errCode === 'BAD_REQUEST' && errMsg.toLowerCase().includes('docid')) {
           const input = await resolveRequestDocumentId()
           if (input) {
-            response = await execPluginAction(
+            response = await runtime.execute(
               pluginId,
               action,
               { ...(defaultPayload || {}), docId: input },
-              shareToken ?? undefined,
+              { docId: input, userId: null },
             )
           } else {
             toast.error('Select a document before running this command')
             return
           }
         }
-        handleEffects(response?.effects, navigate)
-        if (!response?.effects || response.effects.length === 0) {
-          toast.success('Action executed')
+        // Handle effects with full effect handler
+        const effectDocId = selectedDocId || null
+        if (response?.effects && response.effects.length > 0) {
+          await handleEffectsFull(response.effects, {
+            pluginId,
+            docId: effectDocId,
+            workspaceId: workspaceId ?? null,
+            documentDEK: null,
+            token: shareToken ?? null,
+            navigate,
+          })
+        } else if (response?.ok === false && response?.error) {
+          toast.error(response.error.message || response.error.code || 'Action failed')
         }
         refreshDocuments()
       } catch (err: any) {
         toast.error(err?.message || 'Failed to execute command')
       }
     },
-    [apiOrigin, getCurrentDocumentId, importPluginModule, navigate, refreshDocuments, resolveRequestDocumentId],
+    [apiOrigin, getCurrentDocumentId, importPluginModule, navigate, plugins, refreshDocuments, resolveRequestDocumentId, shareToken, workspaceId],
   )
 
   return { runPluginCommand, resolveDocRoute }
-}
-
-function handleEffects(effects: any[], navigate: (to: string) => void) {
-  if (!Array.isArray(effects)) return
-  for (const effect of effects) {
-    if (!effect || typeof effect !== 'object') continue
-    if (effect.type === 'navigate' && typeof effect.to === 'string') {
-      navigate(effect.to)
-    } else if (effect.type === 'showToast' && typeof effect.message === 'string') {
-      const level = effect.level || 'info'
-      if (level === 'success') toast.success(effect.message)
-      else if (level === 'warn' || level === 'warning') (toast as any).warning?.(effect.message) || toast(effect.message)
-      else if (level === 'error') toast.error(effect.message)
-      else toast(effect.message)
-    }
-  }
 }

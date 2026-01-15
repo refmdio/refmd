@@ -3,17 +3,15 @@
 import { toast } from 'sonner'
 
 import {
-  renderMarkdown,
-  renderMarkdownMany,
   uploadFile,
   me as fetchMe,
   OpenAPI,
   type ManifestItem,
 } from '@/shared/api'
+import { renderMarkdown, renderMarkdownMany } from '@/entities/markdown'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 
 import {
-  execPluginAction as apiExecPluginAction,
   getPluginKv as apiGetPluginKv,
   listPluginRecords as apiListPluginRecords,
   putPluginKv as apiPutPluginKv,
@@ -37,6 +35,10 @@ export type PluginHostContext = {
   setDocumentStatus?: (status?: string | null) => void
   setDocumentBadge?: (badge?: string | null) => void
   setDocumentActions?: (actions: DocumentHeaderAction[]) => void
+  /** Document DEK for E2EE encryption/decryption */
+  documentDEK?: Uint8Array | null
+  /** Workspace ID for E2EE key management */
+  workspaceId?: string | null
 }
 
 const pluginModuleCache = new Map<string, Promise<any>>()
@@ -163,6 +165,7 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
     }
     fallbackNavigate(target)
   }
+  const documentDEK = ctx.documentDEK ?? null
   const host = {
     exec: async (action: string, args: any = {}) => {
       const hostHandled = await executeHostAction(action, args, {
@@ -170,17 +173,51 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
         docId: resolvedDocId,
         token: resolvedToken,
         navigate: performNavigate,
+        documentDEK,
       })
       if (hostHandled) return hostHandled
 
-      const json = await apiExecPluginAction(
-        manifest.id,
-        action,
-        args,
-        resolvedToken ?? undefined,
-      )
-      if (json?.effects) applyEffects(json.effects, performNavigate)
-      return json
+      // Client-side WASM execution (E2EE compatible)
+      const { getWasmRuntime } = await import('./wasm-runtime')
+      const { loadPluginWasm, hasPluginWasm } = await import('./wasm-loader')
+      const { handleEffects } = await import('./effect-handler')
+
+      // Check if plugin has backend WASM
+      if (!hasPluginWasm(manifest)) {
+        return {
+          ok: false,
+          data: null,
+          effects: [],
+          error: { code: 'NO_BACKEND', message: `Plugin ${manifest.id} has no backend WASM` },
+        }
+      }
+
+      // Load WASM if not already loaded
+      const runtime = getWasmRuntime()
+      if (!runtime.isLoaded(manifest.id)) {
+        const wasmUrl = await loadPluginWasm(manifest.id, manifest)
+        await runtime.loadPlugin(manifest.id, wasmUrl)
+      }
+
+      // Execute action in client-side WASM
+      const result = await runtime.execute(manifest.id, action, args, {
+        docId: resolvedDocId,
+        userId: null,
+      })
+
+      // Handle effects (with E2EE encryption)
+      if (result.effects && result.effects.length > 0) {
+        await handleEffects(result.effects, {
+          pluginId: manifest.id,
+          docId: resolvedDocId,
+          workspaceId: ctx.workspaceId ?? null,
+          documentDEK,
+          token: resolvedToken,
+          navigate: performNavigate,
+        })
+      }
+
+      return result
     },
     navigate: performNavigate,
     toast: (level: string, message: string) => {
@@ -192,9 +229,9 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
     api: {
       me: () => fetchMe(),
       renderMarkdown: (text: string, options: any) =>
-        renderMarkdown({ requestBody: { text, options } }),
+        renderMarkdown({ text, options }),
       renderMarkdownMany: (items: Array<{ text: string; options: any }>) =>
-        renderMarkdownMany({ requestBody: { items } }),
+        renderMarkdownMany({ items }),
     },
     ui: {
       hydrateAttachments: async (root: Element) => {
@@ -413,32 +450,6 @@ function extractQueryParam(route: string, key: string) {
   }
 }
 
-function applyEffects(effects: any[], navigate?: (to: string) => void) {
-  for (const effect of effects || []) {
-    if (!effect || typeof effect !== 'object') continue
-    if (effect.type === 'navigate' && typeof effect.to === 'string') {
-      if (navigate) {
-        navigate(effect.to)
-      } else {
-        try {
-          window.history.pushState({}, '', effect.to)
-          window.dispatchEvent(new PopStateEvent('popstate'))
-        } catch {
-          window.location.href = effect.to
-        }
-      }
-    }
-    if (effect.type === 'showToast' && typeof effect.message === 'string') {
-      const level = effect.level || 'info'
-      if (level === 'success') toast.success(effect.message)
-      else if (level === 'warn' || level === 'warning')
-        toast.warning?.(effect.message) || toast(effect.message)
-      else if (level === 'error') toast.error(effect.message)
-      else toast(effect.message)
-    }
-  }
-}
-
 async function loadHostYjs() {
   if (!sharedYjsImport) {
     sharedYjsImport = import('yjs')
@@ -458,6 +469,8 @@ type HostActionContext = {
   docId: string | null
   token: string | null
   navigate: (to: string) => void
+  /** Document DEK for E2EE encryption/decryption */
+  documentDEK: Uint8Array | null
 }
 
 async function executeHostAction(
@@ -487,6 +500,13 @@ async function executeHostAction(
         if (typeof kind !== 'string' || !kind) throw fail('BAD_REQUEST', 'kind required')
         const token = (args?.token ?? ctx.token) || undefined
         const response = await apiListPluginRecords(ctx.pluginId, docId, kind, token)
+
+        // E2EE decryption
+        if (ctx.documentDEK && response?.items) {
+          const { decryptRecords } = await import('@/features/e2ee/lib/plugins')
+          const decryptedItems = await decryptRecords(response.items, ctx.documentDEK, ctx.pluginId)
+          return ok({ ...response, items: decryptedItems })
+        }
         return ok(response)
       }
       case 'host.kv.get': {
@@ -495,14 +515,28 @@ async function executeHostAction(
         if (typeof key !== 'string' || !key) throw fail('BAD_REQUEST', 'key required')
         const token = (args?.token ?? ctx.token) || undefined
         const response = await apiGetPluginKv(ctx.pluginId, docId, key, token)
+
+        // E2EE decryption
+        if (ctx.documentDEK && response?.value !== undefined) {
+          const { decryptKV } = await import('@/features/e2ee/lib/plugins')
+          const decryptedValue = await decryptKV(response.value, ctx.documentDEK, ctx.pluginId)
+          return ok({ ...response, value: decryptedValue })
+        }
         return ok(response)
       }
       case 'host.kv.put': {
         const docId = ensureDocId(args?.docId)
         const key = args?.key
         if (typeof key !== 'string' || !key) throw fail('BAD_REQUEST', 'key required')
-        const value = args?.value ?? null
+        let value = args?.value ?? null
         const token = (args?.token ?? ctx.token) || undefined
+
+        // E2EE encryption
+        if (ctx.documentDEK && value !== null) {
+          const { encryptKV } = await import('@/features/e2ee/lib/plugins')
+          value = await encryptKV(value, ctx.documentDEK, ctx.pluginId)
+        }
+
         const response = await apiPutPluginKv(ctx.pluginId, docId, key, value, token)
         return ok(response)
       }

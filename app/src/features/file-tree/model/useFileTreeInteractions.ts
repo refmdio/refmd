@@ -137,6 +137,7 @@ export function useFileTreeInteractions({
   const { runPluginCommand, resolveDocRoute } = usePluginExecutor({
     plugins,
     shareToken,
+    workspaceId,
     refreshDocuments,
     navigate: (to) => navigate({ to }),
     getCurrentDocumentId: getSelectedDocumentId,

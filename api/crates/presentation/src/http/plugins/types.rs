@@ -48,9 +48,11 @@ pub struct ManifestItem {
     pub scope: String,
     pub mounts: Vec<String>,
     pub frontend: serde_json::Value,
+    pub backend: serde_json::Value,
     pub permissions: Vec<String>,
     pub config: serde_json::Value,
     pub ui: serde_json::Value,
+    pub renderers: serde_json::Value,
     pub author: Option<String>,
     pub repository: Option<String>,
 }
@@ -64,9 +66,11 @@ impl From<PluginManifestItem> for ManifestItem {
             scope: value.scope.as_str().to_string(),
             mounts: value.mounts,
             frontend: value.frontend,
+            backend: value.backend,
             permissions: value.permissions,
             config: value.config,
             ui: value.ui,
+            renderers: value.renderers,
             author: value.author,
             repository: value.repository,
         }

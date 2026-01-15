@@ -379,17 +379,6 @@ export type EncryptedUpdateEntry = {
     signature?: (string) | null;
 };
 
-export type ExecBody = {
-    payload?: unknown;
-};
-
-export type ExecResultResponse = {
-    data?: unknown;
-    effects: Array<unknown>;
-    error?: unknown;
-    ok: boolean;
-};
-
 /**
  * Response for GET /api/documents/{id}/content (E2EE encrypted)
  */
@@ -519,12 +508,14 @@ export type LoginResponse = {
 
 export type ManifestItem = {
     author?: (string) | null;
+    backend: unknown;
     config: unknown;
     frontend: unknown;
     id: string;
     mounts: Array<string>;
     name?: (string) | null;
     permissions: Array<string>;
+    renderers: unknown;
     repository?: (string) | null;
     scope: string;
     ui: unknown;
@@ -663,12 +654,6 @@ export type PermissionOverridePayload = {
     permission: string;
 };
 
-export type PlaceholderItemPayload = {
-    code: string;
-    id: string;
-    kind: string;
-};
-
 export type PublicDocumentSummary = {
     id: string;
     published_at: string;
@@ -719,37 +704,6 @@ export type RegisterRequest = {
     email: string;
     name: string;
     password: string;
-};
-
-export type RenderManyRequest = {
-    items: Array<RenderRequest>;
-};
-
-export type RenderManyResponse = {
-    items: Array<RenderResponseBody>;
-};
-
-export type RenderOptionsPayload = {
-    absolute_attachments?: (boolean) | null;
-    base_origin?: (string) | null;
-    doc_id?: (string) | null;
-    features?: Array<string> | null;
-    flavor?: (string) | null;
-    hardbreaks?: (boolean) | null;
-    sanitize?: (boolean) | null;
-    theme?: (string) | null;
-    token?: (string) | null;
-};
-
-export type RenderRequest = {
-    options?: RenderOptionsPayload;
-    text: string;
-};
-
-export type RenderResponseBody = {
-    hash: string;
-    html: string;
-    placeholders?: Array<PlaceholderItemPayload>;
 };
 
 /**
@@ -1665,18 +1619,6 @@ export type DeleteConfigResponse = (void);
 
 export type HealthResponse = (HealthResp);
 
-export type RenderMarkdownData = {
-    requestBody: RenderRequest;
-};
-
-export type RenderMarkdownResponse = (RenderResponseBody);
-
-export type RenderMarkdownManyData = {
-    requestBody: RenderManyRequest;
-};
-
-export type RenderMarkdownManyResponse = (RenderManyResponse);
-
 export type ListApiTokensResponse = (Array<ApiTokenItem>);
 
 export type CreateApiTokenData = {
@@ -1840,20 +1782,6 @@ export type PluginsCreateRecordData = {
 };
 
 export type PluginsCreateRecordResponse = (unknown);
-
-export type PluginsExecActionData = {
-    /**
-     * Action
-     */
-    action: string;
-    /**
-     * Plugin ID
-     */
-    plugin: string;
-    requestBody: ExecBody;
-};
-
-export type PluginsExecActionResponse = (ExecResultResponse);
 
 export type PluginsDeleteRecordData = {
     /**
