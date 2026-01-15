@@ -1773,11 +1773,13 @@ function PluginDocumentTileMount({
   mode,
   variant = 'full',
   className,
+  workspaceId,
 }: {
   match: DocumentPluginMatch
   mode: 'primary' | 'secondary'
   variant?: 'full' | 'preview'
   className?: string
+  workspaceId?: string | null
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const disposeRef = useRef<(() => void) | null>(null)
@@ -1804,41 +1806,44 @@ function PluginDocumentTileMount({
           match,
           container,
           mode,
-          variant === 'preview'
-            ? {
-                tweakHost: (host) => {
-                  if (!host || typeof host !== 'object') return
-                  if (!host.ui || typeof host.ui !== 'object') host.ui = {}
-                  ;(host.ui as any).mountSplitEditor = (target: Element, options?: any) => {
-                    if (typeof window === 'undefined') return undefined
-                    if (!target) return undefined
-                    const el = target as HTMLElement
-                    const previewDelegate = options?.preview?.delegate
-                    const onDocumentReady = options?.document?.onReady
-                    const nextDocId = options?.docId ?? host?.context?.docId ?? null
-                    const nextToken = options?.token ?? host?.context?.token ?? null
-                    if (typeof nextDocId === 'string' && nextDocId.trim()) {
-                      try {
-                        window.dispatchEvent(
-                          new CustomEvent<{ docId: string }>(PLUGIN_USES_SPLIT_EDITOR_EVENT, {
-                            detail: { docId: nextDocId.trim() },
-                          }),
-                        )
-                      } catch {
-                        /* noop */
+          {
+            workspaceId: workspaceId ?? null,
+            ...(variant === 'preview'
+              ? {
+                  tweakHost: (host) => {
+                    if (!host || typeof host !== 'object') return
+                    if (!host.ui || typeof host.ui !== 'object') host.ui = {}
+                    ;(host.ui as any).mountSplitEditor = (target: Element, options?: any) => {
+                      if (typeof window === 'undefined') return undefined
+                      if (!target) return undefined
+                      const el = target as HTMLElement
+                      const previewDelegate = options?.preview?.delegate
+                      const onDocumentReady = options?.document?.onReady
+                      const nextDocId = options?.docId ?? host?.context?.docId ?? null
+                      const nextToken = options?.token ?? host?.context?.token ?? null
+                      if (typeof nextDocId === 'string' && nextDocId.trim()) {
+                        try {
+                          window.dispatchEvent(
+                            new CustomEvent<{ docId: string }>(PLUGIN_USES_SPLIT_EDITOR_EVENT, {
+                              detail: { docId: nextDocId.trim() },
+                            }),
+                          )
+                        } catch {
+                          /* noop */
+                        }
                       }
+                      return mountSplitEditorPreviewStage(el, {
+                        docId: nextDocId,
+                        token: nextToken,
+                        host,
+                        previewDelegate,
+                        onDocumentReady,
+                      })
                     }
-                    return mountSplitEditorPreviewStage(el, {
-                      docId: nextDocId,
-                      token: nextToken,
-                      host,
-                      previewDelegate,
-                      onDocumentReady,
-                    })
-                  }
-                },
-              }
-            : {},
+                  },
+                }
+              : {}),
+          },
         )) as any
 
         if (cancelled) {
@@ -2269,6 +2274,7 @@ function MosaicPreviewTile({
             mode={pluginTileMode}
             variant={isPluginDocument && !pluginSupportsSplit ? 'full' : 'preview'}
             className="h-full w-full overflow-auto"
+            workspaceId={activeWorkspaceId ?? null}
           />
         ) : isPluginDocument ? (
           <div className="p-4 text-sm text-muted-foreground">

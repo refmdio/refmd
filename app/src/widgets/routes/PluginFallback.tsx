@@ -175,6 +175,7 @@ export default function PluginFallback() {
             setDocumentStatus: realtime.setDocumentStatus,
             setDocumentBadge: realtime.setDocumentBadge,
             setDocumentActions: realtime.setDocumentActions,
+            workspaceId: activeWorkspaceId ?? null,
           },
         )
         if (cancelled) {

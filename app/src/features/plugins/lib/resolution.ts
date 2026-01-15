@@ -382,13 +382,14 @@ export async function mountResolvedPlugin(
   match: DocumentPluginMatch,
   container: HTMLElement,
   mode: 'primary' | 'secondary',
-  options: { tweakHost?: (host: any) => void } = {},
+  options: { tweakHost?: (host: any) => void; workspaceId?: string | null } = {},
 ) {
   const host = await createPluginHost(match.manifest, {
     docId: match.docId,
     route: match.route,
     token: match.token ?? undefined,
     mode,
+    workspaceId: options.workspaceId ?? null,
   })
   try {
     options.tweakHost?.(host)
@@ -416,9 +417,10 @@ export async function mountRoutePlugin(
     setDocumentStatus?: (status?: string | null) => void
     setDocumentBadge?: (badge?: string | null) => void
     setDocumentActions?: (actions: DocumentHeaderAction[]) => void
+    workspaceId?: string | null
   } = {},
 ) {
-  const { navigate, setDocumentId, setDocumentTitle, setDocumentStatus, setDocumentBadge, setDocumentActions } = options
+  const { navigate, setDocumentId, setDocumentTitle, setDocumentStatus, setDocumentBadge, setDocumentActions, workspaceId } = options
   const host = await createPluginHost(match.manifest, {
     mode: 'primary',
     navigate,
@@ -426,6 +428,7 @@ export async function mountRoutePlugin(
     setDocumentStatus,
     setDocumentBadge,
     setDocumentActions,
+    workspaceId: workspaceId ?? null,
   })
   try {
     ;(match.module as any).__host__ = host

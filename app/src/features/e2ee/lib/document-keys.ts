@@ -12,6 +12,7 @@ import {
 import {
   storeDocumentKey,
   getMyWorkspaceKey,
+  getDocumentKey,
 } from '@/shared/api'
 
 /**
@@ -98,5 +99,45 @@ export async function createDocumentDekIfNeeded(
   } catch (err) {
     console.error('[e2ee] Failed to create document DEK:', err)
     throw err
+  }
+}
+
+/**
+ * Get the DEK for a document (for plugin use).
+ *
+ * This is a convenience function for effect handlers that need to
+ * encrypt data for a newly created document.
+ *
+ * @param documentId - The document ID
+ * @param workspaceId - The workspace ID (for fetching KEK)
+ * @returns The DEK as Uint8Array, or null if E2EE is not enabled
+ */
+export async function getDocumentDekForPlugin(
+  documentId: string,
+  workspaceId: string
+): Promise<Uint8Array | null> {
+  if (!isE2EEReady()) {
+    return null
+  }
+
+  const km = getKeyManager()
+
+  try {
+    // Get workspace KEK
+    const kek = await km.getWorkspaceKek(workspaceId, async () => {
+      const response = await getMyWorkspaceKey({ id: workspaceId })
+      return response.encryptedKek
+    })
+
+    // Get and decrypt document DEK
+    const dek = await km.getDocumentDek(documentId, kek, async () => {
+      const response = await getDocumentKey({ id: documentId })
+      return { encryptedDek: response.encryptedDek, nonce: response.nonce }
+    })
+
+    return dek
+  } catch (err) {
+    console.error('[e2ee] Failed to get document DEK:', err)
+    return null
   }
 }

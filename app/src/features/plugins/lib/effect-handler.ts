@@ -68,6 +68,8 @@ export async function handleEffects(
 ): Promise<void> {
   // Track document ID created by createDocument effect
   let createdDocId: string | null = null
+  // Track DEK for newly created document
+  let createdDocDEK: Uint8Array | null = null
 
   for (const effect of effects) {
     if (!effect || typeof effect !== 'object') continue
@@ -91,13 +93,15 @@ export async function handleEffects(
           if (typeof newDocId === 'string') {
             createdDocId = newDocId
 
-            // Create DEK for the new document if E2EE is enabled
+            // Create and fetch DEK for the new document if E2EE is enabled
             if (ctx.workspaceId) {
               try {
-                const { createDocumentDekIfNeeded } = await import('@/features/e2ee/lib/document-keys')
+                const { createDocumentDekIfNeeded, getDocumentDekForPlugin } = await import('@/features/e2ee/lib/document-keys')
                 await createDocumentDekIfNeeded(newDocId, ctx.workspaceId)
+                // Fetch the DEK for subsequent effects
+                createdDocDEK = await getDocumentDekForPlugin(newDocId, ctx.workspaceId)
               } catch (err) {
-                console.warn('[effect-handler] Failed to create document DEK:', err)
+                console.warn('[effect-handler] Failed to create/fetch document DEK:', err)
               }
             }
           }
@@ -119,10 +123,14 @@ export async function handleEffects(
             break
           }
 
-          // E2EE encryption
-          if (ctx.documentDEK && data !== undefined) {
+          // E2EE encryption - use createdDocDEK for newly created documents
+          const effectDEK = (docId === createdDocId && createdDocDEK) ? createdDocDEK : ctx.documentDEK
+          if (data !== undefined) {
+            if (!effectDEK) {
+              throw new Error(`E2EE: DEK not available for createRecord on document ${docId}`)
+            }
             const { encryptRecordData } = await import('@/features/e2ee/lib/plugins')
-            data = await encryptRecordData(data, ctx.documentDEK, ctx.pluginId)
+            data = await encryptRecordData(data, effectDEK, ctx.pluginId)
           }
 
           await apiCreateRecord(ctx.pluginId, docId, kind, data, ctx.token ?? undefined)
@@ -138,8 +146,11 @@ export async function handleEffects(
 
           let patch = effect.patch
 
-          // E2EE encryption
-          if (ctx.documentDEK && patch !== undefined) {
+          // E2EE encryption (updateRecord doesn't have createdDocId context)
+          if (patch !== undefined) {
+            if (!ctx.documentDEK) {
+              throw new Error(`E2EE: DEK not available for updateRecord ${recordId}`)
+            }
             const { encryptRecordData } = await import('@/features/e2ee/lib/plugins')
             patch = await encryptRecordData(patch, ctx.documentDEK, ctx.pluginId)
           }
@@ -174,10 +185,14 @@ export async function handleEffects(
             break
           }
 
-          // E2EE encryption
-          if (ctx.documentDEK && value !== null && value !== undefined) {
+          // E2EE encryption - use createdDocDEK for newly created documents
+          const effectDEK = (docId === createdDocId && createdDocDEK) ? createdDocDEK : ctx.documentDEK
+          if (value !== null && value !== undefined) {
+            if (!effectDEK) {
+              throw new Error(`E2EE: DEK not available for putKv on document ${docId}`)
+            }
             const { encryptKV } = await import('@/features/e2ee/lib/plugins')
-            value = await encryptKV(value, ctx.documentDEK, ctx.pluginId)
+            value = await encryptKV(value, effectDEK, ctx.pluginId)
           }
 
           await apiPutKv(ctx.pluginId, docId, key, value, ctx.token ?? undefined)

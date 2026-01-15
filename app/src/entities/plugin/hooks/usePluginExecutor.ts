@@ -5,6 +5,8 @@ import { getWasmRuntime } from '@/features/plugins/lib/wasm-runtime'
 import { loadPluginWasm, hasPluginWasm } from '@/features/plugins/lib/wasm-loader'
 import { handleEffects as handleEffectsFull } from '@/features/plugins/lib/effect-handler'
 import { API_BASE_URL } from '@/shared/lib/config'
+import { getKeyManager } from '@/features/e2ee/lib/keys'
+import { getDocumentKey, getMyWorkspaceKey } from '@/shared/api'
 
 import { getPluginKv } from '../api'
 import type { PluginManifestItem } from '../api'
@@ -26,6 +28,42 @@ type PluginModule = {
 }
 
 const uuidPattern = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/
+
+/**
+ * Get document DEK for E2EE encryption.
+ * Returns null if E2EE is not available or document has no DEK.
+ */
+async function getDocumentDEK(
+  docId: string | null,
+  workspaceId: string | null
+): Promise<Uint8Array | null> {
+  if (!docId || !workspaceId) return null
+
+  try {
+    const km = getKeyManager()
+    if (!km.isInitialized || !km.isUnlocked) return null
+
+    // Get workspace KEK
+    const kek = await km.getWorkspaceKek(workspaceId, async () => {
+      const response = await getMyWorkspaceKey({ id: workspaceId })
+      return response.encryptedKek
+    })
+
+    // Get document DEK
+    const dek = await km.getDocumentDek(docId, kek, async () => {
+      const response = await getDocumentKey({ id: docId })
+      return {
+        encryptedDek: response.encryptedDek,
+        nonce: response.nonce,
+      }
+    })
+
+    return dek
+  } catch {
+    // E2EE not available for this document
+    return null
+  }
+}
 
 export function usePluginExecutor({
   plugins,
@@ -235,11 +273,15 @@ export function usePluginExecutor({
 
           // Handle effects with full effect handler
           if (result?.effects && result.effects.length > 0) {
+            // Get document DEK for E2EE encryption
+            const effectDocId = selectedDocId || null
+            const documentDEK = await getDocumentDEK(effectDocId, workspaceId ?? null)
+
             await handleEffectsFull(result.effects, {
               pluginId,
-              docId: selectedDocId || null,
+              docId: effectDocId,
               workspaceId: workspaceId ?? null,
-              documentDEK: null,
+              documentDEK,
               token: shareToken ?? null,
               navigate,
             })
@@ -285,11 +327,14 @@ export function usePluginExecutor({
         // Handle effects with full effect handler
         const effectDocId = selectedDocId || null
         if (response?.effects && response.effects.length > 0) {
+          // Get document DEK for E2EE encryption
+          const documentDEK = await getDocumentDEK(effectDocId, workspaceId ?? null)
+
           await handleEffectsFull(response.effects, {
             pluginId,
             docId: effectDocId,
             workspaceId: workspaceId ?? null,
-            documentDEK: null,
+            documentDEK,
             token: shareToken ?? null,
             navigate,
           })

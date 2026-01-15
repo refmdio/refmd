@@ -88,41 +88,44 @@ export function PluginDocumentMount({
           match,
           container,
           mode,
-          variant === 'preview'
-            ? {
-                tweakHost: (host) => {
-                  if (!host || typeof host !== 'object') return
-                  if (!host.ui || typeof host.ui !== 'object') host.ui = {}
-                  ;(host.ui as any).mountSplitEditor = (target: Element, options?: any) => {
-                    if (typeof window === 'undefined') return undefined
-                    if (!target) return undefined
-                    const el = target as HTMLElement
-                    const previewDelegate = options?.preview?.delegate
-                    const onDocumentReady = options?.document?.onReady
-                    const nextDocId = options?.docId ?? host?.context?.docId ?? null
-                    const nextToken = options?.token ?? host?.context?.token ?? null
-                    if (typeof nextDocId === 'string' && nextDocId.trim()) {
-                      try {
-                        window.dispatchEvent(
-                          new CustomEvent<{ docId: string }>(PLUGIN_USES_SPLIT_EDITOR_EVENT, {
-                            detail: { docId: nextDocId.trim() },
-                          }),
-                        )
-                      } catch {
-                        /* noop */
+          {
+            workspaceId: activeWorkspaceId ?? null,
+            ...(variant === 'preview'
+              ? {
+                  tweakHost: (host) => {
+                    if (!host || typeof host !== 'object') return
+                    if (!host.ui || typeof host.ui !== 'object') host.ui = {}
+                    ;(host.ui as any).mountSplitEditor = (target: Element, options?: any) => {
+                      if (typeof window === 'undefined') return undefined
+                      if (!target) return undefined
+                      const el = target as HTMLElement
+                      const previewDelegate = options?.preview?.delegate
+                      const onDocumentReady = options?.document?.onReady
+                      const nextDocId = options?.docId ?? host?.context?.docId ?? null
+                      const nextToken = options?.token ?? host?.context?.token ?? null
+                      if (typeof nextDocId === 'string' && nextDocId.trim()) {
+                        try {
+                          window.dispatchEvent(
+                            new CustomEvent<{ docId: string }>(PLUGIN_USES_SPLIT_EDITOR_EVENT, {
+                              detail: { docId: nextDocId.trim() },
+                            }),
+                          )
+                        } catch {
+                          /* noop */
+                        }
                       }
+                      return mountSplitEditorPreviewStage(el, {
+                        docId: nextDocId,
+                        token: nextToken,
+                        host,
+                        previewDelegate,
+                        onDocumentReady,
+                      })
                     }
-                    return mountSplitEditorPreviewStage(el, {
-                      docId: nextDocId,
-                      token: nextToken,
-                      host,
-                      previewDelegate,
-                      onDocumentReady,
-                    })
-                  }
-                },
-              }
-            : {},
+                  },
+                }
+              : {}),
+          },
         )) as any
 
         if (cancelled) {

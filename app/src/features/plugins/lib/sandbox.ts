@@ -3,6 +3,32 @@
  *
  * Provides CSP (Content Security Policy) settings for plugin iframes
  * to prevent malicious plugins from exfiltrating decrypted data.
+ *
+ * ## Current Security Model
+ *
+ * Plugin frontends currently run in the main browser context (not in iframes).
+ * Security is enforced through:
+ *
+ * 1. **E2EE Encryption**: All plugin KV/Records data is transparently
+ *    encrypted/decrypted using document-specific DEKs. Plugins never see
+ *    encryption keys directly.
+ *
+ * 2. **Client-side WASM**: Plugin backend logic runs in the browser via
+ *    Extism WASM runtime. No plaintext is sent to the server.
+ *
+ * 3. **Host API Gateway**: Plugins interact with the system only through
+ *    the `host` object. Direct API calls are not exposed.
+ *
+ * 4. **Effect Processing**: WASM outputs effects that are processed by
+ *    the host, with E2EE encryption applied before server communication.
+ *
+ * ## Future Iframe Isolation
+ *
+ * The CSP configurations below are prepared for future iframe-based
+ * plugin isolation. When implemented:
+ * - Plugins will run in sandboxed iframes
+ * - `connect-src: 'none'` will block all network requests
+ * - Communication will be via postMessage only
  */
 
 /** CSP directives for plugin sandboxes */

@@ -6,6 +6,8 @@ import {
   uploadFile,
   me as fetchMe,
   OpenAPI,
+  getDocumentKey,
+  getMyWorkspaceKey,
   type ManifestItem,
 } from '@/shared/api'
 import { renderMarkdown, renderMarkdownMany } from '@/entities/markdown'
@@ -130,6 +132,52 @@ export function extractDocIdFromRoute(route?: string | null) {
   return null
 }
 
+/**
+ * Lazy DEK getter that caches the result after first fetch.
+ */
+function createLazyDEKGetter(
+  docId: string | null,
+  workspaceId: string | null,
+  initialDEK: Uint8Array | null
+): () => Promise<Uint8Array | null> {
+  let cachedDEK: Uint8Array | null = initialDEK
+  let fetched = initialDEK !== null
+
+  return async () => {
+    if (fetched) return cachedDEK
+
+    if (!docId || !workspaceId) {
+      fetched = true
+      return null
+    }
+
+    try {
+      const { getKeyManager } = await import('@/features/e2ee/lib/keys')
+      const km = getKeyManager()
+      if (!km.isInitialized || !km.isUnlocked) {
+        fetched = true
+        return null
+      }
+
+      const kek = await km.getWorkspaceKek(workspaceId, async () => {
+        const response = await getMyWorkspaceKey({ id: workspaceId })
+        return response.encryptedKek
+      })
+
+      cachedDEK = await km.getDocumentDek(docId, kek, async () => {
+        const response = await getDocumentKey({ id: docId })
+        return { encryptedDek: response.encryptedDek, nonce: response.nonce }
+      })
+
+      fetched = true
+      return cachedDEK
+    } catch {
+      fetched = true
+      return null
+    }
+  }
+}
+
 export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostContext) {
   const fallbackRoute = ctx.route ?? getWindowRoute()
   const resolvedDocId = ctx.docId ?? (fallbackRoute ? extractDocIdFromRoute(fallbackRoute) : null)
@@ -165,9 +213,19 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
     }
     fallbackNavigate(target)
   }
-  const documentDEK = ctx.documentDEK ?? null
+
+  // Create lazy DEK getter that fetches on first use
+  const getDEK = createLazyDEKGetter(
+    resolvedDocId,
+    ctx.workspaceId ?? null,
+    ctx.documentDEK ?? null
+  )
+
   const host = {
     exec: async (action: string, args: any = {}) => {
+      // Get DEK lazily for E2EE operations
+      const documentDEK = await getDEK()
+
       const hostHandled = await executeHostAction(action, args, {
         pluginId: manifest.id,
         docId: resolvedDocId,
@@ -498,11 +556,12 @@ async function executeHostAction(
         const docId = ensureDocId(args?.docId)
         const kind = args?.kind
         if (typeof kind !== 'string' || !kind) throw fail('BAD_REQUEST', 'kind required')
+        if (!ctx.documentDEK) throw fail('E2EE_REQUIRED', 'DEK not available for records.list')
         const token = (args?.token ?? ctx.token) || undefined
         const response = await apiListPluginRecords(ctx.pluginId, docId, kind, token)
 
         // E2EE decryption
-        if (ctx.documentDEK && response?.items) {
+        if (response?.items) {
           const { decryptRecords } = await import('@/features/e2ee/lib/plugins')
           const decryptedItems = await decryptRecords(response.items, ctx.documentDEK, ctx.pluginId)
           return ok({ ...response, items: decryptedItems })
@@ -513,11 +572,12 @@ async function executeHostAction(
         const docId = ensureDocId(args?.docId)
         const key = args?.key
         if (typeof key !== 'string' || !key) throw fail('BAD_REQUEST', 'key required')
+        if (!ctx.documentDEK) throw fail('E2EE_REQUIRED', 'DEK not available for kv.get')
         const token = (args?.token ?? ctx.token) || undefined
         const response = await apiGetPluginKv(ctx.pluginId, docId, key, token)
 
         // E2EE decryption
-        if (ctx.documentDEK && response?.value !== undefined) {
+        if (response?.value !== undefined) {
           const { decryptKV } = await import('@/features/e2ee/lib/plugins')
           const decryptedValue = await decryptKV(response.value, ctx.documentDEK, ctx.pluginId)
           return ok({ ...response, value: decryptedValue })
@@ -531,8 +591,9 @@ async function executeHostAction(
         let value = args?.value ?? null
         const token = (args?.token ?? ctx.token) || undefined
 
-        // E2EE encryption
-        if (ctx.documentDEK && value !== null) {
+        // E2EE encryption (required)
+        if (value !== null) {
+          if (!ctx.documentDEK) throw fail('E2EE_REQUIRED', 'DEK not available for kv.put')
           const { encryptKV } = await import('@/features/e2ee/lib/plugins')
           value = await encryptKV(value, ctx.documentDEK, ctx.pluginId)
         }
