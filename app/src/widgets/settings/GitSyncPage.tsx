@@ -143,6 +143,8 @@ export default function GitSyncPage() {
       qc.invalidateQueries({ queryKey: ['git-status', activeWorkspaceId] })
       qc.invalidateQueries({ queryKey: ['git-credentials', activeWorkspaceId] })
       qc.invalidateQueries({ queryKey: ['git-has-credentials', activeWorkspaceId] })
+      // Refresh file tree to show imported documents
+      qc.invalidateQueries({ queryKey: ['documents'] })
     },
     onError: (e: Error) => {
       toast.error(`Import failed: ${e.message}`)

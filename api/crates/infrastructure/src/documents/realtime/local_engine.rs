@@ -74,6 +74,19 @@ impl RealtimeEngine for LocalRealtimeEngine {
         Ok(())
     }
 
+    async fn apply_encrypted_snapshot(
+        &self,
+        doc_id: &str,
+        snapshot: &[u8],
+        nonce: Option<&[u8]>,
+        signature: Option<&[u8]>,
+    ) -> PortResult<()> {
+        self.hub
+            .apply_encrypted_snapshot(doc_id, snapshot, nonce, signature)
+            .await
+            .map_err(Into::into)
+    }
+
     async fn get_updates_since(
         &self,
         doc_id: &str,

@@ -224,6 +224,7 @@ export class GitClient {
       http: this.getHttpClient(auth),
       dir: this.dir,
       url,
+      ref: auth.branchName || 'main',
       depth: 1,
       singleBranch: true,
       corsProxy: undefined, // Using our own proxy
@@ -238,6 +239,7 @@ export class GitClient {
       fs: this.fs,
       http: this.getHttpClient(auth),
       dir: this.dir,
+      ref: auth.branchName || 'main',
       author: { name: 'RefMD', email: 'sync@refmd.app' },
       singleBranch: true,
     })
@@ -251,6 +253,7 @@ export class GitClient {
       fs: this.fs,
       http: this.getHttpClient(auth),
       dir: this.dir,
+      ref: auth.branchName || 'main',
     })
   }
 
@@ -262,6 +265,7 @@ export class GitClient {
       fs: this.fs,
       http: this.getHttpClient(auth),
       dir: this.dir,
+      ref: auth.branchName || 'main',
       singleBranch: true,
     })
   }

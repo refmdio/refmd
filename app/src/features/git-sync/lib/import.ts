@@ -4,9 +4,22 @@
  * Imports a Git repository into the workspace.
  */
 
+import * as Y from 'yjs'
 import { GitClient } from './git-client'
 import type { GitCredentials } from './git-credentials'
-import { getKeyManager } from '@/features/e2ee'
+import {
+  getKeyManager,
+  createDocumentDek,
+  encrypt,
+  getSodium,
+  decryptDekFromApiResponse,
+} from '@/features/e2ee'
+import { createDocument } from '@/entities/document'
+import {
+  getMyWorkspaceKey,
+  getDocumentKey,
+  updateDocumentContent as apiUpdateDocumentContent,
+} from '@/shared/api/client'
 
 export interface ImportResult {
   success: boolean
@@ -27,9 +40,7 @@ export type ProgressCallback = (progress: ImportProgress) => void
 /**
  * Import a Git repository into the workspace.
  *
- * This function clones the repository and counts the files.
- * Actual document creation should be handled by the UI layer
- * which has access to the E2EE document creation flow.
+ * This function clones the repository and creates documents from markdown files.
  */
 export async function importFromGit(
   workspaceId: string,
@@ -91,26 +102,97 @@ export async function importFromGit(
       }
     }
 
-    docsCreated = markdownFiles.length
     attachmentsFound = attachmentFiles.length
+
+    // 3. Import markdown files as documents
+    onProgress?.({
+      phase: 'importing',
+      current: 0,
+      total: markdownFiles.length,
+    })
+
+    for (let i = 0; i < markdownFiles.length; i++) {
+      const filePath = markdownFiles[i]
+
+      onProgress?.({
+        phase: 'importing',
+        current: i,
+        total: markdownFiles.length,
+        currentFile: filePath,
+      })
+
+      try {
+        // Read file content
+        const rawContent = await gitClient.readFile(filePath)
+
+        // Strip frontmatter from markdown
+        const content = stripFrontmatter(rawContent)
+
+        // Extract title from filename (remove extension and path)
+        const fileName = filePath.split('/').pop() || filePath
+        const title = fileName.replace(/\.(md|markdown)$/i, '') || 'Untitled'
+
+        // Create document
+        const doc = await createDocument({ title, parent_id: null })
+
+        // Create DEK for the document
+        await createDocumentDek(doc.id, workspaceId)
+
+        // Get KEK and DEK for encryption
+        const kekResponse = await getMyWorkspaceKey({ id: workspaceId })
+        const kek = await keyManager.decryptKek(kekResponse.encryptedKek)
+        const dekResponse = await getDocumentKey({ id: doc.id })
+        const dek = await decryptDekFromApiResponse(dekResponse.encryptedDek, dekResponse.nonce, kek)
+
+        // Create Yjs doc and set content
+        const ydoc = new Y.Doc()
+        ydoc.getText('content').insert(0, content)
+
+        // Get Yjs state as bytes
+        const yjsState = Y.encodeStateAsUpdateV2(ydoc)
+        ydoc.destroy()
+
+        // Encrypt content with DEK
+        const { ciphertext, nonce } = await encrypt(dek, yjsState)
+
+        // Convert to base64 for API
+        const sodium = await getSodium()
+        const contentBase64 = sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL)
+        const nonceBase64 = sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL)
+
+        // Update document content with encrypted data
+        await apiUpdateDocumentContent({
+          id: doc.id,
+          requestBody: {
+            content: contentBase64,
+            nonce: nonceBase64,
+          },
+        })
+
+        docsCreated++
+      } catch (error) {
+        console.error(`[git-import] Failed to import ${filePath}:`, error)
+        // Continue with other files
+      }
+    }
 
     onProgress?.({
       phase: 'done',
-      current: markdownFiles.length,
+      current: docsCreated,
       total: markdownFiles.length,
     })
   } catch (error) {
     return {
       success: false,
-      message: `Failed to scan repository: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      docsCreated: 0,
-      attachmentsFound: 0,
+      message: `Failed to import repository: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      docsCreated,
+      attachmentsFound,
     }
   }
 
   return {
     success: true,
-    message: `Repository imported. Found ${docsCreated} documents and ${attachmentsFound} attachments.`,
+    message: `Repository imported. Created ${docsCreated} documents.`,
     docsCreated,
     attachmentsFound,
   }
@@ -210,6 +292,32 @@ async function listAllFiles(gitClient: GitClient, dirPath: string): Promise<stri
   }
 
   return files
+}
+
+/**
+ * Strip YAML frontmatter from markdown content.
+ * Frontmatter is delimited by --- at the start and end.
+ */
+function stripFrontmatter(content: string): string {
+  // Remove BOM if present
+  const trimmed = content.replace(/^\uFEFF/, '')
+
+  // Check if content starts with frontmatter delimiter
+  const openMatch = trimmed.match(/^---\r?\n/)
+  if (!openMatch) {
+    return trimmed
+  }
+
+  // Find the closing delimiter
+  const afterOpen = trimmed.slice(openMatch[0].length)
+  const closeMatch = afterOpen.match(/\n---\r?\n/)
+  if (!closeMatch) {
+    return trimmed
+  }
+
+  // Extract body after frontmatter
+  const bodyStart = closeMatch.index! + closeMatch[0].length
+  return afterOpen.slice(bodyStart)
 }
 
 /**

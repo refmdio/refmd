@@ -661,6 +661,26 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
         ))
     }
 
+    async fn apply_encrypted_snapshot(
+        &self,
+        doc_id: &str,
+        snapshot: &[u8],
+        nonce: Option<&[u8]>,
+        signature: Option<&[u8]>,
+    ) -> PortResult<()> {
+        let doc_uuid = Uuid::parse_str(doc_id).map_err(anyhow::Error::from)?;
+
+        // Use the helper method that handles persistence
+        RedisRealtimeEngine::apply_encrypted_snapshot(self, &doc_uuid, snapshot, nonce, signature)
+            .await
+            .map_err(|e| {
+                application::core::ports::errors::PortError::from(anyhow::anyhow!(
+                    "failed to apply encrypted snapshot: {:?}",
+                    e
+                ))
+            })
+    }
+
     async fn set_document_editable(&self, doc_id: &str, editable: bool) -> PortResult<()> {
         let flag = self.ensure_edit_flag(doc_id).await;
         flag.store(editable, Ordering::SeqCst);
