@@ -3,7 +3,7 @@ import type { IndexeddbPersistence } from 'y-indexeddb'
 import type * as Y from 'yjs'
 
 import { YJS_SERVER_URL } from '@/shared/lib/config'
-import { createConnection, type StatusEventHandler } from './realtime'
+import { createConnection, type StatusEventHandler, type ShareModeOptions } from './realtime'
 
 export type YjsConnectionOptions = {
   token?: string | null
@@ -12,6 +12,8 @@ export type YjsConnectionOptions = {
   disablePersistence?: boolean
   persistenceKey?: string
   workspaceId?: string
+  /** For share-based access - pre-decrypted DEK */
+  shareMode?: ShareModeOptions
 }
 
 /** Status event handler type (compatible with y-websocket) */
@@ -78,7 +80,9 @@ export async function createYjsConnection(
 
   // Create encrypted connection
   const workspaceId = options.workspaceId ?? ''
-  if (!workspaceId) {
+  const isShareMode = !!options.shareMode
+
+  if (!workspaceId && !isShareMode) {
     console.warn('[yjs] No workspaceId provided - encryption will not work correctly')
   }
 
@@ -86,6 +90,7 @@ export async function createYjsConnection(
     token: options.token,
     connect: options.connect ?? true,
     workspaceId,
+    shareMode: options.shareMode,
   })
 
   // Create provider-like wrapper for compatibility

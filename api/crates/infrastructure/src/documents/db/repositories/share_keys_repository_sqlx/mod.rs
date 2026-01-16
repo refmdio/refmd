@@ -22,7 +22,8 @@ impl ShareKeysRepository for SqlxShareKeysRepository {
     async fn get_encrypted_dek(&self, share_id: Uuid) -> PortResult<Option<ShareEncryptedKeyRow>> {
         let out: anyhow::Result<Option<ShareEncryptedKeyRow>> = async {
             let row = sqlx::query(
-                r#"SELECT share_id, encrypted_dek, salt, kdf_params, created_at
+                r#"SELECT share_id, encrypted_dek, salt, kdf_params,
+                          creator_encrypted_share_key, creator_share_key_nonce, created_at
                    FROM share_encrypted_keys
                    WHERE share_id = $1"#,
             )
@@ -37,6 +38,8 @@ impl ShareKeysRepository for SqlxShareKeysRepository {
                     encrypted_dek: row.get("encrypted_dek"),
                     salt: row.get("salt"),
                     kdf_params: kdf_params_json.and_then(|v| serde_json::from_value(v).ok()),
+                    creator_encrypted_share_key: row.get("creator_encrypted_share_key"),
+                    creator_share_key_nonce: row.get("creator_share_key_nonce"),
                     created_at: row.get("created_at"),
                 }
             }))
@@ -62,20 +65,26 @@ impl ShareKeysRepository for SqlxShareKeysRepository {
         &self,
         share_id: Uuid,
         encrypted_dek: &[u8],
+        creator_encrypted_share_key: Option<&[u8]>,
+        creator_share_key_nonce: Option<&[u8]>,
     ) -> PortResult<ShareEncryptedKeyRow> {
         let out: anyhow::Result<ShareEncryptedKeyRow> = async {
             let row = sqlx::query(
-                r#"INSERT INTO share_encrypted_keys (share_id, encrypted_dek, created_at)
-                   VALUES ($1, $2, now())
+                r#"INSERT INTO share_encrypted_keys (share_id, encrypted_dek, creator_encrypted_share_key, creator_share_key_nonce, created_at)
+                   VALUES ($1, $2, $3, $4, now())
                    ON CONFLICT (share_id)
                    DO UPDATE SET
                      encrypted_dek = EXCLUDED.encrypted_dek,
                      salt = NULL,
-                     kdf_params = NULL
-                   RETURNING share_id, encrypted_dek, salt, kdf_params, created_at"#,
+                     kdf_params = NULL,
+                     creator_encrypted_share_key = EXCLUDED.creator_encrypted_share_key,
+                     creator_share_key_nonce = EXCLUDED.creator_share_key_nonce
+                   RETURNING share_id, encrypted_dek, salt, kdf_params, creator_encrypted_share_key, creator_share_key_nonce, created_at"#,
             )
             .bind(share_id)
             .bind(encrypted_dek)
+            .bind(creator_encrypted_share_key)
+            .bind(creator_share_key_nonce)
             .fetch_one(&self.pool)
             .await?;
 
@@ -85,6 +94,8 @@ impl ShareKeysRepository for SqlxShareKeysRepository {
                 encrypted_dek: row.get("encrypted_dek"),
                 salt: row.get("salt"),
                 kdf_params: kdf_params_json.and_then(|v| serde_json::from_value(v).ok()),
+                creator_encrypted_share_key: row.get("creator_encrypted_share_key"),
+                creator_share_key_nonce: row.get("creator_share_key_nonce"),
                 created_at: row.get("created_at"),
             })
         }
@@ -98,23 +109,29 @@ impl ShareKeysRepository for SqlxShareKeysRepository {
         encrypted_dek: &[u8],
         salt: &[u8],
         kdf_params: &KdfParams,
+        creator_encrypted_share_key: Option<&[u8]>,
+        creator_share_key_nonce: Option<&[u8]>,
     ) -> PortResult<ShareEncryptedKeyRow> {
         let out: anyhow::Result<ShareEncryptedKeyRow> = async {
             let kdf_params_json = serde_json::to_value(kdf_params)?;
             let row = sqlx::query(
-                r#"INSERT INTO share_encrypted_keys (share_id, encrypted_dek, salt, kdf_params, created_at)
-                   VALUES ($1, $2, $3, $4, now())
+                r#"INSERT INTO share_encrypted_keys (share_id, encrypted_dek, salt, kdf_params, creator_encrypted_share_key, creator_share_key_nonce, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, now())
                    ON CONFLICT (share_id)
                    DO UPDATE SET
                      encrypted_dek = EXCLUDED.encrypted_dek,
                      salt = EXCLUDED.salt,
-                     kdf_params = EXCLUDED.kdf_params
-                   RETURNING share_id, encrypted_dek, salt, kdf_params, created_at"#,
+                     kdf_params = EXCLUDED.kdf_params,
+                     creator_encrypted_share_key = EXCLUDED.creator_encrypted_share_key,
+                     creator_share_key_nonce = EXCLUDED.creator_share_key_nonce
+                   RETURNING share_id, encrypted_dek, salt, kdf_params, creator_encrypted_share_key, creator_share_key_nonce, created_at"#,
             )
             .bind(share_id)
             .bind(encrypted_dek)
             .bind(salt)
             .bind(&kdf_params_json)
+            .bind(creator_encrypted_share_key)
+            .bind(creator_share_key_nonce)
             .fetch_one(&self.pool)
             .await?;
 
@@ -124,6 +141,8 @@ impl ShareKeysRepository for SqlxShareKeysRepository {
                 encrypted_dek: row.get("encrypted_dek"),
                 salt: row.get("salt"),
                 kdf_params: kdf_params_json.and_then(|v| serde_json::from_value(v).ok()),
+                creator_encrypted_share_key: row.get("creator_encrypted_share_key"),
+                creator_share_key_nonce: row.get("creator_share_key_nonce"),
                 created_at: row.get("created_at"),
             })
         }

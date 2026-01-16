@@ -256,7 +256,7 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
     gcTime: 10 * 60 * 1000,
   })
 
-  const { data: shareMounts = [] } = useShareMounts()
+  const { data: shareMounts = [] } = useShareMounts({ enabled: !!userId && !!activeWorkspaceId && !isShare })
   const shareMountTrees = useQueries({
     queries: (shareMounts as any[]).map((mount) => ({
       queryKey: ['share-mount-tree', mount.id, mount.token],

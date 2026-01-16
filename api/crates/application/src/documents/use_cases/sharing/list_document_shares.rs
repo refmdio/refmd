@@ -27,6 +27,8 @@ impl<'a, R: SharesRepository + ?Sized> ListDocumentShares<'a, R> {
                 document_id: r.document_id,
                 document_type: r.document_type.as_str().to_string(),
                 parent_share_id: r.parent_share_id,
+                creator_encrypted_share_key: r.creator_encrypted_share_key,
+                creator_share_key_nonce: r.creator_share_key_nonce,
             })
             .collect())
     }

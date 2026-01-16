@@ -42,6 +42,8 @@ pub trait DocumentKeysServiceFacade: Send + Sync {
         &self,
         share_id: Uuid,
         encrypted_dek: Vec<u8>,
+        creator_encrypted_share_key: Option<Vec<u8>>,
+        creator_share_key_nonce: Option<Vec<u8>>,
     ) -> Result<ShareEncryptedKeyDto, ServiceError>;
 
     async fn store_password_protected_share_key(
@@ -50,6 +52,8 @@ pub trait DocumentKeysServiceFacade: Send + Sync {
         encrypted_dek: Vec<u8>,
         salt: Vec<u8>,
         kdf_params: KdfParams,
+        creator_encrypted_share_key: Option<Vec<u8>>,
+        creator_share_key_nonce: Option<Vec<u8>>,
     ) -> Result<ShareEncryptedKeyDto, ServiceError>;
 
     /// Rotate document DEK
@@ -131,6 +135,8 @@ impl DocumentKeysServiceFacade for DocumentKeysService {
             encrypted_dek: r.encrypted_dek,
             salt: r.salt,
             kdf_params: r.kdf_params,
+            creator_encrypted_share_key: r.creator_encrypted_share_key,
+            creator_share_key_nonce: r.creator_share_key_nonce,
             created_at: r.created_at,
         }))
     }
@@ -146,10 +152,17 @@ impl DocumentKeysServiceFacade for DocumentKeysService {
         &self,
         share_id: Uuid,
         encrypted_dek: Vec<u8>,
+        creator_encrypted_share_key: Option<Vec<u8>>,
+        creator_share_key_nonce: Option<Vec<u8>>,
     ) -> Result<ShareEncryptedKeyDto, ServiceError> {
         let row = self
             .share_keys_repo
-            .store_encrypted_dek(share_id, &encrypted_dek)
+            .store_encrypted_dek(
+                share_id,
+                &encrypted_dek,
+                creator_encrypted_share_key.as_deref(),
+                creator_share_key_nonce.as_deref(),
+            )
             .await
             .map_err(ServiceError::from)?;
         Ok(ShareEncryptedKeyDto {
@@ -157,6 +170,8 @@ impl DocumentKeysServiceFacade for DocumentKeysService {
             encrypted_dek: row.encrypted_dek,
             salt: row.salt,
             kdf_params: row.kdf_params,
+            creator_encrypted_share_key: row.creator_encrypted_share_key,
+            creator_share_key_nonce: row.creator_share_key_nonce,
             created_at: row.created_at,
         })
     }
@@ -167,10 +182,19 @@ impl DocumentKeysServiceFacade for DocumentKeysService {
         encrypted_dek: Vec<u8>,
         salt: Vec<u8>,
         kdf_params: KdfParams,
+        creator_encrypted_share_key: Option<Vec<u8>>,
+        creator_share_key_nonce: Option<Vec<u8>>,
     ) -> Result<ShareEncryptedKeyDto, ServiceError> {
         let row = self
             .share_keys_repo
-            .store_password_protected_dek(share_id, &encrypted_dek, &salt, &kdf_params)
+            .store_password_protected_dek(
+                share_id,
+                &encrypted_dek,
+                &salt,
+                &kdf_params,
+                creator_encrypted_share_key.as_deref(),
+                creator_share_key_nonce.as_deref(),
+            )
             .await
             .map_err(ServiceError::from)?;
         Ok(ShareEncryptedKeyDto {
@@ -178,6 +202,8 @@ impl DocumentKeysServiceFacade for DocumentKeysService {
             encrypted_dek: row.encrypted_dek,
             salt: row.salt,
             kdf_params: row.kdf_params,
+            creator_encrypted_share_key: row.creator_encrypted_share_key,
+            creator_share_key_nonce: row.creator_share_key_nonce,
             created_at: row.created_at,
         })
     }

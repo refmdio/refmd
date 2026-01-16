@@ -146,8 +146,11 @@ impl SharesRepository for SqlxSharesRepository {
         let out: anyhow::Result<Vec<ShareRow>> = async {
             let rows = sqlx::query(
                 r#"SELECT s.id, s.token, s.permission, s.expires_at, s.parent_share_id, s.created_at,
-                      d.id as document_id, d.title as document_title, d.type as document_type
-               FROM shares s JOIN documents d ON d.id = s.document_id
+                      d.id as document_id, d.title as document_title, d.type as document_type,
+                      sek.creator_encrypted_share_key, sek.creator_share_key_nonce
+               FROM shares s
+               JOIN documents d ON d.id = s.document_id
+               LEFT JOIN share_encrypted_keys sek ON sek.share_id = s.id
                WHERE s.document_id = $1 AND d.workspace_id = $2
                ORDER BY s.created_at DESC"#,
             )
@@ -169,6 +172,8 @@ impl SharesRepository for SqlxSharesRepository {
                     document_type: Self::parse_document_type(&document_type_raw)?,
                     document_title: Title::new(r.get::<String, _>("document_title")),
                     created_at: r.get("created_at"),
+                    creator_encrypted_share_key: r.try_get("creator_encrypted_share_key").ok().flatten(),
+                    creator_share_key_nonce: r.try_get("creator_share_key_nonce").ok().flatten(),
                 });
             }
             Ok(out)
@@ -387,9 +392,11 @@ impl SharesRepository for SqlxSharesRepository {
         let out: anyhow::Result<Vec<ShareRow>> = async {
             let rows = sqlx::query(
                 r#"SELECT s.id, s.token, s.permission, s.expires_at, s.created_at, s.parent_share_id,
-                      d.id as document_id, d.title as document_title, d.type as document_type
+                      d.id as document_id, d.title as document_title, d.type as document_type,
+                      sek.creator_encrypted_share_key, sek.creator_share_key_nonce
                FROM shares s
                JOIN documents d ON d.id = s.document_id
+               LEFT JOIN share_encrypted_keys sek ON sek.share_id = s.id
                WHERE d.workspace_id = $1 AND (s.expires_at IS NULL OR s.expires_at > now())
                ORDER BY s.created_at DESC"#,
             )
@@ -410,6 +417,8 @@ impl SharesRepository for SqlxSharesRepository {
                     document_type: Self::parse_document_type(&document_type_raw)?,
                     document_title: Title::new(r.get::<String, _>("document_title")),
                     created_at: r.get("created_at"),
+                    creator_encrypted_share_key: r.try_get("creator_encrypted_share_key").ok().flatten(),
+                    creator_share_key_nonce: r.try_get("creator_share_key_nonce").ok().flatten(),
                 });
             }
             Ok(out)

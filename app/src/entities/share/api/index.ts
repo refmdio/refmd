@@ -11,7 +11,7 @@ import {
   listShareMounts as apiListShareMounts,
   validateShareToken as apiValidateShareToken,
 } from '@/shared/api'
-import type { ActiveShareItem, ShareMountItem } from '@/shared/api'
+import type { ActiveShareItem, ShareMountItem, CreateShareRequest } from '@/shared/api'
 
 export const shareKeys = {
   all: ['shares'] as const,
@@ -35,8 +35,8 @@ export function useActiveShares() {
   return useQuery(activeSharesQuery())
 }
 
-export function useShareMounts() {
-  return useQuery(shareMountsQuery())
+export function useShareMounts(options?: { enabled?: boolean }) {
+  return useQuery({ ...shareMountsQuery(), enabled: options?.enabled ?? true })
 }
 
 // Use-case oriented helpers
@@ -55,8 +55,8 @@ export async function listDocumentShares(id: string) {
   return apiListDocumentShares({ id })
 }
 
-export async function createShare(input: { document_id: string; permission: string; expires_at?: string | null; scope?: 'document' | 'folder'; parent_share_id?: string | null }) {
-  return apiCreateShare({ requestBody: input as any })
+export async function createShare(input: CreateShareRequest) {
+  return apiCreateShare({ requestBody: input })
 }
 
 export async function deleteShare(token: string) {

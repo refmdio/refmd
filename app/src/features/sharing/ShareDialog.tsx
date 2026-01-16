@@ -16,17 +16,33 @@ import { Switch } from '@/shared/ui/switch'
 
 import { getPublishStatus, publishDocument, unpublishDocument } from '@/entities/public'
 import { createShare, deleteShare, listDocumentShares, shareKeys } from '@/entities/share'
+import { useAuthContext } from '@/features/auth'
+import {
+  getKeyManager,
+  generateShareKey,
+  encryptDekWithShareKey,
+  encryptDekWithKek,
+  decryptDekFromApiResponse,
+  encodeDekForApi,
+  buildShareUrl,
+  getSodium,
+  URL_FRAGMENT_PREFIX,
+} from '@/features/security'
+import { getDocumentKey, getMyWorkspaceKey } from '@/shared/api'
 
 type ShareLink = {
   id: string
   token: string
   permission: string
-  expires_at?: string
+  expiresAt?: string | null
   url: string
-  used_count?: number
-  max_uses?: number
+  fullUrl?: string // URL with key fragment (recovered from creatorEncryptedShareKey)
   scope?: 'document' | 'folder'
-  parent_share_id?: string | null
+  parentShareId?: string | null
+  creatorEncryptedShareKey?: string | null
+  creatorShareKeyNonce?: string | null
+  usedCount?: number
+  maxUses?: number | null
 }
 type Props = {
   open: boolean
@@ -44,6 +60,7 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
   }
 
   const qc = useQueryClient()
+  const { activeWorkspaceId } = useAuthContext()
 
   const [permissionLevel, setPermissionLevel] = useState<string>('edit')
   const [shareLinks, setShareLinks] = useState<ShareLink[]>([])
@@ -53,13 +70,49 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
 
   const baseUrl = React.useMemo(() => (typeof window !== 'undefined' ? window.location.origin : ''), [])
 
+  const recoverShareKeyFragment = useCallback(async (
+    encryptedKey: string,
+    nonce: string,
+  ): Promise<string | null> => {
+    if (!activeWorkspaceId) return null
+    try {
+      const keyManager = getKeyManager()
+      await keyManager.initialize()
+      if (!keyManager.isUnlocked) return null
+
+      const kekResponse = await getMyWorkspaceKey({ id: activeWorkspaceId })
+      const kek = await keyManager.getWorkspaceKek(activeWorkspaceId, async () => kekResponse.encryptedKek)
+      const shareKey = await decryptDekFromApiResponse(encryptedKey, nonce, kek)
+      const sodium = await getSodium()
+      const keyBase64 = sodium.to_base64(shareKey, sodium.base64_variants.URLSAFE_NO_PADDING)
+      return `${URL_FRAGMENT_PREFIX}${keyBase64}`
+    } catch {
+      return null
+    }
+  }, [activeWorkspaceId])
+
   const loadShareLinks = useCallback(async () => {
     if (!targetId) return
     try {
-      const links = await listDocumentShares(targetId)
-      setShareLinks(links as any)
+      const links = (await listDocumentShares(targetId)) as ShareLink[]
+      // Recover full URLs for links with encrypted share keys
+      const linksWithFullUrls = await Promise.all(
+        links.map(async (link) => {
+          if (link.creatorEncryptedShareKey && link.creatorShareKeyNonce) {
+            const fragment = await recoverShareKeyFragment(
+              link.creatorEncryptedShareKey,
+              link.creatorShareKeyNonce,
+            )
+            if (fragment) {
+              return { ...link, fullUrl: buildShareUrl(link.url, fragment) }
+            }
+          }
+          return link
+        }),
+      )
+      setShareLinks(linksWithFullUrls)
     } catch {}
-  }, [targetId])
+  }, [targetId, recoverShareKeyFragment])
 
   useEffect(() => {
     if (open) {
@@ -86,11 +139,82 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
   const createShareLink = async () => {
     setLoading(true)
     try {
-      const req: any = { document_id: targetId, permission: permissionLevel }
-      if (linkExpiry !== 'never') { const h = { '1h':1,'24h':24,'7d':168,'30d':720 }[linkExpiry] || 168; const d=new Date(); d.setHours(d.getHours()+h); req.expires_at=d.toISOString() }
-      const result = await createShare(req)
-      if (result?.token) { await loadShareLinks(); toast.success('Share link created') }
-    } catch { toast.error('Failed to create share link') } finally { setLoading(false) }
+      let expiresAt: string | null = null
+      if (linkExpiry !== 'never') {
+        const hours = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 }[linkExpiry] || 168
+        const d = new Date()
+        d.setHours(d.getHours() + hours)
+        expiresAt = d.toISOString()
+      }
+
+      // Try to get DEK for E2EE encryption
+      let encryptedDekForShare: string | undefined
+      let creatorEncryptedShareKey: string | undefined
+      let creatorShareKeyNonce: string | undefined
+
+      try {
+        const keyManager = getKeyManager()
+        await keyManager.initialize()
+
+        if (keyManager.isUnlocked && activeWorkspaceId) {
+          // Get workspace KEK
+          const kekResponse = await getMyWorkspaceKey({ id: activeWorkspaceId })
+          const kek = await keyManager.getWorkspaceKek(activeWorkspaceId, async () => kekResponse.encryptedKek)
+
+          // Get document DEK
+          const dekResponse = await getDocumentKey({ id: targetId })
+          const dek = await keyManager.getDocumentDek(targetId, kek, async () => ({
+            encryptedDek: dekResponse.encryptedDek,
+            nonce: dekResponse.nonce,
+          }))
+
+          // Generate share key
+          const { key: shareKey } = await generateShareKey()
+
+          // Encrypt DEK with share key
+          const { encryptedDek, nonce } = await encryptDekWithShareKey(dek, shareKey)
+
+          // Combine nonce + ciphertext for storage (since API doesn't have separate nonce field)
+          const sodium = await getSodium()
+          const nonceBytes = sodium.from_base64(nonce, sodium.base64_variants.ORIGINAL)
+          const ciphertextBytes = sodium.from_base64(encryptedDek, sodium.base64_variants.ORIGINAL)
+          const combined = new Uint8Array(nonceBytes.length + ciphertextBytes.length)
+          combined.set(nonceBytes)
+          combined.set(ciphertextBytes, nonceBytes.length)
+          encryptedDekForShare = sodium.to_base64(combined, sodium.base64_variants.ORIGINAL)
+
+          // Encrypt the share key with creator's KEK for later recovery
+          const encryptedShareKeyResult = await encryptDekWithKek(shareKey, kek)
+          const encodedShareKey = await encodeDekForApi(
+            encryptedShareKeyResult.encryptedDek,
+            encryptedShareKeyResult.nonce,
+          )
+          creatorEncryptedShareKey = encodedShareKey.encryptedDek
+          creatorShareKeyNonce = encodedShareKey.nonce
+        }
+      } catch (e) {
+        // E2EE not available or not set up - continue without encrypted DEK
+        console.warn('[ShareDialog] E2EE encryption skipped:', e)
+      }
+
+      const result = await createShare({
+        documentId: targetId,
+        permission: permissionLevel,
+        expiresAt,
+        encryptedDek: encryptedDekForShare,
+        creatorEncryptedShareKey,
+        creatorShareKeyNonce,
+      })
+
+      if (result?.token) {
+        await loadShareLinks()
+        toast.success('Share link created')
+      }
+    } catch {
+      toast.error('Failed to create share link')
+    } finally {
+      setLoading(false)
+    }
   }
   const deleteShareLink = async (link: ShareLink) => {
     try {
@@ -102,6 +226,7 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
       toast.error('Failed to update share link')
     }
   }
+
   const copyToClipboard = async (text: string) => { try { await navigator.clipboard.writeText(text); toast.success('Copied to clipboard') } catch { toast.error('Failed to copy') } }
   const copyPublicUrl = () => { if (publishState.url) copyToClipboard(`${baseUrl}${publishState.url}`) }
   const openPublicPage = () => { if (publishState.url) window.open(`${baseUrl}${publishState.url}`, '_blank') }
@@ -197,25 +322,27 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
             ) : (
               shareLinks.map((link) => {
                 const Icon = (PERMISSION_ICONS as any)[link.permission] || Eye
-                const sampleUrl = targetType === 'folder' ? `${baseUrl}/share/${link.token}` : link.url
+                const displayUrl = link.fullUrl || (targetType === 'folder' ? `${baseUrl}/share/${link.token}` : link.url)
                 return (
                   <div key={link.id || link.token} className="p-3 border rounded-md space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="gap-1"><Icon className="h-3 w-3" />{(PERMISSION_LABELS as any)[link.permission] || link.permission}</Badge>
                         {link.scope === 'folder' && (<Badge variant="secondary">Folder</Badge>)}
-                        {link.scope !== 'folder' && !!link.parent_share_id && (<Badge variant="secondary">From folder</Badge>)}
+                        {link.scope !== 'folder' && !!link.parentShareId && (<Badge variant="secondary">From folder</Badge>)}
                       </div>
                       <div className="flex items-center gap-2">
-                        {link.expires_at ? (<div className="flex items-center gap-1 text-sm text-muted-foreground"><Clock className="h-3 w-3" />Expires {new Date(link.expires_at).toLocaleDateString()}</div>) : (<div className="flex items-center gap-1 text-sm text-muted-foreground"><Clock className="h-3 w-3" />Never expires</div>)}
+                        {link.expiresAt ? (<div className="flex items-center gap-1 text-sm text-muted-foreground"><Clock className="h-3 w-3" />Expires {new Date(link.expiresAt).toLocaleDateString()}</div>) : (<div className="flex items-center gap-1 text-sm text-muted-foreground"><Clock className="h-3 w-3" />Never expires</div>)}
                         <Button variant="ghost" size="sm" onClick={() => deleteShareLink(link)} className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Input value={sampleUrl} readOnly className="flex-1 font-mono text-sm" />
-                      <Button variant="outline" size="sm" onClick={() => copyToClipboard(sampleUrl)}><Copy className="h-4 w-4" /></Button>
+                      <Input value={displayUrl} readOnly className="flex-1 font-mono text-sm" />
+                      <Button variant="outline" size="sm" onClick={() => copyToClipboard(displayUrl)}>
+                        <Copy className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <div className="text-xs text-muted-foreground">{`Used ${link.used_count || 0} times`}{link.max_uses ? ` (max ${link.max_uses})` : ''}</div>
+                    <div className="text-xs text-muted-foreground">{`Used ${link.usedCount || 0} times`}{link.maxUses ? ` (max ${link.maxUses})` : ''}</div>
                   </div>
                 )
               })

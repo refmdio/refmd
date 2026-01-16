@@ -11,6 +11,7 @@ export {
   Sync,
   type Connection,
   type ConnectionOptions,
+  type ShareModeOptions,
   type SyncState,
   type SyncStatus,
   type StatusEvent,

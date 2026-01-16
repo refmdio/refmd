@@ -23,6 +23,10 @@ pub struct ShareItemDto {
     pub document_id: Uuid,
     pub document_type: String,
     pub parent_share_id: Option<Uuid>,
+    /// Share key encrypted with creator's KEK (for URL recovery)
+    pub creator_encrypted_share_key: Option<Vec<u8>>,
+    /// Nonce for creator_encrypted_share_key
+    pub creator_share_key_nonce: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]

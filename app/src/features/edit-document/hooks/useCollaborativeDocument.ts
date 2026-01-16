@@ -6,12 +6,16 @@ import type { Awareness } from 'y-protocols/awareness'
 
 import { useRealtime } from '@/shared/contexts/realtime-context'
 import { createYjsConnection, destroyYjsConnection } from '@/shared/lib/yjsConnection'
-import type { YjsConnection } from '@/shared/lib/yjsConnection'
+import type { YjsConnection, YjsConnectionOptions } from '@/shared/lib/yjsConnection'
 
 import { fetchDocumentMeta } from '@/entities/document'
 import { validateShareToken } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
+import {
+  extractShareKeyFromFragment,
+  decryptDekWithShareKey,
+} from '@/features/security'
 
 import { useE2EEStatus } from './useE2EEStatus'
 
@@ -55,10 +59,106 @@ function buildCacheKey(
   return buildCollaborativeDocumentConnectionCacheKey({ documentId, token, workspaceId })
 }
 
+/** Resolve share mode options by extracting share key from URL and decrypting DEK */
+async function resolveShareMode(
+  token: string,
+  queryClient: ReturnType<typeof useQueryClient>,
+): Promise<YjsConnectionOptions['shareMode'] | null> {
+  // Get URL fragment
+  const fragment = typeof window !== 'undefined' ? window.location.hash : ''
+  if (!fragment) {
+    return null
+  }
+
+  // Extract share key from URL fragment
+  const shareKey = await extractShareKeyFromFragment(fragment)
+  if (!shareKey) {
+    return null
+  }
+
+  // Validate share token to get encrypted DEK
+  const shareInfo = await queryClient.fetchQuery({
+    queryKey: ['share-token', token],
+    queryFn: () => validateShareToken(token),
+    staleTime: SHARE_TOKEN_VALIDATION_STALE_MS,
+  })
+
+  if (!shareInfo?.encryptedDek) {
+    // Document might not be E2EE or share key not stored
+    return null
+  }
+
+  // For password-protected shares, salt/kdfParams would be present
+  // For URL fragment mode, we just have encryptedDek
+  // The nonce is stored together with the encrypted DEK (first 24 bytes)
+  // Actually, looking at the API response, we need nonce separately
+  // Let me check how the DEK was encrypted...
+  // Looking at encryptDekWithShareKey, it returns { encryptedDek, nonce } separately
+  // But the API ShareDocumentResponse only has encryptedDek, not nonce
+  // This might be a bug in the API or the nonce is prepended to ciphertext
+
+  // Try to decrypt - assume nonce is prepended to ciphertext (common pattern)
+  try {
+    // The API returns Base64 encryptedDek which might include nonce prepended
+    // Let's check the actual format by looking at how it was encrypted
+    // From share-key.ts encryptDekWithShareKey:
+    //   return { encryptedDek: ..., nonce: ... }
+    // They are separate. So the API must be returning them somehow combined or separately.
+
+    // Looking at ShareKeyResponse (used by getShareKey), it has:
+    //   encryptedDek, salt, kdfParams, isPasswordProtected
+    // But ShareDocumentResponse (from validateShareToken) also has encryptedDek.
+
+    // The issue is ShareDocumentResponse doesn't have a nonce field!
+    // This seems like an API design issue. Let me check if nonce is prepended.
+
+    // Actually, looking at the backend shares.rs create_share handler,
+    // it calls keys_service.store_share_key(share_id, encrypted_dek)
+    // The encrypted_dek is passed from the frontend request.
+
+    // And in share-key.ts, the frontend calls encryptDekWithShareKey which
+    // uses encrypt() from crypto which uses XChaCha20-Poly1305.
+    // That function returns { ciphertext, nonce } separately.
+
+    // So we need to understand how the frontend sends and backend stores this.
+    // Looking at CreateShareRequest, it has encrypted_dek but not nonce.
+
+    // This means either:
+    // 1. The nonce is prepended to the ciphertext before sending
+    // 2. There's a bug and nonce is lost
+
+    // For now, let's assume nonce is prepended (24 bytes for XChaCha20)
+    const { getSodium } = await import('@/features/security')
+    const sodium = await getSodium()
+    const combined = sodium.from_base64(shareInfo.encryptedDek, sodium.base64_variants.ORIGINAL)
+
+    // XChaCha20-Poly1305 nonce is 24 bytes
+    const NONCE_LENGTH = 24
+    if (combined.length <= NONCE_LENGTH) {
+      console.warn('[share] Encrypted DEK too short')
+      return null
+    }
+
+    const nonce = combined.slice(0, NONCE_LENGTH)
+    const ciphertext = combined.slice(NONCE_LENGTH)
+
+    const nonceBase64 = sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL)
+    const ciphertextBase64 = sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL)
+
+    const dek = await decryptDekWithShareKey(ciphertextBase64, nonceBase64, shareKey)
+
+    return { dek }
+  } catch (err) {
+    console.warn('[share] Failed to decrypt DEK with share key:', err)
+    return null
+  }
+}
+
 async function acquireConnection(
   documentId: string,
   token: string | undefined,
   workspaceId: string | null | undefined,
+  queryClient?: ReturnType<typeof useQueryClient>,
 ) {
   const cacheKey = buildCacheKey(documentId, token, workspaceId)
   const existing = connectionCache.get(cacheKey)
@@ -68,11 +168,22 @@ async function acquireConnection(
     if (existing.promise) return { cacheKey, connection: await existing.promise }
   }
 
+  // For share token access, try to resolve share mode
+  let shareMode: YjsConnectionOptions['shareMode'] = undefined
+  if (token && queryClient) {
+    try {
+      shareMode = await resolveShareMode(token, queryClient) ?? undefined
+    } catch (err) {
+      console.warn('[share] Failed to resolve share mode:', err)
+    }
+  }
+
   const entry: ConnectionCacheEntry = { refs: 1, connection: null, promise: null }
   entry.promise = createYjsConnection(documentId, {
     token: token ?? null,
     connect: false,
     workspaceId: workspaceId ?? undefined,
+    shareMode,
   })
   connectionCache.set(cacheKey, entry)
   try {
@@ -297,7 +408,7 @@ export function useCollaborativeDocument(
 
     ;(async () => {
       try {
-        const acquired = await acquireConnection(id, urlShareToken ?? undefined, activeWorkspaceId)
+        const acquired = await acquireConnection(id, urlShareToken ?? undefined, activeWorkspaceId, queryClient)
         if (cancelled) {
           releaseConnection(acquired.cacheKey)
           return

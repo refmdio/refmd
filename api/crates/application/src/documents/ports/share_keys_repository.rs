@@ -10,6 +10,10 @@ pub struct ShareEncryptedKeyRow {
     pub encrypted_dek: Vec<u8>,
     pub salt: Option<Vec<u8>>,
     pub kdf_params: Option<KdfParams>,
+    /// Share key encrypted with creator's KEK (for URL recovery by creator)
+    pub creator_encrypted_share_key: Option<Vec<u8>>,
+    /// Nonce for creator_encrypted_share_key
+    pub creator_share_key_nonce: Option<Vec<u8>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -26,6 +30,8 @@ pub trait ShareKeysRepository: Send + Sync {
         &self,
         share_id: Uuid,
         encrypted_dek: &[u8],
+        creator_encrypted_share_key: Option<&[u8]>,
+        creator_share_key_nonce: Option<&[u8]>,
     ) -> PortResult<ShareEncryptedKeyRow>;
 
     /// Store an encrypted DEK for a password-protected share
@@ -35,6 +41,8 @@ pub trait ShareKeysRepository: Send + Sync {
         encrypted_dek: &[u8],
         salt: &[u8],
         kdf_params: &KdfParams,
+        creator_encrypted_share_key: Option<&[u8]>,
+        creator_share_key_nonce: Option<&[u8]>,
     ) -> PortResult<ShareEncryptedKeyRow>;
 
     /// Delete an encrypted DEK (when share is deleted)

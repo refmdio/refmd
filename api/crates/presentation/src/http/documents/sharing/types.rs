@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -55,6 +56,14 @@ pub struct CreateShareRequest {
     /// KDF parameters (e.g., Argon2id settings)
     #[serde(default)]
     pub kdf_params: Option<serde_json::Value>,
+    /// Base64 encoded share key encrypted with creator's KEK (for URL recovery)
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub creator_encrypted_share_key: Option<String>,
+    /// Base64 encoded nonce for creator_encrypted_share_key
+    #[serde(default)]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub creator_share_key_nonce: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -64,6 +73,7 @@ pub struct CreateShareResponse {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ShareItem {
     pub id: Uuid,
     pub token: String,
@@ -72,6 +82,14 @@ pub struct ShareItem {
     pub url: String,
     pub scope: String,
     pub parent_share_id: Option<Uuid>,
+    /// Base64 encoded share key encrypted with creator's KEK (for URL recovery)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub creator_encrypted_share_key: Option<String>,
+    /// Base64 encoded nonce for creator_encrypted_share_key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub creator_share_key_nonce: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -270,7 +288,8 @@ impl ShareItem {
             document_id,
             document_type,
             parent_share_id,
-            ..
+            creator_encrypted_share_key,
+            creator_share_key_nonce,
         } = dto;
         let url = build_share_url(base, &document_type, document_id, &token);
         ShareItem {
@@ -281,6 +300,10 @@ impl ShareItem {
             url,
             scope: share_scope(&document_type),
             parent_share_id,
+            creator_encrypted_share_key: creator_encrypted_share_key
+                .map(|v| base64::engine::general_purpose::STANDARD.encode(&v)),
+            creator_share_key_nonce: creator_share_key_nonce
+                .map(|v| base64::engine::general_purpose::STANDARD.encode(&v)),
         }
     }
 }

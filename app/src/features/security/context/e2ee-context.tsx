@@ -47,7 +47,7 @@ const E2EEContext = createContext<E2EEState | null>(null)
 
 export function E2EEProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuthContext()
-  const { data: securityStatus, isLoading: statusLoading } = useSecurityStatus()
+  const { data: securityStatus, isLoading: statusLoading } = useSecurityStatus({ enabled: !!user })
   const { data: serverBackup, isLoading: backupLoading } = useServerBackup({ enabled: !!user })
 
   const [isInitialized, setIsInitialized] = useState(false)

@@ -9,6 +9,10 @@ export interface SecurityStatus {
   needsMigration: boolean
 }
 
+interface UseSecurityStatusOptions {
+  enabled?: boolean
+}
+
 interface UseSecurityStatusResult {
   data: SecurityStatus | undefined
   isLoading: boolean
@@ -20,9 +24,10 @@ interface UseSecurityStatusResult {
  * Hook to fetch and combine security status information.
  * Combines E2EE status and migration status into a single interface.
  */
-export function useSecurityStatus(): UseSecurityStatusResult {
-  const statusQuery = useQuery(securityStatusQuery())
-  const migrationQuery = useQuery(needsMigrationQuery())
+export function useSecurityStatus(options?: UseSecurityStatusOptions): UseSecurityStatusResult {
+  const enabled = options?.enabled ?? true
+  const statusQuery = useQuery({ ...securityStatusQuery(), enabled })
+  const migrationQuery = useQuery({ ...needsMigrationQuery(), enabled })
 
   const isLoading = statusQuery.isLoading || migrationQuery.isLoading
   const error = statusQuery.error ?? migrationQuery.error

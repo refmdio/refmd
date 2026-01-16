@@ -18,6 +18,10 @@ pub struct ShareEncryptedKeyDto {
     pub encrypted_dek: Vec<u8>,
     pub salt: Option<Vec<u8>>,
     pub kdf_params: Option<KdfParams>,
+    /// Share key encrypted with creator's KEK (for URL recovery by creator)
+    pub creator_encrypted_share_key: Option<Vec<u8>>,
+    /// Nonce for creator_encrypted_share_key
+    pub creator_share_key_nonce: Option<Vec<u8>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 

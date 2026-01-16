@@ -128,6 +128,14 @@ export type CreateShareMountRequest = {
 };
 
 export type CreateShareRequest = {
+    /**
+     * Base64 encoded share key encrypted with creator's KEK (for URL recovery)
+     */
+    creatorEncryptedShareKey?: (string) | null;
+    /**
+     * Base64 encoded nonce for creator_encrypted_share_key
+     */
+    creatorShareKeyNonce?: (string) | null;
     documentId: string;
     /**
      * Base64 encoded encrypted DEK (encrypted with share key derived from password)
@@ -806,9 +814,17 @@ export type ShareDocumentResponse = {
 };
 
 export type ShareItem = {
-    expires_at?: (string) | null;
+    /**
+     * Base64 encoded share key encrypted with creator's KEK (for URL recovery)
+     */
+    creatorEncryptedShareKey?: (string) | null;
+    /**
+     * Base64 encoded nonce for creator_encrypted_share_key
+     */
+    creatorShareKeyNonce?: (string) | null;
+    expiresAt?: (string) | null;
     id: string;
-    parent_share_id?: (string) | null;
+    parentShareId?: (string) | null;
     permission: string;
     scope: string;
     token: string;

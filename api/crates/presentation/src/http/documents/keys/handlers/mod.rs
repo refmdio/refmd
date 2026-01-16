@@ -144,7 +144,7 @@ pub async fn store_share_key(
 
     let service = ctx.document_keys_service();
     let dto = service
-        .store_share_key(share_id, encrypted_dek)
+        .store_share_key(share_id, encrypted_dek, None, None)
         .await
         .map_err(map_keys_error)?;
 
@@ -171,7 +171,7 @@ pub async fn store_password_protected_share_key(
 
     let service = ctx.document_keys_service();
     let dto = service
-        .store_password_protected_share_key(share_id, encrypted_dek, salt, kdf_params)
+        .store_password_protected_share_key(share_id, encrypted_dek, salt, kdf_params, None, None)
         .await
         .map_err(map_keys_error)?;
 

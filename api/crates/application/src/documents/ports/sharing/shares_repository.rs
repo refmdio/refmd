@@ -18,6 +18,10 @@ pub struct ShareRow {
     pub document_type: DocumentType,
     pub document_title: Title,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Share key encrypted with creator's KEK (for URL recovery)
+    pub creator_encrypted_share_key: Option<Vec<u8>>,
+    /// Nonce for creator_encrypted_share_key
+    pub creator_share_key_nonce: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]

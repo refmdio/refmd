@@ -57,6 +57,20 @@ pub async fn create_share(
             .decode(&encrypted_dek_b64)
             .map_err(|_| ApiError::bad_request("invalid_encrypted_dek_base64"))?;
 
+        // Decode creator_encrypted_share_key if provided
+        let creator_encrypted_share_key = req
+            .creator_encrypted_share_key
+            .as_ref()
+            .map(|s| base64::engine::general_purpose::STANDARD.decode(s))
+            .transpose()
+            .map_err(|_| ApiError::bad_request("invalid_creator_encrypted_share_key_base64"))?;
+        let creator_share_key_nonce = req
+            .creator_share_key_nonce
+            .as_ref()
+            .map(|s| base64::engine::general_purpose::STANDARD.decode(s))
+            .transpose()
+            .map_err(|_| ApiError::bad_request("invalid_creator_share_key_nonce_base64"))?;
+
         let keys_service = ctx.document_keys_service();
 
         if let (Some(salt_b64), Some(kdf_params_json)) = (req.salt, req.kdf_params) {
@@ -68,7 +82,14 @@ pub async fn create_share(
                 .map_err(|_| ApiError::bad_request("invalid_kdf_params"))?;
 
             keys_service
-                .store_password_protected_share_key(res.share_id, encrypted_dek, salt, kdf_params)
+                .store_password_protected_share_key(
+                    res.share_id,
+                    encrypted_dek,
+                    salt,
+                    kdf_params,
+                    creator_encrypted_share_key,
+                    creator_share_key_nonce,
+                )
                 .await
                 .map_err(|e| {
                     tracing::error!(error = ?e, "failed_to_store_share_key");
@@ -77,7 +98,12 @@ pub async fn create_share(
         } else {
             // URL fragment based share (no password)
             keys_service
-                .store_share_key(res.share_id, encrypted_dek)
+                .store_share_key(
+                    res.share_id,
+                    encrypted_dek,
+                    creator_encrypted_share_key,
+                    creator_share_key_nonce,
+                )
                 .await
                 .map_err(|e| {
                     tracing::error!(error = ?e, "failed_to_store_share_key");

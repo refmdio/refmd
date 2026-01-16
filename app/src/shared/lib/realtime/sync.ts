@@ -83,11 +83,19 @@ function isServerErrorMessage(msg: unknown): msg is ServerErrorMessage {
 /** Status event handler */
 export type StatusEventHandler = (event: StatusEvent) => void
 
+/** Share mode options for anonymous access via share links */
+export interface ShareModeOptions {
+  /** Pre-decrypted DEK (decrypted using share key) */
+  dek: Uint8Array
+}
+
 /** Options for creating a connection */
 export interface ConnectionOptions {
   token?: string | null
   connect?: boolean
   workspaceId: string
+  /** For share-based access - if provided, skips workspace-based key derivation */
+  shareMode?: ShareModeOptions
   /** Callback to fetch encrypted KEK from API */
   fetchKek?: () => Promise<string>
   /** Callback to fetch encrypted DEK from API */
@@ -225,6 +233,13 @@ export class Sync {
    * Must be called before connect().
    */
   async initialize(): Promise<void> {
+    // Check for share mode (anonymous access via share links)
+    if (this.options.shareMode) {
+      await this.initializeShareMode()
+      return
+    }
+
+    // Normal mode: workspace-based key derivation
     const keyManager = getKeyManager()
     await keyManager.initialize()
 
@@ -253,6 +268,37 @@ export class Sync {
     })
 
     this.dek = await keyManager.getDocumentDek(this.documentId, kek, fetchDek)
+
+    // Create ephemeral session for awareness
+    this.ephemeralSession = await createEphemeralSession()
+
+    // Initialize Awareness
+    const { Awareness } = await import('y-protocols/awareness')
+    this.awareness = new Awareness(this.doc)
+
+    // Attach doc listeners early to capture all updates (including clock 0).
+    // Updates will be queued in pendingUpdates until WebSocket connects.
+    this.attachDocListeners()
+  }
+
+  /**
+   * Initialize in share mode (anonymous access via share links).
+   * Uses pre-decrypted DEK and ephemeral signing keys.
+   */
+  private async initializeShareMode(): Promise<void> {
+    const shareMode = this.options.shareMode!
+
+    // Use provided DEK (already decrypted using share key)
+    this.dek = shareMode.dek
+
+    // Generate ephemeral signing key pair for this session
+    const sodium = await getSodium()
+    const keyPair = sodium.crypto_sign_keypair()
+    this.signingKeyPair = {
+      publicKey: keyPair.publicKey,
+      privateKey: keyPair.privateKey,
+    }
+    this.publicKeyBase64 = sodium.to_base64(keyPair.publicKey, sodium.base64_variants.ORIGINAL)
 
     // Create ephemeral session for awareness
     this.ephemeralSession = await createEphemeralSession()
