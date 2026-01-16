@@ -2,7 +2,6 @@ use contracts::core::dtos::{TextDiffLine, TextDiffLineType, TextDiffResult};
 use utoipa::OpenApi;
 
 use crate::http::core::{health, storage_ingest};
-// use crate::http::core::markdown; // Removed: E2EE requires client-side rendering
 use crate::http::documents::files;
 use crate::http::documents::keys as document_keys;
 use crate::http::documents::{publishing as public, sharing as shares, tagging as tags};
@@ -95,10 +94,7 @@ use crate::ws;
         git::openapi::create_or_update_config,
         git::openapi::delete_config,
         storage_ingest::openapi::enqueue_ingest_events,
-        // markdown::openapi::render_markdown, // Removed: E2EE requires client-side rendering
-        // markdown::openapi::render_markdown_many, // Removed: E2EE requires client-side rendering
         plugins::openapi::get_manifest,
-        // plugins::openapi::exec_action, // Removed: E2EE requires client-side WASM execution
         plugins::openapi::list_records,
         plugins::openapi::create_record,
         plugins::openapi::update_record,
@@ -234,20 +230,12 @@ use crate::ws;
         git::GitConfigResponse,
         git::GitRemoteCheckResponse,
         git::CreateGitConfigRequest,
-        // markdown::RenderOptionsPayload, // Removed: E2EE requires client-side rendering
-        // markdown::PlaceholderItemPayload, // Removed: E2EE requires client-side rendering
-        // markdown::RenderResponseBody, // Removed: E2EE requires client-side rendering
-        // markdown::RenderRequest, // Removed: E2EE requires client-side rendering
-        // markdown::RenderManyRequest, // Removed: E2EE requires client-side rendering
-        // markdown::RenderManyResponse, // Removed: E2EE requires client-side rendering
         plugins::ManifestItem,
         plugins::RecordsResponse,
         plugins::CreateRecordBody,
         plugins::UpdateRecordBody,
         plugins::KvValueResponse,
         plugins::KvValueBody,
-        // plugins::ExecBody, // Removed: E2EE requires client-side WASM execution
-        // plugins::ExecResultResponse, // Removed: E2EE requires client-side WASM execution
         plugins::InstallFromUrlBody,
         plugins::InstallResponse,
         plugins::UninstallBody,
@@ -288,7 +276,6 @@ use crate::ws;
         (name = "Public Documents", description = "Public pages"),
         (name = "Realtime", description = "Yjs WebSocket endpoint (/yjs/:id)"),
         (name = "Git", description = "Git config storage (git operations are client-side)"),
-        (name = "Markdown", description = "Markdown rendering"),
         (name = "Plugins", description = "Plugins management & data APIs"),
         (name = "Storage", description = "Storage ingest APIs"),
         (name = "Health", description = "System health checks")
