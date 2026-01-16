@@ -69,6 +69,31 @@ pub trait PublicRepository: Send + Sync {
 
     /// Delete stored public content when unpublishing
     async fn delete_public_content(&self, doc_id: Uuid) -> PortResult<()>;
+
+    // --- Public file methods (for E2EE attachments) ---
+
+    /// Store metadata for a public file
+    async fn store_public_file(&self, input: StorePublicFileInput) -> PortResult<Uuid>;
+
+    /// Get all public files for a document
+    async fn get_public_files(&self, doc_id: Uuid) -> PortResult<Vec<PublicFileRow>>;
+
+    /// Get a single public file by document and file ID
+    async fn get_public_file(
+        &self,
+        doc_id: Uuid,
+        file_id: Uuid,
+    ) -> PortResult<Option<PublicFileRow>>;
+
+    /// Get a single public file by document and logical filename
+    async fn get_public_file_by_logical_filename(
+        &self,
+        doc_id: Uuid,
+        logical_filename: &str,
+    ) -> PortResult<Option<PublicFileRow>>;
+
+    /// Delete all public files for a document (when unpublishing)
+    async fn delete_public_files(&self, doc_id: Uuid) -> PortResult<usize>;
 }
 
 /// Stored plaintext content for published document
@@ -79,4 +104,34 @@ pub struct PublicContentRow {
     pub content: String,
     pub content_hash: String,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Metadata for a public file (decrypted attachment)
+#[derive(Debug, Clone)]
+pub struct PublicFileRow {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub workspace_id: Uuid,
+    pub file_id: Uuid,
+    pub original_filename: String,
+    pub logical_filename: String,
+    pub mime_type: String,
+    pub size: i64,
+    pub storage_path: String,
+    pub content_hash: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Input for storing a public file
+#[derive(Debug, Clone)]
+pub struct StorePublicFileInput {
+    pub document_id: Uuid,
+    pub workspace_id: Uuid,
+    pub file_id: Uuid,
+    pub original_filename: String,
+    pub logical_filename: String,
+    pub mime_type: String,
+    pub size: i64,
+    pub storage_path: String,
+    pub content_hash: String,
 }

@@ -29,6 +29,41 @@ pub trait StorageResolverPort: Send + Sync {
         original_filename: Option<&str>,
         bytes: &[u8],
     ) -> PortResult<StoredAttachment>;
+
+    // --- Public file storage (for E2EE decrypted files) ---
+
+    /// Store a public (decrypted) file for a published document
+    /// Returns the storage path: public/{workspace_id}/{document_id}/{file_id}
+    async fn store_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+        bytes: &[u8],
+    ) -> PortResult<String>;
+
+    /// Read a public file
+    async fn read_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+    ) -> PortResult<Vec<u8>>;
+
+    /// Delete a public file
+    async fn delete_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+    ) -> PortResult<()>;
+
+    /// Delete all public files for a document
+    async fn delete_public_files_for_document(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+    ) -> PortResult<()>;
 }
 
 #[async_trait]

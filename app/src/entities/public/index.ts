@@ -1,3 +1,5 @@
 export * from './api'
 export { buildCanonicalUrl, buildOgImageUrl } from './lib/seo'
 export type { OgImageUrlOptions } from './lib/seo'
+export { uploadPublicFilesForDocument } from './lib/upload-public-files'
+export { rewritePublicAttachmentUrls } from './lib/rewrite-attachment-urls'

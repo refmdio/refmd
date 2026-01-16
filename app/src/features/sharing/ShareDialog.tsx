@@ -14,7 +14,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/shared/ui/separator'
 import { Switch } from '@/shared/ui/switch'
 
-import { getPublishStatus, publishDocument, unpublishDocument } from '@/entities/public'
+import { fetchDocumentMeta } from '@/entities/document'
+import { getPublishStatus, publishDocument, unpublishDocument, uploadPublicFilesForDocument } from '@/entities/public'
+import { fetchDecryptedContent } from '@/features/search/lib/fetch-decrypted-content'
+import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
 import { createShare, deleteShare, listDocumentShares, shareKeys } from '@/entities/share'
 import { useAuthContext } from '@/features/auth'
 import {
@@ -230,7 +233,51 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
   const copyToClipboard = async (text: string) => { try { await navigator.clipboard.writeText(text); toast.success('Copied to clipboard') } catch { toast.error('Failed to copy') } }
   const copyPublicUrl = () => { if (publishState.url) copyToClipboard(`${baseUrl}${publishState.url}`) }
   const openPublicPage = () => { if (publishState.url) window.open(`${baseUrl}${publishState.url}`, '_blank') }
-  const handlePublish = async () => { setPublishState(p=>({...p,loading:true})); try{ const r=await publishDocument(targetId); setPublishState({isPublished:true,url:r.public_url,loading:false}); toast.success('Published successfully')}catch{ setPublishState(p=>({...p,loading:false})); toast.error('Failed to publish')} }
+  const handlePublish = async () => {
+    setPublishState(p => ({ ...p, loading: true }))
+    try {
+      let plaintextTitle: string | undefined
+      let plaintextContent: string | undefined
+
+      const keyManager = getKeyManager()
+      if (keyManager.isUnlocked && activeWorkspaceId) {
+        try {
+          const [meta, content] = await Promise.all([
+            fetchDocumentMeta(targetId),
+            fetchDecryptedContent(targetId, activeWorkspaceId),
+          ])
+
+          plaintextTitle = await decryptDocumentTitle(meta, activeWorkspaceId)
+          plaintextContent = content
+        } catch (e) {
+          console.warn('[ShareDialog] Failed to fetch decrypted content:', e)
+          toast.error('Failed to decrypt document content')
+          setPublishState(p => ({ ...p, loading: false }))
+          return
+        }
+      }
+
+      const r = await publishDocument(targetId, { plaintextTitle, plaintextContent })
+
+      // Upload decrypted attachments for E2EE documents
+      if (keyManager.isUnlocked && activeWorkspaceId) {
+        try {
+          await uploadPublicFilesForDocument({
+            documentId: targetId,
+            workspaceId: activeWorkspaceId,
+          })
+        } catch (err) {
+          console.error('[ShareDialog] Failed to upload attachments:', err)
+        }
+      }
+
+      setPublishState({ isPublished: true, url: r.public_url, loading: false })
+      toast.success('Published successfully')
+    } catch {
+      setPublishState(p => ({ ...p, loading: false }))
+      toast.error('Failed to publish')
+    }
+  }
   const handleUnpublish = async () => { setPublishState(p=>({...p,loading:true})); try{ await unpublishDocument(targetId); setPublishState({isPublished:false,url:'',loading:false}); toast.success('Unpublished successfully')}catch{ setPublishState(p=>({...p,loading:false})); toast.error('Failed to unpublish')} }
 
   return (

@@ -433,6 +433,7 @@ pub async fn build_runtime(
     let public_service = Arc::new(PublicService::new(
         public_repo.clone(),
         realtime_engine.clone(),
+        storage_resolver.clone(),
     ));
     let plugin_management_service = Arc::new(PluginManagementService::new(
         plugin_installations.clone(),

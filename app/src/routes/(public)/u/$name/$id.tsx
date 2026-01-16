@@ -5,6 +5,7 @@ import {
   buildOgImageUrl,
   getPublicByWorkspaceAndId,
   getPublicContentByWorkspaceAndId,
+  rewritePublicAttachmentUrls,
 } from '@/entities/public'
 
 import PublicUserDocumentPage, { type PublicDocumentMeta } from '@/widgets/public/PublicUserDocumentPage'
@@ -24,7 +25,9 @@ export const Route = createFileRoute('/(public)/u/$name/$id')({
   loader: async ({ params }) => {
     const meta = (await getPublicByWorkspaceAndId(params.name, params.id)) as unknown as PublicDocumentMeta
     const contentResp = await getPublicContentByWorkspaceAndId(params.name, params.id)
-    const contentValue = typeof (contentResp as any)?.content === 'string' ? String((contentResp as any).content) : ''
+    const rawContent = typeof (contentResp as any)?.content === 'string' ? String((contentResp as any).content) : ''
+    // Rewrite attachment URLs to use the public files API
+    const contentValue = rewritePublicAttachmentUrls(rawContent, params.name, params.id)
     return {
       slug: params.name,
       meta,

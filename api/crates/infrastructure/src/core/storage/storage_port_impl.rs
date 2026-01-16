@@ -273,4 +273,104 @@ impl StorageResolverPort for FsStoragePort {
         .await;
         out.map_err(Into::into)
     }
+
+    // --- Public file storage ---
+
+    async fn store_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+        bytes: &[u8],
+    ) -> PortResult<String> {
+        let out: anyhow::Result<String> = async {
+            use tokio::fs;
+
+            // Path: public/{workspace_id}/{document_id}/{file_id}
+            let public_dir = self
+                .uploads_root
+                .join("public")
+                .join(workspace_id.to_string())
+                .join(document_id.to_string());
+            fs::create_dir_all(&public_dir).await?;
+
+            let file_path = public_dir.join(file_id.to_string());
+            fs::write(&file_path, bytes).await?;
+
+            let storage_path = format!("public/{}/{}/{}", workspace_id, document_id, file_id);
+            Ok(storage_path)
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn read_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+    ) -> PortResult<Vec<u8>> {
+        let out: anyhow::Result<Vec<u8>> = async {
+            let file_path = self
+                .uploads_root
+                .join("public")
+                .join(workspace_id.to_string())
+                .join(document_id.to_string())
+                .join(file_id.to_string());
+            let data = tokio::fs::read(&file_path).await?;
+            Ok(data)
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn delete_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            use std::io::ErrorKind;
+
+            let file_path = self
+                .uploads_root
+                .join("public")
+                .join(workspace_id.to_string())
+                .join(document_id.to_string())
+                .join(file_id.to_string());
+
+            match tokio::fs::remove_file(&file_path).await {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(e.into()),
+            }
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn delete_public_files_for_document(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            use std::io::ErrorKind;
+
+            let doc_dir = self
+                .uploads_root
+                .join("public")
+                .join(workspace_id.to_string())
+                .join(document_id.to_string());
+
+            match tokio::fs::remove_dir_all(&doc_dir).await {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(e.into()),
+            }
+        }
+        .await;
+        out.map_err(Into::into)
+    }
 }

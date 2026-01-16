@@ -40,6 +40,9 @@ import {
 } from '@/features/security'
 import { getMyWorkspaceKey, getDocumentKey } from '@/shared/api/client'
 import { updateDocumentTagsFromContent } from '@/entities/tag'
+import { getPublishStatus, publishDocument } from '@/entities/public'
+import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
+import { getDocument } from '@/shared/api/client'
 
 // ============================================
 // Types
@@ -128,6 +131,9 @@ const SNAPSHOT_THRESHOLD = 100
 /** Debounce delay for tag updates in milliseconds (auto-save style) */
 const TAG_UPDATE_DEBOUNCE_MS = 2000
 
+/** Debounce delay for public content updates in milliseconds */
+const PUBLIC_CONTENT_UPDATE_DEBOUNCE_MS = 2000
+
 /** Reconnect delay in milliseconds */
 const RECONNECT_DELAY = 1000
 
@@ -209,6 +215,11 @@ export class Sync {
   private updatesSinceSnapshot = 0
   private tagUpdateDebounceTimer: ReturnType<typeof setTimeout> | null = null
   private hasUnsavedTagChanges = false
+
+  // Public content auto-sync state
+  private publicContentDebounceTimer: ReturnType<typeof setTimeout> | null = null
+  private isPublished: boolean | null = null // null = unknown, needs check
+  private hasUnsavedPublicContentChanges = false
 
   // Event handlers
   private updateHandler: ((update: Uint8Array, origin: unknown) => void) | null = null
@@ -446,6 +457,18 @@ export class Sync {
     // Fire and forget - don't wait for tag update to complete
     if (this.hasUnsavedTagChanges) {
       this.updateDocumentTags().catch(() => {
+        // Ignore errors on destroy
+      })
+    }
+
+    // Clean up public content update timer
+    if (this.publicContentDebounceTimer) {
+      clearTimeout(this.publicContentDebounceTimer)
+      this.publicContentDebounceTimer = null
+    }
+    // Fire and forget - don't wait for public content update to complete
+    if (this.hasUnsavedPublicContentChanges && this.isPublished) {
+      this.updatePublicContentIfPublished().catch(() => {
         // Ignore errors on destroy
       })
     }
@@ -893,6 +916,9 @@ export class Sync {
 
       // Schedule debounced tag update (auto-save style: 2s after last edit)
       this.scheduleDebouncedTagUpdate()
+
+      // Schedule debounced public content update if document is published
+      this.scheduleDebouncedPublicContentUpdate()
     } catch (err) {
       console.error('[Sync] Error sending update:', err)
     }
@@ -916,6 +942,73 @@ export class Sync {
         console.warn('[Sync] Debounced tag update failed:', err)
       })
     }, TAG_UPDATE_DEBOUNCE_MS)
+  }
+
+  /**
+   * Schedule a debounced public content update.
+   * Fires 2 seconds after the last edit if document is published.
+   */
+  private scheduleDebouncedPublicContentUpdate(): void {
+    this.hasUnsavedPublicContentChanges = true
+
+    if (this.publicContentDebounceTimer) {
+      clearTimeout(this.publicContentDebounceTimer)
+    }
+
+    this.publicContentDebounceTimer = setTimeout(() => {
+      this.publicContentDebounceTimer = null
+      this.hasUnsavedPublicContentChanges = false
+      this.updatePublicContentIfPublished().catch((err) => {
+        console.warn('[Sync] Debounced public content update failed:', err)
+      })
+    }, PUBLIC_CONTENT_UPDATE_DEBOUNCE_MS)
+  }
+
+  /**
+   * Update public content if the document is published.
+   * Caches publish status to avoid unnecessary API calls.
+   */
+  private async updatePublicContentIfPublished(): Promise<void> {
+    try {
+      // Check publish status (use cached value if available)
+      if (this.isPublished === null) {
+        try {
+          const status = await getPublishStatus(this.documentId)
+          this.isPublished = !!status?.public_url
+        } catch {
+          // If we can't get status, assume not published
+          this.isPublished = false
+        }
+      }
+
+      if (!this.isPublished) {
+        return
+      }
+
+      // Get decrypted content
+      const content = this.doc.getText('content').toString()
+      if (!content) return
+
+      // Get document metadata for title
+      const meta = await getDocument({ id: this.documentId })
+      const plaintextTitle = await decryptDocumentTitle(meta, this.workspaceId)
+
+      // Update public content
+      await publishDocument(this.documentId, {
+        plaintextTitle,
+        plaintextContent: content,
+      })
+    } catch (err) {
+      // Don't throw - public content update failure shouldn't break sync
+      console.warn('[Sync] Public content update failed:', err)
+    }
+  }
+
+  /**
+   * Set the published status (called from ShareDialog when publish status changes)
+   */
+  setPublishedStatus(isPublished: boolean): void {
+    this.isPublished = isPublished
   }
 
   private async handleLocalAwarenessChange(changedClients: number[]): Promise<void> {

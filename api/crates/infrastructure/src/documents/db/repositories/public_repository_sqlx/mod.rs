@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::core::db::PgPool;
 use application::core::ports::errors::PortResult;
 use application::documents::ports::publishing::public_repository::{
-    PublicContentRow, PublicDocumentSummaryRow, PublicRepository, PublishStatusRow,
-    WorkspaceTitleAndSlug,
+    PublicContentRow, PublicDocumentSummaryRow, PublicFileRow, PublicRepository, PublishStatusRow,
+    StorePublicFileInput, WorkspaceTitleAndSlug,
 };
 use domain::documents::doc_type::DocumentType;
 use domain::documents::document::Document;
@@ -312,6 +312,154 @@ impl PublicRepository for SqlxPublicRepository {
                 .execute(&self.pool)
                 .await?;
             Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    // --- Public file methods ---
+
+    async fn store_public_file(&self, input: StorePublicFileInput) -> PortResult<Uuid> {
+        let out: anyhow::Result<Uuid> = async {
+            let id: Uuid = sqlx::query_scalar(
+                r#"INSERT INTO public_document_files
+                   (document_id, workspace_id, file_id, original_filename, logical_filename, mime_type, size, storage_path, content_hash)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                   ON CONFLICT (document_id, file_id) DO UPDATE SET
+                       original_filename = EXCLUDED.original_filename,
+                       logical_filename = EXCLUDED.logical_filename,
+                       mime_type = EXCLUDED.mime_type,
+                       size = EXCLUDED.size,
+                       storage_path = EXCLUDED.storage_path,
+                       content_hash = EXCLUDED.content_hash,
+                       updated_at = now()
+                   RETURNING id"#,
+            )
+            .bind(input.document_id)
+            .bind(input.workspace_id)
+            .bind(input.file_id)
+            .bind(&input.original_filename)
+            .bind(&input.logical_filename)
+            .bind(&input.mime_type)
+            .bind(input.size)
+            .bind(&input.storage_path)
+            .bind(&input.content_hash)
+            .fetch_one(&self.pool)
+            .await?;
+            Ok(id)
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn get_public_files(&self, doc_id: Uuid) -> PortResult<Vec<PublicFileRow>> {
+        let out: anyhow::Result<Vec<PublicFileRow>> = async {
+            let rows = sqlx::query(
+                r#"SELECT id, document_id, workspace_id, file_id, original_filename, logical_filename,
+                          mime_type, size, storage_path, content_hash, created_at
+                   FROM public_document_files
+                   WHERE document_id = $1
+                   ORDER BY created_at"#,
+            )
+            .bind(doc_id)
+            .fetch_all(&self.pool)
+            .await?;
+            Ok(rows
+                .into_iter()
+                .map(|r| PublicFileRow {
+                    id: r.get("id"),
+                    document_id: r.get("document_id"),
+                    workspace_id: r.get("workspace_id"),
+                    file_id: r.get("file_id"),
+                    original_filename: r.get("original_filename"),
+                    logical_filename: r.get("logical_filename"),
+                    mime_type: r.get("mime_type"),
+                    size: r.get("size"),
+                    storage_path: r.get("storage_path"),
+                    content_hash: r.get("content_hash"),
+                    created_at: r.get("created_at"),
+                })
+                .collect())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn get_public_file(
+        &self,
+        doc_id: Uuid,
+        file_id: Uuid,
+    ) -> PortResult<Option<PublicFileRow>> {
+        let out: anyhow::Result<Option<PublicFileRow>> = async {
+            let row = sqlx::query(
+                r#"SELECT id, document_id, workspace_id, file_id, original_filename, logical_filename,
+                          mime_type, size, storage_path, content_hash, created_at
+                   FROM public_document_files
+                   WHERE document_id = $1 AND file_id = $2"#,
+            )
+            .bind(doc_id)
+            .bind(file_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row.map(|r| PublicFileRow {
+                id: r.get("id"),
+                document_id: r.get("document_id"),
+                workspace_id: r.get("workspace_id"),
+                file_id: r.get("file_id"),
+                original_filename: r.get("original_filename"),
+                logical_filename: r.get("logical_filename"),
+                mime_type: r.get("mime_type"),
+                size: r.get("size"),
+                storage_path: r.get("storage_path"),
+                content_hash: r.get("content_hash"),
+                created_at: r.get("created_at"),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn get_public_file_by_logical_filename(
+        &self,
+        doc_id: Uuid,
+        logical_filename: &str,
+    ) -> PortResult<Option<PublicFileRow>> {
+        let out: anyhow::Result<Option<PublicFileRow>> = async {
+            let row = sqlx::query(
+                r#"SELECT id, document_id, workspace_id, file_id, original_filename, logical_filename,
+                          mime_type, size, storage_path, content_hash, created_at
+                   FROM public_document_files
+                   WHERE document_id = $1 AND logical_filename = $2"#,
+            )
+            .bind(doc_id)
+            .bind(logical_filename)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row.map(|r| PublicFileRow {
+                id: r.get("id"),
+                document_id: r.get("document_id"),
+                workspace_id: r.get("workspace_id"),
+                file_id: r.get("file_id"),
+                original_filename: r.get("original_filename"),
+                logical_filename: r.get("logical_filename"),
+                mime_type: r.get("mime_type"),
+                size: r.get("size"),
+                storage_path: r.get("storage_path"),
+                content_hash: r.get("content_hash"),
+                created_at: r.get("created_at"),
+            }))
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn delete_public_files(&self, doc_id: Uuid) -> PortResult<usize> {
+        let out: anyhow::Result<usize> = async {
+            let res = sqlx::query(r#"DELETE FROM public_document_files WHERE document_id = $1"#)
+                .bind(doc_id)
+                .execute(&self.pool)
+                .await?;
+            Ok(res.rows_affected() as usize)
         }
         .await;
         out.map_err(Into::into)

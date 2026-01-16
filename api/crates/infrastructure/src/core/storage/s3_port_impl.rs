@@ -561,10 +561,104 @@ impl StorageResolverPort for S3StoragePort {
         .await;
         out.map_err(Into::into)
     }
+
+    // --- Public file storage ---
+
+    async fn store_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+        bytes: &[u8],
+    ) -> PortResult<String> {
+        let out: anyhow::Result<String> = async {
+            // Path: public/{workspace_id}/{document_id}/{file_id}
+            let storage_path = format!("public/{}/{}/{}", workspace_id, document_id, file_id);
+            let key = self.relative_to_key(&storage_path);
+            self.put_object(&key, bytes).await?;
+            Ok(storage_path)
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn read_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+    ) -> PortResult<Vec<u8>> {
+        let out: anyhow::Result<Vec<u8>> = async {
+            let storage_path = format!("public/{}/{}/{}", workspace_id, document_id, file_id);
+            let key = self.relative_to_key(&storage_path);
+
+            let resp = self
+                .client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(&key)
+                .send()
+                .await;
+
+            let object = match resp {
+                Ok(obj) => obj,
+                Err(SdkError::ServiceError(service_err)) => {
+                    if service_err.err().is_no_such_key() {
+                        let err = io::Error::new(
+                            io::ErrorKind::NotFound,
+                            format!("public file {key} not found"),
+                        );
+                        return Err(err.into());
+                    }
+                    return Err(anyhow!("failed to get public file {key}: {}", service_err.err()));
+                }
+                Err(err) => {
+                    return Err(anyhow!("failed to get public file {key}: {err}"));
+                }
+            };
+
+            let mut reader = object.body.into_async_read();
+            let mut data = Vec::new();
+            reader.read_to_end(&mut data).await?;
+            Ok(data)
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn delete_public_file(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+        file_id: Uuid,
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let storage_path = format!("public/{}/{}/{}", workspace_id, document_id, file_id);
+            let key = self.relative_to_key(&storage_path);
+            let _ = self.delete_object(&key).await;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn delete_public_files_for_document(
+        &self,
+        workspace_id: Uuid,
+        document_id: Uuid,
+    ) -> PortResult<()> {
+        let out: anyhow::Result<()> = async {
+            let prefix = format!("public/{}/{}/", workspace_id, document_id);
+            self.delete_children_with_prefix(&prefix).await?;
+            Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
 }
 
 impl S3StoragePort {
-    #[allow(dead_code)]
+    /// Delete all objects with the given prefix
     async fn delete_children_with_prefix(&self, rel: &str) -> anyhow::Result<()> {
         let mut key_prefix = self.relative_to_key(rel);
         if key_prefix.is_empty() {

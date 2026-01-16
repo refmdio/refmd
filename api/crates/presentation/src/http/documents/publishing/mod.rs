@@ -7,8 +7,9 @@ use axum::routing::{get, post};
 use crate::context::AppContext;
 
 pub use handlers::{
-    get_public_by_workspace_and_id, get_public_content_by_workspace_and_id, get_publish_status,
-    list_workspace_public_documents, publish_document, unpublish_document,
+    get_public_by_workspace_and_id, get_public_content_by_workspace_and_id, get_public_file,
+    get_publish_status, list_public_files, list_workspace_public_documents, publish_document,
+    unpublish_document, upload_public_file,
 };
 pub use types::*;
 
@@ -24,12 +25,15 @@ pub fn routes(ctx: AppContext) -> Router {
                 .delete(unpublish_document)
                 .get(get_publish_status),
         )
+        .route("/documents/:id/files/:file_id", post(upload_public_file))
         .route("/workspaces/:slug", get(list_workspace_public_documents))
         .route("/workspaces/:slug/:id", get(get_public_by_workspace_and_id))
         .route(
             "/workspaces/:slug/:id/content",
             get(get_public_content_by_workspace_and_id),
         )
+        .route("/workspaces/:slug/:id/files", get(list_public_files))
+        .route("/workspaces/:slug/:id/files/:file_id", get(get_public_file))
         // legacy aliases
         .route("/users/:slug", get(list_workspace_public_documents))
         .route("/users/:slug/:id", get(get_public_by_workspace_and_id))

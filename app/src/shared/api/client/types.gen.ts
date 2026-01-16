@@ -670,6 +670,19 @@ export type PublicDocumentSummary = {
 };
 
 /**
+ * Public file metadata
+ */
+export type PublicFile = {
+    createdAt: string;
+    fileId: string;
+    id: string;
+    logicalFilename: string;
+    mimeType: string;
+    originalFilename: string;
+    size: number;
+};
+
+/**
  * Request to publish a document. For E2EE workspaces, plaintext title and content
  * must be provided so public pages can be rendered without decryption.
  */
@@ -1136,6 +1149,28 @@ export type UploadFileResponse = {
      * URL to access the file (relative or absolute)
      */
     url: string;
+};
+
+/**
+ * Request to upload a public file (decrypted attachment for E2EE documents)
+ */
+export type UploadPublicFileRequest = {
+    /**
+     * Base64 encoded file content
+     */
+    content: string;
+    /**
+     * Logical filename as it appears in markdown (e.g., "image.png" from "./attachments/image.png")
+     */
+    logicalFilename: string;
+    /**
+     * MIME type of the file
+     */
+    mimeType: string;
+    /**
+     * Original filename (decrypted)
+     */
+    originalFilename: string;
 };
 
 export type UserPublicKeyResponse = {
@@ -1857,6 +1892,23 @@ export type UnpublishDocumentData = {
 
 export type UnpublishDocumentResponse = (void);
 
+export type UploadPublicFileData = {
+    /**
+     * File ID (original encrypted file ID)
+     */
+    fileId: string;
+    /**
+     * Document ID
+     */
+    id: string;
+    /**
+     * Decrypted file data
+     */
+    requestBody: UploadPublicFileRequest;
+};
+
+export type UploadPublicFileResponse = (void);
+
 export type ListWorkspacePublicDocumentsData = {
     /**
      * Workspace slug
@@ -1891,6 +1943,36 @@ export type GetPublicContentByWorkspaceAndIdData = {
 };
 
 export type GetPublicContentByWorkspaceAndIdResponse = (unknown);
+
+export type ListPublicFilesData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    /**
+     * Workspace slug
+     */
+    slug: string;
+};
+
+export type ListPublicFilesResponse = (Array<PublicFile>);
+
+export type GetPublicFileData = {
+    /**
+     * Logical filename as it appears in markdown
+     */
+    filename: string;
+    /**
+     * Document ID
+     */
+    id: string;
+    /**
+     * Workspace slug
+     */
+    slug: string;
+};
+
+export type GetPublicFileResponse = (unknown);
 
 export type CreateShareData = {
     requestBody: CreateShareRequest;

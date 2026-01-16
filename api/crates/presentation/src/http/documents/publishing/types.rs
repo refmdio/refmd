@@ -41,3 +41,30 @@ impl From<PublicDocumentSummaryDto> for PublicDocumentSummary {
         }
     }
 }
+
+/// Request to upload a public file (decrypted attachment for E2EE documents)
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadPublicFileRequest {
+    /// Original filename (decrypted)
+    pub original_filename: String,
+    /// Logical filename as it appears in markdown (e.g., "image.png" from "./attachments/image.png")
+    pub logical_filename: String,
+    /// MIME type of the file
+    pub mime_type: String,
+    /// Base64 encoded file content
+    pub content: String,
+}
+
+/// Public file metadata
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicFile {
+    pub id: Uuid,
+    pub file_id: Uuid,
+    pub original_filename: String,
+    pub logical_filename: String,
+    pub mime_type: String,
+    pub size: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
