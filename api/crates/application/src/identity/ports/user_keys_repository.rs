@@ -70,7 +70,7 @@ pub trait UserKeysRepository: Send + Sync {
         nonce: &[u8],
     ) -> PortResult<UserEncryptedPrivateKeyRow>;
 
-    // E2EE setup status
-    async fn mark_e2ee_setup_completed(&self, user_id: Uuid) -> PortResult<()>;
-    async fn is_e2ee_setup_completed(&self, user_id: Uuid) -> PortResult<bool>;
+    // Encryption setup status
+    async fn mark_encryption_setup_completed(&self, user_id: Uuid) -> PortResult<()>;
+    async fn is_encryption_setup_completed(&self, user_id: Uuid) -> PortResult<bool>;
 }

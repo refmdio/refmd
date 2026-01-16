@@ -7,9 +7,9 @@ use axum::Router;
 use crate::context::AppContext;
 
 pub use handlers::{
-    get_e2ee_status, get_encrypted_private_key, get_master_key_backup, get_my_public_key,
-    get_user_public_key, mark_e2ee_setup_complete, register_public_key,
-    store_encrypted_private_key, store_master_key_backup, E2eeStatusResponse,
+    get_encryption_status, get_encrypted_private_key, get_master_key_backup, get_my_public_key,
+    get_user_public_key, mark_encryption_setup_complete, register_public_key,
+    store_encrypted_private_key, store_master_key_backup, EncryptionStatusResponse,
 };
 pub use types::*;
 
@@ -33,7 +33,7 @@ pub fn routes(ctx: AppContext) -> Router {
             get(get_encrypted_private_key).post(store_encrypted_private_key),
         )
         // E2EE setup status
-        .route("/me/e2ee/setup-complete", post(mark_e2ee_setup_complete))
-        .route("/me/e2ee/status", get(get_e2ee_status))
+        .route("/me/encryption/setup-complete", post(mark_encryption_setup_complete))
+        .route("/me/encryption/status", get(get_encryption_status))
         .with_state(ctx)
 }

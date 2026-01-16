@@ -1,8 +1,8 @@
 /**
- * E2EE Realtime Sync
+ * Realtime Sync
  *
- * Secure synchronization state machine for Yjs documents.
- * Replaces y-websocket with E2EE-enabled communication.
+ * Synchronization state machine for Yjs documents.
+ * Replaces y-websocket with encrypted communication.
  */
 
 import type * as Y from 'yjs'
@@ -82,8 +82,8 @@ function isServerErrorMessage(msg: unknown): msg is ServerErrorMessage {
 /** Status event handler */
 export type StatusEventHandler = (event: StatusEvent) => void
 
-/** Options for creating a secure connection */
-export interface SecureConnectionOptions {
+/** Options for creating a connection */
+export interface ConnectionOptions {
   token?: string | null
   connect?: boolean
   workspaceId: string
@@ -93,8 +93,8 @@ export interface SecureConnectionOptions {
   fetchDek?: () => Promise<{ encryptedDek: string; nonce: string }>
 }
 
-/** Secure connection interface (compatible with WebsocketProvider API) */
-export interface SecureConnection {
+/** Connection interface (compatible with WebsocketProvider API) */
+export interface Connection {
   awareness: Awareness
   readonly connected: boolean
   readonly syncState: SyncState
@@ -152,19 +152,19 @@ async function computeSnapshotProof(
 }
 
 // ============================================
-// SecureSync class
+// Sync class
 // ============================================
 
 /**
- * SecureSync - E2EE WebSocket synchronization for Yjs
+ * Sync - WebSocket synchronization for Yjs
  */
-export class SecureSync {
+export class Sync {
   private doc: Y.Doc
   private documentId: string
   private workspaceId: string
   private serverUrl: string
   private token: string | null
-  private options: SecureConnectionOptions
+  private options: ConnectionOptions
 
   private ws: WebSocket | null = null
   private awareness: Awareness | null = null
@@ -209,7 +209,7 @@ export class SecureSync {
     serverUrl: string,
     doc: Y.Doc,
     documentId: string,
-    options: SecureConnectionOptions
+    options: ConnectionOptions
   ) {
     this.serverUrl = serverUrl
     this.doc = doc
@@ -220,7 +220,7 @@ export class SecureSync {
   }
 
   /**
-   * Initialize the secure sync connection.
+   * Initialize the sync connection.
    * Must be called before connect().
    */
   async initialize(): Promise<void> {
@@ -270,7 +270,7 @@ export class SecureSync {
    */
   getAwareness(): Awareness {
     if (!this.awareness) {
-      throw new Error('SecureSync not initialized. Call initialize() first.')
+      throw new Error('Sync not initialized. Call initialize() first.')
     }
     return this.awareness
   }
@@ -332,7 +332,7 @@ export class SecureSync {
       try {
         handler(event)
       } catch (err) {
-        console.error('[SecureSync] Error in status handler:', err)
+        console.error('[Sync] Error in status handler:', err)
       }
     }
   }
@@ -492,7 +492,7 @@ export class SecureSync {
 
       ws.send(JSON.stringify({ type: 'awareness', ...message }))
     } catch (err) {
-      console.error('[SecureSync] Error sending initialize message:', err)
+      console.error('[Sync] Error sending initialize message:', err)
     }
   }
 
@@ -510,7 +510,7 @@ export class SecureSync {
 
       await this.processMessage(message)
     } catch (err) {
-      console.error('[SecureSync] Error processing message:', err)
+      console.error('[Sync] Error processing message:', err)
     }
   }
 
@@ -540,7 +540,7 @@ export class SecureSync {
 
   private async processMessage(message: ServerMessage): Promise<void> {
     if (!this.dek) {
-      console.error('[SecureSync] DEK not available')
+      console.error('[Sync] DEK not available')
       return
     }
 
@@ -557,12 +557,12 @@ export class SecureSync {
     } else if (isRealtimeMessage(message)) {
       await this.handleRelayedMessage(message)
     } else {
-      console.warn('[SecureSync] Unknown message type:', message)
+      console.warn('[Sync] Unknown message type:', message)
     }
   }
 
   private async handleErrorMessage(message: ServerErrorMessage): Promise<void> {
-    console.error('[SecureSync] Server error:', message.error, 'document:', message.document_id)
+    console.error('[Sync] Server error:', message.error, 'document:', message.document_id)
     this.setState({
       status: 'error',
       error: message.error,
@@ -584,7 +584,7 @@ export class SecureSync {
         status: 'syncing',
       })
     } catch (err) {
-      console.error('[SecureSync] Error processing init message:', err)
+      console.error('[Sync] Error processing init message:', err)
       this.setState({ status: 'error', error: 'Failed to process init message' })
     }
   }
@@ -604,7 +604,7 @@ export class SecureSync {
         this.setState({ status: 'ready' })
       }
     } catch (err) {
-      console.error('[SecureSync] Error processing sync_update:', err)
+      console.error('[Sync] Error processing sync_update:', err)
     }
   }
 
@@ -652,7 +652,7 @@ export class SecureSync {
         await this.handleAwarenessMessage(message)
       }
     } catch (err) {
-      console.error(`[SecureSync] Error processing ${message.type}:`, err)
+      console.error(`[Sync] Error processing ${message.type}:`, err)
     }
   }
 
@@ -712,7 +712,7 @@ export class SecureSync {
         const { applyAwarenessUpdate } = await import('y-protocols/awareness')
         applyAwarenessUpdate(this.awareness, result.content, null)
       } catch (err) {
-        console.error('[SecureSync] Error applying awareness update:', err)
+        console.error('[Sync] Error applying awareness update:', err)
       }
     }
   }
@@ -760,7 +760,7 @@ export class SecureSync {
 
       ws.send(JSON.stringify({ type: 'awareness', ...message }))
     } catch (err) {
-      console.error('[SecureSync] Error sending proof response:', err)
+      console.error('[Sync] Error sending proof response:', err)
     }
   }
 
@@ -847,7 +847,7 @@ export class SecureSync {
       // Schedule debounced tag update (auto-save style: 2s after last edit)
       this.scheduleDebouncedTagUpdate()
     } catch (err) {
-      console.error('[SecureSync] Error sending update:', err)
+      console.error('[Sync] Error sending update:', err)
     }
   }
 
@@ -866,7 +866,7 @@ export class SecureSync {
       this.tagUpdateDebounceTimer = null
       this.hasUnsavedTagChanges = false
       this.updateDocumentTags().catch((err) => {
-        console.warn('[SecureSync] Debounced tag update failed:', err)
+        console.warn('[Sync] Debounced tag update failed:', err)
       })
     }, TAG_UPDATE_DEBOUNCE_MS)
   }
@@ -911,7 +911,7 @@ export class SecureSync {
 
       ws.send(JSON.stringify({ type: 'awareness', ...message }))
     } catch (err) {
-      console.error('[SecureSync] Error sending awareness:', err)
+      console.error('[Sync] Error sending awareness:', err)
     }
   }
 
@@ -981,10 +981,10 @@ export class SecureSync {
       // Phase 14: Extract and update tags from document content
       // Do this in background to not block the sync flow
       this.updateDocumentTags().catch((err) => {
-        console.warn('[SecureSync] Error updating document tags:', err)
+        console.warn('[Sync] Error updating document tags:', err)
       })
     } catch (err) {
-      console.error('[SecureSync] Error sending snapshot:', err)
+      console.error('[Sync] Error sending snapshot:', err)
     }
   }
 
@@ -1003,7 +1003,7 @@ export class SecureSync {
       await updateDocumentTagsFromContent(this.documentId, this.workspaceId, content)
     } catch (err) {
       // Don't throw - tag update failure shouldn't break sync
-      console.warn('[SecureSync] Tag extraction failed:', err)
+      console.warn('[Sync] Tag extraction failed:', err)
     }
   }
 
@@ -1051,7 +1051,7 @@ export class SecureSync {
 // ============================================
 
 /**
- * Create a secure E2EE connection for a Yjs document.
+ * Create a connection for a Yjs document.
  *
  * This replaces y-websocket's WebsocketProvider.
  *
@@ -1059,15 +1059,15 @@ export class SecureSync {
  * @param doc - Yjs document
  * @param documentId - Document ID
  * @param options - Connection options
- * @returns SecureConnection interface
+ * @returns Connection interface
  */
-export async function createSecureConnection(
+export async function createConnection(
   serverUrl: string,
   doc: Y.Doc,
   documentId: string,
-  options: SecureConnectionOptions
-): Promise<SecureConnection> {
-  const sync = new SecureSync(serverUrl, doc, documentId, options)
+  options: ConnectionOptions
+): Promise<Connection> {
+  const sync = new Sync(serverUrl, doc, documentId, options)
   await sync.initialize()
 
   if (options.connect !== false) {

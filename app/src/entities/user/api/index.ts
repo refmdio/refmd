@@ -13,11 +13,11 @@ import {
   oauthState as apiOauthState,
   refreshSession as apiRefreshSession,
   listOauthProviders as apiListOauthProviders,
-  // Security / E2EE APIs
-  getE2EeStatus as apiGetSecurityStatus,
+  // Security APIs
+  getEncryptionStatus as apiGetSecurityStatus,
   needsMigration as apiNeedsMigration,
-  migrateToE2Ee as apiMigrateUserData,
-  markE2EeSetupComplete as apiMarkSecuritySetupComplete,
+  migrate as apiMigrateUserData,
+  markEncryptionSetupComplete as apiMarkSecuritySetupComplete,
   getMyPublicKey as apiGetMyPublicKey,
   registerPublicKey as apiRegisterPublicKey,
   getMasterKeyBackup as apiGetMasterKeyBackup,
@@ -28,7 +28,7 @@ import {
 import type {
   SessionResponse,
   AuthProvidersResponse,
-  E2eeStatusResponse,
+  EncryptionStatusResponse,
   NeedsMigrationResponse,
   MigrationResponse,
   UserPublicKeyResponse,
@@ -164,7 +164,7 @@ export const securityKeys = {
 }
 
 // API wrapper functions
-export async function getSecurityStatus(): Promise<E2eeStatusResponse> {
+export async function getSecurityStatus(): Promise<EncryptionStatusResponse> {
   return apiGetSecurityStatus()
 }
 
@@ -219,7 +219,7 @@ export const needsMigrationQuery = () => ({
 
 // Re-export types
 export type {
-  E2eeStatusResponse as SecurityStatusResponse,
+  EncryptionStatusResponse as SecurityStatusResponse,
   NeedsMigrationResponse,
   MigrationResponse,
   UserPublicKeyResponse,

@@ -129,8 +129,8 @@ impl RedisRealtimeEngine {
         self.snapshot_service.clone()
     }
 
-    /// Spawn a task to forward E2EE messages from Redis to the client
-    fn spawn_e2ee_forward_task(
+    /// Spawn a task to forward messages from Redis to the client
+    fn spawn_forward_task(
         mut stream: UnboundedReceiverStream<anyhow::Result<StreamItem>>,
         sink: SharedRealtimeSink,
         doc_id: String,
@@ -146,7 +146,7 @@ impl RedisRealtimeEngine {
                                 document_id = %doc_id,
                                 channel,
                                 error = %e,
-                                "redis_e2ee_forward_sink_closed"
+                                "redis_forward_sink_closed"
                             );
                             break;
                         }
@@ -156,7 +156,7 @@ impl RedisRealtimeEngine {
                             document_id = %doc_id,
                             channel,
                             error = ?e,
-                            "redis_e2ee_forward_stream_error"
+                            "redis_forward_stream_error"
                         );
                     }
                 }
@@ -349,13 +349,13 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
             let updates_stream = self.bus.subscribe_updates(doc_id, None).await?;
             let awareness_stream = self.bus.subscribe_awareness(doc_id, None).await?;
 
-            updates_handle = Some(Self::spawn_e2ee_forward_task(
+            updates_handle = Some(Self::spawn_forward_task(
                 updates_stream,
                 sink.clone(),
                 doc_id.to_string(),
                 "updates",
             ));
-            awareness_handle = Some(Self::spawn_e2ee_forward_task(
+            awareness_handle = Some(Self::spawn_forward_task(
                 awareness_stream,
                 sink.clone(),
                 doc_id.to_string(),

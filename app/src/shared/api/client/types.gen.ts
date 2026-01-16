@@ -318,10 +318,6 @@ export type DuplicateDocumentRequest = {
     title?: (string) | null;
 };
 
-export type E2eeStatusResponse = {
-    isSetupCompleted: boolean;
-};
-
 /**
  * Encrypted DEK for a document (request).
  */
@@ -377,6 +373,10 @@ export type EncryptedUpdateEntry = {
      * Base64 encoded signature
      */
     signature?: (string) | null;
+};
+
+export type EncryptionStatusResponse = {
+    isSetupCompleted: boolean;
 };
 
 /**
@@ -1636,17 +1636,17 @@ export type RevokeApiTokenData = {
 
 export type RevokeApiTokenResponse = (void);
 
-export type MigrateToE2EeData = {
+export type MigrateData = {
     requestBody: MigrateRequest;
 };
 
-export type MigrateToE2EeResponse = (MigrationResponse);
+export type MigrateResponse = (MigrationResponse);
 
 export type NeedsMigrationResponse2 = (NeedsMigrationResponse);
 
-export type MarkE2EeSetupCompleteResponse = (void);
+export type MarkEncryptionSetupCompleteResponse = (void);
 
-export type GetE2EeStatusResponse = (E2eeStatusResponse);
+export type GetEncryptionStatusResponse = (EncryptionStatusResponse);
 
 export type GetMyPublicKeyResponse = (UserPublicKeyResponse);
 

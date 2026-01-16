@@ -1,16 +1,16 @@
 /**
- * E2EE Realtime Sync Module
+ * Realtime Sync Module
  *
  * Provides encrypted Yjs synchronization over WebSocket.
- * Replaces y-websocket with E2EE-enabled communication.
+ * Replaces y-websocket with encrypted communication.
  */
 
 // Main sync functionality
 export {
-  createSecureConnection,
-  SecureSync,
-  type SecureConnection,
-  type SecureConnectionOptions,
+  createConnection,
+  Sync,
+  type Connection,
+  type ConnectionOptions,
   type SyncState,
   type SyncStatus,
   type StatusEvent,

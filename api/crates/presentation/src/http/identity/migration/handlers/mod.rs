@@ -25,7 +25,7 @@ fn map_migration_error(err: ServiceError) -> ApiError {
 /// The operation is atomic - either all data is encrypted or none is.
 #[utoipa::path(
     post,
-    path = "/api/me/e2ee/migrate",
+    path = "/api/me/encryption/migrate",
     tag = "E2EE",
     request_body = MigrateRequest,
     responses(
@@ -35,7 +35,7 @@ fn map_migration_error(err: ServiceError) -> ApiError {
         (status = 500, description = "Migration failed")
     )
 )]
-pub async fn migrate_to_e2ee(
+pub async fn migrate(
     State(ctx): State<IdentityContext>,
     auth: AuthedUser,
     Json(payload): Json<MigrateRequest>,
@@ -54,7 +54,7 @@ pub async fn migrate_to_e2ee(
 /// Check if migration is needed for the current user.
 #[utoipa::path(
     get,
-    path = "/api/me/e2ee/needs-migration",
+    path = "/api/me/encryption/needs-migration",
     tag = "E2EE",
     responses(
         (status = 200, body = NeedsMigrationResponse)

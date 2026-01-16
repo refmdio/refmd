@@ -240,7 +240,7 @@ impl<'repo, 'tx, 'c> WorkspaceKeysRepositoryTx for SqlxMigrationTx<'repo, 'tx, '
 
 #[async_trait]
 impl<'repo, 'tx, 'c> UserKeysRepositoryTx for SqlxMigrationTx<'repo, 'tx, 'c> {
-    async fn mark_e2ee_setup_completed(&mut self, user_id: Uuid) -> PortResult<()> {
+    async fn mark_encryption_setup_completed(&mut self, user_id: Uuid) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
             sqlx::query(r#"UPDATE users SET e2ee_setup_completed_at = now() WHERE id = $1"#)
                 .bind(user_id)
@@ -252,7 +252,7 @@ impl<'repo, 'tx, 'c> UserKeysRepositoryTx for SqlxMigrationTx<'repo, 'tx, 'c> {
         out.map_err(Into::into)
     }
 
-    async fn is_e2ee_setup_completed(&mut self, user_id: Uuid) -> PortResult<bool> {
+    async fn is_encryption_setup_completed(&mut self, user_id: Uuid) -> PortResult<bool> {
         let out: anyhow::Result<bool> = async {
             let row = sqlx::query(r#"SELECT e2ee_setup_completed_at FROM users WHERE id = $1"#)
                 .bind(user_id)

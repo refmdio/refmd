@@ -104,7 +104,7 @@ impl MigrationServiceFacade for MigrationService {
         // Check using the transaction runner (reads from users table)
         let result = run_migration_tx(self.tx_runner.as_ref(), move |tx| {
             Box::pin(async move {
-                let completed = tx.user_keys().is_e2ee_setup_completed(user_id).await?;
+                let completed = tx.user_keys().is_encryption_setup_completed(user_id).await?;
                 Ok(!completed)
             })
         })
@@ -125,7 +125,7 @@ async fn migrate_user_data_in_tx(
     encrypt_fn: EncryptFn,
 ) -> anyhow::Result<MigrationResult> {
     // Check if already migrated
-    let already_completed = tx.user_keys().is_e2ee_setup_completed(user_id).await?;
+    let already_completed = tx.user_keys().is_encryption_setup_completed(user_id).await?;
 
     if already_completed {
         info!(user_id = %user_id, "User already completed E2EE migration");
@@ -236,7 +236,7 @@ async fn migrate_user_data_in_tx(
     }
 
     // Mark migration as completed
-    tx.user_keys().mark_e2ee_setup_completed(user_id).await?;
+    tx.user_keys().mark_encryption_setup_completed(user_id).await?;
 
     info!(
         user_id = %user_id,

@@ -128,11 +128,11 @@ pub trait WorkspaceKeysRepositoryTx: Send {
 /// User keys repository operations that run within a transaction.
 #[async_trait]
 pub trait UserKeysRepositoryTx: Send {
-    /// Mark E2EE setup as completed for a user.
-    async fn mark_e2ee_setup_completed(&mut self, user_id: Uuid) -> PortResult<()>;
+    /// Mark encryption setup as completed for a user.
+    async fn mark_encryption_setup_completed(&mut self, user_id: Uuid) -> PortResult<()>;
 
-    /// Check if E2EE setup is completed for a user.
-    async fn is_e2ee_setup_completed(&mut self, user_id: Uuid) -> PortResult<bool>;
+    /// Check if encryption setup is completed for a user.
+    async fn is_encryption_setup_completed(&mut self, user_id: Uuid) -> PortResult<bool>;
 }
 
 // ============================================================================

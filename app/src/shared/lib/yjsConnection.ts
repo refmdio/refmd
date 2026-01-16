@@ -3,7 +3,7 @@ import type { IndexeddbPersistence } from 'y-indexeddb'
 import type * as Y from 'yjs'
 
 import { YJS_SERVER_URL } from '@/shared/lib/config'
-import { createSecureConnection, type StatusEventHandler } from './realtime'
+import { createConnection, type StatusEventHandler } from './realtime'
 
 export type YjsConnectionOptions = {
   token?: string | null
@@ -19,7 +19,7 @@ type ProviderStatusHandler = (event: { status: string }) => void
 
 /**
  * Provider-like interface for compatibility with existing code.
- * Wraps SecureConnection to provide WebsocketProvider-compatible API.
+ * Wraps Connection to provide WebsocketProvider-compatible API.
  */
 export interface ProviderLike {
   awareness: Awareness
@@ -76,13 +76,13 @@ export async function createYjsConnection(
     }
   }
 
-  // Create E2EE secure connection
+  // Create encrypted connection
   const workspaceId = options.workspaceId ?? ''
   if (!workspaceId) {
-    console.warn('[yjs] No workspaceId provided - E2EE will not work correctly')
+    console.warn('[yjs] No workspaceId provided - encryption will not work correctly')
   }
 
-  const connection = await createSecureConnection(YJS_SERVER_URL, doc, documentId, {
+  const connection = await createConnection(YJS_SERVER_URL, doc, documentId, {
     token: options.token,
     connect: options.connect ?? true,
     workspaceId,

@@ -19,7 +19,7 @@ import {
   me as fetchMe,
   switchWorkspace,
   listDocuments as apiListDocuments,
-  migrateToE2Ee as apiMigrateToE2ee,
+  migrate as apiMigrate,
 } from '@/shared/api'
 import type {
   MigrateRequest,
@@ -226,7 +226,7 @@ export async function performMigration(
     encryptedDocumentDeks,
   }
 
-  const result = await apiMigrateToE2ee({ requestBody: migrateRequest })
+  const result = await apiMigrate({ requestBody: migrateRequest })
 
   report({
     stage: 'complete',

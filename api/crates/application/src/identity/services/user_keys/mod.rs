@@ -51,9 +51,9 @@ pub trait UserKeysServiceFacade: Send + Sync {
         nonce: Vec<u8>,
     ) -> Result<UserEncryptedPrivateKeyDto, ServiceError>;
 
-    // E2EE setup status
-    async fn mark_e2ee_setup_completed(&self, user_id: Uuid) -> Result<(), ServiceError>;
-    async fn is_e2ee_setup_completed(&self, user_id: Uuid) -> Result<bool, ServiceError>;
+    // Encryption setup status
+    async fn mark_encryption_setup_completed(&self, user_id: Uuid) -> Result<(), ServiceError>;
+    async fn is_encryption_setup_completed(&self, user_id: Uuid) -> Result<bool, ServiceError>;
 }
 
 impl UserKeysService {
@@ -181,16 +181,16 @@ impl UserKeysServiceFacade for UserKeysService {
         })
     }
 
-    async fn mark_e2ee_setup_completed(&self, user_id: Uuid) -> Result<(), ServiceError> {
+    async fn mark_encryption_setup_completed(&self, user_id: Uuid) -> Result<(), ServiceError> {
         self.repo
-            .mark_e2ee_setup_completed(user_id)
+            .mark_encryption_setup_completed(user_id)
             .await
             .map_err(ServiceError::from)
     }
 
-    async fn is_e2ee_setup_completed(&self, user_id: Uuid) -> Result<bool, ServiceError> {
+    async fn is_encryption_setup_completed(&self, user_id: Uuid) -> Result<bool, ServiceError> {
         self.repo
-            .is_e2ee_setup_completed(user_id)
+            .is_encryption_setup_completed(user_id)
             .await
             .map_err(ServiceError::from)
     }

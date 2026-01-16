@@ -202,17 +202,17 @@ pub async fn get_encrypted_private_key(
 
 #[utoipa::path(
     post,
-    path = "/api/me/e2ee/setup-complete",
+    path = "/api/me/encryption/setup-complete",
     tag = "E2EE",
     responses((status = 204))
 )]
-pub async fn mark_e2ee_setup_complete(
+pub async fn mark_encryption_setup_complete(
     State(ctx): State<IdentityContext>,
     auth: AuthedUser,
 ) -> Result<StatusCode, ApiError> {
     let service = ctx.user_keys_service();
     service
-        .mark_e2ee_setup_completed(auth.user_id)
+        .mark_encryption_setup_completed(auth.user_id)
         .await
         .map_err(map_keys_error)?;
 
@@ -221,25 +221,25 @@ pub async fn mark_e2ee_setup_complete(
 
 #[utoipa::path(
     get,
-    path = "/api/me/e2ee/status",
+    path = "/api/me/encryption/status",
     tag = "E2EE",
-    responses((status = 200, body = E2eeStatusResponse))
+    responses((status = 200, body = EncryptionStatusResponse))
 )]
-pub async fn get_e2ee_status(
+pub async fn get_encryption_status(
     State(ctx): State<IdentityContext>,
     auth: AuthedUser,
-) -> Result<Json<E2eeStatusResponse>, ApiError> {
+) -> Result<Json<EncryptionStatusResponse>, ApiError> {
     let service = ctx.user_keys_service();
     let is_setup = service
-        .is_e2ee_setup_completed(auth.user_id)
+        .is_encryption_setup_completed(auth.user_id)
         .await
         .map_err(map_keys_error)?;
 
-    Ok(Json(E2eeStatusResponse { is_setup_completed: is_setup }))
+    Ok(Json(EncryptionStatusResponse { is_setup_completed: is_setup }))
 }
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct E2eeStatusResponse {
+pub struct EncryptionStatusResponse {
     pub is_setup_completed: bool,
 }
