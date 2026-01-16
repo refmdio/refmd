@@ -683,3 +683,27 @@
 .conflict-diff .cm-editor {
   outline: none !important;
 }
+
+/* Vim mode cursor styling - override @replit/codemirror-vim defaults */
+.cm-fat-cursor {
+  background: var(--primary) !important;
+}
+.cm-editor:not(.cm-focused) .cm-fat-cursor {
+  background: none !important;
+  outline: solid 1px var(--primary) !important;
+}
+.cm-editor .cm-vim-panel,
+.cm-editor .cm-vim-panel input {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* CodeMirror selection styling - ensure primary color */
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+  background-color: color-mix(in srgb, var(--primary) 25%, transparent) !important;
+}
+.cm-editor .cm-selectionMatch {
+  background-color: color-mix(in srgb, var(--primary) 20%, transparent) !important;
+}

@@ -163,9 +163,6 @@ function buildTheme(palette: Palette, isDark: boolean): Extension {
 
   const highlightStyle = HighlightStyle.define([
     { tag: tags.heading, fontWeight: 'bold', color: palette.primary },
-    { tag: tags.heading1, fontSize: '1.5em' },
-    { tag: tags.heading2, fontSize: '1.3em' },
-    { tag: tags.heading3, fontSize: '1.15em' },
     { tag: tags.strong, fontWeight: 'bold', color: palette.primary },
     { tag: tags.emphasis, fontStyle: 'italic', color: palette.primary },
     { tag: tags.strikethrough, textDecoration: 'line-through' },

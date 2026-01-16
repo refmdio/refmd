@@ -6,6 +6,7 @@
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import remarkMath from 'remark-math'
 import remarkRehype from 'remark-rehype'
 import rehypeStringify from 'rehype-stringify'
@@ -91,6 +92,9 @@ export async function renderMarkdown(
   if (enableGfm) {
     processor.use(remarkGfm)
   }
+
+  // Add line break support (soft breaks become <br>)
+  processor.use(remarkBreaks)
 
   // Add math support
   processor.use(remarkMath)
