@@ -24,6 +24,12 @@ import {
   type SplitEditorPreviewDelegate,
   type SplitEditorDocumentApi,
 } from '@/features/plugins/ui/SplitEditorHost'
+import { getKeyManager } from '@/features/security/lib/keys'
+import { getWasmRuntime } from './wasm-runtime'
+import { loadPluginWasm, hasPluginWasm } from './wasm-loader'
+import { handleEffects } from './effect-handler'
+import { decryptRecords, decryptKV, encryptKV } from '@/features/security/lib/plugins'
+import * as documentWc from '@/entities/document/wc'
 
 export type HostMode = 'primary' | 'secondary'
 
@@ -152,7 +158,6 @@ function createLazyDEKGetter(
     }
 
     try {
-      const { getKeyManager } = await import('@/features/security/lib/keys')
       const km = getKeyManager()
       if (!km.isInitialized || !km.isUnlocked) {
         fetched = true
@@ -236,9 +241,6 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
       if (hostHandled) return hostHandled
 
       // Client-side WASM execution (E2EE compatible)
-      const { getWasmRuntime } = await import('./wasm-runtime')
-      const { loadPluginWasm, hasPluginWasm } = await import('./wasm-loader')
-      const { handleEffects } = await import('./effect-handler')
 
       // Check if plugin has backend WASM
       if (!hasPluginWasm(manifest)) {
@@ -294,23 +296,20 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
     ui: {
       hydrateAttachments: async (root: Element) => {
         if (!root) return
-        const wc = await import('@/entities/document/wc')
         try {
-          wc.upgradeAttachments(root, ctx.docId ?? undefined)
+          documentWc.upgradeAttachments(root, ctx.docId ?? undefined)
         } catch {}
       },
       hydrateWikiLinks: async (root: Element) => {
         if (!root) return
-        const wc = await import('@/entities/document/wc')
         try {
-          wc.upgradeWikiLinks(root)
+          documentWc.upgradeWikiLinks(root)
         } catch {}
       },
       hydrateAll: async (root: Element) => {
         if (!root) return
-        const wc = await import('@/entities/document/wc')
         try {
-          wc.upgradeAll(root, ctx.docId ?? undefined)
+          documentWc.upgradeAll(root, ctx.docId ?? undefined)
         } catch {}
       },
       setDocumentTitle: (title?: string | null) => {
@@ -562,7 +561,6 @@ async function executeHostAction(
 
         // E2EE decryption
         if (response?.items) {
-          const { decryptRecords } = await import('@/features/security/lib/plugins')
           const decryptedItems = await decryptRecords(response.items, ctx.documentDEK, ctx.pluginId)
           return ok({ ...response, items: decryptedItems })
         }
@@ -578,7 +576,6 @@ async function executeHostAction(
 
         // E2EE decryption
         if (response?.value !== undefined) {
-          const { decryptKV } = await import('@/features/security/lib/plugins')
           const decryptedValue = await decryptKV(response.value, ctx.documentDEK, ctx.pluginId)
           return ok({ ...response, value: decryptedValue })
         }
@@ -594,7 +591,6 @@ async function executeHostAction(
         // E2EE encryption (required)
         if (value !== null) {
           if (!ctx.documentDEK) throw fail('E2EE_REQUIRED', 'DEK not available for kv.put')
-          const { encryptKV } = await import('@/features/security/lib/plugins')
           value = await encryptKV(value, ctx.documentDEK, ctx.pluginId)
         }
 

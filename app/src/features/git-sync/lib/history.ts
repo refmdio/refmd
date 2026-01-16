@@ -7,6 +7,8 @@
 import * as git from 'isomorphic-git'
 import type { FsClient } from 'isomorphic-git'
 import { GitClient } from './git-client'
+import { calculateDirtyFiles } from './dirty-calculator'
+import { fetchDecryptedDocumentContent } from './sync'
 
 export interface GitCommitItem {
   hash: string
@@ -172,8 +174,6 @@ export async function getWorkingDiff(workspaceId: string): Promise<TextDiffResul
     return []
   }
 
-  // Import calculateDirtyFiles dynamically to avoid circular dependency
-  const { calculateDirtyFiles } = await import('./dirty-calculator')
   const dirtyFiles = await calculateDirtyFiles(workspaceId, gitClient)
 
   const diffs: TextDiffResult[] = []
@@ -188,12 +188,9 @@ export async function getWorkingDiff(workspaceId: string): Promise<TextDiffResul
         newContent = ''
       } else if (dirty.status === 'added') {
         oldContent = ''
-        // Import fetch function dynamically
-        const { fetchDecryptedDocumentContent } = await import('./sync')
         newContent = await fetchDecryptedDocumentContent(dirty.documentId, workspaceId)
       } else {
         oldContent = await gitClient.readFile(dirty.path).catch(() => '')
-        const { fetchDecryptedDocumentContent } = await import('./sync')
         newContent = await fetchDecryptedDocumentContent(dirty.documentId, workspaceId)
       }
 

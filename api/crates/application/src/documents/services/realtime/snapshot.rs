@@ -344,14 +344,6 @@ fn extract_markdown(doc: &Doc) -> String {
     txt.get_string(&txn)
 }
 
-fn render_markdown_bytes(doc_id: &Uuid, title: &str, contents: &str) -> Vec<u8> {
-    let mut formatted = format!("---\nid: {}\ntitle: {}\n---\n\n{}", doc_id, title, contents);
-    if !formatted.ends_with('\n') {
-        formatted.push('\n');
-    }
-    formatted.into_bytes()
-}
-
 fn apply_update_bytes(doc: &Doc, bytes: &[u8]) -> anyhow::Result<()> {
     let update = Update::decode_v1(bytes)?;
     let mut txn = doc.transact_mut();
@@ -383,56 +375,6 @@ pub fn doc_from_snapshot_bytes(bytes: &[u8]) -> anyhow::Result<Doc> {
     let doc = Doc::new();
     apply_update_bytes(&doc, bytes)?;
     Ok(doc)
-}
-
-impl SnapshotService {
-    async fn hydrate_doc_from_state(&self, doc_id: &Uuid) -> anyhow::Result<Doc> {
-        let doc = Doc::new();
-        let mut last_seq = 0i64;
-        if let Some(snapshot) = self.state_reader.latest_snapshot(doc_id).await? {
-            apply_update_bytes(&doc, &snapshot.snapshot)?;
-            last_seq = snapshot.version;
-        }
-        let updates = self.state_reader.updates_since(doc_id, last_seq).await?;
-        for update in updates {
-            apply_update_bytes(&doc, &update.update)?;
-        }
-        Ok(doc)
-    }
-}
-
-fn repo_path_from_record(
-    record: &crate::documents::ports::realtime::realtime_hydration_port::DocumentRecord,
-) -> Option<String> {
-    if let Some(path) = record.desired_path.as_deref() {
-        return Some(normalize_repo_path(path));
-    }
-    if let Some(path) = record.path.as_deref() {
-        return strip_workspace_prefix(record.workspace_id, path);
-    }
-    None
-}
-
-fn strip_workspace_prefix(workspace_id: Uuid, relative: &str) -> Option<String> {
-    let trimmed = relative.trim_start_matches('/');
-    let mut parts = trimmed.splitn(2, '/');
-    let owner = parts.next()?;
-    if owner != workspace_id.to_string() {
-        return None;
-    }
-    parts
-        .next()
-        .map(|rest| rest.trim_start_matches('/').to_string())
-        .filter(|s| !s.is_empty())
-}
-
-fn normalize_repo_path(path: &str) -> String {
-    let trimmed = path.trim_start_matches('/');
-    if trimmed.is_empty() {
-        "".into()
-    } else {
-        trimmed.replace('\\', "/")
-    }
 }
 
 /// Serialize encrypted snapshot and updates to a binary backup format.

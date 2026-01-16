@@ -5,7 +5,7 @@ import {
   listFiles,
   type ListFileResponse,
 } from '@/shared/api'
-import { encryptFile, decryptFile, isRmeFile } from '@/features/security/lib/files'
+import { encryptFile, decryptFile, isRmeFile, decryptMetadata } from '@/features/security/lib/files'
 import { getKeyManager } from '@/features/security/lib/keys'
 
 export const fileKeys = {
@@ -277,7 +277,6 @@ export async function buildFileMap(
   })
 
   // 4. Build map by decrypting each file's metadata
-  const { decryptMetadata } = await import('@/features/security/lib/files')
   const map: FileMap = new Map()
 
   for (const file of files) {

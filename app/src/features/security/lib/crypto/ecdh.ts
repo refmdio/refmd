@@ -8,6 +8,7 @@
 import { p256 } from '@noble/curves/nist.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
+import { encrypt, decrypt } from './xchacha20'
 
 /** P-256 private key size (32 bytes) */
 export const PRIVATE_KEY_SIZE = 32
@@ -105,9 +106,6 @@ export async function encryptKeyForRecipient(
   keyToEncrypt: Uint8Array,
   info: string
 ): Promise<{ ephemeralPublicKey: Uint8Array; encryptedKey: Uint8Array; nonce: Uint8Array }> {
-  // Import xchacha20 dynamically to avoid circular dependency
-  const { encrypt } = await import('./xchacha20')
-
   // Generate ephemeral key pair
   const ephemeral = generateKeyPair()
 
@@ -141,9 +139,6 @@ export async function decryptKeyFromSender(
   nonce: Uint8Array,
   info: string
 ): Promise<Uint8Array> {
-  // Import xchacha20 dynamically to avoid circular dependency
-  const { decrypt } = await import('./xchacha20')
-
   // Derive shared key
   const sharedKey = deriveSharedKey(ourPrivateKey, ephemeralPublicKey, info)
 

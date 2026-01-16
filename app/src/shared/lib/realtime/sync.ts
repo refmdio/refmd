@@ -39,6 +39,7 @@ import {
   fromBase64,
 } from '@/features/security'
 import { getMyWorkspaceKey, getDocumentKey } from '@/shared/api/client'
+import { updateDocumentTagsFromContent } from '@/entities/tag'
 
 // ============================================
 // Types
@@ -998,8 +999,6 @@ export class Sync {
       const content = this.doc.getText('content').toString()
       if (!content) return
 
-      // Dynamic import to avoid circular dependencies
-      const { updateDocumentTagsFromContent } = await import('@/entities/tag')
       await updateDocumentTagsFromContent(this.documentId, this.workspaceId, content)
     } catch (err) {
       // Don't throw - tag update failure shouldn't break sync
