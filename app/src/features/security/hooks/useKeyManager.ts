@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 
-import { getKeyManager, type E2EESetupResult } from '@/features/e2ee'
+import { getKeyManager, type E2EESetupResult } from '@/features/security'
 
 // External store for KeyManager state
 let listeners: Set<() => void> = new Set()

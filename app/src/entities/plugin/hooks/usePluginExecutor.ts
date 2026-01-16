@@ -5,7 +5,7 @@ import { getWasmRuntime } from '@/features/plugins/lib/wasm-runtime'
 import { loadPluginWasm, hasPluginWasm } from '@/features/plugins/lib/wasm-loader'
 import { handleEffects as handleEffectsFull } from '@/features/plugins/lib/effect-handler'
 import { API_BASE_URL } from '@/shared/lib/config'
-import { getKeyManager } from '@/features/e2ee/lib/keys'
+import { getKeyManager } from '@/features/security/lib/keys'
 import { getDocumentKey, getMyWorkspaceKey } from '@/shared/api'
 
 import { getPluginKv } from '../api'

@@ -18,7 +18,7 @@ import { SidebarProvider, Sidebar, SidebarInset } from '@/shared/ui/sidebar'
 import { Toaster } from '@/shared/ui/sonner'
 
 import { AuthProvider, useAuthContext } from '@/features/auth'
-import { E2EEProvider } from '@/features/e2ee'
+import { E2EEProvider } from '@/features/security'
 import { EditorProvider, ViewProvider } from '@/features/edit-document'
 import { ShortcutRegistryProvider } from '@/features/shortcuts'
 

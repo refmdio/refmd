@@ -19,7 +19,7 @@ import {
   decrypt,
   getSodium,
   decryptDekFromApiResponse,
-} from '@/features/e2ee'
+} from '@/features/security'
 
 import * as Y from 'yjs'
 

@@ -7,7 +7,7 @@
 import * as git from 'isomorphic-git'
 import { GitClient } from './git-client'
 import { loadGitCredentials } from './git-credentials'
-import { getKeyManager } from '@/features/e2ee'
+import { getKeyManager } from '@/features/security'
 
 export interface ConflictResolution {
   path: string

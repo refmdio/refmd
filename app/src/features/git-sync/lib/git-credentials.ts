@@ -6,9 +6,9 @@
  * This enables cross-device sync while maintaining E2EE security.
  */
 
-import { getKeyManager } from '@/features/e2ee/lib/keys/key-manager'
-import { encrypt, decrypt } from '@/features/e2ee/lib/crypto/xchacha20'
-import { getSodium } from '@/features/e2ee'
+import { getKeyManager } from '@/features/security/lib/keys/key-manager'
+import { encrypt, decrypt } from '@/features/security/lib/crypto/xchacha20'
+import { getSodium } from '@/features/security'
 import { createOrUpdateConfig, getConfig, deleteConfig } from '@/entities/git'
 
 export interface GitCredentials {

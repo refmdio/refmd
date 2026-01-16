@@ -6,7 +6,7 @@ import { fetchDocumentMeta } from '@/entities/document'
 import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 
 import { documentBeforeLoadGuard } from '@/features/auth'
-import { useAttachmentContext } from '@/features/e2ee'
+import { useAttachmentContext } from '@/features/security'
 
 import DocumentMosaicWorkspace from '@/widgets/document/DocumentMosaicWorkspace'
 import DocumentPage, { type DocumentLoaderData } from '@/widgets/document/DocumentPage'

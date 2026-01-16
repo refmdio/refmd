@@ -4,7 +4,7 @@ import React, { Suspense, lazy } from 'react'
 import { Button } from '@/shared/ui/button'
 import { Card } from '@/shared/ui/card'
 
-import { useAttachmentContext } from '@/features/e2ee'
+import { useAttachmentContext } from '@/features/security'
 import { Markdown } from '@/features/edit-document'
 
 import PublicShell from '@/widgets/public/PublicShell'

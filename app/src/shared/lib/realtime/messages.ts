@@ -21,7 +21,7 @@ import {
   type SnapshotPublicData,
   type EphemeralPublicData,
   createRealtimeMessage,
-} from '@/features/e2ee'
+} from '@/features/security'
 
 // Ephemeral messages are now handled by ephemeral.ts
 // See: createEphemeralMessage, verifyAndDecryptEphemeralMessage

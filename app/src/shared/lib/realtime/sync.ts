@@ -37,7 +37,7 @@ import {
   SessionLockedError,
   getSodium,
   fromBase64,
-} from '@/features/e2ee'
+} from '@/features/security'
 import { getMyWorkspaceKey, getDocumentKey } from '@/shared/api/client'
 
 // ============================================

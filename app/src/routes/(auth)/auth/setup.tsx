@@ -2,7 +2,7 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 
 import { getSecurityStatus, me as fetchCurrentUser } from '@/entities/user'
 
-import { SecuritySetupWizard, RestorePrompt, UnlockPrompt, useE2EE } from '@/features/e2ee'
+import { SecuritySetupWizard, RestorePrompt, UnlockPrompt, useE2EE } from '@/features/security'
 
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'

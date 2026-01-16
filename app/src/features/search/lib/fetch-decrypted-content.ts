@@ -21,7 +21,7 @@ import {
   getKeyManager,
   decryptDekFromApiResponse,
   getSodium,
-} from '@/features/e2ee'
+} from '@/features/security'
 
 /**
  * Fetch document content and return plain text.

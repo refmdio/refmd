@@ -13,7 +13,7 @@ import {
   encrypt,
   getSodium,
   decryptDekFromApiResponse,
-} from '@/features/e2ee'
+} from '@/features/security'
 import { createDocument } from '@/entities/document'
 import {
   getMyWorkspaceKey,

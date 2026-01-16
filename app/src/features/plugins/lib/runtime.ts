@@ -152,7 +152,7 @@ function createLazyDEKGetter(
     }
 
     try {
-      const { getKeyManager } = await import('@/features/e2ee/lib/keys')
+      const { getKeyManager } = await import('@/features/security/lib/keys')
       const km = getKeyManager()
       if (!km.isInitialized || !km.isUnlocked) {
         fetched = true
@@ -562,7 +562,7 @@ async function executeHostAction(
 
         // E2EE decryption
         if (response?.items) {
-          const { decryptRecords } = await import('@/features/e2ee/lib/plugins')
+          const { decryptRecords } = await import('@/features/security/lib/plugins')
           const decryptedItems = await decryptRecords(response.items, ctx.documentDEK, ctx.pluginId)
           return ok({ ...response, items: decryptedItems })
         }
@@ -578,7 +578,7 @@ async function executeHostAction(
 
         // E2EE decryption
         if (response?.value !== undefined) {
-          const { decryptKV } = await import('@/features/e2ee/lib/plugins')
+          const { decryptKV } = await import('@/features/security/lib/plugins')
           const decryptedValue = await decryptKV(response.value, ctx.documentDEK, ctx.pluginId)
           return ok({ ...response, value: decryptedValue })
         }
@@ -594,7 +594,7 @@ async function executeHostAction(
         // E2EE encryption (required)
         if (value !== null) {
           if (!ctx.documentDEK) throw fail('E2EE_REQUIRED', 'DEK not available for kv.put')
-          const { encryptKV } = await import('@/features/e2ee/lib/plugins')
+          const { encryptKV } = await import('@/features/security/lib/plugins')
           value = await encryptKV(value, ctx.documentDEK, ctx.pluginId)
         }
 

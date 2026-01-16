@@ -1,7 +1,7 @@
 import * as React from 'react'
 
 import { useAuthContext } from '@/features/auth'
-import { getKeyManager, SessionLockedError, useE2EE } from '@/features/e2ee'
+import { getKeyManager, SessionLockedError, useE2EE } from '@/features/security'
 
 function normalizeShareToken(token?: string | null): string | undefined {
   if (typeof token !== 'string') return undefined

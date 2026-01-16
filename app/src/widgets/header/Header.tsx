@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 import { createDocument, documentKeys, fetchDocumentMeta } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
-import { createDocumentDekIfNeeded } from '@/features/e2ee'
+import { createDocumentDekIfNeeded } from '@/features/security'
 import { useEditorContext, useViewController } from '@/features/edit-document'
 import { DocumentPresence } from '@/features/header/ui/DocumentPresence'
 import { MobileHeaderMenu } from '@/features/header/ui/MobileHeaderMenu'

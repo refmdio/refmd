@@ -14,7 +14,7 @@ import {
   updateInvitationKek,
   type PermissionOverridePayload,
 } from '@/entities/workspace/api'
-import { getKeyManager } from '@/features/e2ee'
+import { getKeyManager } from '@/features/security'
 import { getWorkspaceKeyVersion } from '@/shared/api/client'
 
 import type { SystemRole } from './permissions'

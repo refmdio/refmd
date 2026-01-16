@@ -18,7 +18,7 @@ import {
   SIGNATURE_DOMAINS,
   type Ed25519KeyPair,
   type SigningMessage,
-} from '@/features/e2ee'
+} from '@/features/security'
 
 // ============================================================================
 // Constants

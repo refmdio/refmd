@@ -22,7 +22,7 @@ import {
   getSodium,
   decryptDekFromApiResponse,
   decryptString,
-} from '@/features/e2ee'
+} from '@/features/security'
 
 import { GitClient } from './git-client'
 import { loadGitCredentials, type GitCredentials } from './git-credentials'

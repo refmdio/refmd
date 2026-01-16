@@ -16,7 +16,7 @@ import {
   getKeyManager,
   getTagLookupManager,
   extractTags,
-} from '@/features/e2ee'
+} from '@/features/security'
 
 // Query keys for React Query
 export const tagKeys = {

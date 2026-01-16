@@ -20,7 +20,7 @@ import {
 } from '@/features/document-download'
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
-import { UnlockPrompt } from '@/features/e2ee'
+import { UnlockPrompt } from '@/features/security'
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
 import { setConflicts as setGlobalConflicts, readConflicts, clearAllConflicts, type ConflictItem } from '@/features/git-sync/lib/git-conflict-store'
 import { finalizeConflictResolution, resolveConflict, type ConflictResolution } from '@/features/git-sync'

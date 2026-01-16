@@ -96,7 +96,7 @@ export async function handleEffects(
             // Create and fetch DEK for the new document if E2EE is enabled
             if (ctx.workspaceId) {
               try {
-                const { createDocumentDekIfNeeded, getDocumentDekForPlugin } = await import('@/features/e2ee/lib/document-keys')
+                const { createDocumentDekIfNeeded, getDocumentDekForPlugin } = await import('@/features/security/lib/document-keys')
                 await createDocumentDekIfNeeded(newDocId, ctx.workspaceId)
                 // Fetch the DEK for subsequent effects
                 createdDocDEK = await getDocumentDekForPlugin(newDocId, ctx.workspaceId)
@@ -129,7 +129,7 @@ export async function handleEffects(
             if (!effectDEK) {
               throw new Error(`E2EE: DEK not available for createRecord on document ${docId}`)
             }
-            const { encryptRecordData } = await import('@/features/e2ee/lib/plugins')
+            const { encryptRecordData } = await import('@/features/security/lib/plugins')
             data = await encryptRecordData(data, effectDEK, ctx.pluginId)
           }
 
@@ -151,7 +151,7 @@ export async function handleEffects(
             if (!ctx.documentDEK) {
               throw new Error(`E2EE: DEK not available for updateRecord ${recordId}`)
             }
-            const { encryptRecordData } = await import('@/features/e2ee/lib/plugins')
+            const { encryptRecordData } = await import('@/features/security/lib/plugins')
             patch = await encryptRecordData(patch, ctx.documentDEK, ctx.pluginId)
           }
 
@@ -191,7 +191,7 @@ export async function handleEffects(
             if (!effectDEK) {
               throw new Error(`E2EE: DEK not available for putKv on document ${docId}`)
             }
-            const { encryptKV } = await import('@/features/e2ee/lib/plugins')
+            const { encryptKV } = await import('@/features/security/lib/plugins')
             value = await encryptKV(value, effectDEK, ctx.pluginId)
           }
 

@@ -13,7 +13,7 @@ import { Label } from '@/shared/ui/label'
 import { createDocument, updateDocumentContent } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
-import { createDocumentDekIfNeeded } from '@/features/e2ee'
+import { createDocumentDekIfNeeded } from '@/features/security'
 import { EditorOverlay, MarkdownEditor } from '@/features/edit-document'
 import { TEMPORARY_DOCUMENT_TTL_MS, useTemporaryDocument } from '@/features/temporary-document'
 
