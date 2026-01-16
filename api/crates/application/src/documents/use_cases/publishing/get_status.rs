@@ -5,6 +5,7 @@ use crate::documents::ports::publishing::public_repository::PublicRepository;
 pub struct PublishStatusDto {
     pub slug: String,
     pub public_url: String,
+    pub noindex: bool,
 }
 
 pub struct GetPublishStatus<'a, R: PublicRepository + ?Sized> {
@@ -22,6 +23,7 @@ impl<'a, R: PublicRepository + ?Sized> GetPublishStatus<'a, R> {
             Ok(Some(PublishStatusDto {
                 slug: status.slug,
                 public_url,
+                noindex: status.noindex,
             }))
         } else {
             Ok(None)

@@ -48,14 +48,28 @@ impl PublicRepository for SqlxPublicRepository {
         out.map_err(Into::into)
     }
 
-    async fn upsert_public_document(&self, doc_id: Uuid, slug: &str) -> PortResult<()> {
+    async fn upsert_public_document(&self, doc_id: Uuid, slug: &str, noindex: bool) -> PortResult<()> {
         let out: anyhow::Result<()> = async {
-            let _ = sqlx::query("INSERT INTO public_documents (document_id, slug, published_at) VALUES ($1, $2, now()) ON CONFLICT (document_id) DO UPDATE SET slug = EXCLUDED.slug, published_at = now()")
+            let _ = sqlx::query("INSERT INTO public_documents (document_id, slug, noindex, published_at) VALUES ($1, $2, $3, now()) ON CONFLICT (document_id) DO UPDATE SET slug = EXCLUDED.slug, noindex = EXCLUDED.noindex, published_at = now()")
                 .bind(doc_id)
                 .bind(slug)
+                .bind(noindex)
                 .execute(&self.pool)
                 .await?;
             Ok(())
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn update_noindex(&self, doc_id: Uuid, noindex: bool) -> PortResult<bool> {
+        let out: anyhow::Result<bool> = async {
+            let res = sqlx::query("UPDATE public_documents SET noindex = $1 WHERE document_id = $2")
+                .bind(noindex)
+                .bind(doc_id)
+                .execute(&self.pool)
+                .await?;
+            Ok(res.rows_affected() > 0)
         }
         .await;
         out.map_err(Into::into)
@@ -109,7 +123,7 @@ impl PublicRepository for SqlxPublicRepository {
     ) -> PortResult<Option<PublishStatusRow>> {
         let out: anyhow::Result<Option<PublishStatusRow>> = async {
             let row = sqlx::query(
-                r#"SELECT p.slug, w.slug as workspace_slug
+                r#"SELECT p.slug, p.noindex, w.slug as workspace_slug
                FROM public_documents p
                JOIN documents d ON p.document_id = d.id
                JOIN workspaces w ON d.workspace_id = w.id
@@ -122,6 +136,7 @@ impl PublicRepository for SqlxPublicRepository {
             Ok(row.map(|r| PublishStatusRow {
                 slug: r.get("slug"),
                 workspace_slug: r.get("workspace_slug"),
+                noindex: r.get("noindex"),
             }))
         }
         .await;
@@ -249,6 +264,35 @@ impl PublicRepository for SqlxPublicRepository {
             .fetch_one(&self.pool)
             .await?;
             Ok(n > 0)
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
+    async fn get_noindex_by_workspace_and_id(
+        &self,
+        workspace_slug: &str,
+        doc_id: Uuid,
+    ) -> PortResult<Option<bool>> {
+        let out: anyhow::Result<Option<bool>> = async {
+            let row = sqlx::query_scalar::<_, bool>(
+                r#"SELECT p.noindex
+               FROM public_documents p
+               JOIN documents d ON p.document_id = d.id
+               JOIN workspaces w ON d.workspace_id = w.id
+               WHERE (w.slug = $1
+                      OR (w.is_personal AND EXISTS (
+                            SELECT 1
+                            FROM users u
+                            WHERE u.id = w.id AND lower(u.name) = lower($1)
+                      )))
+                 AND d.id = $2"#,
+            )
+            .bind(workspace_slug)
+            .bind(doc_id)
+            .fetch_optional(&self.pool)
+            .await?;
+            Ok(row)
         }
         .await;
         out.map_err(Into::into)

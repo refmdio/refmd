@@ -16,6 +16,7 @@ type LoaderData = {
   slug: string
   meta: PublicDocumentMeta
   content: string
+  noindex: boolean
 }
 
 export const Route = createFileRoute('/(public)/w/$slug/$id')({
@@ -26,12 +27,14 @@ export const Route = createFileRoute('/(public)/w/$slug/$id')({
     const meta = (await getPublicByWorkspaceAndId(params.slug, params.id)) as unknown as PublicDocumentMeta
     const contentResp = await getPublicContentByWorkspaceAndId(params.slug, params.id)
     const rawContent = typeof (contentResp as any)?.content === 'string' ? String((contentResp as any).content) : ''
+    const noindex = (contentResp as any)?.noindex ?? true
     // Rewrite attachment URLs to use the public files API
     const contentValue = rewritePublicAttachmentUrls(rawContent, params.slug, params.id)
     return {
       slug: params.slug,
       meta,
       content: contentValue,
+      noindex,
     } satisfies LoaderData
   },
   head: ({ loaderData, params }) => {
@@ -59,7 +62,7 @@ export const Route = createFileRoute('/(public)/w/$slug/$id')({
     return {
       meta: [
         { title },
-        { name: 'robots', content: 'index, follow' },
+        { name: 'robots', content: data.noindex ? 'noindex, nofollow' : 'index, follow' },
         { name: 'description', content: description },
         { property: 'og:title', content: title },
         { property: 'og:description', content: description },

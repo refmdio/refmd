@@ -11,7 +11,7 @@ use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
 
-use super::types::{PublicDocumentSummary, PublicFile, PublishRequest, PublishResponse, UploadPublicFileRequest};
+use super::types::{PublicDocumentSummary, PublicFile, PublishRequest, PublishResponse, UpdatePublishSettingsRequest, UploadPublicFileRequest};
 
 fn map_public_error(err: ServiceError) -> crate::http::error::ApiError {
     crate::http::error::map_service_error(err, "public_service_error")
@@ -31,9 +31,9 @@ pub async fn publish_document(
     Path(id): Path<Uuid>,
     body: Option<Json<PublishRequest>>,
 ) -> Result<Json<PublishResponse>, ApiError> {
-    let (plaintext_title, plaintext_content) = body
-        .map(|Json(req)| (req.plaintext_title, req.plaintext_content))
-        .unwrap_or((None, None));
+    let (plaintext_title, plaintext_content, noindex) = body
+        .map(|Json(req)| (req.plaintext_title, req.plaintext_content, req.noindex.unwrap_or(true)))
+        .unwrap_or((None, None, true));
 
     let out = ctx
         .public_service()
@@ -43,6 +43,7 @@ pub async fn publish_document(
             id,
             plaintext_title.as_deref(),
             plaintext_content.as_deref(),
+            noindex,
         )
         .await
         .map_err(map_public_error)?;
@@ -50,6 +51,7 @@ pub async fn publish_document(
     Ok(Json(PublishResponse {
         slug: out.slug,
         public_url: out.public_url,
+        noindex: out.noindex,
     }))
 }
 
@@ -97,7 +99,34 @@ pub async fn get_publish_status(
     Ok(Json(PublishResponse {
         slug: out.slug,
         public_url: out.public_url,
+        noindex: out.noindex,
     }))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/public/documents/{id}",
+    tag = "Public Documents",
+    params(("id" = Uuid, Path, description = "Document ID")),
+    request_body(content = UpdatePublishSettingsRequest, description = "Settings to update"),
+    responses((status = 204, description = "Settings updated"))
+)]
+pub async fn update_publish_settings(
+    State(ctx): State<DocumentsContext>,
+    auth: WorkspaceAuth,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdatePublishSettingsRequest>,
+) -> Result<StatusCode, ApiError> {
+    let updated = ctx
+        .public_service()
+        .update_noindex(auth.workspace_id, &auth.permissions, id, req.noindex)
+        .await
+        .map_err(map_public_error)?;
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("not_found"))
+    }
 }
 
 // Slug-based endpoints are intentionally omitted to simplify routing and match legacy pattern strictly.
@@ -153,12 +182,12 @@ pub async fn get_public_content_by_workspace_and_id(
     State(ctx): State<DocumentsContext>,
     Path((slug, id)): Path<(String, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let content = ctx
+    let (content, noindex) = ctx
         .public_service()
         .get_public_content_by_workspace_and_id(&slug, id)
         .await
         .map_err(map_public_error)?;
-    Ok(Json(serde_json::json!({"content": content, "id": id})))
+    Ok(Json(serde_json::json!({"content": content, "id": id, "noindex": noindex})))
 }
 
 // --- Public file endpoints ---

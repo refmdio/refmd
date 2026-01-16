@@ -695,11 +695,29 @@ export type PublishRequest = {
      * Plaintext title (required for E2EE mode)
      */
     plaintextTitle?: (string) | null;
+    /**
+     * If true, adds noindex meta tag to prevent search engine indexing (default: true)
+     */
+    noindex?: (boolean) | null;
 };
 
 export type PublishResponse = {
     public_url: string;
     slug: string;
+    /**
+     * If true, noindex meta tag is added to prevent search engine indexing
+     */
+    noindex: boolean;
+};
+
+/**
+ * Request to update noindex setting for a published document
+ */
+export type UpdatePublishSettingsRequest = {
+    /**
+     * If true, adds noindex meta tag to prevent search engine indexing
+     */
+    noindex: boolean;
 };
 
 export type RecordsResponse = {
@@ -1891,6 +1909,19 @@ export type UnpublishDocumentData = {
 };
 
 export type UnpublishDocumentResponse = (void);
+
+export type UpdatePublishSettingsData = {
+    /**
+     * Document ID
+     */
+    id: string;
+    /**
+     * Settings to update
+     */
+    requestBody: UpdatePublishSettingsRequest;
+};
+
+export type UpdatePublishSettingsResponse = (void);
 
 export type UploadPublicFileData = {
     /**

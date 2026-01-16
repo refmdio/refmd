@@ -5,6 +5,7 @@ use crate::documents::ports::publishing::public_repository::PublicRepository;
 pub struct PublishResponseDto {
     pub slug: String,
     pub public_url: String,
+    pub noindex: bool,
 }
 fn sanitize_title_local(name: &str) -> String {
     let mut s = name.trim().to_string();
@@ -28,6 +29,7 @@ impl<'a, R: PublicRepository + ?Sized> PublishDocument<'a, R> {
         &self,
         workspace_id: Uuid,
         doc_id: Uuid,
+        noindex: bool,
     ) -> anyhow::Result<Option<PublishResponseDto>> {
         let ws = match self
             .repo
@@ -47,8 +49,8 @@ impl<'a, R: PublicRepository + ?Sized> PublishDocument<'a, R> {
             slug = format!("{}-{}-{}", base_slug, &doc_id.to_string()[..8], i);
             i += 1;
         }
-        self.repo.upsert_public_document(doc_id, &slug).await?;
+        self.repo.upsert_public_document(doc_id, &slug, noindex).await?;
         let public_url = format!("/w/{}/{}", ws.workspace_slug, doc_id);
-        Ok(Some(PublishResponseDto { slug, public_url }))
+        Ok(Some(PublishResponseDto { slug, public_url, noindex }))
     }
 }

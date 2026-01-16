@@ -30,6 +30,7 @@ pub trait PublicServiceFacade: Send + Sync {
     /// Publish document.
     /// For E2EE mode: pass plaintext_title and plaintext_content
     /// For non-E2EE mode: pass None for both
+    /// noindex: if true, adds noindex meta tag to prevent search engine indexing (default: true)
     async fn publish_document(
         &self,
         workspace_id: Uuid,
@@ -37,6 +38,7 @@ pub trait PublicServiceFacade: Send + Sync {
         doc_id: Uuid,
         plaintext_title: Option<&str>,
         plaintext_content: Option<&str>,
+        noindex: bool,
     ) -> Result<PublishResponseDto, ServiceError>;
 
     async fn unpublish_document(
@@ -53,6 +55,15 @@ pub trait PublicServiceFacade: Send + Sync {
         doc_id: Uuid,
     ) -> Result<PublishResponseDto, ServiceError>;
 
+    /// Update noindex setting for a published document
+    async fn update_noindex(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+        noindex: bool,
+    ) -> Result<bool, ServiceError>;
+
     async fn list_workspace_public_documents(
         &self,
         workspace_slug: &str,
@@ -68,7 +79,7 @@ pub trait PublicServiceFacade: Send + Sync {
         &self,
         workspace_slug: &str,
         doc_id: Uuid,
-    ) -> Result<String, ServiceError>;
+    ) -> Result<(String, bool), ServiceError>;
 
     // --- Public file methods ---
 
@@ -118,8 +129,9 @@ impl PublicServiceFacade for PublicService {
         doc_id: Uuid,
         plaintext_title: Option<&str>,
         plaintext_content: Option<&str>,
+        noindex: bool,
     ) -> Result<PublishResponseDto, ServiceError> {
-        self.publish_document(workspace_id, permissions, doc_id, plaintext_title, plaintext_content)
+        self.publish_document(workspace_id, permissions, doc_id, plaintext_title, plaintext_content, noindex)
             .await
     }
 
@@ -143,6 +155,17 @@ impl PublicServiceFacade for PublicService {
             .await
     }
 
+    async fn update_noindex(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+        noindex: bool,
+    ) -> Result<bool, ServiceError> {
+        self.update_noindex(workspace_id, permissions, doc_id, noindex)
+            .await
+    }
+
     async fn list_workspace_public_documents(
         &self,
         workspace_slug: &str,
@@ -163,7 +186,7 @@ impl PublicServiceFacade for PublicService {
         &self,
         workspace_slug: &str,
         doc_id: Uuid,
-    ) -> Result<String, ServiceError> {
+    ) -> Result<(String, bool), ServiceError> {
         self.get_public_content_by_workspace_and_id(workspace_slug, doc_id)
             .await
     }
@@ -236,6 +259,7 @@ impl PublicService {
     /// Publish document.
     /// For E2EE mode: pass plaintext_title and plaintext_content
     /// For non-E2EE mode: pass None for both
+    /// noindex: if true, adds noindex meta tag to prevent search engine indexing (default: true)
     pub async fn publish_document(
         &self,
         workspace_id: Uuid,
@@ -243,6 +267,7 @@ impl PublicService {
         doc_id: Uuid,
         plaintext_title: Option<&str>,
         plaintext_content: Option<&str>,
+        noindex: bool,
     ) -> Result<PublishResponseDto, ServiceError> {
         public_policy::ensure_public_publish_allowed(permissions)
             .map_err(|_| ServiceError::Forbidden)?;
@@ -251,7 +276,7 @@ impl PublicService {
             repo: self.repo.as_ref(),
         };
         let publish_result = uc
-            .execute(workspace_id, doc_id)
+            .execute(workspace_id, doc_id, noindex)
             .await
             .map_err(ServiceError::from)?
             .ok_or(ServiceError::NotFound)?;
@@ -327,7 +352,34 @@ impl PublicService {
         Ok(PublishResponseDto {
             slug: status.slug,
             public_url: status.public_url,
+            noindex: status.noindex,
         })
+    }
+
+    pub async fn update_noindex(
+        &self,
+        workspace_id: Uuid,
+        permissions: &PermissionSet,
+        doc_id: Uuid,
+        noindex: bool,
+    ) -> Result<bool, ServiceError> {
+        public_policy::ensure_public_publish_allowed(permissions)
+            .map_err(|_| ServiceError::Forbidden)?;
+
+        // Verify document belongs to workspace
+        let is_workspace_doc = self
+            .repo
+            .is_workspace_document(doc_id, workspace_id)
+            .await
+            .map_err(ServiceError::from)?;
+        if !is_workspace_doc {
+            return Err(ServiceError::NotFound);
+        }
+
+        self.repo
+            .update_noindex(doc_id, noindex)
+            .await
+            .map_err(ServiceError::from)
     }
 
     pub async fn list_workspace_public_documents(
@@ -358,15 +410,14 @@ impl PublicService {
         &self,
         workspace_slug: &str,
         doc_id: Uuid,
-    ) -> Result<String, ServiceError> {
-        let exists = self
+    ) -> Result<(String, bool), ServiceError> {
+        // Get noindex setting (also verifies document is published)
+        let noindex = self
             .repo
-            .public_exists_by_workspace_and_id(workspace_slug, doc_id)
+            .get_noindex_by_workspace_and_id(workspace_slug, doc_id)
             .await
-            .map_err(ServiceError::from)?;
-        if !exists {
-            return Err(ServiceError::NotFound);
-        }
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
 
         // Prefer stored plaintext content (E2EE mode) over realtime
         if let Some(stored) = self
@@ -375,7 +426,7 @@ impl PublicService {
             .await
             .map_err(ServiceError::from)?
         {
-            return Ok(stored.content);
+            return Ok((stored.content, noindex));
         }
 
         // Fall back to realtime content for non-E2EE documents
@@ -385,7 +436,7 @@ impl PublicService {
             .await
             .map_err(ServiceError::from)?
             .unwrap_or_default();
-        Ok(content)
+        Ok((content, noindex))
     }
 
     // --- Public file methods ---

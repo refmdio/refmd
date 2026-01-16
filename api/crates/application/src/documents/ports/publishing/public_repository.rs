@@ -14,6 +14,7 @@ pub struct WorkspaceTitleAndSlug {
 pub struct PublishStatusRow {
     pub slug: String,
     pub workspace_slug: String,
+    pub noindex: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -31,7 +32,8 @@ pub trait PublicRepository: Send + Sync {
         doc_id: Uuid,
         workspace_id: Uuid,
     ) -> PortResult<Option<WorkspaceTitleAndSlug>>;
-    async fn upsert_public_document(&self, doc_id: Uuid, slug: &str) -> PortResult<()>;
+    async fn upsert_public_document(&self, doc_id: Uuid, slug: &str, noindex: bool) -> PortResult<()>;
+    async fn update_noindex(&self, doc_id: Uuid, noindex: bool) -> PortResult<bool>;
     async fn slug_exists(&self, slug: &str) -> PortResult<bool>;
     async fn is_workspace_document(&self, doc_id: Uuid, workspace_id: Uuid) -> PortResult<bool>;
     async fn delete_public_document(&self, doc_id: Uuid) -> PortResult<bool>;
@@ -54,6 +56,13 @@ pub trait PublicRepository: Send + Sync {
         workspace_slug: &str,
         doc_id: Uuid,
     ) -> PortResult<bool>;
+
+    /// Get noindex flag for a published document
+    async fn get_noindex_by_workspace_and_id(
+        &self,
+        workspace_slug: &str,
+        doc_id: Uuid,
+    ) -> PortResult<Option<bool>>;
 
     /// Store or update plaintext content for a published document (for E2EE mode)
     async fn store_public_content(

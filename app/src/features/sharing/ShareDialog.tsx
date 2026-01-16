@@ -15,7 +15,7 @@ import { Separator } from '@/shared/ui/separator'
 import { Switch } from '@/shared/ui/switch'
 
 import { fetchDocumentMeta } from '@/entities/document'
-import { getPublishStatus, publishDocument, unpublishDocument, uploadPublicFilesForDocument } from '@/entities/public'
+import { getPublishStatus, publishDocument, unpublishDocument, updatePublishSettings, uploadPublicFilesForDocument } from '@/entities/public'
 import { fetchDecryptedContent } from '@/features/search/lib/fetch-decrypted-content'
 import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
 import { createShare, deleteShare, listDocumentShares, shareKeys } from '@/entities/share'
@@ -69,7 +69,7 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
   const [shareLinks, setShareLinks] = useState<ShareLink[]>([])
   const [loading, setLoading] = useState(false)
   const [linkExpiry, setLinkExpiry] = useState<string>('7d')
-  const [publishState, setPublishState] = useState({ isPublished: false, url: '', loading: false })
+  const [publishState, setPublishState] = useState({ isPublished: false, url: '', noindex: true, loading: false })
 
   const baseUrl = React.useMemo(() => (typeof window !== 'undefined' ? window.location.origin : ''), [])
 
@@ -128,13 +128,15 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
     ;(async () => {
       try {
         const status = await getPublishStatus(targetId)
+        console.log('[ShareDialog] getPublishStatus response:', status)
         if (status?.public_url) {
-          setPublishState({ isPublished: true, url: status.public_url, loading: false })
+          setPublishState({ isPublished: true, url: status.public_url, noindex: status.noindex ?? true, loading: false })
         } else {
-          setPublishState((p) => ({ ...p, isPublished: false, url: '' }))
+          setPublishState((p) => ({ ...p, isPublished: false, url: '', noindex: true }))
         }
-      } catch {
-        setPublishState((p) => ({ ...p, isPublished: false, url: '' }))
+      } catch (e) {
+        console.error('[ShareDialog] getPublishStatus error:', e)
+        setPublishState((p) => ({ ...p, isPublished: false, url: '', noindex: true }))
       }
     })()
   }, [open, targetId, targetType])
@@ -271,14 +273,26 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
         }
       }
 
-      setPublishState({ isPublished: true, url: r.public_url, loading: false })
+      setPublishState({ isPublished: true, url: r.public_url, noindex: r.noindex ?? true, loading: false })
       toast.success('Published successfully')
     } catch {
       setPublishState(p => ({ ...p, loading: false }))
       toast.error('Failed to publish')
     }
   }
-  const handleUnpublish = async () => { setPublishState(p=>({...p,loading:true})); try{ await unpublishDocument(targetId); setPublishState({isPublished:false,url:'',loading:false}); toast.success('Unpublished successfully')}catch{ setPublishState(p=>({...p,loading:false})); toast.error('Failed to unpublish')} }
+  const handleUnpublish = async () => { setPublishState(p=>({...p,loading:true})); try{ await unpublishDocument(targetId); setPublishState({isPublished:false,url:'',noindex:true,loading:false}); toast.success('Unpublished successfully')}catch{ setPublishState(p=>({...p,loading:false})); toast.error('Failed to unpublish')} }
+
+  const handleUpdateNoindex = async (noindex: boolean) => {
+    setPublishState(p => ({ ...p, loading: true }))
+    try {
+      await updatePublishSettings(targetId, noindex)
+      setPublishState(p => ({ ...p, noindex, loading: false }))
+      toast.success(noindex ? 'Search engine indexing disabled' : 'Search engine indexing enabled')
+    } catch {
+      setPublishState(p => ({ ...p, loading: false }))
+      toast.error('Failed to update settings')
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -322,12 +336,29 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
                     onCheckedChange={(v) => { v ? handlePublish() : handleUnpublish() }} />
                 </div>
                 {publishState.isPublished && publishState.url && (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Public URL</Label>
-                    <div className="flex gap-2">
-                      <Input value={`${baseUrl}${publishState.url}`} readOnly className="flex-1 font-mono text-sm bg-muted" />
-                      <Button variant="outline" size="sm" onClick={copyPublicUrl}><Copy className="h-4 w-4" /></Button>
-                      <Button variant="outline" size="sm" onClick={openPublicPage}><ExternalLink className="h-4 w-4" /></Button>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Public URL</Label>
+                      <div className="flex gap-2">
+                        <Input value={`${baseUrl}${publishState.url}`} readOnly className="flex-1 font-mono text-sm bg-muted" />
+                        <Button variant="outline" size="sm" onClick={copyPublicUrl}><Copy className="h-4 w-4" /></Button>
+                        <Button variant="outline" size="sm" onClick={openPublicPage}><ExternalLink className="h-4 w-4" /></Button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between py-2 border-t pt-3">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm font-medium">Allow search engine indexing</Label>
+                        <p className="text-xs text-muted-foreground">
+                          {publishState.noindex
+                            ? 'Search engines are blocked from indexing this page'
+                            : 'Search engines can index and display this page in search results'}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={!publishState.noindex}
+                        onCheckedChange={(v) => handleUpdateNoindex(!v)}
+                        disabled={publishState.loading}
+                      />
                     </div>
                   </div>
                 )}

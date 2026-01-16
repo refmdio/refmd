@@ -10,6 +10,7 @@ import {
   listWorkspacePublicDocuments as apiListWorkspacePublicDocuments,
   publishDocument as apiPublishDocument,
   unpublishDocument as apiUnpublishDocument,
+  updatePublishSettings as apiUpdatePublishSettings,
   uploadPublicFile as apiUploadPublicFile,
 } from '@/shared/api'
 import type { PublicDocumentSummary, PublicFile } from '@/shared/api'
@@ -46,6 +47,7 @@ export async function getPublicContentByWorkspaceAndId(slug: string, id: string)
 export type PublishDocumentOptions = {
   plaintextTitle?: string
   plaintextContent?: string
+  noindex?: boolean
 }
 
 export async function publishDocument(id: string, options?: PublishDocumentOptions) {
@@ -54,6 +56,7 @@ export async function publishDocument(id: string, options?: PublishDocumentOptio
     requestBody: options ? {
       plaintextTitle: options.plaintextTitle,
       plaintextContent: options.plaintextContent,
+      noindex: options.noindex,
     } : undefined,
   })
 }
@@ -64,6 +67,13 @@ export async function unpublishDocument(id: string) {
 
 export async function getPublishStatus(id: string) {
   return apiGetPublishStatus({ id })
+}
+
+export async function updatePublishSettings(id: string, noindex: boolean) {
+  return apiUpdatePublishSettings({
+    id,
+    requestBody: { noindex },
+  })
 }
 
 export async function getWorkspacePermissions(workspaceId: string) {

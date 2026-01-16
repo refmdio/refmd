@@ -15,12 +15,25 @@ pub struct PublishRequest {
     /// Plaintext content (required for E2EE mode)
     #[serde(default)]
     pub plaintext_content: Option<String>,
+    /// If true, adds noindex meta tag to prevent search engine indexing (default: true)
+    #[serde(default)]
+    pub noindex: Option<bool>,
+}
+
+/// Request to update noindex setting for a published document
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePublishSettingsRequest {
+    /// If true, adds noindex meta tag to prevent search engine indexing
+    pub noindex: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PublishResponse {
     pub slug: String,
     pub public_url: String,
+    /// If true, noindex meta tag is added to prevent search engine indexing
+    pub noindex: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
