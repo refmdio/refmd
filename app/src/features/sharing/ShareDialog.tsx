@@ -128,14 +128,12 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
     ;(async () => {
       try {
         const status = await getPublishStatus(targetId)
-        console.log('[ShareDialog] getPublishStatus response:', status)
         if (status?.public_url) {
           setPublishState({ isPublished: true, url: status.public_url, noindex: status.noindex ?? true, loading: false })
         } else {
           setPublishState((p) => ({ ...p, isPublished: false, url: '', noindex: true }))
         }
-      } catch (e) {
-        console.error('[ShareDialog] getPublishStatus error:', e)
+      } catch {
         setPublishState((p) => ({ ...p, isPublished: false, url: '', noindex: true }))
       }
     })()
