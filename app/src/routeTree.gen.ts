@@ -17,6 +17,7 @@ import { Route as appProfileRouteImport } from './routes/(app)/profile'
 import { Route as appDashboardRouteImport } from './routes/(app)/dashboard'
 import { Route as appSettingsIndexRouteImport } from './routes/(app)/settings/index'
 import { Route as shareShareTokenRouteImport } from './routes/(share)/share/$token'
+import { Route as authAuthUnlockRouteImport } from './routes/(auth)/auth/unlock'
 import { Route as authAuthSignupRouteImport } from './routes/(auth)/auth/signup'
 import { Route as authAuthSigninRouteImport } from './routes/(auth)/auth/signin'
 import { Route as authAuthSetupRouteImport } from './routes/(auth)/auth/setup'
@@ -69,6 +70,11 @@ const appSettingsIndexRoute = appSettingsIndexRouteImport.update({
 const shareShareTokenRoute = shareShareTokenRouteImport.update({
   id: '/(share)/share/$token',
   path: '/share/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const authAuthUnlockRoute = authAuthUnlockRouteImport.update({
+  id: '/(auth)/auth/unlock',
+  path: '/auth/unlock',
   getParentRoute: () => rootRouteImport,
 } as any)
 const authAuthSignupRoute = authAuthSignupRouteImport.update({
@@ -153,6 +159,7 @@ export interface FileRoutesByFullPath {
   '/auth/setup': typeof authAuthSetupRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
+  '/auth/unlock': typeof authAuthUnlockRoute
   '/share/$token': typeof shareShareTokenRoute
   '/settings': typeof appSettingsIndexRoute
   '/u/$name/$id': typeof publicUNameIdRoute
@@ -176,6 +183,7 @@ export interface FileRoutesByTo {
   '/auth/setup': typeof authAuthSetupRoute
   '/auth/signin': typeof authAuthSigninRoute
   '/auth/signup': typeof authAuthSignupRoute
+  '/auth/unlock': typeof authAuthUnlockRoute
   '/share/$token': typeof shareShareTokenRoute
   '/settings': typeof appSettingsIndexRoute
   '/u/$name/$id': typeof publicUNameIdRoute
@@ -200,6 +208,7 @@ export interface FileRoutesById {
   '/(auth)/auth/setup': typeof authAuthSetupRoute
   '/(auth)/auth/signin': typeof authAuthSigninRoute
   '/(auth)/auth/signup': typeof authAuthSignupRoute
+  '/(auth)/auth/unlock': typeof authAuthUnlockRoute
   '/(share)/share/$token': typeof shareShareTokenRoute
   '/(app)/settings/': typeof appSettingsIndexRoute
   '/(public)/u/$name/$id': typeof publicUNameIdRoute
@@ -225,6 +234,7 @@ export interface FileRouteTypes {
     | '/auth/setup'
     | '/auth/signin'
     | '/auth/signup'
+    | '/auth/unlock'
     | '/share/$token'
     | '/settings'
     | '/u/$name/$id'
@@ -248,6 +258,7 @@ export interface FileRouteTypes {
     | '/auth/setup'
     | '/auth/signin'
     | '/auth/signup'
+    | '/auth/unlock'
     | '/share/$token'
     | '/settings'
     | '/u/$name/$id'
@@ -271,6 +282,7 @@ export interface FileRouteTypes {
     | '/(auth)/auth/setup'
     | '/(auth)/auth/signin'
     | '/(auth)/auth/signup'
+    | '/(auth)/auth/unlock'
     | '/(share)/share/$token'
     | '/(app)/settings/'
     | '/(public)/u/$name/$id'
@@ -294,6 +306,7 @@ export interface RootRouteChildren {
   authAuthSetupRoute: typeof authAuthSetupRoute
   authAuthSigninRoute: typeof authAuthSigninRoute
   authAuthSignupRoute: typeof authAuthSignupRoute
+  authAuthUnlockRoute: typeof authAuthUnlockRoute
   shareShareTokenRoute: typeof shareShareTokenRoute
   appSettingsIndexRoute: typeof appSettingsIndexRoute
   publicUNameIdRoute: typeof publicUNameIdRoute
@@ -358,6 +371,13 @@ declare module '@tanstack/react-router' {
       path: '/share/$token'
       fullPath: '/share/$token'
       preLoaderRoute: typeof shareShareTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/(auth)/auth/unlock': {
+      id: '/(auth)/auth/unlock'
+      path: '/auth/unlock'
+      fullPath: '/auth/unlock'
+      preLoaderRoute: typeof authAuthUnlockRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/(auth)/auth/signup': {
@@ -481,6 +501,7 @@ const rootRouteChildren: RootRouteChildren = {
   authAuthSetupRoute: authAuthSetupRoute,
   authAuthSigninRoute: authAuthSigninRoute,
   authAuthSignupRoute: authAuthSignupRoute,
+  authAuthUnlockRoute: authAuthUnlockRoute,
   shareShareTokenRoute: shareShareTokenRoute,
   appSettingsIndexRoute: appSettingsIndexRoute,
   publicUNameIdRoute: publicUNameIdRoute,

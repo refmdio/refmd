@@ -6,7 +6,7 @@ import { fetchDocumentMeta } from '@/entities/document'
 import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 
 import { documentBeforeLoadGuard } from '@/features/auth'
-import { useAttachmentContext } from '@/features/security'
+import { useAttachmentContext, RequireE2EE } from '@/features/security'
 
 import DocumentMosaicWorkspace from '@/widgets/document/DocumentMosaicWorkspace'
 import DocumentPage, { type DocumentLoaderData } from '@/widgets/document/DocumentPage'
@@ -128,17 +128,16 @@ function DocumentRouteComponent() {
     return Boolean(raw)
   })()
   const conflictMode = Object.prototype.hasOwnProperty.call(search, 'conflict')
-  if (isMobile) {
-    return (
-      <DocumentPage
-        id={id}
-        loaderData={loaderData}
-        shareToken={shareToken}
-        conflictMode={conflictMode}
-      />
-    )
-  }
-  return (
+
+  // Shared documents don't require E2EE (they have their own key in URL)
+  const content = isMobile ? (
+    <DocumentPage
+      id={id}
+      loaderData={loaderData}
+      shareToken={shareToken}
+      conflictMode={conflictMode}
+    />
+  ) : (
     <DocumentMosaicWorkspace
       id={id}
       loaderData={loaderData}
@@ -148,4 +147,11 @@ function DocumentRouteComponent() {
       conflictMode={conflictMode}
     />
   )
+
+  // Skip E2EE check for shared documents
+  if (shareToken) {
+    return content
+  }
+
+  return <RequireE2EE>{content}</RequireE2EE>
 }

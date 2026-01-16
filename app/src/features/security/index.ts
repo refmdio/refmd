@@ -194,6 +194,7 @@ export {
   SecuritySetupWizard,
   UnlockPrompt,
   RestorePrompt,
+  RequireE2EE,
 } from './ui'
 
 // Document key helpers

@@ -4,10 +4,19 @@ import { listDocumentsQuery } from '@/entities/document'
 import { meQuery } from '@/entities/user'
 
 import { requireAuthGuard } from '@/features/auth'
+import { RequireE2EE } from '@/features/security'
 
 import DashboardPage from '@/widgets/dashboard/DashboardPage'
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
+
+function DashboardRoute() {
+  return (
+    <RequireE2EE>
+      <DashboardPage />
+    </RequireE2EE>
+  )
+}
 
 export const Route = createFileRoute('/(app)/dashboard')({
   staticData: { layout: 'app' },
@@ -20,5 +29,5 @@ export const Route = createFileRoute('/(app)/dashboard')({
     await context.queryClient.ensureQueryData(listDocumentsQuery({ workspaceId }))
     return null
   },
-  component: DashboardPage,
+  component: DashboardRoute,
 })
