@@ -208,8 +208,9 @@ export function revokeBlobUrl(blobUrl: string): void {
  *
  * @param documentId - Document ID
  * @param dek - Document encryption key
+ * @param token - Optional share token for authentication
  */
-export async function initFileMap(documentId: string, dek: Uint8Array): Promise<FileMap> {
+export async function initFileMap(documentId: string, dek: Uint8Array, token?: string): Promise<FileMap> {
   // Check if initialization is in progress
   const inProgress = fileMapInitPromises.get(documentId)
   if (inProgress) {
@@ -228,7 +229,7 @@ export async function initFileMap(documentId: string, dek: Uint8Array): Promise<
   // Start initialization
   const initPromise = (async () => {
     try {
-      const fileMap = await buildFileMap(documentId, dek)
+      const fileMap = await buildFileMap(documentId, dek, token)
 
       // Merge with any entries added while we were fetching
       // (e.g., from concurrent uploads via addFileToMap)

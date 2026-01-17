@@ -187,9 +187,11 @@ export type FileMap = Map<string, FileMapEntry>
 
 /**
  * List files for a document (API call only)
+ * @param documentId - Document ID
+ * @param token - Optional share token for authentication
  */
-export async function listDocumentFiles(documentId: string): Promise<ListFileResponse[]> {
-  const response = await listFiles({ docId: documentId })
+export async function listDocumentFiles(documentId: string, token?: string): Promise<ListFileResponse[]> {
+  const response = await listFiles({ docId: documentId, token })
   return response
 }
 
@@ -198,14 +200,16 @@ export async function listDocumentFiles(documentId: string): Promise<ListFileRes
  *
  * @param documentId - Document ID
  * @param dek - Document encryption key
+ * @param token - Optional share token for authentication
  * @returns FileMap with logicalPath → FileMapEntry mapping
  */
 export async function buildFileMap(
   documentId: string,
-  dek: Uint8Array
+  dek: Uint8Array,
+  token?: string
 ): Promise<FileMap> {
   // 1. Fetch file list
-  const files = await listDocumentFiles(documentId)
+  const files = await listDocumentFiles(documentId, token)
 
   // 2. Build map by decrypting each file's metadata using provided DEK
   const map: FileMap = new Map()

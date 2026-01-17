@@ -1361,6 +1361,10 @@ export type ListFilesData = {
      * Document ID
      */
     docId: string;
+    /**
+     * Share token for authentication
+     */
+    token?: (string) | null;
 };
 
 export type ListFilesResponse = (Array<ListFileResponse>);
@@ -1623,6 +1627,10 @@ export type GetFileData = {
      * File ID
      */
     id: string;
+    /**
+     * Share token for authentication
+     */
+    token?: (string) | null;
 };
 
 export type GetFileResponse = (Blob | File);

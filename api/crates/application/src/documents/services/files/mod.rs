@@ -66,6 +66,22 @@ pub trait FileServiceFacade: Send + Sync {
         workspace_id: Uuid,
         doc_id: Uuid,
     ) -> Result<Vec<FileRecord>, ServiceError>;
+
+    /// List files for a document with actor-based authorization.
+    /// Used for share token access where workspace_id is not directly available.
+    async fn list_files_for_actor(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+    ) -> Result<Vec<FileRecord>, ServiceError>;
+
+    /// Download file with actor-based authorization.
+    /// Used for share token access where workspace_id is not directly available.
+    async fn download_file_for_actor(
+        &self,
+        actor: &Actor,
+        file_id: Uuid,
+    ) -> Result<FilePayload, ServiceError>;
 }
 
 #[async_trait]
@@ -107,6 +123,22 @@ impl FileServiceFacade for FileService {
         doc_id: Uuid,
     ) -> Result<Vec<FileRecord>, ServiceError> {
         self.list_files_for_document(workspace_id, doc_id).await
+    }
+
+    async fn list_files_for_actor(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+    ) -> Result<Vec<FileRecord>, ServiceError> {
+        self.list_files_for_actor(actor, doc_id).await
+    }
+
+    async fn download_file_for_actor(
+        &self,
+        actor: &Actor,
+        file_id: Uuid,
+    ) -> Result<FilePayload, ServiceError> {
+        self.download_file_for_actor(actor, file_id).await
     }
 }
 
@@ -275,6 +307,67 @@ impl FileService {
             .await
             .map_err(ServiceError::from)?;
         Ok(files)
+    }
+
+    /// List files for a document with actor-based authorization.
+    /// Used for share token access where workspace_id is not directly available.
+    pub async fn list_files_for_actor(
+        &self,
+        actor: &Actor,
+        doc_id: Uuid,
+    ) -> Result<Vec<FileRecord>, ServiceError> {
+        // Verify actor has view access to the document
+        access::require_view(
+            self.access_repo.as_ref(),
+            self.share_access.as_ref(),
+            actor,
+            doc_id,
+        )
+        .await?;
+
+        let files = self
+            .files_repo
+            .list_files_for_document(doc_id)
+            .await
+            .map_err(ServiceError::from)?;
+        Ok(files)
+    }
+
+    /// Download file with actor-based authorization.
+    /// Used for share token access where workspace_id is not directly available.
+    pub async fn download_file_for_actor(
+        &self,
+        actor: &Actor,
+        file_id: Uuid,
+    ) -> Result<FilePayload, ServiceError> {
+        let meta = self
+            .files_repo
+            .get_file_meta(file_id)
+            .await
+            .map_err(ServiceError::from)?
+            .ok_or(ServiceError::NotFound)?;
+
+        // Verify actor has view access to the document
+        access::require_view(
+            self.access_repo.as_ref(),
+            self.share_access.as_ref(),
+            actor,
+            meta.document_id,
+        )
+        .await?;
+
+        let abs_path = self.storage.absolute_from_relative(&meta.storage_path);
+        let bytes = self
+            .storage
+            .read_bytes(&abs_path)
+            .await
+            .map_err(ServiceError::from)?;
+        Ok(FilePayload {
+            bytes,
+            encrypted_metadata: meta.encrypted_metadata,
+            encrypted_metadata_nonce: meta.encrypted_metadata_nonce,
+            encrypted_hash: meta.encrypted_hash,
+        })
     }
 
     async fn emit_attachment_upsert(

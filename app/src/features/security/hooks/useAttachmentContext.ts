@@ -14,8 +14,14 @@ import {
   initFileMap,
   clearFileMap,
 } from '@/entities/file'
+import { validateShareToken } from '@/entities/share'
 
-import { fetchDocumentKeys } from '@/features/security'
+import {
+  fetchDocumentKeys,
+  extractShareKeyFromFragment,
+  decryptDekWithShareKey,
+  getSodium,
+} from '@/features/security'
 
 export interface UseAttachmentContextOptions {
   /** Document ID */
@@ -41,16 +47,50 @@ export function useAttachmentContext(options: UseAttachmentContextOptions): void
 
   // Initialize context and file map
   useEffect(() => {
-    if (!workspaceId || !documentId) return
+    if (!documentId) return
 
     let cancelled = false
     initStartedRef.current = true
 
     ;(async () => {
       try {
-        // Fetch DEK for this document
-        const { dek } = await fetchDocumentKeys(documentId, workspaceId)
+        let dek: Uint8Array | null = null
+
+        if (token) {
+          // Shared documents: decrypt DEK using share key from URL fragment
+          const fragment = typeof window !== 'undefined' ? window.location.hash : ''
+          const shareKey = fragment ? await extractShareKeyFromFragment(fragment) : null
+
+          if (shareKey) {
+            // Validate share token to get encrypted DEK
+            const shareInfo = await validateShareToken(token)
+            if (shareInfo?.encryptedDek) {
+              // Decrypt DEK using share key
+              // The encrypted_dek from API has nonce prepended (24 bytes for XChaCha20)
+              const sodium = await getSodium()
+              const combined = sodium.from_base64(shareInfo.encryptedDek, sodium.base64_variants.ORIGINAL)
+              const NONCE_LENGTH = 24
+              if (combined.length > NONCE_LENGTH) {
+                const nonce = combined.slice(0, NONCE_LENGTH)
+                const ciphertext = combined.slice(NONCE_LENGTH)
+                const nonceBase64 = sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL)
+                const ciphertextBase64 = sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL)
+                dek = await decryptDekWithShareKey(ciphertextBase64, nonceBase64, shareKey)
+              }
+            }
+          }
+        } else if (workspaceId) {
+          // Regular documents: fetch DEK via workspace KEK hierarchy
+          const result = await fetchDocumentKeys(documentId, workspaceId)
+          dek = result.dek
+        }
+
         if (cancelled) return
+
+        if (!dek) {
+          console.warn('[useAttachmentContext] No DEK available')
+          return
+        }
 
         // Set context with DEK
         const context = { dek, token }
@@ -60,8 +100,8 @@ export function useAttachmentContext(options: UseAttachmentContextOptions): void
           setDecryptionContext(documentId, context)
         }
 
-        // Initialize file map with DEK
-        initFileMap(documentId, dek).catch(() => {
+        // Initialize file map with DEK (pass token for share access)
+        initFileMap(documentId, dek, token).catch(() => {
           // Errors handled by waitForFileMap callers
         })
       } catch (err) {
@@ -76,7 +116,8 @@ export function useAttachmentContext(options: UseAttachmentContextOptions): void
 
   // Cleanup on unmount or when dependencies change
   useLayoutEffect(() => {
-    if (!workspaceId) return
+    // Skip cleanup setup if neither workspaceId nor token is present
+    if (!workspaceId && !token) return
 
     return () => {
       if (setAsDefault) {

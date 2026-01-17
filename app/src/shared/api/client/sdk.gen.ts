@@ -188,8 +188,10 @@ export const createDocument = (data: CreateDocumentData): CancelablePromise<Crea
 /**
  * List files for a document.
  * Returns encrypted metadata for client-side decryption to build file map.
+ * Supports authentication via bearer token or share token query parameter.
  * @param data The data for the request.
  * @param data.docId Document ID
+ * @param data.token Share token for authentication
  * @returns ListFileResponse OK
  * @throws ApiError
  */
@@ -199,6 +201,9 @@ export const listFiles = (data: ListFilesData): CancelablePromise<ListFilesRespo
         url: '/api/documents/{docId}/files',
         path: {
             docId: data.docId
+        },
+        query: {
+            token: data.token
         }
     });
 };
@@ -625,8 +630,10 @@ export const unarchiveDocument = (data: UnarchiveDocumentData): CancelablePromis
 /**
  * Download a file by ID.
  * Returns encrypted file with E2EE metadata in headers for client-side decryption.
+ * Supports authentication via bearer token or share token query parameter.
  * @param data The data for the request.
  * @param data.id File ID
+ * @param data.token Share token for authentication
  * @returns binary OK
  * @throws ApiError
  */
@@ -636,6 +643,9 @@ export const getFile = (data: GetFileData): CancelablePromise<GetFileResponse> =
         url: '/api/files/{id}',
         path: {
             id: data.id
+        },
+        query: {
+            token: data.token
         }
     });
 };

@@ -448,25 +448,25 @@ export class Sync {
   destroy(): void {
     this._destroyed = true
 
-    // Flush pending tag update before destroying
+    // Flush pending tag update before destroying (skip for share mode)
     if (this.tagUpdateDebounceTimer) {
       clearTimeout(this.tagUpdateDebounceTimer)
       this.tagUpdateDebounceTimer = null
     }
     // Fire and forget - don't wait for tag update to complete
-    if (this.hasUnsavedTagChanges) {
+    if (this.hasUnsavedTagChanges && !this.options.shareMode) {
       this.updateDocumentTags().catch(() => {
         // Ignore errors on destroy
       })
     }
 
-    // Clean up public content update timer
+    // Clean up public content update timer (skip for share mode)
     if (this.publicContentDebounceTimer) {
       clearTimeout(this.publicContentDebounceTimer)
       this.publicContentDebounceTimer = null
     }
     // Fire and forget - don't wait for public content update to complete
-    if (this.hasUnsavedPublicContentChanges && this.isPublished) {
+    if (this.hasUnsavedPublicContentChanges && this.isPublished && !this.options.shareMode) {
       this.updatePublicContentIfPublished().catch(() => {
         // Ignore errors on destroy
       })
@@ -914,10 +914,13 @@ export class Sync {
       }
 
       // Schedule debounced tag update (auto-save style: 2s after last edit)
-      this.scheduleDebouncedTagUpdate()
+      // Skip for share mode - shared documents are read-only for these features
+      if (!this.options.shareMode) {
+        this.scheduleDebouncedTagUpdate()
 
-      // Schedule debounced public content update if document is published
-      this.scheduleDebouncedPublicContentUpdate()
+        // Schedule debounced public content update if document is published
+        this.scheduleDebouncedPublicContentUpdate()
+      }
     } catch (err) {
       console.error('[Sync] Error sending update:', err)
     }
@@ -1119,9 +1122,12 @@ export class Sync {
 
       // Phase 14: Extract and update tags from document content
       // Do this in background to not block the sync flow
-      this.updateDocumentTags().catch((err) => {
-        console.warn('[Sync] Error updating document tags:', err)
-      })
+      // Skip for share mode - shared documents are read-only for these features
+      if (!this.options.shareMode) {
+        this.updateDocumentTags().catch((err) => {
+          console.warn('[Sync] Error updating document tags:', err)
+        })
+      }
     } catch (err) {
       console.error('[Sync] Error sending snapshot:', err)
     }
