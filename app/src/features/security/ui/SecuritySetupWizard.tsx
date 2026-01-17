@@ -14,7 +14,7 @@ import {
   markSecuritySetupComplete,
 } from '@/entities/user'
 
-import { useKeyManager } from '../hooks/useKeyManager'
+import { useE2EE } from '../context/e2ee-context'
 import { useSecurityStatus } from '../hooks/useSecurityStatus'
 import { toBase64, fromBase64 } from '../lib/crypto'
 import { performMigration, type MigrationProgress } from '../lib/migration'
@@ -51,7 +51,7 @@ const STEP_TITLES: Record<WizardStep, string> = {
 
 export function SecuritySetupWizard() {
   const navigate = useNavigate()
-  const { setupE2EE, error: keyManagerError } = useKeyManager()
+  const { setupE2EE, error: e2eeError } = useE2EE()
   const { refetch: refetchSecurityStatus } = useSecurityStatus()
 
   const [currentStep, setCurrentStep] = useState<WizardStep>('intro')
@@ -217,7 +217,7 @@ export function SecuritySetupWizard() {
             <PassphraseInput
               onSubmit={handlePassphraseSubmit}
               loading={isSubmitting}
-              error={error ?? keyManagerError ?? undefined}
+              error={error ?? e2eeError ?? undefined}
             />
           )}
 

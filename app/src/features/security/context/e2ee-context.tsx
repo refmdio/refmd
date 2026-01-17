@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useAuthContext } from '@/features/auth'
 
@@ -35,8 +35,10 @@ export interface E2EEState {
   restoreFromServer: (passphrase: string) => Promise<void>
   /** Restore keys from server with recovery key */
   restoreFromServerWithRecoveryKey: (recoveryKey: string) => Promise<void>
-  /** Lock the session */
+  /** Lock the session (keeps stored UMK) */
   lock: () => void
+  /** Logout - clears keys from memory AND storage */
+  logout: () => Promise<void>
   /** Set up E2EE for a new user */
   setupE2EE: (passphrase: string) => Promise<E2EESetupResult>
   /** Clear error state */
@@ -46,9 +48,16 @@ export interface E2EEState {
 const E2EEContext = createContext<E2EEState | null>(null)
 
 export function E2EEProvider({ children }: { children: React.ReactNode }) {
-  const { user, loading: authLoading } = useAuthContext()
+  const { user, loading: authLoading, rememberMe } = useAuthContext()
   const { data: securityStatus, isLoading: statusLoading } = useSecurityStatus({ enabled: !!user })
   const { data: serverBackup, isLoading: backupLoading } = useServerBackup({ enabled: !!user })
+
+  // Use ref to always get the latest rememberMe value in callbacks
+  // This avoids stale closure issues where callbacks capture old values
+  const rememberMeRef = useRef(rememberMe)
+  useEffect(() => {
+    rememberMeRef.current = rememberMe
+  }, [rememberMe])
 
   const [isInitialized, setIsInitialized] = useState(false)
   const [isUnlocked, setIsUnlocked] = useState(false)
@@ -96,11 +105,13 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
   }, [isInitialized])
 
   const unlock = useCallback(async (passphrase: string) => {
+    // Use ref to get the latest rememberMe value (avoids stale closure)
+    const shouldRemember = rememberMeRef.current === true
     setLoading(true)
     setError(null)
     try {
       const km = getKeyManager()
-      await km.unlockWithPassphrase(passphrase)
+      await km.unlockWithPassphrase(passphrase, { rememberMe: shouldRemember })
       setIsUnlocked(true)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to unlock'
@@ -112,11 +123,12 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const unlockWithRecovery = useCallback(async (mnemonic: string) => {
+    const shouldRemember = rememberMeRef.current === true
     setLoading(true)
     setError(null)
     try {
       const km = getKeyManager()
-      await km.unlockWithRecoveryKey(mnemonic)
+      await km.unlockWithRecoveryKey(mnemonic, { rememberMe: shouldRemember })
       setIsUnlocked(true)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Recovery failed'
@@ -132,6 +144,7 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
       throw new Error('No server backup available')
     }
 
+    const shouldRemember = rememberMeRef.current === true
     setLoading(true)
     setError(null)
     try {
@@ -141,7 +154,7 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
         salt: serverBackup.salt,
         kdfType: serverBackup.kdfType,
         kdfParams: serverBackup.kdfParams ?? {},
-      })
+      }, { rememberMe: shouldRemember })
       setIsUnlocked(true)
       setHasLocalKeys(true)
     } catch (err) {
@@ -158,6 +171,7 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
       throw new Error('No server backup available')
     }
 
+    const shouldRemember = rememberMeRef.current === true
     setLoading(true)
     setError(null)
     try {
@@ -167,7 +181,7 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
         salt: serverBackup.salt,
         kdfType: serverBackup.kdfType,
         kdfParams: serverBackup.kdfParams ?? {},
-      })
+      }, { rememberMe: shouldRemember })
       setIsUnlocked(true)
       setHasLocalKeys(true)
     } catch (err) {
@@ -185,12 +199,20 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
     setIsUnlocked(false)
   }, [])
 
+  const logout = useCallback(async () => {
+    const km = getKeyManager()
+    await km.logout()
+    setIsUnlocked(false)
+    setHasLocalKeys(null) // Reset local keys state
+  }, [])
+
   const setupE2EE = useCallback(async (passphrase: string): Promise<E2EESetupResult> => {
+    const shouldRemember = rememberMeRef.current === true
     setLoading(true)
     setError(null)
     try {
       const km = getKeyManager()
-      const result = await km.setupE2EE(passphrase)
+      const result = await km.setupE2EE(passphrase, { rememberMe: shouldRemember })
       setIsUnlocked(true)
       setHasLocalKeys(true) // Mark that local keys now exist
       return result
@@ -232,6 +254,7 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
       restoreFromServer,
       restoreFromServerWithRecoveryKey,
       lock,
+      logout,
       setupE2EE,
       clearError,
     }),
@@ -251,6 +274,7 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
       restoreFromServer,
       restoreFromServerWithRecoveryKey,
       lock,
+      logout,
       setupE2EE,
       clearError,
     ]

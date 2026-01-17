@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 
-import { getKeyManager, type E2EESetupResult } from '@/features/security'
+import { getKeyManager } from '@/features/security'
 
 // External store for KeyManager state
 let listeners: Set<() => void> = new Set()
@@ -34,8 +34,14 @@ function updateSnapshot() {
 }
 
 /**
- * Hook to interact with the KeyManager.
- * Provides methods for E2EE setup, unlock, and lock operations.
+ * Low-level hook for KeyManager operations that do NOT require rememberMe.
+ *
+ * For operations that require rememberMe (unlock, setupE2EE, restore), use useE2EE instead.
+ * This hook is only for:
+ * - changePassphrase: Change the user's passphrase
+ * - verifyPassphrase: Verify if a passphrase is correct
+ * - hasKeys: Check if keys exist
+ * - lock: Lock the session (clear keys from memory only)
  */
 export function useKeyManager() {
   const { isInitialized, isUnlocked } = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
@@ -53,66 +59,7 @@ export function useKeyManager() {
   }, [])
 
   /**
-   * Set up E2EE with a new passphrase.
-   * @returns Setup result including recovery key
-   */
-  const setupE2EE = useCallback(async (passphrase: string): Promise<E2EESetupResult> => {
-    setLoading(true)
-    setError(null)
-    try {
-      const km = getKeyManager()
-      const result = await km.setupE2EE(passphrase)
-      updateSnapshot()
-      return result
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Setup failed'
-      setError(message)
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  /**
-   * Unlock the session with a passphrase.
-   */
-  const unlock = useCallback(async (passphrase: string): Promise<void> => {
-    setLoading(true)
-    setError(null)
-    try {
-      const km = getKeyManager()
-      await km.unlockWithPassphrase(passphrase)
-      updateSnapshot()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unlock failed'
-      setError(message)
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  /**
-   * Unlock the session with a recovery key.
-   */
-  const unlockWithRecoveryKey = useCallback(async (mnemonic: string): Promise<void> => {
-    setLoading(true)
-    setError(null)
-    try {
-      const km = getKeyManager()
-      await km.unlockWithRecoveryKey(mnemonic)
-      updateSnapshot()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Recovery failed'
-      setError(message)
-      throw err
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  /**
-   * Lock the session.
+   * Lock the session (clears keys from memory only, not storage).
    */
   const lock = useCallback(() => {
     const km = getKeyManager()
@@ -165,9 +112,6 @@ export function useKeyManager() {
     isUnlocked,
     loading,
     error,
-    setupE2EE,
-    unlock,
-    unlockWithRecoveryKey,
     lock,
     changePassphrase,
     verifyPassphrase,

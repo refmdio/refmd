@@ -19,8 +19,10 @@ import {
 
 import { updateRuntimeAuthContext } from '@/features/auth/lib/runtime-context'
 import type { AuthMiddlewareContext } from '@/features/auth/lib/types'
+import { getKeyManager } from '@/features/security/lib/keys'
 
 const WORKSPACE_STORAGE_KEY = 'refmd.activeWorkspaceId'
+const REMEMBER_ME_STORAGE_KEY = 'refmd.rememberMe'
 
 type AuthState = {
   user: UserResponse | null
@@ -29,6 +31,8 @@ type AuthState = {
   activeWorkspace: UserResponse['workspaces'][number] | null
   permissions: string[]
   loading: boolean
+  /** Whether "Remember Me" was selected during login */
+  rememberMe: boolean
   signIn: (email: string, password: string, options?: SignInOptions) => Promise<UserResponse>
   signInWithProvider: (provider: string, payload: OAuthPayload) => Promise<UserResponse>
   signUp: (email: string, name: string, password: string) => Promise<void>
@@ -62,6 +66,28 @@ function readStoredWorkspaceId() {
     return stored && stored.trim().length > 0 ? stored : null
   } catch {
     return null
+  }
+}
+
+function readStoredRememberMe(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(REMEMBER_ME_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function storeRememberMe(value: boolean): void {
+  if (typeof window === 'undefined') return
+  try {
+    if (value) {
+      window.localStorage.setItem(REMEMBER_ME_STORAGE_KEY, 'true')
+    } else {
+      window.localStorage.removeItem(REMEMBER_ME_STORAGE_KEY)
+    }
+  } catch {
+    // Ignore storage errors
   }
 }
 
@@ -114,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     return stored
   })
+  const [rememberMe, setRememberMe] = useState<boolean>(() => readStoredRememberMe())
 
   useEffect(() => {
     if (hasInitialData) {
@@ -257,6 +284,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(res.user)
       setRuntimeHasRefreshToken(true)
       runtimeRefreshRef.current = true
+      // Store rememberMe preference for E2EE
+      const remember = options?.remember ?? false
+      setRememberMe(remember)
+      storeRememberMe(remember)
       updateAuthContext({
         user: res.user,
         isAuthenticated: true,
@@ -277,6 +308,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(res.user)
       setRuntimeHasRefreshToken(true)
       runtimeRefreshRef.current = true
+      // Store rememberMe preference for E2EE
+      const remember = payload.remember_me ?? false
+      setRememberMe(remember)
+      storeRememberMe(remember)
       updateAuthContext({
         user: res.user,
         isAuthenticated: true,
@@ -299,10 +334,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.warn('[auth] logout failed', error)
     }
+    // Clear E2EE keys from memory and storage
+    try {
+      const km = getKeyManager()
+      await km.logout()
+    } catch (error) {
+      console.warn('[auth] e2ee logout failed', error)
+    }
     queryClient.clear()
     setUser(null)
     setRuntimeHasRefreshToken(false)
     runtimeRefreshRef.current = false
+    // Clear rememberMe preference
+    setRememberMe(false)
+    storeRememberMe(false)
     updateAuthContext({
       user: null,
       isAuthenticated: false,
@@ -315,10 +360,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const deleteAccount = useCallback(async () => {
     await deleteAccountApi()
+    // Clear E2EE keys from memory and storage
+    try {
+      const km = getKeyManager()
+      await km.logout()
+    } catch (error) {
+      console.warn('[auth] e2ee logout failed', error)
+    }
     queryClient.clear()
     setUser(null)
     setRuntimeHasRefreshToken(false)
     runtimeRefreshRef.current = false
+    // Clear rememberMe preference
+    setRememberMe(false)
+    storeRememberMe(false)
     updateAuthContext({
       user: null,
       isAuthenticated: false,
@@ -410,6 +465,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       activeWorkspace,
       permissions,
       loading,
+      rememberMe,
       signIn,
       signInWithProvider,
       signUp,
@@ -424,6 +480,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       activeWorkspace,
       permissions,
       loading,
+      rememberMe,
       signIn,
       signInWithProvider,
       signUp,

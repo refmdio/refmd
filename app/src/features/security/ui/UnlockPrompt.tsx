@@ -8,7 +8,6 @@ import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
 import { useE2EE } from '../context/e2ee-context'
-import { useKeyManager } from '../hooks/useKeyManager'
 
 type UnlockMode = 'passphrase' | 'recovery' | 'reset'
 
@@ -32,25 +31,19 @@ export function UnlockPrompt({
   description = 'Enter your passphrase to access your data',
   onResetPassphrase,
 }: UnlockPromptProps) {
-  const { unlock, unlockWithRecoveryKey, loading: keyManagerLoading, error: keyManagerError, clearError: clearKeyManagerError } = useKeyManager()
   const {
+    unlock,
+    unlockWithRecovery,
     needsRestore,
     restoreFromServer,
     restoreFromServerWithRecoveryKey,
-    loading: e2eeLoading,
-    error: e2eeError,
-    clearError: clearE2EEError,
+    loading,
+    error,
+    clearError,
   } = useE2EE()
   const [mode, setMode] = useState<UnlockMode>('passphrase')
   const [passphrase, setPassphrase] = useState('')
   const [recoveryKey, setRecoveryKey] = useState('')
-
-  const loading = keyManagerLoading || e2eeLoading
-  const error = keyManagerError || e2eeError
-  const clearError = useCallback(() => {
-    clearKeyManagerError()
-    clearE2EEError()
-  }, [clearKeyManagerError, clearE2EEError])
 
   const handlePassphraseSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -67,7 +60,7 @@ export function UnlockPrompt({
         }
         onUnlocked?.()
       } catch {
-        // Error is handled by context/useKeyManager
+        // Error is handled by context
       }
     },
     [passphrase, loading, needsRestore, restoreFromServer, unlock, onUnlocked]
@@ -84,14 +77,14 @@ export function UnlockPrompt({
           await restoreFromServerWithRecoveryKey(recoveryKey)
         } else {
           // Unlock existing local keys with recovery key
-          await unlockWithRecoveryKey(recoveryKey)
+          await unlockWithRecovery(recoveryKey)
         }
         onUnlocked?.()
       } catch {
-        // Error is handled by context/useKeyManager
+        // Error is handled by context
       }
     },
-    [recoveryKey, loading, needsRestore, restoreFromServerWithRecoveryKey, unlockWithRecoveryKey, onUnlocked]
+    [recoveryKey, loading, needsRestore, restoreFromServerWithRecoveryKey, unlockWithRecovery, onUnlocked]
   )
 
   const switchMode = useCallback(

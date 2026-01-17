@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import { Button } from '@/shared/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
 
+import { useE2EE } from '../context/e2ee-context'
 import { useKeyManager } from '../hooks/useKeyManager'
 import { PassphraseInput } from './PassphraseInput'
 import { RecoveryKeyDisplay } from './RecoveryKeyDisplay'
@@ -21,7 +22,8 @@ export function PassphraseResetWizard({
   onComplete,
   onCancel,
 }: PassphraseResetWizardProps) {
-  const { changePassphrase, unlockWithRecoveryKey } = useKeyManager()
+  const { unlockWithRecovery } = useE2EE()
+  const { changePassphrase } = useKeyManager()
 
   const [step, setStep] = useState<ResetStep>('recovery_input')
   const [recoveryKey, setRecoveryKey] = useState('')
@@ -43,8 +45,8 @@ export function PassphraseResetWizard({
         throw new Error('Recovery key must be exactly 24 words')
       }
 
-      // Unlock with recovery key
-      await unlockWithRecoveryKey(recoveryKey)
+      // Unlock with recovery key (uses rememberMe from auth context)
+      await unlockWithRecovery(recoveryKey)
 
       // Move to next step
       setStep('new_passphrase')
@@ -53,7 +55,7 @@ export function PassphraseResetWizard({
     } finally {
       setLoading(false)
     }
-  }, [recoveryKey, unlockWithRecoveryKey])
+  }, [recoveryKey, unlockWithRecovery])
 
   // Step 2: Set new passphrase and generate new recovery key
   const handleNewPassphraseSubmit = useCallback(async (passphrase: string) => {

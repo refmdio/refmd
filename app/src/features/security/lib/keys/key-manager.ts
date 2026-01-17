@@ -38,8 +38,15 @@ import {
   encodeInvitationKekForApi,
   decodeInvitationKekFromApi,
 } from './invitation-kek'
-import { getKekCache } from './key-cache'
-import { storeWorkspaceKey, getMyWorkspaceKey } from '@/shared/api/client'
+import { getKekCache, getDekCache } from './key-cache'
+import {
+  storeWorkspaceKey,
+  getMyWorkspaceKey,
+  listMembers,
+  getUserPublicKey,
+  rotateWorkspaceKey,
+  rotateDocumentKey,
+} from '@/shared/api/client'
 import {
   generateDocumentDek,
   getOrFetchDek,
@@ -233,9 +240,11 @@ export class KeyManager {
    * Set up E2EE for a new user or existing user migrating.
    *
    * @param passphrase - User's passphrase (min 8 characters)
+   * @param options - Setup options
+   * @param options.rememberMe - If true, persist UMK in IndexedDB for session continuity
    * @returns Setup result with recovery key and public keys
    */
-  async setupE2EE(passphrase: string): Promise<E2EESetupResult> {
+  async setupE2EE(passphrase: string, options?: { rememberMe?: boolean }): Promise<E2EESetupResult> {
     await this.ensureInitialized()
 
     // Generate UMK from passphrase
@@ -260,8 +269,8 @@ export class KeyManager {
 
     await this.keyStore.saveKeys(storedKeys)
 
-    // Persist UMK for session continuity (auto-unlock on page reload)
-    await this.keyStore.saveSessionUmk(umkResult.umk)
+    // Persist UMK based on rememberMe preference
+    await this.keyStore.saveSessionUmk(umkResult.umk, { rememberMe: options?.rememberMe })
 
     // Keep UMK and keys in memory
     this.umk = umkResult.umk
@@ -298,9 +307,11 @@ export class KeyManager {
    * Unlock the session with a passphrase.
    *
    * @param passphrase - User's passphrase
+   * @param options - Unlock options
+   * @param options.rememberMe - If true, persist UMK in IndexedDB for session continuity
    * @throws Error if passphrase is incorrect
    */
-  async unlockWithPassphrase(passphrase: string): Promise<void> {
+  async unlockWithPassphrase(passphrase: string, options?: { rememberMe?: boolean }): Promise<void> {
     await this.ensureInitialized()
 
     const storedKeys = await this.keyStore.loadKeys()
@@ -315,16 +326,18 @@ export class KeyManager {
       storedKeys.kdfParams
     )
 
-    await this.performUnlock(umk, storedKeys, 'Incorrect passphrase')
+    await this.performUnlock(umk, storedKeys, 'Incorrect passphrase', options)
   }
 
   /**
    * Unlock the session with a recovery key.
    *
    * @param recoveryKey - BIP39 mnemonic (24 words)
+   * @param options - Unlock options
+   * @param options.rememberMe - If true, persist UMK in IndexedDB for session continuity
    * @throws Error if recovery key is invalid
    */
-  async unlockWithRecoveryKey(recoveryKey: string): Promise<void> {
+  async unlockWithRecoveryKey(recoveryKey: string, options?: { rememberMe?: boolean }): Promise<void> {
     await this.ensureInitialized()
 
     const storedKeys = await this.keyStore.loadKeys()
@@ -333,11 +346,13 @@ export class KeyManager {
     }
 
     const umk = restoreUmkFromRecoveryKey(recoveryKey)
-    await this.performUnlock(umk, storedKeys, 'Incorrect recovery key')
+    await this.performUnlock(umk, storedKeys, 'Incorrect recovery key', options)
   }
 
   /**
    * Lock the session - clears all keys from memory.
+   * Use this for temporary locking (e.g., screen lock).
+   * For logout, use logout() instead which also clears stored UMK.
    */
   lock(): void {
     const wasUnlocked = this.isUnlocked
@@ -357,6 +372,18 @@ export class KeyManager {
     if (wasUnlocked) {
       this.notifyUnlockChange()
     }
+  }
+
+  /**
+   * Logout - clears all keys from memory AND storage.
+   * Use this when user explicitly logs out.
+   */
+  async logout(): Promise<void> {
+    // First lock (clear from memory)
+    this.lock()
+
+    // Then clear from storage
+    await this.keyStore.clearSessionUmk()
   }
 
   /**
@@ -391,7 +418,8 @@ export class KeyManager {
       salt: string
       kdfType: 'argon2id' | 'pbkdf2'
       kdfParams: { memory?: number | null; iterations?: number | null; parallelism?: number | null }
-    }
+    },
+    options?: { rememberMe?: boolean }
   ): Promise<void> {
     await this.ensureInitialized()
 
@@ -405,7 +433,7 @@ export class KeyManager {
       kdfParams
     )
 
-    await this.performRestore(umk, serverBackup, 'Incorrect passphrase')
+    await this.performRestore(umk, serverBackup, 'Incorrect passphrase', options)
   }
 
   /**
@@ -413,6 +441,8 @@ export class KeyManager {
    *
    * @param recoveryKey - BIP39 mnemonic (24 words)
    * @param serverBackup - Backup data from server
+   * @param options - Restore options
+   * @param options.rememberMe - If true, persist UMK in IndexedDB for session continuity
    */
   async restoreFromServerWithRecoveryKey(
     recoveryKey: string,
@@ -421,12 +451,13 @@ export class KeyManager {
       salt: string
       kdfType: 'argon2id' | 'pbkdf2'
       kdfParams: { memory?: number | null; iterations?: number | null; parallelism?: number | null }
-    }
+    },
+    options?: { rememberMe?: boolean }
   ): Promise<void> {
     await this.ensureInitialized()
 
     const umk = restoreUmkFromRecoveryKey(recoveryKey)
-    await this.performRestore(umk, serverBackup, 'Incorrect recovery key')
+    await this.performRestore(umk, serverBackup, 'Incorrect recovery key', options)
   }
 
   // ============================================
@@ -762,6 +793,116 @@ export class KeyManager {
   }
 
   // ============================================
+  // Key Rotation
+  // ============================================
+
+  /**
+   * Rotate the workspace KEK.
+   * Generates a new KEK and re-encrypts it for all workspace members.
+   *
+   * Requires workspace:manage permission.
+   *
+   * @param workspaceId - Workspace ID
+   * @returns The new key version
+   */
+  async rotateWorkspaceKek(workspaceId: string): Promise<number> {
+    this.ensureUnlocked()
+
+    // 1. Generate new KEK
+    const newKek = await generateWorkspaceKek()
+
+    // 2. Get all workspace members
+    const members = await listMembers({ id: workspaceId })
+
+    // 3. For each member, get their public key and encrypt the new KEK
+    const memberKeys: Array<{ userId: string; encryptedKek: string }> = []
+
+    for (const member of members) {
+      try {
+        const publicKeyResponse = await getUserPublicKey({ userId: member.user_id })
+        const publicKeyBase64 = publicKeyResponse.publicKey
+        const publicKeyBytes = await fromBase64(publicKeyBase64)
+
+        // Encrypt KEK for this member
+        const encryptedKekBase64 = await createKekForMember(newKek, publicKeyBytes)
+
+        memberKeys.push({
+          userId: member.user_id,
+          encryptedKek: encryptedKekBase64,
+        })
+      } catch (error) {
+        console.warn(`[KeyManager] Failed to get public key for member ${member.user_id}:`, error)
+        // Skip members without public keys (they may not have set up E2EE yet)
+      }
+    }
+
+    if (memberKeys.length === 0) {
+      throw new Error('No members have E2EE public keys. Cannot rotate KEK.')
+    }
+
+    // 4. Call the rotation API
+    const response = await rotateWorkspaceKey({
+      id: workspaceId,
+      requestBody: {
+        memberKeys,
+      },
+    })
+
+    // 5. Update cache with new KEK
+    getKekCache().setKek(workspaceId, newKek)
+
+    // 6. Invalidate all DEK caches for this workspace
+    // (DEKs will need to be re-fetched with the new KEK)
+    // Note: The caller should handle re-encrypting documents if needed
+
+    return response.newKeyVersion
+  }
+
+  /**
+   * Rotate the document DEK.
+   * Generates a new DEK and encrypts it with the workspace KEK.
+   *
+   * Note: This only rotates the key. The caller is responsible for
+   * re-encrypting the document content with the new DEK.
+   *
+   * @param documentId - Document ID
+   * @param workspaceId - Workspace ID (needed to get the KEK)
+   * @returns Object containing the new DEK and new key version
+   */
+  async rotateDocumentDek(
+    documentId: string,
+    workspaceId: string
+  ): Promise<{ dek: Uint8Array; newKeyVersion: number }> {
+    this.ensureUnlocked()
+
+    // 1. Get the workspace KEK
+    const kek = await this.getOrCreateWorkspaceKek(workspaceId)
+
+    // 2. Generate new DEK
+    const newDek = await generateDocumentDek()
+
+    // 3. Encrypt new DEK with KEK
+    const { encryptedDek, nonce } = await createEncryptedDekForApi(newDek, kek)
+
+    // 4. Call the rotation API
+    const response = await rotateDocumentKey({
+      id: documentId,
+      requestBody: {
+        encryptedDek,
+        nonce,
+      },
+    })
+
+    // 5. Update DEK cache
+    getDekCache().setDek(documentId, newDek)
+
+    return {
+      dek: newDek,
+      newKeyVersion: response.newKeyVersion,
+    }
+  }
+
+  // ============================================
   // Password Change
   // ============================================
 
@@ -848,13 +989,14 @@ export class KeyManager {
   private async performUnlock(
     umk: Uint8Array,
     storedKeys: StoredKeys,
-    errorMessage: string
+    errorMessage: string,
+    options?: { rememberMe?: boolean }
   ): Promise<void> {
     try {
       const userKeys = await decryptUserKeys(storedKeys, umk)
       this.umk = umk
       this.userKeys = userKeys
-      await this.keyStore.saveSessionUmk(umk)
+      await this.keyStore.saveSessionUmk(umk, { rememberMe: options?.rememberMe })
       this.notifyUnlockChange()
     } catch {
       umk.fill(0)
@@ -873,7 +1015,8 @@ export class KeyManager {
       kdfType: 'argon2id' | 'pbkdf2'
       kdfParams: { memory?: number | null; iterations?: number | null; parallelism?: number | null }
     },
-    errorMessage: string
+    errorMessage: string,
+    options?: { rememberMe?: boolean }
   ): Promise<void> {
     const salt = await fromBase64(serverBackup.salt)
     const kdfParams = buildKdfParams(serverBackup.kdfType, serverBackup.kdfParams)
@@ -895,7 +1038,7 @@ export class KeyManager {
     try {
       const userKeys = await decryptUserKeys(storedKeys, umk)
       await this.keyStore.saveKeys(storedKeys)
-      await this.keyStore.saveSessionUmk(umk)
+      await this.keyStore.saveSessionUmk(umk, { rememberMe: options?.rememberMe })
       this.umk = umk
       this.userKeys = userKeys
       this.notifyUnlockChange()

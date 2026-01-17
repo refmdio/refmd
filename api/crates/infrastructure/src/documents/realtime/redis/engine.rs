@@ -465,6 +465,20 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                             document_id = %doc_id,
                             "redis_e2ee_signature_invalid"
                         );
+                        // Send error response to client
+                        let error_response = serde_json::json!({
+                            "type": "error",
+                            "error": "signature_invalid",
+                            "error_code": "E2EE_SIGNATURE_INVALID",
+                            "document_id": doc_id,
+                        });
+                        if let Ok(error_bytes) = serde_json::to_vec(&error_response) {
+                            let mut guard = sink.lock().await;
+                            if let Err(e) = guard.send(error_bytes).await {
+                                tracing::debug!(error = %e, "redis_e2ee_signature_error_send_failed");
+                            }
+                            drop(guard);
+                        }
                         continue;
                     }
                     Err(e) => {
@@ -473,6 +487,20 @@ impl RealtimeEngineTrait for RedisRealtimeEngine {
                             error = %e,
                             "redis_e2ee_signature_verify_error"
                         );
+                        // Send error response to client
+                        let error_response = serde_json::json!({
+                            "type": "error",
+                            "error": "signature_verification_failed",
+                            "error_code": "E2EE_SIGNATURE_VERIFY_ERROR",
+                            "document_id": doc_id,
+                        });
+                        if let Ok(error_bytes) = serde_json::to_vec(&error_response) {
+                            let mut guard = sink.lock().await;
+                            if let Err(e) = guard.send(error_bytes).await {
+                                tracing::debug!(error = %e, "redis_e2ee_signature_error_send_failed");
+                            }
+                            drop(guard);
+                        }
                         continue;
                     }
                 }

@@ -2,7 +2,9 @@
  * E2EE Key Store
  *
  * Stores encrypted keys in IndexedDB.
- * UMK is never stored here - only in session memory.
+ * UMK storage depends on user's "Remember Me" preference:
+ * - rememberMe=true: stored in IndexedDB (persists across sessions)
+ * - rememberMe=false: stored in sessionStorage (cleared on tab close)
  */
 
 import type { Argon2Params, Pbkdf2Params } from '../types'
@@ -12,6 +14,7 @@ const DB_VERSION = 2
 const STORE_NAME = 'keys'
 const KEYS_ID = 'user-keys'
 const SESSION_ID = 'session-umk'
+const SESSION_STORAGE_UMK_KEY = 'refmd-e2ee-session-umk'
 
 /** Stored key data structure */
 export interface StoredKeys {
@@ -223,26 +226,77 @@ export class KeyStore {
   }
 
   /**
-   * Save session UMK to IndexedDB for session continuity.
-   * This allows the session to persist across page reloads.
+   * Save session UMK for session continuity.
+   *
+   * @param umk - The User Master Key
+   * @param options - Storage options
+   * @param options.rememberMe - If true, store in IndexedDB (persists across sessions).
+   *                             If false, store in sessionStorage (cleared on tab close).
    */
-  async saveSessionUmk(umk: Uint8Array): Promise<void> {
-    const db = await this.ensureDb()
+  async saveSessionUmk(umk: Uint8Array, options?: { rememberMe?: boolean }): Promise<void> {
+    const rememberMe = options?.rememberMe ?? false
 
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite')
-      const store = transaction.objectStore(STORE_NAME)
+    if (rememberMe) {
+      // Store in IndexedDB for persistent storage
+      const db = await this.ensureDb()
 
-      const data = {
-        id: SESSION_ID,
-        umk: Array.from(umk),
-        savedAt: Date.now(),
+      // Clear sessionStorage to avoid stale data being loaded first
+      try {
+        sessionStorage.removeItem(SESSION_STORAGE_UMK_KEY)
+      } catch {
+        // sessionStorage not available
       }
 
-      const request = store.put(data)
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readwrite')
+        const store = transaction.objectStore(STORE_NAME)
+
+        const data = {
+          id: SESSION_ID,
+          umk: Array.from(umk),
+          savedAt: Date.now(),
+        }
+
+        const request = store.put(data)
+
+        request.onerror = () => {
+          reject(new Error(`Failed to save session UMK: ${request.error?.message}`))
+        }
+
+        request.onsuccess = () => {
+          resolve()
+        }
+      })
+    } else {
+      // Store in sessionStorage for session-only storage
+      try {
+        const encoded = btoa(String.fromCharCode(...umk))
+        sessionStorage.setItem(SESSION_STORAGE_UMK_KEY, encoded)
+      } catch {
+        throw new Error('Failed to save session UMK to sessionStorage')
+      }
+
+      // Clear any existing UMK from IndexedDB to ensure clean state
+      // This prevents old remembered sessions from being used
+      await this.clearIndexedDbUmk()
+    }
+  }
+
+  /**
+   * Clear UMK from IndexedDB only.
+   * Used internally when rememberMe is false to ensure clean state.
+   */
+  private async clearIndexedDbUmk(): Promise<void> {
+    const db = await this.ensureDb()
+
+    return new Promise((resolve) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite')
+      const store = transaction.objectStore(STORE_NAME)
+      const request = store.delete(SESSION_ID)
 
       request.onerror = () => {
-        reject(new Error(`Failed to save session UMK: ${request.error?.message}`))
+        // Ignore errors - this is a best-effort cleanup
+        resolve()
       }
 
       request.onsuccess = () => {
@@ -252,10 +306,27 @@ export class KeyStore {
   }
 
   /**
-   * Load session UMK from IndexedDB.
+   * Load session UMK from storage.
+   * Checks both IndexedDB (for rememberMe=true) and sessionStorage (for rememberMe=false).
    * Returns null if no session UMK is stored.
    */
   async loadSessionUmk(): Promise<Uint8Array | null> {
+    // First, try sessionStorage (for current session)
+    try {
+      const encoded = sessionStorage.getItem(SESSION_STORAGE_UMK_KEY)
+      if (encoded) {
+        const decoded = atob(encoded)
+        const umk = new Uint8Array(decoded.length)
+        for (let i = 0; i < decoded.length; i++) {
+          umk[i] = decoded.charCodeAt(i)
+        }
+        return umk
+      }
+    } catch {
+      // sessionStorage not available or invalid data
+    }
+
+    // Then, try IndexedDB (for remembered sessions)
     const db = await this.ensureDb()
 
     return new Promise((resolve, reject) => {
@@ -279,10 +350,18 @@ export class KeyStore {
   }
 
   /**
-   * Clear session UMK from IndexedDB.
+   * Clear session UMK from all storage locations.
    * Called on logout or manual lock.
    */
   async clearSessionUmk(): Promise<void> {
+    // Clear from sessionStorage
+    try {
+      sessionStorage.removeItem(SESSION_STORAGE_UMK_KEY)
+    } catch {
+      // sessionStorage not available
+    }
+
+    // Clear from IndexedDB
     const db = await this.ensureDb()
 
     return new Promise((resolve, reject) => {

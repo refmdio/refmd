@@ -1,10 +1,20 @@
-use axum::{extract::State, Json};
+use axum::{
+    extract::{Query, State},
+    Json,
+};
 use uuid::Uuid;
 
 use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::http::extractors::WorkspaceAuth;
 use application::core::services::errors::ServiceError;
+
+/// Query parameters for share key access
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct ShareKeyQuery {
+    /// Share token for authentication
+    pub token: String,
+}
 
 use super::types::{
     DocumentKeyResponse, RotateDocumentKeyRequest, RotateDocumentKeyResponse, ShareKeyResponse,
@@ -80,16 +90,42 @@ pub async fn store_document_key(
     get,
     path = "/api/shares/{id}/keys",
     tag = "E2EE",
-    params(("id" = Uuid, Path, description = "Share ID")),
+    params(
+        ("id" = Uuid, Path, description = "Share ID"),
+        ("token" = String, Query, description = "Share token for authentication")
+    ),
     responses(
         (status = 200, body = ShareKeyResponse),
+        (status = 401, description = "Invalid or missing share token"),
         (status = 404, description = "Share key not found")
     )
 )]
 pub async fn get_share_key(
     State(ctx): State<DocumentsContext>,
     axum::extract::Path(share_id): axum::extract::Path<Uuid>,
+    Query(query): Query<ShareKeyQuery>,
 ) -> Result<Json<ShareKeyResponse>, ApiError> {
+    // Validate share token and ensure it maps to the requested share_id
+    let share_service = ctx.share_service();
+    let share_ctx = share_service
+        .resolve_share_context(&query.token)
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = ?e, share_id = %share_id, "share_token_validation_failed");
+            ApiError::unauthorized("invalid_share_token")
+        })?
+        .ok_or_else(|| ApiError::unauthorized("invalid_share_token"))?;
+
+    // Ensure the token's share_id matches the requested share_id
+    if share_ctx.share_id != share_id {
+        tracing::warn!(
+            requested_share_id = %share_id,
+            token_share_id = %share_ctx.share_id,
+            "share_id_mismatch"
+        );
+        return Err(ApiError::unauthorized("share_id_mismatch"));
+    }
+
     let service = ctx.document_keys_service();
     let dto = service
         .get_share_key(share_id)
@@ -104,14 +140,43 @@ pub async fn get_share_key(
     get,
     path = "/api/shares/{id}/salt",
     tag = "E2EE",
-    params(("id" = Uuid, Path, description = "Share ID")),
-    responses((status = 200, body = ShareSaltResponse))
+    params(
+        ("id" = Uuid, Path, description = "Share ID"),
+        ("token" = String, Query, description = "Share token for authentication")
+    ),
+    responses(
+        (status = 200, body = ShareSaltResponse),
+        (status = 401, description = "Invalid or missing share token")
+    )
 )]
 pub async fn get_share_salt(
     State(ctx): State<DocumentsContext>,
     axum::extract::Path(share_id): axum::extract::Path<Uuid>,
+    Query(query): Query<ShareKeyQuery>,
 ) -> Result<Json<ShareSaltResponse>, ApiError> {
     use base64::Engine;
+
+    // Validate share token and ensure it maps to the requested share_id
+    let share_service = ctx.share_service();
+    let share_ctx = share_service
+        .resolve_share_context(&query.token)
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = ?e, share_id = %share_id, "share_token_validation_failed");
+            ApiError::unauthorized("invalid_share_token")
+        })?
+        .ok_or_else(|| ApiError::unauthorized("invalid_share_token"))?;
+
+    // Ensure the token's share_id matches the requested share_id
+    if share_ctx.share_id != share_id {
+        tracing::warn!(
+            requested_share_id = %share_id,
+            token_share_id = %share_ctx.share_id,
+            "share_id_mismatch"
+        );
+        return Err(ApiError::unauthorized("share_id_mismatch"));
+    }
+
     let service = ctx.document_keys_service();
     let salt = service
         .get_share_salt(share_id)
