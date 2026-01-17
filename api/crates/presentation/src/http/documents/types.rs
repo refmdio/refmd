@@ -4,7 +4,6 @@ use uuid::Uuid;
 
 use crate::http::error::ApiError;
 use application::core::services::errors::ServiceError;
-use application::documents::dtos::DocumentDownloadFormat;
 use application::documents::dtos::{
     DocumentListFilter, SnapshotDiffBaseMode, SnapshotDiffSideDto, SnapshotSummaryDto,
 };
@@ -451,115 +450,6 @@ pub struct PatchDocumentContentRequest {
     #[serde(default)]
     #[schema(value_type = Option<String>, format = "byte")]
     pub signature: Option<String>,
-}
-
-#[allow(dead_code)]
-#[derive(ToSchema)]
-pub struct DocumentDownloadBinary(#[schema(value_type = String, format = Binary)] pub Vec<u8>);
-
-#[allow(dead_code)]
-#[derive(ToSchema)]
-pub struct DocumentArchiveBinary(#[schema(value_type = String, format = Binary)] pub Vec<u8>);
-
-#[derive(Debug, Clone, Copy, Deserialize, ToSchema, Default)]
-#[serde(rename_all = "snake_case")]
-#[schema(rename_all = "snake_case")]
-pub enum DownloadFormat {
-    #[default]
-    Archive,
-    Markdown,
-    Html,
-    Html5,
-    Pdf,
-    Docx,
-    Latex,
-    Beamer,
-    Context,
-    Man,
-    Mediawiki,
-    Dokuwiki,
-    Textile,
-    Org,
-    Texinfo,
-    Opml,
-    Docbook,
-    Opendocument,
-    Odt,
-    Rtf,
-    Epub,
-    Epub3,
-    Fb2,
-    Asciidoc,
-    Icml,
-    Slidy,
-    Slideous,
-    Dzslides,
-    Revealjs,
-    S5,
-    Json,
-    Plain,
-    Commonmark,
-    CommonmarkX,
-    MarkdownStrict,
-    MarkdownPhpextra,
-    MarkdownGithub,
-    Rst,
-    Native,
-    Haddock,
-}
-
-impl From<DownloadFormat> for DocumentDownloadFormat {
-    fn from(value: DownloadFormat) -> Self {
-        match value {
-            DownloadFormat::Archive => DocumentDownloadFormat::Archive,
-            DownloadFormat::Markdown => DocumentDownloadFormat::Markdown,
-            DownloadFormat::Html => DocumentDownloadFormat::Html,
-            DownloadFormat::Html5 => DocumentDownloadFormat::Html5,
-            DownloadFormat::Pdf => DocumentDownloadFormat::Pdf,
-            DownloadFormat::Docx => DocumentDownloadFormat::Docx,
-            DownloadFormat::Latex => DocumentDownloadFormat::Latex,
-            DownloadFormat::Beamer => DocumentDownloadFormat::Beamer,
-            DownloadFormat::Context => DocumentDownloadFormat::Context,
-            DownloadFormat::Man => DocumentDownloadFormat::Man,
-            DownloadFormat::Mediawiki => DocumentDownloadFormat::MediaWiki,
-            DownloadFormat::Dokuwiki => DocumentDownloadFormat::Dokuwiki,
-            DownloadFormat::Textile => DocumentDownloadFormat::Textile,
-            DownloadFormat::Org => DocumentDownloadFormat::Org,
-            DownloadFormat::Texinfo => DocumentDownloadFormat::Texinfo,
-            DownloadFormat::Opml => DocumentDownloadFormat::Opml,
-            DownloadFormat::Docbook => DocumentDownloadFormat::Docbook,
-            DownloadFormat::Opendocument => DocumentDownloadFormat::OpenDocument,
-            DownloadFormat::Odt => DocumentDownloadFormat::Odt,
-            DownloadFormat::Rtf => DocumentDownloadFormat::Rtf,
-            DownloadFormat::Epub => DocumentDownloadFormat::Epub,
-            DownloadFormat::Epub3 => DocumentDownloadFormat::Epub3,
-            DownloadFormat::Fb2 => DocumentDownloadFormat::Fb2,
-            DownloadFormat::Asciidoc => DocumentDownloadFormat::Asciidoc,
-            DownloadFormat::Icml => DocumentDownloadFormat::Icml,
-            DownloadFormat::Slidy => DocumentDownloadFormat::Slidy,
-            DownloadFormat::Slideous => DocumentDownloadFormat::Slideous,
-            DownloadFormat::Dzslides => DocumentDownloadFormat::Dzslides,
-            DownloadFormat::Revealjs => DocumentDownloadFormat::Revealjs,
-            DownloadFormat::S5 => DocumentDownloadFormat::S5,
-            DownloadFormat::Json => DocumentDownloadFormat::Json,
-            DownloadFormat::Plain => DocumentDownloadFormat::Plain,
-            DownloadFormat::Commonmark => DocumentDownloadFormat::Commonmark,
-            DownloadFormat::CommonmarkX => DocumentDownloadFormat::CommonmarkX,
-            DownloadFormat::MarkdownStrict => DocumentDownloadFormat::MarkdownStrict,
-            DownloadFormat::MarkdownPhpextra => DocumentDownloadFormat::MarkdownPhpextra,
-            DownloadFormat::MarkdownGithub => DocumentDownloadFormat::MarkdownGithub,
-            DownloadFormat::Rst => DocumentDownloadFormat::Rst,
-            DownloadFormat::Native => DocumentDownloadFormat::Native,
-            DownloadFormat::Haddock => DocumentDownloadFormat::Haddock,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, ToSchema, Default)]
-pub struct DownloadDocumentQuery {
-    pub token: Option<String>,
-    #[serde(default)]
-    pub format: DownloadFormat,
 }
 
 #[derive(Debug, Default, Deserialize)]

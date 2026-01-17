@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { downloadDocumentFile, useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
 
+import { useAuthContext } from '@/features/auth'
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
 
 
@@ -67,6 +68,7 @@ export const FolderNode = memo(function FolderNode({
   renderChildren,
   onShareFolder,
 }: FolderNodeProps) {
+  const { activeWorkspaceId } = useAuthContext()
   const {
     sharedFolderIds,
     underSharedFolderFolderIds,
@@ -174,9 +176,13 @@ export const FolderNode = memo(function FolderNode({
   const handleDownloadFolder = useCallback(async () => {
     if (downloadPending) return
     if (isShareMount) return
+    if (!activeWorkspaceId) {
+      toast.error('Workspace not available for export')
+      return
+    }
     setDownloadPending(true)
     try {
-      const filename = await downloadDocumentFile(node.id, { title: node.title, format: 'archive' })
+      const filename = await downloadDocumentFile(node.id, activeWorkspaceId, { title: node.title, format: 'archive' })
       toast.success(`Download ready: ${filename}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to download folder'
@@ -184,7 +190,7 @@ export const FolderNode = memo(function FolderNode({
     } finally {
       setDownloadPending(false)
     }
-  }, [downloadPending, node.id, node.title])
+  }, [downloadPending, node.id, node.title, activeWorkspaceId, isShareMount])
   const handleArchive = useCallback(async () => {
     if (isShareMount) return
     try {

@@ -9,6 +9,7 @@ import wasm from 'vite-plugin-wasm'
 import topLevelAwait from 'vite-plugin-top-level-await'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import * as fs from 'node:fs'
 import type { Plugin } from 'vite'
 import type { Plugin as EsbuildPlugin } from 'esbuild'
 
@@ -41,6 +42,63 @@ function tanstackStartStorageContextOptimizeDepsStub(): EsbuildPlugin {
   }
 }
 
+// Handle wasm-pandoc's WASM file as an asset URL
+// This plugin:
+// 1. In dev: serves the WASM file from node_modules
+// 2. In build: emits the WASM file as an asset
+function wasmPandocPlugin(): Plugin {
+  const wasmPath = resolve(__dirname, 'node_modules/wasm-pandoc/pandoc.wasm')
+  let refId: string | null = null
+
+  return {
+    name: 'refmd:wasm-pandoc-asset',
+    enforce: 'pre',
+
+    // Dev server: serve WASM from node_modules
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url === '/pandoc.wasm') {
+          const stat = fs.statSync(wasmPath)
+          res.setHeader('Content-Type', 'application/wasm')
+          res.setHeader('Content-Length', stat.size)
+          fs.createReadStream(wasmPath).pipe(res)
+          return
+        }
+        next()
+      })
+    },
+
+    // Build: emit WASM as asset
+    buildStart() {
+      const wasmContent = fs.readFileSync(wasmPath)
+      refId = this.emitFile({
+        type: 'asset',
+        name: 'pandoc.wasm',
+        source: wasmContent,
+      })
+    },
+
+    resolveId(source, importer) {
+      if (source.endsWith('pandoc.wasm') && importer?.includes('wasm-pandoc')) {
+        return { id: '\0wasm-pandoc-asset', external: false }
+      }
+      return null
+    },
+
+    load(id) {
+      if (id === '\0wasm-pandoc-asset') {
+        // In dev, use the middleware URL
+        // In build, use the emitted asset URL
+        if (refId) {
+          return `export default import.meta.ROLLUP_FILE_URL_${refId};`
+        }
+        return `export default "/pandoc.wasm";`
+      }
+      return null
+    },
+  }
+}
+
 export default defineConfig(() => {
   const enablePwaDev = process.env.VITE_PWA_DEV === 'true'
 
@@ -55,12 +113,14 @@ export default defineConfig(() => {
       '@resvg/resvg-js',
       '@resvg/resvg-js-linux-x64-gnu',
       '@resvg/resvg-js-linux-x64-musl',
+      'wasm-pandoc',
     ],
     esbuildOptions: {
       plugins: [tanstackStartStorageContextOptimizeDepsStub()],
     },
   },
   plugins: [
+    wasmPandocPlugin(),
     wasm(),
     topLevelAwait(),
     tanstackStartStorageContextClientStub(),
@@ -162,8 +222,10 @@ export default defineConfig(() => {
     // Bundle these CommonJS packages for SSR to avoid "require is not defined" errors
     noExternal: ['buffer', 'bip39'],
   },
+  assetsInclude: ['**/*.wasm'],
   build: {
     rollupOptions: {
+      external: ['wasi_snapshot_preview1'],
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
@@ -178,6 +240,9 @@ export default defineConfig(() => {
             }
             if (id.includes('@tanstack/react-query')) {
               return 'react-query'
+            }
+            if (id.includes('wasm-pandoc')) {
+              return 'pandoc'
             }
           }
           return undefined

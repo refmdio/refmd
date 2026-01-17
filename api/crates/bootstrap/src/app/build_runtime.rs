@@ -47,7 +47,6 @@ use infrastructure::core::storage::{
 };
 use infrastructure::documents::doc_event_log::PgDocEventLog;
 use infrastructure::documents::event_poller::DocEventPoller;
-use infrastructure::documents::exporter::DefaultDocumentExporter;
 use infrastructure::documents::git_dirty_subscriber::GitDirtyDocEventSubscriber;
 use infrastructure::identity::crypto::Argon2SecretHasher;
 use presentation::context::{
@@ -387,8 +386,6 @@ pub async fn build_runtime(
     let plugin_event_publisher: Arc<dyn PluginEventPublisher> = plugin_event_bus.clone();
     let plugin_event_subscriber: Arc<dyn PluginEventSubscriber> = plugin_event_bus.clone();
 
-    let document_exporter = Arc::new(DefaultDocumentExporter::new());
-
     let document_service = Arc::new(DocumentService::new(
         documents_tx_runner,
         document_repo.clone(),
@@ -400,7 +397,6 @@ pub async fn build_runtime(
         doc_event_log.clone(),
         realtime_engine.clone(),
         snapshot_service_arc.clone(),
-        document_exporter.clone(),
     ));
 
     {

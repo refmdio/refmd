@@ -372,10 +372,14 @@ function DocumentClient({
   const handleDownload = useCallback(
     async (format: DocumentDownloadFormat) => {
       if (!hasDoc) return
+      const workspaceId = loaderData?.workspace_id ?? activeWorkspaceId
+      if (!workspaceId) {
+        toast.error('Workspace not available for export')
+        return
+      }
       setDownloadPending(true)
       try {
-        const filename = await downloadDocumentFile(id, {
-          token: shareToken,
+        const filename = await downloadDocumentFile(id, workspaceId, {
           title: resolvedTitle,
           format,
         })
@@ -388,7 +392,7 @@ function DocumentClient({
         setDownloadPending(false)
       }
     },
-    [hasDoc, id, shareToken, resolvedTitle],
+    [hasDoc, id, loaderData?.workspace_id, activeWorkspaceId, resolvedTitle],
   )
 
   const handleSaveShare = useCallback(async () => {

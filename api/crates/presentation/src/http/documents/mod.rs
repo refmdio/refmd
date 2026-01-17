@@ -14,11 +14,10 @@ use axum::{
 use crate::context::AppContext;
 
 pub use handlers::{
-    archive_document, create_document, delete_document, download_document,
-    download_document_snapshot, duplicate_document, get_backlinks, get_document,
-    get_document_content, get_document_snapshot, get_document_snapshot_diff, get_outgoing_links,
-    list_document_snapshots, list_documents, patch_document_content, restore_document_snapshot,
-    unarchive_document, update_document, update_document_content,
+    archive_document, create_document, delete_document, duplicate_document, get_backlinks,
+    get_document, get_document_content, get_document_snapshot, get_document_snapshot_diff,
+    get_outgoing_links, list_document_snapshots, list_documents, patch_document_content,
+    restore_document_snapshot, unarchive_document, update_document, update_document_content,
 };
 pub use types::*;
 
@@ -57,11 +56,6 @@ pub fn routes(ctx: AppContext) -> Router {
             "/documents/:id/snapshots/:snapshot_id/restore",
             post(restore_document_snapshot),
         )
-        .route(
-            "/documents/:id/snapshots/:snapshot_id/download",
-            get(download_document_snapshot),
-        )
-        .route("/documents/:id/download", get(download_document))
         .route("/documents/:id/backlinks", get(get_backlinks))
         .route("/documents/:id/links", get(get_outgoing_links))
         .with_state(ctx)

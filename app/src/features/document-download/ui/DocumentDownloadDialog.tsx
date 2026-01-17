@@ -1,4 +1,4 @@
-import { Archive, Book, ChevronLeft, ChevronRight, FileDigit, FileText, FileType, Globe, Loader2 } from 'lucide-react'
+import { Archive, ChevronLeft, ChevronRight, FileDigit, FileText, FileType, Globe, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 
@@ -12,47 +12,13 @@ import type { DocumentDownloadFormat } from '@/entities/document'
 
 import type { DownloadOption, DownloadOptionGroup } from '../model/options'
 
+// Icons for supported client-side export formats
 const formatIcons: Partial<Record<DocumentDownloadFormat, React.ComponentType<{ className?: string }>>> = {
   archive: Archive,
   markdown: FileText,
   html: Globe,
-  html5: Globe,
   pdf: FileDigit,
   docx: FileType,
-  latex: FileDigit,
-  beamer: FileDigit,
-  context: FileDigit,
-  man: FileText,
-  mediawiki: FileText,
-  dokuwiki: FileText,
-  textile: FileText,
-  org: FileText,
-  texinfo: FileText,
-  opml: FileDigit,
-  docbook: FileDigit,
-  opendocument: FileType,
-  odt: FileType,
-  rtf: FileType,
-  epub: Book,
-  epub3: Book,
-  fb2: Book,
-  asciidoc: FileText,
-  icml: FileType,
-  slidy: Globe,
-  slideous: Globe,
-  dzslides: Globe,
-  revealjs: Globe,
-  s5: Globe,
-  json: FileDigit,
-  plain: FileText,
-  commonmark: FileText,
-  commonmark_x: FileText,
-  markdown_strict: FileText,
-  markdown_phpextra: FileText,
-  markdown_github: FileText,
-  rst: FileText,
-  native: FileDigit,
-  haddock: FileText,
 }
 
 type DocumentDownloadDialogProps = {

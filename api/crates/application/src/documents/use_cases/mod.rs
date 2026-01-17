@@ -1,6 +1,5 @@
 pub mod create_document;
 pub mod delete_document;
-pub mod download_document;
 pub mod files;
 pub mod get_backlinks;
 pub mod get_document;
@@ -11,5 +10,4 @@ pub mod publishing;
 pub mod restore_snapshot;
 pub mod sharing;
 pub mod snapshot_diff;
-pub mod snapshot_download;
 pub mod update_document;

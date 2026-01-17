@@ -1,8 +1,6 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
 };
 use uuid::Uuid;
 
@@ -11,14 +9,12 @@ use crate::http::error::ApiError;
 use crate::http::extractors::AuthedUser;
 use crate::security::token::{self, Bearer};
 use application::core::services::access;
-use application::core::services::errors::ServiceError;
 use application::documents::services::DocumentPatchOperation;
 
-#[allow(unused_imports)]
 use crate::http::documents::types::{
-    Document, DocumentArchiveBinary, DocumentDownloadBinary, DocumentPatchOperationRequest,
-    DownloadDocumentQuery, DownloadFormat, EncryptedUpdateEntry, GetContentResponse, PatchDocumentContentRequest,
-    SnapshotTokenQuery, UpdateDocumentContentRequest, map_service_error, to_http_document,
+    Document, DocumentPatchOperationRequest, EncryptedUpdateEntry, GetContentResponse,
+    PatchDocumentContentRequest, SnapshotTokenQuery, UpdateDocumentContentRequest,
+    map_service_error, to_http_document,
 };
 
 #[utoipa::path(
@@ -251,92 +247,3 @@ pub async fn patch_document_content(
     Ok(Json(to_http_document(updated)))
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/documents/{id}/download",
-    tag = "Documents",
-    operation_id = "download_document",
-    params(
-        ("id" = Uuid, Path, description = "Document ID"),
-        ("token" = Option<String>, Query, description = "Share token (optional)"),
-        ("format" = Option<DownloadFormat>, Query, description = "Download format (see schema for supported values)")
-    ),
-    responses(
-        (status = 200, description = "Document download", body = DocumentDownloadBinary, content_type = "application/octet-stream"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Document not found")
-    )
-)]
-pub async fn download_document(
-    State(ctx): State<DocumentsContext>,
-    bearer: Option<Bearer>,
-    Query(params): Query<DownloadDocumentQuery>,
-    Path(id): Path<Uuid>,
-) -> Result<Response, ApiError> {
-    let token = params.token.as_deref();
-    let format = params.format;
-
-    let actor = match token::resolve_actor_from_parts(&ctx, bearer, token).await {
-        Ok(Some(actor)) => actor,
-        Ok(None) => return Err(ApiError::unauthorized("unauthorized")),
-        Err(err) => return Err(token::map_actor_error(err)),
-    };
-
-    let service = ctx.document_service();
-    let download = match service.download_document(&actor, id, format.into()).await {
-        Ok(payload) => payload,
-        Err(ServiceError::Unauthorized)
-        | Err(ServiceError::TokenExpired)
-        | Err(ServiceError::Forbidden)
-        | Err(ServiceError::NotFound) => {
-            return Err(ApiError::not_found("not_found"));
-        }
-        Err(ServiceError::Conflict) => {
-            return Err(ApiError::conflict("conflict"));
-        }
-        Err(ServiceError::BadRequest(_)) => {
-            return Err(ApiError::bad_request("bad_request"));
-        }
-        Err(ServiceError::Unexpected(error)) => {
-            tracing::error!(
-                document_id = %id,
-                ?format,
-                error = ?error,
-                "document_download_failed"
-            );
-            return Err(ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal_error",
-            ));
-        }
-    };
-
-    let mut headers = HeaderMap::new();
-    let content_type = match HeaderValue::from_str(&download.content_type) {
-        Ok(value) => value,
-        Err(_) => {
-            return Err(ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal_error",
-            ));
-        }
-    };
-    headers.insert(axum::http::header::CONTENT_TYPE, content_type);
-    headers.insert(
-        axum::http::header::HeaderName::from_static("x-content-type-options"),
-        HeaderValue::from_static("nosniff"),
-    );
-    let disposition = format!("attachment; filename=\"{}\"", download.filename);
-    let content_disposition = match HeaderValue::from_str(&disposition) {
-        Ok(value) => value,
-        Err(_) => {
-            return Err(ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal_error",
-            ));
-        }
-    };
-    headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
-
-    Ok((headers, download.bytes).into_response())
-}

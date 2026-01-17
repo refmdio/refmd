@@ -1,8 +1,6 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
 };
 use uuid::Uuid;
 
@@ -10,11 +8,10 @@ use crate::context::DocumentsContext;
 use crate::http::error::ApiError;
 use crate::security::token::{self, Bearer};
 
-#[allow(unused_imports)]
 use crate::http::documents::types::{
-    DocumentArchiveBinary, SnapshotDetailResponse, SnapshotDiffBaseParam, SnapshotDiffQuery,
-    SnapshotDiffResponse, SnapshotListResponse, SnapshotRestoreResponse, SnapshotTokenQuery,
-    map_service_error, snapshot_diff_side_response_from, snapshot_summary_from,
+    SnapshotDetailResponse, SnapshotDiffBaseParam, SnapshotDiffQuery, SnapshotDiffResponse,
+    SnapshotListResponse, SnapshotRestoreResponse, SnapshotTokenQuery, map_service_error,
+    snapshot_diff_side_response_from, snapshot_summary_from,
 };
 
 #[utoipa::path(
@@ -176,71 +173,3 @@ pub async fn restore_document_snapshot(
     }))
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/documents/{id}/snapshots/{snapshot_id}/download",
-    tag = "Documents",
-    params(
-        ("id" = Uuid, Path, description = "Document ID"),
-        ("snapshot_id" = Uuid, Path, description = "Snapshot ID"),
-        ("token" = Option<String>, Query, description = "Share token (optional)")
-    ),
-    responses(
-        (status = 200, description = "Snapshot archive", body = DocumentArchiveBinary, content_type = "application/zip"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Snapshot not found")
-    )
-)]
-pub async fn download_document_snapshot(
-    State(ctx): State<DocumentsContext>,
-    bearer: Option<Bearer>,
-    Path((id, snapshot_id)): Path<(Uuid, Uuid)>,
-    q: Option<Query<SnapshotTokenQuery>>,
-) -> Result<Response, ApiError> {
-    use base64::Engine;
-
-    let params = q.map(|Query(v)| v).unwrap_or_default();
-    let token = params.token.as_deref();
-    let actor = token::resolve_actor_from_parts(&ctx, bearer, token)
-        .await
-        .map_err(token::map_actor_error)?
-        .ok_or(ApiError::unauthorized("unauthorized"))?;
-
-    let service = ctx.document_service();
-    let download = service
-        .download_snapshot(&actor, id, snapshot_id)
-        .await
-        .map_err(map_service_error)?;
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static("application/zip"),
-    );
-    let disposition = format!("attachment; filename=\"{}\"", download.filename);
-    let content_disposition = HeaderValue::from_str(&disposition)
-        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error"))?;
-    headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
-
-    // Add E2EE headers if present
-    if let Some(nonce) = &download.snapshot.nonce {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(nonce);
-        if let Ok(val) = HeaderValue::from_str(&encoded) {
-            headers.insert(
-                axum::http::header::HeaderName::from_static("x-snapshot-nonce"),
-                val,
-            );
-        }
-    }
-    if let Some(signature) = &download.snapshot.signature {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(signature);
-        if let Ok(val) = HeaderValue::from_str(&encoded) {
-            headers.insert(
-                axum::http::header::HeaderName::from_static("x-snapshot-signature"),
-                val,
-            );
-        }
-    }
-
-    Ok((headers, download.bytes).into_response())
-}

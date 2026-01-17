@@ -25,8 +25,8 @@ pub use permissions::get_workspace_permissions;
 pub use roles::{create_role, delete_role, list_roles, update_role};
 pub use types::*;
 pub use workspace::{
-    create_workspace, delete_workspace, download_workspace_archive, get_workspace_detail,
-    leave_workspace, list_workspaces, switch_workspace, update_workspace,
+    create_workspace, delete_workspace, get_workspace_detail, leave_workspace, list_workspaces,
+    switch_workspace, update_workspace,
 };
 
 pub mod openapi {
@@ -75,7 +75,6 @@ pub fn routes(ctx: AppContext) -> Router {
             "/workspaces/:id/invitations/:invitation_id/kek",
             patch(update_invitation_kek),
         )
-        .route("/workspaces/:id/download", get(download_workspace_archive))
         .route(
             "/workspace-invitations/:token/accept",
             post(accept_invitation),

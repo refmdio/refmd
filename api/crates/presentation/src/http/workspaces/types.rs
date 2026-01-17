@@ -4,7 +4,6 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::context::HasWorkspaceService;
-use crate::http::documents::DownloadFormat;
 use application::core::services::errors::ServiceError;
 use application::workspaces::ports::workspace_repository::{
     WorkspaceInvitationRecord, WorkspaceListItem, WorkspaceMemberDetail, WorkspaceRoleRecord,
@@ -62,12 +61,6 @@ pub struct UpdateMemberRoleRequest {
 pub struct PermissionOverridePayload {
     pub permission: String,
     pub allowed: bool,
-}
-
-#[derive(Debug, Deserialize, ToSchema, Default)]
-pub struct DownloadWorkspaceQuery {
-    #[serde(default)]
-    pub format: DownloadFormat,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

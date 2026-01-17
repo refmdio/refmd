@@ -4,9 +4,6 @@ import {
   archiveDocument as apiArchiveDocument,
   createDocument as apiCreateDocument,
   deleteDocument as apiDeleteDocument,
-  downloadDocument as apiDownloadDocument,
-  downloadDocumentSnapshot as apiDownloadDocumentSnapshot,
-  downloadWorkspaceArchive as apiDownloadWorkspaceArchive,
   duplicateDocument as apiDuplicateDocument,
   getBacklinks as apiGetBacklinks,
   getDocument as apiGetDocument,
@@ -30,9 +27,15 @@ import type {
   SnapshotDiffResponse,
   SnapshotRestoreResponse,
   SnapshotSummary,
-  DownloadFormat,
 } from '@/shared/api'
-import { ApiError } from '@/shared/api/client/core/ApiError'
+
+// Re-export client-side export functionality
+import {
+  exportDocumentFile as exportDocument,
+  type ExportFormat,
+  EXPORT_FORMATS,
+  sanitizeFilename,
+} from '@/features/export'
 
 type DocumentListParams = {
   tag?: string
@@ -144,31 +147,16 @@ export async function triggerSnapshotRestore(params: {
   return response.snapshot
 }
 
-export async function downloadSnapshot(params: {
+// Note: Snapshot download is temporarily unavailable.
+// Server-side export has been removed for E2EE compliance.
+// Client-side snapshot export will be implemented in a future update.
+export async function downloadSnapshot(_params: {
   documentId: string
   snapshotId: string
   token?: string | null
   filename?: string
-}) {
-  const blob = (await apiDownloadDocumentSnapshot({
-    id: params.documentId,
-    snapshotId: params.snapshotId,
-    token: params.token ?? null,
-  })) as Blob
-  const name = params.filename ?? `snapshot-${params.snapshotId}.zip`
-  const url = URL.createObjectURL(blob)
-  try {
-    const link = document.createElement('a')
-    link.href = url
-    link.download = name
-    link.style.display = 'none'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-  return name
+}): Promise<string> {
+  throw new Error('Snapshot download is not yet available. This feature is being migrated to client-side export for E2EE compliance.')
 }
 
 export function useCreateDocument() {
@@ -285,7 +273,9 @@ export async function deleteDocument(id: string) {
   return apiDeleteDocument({ id })
 }
 
-export type DocumentDownloadFormat = DownloadFormat
+// Document Download Format (E2EE-compliant client-side export)
+// Only formats that can be generated client-side are supported
+export type DocumentDownloadFormat = ExportFormat
 
 export type DocumentDownloadFormatCategory = 'primary' | 'other'
 
@@ -297,423 +287,41 @@ export type DocumentDownloadFormatMetadata = {
   group?: string
 }
 
+// Re-export EXPORT_FORMATS as DOWNLOAD_FORMAT_METADATA for backward compatibility
 export const DOWNLOAD_FORMAT_METADATA: Record<DocumentDownloadFormat, DocumentDownloadFormatMetadata> = {
-  archive: {
-    label: 'ZIP archive',
-    description: 'Markdown with all attachments bundled',
-    extension: 'zip',
-    category: 'primary',
-  },
-  markdown: {
-    label: 'Markdown (.md)',
-    description: 'Plain markdown document only',
-    extension: 'md',
-    category: 'primary',
-  },
-  html: {
-    label: 'HTML (.html)',
-    description: 'Self-contained HTML page',
-    extension: 'html',
-    category: 'primary',
-  },
-  html5: {
-    label: 'HTML5 (.html)',
-    description: 'HTML5 output; self-contained page',
-    extension: 'html',
-    category: 'other',
-    group: 'Web & Slides',
-  },
-  pdf: {
-    label: 'PDF (.pdf)',
-    description: 'Portable Document Format export',
-    extension: 'pdf',
-    category: 'primary',
-  },
-  docx: {
-    label: 'Word (.docx)',
-    description: 'Microsoft Word compatible document',
-    extension: 'docx',
-    category: 'primary',
-  },
-  latex: {
-    label: 'LaTeX (.tex)',
-    description: 'LaTeX document source',
-    extension: 'tex',
-    category: 'other',
-    group: 'TeX & Academic',
-  },
-  beamer: {
-    label: 'Beamer slides (.tex)',
-    description: 'LaTeX Beamer slide deck',
-    extension: 'tex',
-    category: 'other',
-    group: 'TeX & Academic',
-  },
-  context: {
-    label: 'ConTeXt (.tex)',
-    description: 'ConTeXt document source',
-    extension: 'tex',
-    category: 'other',
-    group: 'TeX & Academic',
-  },
-  man: {
-    label: 'Man page (.man)',
-    description: 'Groff man page source',
-    extension: 'man',
-    category: 'other',
-    group: 'Manuals',
-  },
-  mediawiki: {
-    label: 'MediaWiki (.mediawiki)',
-    description: 'MediaWiki markup',
-    extension: 'mediawiki',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  dokuwiki: {
-    label: 'DokuWiki (.txt)',
-    description: 'DokuWiki markup',
-    extension: 'txt',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  textile: {
-    label: 'Textile (.textile)',
-    description: 'Textile markup',
-    extension: 'textile',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  org: {
-    label: 'Org-mode (.org)',
-    description: 'Emacs Org-mode document',
-    extension: 'org',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  texinfo: {
-    label: 'Texinfo (.texi)',
-    description: 'GNU Texinfo document',
-    extension: 'texi',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  opml: {
-    label: 'OPML (.opml)',
-    description: 'Outline Processor Markup Language document',
-    extension: 'opml',
-    category: 'other',
-    group: 'Data & Interchange',
-  },
-  docbook: {
-    label: 'DocBook XML (.xml)',
-    description: 'DocBook XML document',
-    extension: 'xml',
-    category: 'other',
-    group: 'Data & Interchange',
-  },
-  opendocument: {
-    label: 'OpenDocument Flat XML (.fodt)',
-    description: 'Flat OpenDocument Text document',
-    extension: 'fodt',
-    category: 'other',
-    group: 'Office & Rich Text',
-  },
-  odt: {
-    label: 'ODT (.odt)',
-    description: 'OpenDocument Text document',
-    extension: 'odt',
-    category: 'other',
-    group: 'Office & Rich Text',
-  },
-  rtf: {
-    label: 'RTF (.rtf)',
-    description: 'Rich Text Format document',
-    extension: 'rtf',
-    category: 'other',
-    group: 'Office & Rich Text',
-  },
-  epub: {
-    label: 'EPUB 2 (.epub)',
-    description: 'EPUB eBook (v2)',
-    extension: 'epub',
-    category: 'other',
-    group: 'E-books',
-  },
-  epub3: {
-    label: 'EPUB 3 (.epub)',
-    description: 'EPUB eBook (v3)',
-    extension: 'epub',
-    category: 'other',
-    group: 'E-books',
-  },
-  fb2: {
-    label: 'FictionBook (.fb2)',
-    description: 'FictionBook eBook',
-    extension: 'fb2',
-    category: 'other',
-    group: 'E-books',
-  },
-  asciidoc: {
-    label: 'AsciiDoc (.adoc)',
-    description: 'AsciiDoc markup',
-    extension: 'adoc',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  icml: {
-    label: 'ICML (.icml)',
-    description: 'Adobe InCopy ICML document',
-    extension: 'icml',
-    category: 'other',
-    group: 'Office & Rich Text',
-  },
-  slidy: {
-    label: 'Slidy (.html)',
-    description: 'Slidy HTML presentation',
-    extension: 'html',
-    category: 'other',
-    group: 'Web & Slides',
-  },
-  slideous: {
-    label: 'Slideous (.html)',
-    description: 'Slideous HTML presentation',
-    extension: 'html',
-    category: 'other',
-    group: 'Web & Slides',
-  },
-  dzslides: {
-    label: 'DZSlides (.html)',
-    description: 'DZSlides HTML presentation',
-    extension: 'html',
-    category: 'other',
-    group: 'Web & Slides',
-  },
-  revealjs: {
-    label: 'reveal.js (.html)',
-    description: 'reveal.js HTML presentation',
-    extension: 'html',
-    category: 'other',
-    group: 'Web & Slides',
-  },
-  s5: {
-    label: 'S5 (.html)',
-    description: 'S5 HTML presentation',
-    extension: 'html',
-    category: 'other',
-    group: 'Web & Slides',
-  },
-  json: {
-    label: 'Pandoc JSON (.json)',
-    description: 'Pandoc JSON abstract syntax tree',
-    extension: 'json',
-    category: 'other',
-    group: 'Data & Interchange',
-  },
-  plain: {
-    label: 'Plain text (.txt)',
-    description: 'Plain UTF-8 text output',
-    extension: 'txt',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  commonmark: {
-    label: 'CommonMark (.md)',
-    description: 'CommonMark markdown',
-    extension: 'md',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  commonmark_x: {
-    label: 'CommonMark+Extensions (.md)',
-    description: 'CommonMark with extensions',
-    extension: 'md',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  markdown_strict: {
-    label: 'Markdown (strict) (.md)',
-    description: 'Original markdown syntax',
-    extension: 'md',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  markdown_phpextra: {
-    label: 'Markdown (PHP Extra) (.md)',
-    description: 'Markdown PHP Extra dialect',
-    extension: 'md',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  markdown_github: {
-    label: 'GitHub Markdown (.md)',
-    description: 'GitHub-flavoured markdown',
-    extension: 'md',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  rst: {
-    label: 'reStructuredText (.rst)',
-    description: 'reStructuredText document',
-    extension: 'rst',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
-  native: {
-    label: 'Pandoc native (.hs)',
-    description: 'Pandoc native Haskell AST',
-    extension: 'hs',
-    category: 'other',
-    group: 'Data & Interchange',
-  },
-  haddock: {
-    label: 'Haddock (.txt)',
-    description: 'Haddock markup (Haskell docs)',
-    extension: 'txt',
-    category: 'other',
-    group: 'Wiki & Markup',
-  },
+  ...EXPORT_FORMATS,
 } as const
 
+/**
+ * Download a document in the specified format.
+ * This function uses client-side export for E2EE compliance.
+ *
+ * @param id - Document ID
+ * @param workspaceId - Workspace ID (required for E2EE key retrieval)
+ * @param options - Download options
+ */
 export async function downloadDocumentFile(
   id: string,
-  options?: { token?: string; title?: string; format?: DocumentDownloadFormat },
-) {
+  workspaceId: string,
+  options?: { title?: string; format?: DocumentDownloadFormat },
+): Promise<string> {
   const format: DocumentDownloadFormat = options?.format ?? 'archive'
-  let payload: unknown
-  try {
-    payload = await apiDownloadDocument({ id, token: options?.token ?? null, format })
-  } catch (error) {
-    if (error instanceof ApiError) {
-      const body = error.body as { message?: unknown } | undefined
-      if (body && typeof body === 'object' && 'message' in body) {
-        const messageValue = (body as { message?: unknown }).message
-        if (typeof messageValue === 'string') {
-          throw new Error(messageValue)
-        }
-      }
-    }
-    throw error
-  }
-  const mimeType = resolveMimeType(format)
-  const blob =
-    payload instanceof Blob
-      ? payload
-      : typeof payload === 'string'
-        ? new Blob([payload], { type: mimeType })
-        : payload && typeof payload === 'object'
-          ? new Blob([JSON.stringify(payload, null, 2)], {
-              type: 'application/json; charset=utf-8',
-            })
-          : undefined
-  if (!(blob instanceof Blob)) {
-    throw new Error('Unexpected download payload')
-  }
-  const extension = resolveExtension(format)
-  const filename = `${sanitizeExportName(options?.title)}.${extension}`
-  const blobUrl = URL.createObjectURL(blob)
-  try {
-    const link = document.createElement('a')
-    link.href = blobUrl
-    link.download = filename
-    link.style.display = 'none'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  } finally {
-    URL.revokeObjectURL(blobUrl)
-  }
-  return filename
+  const title = options?.title ?? 'document'
+
+  // Use client-side export (E2EE compliant)
+  return exportDocument(id, workspaceId, title, format)
 }
 
-export async function downloadWorkspaceArchive(params: {
+// Note: Workspace archive download is temporarily unavailable.
+// Server-side export has been removed for E2EE compliance.
+// Client-side workspace archive export will be implemented in a future update.
+export async function downloadWorkspaceArchive(_params: {
   workspaceId: string
   workspaceName: string
   format?: DocumentDownloadFormat
-}) {
-  const format: DocumentDownloadFormat = params.format ?? 'archive'
-  let payload: unknown
-  try {
-    payload = await apiDownloadWorkspaceArchive({ id: params.workspaceId, format })
-  } catch (error) {
-    if (error instanceof ApiError) {
-      const body = error.body as { message?: unknown } | undefined
-      if (body && typeof body === 'object' && 'message' in body) {
-        const messageValue = (body as { message?: unknown }).message
-        if (typeof messageValue === 'string') {
-          throw new Error(messageValue)
-        }
-      }
-    }
-    throw error
-  }
-  const mimeType = resolveMimeType(format)
-  const blob =
-    payload instanceof Blob
-      ? payload
-      : typeof payload === 'string'
-        ? new Blob([payload], { type: mimeType })
-        : payload && typeof payload === 'object'
-          ? new Blob([JSON.stringify(payload, null, 2)], {
-              type: 'application/json; charset=utf-8',
-            })
-          : undefined
-  if (!(blob instanceof Blob)) {
-    throw new Error('Unexpected download payload')
-  }
-  const extension = resolveExtension(format)
-  const filename = `${sanitizeExportName(params.workspaceName)}.${extension}`
-  const blobUrl = URL.createObjectURL(blob)
-  try {
-    const link = document.createElement('a')
-    link.href = blobUrl
-    link.download = filename
-    link.style.display = 'none'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  } finally {
-    URL.revokeObjectURL(blobUrl)
-  }
-  return filename
+}): Promise<string> {
+  throw new Error('Workspace archive download is not yet available. This feature is being migrated to client-side export for E2EE compliance.')
 }
 
-function resolveExtension(format: DocumentDownloadFormat): string {
-  return DOWNLOAD_FORMAT_METADATA[format]?.extension ?? format
-}
-
-function resolveMimeType(format: DocumentDownloadFormat): string {
-  const extension = resolveExtension(format).toLowerCase()
-  switch (extension) {
-    case 'json':
-      return 'application/json; charset=utf-8'
-    case 'xml':
-    case 'opml':
-    case 'fb2':
-      return 'application/xml; charset=utf-8'
-    case 'fodt':
-      return 'application/vnd.oasis.opendocument.text'
-    case 'html':
-      return 'text/html; charset=utf-8'
-    case 'md':
-      return 'text/markdown; charset=utf-8'
-    case 'tex':
-      return 'application/x-tex; charset=utf-8'
-    default:
-      return 'text/plain; charset=utf-8'
-  }
-}
-
-function sanitizeExportName(input?: string) {
-  const invalid = new Set(['/','\\',':','*','?','"','<','>','|','\0'])
-  let base = (input ?? '').trim()
-  if (!base) base = 'document'
-  let sanitized = ''
-  for (const ch of base) {
-    sanitized += invalid.has(ch) ? '-' : ch
-  }
-  sanitized = sanitized.replace(/ /g, '_')
-  if (sanitized.length > 100) sanitized = sanitized.slice(0, 100)
-  if (!sanitized) sanitized = 'document'
-  return sanitized
-}
+// Re-export sanitizeFilename for backward compatibility
+export { sanitizeFilename as sanitizeExportName }

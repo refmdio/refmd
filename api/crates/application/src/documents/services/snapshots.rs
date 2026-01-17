@@ -8,7 +8,6 @@ use crate::documents::dtos::{
 use crate::documents::use_cases::list_snapshots::ListSnapshots;
 use crate::documents::use_cases::restore_snapshot::RestoreSnapshot;
 use crate::documents::use_cases::snapshot_diff::SnapshotDiff;
-use crate::documents::use_cases::snapshot_download::{DownloadSnapshot, SnapshotDownload};
 
 use super::DocumentService;
 use super::snapshot_dto::snapshot_diff_dto_from_result;
@@ -110,35 +109,6 @@ impl DocumentService {
             .ok_or(ServiceError::NotFound)?;
 
         Ok(SnapshotSummaryDto::from(record))
-    }
-
-    pub async fn download_snapshot(
-        &self,
-        actor: &Actor,
-        doc_id: Uuid,
-        snapshot_id: Uuid,
-    ) -> Result<SnapshotDownload, ServiceError> {
-        access::require_view(
-            self.access_repo.as_ref(),
-            self.share_access.as_ref(),
-            actor,
-            doc_id,
-        )
-        .await
-        .map_err(|err| match err {
-            ServiceError::Forbidden => ServiceError::Unauthorized,
-            other => other,
-        })?;
-
-        let uc = DownloadSnapshot {
-            files: self.files_repo.as_ref(),
-            storage: self.storage.as_ref(),
-            snapshots: self.snapshot_service.as_ref(),
-        };
-        uc.execute(doc_id, snapshot_id)
-            .await
-            .map_err(ServiceError::from)?
-            .ok_or(ServiceError::NotFound)
     }
 
     /// Get a single snapshot with its encrypted content (E2EE format)

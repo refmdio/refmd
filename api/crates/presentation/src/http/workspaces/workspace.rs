@@ -1,29 +1,25 @@
 use axum::{
     Json,
-    extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    extract::{Path, State},
+    http::{HeaderMap, StatusCode},
 };
 use uuid::Uuid;
 
 use crate::context::WorkspacesContext;
-#[allow(unused_imports)]
-use crate::http::documents::DocumentDownloadBinary;
 use crate::http::error::ApiError;
 use crate::http::extractors::AuthedUser;
 use crate::http::identity::auth::{
     self, apply_session_cookies, extract_client_ip, extract_refresh_token, extract_user_agent,
 };
-use application::core::services::access;
 use application::core::services::errors::ServiceError;
 use application::identity::services::auth::user_sessions::SessionMetadata;
 use application::workspaces::ports::workspace_repository::WorkspaceListItem;
-use domain::access::permissions::{PERM_DOC_VIEW, PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE};
+use domain::access::permissions::{PERM_WORKSPACE_DELETE, PERM_WORKSPACE_UPDATE};
 use domain::workspaces::roles::{WorkspaceRoleKind, WorkspaceSystemRole};
 
 use super::types::{
-    CreateWorkspaceRequest, DownloadWorkspaceQuery, SwitchWorkspaceResponse,
-    UpdateWorkspaceRequest, WorkspaceResponse, map_service_error, require_permission, to_response,
+    CreateWorkspaceRequest, SwitchWorkspaceResponse, UpdateWorkspaceRequest, WorkspaceResponse,
+    map_service_error, require_permission, to_response,
 };
 
 #[utoipa::path(get, path = "/api/workspaces", tag = "Workspaces", responses((status = 200, body = [WorkspaceResponse])))]
@@ -300,64 +296,3 @@ pub async fn switch_workspace(
     ))
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/workspaces/{id}/download",
-    tag = "Workspaces",
-    params(
-        ("id" = Uuid, Path, description = "Workspace ID"),
-        ("format" = Option<DownloadFormat>, Query, description = "Download format (archive only)")
-    ),
-    responses(
-        (status = 200, description = "Workspace download", body = DocumentDownloadBinary, content_type = "application/octet-stream"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Workspace not found")
-    )
-)]
-pub async fn download_workspace_archive(
-    State(ctx): State<WorkspacesContext>,
-    auth: AuthedUser,
-    Path(id): Path<Uuid>,
-    Query(params): Query<DownloadWorkspaceQuery>,
-) -> Result<Response, ApiError> {
-    require_permission(&ctx, id, auth.user_id, PERM_DOC_VIEW).await?;
-
-    let workspace = ctx
-        .workspace_service()
-        .get_workspace(id)
-        .await
-        .map_err(map_service_error)?
-        .ok_or(ApiError::not_found("workspace_not_found"))?;
-
-    let actor = access::Actor::User(auth.user_id);
-    let download = ctx
-        .document_service()
-        .download_workspace_root(&actor, id, &workspace.name, params.format.into())
-        .await
-        .map_err(|err| match err {
-            ServiceError::Unauthorized | ServiceError::TokenExpired | ServiceError::Forbidden => {
-                ApiError::forbidden("forbidden")
-            }
-            ServiceError::Conflict | ServiceError::NotFound => ApiError::not_found("not_found"),
-            ServiceError::BadRequest(code) => ApiError::bad_request(code).with_message(code),
-            ServiceError::Unexpected(inner) => {
-                tracing::error!(error = ?inner, workspace_id = %id, "workspace_download_failed");
-                ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
-            }
-        })?;
-
-    let mut headers = HeaderMap::new();
-    let content_type = HeaderValue::from_str(&download.content_type)
-        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "invalid_header"))?;
-    headers.insert(axum::http::header::CONTENT_TYPE, content_type);
-    headers.insert(
-        axum::http::header::HeaderName::from_static("x-content-type-options"),
-        HeaderValue::from_static("nosniff"),
-    );
-    let disposition = format!("attachment; filename=\"{}\"", download.filename);
-    let content_disposition = HeaderValue::from_str(&disposition)
-        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "invalid_header"))?;
-    headers.insert(axum::http::header::CONTENT_DISPOSITION, content_disposition);
-
-    Ok((headers, download.bytes).into_response())
-}

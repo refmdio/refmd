@@ -4,10 +4,9 @@ use uuid::Uuid;
 
 use crate::core::ports::storage::storage_port::StorageResolverPort;
 use crate::core::services::errors::ServiceError;
-use crate::documents::dtos::{DocumentDownload, DocumentDownloadFormat, DocumentListFilter};
+use crate::documents::dtos::DocumentListFilter;
 use crate::documents::ports::access_repository::AccessRepository;
 use crate::documents::ports::doc_event_log::DocEventLog;
-use crate::documents::ports::document_exporter::DocumentExporter;
 use crate::documents::ports::document_repository::{DocMeta, DocumentRepository};
 use crate::documents::ports::files::files_repository::FilesRepository;
 use crate::documents::ports::linkgraph_repository::LinkGraphRepository;
@@ -25,7 +24,6 @@ mod attachments;
 mod content;
 mod crud;
 mod deletion;
-mod downloads;
 mod events;
 pub mod files;
 mod jobs;
@@ -154,21 +152,6 @@ pub trait DocumentServiceFacade: Send + Sync {
         encrypted_updates: Option<&[crate::documents::ports::realtime::realtime_port::EncryptedUpdate]>,
     ) -> Result<DomainDocument, ServiceError>;
 
-    async fn download_document(
-        &self,
-        actor: &crate::core::services::access::Actor,
-        doc_id: Uuid,
-        format: DocumentDownloadFormat,
-    ) -> Result<DocumentDownload, ServiceError>;
-
-    async fn download_workspace_root(
-        &self,
-        actor: &crate::core::services::access::Actor,
-        workspace_id: Uuid,
-        workspace_name: &str,
-        format: DocumentDownloadFormat,
-    ) -> Result<DocumentDownload, ServiceError>;
-
     async fn list_snapshots(
         &self,
         actor: &crate::core::services::access::Actor,
@@ -192,13 +175,6 @@ pub trait DocumentServiceFacade: Send + Sync {
         doc_id: Uuid,
         snapshot_id: Uuid,
     ) -> Result<crate::documents::dtos::SnapshotSummaryDto, ServiceError>;
-
-    async fn download_snapshot(
-        &self,
-        actor: &crate::core::services::access::Actor,
-        doc_id: Uuid,
-        snapshot_id: Uuid,
-    ) -> Result<crate::documents::use_cases::snapshot_download::SnapshotDownload, ServiceError>;
 
     /// Get a single snapshot with its encrypted content (E2EE format)
     async fn get_snapshot(
@@ -383,26 +359,6 @@ impl DocumentServiceFacade for DocumentService {
         self.patch_content(actor, doc_id, plaintext_operations, encrypted_updates).await
     }
 
-    async fn download_document(
-        &self,
-        actor: &crate::core::services::access::Actor,
-        doc_id: Uuid,
-        format: DocumentDownloadFormat,
-    ) -> Result<DocumentDownload, ServiceError> {
-        self.download_document(actor, doc_id, format).await
-    }
-
-    async fn download_workspace_root(
-        &self,
-        actor: &crate::core::services::access::Actor,
-        workspace_id: Uuid,
-        workspace_name: &str,
-        format: DocumentDownloadFormat,
-    ) -> Result<DocumentDownload, ServiceError> {
-        self.download_workspace_root(actor, workspace_id, workspace_name, format)
-            .await
-    }
-
     async fn list_snapshots(
         &self,
         actor: &crate::core::services::access::Actor,
@@ -432,16 +388,6 @@ impl DocumentServiceFacade for DocumentService {
         snapshot_id: Uuid,
     ) -> Result<crate::documents::dtos::SnapshotSummaryDto, ServiceError> {
         self.restore_snapshot(actor, doc_id, snapshot_id).await
-    }
-
-    async fn download_snapshot(
-        &self,
-        actor: &crate::core::services::access::Actor,
-        doc_id: Uuid,
-        snapshot_id: Uuid,
-    ) -> Result<crate::documents::use_cases::snapshot_download::SnapshotDownload, ServiceError>
-    {
-        self.download_snapshot(actor, doc_id, snapshot_id).await
     }
 
     async fn get_snapshot(
@@ -493,7 +439,6 @@ pub struct DocumentService {
     events: Arc<dyn DocEventLog>,
     realtime: Arc<dyn RealtimeEngine>,
     snapshot_service: Arc<SnapshotService>,
-    exporter: Arc<dyn DocumentExporter>,
 }
 
 impl DocumentService {
@@ -509,7 +454,6 @@ impl DocumentService {
         events: Arc<dyn DocEventLog>,
         realtime: Arc<dyn RealtimeEngine>,
         snapshot_service: Arc<SnapshotService>,
-        exporter: Arc<dyn DocumentExporter>,
     ) -> Self {
         Self {
             tx_runner,
@@ -522,7 +466,6 @@ impl DocumentService {
             events,
             realtime,
             snapshot_service,
-            exporter,
         }
     }
 
