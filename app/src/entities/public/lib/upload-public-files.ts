@@ -1,7 +1,10 @@
+import { getFile } from '@/shared/api'
+
 import { buildFileMap } from '@/entities/file'
-import { getFile, getDocumentKey, getMyWorkspaceKey } from '@/shared/api'
+
+import { getKeyVaultService, fetchDocumentKeys } from '@/features/security'
 import { decryptFile, isRmeFile } from '@/features/security/lib/files'
-import { getKeyManager } from '@/features/security'
+
 import { uploadPublicFile } from '../api'
 
 export interface UploadPublicFilesOptions {
@@ -17,10 +20,10 @@ export async function uploadPublicFilesForDocument(
   options: UploadPublicFilesOptions
 ): Promise<{ uploaded: number; failed: number }> {
   const { documentId, workspaceId } = options
-  const keyManager = getKeyManager()
+  const service = getKeyVaultService()
 
-  if (!keyManager.isUnlocked) {
-    console.warn('[uploadPublicFiles] KeyManager not unlocked, skipping')
+  if (!service.isUnlocked) {
+    console.warn('[uploadPublicFiles] KeyVault not unlocked, skipping')
     return { uploaded: 0, failed: 0 }
   }
 
@@ -30,14 +33,8 @@ export async function uploadPublicFilesForDocument(
     return { uploaded: 0, failed: 0 }
   }
 
-  // Get workspace KEK and document DEK for decryption
-  const kekResponse = await getMyWorkspaceKey({ id: workspaceId })
-  const kek = await keyManager.getWorkspaceKek(workspaceId, async () => kekResponse.encryptedKek)
-  const dekResponse = await getDocumentKey({ id: documentId })
-  const dek = await keyManager.getDocumentDek(documentId, kek, async () => ({
-    encryptedDek: dekResponse.encryptedDek,
-    nonce: dekResponse.nonce,
-  }))
+  // Get document DEK for decryption
+  const { dek } = await fetchDocumentKeys(documentId, workspaceId)
 
   let uploaded = 0
   let failed = 0

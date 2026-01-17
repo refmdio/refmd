@@ -2,7 +2,7 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 
 import { getSecurityStatus, me as fetchCurrentUser } from '@/entities/user'
 
-import { RestorePrompt, UnlockPrompt, useE2EE } from '@/features/security'
+import { RestorePrompt, UnlockPrompt, useKeyVault } from '@/features/security'
 
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
@@ -36,7 +36,7 @@ export const Route = createFileRoute('/(auth)/auth/unlock' as any)({
 
 function UnlockRoute() {
   const navigate = useNavigate()
-  const { isUnlocked, loading, isInitialized, hasLocalKeys, needsRestore } = useE2EE()
+  const { isUnlocked, loading, isInitialized, hasLocalKeys, needsRestore } = useKeyVault()
 
   // Wait for E2EE context to initialize
   if (!isInitialized || loading || hasLocalKeys === null) {

@@ -6,7 +6,7 @@ import { fetchDocumentMeta } from '@/entities/document'
 import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 
 import { documentBeforeLoadGuard } from '@/features/auth'
-import { useAttachmentContext, RequireE2EE } from '@/features/security'
+import { useAttachmentContext, RequireKeyVault } from '@/features/security'
 
 import DocumentMosaicWorkspace from '@/widgets/document/DocumentMosaicWorkspace'
 import DocumentPage, { type DocumentLoaderData } from '@/widgets/document/DocumentPage'
@@ -153,5 +153,5 @@ function DocumentRouteComponent() {
     return content
   }
 
-  return <RequireE2EE>{content}</RequireE2EE>
+  return <RequireKeyVault>{content}</RequireKeyVault>
 }

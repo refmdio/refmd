@@ -4,8 +4,9 @@ import { useState, useCallback } from 'react'
 import { Button } from '@/shared/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
 
-import { useE2EE } from '../context/e2ee-context'
+import { useKeyVault } from '../context/key-vault-context'
 import { useKeyManager } from '../hooks/useKeyManager'
+
 import { PassphraseInput } from './PassphraseInput'
 import { RecoveryKeyDisplay } from './RecoveryKeyDisplay'
 
@@ -22,7 +23,7 @@ export function PassphraseResetWizard({
   onComplete,
   onCancel,
 }: PassphraseResetWizardProps) {
-  const { unlockWithRecovery } = useE2EE()
+  const { unlockWithRecovery } = useKeyVault()
   const { changePassphrase } = useKeyManager()
 
   const [step, setStep] = useState<ResetStep>('recovery_input')

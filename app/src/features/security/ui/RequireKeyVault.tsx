@@ -1,23 +1,24 @@
-import { useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-
-import { useE2EE } from '../context/e2ee-context'
+import { useEffect } from 'react'
 
 import RoutePending from '@/widgets/routes/RoutePending'
 
-interface RequireE2EEProps {
+import { useKeyVault } from '../context/key-vault-context'
+
+
+interface RequireKeyVaultProps {
   children: React.ReactNode
 }
 
 /**
- * Gate component that ensures E2EE is ready before rendering children.
+ * Gate component that ensures KeyVault is ready before rendering children.
  * Redirects to /auth/unlock if keys need to be unlocked or restored.
  */
-export function RequireE2EE({ children }: RequireE2EEProps) {
+export function RequireKeyVault({ children }: RequireKeyVaultProps) {
   const navigate = useNavigate()
-  const { isInitialized, isUnlocked, hasLocalKeys, needsRestore, loading } = useE2EE()
+  const { isInitialized, isUnlocked, hasLocalKeys, needsRestore, loading } = useKeyVault()
 
-  // Redirect to unlock if E2EE is not ready
+  // Redirect to unlock if KeyVault is not ready
   useEffect(() => {
     // Wait for initialization
     if (!isInitialized || loading || hasLocalKeys === null) {
@@ -33,7 +34,7 @@ export function RequireE2EE({ children }: RequireE2EEProps) {
     }
   }, [isInitialized, isUnlocked, hasLocalKeys, needsRestore, loading, navigate])
 
-  // Show loading while checking E2EE state
+  // Show loading while checking KeyVault state
   if (!isInitialized || loading || hasLocalKeys === null) {
     return <RoutePending />
   }

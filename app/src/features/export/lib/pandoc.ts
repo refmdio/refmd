@@ -6,8 +6,9 @@
  * All processing happens client-side for E2EE compliance.
  */
 
-import type { PandocOutputFormat } from './formats'
 import type { pandoc as PandocFn } from 'wasm-pandoc'
+
+import type { PandocOutputFormat } from './formats'
 
 // Pandoc function (lazy loaded)
 let pandocFn: typeof PandocFn | null = null

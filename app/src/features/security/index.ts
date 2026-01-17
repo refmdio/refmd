@@ -1,7 +1,7 @@
 /**
- * E2EE Feature Module
+ * Security Feature Module
  *
- * End-to-End Encryption for RefMD.
+ * End-to-End Encryption (KeyVault) for RefMD.
  */
 
 // Crypto primitives (explicit exports to avoid conflicts)
@@ -182,8 +182,13 @@ export { useKeyManager } from './hooks/useKeyManager'
 export { useServerBackup, type ServerBackup } from './hooks/useServerBackup'
 export { useAttachmentContext } from './hooks/useAttachmentContext'
 
-// Context
-export { E2EEProvider, useE2EE, type E2EEState } from './context/e2ee-context'
+// Context (KeyVault)
+export {
+  KeyVaultProvider,
+  useKeyVault,
+  type KeyVaultState,
+  type SetupResult,
+} from './context/key-vault-context'
 
 // UI Components
 export {
@@ -194,8 +199,15 @@ export {
   SecuritySetupWizard,
   UnlockPrompt,
   RestorePrompt,
-  RequireE2EE,
+  RequireKeyVault,
 } from './ui'
+
+// KeyVault Service (simplified API for key operations)
+export {
+  KeyVaultService,
+  getKeyVaultService,
+  resetKeyVaultService,
+} from './lib/key-vault-service'
 
 // Document key helpers
 export {
@@ -220,3 +232,10 @@ export {
   resetTagLookupManager,
   HMAC_KEY_SIZE,
 } from './lib/tags'
+
+// Key helpers (simplified key fetching)
+export {
+  fetchWorkspaceKek,
+  fetchDocumentDek,
+  fetchDocumentKeys,
+} from './lib/key-helpers'

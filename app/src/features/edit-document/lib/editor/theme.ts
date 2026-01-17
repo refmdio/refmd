@@ -1,6 +1,6 @@
-import { EditorView } from '@codemirror/view'
-import { Extension } from '@codemirror/state'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { Extension } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 
 type Palette = {

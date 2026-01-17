@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Extension } from '@codemirror/state'
 import { EditorView, ViewUpdate } from '@codemirror/view'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { yCollab } from 'y-codemirror.next'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'

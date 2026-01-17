@@ -9,9 +9,9 @@
  * - #wiki:target -> same transformation
  */
 
-import { visit } from 'unist-util-visit'
-import type { Plugin } from 'unified'
 import type { Root, Element, Text } from 'hast'
+import type { Plugin } from 'unified'
+import { visit } from 'unist-util-visit'
 
 function normalizeWikilinkLabel(raw: string): { label: string; inline: boolean } {
   let label = raw.trim()

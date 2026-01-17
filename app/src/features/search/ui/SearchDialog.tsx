@@ -19,6 +19,7 @@ import {
 import { Dialog, DialogContent } from '@/shared/ui/dialog'
 
 import { listDecryptedTags } from '@/entities/tag'
+
 import { useAuthContext } from '@/features/auth/model/auth-context'
 
 import { useClientSearch, type DocumentHit } from '../hooks/useClientSearch'

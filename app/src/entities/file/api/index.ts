@@ -1,12 +1,11 @@
 import {
   uploadFile as apiUploadFile,
-  getDocumentKey,
-  getMyWorkspaceKey,
   listFiles,
   type ListFileResponse,
 } from '@/shared/api'
+
+import { fetchDocumentKeys } from '@/features/security'
 import { encryptFile, decryptFile, isRmeFile, decryptMetadata } from '@/features/security/lib/files'
-import { getKeyManager } from '@/features/security/lib/keys'
 
 export const fileKeys = {
   all: ['files'] as const,
@@ -31,45 +30,25 @@ export async function uploadAttachment(
   file: File,
   options: UploadAttachmentOptions
 ) {
-  const km = getKeyManager()
-
-  // Ensure E2EE is initialized and unlocked
-  if (!km.isInitialized) {
-    await km.initialize()
-  }
-
-  if (!km.isUnlocked) {
-    throw new Error('E2EE session is locked. Please unlock first.')
-  }
-
   // 1. Read file content
   const content = new Uint8Array(await file.arrayBuffer())
 
-  // 2. Get workspace KEK
-  const kek = await km.getWorkspaceKek(options.workspaceId, async () => {
-    const response = await getMyWorkspaceKey({ id: options.workspaceId })
-    return response.encryptedKek
-  })
+  // 2. Get encryption keys
+  const { dek } = await fetchDocumentKeys(documentId, options.workspaceId)
 
-  // 3. Get document DEK
-  const dek = await km.getDocumentDek(documentId, kek, async () => {
-    const response = await getDocumentKey({ id: documentId })
-    return { encryptedDek: response.encryptedDek, nonce: response.nonce }
-  })
-
-  // 4. Resolve logical path with collision detection
+  // 3. Resolve logical path with collision detection
   const logicalPath = options.existingPaths
     ? resolveLogicalPath(file.name, options.existingPaths)
     : `attachments/${file.name}`
 
-  // 5. Encrypt file
+  // 4. Encrypt file
   const result = await encryptFile(content, dek, {
     filename: file.name,
     mimeType: file.type || 'application/octet-stream',
     logicalPath,
   })
 
-  // 6. Create .rme file blob
+  // 5. Create .rme file blob
   const rmeBlob = new Blob([result.rmeBytes as BlobPart], {
     type: 'application/octet-stream',
   })
@@ -77,14 +56,14 @@ export async function uploadAttachment(
     type: 'application/octet-stream',
   })
 
-  // 7. Build metadata JSON for API
+  // 6. Build metadata JSON for API
   const metadata = JSON.stringify({
     encryptedMetadata: result.encryptedMetadata,
     encryptedMetadataNonce: result.metadataNonce,
     encryptedHash: result.encryptedHash,
   })
 
-  // 8. Upload encrypted file
+  // 7. Upload encrypted file
   const uploadResult = await apiUploadFile({
     docId: documentId,
     formData: {
@@ -131,17 +110,6 @@ export async function downloadAttachment(
   url: string,
   options: DownloadAttachmentOptions
 ): Promise<DownloadAttachmentResult> {
-  const km = getKeyManager()
-
-  // Ensure E2EE is initialized and unlocked
-  if (!km.isInitialized) {
-    await km.initialize()
-  }
-
-  if (!km.isUnlocked) {
-    throw new Error('E2EE session is locked. Please unlock first.')
-  }
-
   // 1. Fetch the file
   const fetchUrl = options.token
     ? url.includes('?')
@@ -171,22 +139,11 @@ export async function downloadAttachment(
     }
   }
 
-  // 3. Get workspace KEK
-  const kek = await km.getWorkspaceKek(options.workspaceId, async () => {
-    const response = await getMyWorkspaceKey({ id: options.workspaceId })
-    return response.encryptedKek
-  })
-
-  // 4. Get document DEK
-  const dek = await km.getDocumentDek(documentId, kek, async () => {
-    const response = await getDocumentKey({ id: documentId })
-    return { encryptedDek: response.encryptedDek, nonce: response.nonce }
-  })
-
-  // 5. Decrypt file
+  // 3. Get encryption keys and decrypt
+  const { dek } = await fetchDocumentKeys(documentId, options.workspaceId)
   const decrypted = await decryptFile(bytes, dek)
 
-  // 6. Return decrypted content
+  // 4. Return decrypted content
   return {
     blob: new Blob([decrypted.content as BlobPart], { type: decrypted.metadata.mimeType }),
     filename: decrypted.metadata.filename,
@@ -250,33 +207,13 @@ export async function buildFileMap(
   documentId: string,
   workspaceId: string
 ): Promise<FileMap> {
-  const km = getKeyManager()
-
-  // Ensure E2EE is initialized and unlocked
-  if (!km.isInitialized) {
-    await km.initialize()
-  }
-
-  if (!km.isUnlocked) {
-    throw new Error('E2EE session is locked. Please unlock first.')
-  }
-
   // 1. Fetch file list
   const files = await listDocumentFiles(documentId)
 
-  // 2. Get workspace KEK
-  const kek = await km.getWorkspaceKek(workspaceId, async () => {
-    const response = await getMyWorkspaceKey({ id: workspaceId })
-    return response.encryptedKek
-  })
+  // 2. Get encryption keys
+  const { dek } = await fetchDocumentKeys(documentId, workspaceId)
 
-  // 3. Get document DEK
-  const dek = await km.getDocumentDek(documentId, kek, async () => {
-    const response = await getDocumentKey({ id: documentId })
-    return { encryptedDek: response.encryptedDek, nonce: response.nonce }
-  })
-
-  // 4. Build map by decrypting each file's metadata
+  // 3. Build map by decrypting each file's metadata
   const map: FileMap = new Map()
 
   for (const file of files) {

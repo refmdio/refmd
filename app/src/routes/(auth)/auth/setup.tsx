@@ -8,7 +8,7 @@ import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
 
 // Route path type will be generated after first build
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export const Route = createFileRoute('/(auth)/auth/setup' as any)({
   staticData: { layout: 'auth' },
   beforeLoad: async () => {

@@ -9,9 +9,9 @@
  * - Adds class="file-attachment" to attachment links
  */
 
-import { visit } from 'unist-util-visit'
-import type { Plugin } from 'unified'
 import type { Root, Element } from 'hast'
+import type { Plugin } from 'unified'
+import { visit } from 'unist-util-visit'
 
 export interface AttachmentOptions {
   /** Document ID for URL rewriting */

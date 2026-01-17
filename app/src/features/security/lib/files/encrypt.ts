@@ -10,6 +10,7 @@ import {
   type RmeFile,
   type RmeMetadata,
 } from '../types/file-format'
+
 import { serializeRme } from './format'
 import { computeSha256 } from './hash'
 

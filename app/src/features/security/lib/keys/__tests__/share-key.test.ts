@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
+
+import { getSodium } from '../../crypto'
 import {
   generateShareKey,
   extractShareKeyFromFragment,
@@ -7,7 +9,6 @@ import {
   URL_FRAGMENT_PREFIX,
   SHARE_KEY_SIZE,
 } from '../share-key'
-import { getSodium } from '../../crypto'
 
 describe('Share Key', () => {
   beforeAll(async () => {

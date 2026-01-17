@@ -4,7 +4,7 @@ import { listDocumentsQuery } from '@/entities/document'
 import { meQuery } from '@/entities/user'
 
 import { requireAuthGuard } from '@/features/auth'
-import { RequireE2EE } from '@/features/security'
+import { RequireKeyVault } from '@/features/security'
 
 import DashboardPage from '@/widgets/dashboard/DashboardPage'
 import RouteError from '@/widgets/routes/RouteError'
@@ -12,9 +12,9 @@ import RoutePending from '@/widgets/routes/RoutePending'
 
 function DashboardRoute() {
   return (
-    <RequireE2EE>
+    <RequireKeyVault>
       <DashboardPage />
-    </RequireE2EE>
+    </RequireKeyVault>
   )
 }
 

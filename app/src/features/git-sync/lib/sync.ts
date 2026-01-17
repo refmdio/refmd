@@ -1,5 +1,5 @@
 /**
- * Git Sync Logic for E2EE
+ * Git Sync Logic for KeyVault
  *
  * Handles synchronization between encrypted documents and Git repository.
  * All Git operations are performed client-side using isomorphic-git.
@@ -10,23 +10,22 @@ import * as Y from 'yjs'
 
 import {
   getDocumentContent,
-  getDocumentKey,
-  getMyWorkspaceKey,
   type Document,
   type EncryptedUpdateEntry,
 } from '@/shared/api/client'
 
 import {
-  getKeyManager,
+  getKeyVaultService,
+  fetchDocumentKeys,
+  SessionLockedError,
   decrypt,
   getSodium,
-  decryptDekFromApiResponse,
   decryptString,
 } from '@/features/security'
 
+import { calculateDirtyFiles } from './dirty-calculator'
 import { GitClient } from './git-client'
 import { loadGitCredentials, type GitCredentials } from './git-credentials'
-import { calculateDirtyFiles } from './dirty-calculator'
 
 export interface SyncOptions {
   message?: string
@@ -52,20 +51,16 @@ export async function decryptDocumentTitle(
   }
 
   try {
-    const keyManager = getKeyManager()
-    const kek = await keyManager.getWorkspaceKek(workspaceId, async () => {
-      const response = await getMyWorkspaceKey({ id: workspaceId })
-      return response.encryptedKek
-    })
-
-    const keyRes = await getDocumentKey({ id: doc.id })
-    const dek = await decryptDekFromApiResponse(keyRes.encryptedDek, keyRes.nonce, kek)
+    const { dek } = await fetchDocumentKeys(doc.id, workspaceId)
 
     const sodium = await getSodium()
     const ciphertext = sodium.from_base64(doc.encryptedTitle, sodium.base64_variants.ORIGINAL)
     const nonce = sodium.from_base64(doc.encryptedTitleNonce, sodium.base64_variants.ORIGINAL)
     return await decryptString(dek, ciphertext, nonce)
-  } catch {
+  } catch (err) {
+    if (err instanceof SessionLockedError) {
+      return doc.title || 'Untitled'
+    }
     return doc.title || 'Untitled'
   }
 }
@@ -90,21 +85,18 @@ export async function fetchDecryptedDocumentContent(
     const sodium = await getSodium()
     const doc = new Y.Doc()
 
-    const keyManager = getKeyManager()
-    if (!keyManager.isUnlocked) {
-      doc.destroy()
-      return ''
+    // Get encryption keys
+    let dek: Uint8Array
+    try {
+      const keys = await fetchDocumentKeys(documentId, workspaceId)
+      dek = keys.dek
+    } catch (err) {
+      if (err instanceof SessionLockedError) {
+        doc.destroy()
+        return ''
+      }
+      throw err
     }
-
-    // Get workspace KEK
-    const kek = await keyManager.getWorkspaceKek(workspaceId, async () => {
-      const response = await getMyWorkspaceKey({ id: workspaceId })
-      return response.encryptedKek
-    })
-
-    // Get document DEK
-    const keyRes = await getDocumentKey({ id: documentId })
-    const dek = await decryptDekFromApiResponse(keyRes.encryptedDek, keyRes.nonce, kek)
 
     // Apply snapshot if present
     if (hasSnapshot) {
@@ -139,12 +131,12 @@ export async function fetchDecryptedDocumentContent(
 export async function syncWorkspaceToGit(options: SyncOptions): Promise<SyncResult> {
   const { workspaceId, message } = options
 
-  // 1. Check E2EE unlock status
-  const keyManager = getKeyManager()
-  if (!keyManager.isUnlocked) {
+  // 1. Check KeyVault unlock status
+  const service = getKeyVaultService()
+  if (!service.isUnlocked) {
     return {
       success: false,
-      message: 'E2EE is locked. Please unlock first.',
+      message: 'KeyVault is locked. Please unlock first.',
       filesChanged: 0,
     }
   }
@@ -271,11 +263,11 @@ export async function initGitRepository(
   repositoryUrl: string,
   credentials: GitCredentials
 ): Promise<{ success: boolean; message: string }> {
-  const keyManager = getKeyManager()
-  if (!keyManager.isUnlocked) {
+  const service = getKeyVaultService()
+  if (!service.isUnlocked) {
     return {
       success: false,
-      message: 'E2EE is locked. Please unlock first.',
+      message: 'KeyVault is locked. Please unlock first.',
     }
   }
 

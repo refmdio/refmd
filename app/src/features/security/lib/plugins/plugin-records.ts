@@ -9,8 +9,9 @@
  * createdAt, updatedAt) remain in plaintext for routing and sorting.
  */
 
-import { encrypt, decrypt } from '../crypto/xchacha20'
 import { toBase64, fromBase64 } from '../crypto/canonicalize'
+import { encrypt, decrypt } from '../crypto/xchacha20'
+
 import { derivePluginDEK } from './plugin-dek'
 
 /** Encrypted record data format */

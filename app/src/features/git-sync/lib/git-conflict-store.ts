@@ -6,6 +6,7 @@
  */
 
 import type { ConflictItem } from './pull'
+
 export type { ConflictItem }
 import { getClientWorkspaceId } from '@/shared/api/client.config'
 

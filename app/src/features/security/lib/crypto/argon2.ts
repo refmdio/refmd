@@ -11,6 +11,7 @@
  */
 
 import { argon2id } from 'hash-wasm'
+
 import { getSodium } from './sodium'
 
 /** Salt size for Argon2id (16 bytes) */

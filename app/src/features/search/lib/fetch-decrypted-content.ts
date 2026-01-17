@@ -1,7 +1,7 @@
 /**
  * Fetch and decrypt document content for search indexing
  *
- * All documents use E2EE (End-to-End Encryption):
+ * All documents use end-to-end encryption:
  * 1. Fetches encrypted snapshot and pending updates from API
  * 2. Decrypts using document DEK (Data Encryption Key)
  * 3. Reconstructs Yjs document and extracts plain text
@@ -11,22 +11,20 @@ import * as Y from 'yjs'
 
 import {
   getDocumentContent,
-  getDocumentKey,
-  getMyWorkspaceKey,
   type EncryptedUpdateEntry,
 } from '@/shared/api/client'
 
 import {
   decrypt,
-  getKeyManager,
-  decryptDekFromApiResponse,
+  fetchDocumentKeys,
   getSodium,
+  SessionLockedError,
 } from '@/features/security'
 
 /**
  * Fetch document content and return plain text.
  *
- * All documents are E2EE encrypted. This function:
+ * All documents are encrypted. This function:
  * 1. Fetches encrypted snapshot and updates from API
  * 2. Decrypts using document DEK (Data Encryption Key)
  * 3. Reconstructs Yjs document and extracts text
@@ -54,22 +52,18 @@ export async function fetchDecryptedContent(
     const sodium = await getSodium()
     const doc = new Y.Doc()
 
-    // 2. All documents are E2EE - get decryption keys
-    const keyManager = getKeyManager()
-    if (!keyManager.isUnlocked) {
-      doc.destroy()
-      return ''
+    // 2. Get decryption keys (throws SessionLockedError if locked)
+    let dek: Uint8Array
+    try {
+      const keys = await fetchDocumentKeys(documentId, workspaceId)
+      dek = keys.dek
+    } catch (err) {
+      if (err instanceof SessionLockedError) {
+        doc.destroy()
+        return ''
+      }
+      throw err
     }
-
-    // Get workspace KEK
-    const kek = await keyManager.getWorkspaceKek(workspaceId, async () => {
-      const response = await getMyWorkspaceKey({ id: workspaceId })
-      return response.encryptedKek
-    })
-
-    // Get document DEK
-    const keyRes = await getDocumentKey({ id: documentId })
-    const dek = await decryptDekFromApiResponse(keyRes.encryptedDek, keyRes.nonce, kek)
 
     // 3. Apply snapshot if present
     if (hasSnapshot) {

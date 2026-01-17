@@ -10,26 +10,22 @@ import * as Y from 'yjs'
 
 import {
   getDocumentContent,
-  getDocumentKey,
-  getMyWorkspaceKey,
   type EncryptedUpdateEntry,
 } from '@/shared/api/client'
 
-import {
-  decrypt,
-  getKeyManager,
-  decryptDekFromApiResponse,
-  getSodium,
-} from '@/features/security'
 
 import {
   resolveAndDecrypt,
   initFileMap,
 } from '@/entities/file/decryption-bridge'
 
-import { exportToPdf, type PdfExportOptions } from '../lib/pdf'
+import {
+  decrypt,
+  fetchDocumentKeys,
+  getSodium,
+} from '@/features/security'
+
 import { createDocumentArchive } from '../lib/archive'
-import { exportWithPandoc, preloadPandoc } from '../lib/pandoc'
 import {
   type ExportFormat,
   getExtension,
@@ -37,6 +33,8 @@ import {
   getFormatMetadata,
   sanitizeFilename,
 } from '../lib/formats'
+import { exportWithPandoc, preloadPandoc } from '../lib/pandoc'
+import { exportToPdf, type PdfExportOptions } from '../lib/pdf'
 
 export interface UseExportOptions {
   documentId: string
@@ -76,21 +74,8 @@ async function fetchDecryptedMarkdown(
   const doc = new Y.Doc()
 
   try {
-    // Get E2EE keys
-    const keyManager = getKeyManager()
-    if (!keyManager.isUnlocked) {
-      throw new Error('E2EE session is locked. Please unlock first.')
-    }
-
-    // Get workspace KEK
-    const kek = await keyManager.getWorkspaceKek(workspaceId, async () => {
-      const response = await getMyWorkspaceKey({ id: workspaceId })
-      return response.encryptedKek
-    })
-
-    // Get document DEK
-    const keyRes = await getDocumentKey({ id: documentId })
-    const dek = await decryptDekFromApiResponse(keyRes.encryptedDek, keyRes.nonce, kek)
+    // Get encryption keys
+    const { dek } = await fetchDocumentKeys(documentId, workspaceId)
 
     // Apply snapshot if present
     if (hasSnapshot) {

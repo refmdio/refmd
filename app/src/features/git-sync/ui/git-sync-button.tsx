@@ -12,7 +12,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
 import { useAuthContext } from '@/features/auth'
-
 import {
   syncWorkspaceToGit,
   pullFromGit,

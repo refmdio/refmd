@@ -18,8 +18,8 @@ import { SidebarProvider, Sidebar, SidebarInset } from '@/shared/ui/sidebar'
 import { Toaster } from '@/shared/ui/sonner'
 
 import { AuthProvider, useAuthContext } from '@/features/auth'
-import { E2EEProvider } from '@/features/security'
 import { EditorProvider, ViewProvider } from '@/features/edit-document'
+import { KeyVaultProvider } from '@/features/security'
 import { ShortcutRegistryProvider } from '@/features/shortcuts'
 
 import { Header } from '@/widgets/header/Header'
@@ -121,7 +121,7 @@ function RootComponent() {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <E2EEProvider>
+          <KeyVaultProvider>
             <ShortcutRegistryBoundary>
               <RealtimeProvider>
                 <ShareTokenProvider token={shareToken}>
@@ -130,7 +130,7 @@ function RootComponent() {
                 <Toaster richColors position="bottom-right" />
               </RealtimeProvider>
             </ShortcutRegistryBoundary>
-          </E2EEProvider>
+          </KeyVaultProvider>
         </AuthProvider>
       </QueryClientProvider>
     </ThemeProvider>

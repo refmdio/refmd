@@ -1,8 +1,9 @@
-import type { Awareness } from 'y-protocols/awareness'
 import type { IndexeddbPersistence } from 'y-indexeddb'
+import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
 
 import { YJS_SERVER_URL } from '@/shared/lib/config'
+
 import { createConnection, type StatusEventHandler, type ShareModeOptions } from './realtime'
 
 export type YjsConnectionOptions = {

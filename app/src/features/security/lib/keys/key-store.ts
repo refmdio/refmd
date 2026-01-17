@@ -189,7 +189,7 @@ export class KeyStore {
         }
 
         // Remove the id field before deserializing
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+         
         const { id, ...data } = request.result
         resolve(deserializeKeys(data as SerializedStoredKeys))
       }

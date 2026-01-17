@@ -6,6 +6,7 @@
  */
 
 import canonicalizeLib from 'canonicalize'
+
 import { getSodium } from './sodium'
 
 /**

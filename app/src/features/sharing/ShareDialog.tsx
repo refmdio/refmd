@@ -3,6 +3,7 @@ import { Copy, Users, Clock, Eye, Edit, Settings, Trash2, ExternalLink, Globe, L
 import React, { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 
+import { getDocumentKey, getMyWorkspaceKey } from '@/shared/api'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Badge } from '@/shared/ui/badge'
@@ -16,12 +17,13 @@ import { Switch } from '@/shared/ui/switch'
 
 import { fetchDocumentMeta } from '@/entities/document'
 import { getPublishStatus, publishDocument, unpublishDocument, updatePublishSettings, uploadPublicFilesForDocument } from '@/entities/public'
-import { fetchDecryptedContent } from '@/features/search/lib/fetch-decrypted-content'
-import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
 import { createShare, deleteShare, listDocumentShares, shareKeys } from '@/entities/share'
+
 import { useAuthContext } from '@/features/auth'
+import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
+import { fetchDecryptedContent } from '@/features/search/lib/fetch-decrypted-content'
 import {
-  getKeyManager,
+  getKeyVaultService,
   generateShareKey,
   encryptDekWithShareKey,
   encryptDekWithKek,
@@ -31,7 +33,6 @@ import {
   getSodium,
   URL_FRAGMENT_PREFIX,
 } from '@/features/security'
-import { getDocumentKey, getMyWorkspaceKey } from '@/shared/api'
 
 type ShareLink = {
   id: string
@@ -79,12 +80,12 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
   ): Promise<string | null> => {
     if (!activeWorkspaceId) return null
     try {
-      const keyManager = getKeyManager()
-      await keyManager.initialize()
-      if (!keyManager.isUnlocked) return null
+      const service = getKeyVaultService()
+      await service.ready()
+      if (!service.isUnlocked) return null
 
       const kekResponse = await getMyWorkspaceKey({ id: activeWorkspaceId })
-      const kek = await keyManager.getWorkspaceKek(activeWorkspaceId, async () => kekResponse.encryptedKek)
+      const kek = await service.getWorkspaceKek(activeWorkspaceId, async () => kekResponse.encryptedKek)
       const shareKey = await decryptDekFromApiResponse(encryptedKey, nonce, kek)
       const sodium = await getSodium()
       const keyBase64 = sodium.to_base64(shareKey, sodium.base64_variants.URLSAFE_NO_PADDING)
@@ -150,23 +151,23 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
         expiresAt = d.toISOString()
       }
 
-      // Try to get DEK for E2EE encryption
+      // Try to get DEK for encryption
       let encryptedDekForShare: string | undefined
       let creatorEncryptedShareKey: string | undefined
       let creatorShareKeyNonce: string | undefined
 
       try {
-        const keyManager = getKeyManager()
-        await keyManager.initialize()
+        const service = getKeyVaultService()
+        await service.ready()
 
-        if (keyManager.isUnlocked && activeWorkspaceId) {
+        if (service.isUnlocked && activeWorkspaceId) {
           // Get workspace KEK
           const kekResponse = await getMyWorkspaceKey({ id: activeWorkspaceId })
-          const kek = await keyManager.getWorkspaceKek(activeWorkspaceId, async () => kekResponse.encryptedKek)
+          const kek = await service.getWorkspaceKek(activeWorkspaceId, async () => kekResponse.encryptedKek)
 
           // Get document DEK
           const dekResponse = await getDocumentKey({ id: targetId })
-          const dek = await keyManager.getDocumentDek(targetId, kek, async () => ({
+          const dek = await service.getDocumentDek(targetId, kek, async () => ({
             encryptedDek: dekResponse.encryptedDek,
             nonce: dekResponse.nonce,
           }))
@@ -196,8 +197,8 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
           creatorShareKeyNonce = encodedShareKey.nonce
         }
       } catch (e) {
-        // E2EE not available or not set up - continue without encrypted DEK
-        console.warn('[ShareDialog] E2EE encryption skipped:', e)
+        // Encryption not available or not set up - continue without encrypted DEK
+        console.warn('[ShareDialog] Encryption skipped:', e)
       }
 
       const result = await createShare({
@@ -239,8 +240,8 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
       let plaintextTitle: string | undefined
       let plaintextContent: string | undefined
 
-      const keyManager = getKeyManager()
-      if (keyManager.isUnlocked && activeWorkspaceId) {
+      const service = getKeyVaultService()
+      if (service.isUnlocked && activeWorkspaceId) {
         try {
           const [meta, content] = await Promise.all([
             fetchDocumentMeta(targetId),
@@ -259,8 +260,8 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
 
       const r = await publishDocument(targetId, { plaintextTitle, plaintextContent })
 
-      // Upload decrypted attachments for E2EE documents
-      if (keyManager.isUnlocked && activeWorkspaceId) {
+      // Upload decrypted attachments for encrypted documents
+      if (service.isUnlocked && activeWorkspaceId) {
         try {
           await uploadPublicFilesForDocument({
             documentId: targetId,

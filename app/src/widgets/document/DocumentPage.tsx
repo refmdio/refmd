@@ -20,11 +20,11 @@ import {
 } from '@/features/document-download'
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
-import { UnlockPrompt } from '@/features/security'
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
-import { setConflicts as setGlobalConflicts, readConflicts, clearAllConflicts, type ConflictItem } from '@/features/git-sync/lib/git-conflict-store'
 import { finalizeConflictResolution, resolveConflict, type ConflictResolution } from '@/features/git-sync'
+import { setConflicts as setGlobalConflicts, readConflicts, clearAllConflicts, type ConflictItem } from '@/features/git-sync/lib/git-conflict-store'
 import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
+import { UnlockPrompt } from '@/features/security'
 
 export type DocumentLoaderData = {
   title: string
@@ -287,7 +287,7 @@ function DocumentClient({
   const [hunkChoices, setHunkChoices] = useState<Record<string, 'ours' | 'theirs'>>({})
   const [hunkDefaultSide, setHunkDefaultSide] = useState<'ours' | 'theirs'>('ours')
   const [hunkAnchors, setHunkAnchors] = useState<Array<{ hunkId: string; line: number }>>([])
-  const { status, doc, awareness, isReadOnly, error: realtimeError, needsE2EEUnlock, retryE2EECheck } = useCollaborativeDocument(id, shareToken)
+  const { status, doc, awareness, isReadOnly, error: realtimeError, needsKeyVaultUnlock, retryKeyVaultCheck } = useCollaborativeDocument(id, shareToken)
   const hasDoc = Boolean(doc)
   const anonIdentity = useMemo(() => {
     if (user) return null
@@ -777,11 +777,11 @@ function DocumentClient({
   // Handle E2EE unlock requirement
   const handleUnlocked = useCallback(() => {
     // Retry E2EE check to reinitialize the document connection with unlocked keys
-    retryE2EECheck()
-  }, [retryE2EECheck])
+    retryKeyVaultCheck()
+  }, [retryKeyVaultCheck])
 
   // Show unlock prompt if E2EE is locked
-  if (needsE2EEUnlock) {
+  if (needsKeyVaultUnlock) {
     return (
       <div className="flex h-full items-center justify-center p-4">
         <UnlockPrompt onUnlocked={handleUnlocked} />

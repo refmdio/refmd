@@ -6,13 +6,12 @@ import {
   uploadFile,
   me as fetchMe,
   OpenAPI,
-  getDocumentKey,
-  getMyWorkspaceKey,
   type ManifestItem,
 } from '@/shared/api'
-import { renderMarkdown, renderMarkdownMany } from '@/entities/markdown'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 
+import * as documentWc from '@/entities/document/wc'
+import { renderMarkdown, renderMarkdownMany } from '@/entities/markdown'
 import {
   getPluginKv as apiGetPluginKv,
   listPluginRecords as apiListPluginRecords,
@@ -24,12 +23,14 @@ import {
   type SplitEditorPreviewDelegate,
   type SplitEditorDocumentApi,
 } from '@/features/plugins/ui/SplitEditorHost'
-import { getKeyManager } from '@/features/security/lib/keys'
-import { getWasmRuntime } from './wasm-runtime'
-import { loadPluginWasm, hasPluginWasm } from './wasm-loader'
-import { handleEffects } from './effect-handler'
+import { getKeyVaultService, fetchDocumentDek } from '@/features/security'
 import { decryptRecords, decryptKV, encryptKV } from '@/features/security/lib/plugins'
-import * as documentWc from '@/entities/document/wc'
+
+import { handleEffects } from './effect-handler'
+import { loadPluginWasm, hasPluginWasm } from './wasm-loader'
+import { getWasmRuntime } from './wasm-runtime'
+
+
 
 export type HostMode = 'primary' | 'secondary'
 
@@ -158,22 +159,13 @@ function createLazyDEKGetter(
     }
 
     try {
-      const km = getKeyManager()
-      if (!km.isInitialized || !km.isUnlocked) {
+      const service = getKeyVaultService()
+      if (!service.isInitialized || !service.isUnlocked) {
         fetched = true
         return null
       }
 
-      const kek = await km.getWorkspaceKek(workspaceId, async () => {
-        const response = await getMyWorkspaceKey({ id: workspaceId })
-        return response.encryptedKek
-      })
-
-      cachedDEK = await km.getDocumentDek(docId, kek, async () => {
-        const response = await getDocumentKey({ id: docId })
-        return { encryptedDek: response.encryptedDek, nonce: response.nonce }
-      })
-
+      cachedDEK = await fetchDocumentDek(docId, workspaceId)
       fetched = true
       return cachedDEK
     } catch {

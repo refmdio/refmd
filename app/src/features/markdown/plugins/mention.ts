@@ -7,9 +7,9 @@
  * - Pattern: #mention:[A-Za-z0-9-_:@.]+
  */
 
-import { visit } from 'unist-util-visit'
-import type { Plugin } from 'unified'
 import type { Root, Element, Text } from 'hast'
+import type { Plugin } from 'unified'
+import { visit } from 'unist-util-visit'
 
 // Characters that prevent mention recognition when immediately preceding #
 const SKIP_PREV_CHARS = /[A-Za-z0-9\/:@.\-_+~=?&%]$/

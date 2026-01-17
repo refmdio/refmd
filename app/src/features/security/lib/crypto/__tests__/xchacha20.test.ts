@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
+
+import { getSodium } from '../sodium'
 import {
   encrypt,
   decrypt,
@@ -11,7 +13,6 @@ import {
   KEY_SIZE,
   NONCE_SIZE,
 } from '../xchacha20'
-import { getSodium } from '../sodium'
 
 describe('XChaCha20-Poly1305', () => {
   beforeAll(async () => {

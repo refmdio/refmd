@@ -28,7 +28,6 @@ import type { LucideIcon } from 'lucide-react'
 import React, { useState, useCallback, memo, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
-import type { ConflictItem } from '@/features/git-sync'
 import useInView from '@/shared/hooks/use-in-view'
 import { dispatchOpenPreviewTile } from '@/shared/lib/mosaic-events'
 import { overlayMenuClass } from '@/shared/lib/overlay-classes'
@@ -43,6 +42,7 @@ import { useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
 import { getPluginKv } from '@/entities/plugin'
 
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
+import type { ConflictItem } from '@/features/git-sync'
 
 
 

@@ -1,8 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 import { toast } from 'sonner'
-import type * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
+import type * as Y from 'yjs'
 
 import { useRealtime } from '@/shared/contexts/realtime-context'
 import { createYjsConnection, destroyYjsConnection } from '@/shared/lib/yjsConnection'
@@ -17,7 +17,7 @@ import {
   decryptDekWithShareKey,
 } from '@/features/security'
 
-import { useE2EEStatus } from './useE2EEStatus'
+import { useKeyVaultStatus } from './useKeyVaultStatus'
 
 
 export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
@@ -84,7 +84,7 @@ async function resolveShareMode(
   })
 
   if (!shareInfo?.encryptedDek) {
-    // Document might not be E2EE or share key not stored
+    // Document might not be encrypted or share key not stored
     return null
   }
 
@@ -233,28 +233,28 @@ export function useCollaborativeDocument(
     setOnlineUsers,
     userCount,
   } = useRealtime()
-  // E2EE status check
-  const { e2eeUnlocked, needsE2EEUnlock, retryE2EECheck } = useE2EEStatus({
+  // KeyVault status check
+  const { keyVaultUnlocked, needsKeyVaultUnlock, retryKeyVaultCheck } = useKeyVaultStatus({
     enabled,
     shareToken,
     useUrlShareTokenFallback,
   })
 
-  // Track if E2EE is ready - once true, stays true (one-way transition)
-  // This prevents effect re-runs when e2eeUnlocked changes from null to true
-  const [e2eeReady, setE2eeReady] = React.useState(false)
+  // Track if KeyVault is ready - once true, stays true (one-way transition)
+  // This prevents effect re-runs when keyVaultUnlocked changes from null to true
+  const [keyVaultReady, setKeyVaultReady] = React.useState(false)
   React.useEffect(() => {
-    if (e2eeUnlocked === true && !e2eeReady) {
-      setE2eeReady(true)
+    if (keyVaultUnlocked === true && !keyVaultReady) {
+      setKeyVaultReady(true)
     }
-  }, [e2eeUnlocked, e2eeReady])
+  }, [keyVaultUnlocked, keyVaultReady])
 
-  // Handle E2EE lock state separately (show error if locked)
+  // Handle KeyVault lock state separately (show error if locked)
   React.useEffect(() => {
-    if (needsE2EEUnlock) {
-      setError('E2EE session locked. Please unlock to continue.')
+    if (needsKeyVaultUnlock) {
+      setError('Session locked. Please unlock to continue.')
     }
-  }, [needsE2EEUnlock])
+  }, [needsKeyVaultUnlock])
 
   const [status, setStatus] = React.useState<RealtimeStatus>('connecting')
   const [isReadOnly, setIsReadOnly] = React.useState(false)
@@ -379,8 +379,8 @@ export function useCollaborativeDocument(
       return () => {}
     }
 
-    // Wait for E2EE to be ready (e2eeReady transitions from false to true only once)
-    if (!e2eeReady) {
+    // Wait for KeyVault to be ready (keyVaultReady transitions from false to true only once)
+    if (!keyVaultReady) {
       setStatus('connecting')
       return () => {}
     }
@@ -596,7 +596,7 @@ export function useCollaborativeDocument(
     useUrlShareTokenFallback,
     trackAwareness,
     activeWorkspaceId,
-    e2eeReady,
+    keyVaultReady,
   ])
 
   React.useEffect(() => {
@@ -622,8 +622,8 @@ export function useCollaborativeDocument(
     awareness,
     error,
     archived,
-    needsE2EEUnlock,
-    retryE2EECheck,
+    needsKeyVaultUnlock,
+    retryKeyVaultCheck,
   }
 }
 

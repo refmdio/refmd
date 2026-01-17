@@ -1,11 +1,11 @@
-import { Extension } from '@codemirror/state'
-import { EditorView } from '@codemirror/view'
 import {
   autocompletion,
   CompletionContext,
   CompletionResult,
   Completion,
 } from '@codemirror/autocomplete'
+import { Extension } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 
 import { listDocuments } from '@/entities/document'
 

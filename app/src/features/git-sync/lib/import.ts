@@ -1,25 +1,28 @@
 /**
- * Git Import for E2EE Git Sync
+ * Git Import for KeyVault Git Sync
  *
  * Imports a Git repository into the workspace.
  */
 
 import * as Y from 'yjs'
-import { GitClient } from './git-client'
-import type { GitCredentials } from './git-credentials'
+
 import {
-  getKeyManager,
+  updateDocumentContent as apiUpdateDocumentContent,
+} from '@/shared/api/client'
+
+import { createDocument } from '@/entities/document'
+
+import {
+  getKeyVaultService,
+  fetchDocumentKeys,
   createDocumentDek,
   encrypt,
   getSodium,
-  decryptDekFromApiResponse,
 } from '@/features/security'
-import { createDocument } from '@/entities/document'
-import {
-  getMyWorkspaceKey,
-  getDocumentKey,
-  updateDocumentContent as apiUpdateDocumentContent,
-} from '@/shared/api/client'
+
+import { GitClient } from './git-client'
+import type { GitCredentials } from './git-credentials'
+
 
 export interface ImportResult {
   success: boolean
@@ -48,11 +51,11 @@ export async function importFromGit(
   credentials: GitCredentials,
   onProgress?: ProgressCallback
 ): Promise<ImportResult> {
-  const keyManager = getKeyManager()
-  if (!keyManager.isUnlocked) {
+  const service = getKeyVaultService()
+  if (!service.isUnlocked) {
     return {
       success: false,
-      message: 'E2EE is locked. Please unlock first.',
+      message: 'KeyVault is locked. Please unlock first.',
       docsCreated: 0,
       attachmentsFound: 0,
     }
@@ -138,11 +141,8 @@ export async function importFromGit(
         // Create DEK for the document
         await createDocumentDek(doc.id, workspaceId)
 
-        // Get KEK and DEK for encryption
-        const kekResponse = await getMyWorkspaceKey({ id: workspaceId })
-        const kek = await keyManager.decryptKek(kekResponse.encryptedKek)
-        const dekResponse = await getDocumentKey({ id: doc.id })
-        const dek = await decryptDekFromApiResponse(dekResponse.encryptedDek, dekResponse.nonce, kek)
+        // Get DEK for encryption
+        const { dek } = await fetchDocumentKeys(doc.id, workspaceId)
 
         // Create Yjs doc and set content
         const ydoc = new Y.Doc()

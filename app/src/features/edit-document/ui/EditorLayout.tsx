@@ -1,6 +1,6 @@
+import { MergeView } from '@codemirror/merge'
 import { Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { MergeView } from '@codemirror/merge'
 import { AlertTriangle, Check, Loader2, SlidersHorizontal, X } from 'lucide-react'
 import { useCallback, useMemo, useEffect, useRef, type CSSProperties, type ReactNode, type MutableRefObject } from 'react'
 

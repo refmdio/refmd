@@ -6,6 +6,7 @@
  */
 
 import { type CryptoError, type ErrorContext } from '../types/errors'
+
 import { getErrorLogStore, type ErrorLog } from './error-log-store'
 
 /**

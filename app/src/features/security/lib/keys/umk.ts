@@ -22,6 +22,7 @@ import {
   umkToRecoveryKey,
   getSodium,
 } from '../crypto'
+
 import type { StoredKeys } from './key-store'
 
 /** UMK size in bytes (256 bits) */

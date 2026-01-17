@@ -6,8 +6,9 @@
 
 import * as git from 'isomorphic-git'
 import type { FsClient } from 'isomorphic-git'
-import { GitClient } from './git-client'
+
 import { calculateDirtyFiles } from './dirty-calculator'
+import { GitClient } from './git-client'
 import { fetchDecryptedDocumentContent } from './sync'
 
 export interface GitCommitItem {

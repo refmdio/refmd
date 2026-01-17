@@ -23,7 +23,6 @@ import {
   clearImportedRepository,
   type GitCredentials,
 } from '@/features/git-sync'
-
 import { settingsNavItems } from '@/features/settings/nav'
 
 import { SettingsShell } from './SettingsShell'

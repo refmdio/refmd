@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/sha
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
-import { useE2EE } from '../context/e2ee-context'
+import { useKeyVault } from '../context/key-vault-context'
 
 type RestoreMode = 'passphrase' | 'recovery'
 
@@ -25,7 +25,7 @@ export function RestorePrompt({ onRestored, inline = false }: RestorePromptProps
     loading,
     error,
     clearError,
-  } = useE2EE()
+  } = useKeyVault()
   const [mode, setMode] = useState<RestoreMode>('passphrase')
   const [passphrase, setPassphrase] = useState('')
   const [recoveryKey, setRecoveryKey] = useState('')

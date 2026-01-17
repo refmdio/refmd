@@ -11,8 +11,8 @@ import {
 import { usePluginExecutor, usePluginManifest, type PluginCommand } from '@/entities/plugin'
 import { deleteShareMount } from '@/entities/share'
 
-import { createDocumentDekIfNeeded } from '@/features/security'
 import type { DocumentNode } from '@/features/file-tree/model/types'
+import { createDocumentDekIfNeeded } from '@/features/security'
 
 export type PluginMenuItem = {
   title: string

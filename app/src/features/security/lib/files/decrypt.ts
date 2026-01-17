@@ -9,6 +9,7 @@ import {
   type DecryptedRmeFile,
   type RmeMetadata,
 } from '../types/file-format'
+
 import { parseRme } from './format'
 import { computeSha256 } from './hash'
 

@@ -5,15 +5,16 @@
  */
 
 import {
-  getKeyManager,
-  generateDocumentDek,
-  createEncryptedDekForApi,
-} from './keys'
-import {
   storeDocumentKey,
   getMyWorkspaceKey,
   getDocumentKey,
 } from '@/shared/api'
+
+import {
+  getKeyManager,
+  generateDocumentDek,
+  createEncryptedDekForApi,
+} from './keys'
 
 /**
  * Generate and store a DEK for a newly created document.

@@ -5,8 +5,8 @@
  * Signature format: domain + canonicalize({ciphertext, nonce, publicData})
  */
 
-import { getSodium } from './sodium'
 import { canonicalize } from './canonicalize'
+import { getSodium } from './sodium'
 
 /** Ed25519 public key size (32 bytes) */
 export const PUBLIC_KEY_SIZE = 32

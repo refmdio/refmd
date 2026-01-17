@@ -6,6 +6,7 @@ import {
   type MasterKeyBackupResponse,
   type EncryptedPrivateKeyResponse,
 } from '@/entities/user'
+
 import type { EncryptedKeysBundle } from '../lib/keys'
 
 export interface ServerBackup {

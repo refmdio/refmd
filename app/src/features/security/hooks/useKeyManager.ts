@@ -36,7 +36,7 @@ function updateSnapshot() {
 /**
  * Low-level hook for KeyManager operations that do NOT require rememberMe.
  *
- * For operations that require rememberMe (unlock, setupE2EE, restore), use useE2EE instead.
+ * For operations that require rememberMe (unlock, setup, restore), use useKeyVault instead.
  * This hook is only for:
  * - changePassphrase: Change the user's passphrase
  * - verifyPassphrase: Verify if a passphrase is correct

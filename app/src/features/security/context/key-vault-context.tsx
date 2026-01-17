@@ -2,14 +2,17 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import { useAuthContext } from '@/features/auth'
 
-import { getKeyManager, type E2EESetupResult } from '../lib/keys'
 import { useSecurityStatus } from '../hooks/useSecurityStatus'
 import { useServerBackup, type ServerBackup } from '../hooks/useServerBackup'
+import { getKeyManager, type E2EESetupResult } from '../lib/keys'
 
-export interface E2EEState {
+/** Result type from setup operation (re-exported for convenience) */
+export type SetupResult = E2EESetupResult
+
+export interface KeyVaultState {
   /** Whether KeyManager is initialized */
   isInitialized: boolean
-  /** Whether E2EE setup has been completed on the server */
+  /** Whether security setup has been completed on the server */
   isSetupComplete: boolean
   /** Whether the session is unlocked (keys are in memory) */
   isUnlocked: boolean
@@ -19,7 +22,7 @@ export interface E2EEState {
   loading: boolean
   /** Current error message */
   error: string | null
-  /** Whether the user needs to complete E2EE setup */
+  /** Whether the user needs to complete security setup */
   needsSetup: boolean
   /** Whether the user needs to migrate existing data */
   needsMigration: boolean
@@ -39,15 +42,15 @@ export interface E2EEState {
   lock: () => void
   /** Logout - clears keys from memory AND storage */
   logout: () => Promise<void>
-  /** Set up E2EE for a new user */
-  setupE2EE: (passphrase: string) => Promise<E2EESetupResult>
+  /** Set up encryption for a new user */
+  setup: (passphrase: string) => Promise<SetupResult>
   /** Clear error state */
   clearError: () => void
 }
 
-const E2EEContext = createContext<E2EEState | null>(null)
+const KeyVaultContext = createContext<KeyVaultState | null>(null)
 
-export function E2EEProvider({ children }: { children: React.ReactNode }) {
+export function KeyVaultProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading, rememberMe } = useAuthContext()
   const { data: securityStatus, isLoading: statusLoading } = useSecurityStatus({ enabled: !!user })
   const { data: serverBackup, isLoading: backupLoading } = useServerBackup({ enabled: !!user })
@@ -206,7 +209,7 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
     setHasLocalKeys(null) // Reset local keys state
   }, [])
 
-  const setupE2EE = useCallback(async (passphrase: string): Promise<E2EESetupResult> => {
+  const setup = useCallback(async (passphrase: string): Promise<SetupResult> => {
     const shouldRemember = rememberMeRef.current === true
     setLoading(true)
     setError(null)
@@ -230,14 +233,14 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   // Determine if restore from server is needed
-  // needsRestore = server has E2EE setup + server has backup + local has no keys
+  // needsRestore = server has setup complete + server has backup + local has no keys
   const needsRestore = !!(
     securityStatus?.isSetupComplete &&
     serverBackup?.hasBackup &&
     hasLocalKeys === false
   )
 
-  const value = useMemo<E2EEState>(
+  const value = useMemo<KeyVaultState>(
     () => ({
       isInitialized,
       isSetupComplete: securityStatus?.isSetupComplete ?? false,
@@ -255,7 +258,7 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
       restoreFromServerWithRecoveryKey,
       lock,
       logout,
-      setupE2EE,
+      setup,
       clearError,
     }),
     [
@@ -275,18 +278,19 @@ export function E2EEProvider({ children }: { children: React.ReactNode }) {
       restoreFromServerWithRecoveryKey,
       lock,
       logout,
-      setupE2EE,
+      setup,
       clearError,
     ]
   )
 
-  return <E2EEContext.Provider value={value}>{children}</E2EEContext.Provider>
+  return <KeyVaultContext.Provider value={value}>{children}</KeyVaultContext.Provider>
 }
 
-export function useE2EE(): E2EEState {
-  const context = useContext(E2EEContext)
+export function useKeyVault(): KeyVaultState {
+  const context = useContext(KeyVaultContext)
   if (!context) {
-    throw new Error('useE2EE must be used within E2EEProvider')
+    throw new Error('useKeyVault must be used within KeyVaultProvider')
   }
   return context
 }
+

@@ -3,15 +3,15 @@
  * Replaces server-side Comrak rendering for E2EE support
  */
 
-import { unified } from 'unified'
-import remarkParse from 'remark-parse'
-import remarkGfm from 'remark-gfm'
-import remarkBreaks from 'remark-breaks'
-import remarkMath from 'remark-math'
-import remarkRehype from 'remark-rehype'
-import rehypeStringify from 'rehype-stringify'
-import rehypeSanitize from 'rehype-sanitize'
 import rehypeKatex from 'rehype-katex'
+import rehypeSanitize from 'rehype-sanitize'
+import rehypeStringify from 'rehype-stringify'
+import remarkBreaks from 'remark-breaks'
+import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import remarkParse from 'remark-parse'
+import remarkRehype from 'remark-rehype'
+import { unified } from 'unified'
 
 import {
   remarkSourcepos,
@@ -24,7 +24,6 @@ import {
   refmdSanitizeSchema,
   resetPlaceholderCounter,
 } from './plugins'
-
 import type { RenderOptions, RenderResponse, PlaceholderItem } from './types'
 
 /**

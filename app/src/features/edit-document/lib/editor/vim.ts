@@ -1,6 +1,6 @@
 import { Extension, Compartment } from '@codemirror/state'
-import { vim } from '@replit/codemirror-vim'
 import { EditorView } from '@codemirror/view'
+import { vim } from '@replit/codemirror-vim'
 
 export const vimCompartment = new Compartment()
 

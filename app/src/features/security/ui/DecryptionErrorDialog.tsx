@@ -1,6 +1,5 @@
 import { AlertTriangle, Key, RefreshCw, ShieldAlert, X } from 'lucide-react'
 
-import { Button } from '@/shared/ui/button'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -9,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/shared/ui/alert-dialog'
+import { Button } from '@/shared/ui/button'
 
 import { type CryptoError, ERROR_CODES } from '../lib/types/errors'
 

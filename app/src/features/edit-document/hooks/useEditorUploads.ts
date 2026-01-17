@@ -2,8 +2,9 @@ import { EditorView } from '@codemirror/view'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
-import { useEditorContext } from '@/features/edit-document/model/editor-context'
 import { addFileToMap, getExistingPaths } from '@/entities/file'
+
+import { useEditorContext } from '@/features/edit-document/model/editor-context'
 
 export type UploadStatus =
   | { state: 'idle'; total: 0; completed: 0 }

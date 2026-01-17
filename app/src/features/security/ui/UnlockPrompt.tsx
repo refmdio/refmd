@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/sha
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
-import { useE2EE } from '../context/e2ee-context'
+import { useKeyVault } from '../context/key-vault-context'
 
 type UnlockMode = 'passphrase' | 'recovery' | 'reset'
 
@@ -40,7 +40,7 @@ export function UnlockPrompt({
     loading,
     error,
     clearError,
-  } = useE2EE()
+  } = useKeyVault()
   const [mode, setMode] = useState<UnlockMode>('passphrase')
   const [passphrase, setPassphrase] = useState('')
   const [recoveryKey, setRecoveryKey] = useState('')

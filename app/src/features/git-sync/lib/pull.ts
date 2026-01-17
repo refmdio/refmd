@@ -1,14 +1,17 @@
 /**
- * Git Pull for E2EE Git Sync
+ * Git Pull for KeyVault Git Sync
  *
  * Handles pulling changes from remote and detecting conflicts.
  */
 
 import * as git from 'isomorphic-git'
+
+import { listDocuments, type Document } from '@/shared/api/client'
+
+import { getKeyVaultService } from '@/features/security'
+
 import { GitClient } from './git-client'
 import { loadGitCredentials } from './git-credentials'
-import { getKeyManager } from '@/features/security'
-import { listDocuments, type Document } from '@/shared/api/client'
 
 export interface PullResult {
   success: boolean
@@ -30,11 +33,11 @@ export interface ConflictItem {
  * Pull changes from remote repository
  */
 export async function pullFromGit(workspaceId: string): Promise<PullResult> {
-  const keyManager = getKeyManager()
-  if (!keyManager.isUnlocked) {
+  const service = getKeyVaultService()
+  if (!service.isUnlocked) {
     return {
       success: false,
-      message: 'E2EE is locked. Please unlock first.',
+      message: 'KeyVault is locked. Please unlock first.',
       conflicts: [],
       filesUpdated: 0,
     }

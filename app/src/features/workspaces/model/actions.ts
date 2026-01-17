@@ -1,3 +1,5 @@
+import { getWorkspaceKeyVersion } from '@/shared/api/client'
+
 import {
   acceptWorkspaceInvitation,
   createWorkspace,
@@ -14,8 +16,8 @@ import {
   updateInvitationKek,
   type PermissionOverridePayload,
 } from '@/entities/workspace/api'
-import { getKeyManager } from '@/features/security'
-import { getWorkspaceKeyVersion } from '@/shared/api/client'
+
+import { getKeyVaultService } from '@/features/security'
 
 import type { SystemRole } from './permissions'
 
@@ -31,20 +33,20 @@ export async function createWorkspaceAction(params: { name: string; description?
     icon: params.icon,
   })
 
-  // 2. Create KEK if E2EE is unlocked
-  const keyManager = getKeyManager()
-  await keyManager.initialize()
-  console.log('[workspace] Creating KEK for workspace:', workspace.id, 'isUnlocked:', keyManager.isUnlocked)
-  if (keyManager.isUnlocked) {
+  // 2. Create KEK if KeyVault is unlocked
+  const service = getKeyVaultService()
+  await service.ready()
+  console.log('[workspace] Creating KEK for workspace:', workspace.id, 'isUnlocked:', service.isUnlocked)
+  if (service.isUnlocked) {
     try {
-      await keyManager.createAndStoreWorkspaceKek(workspace.id)
+      await service.keyManager.createAndStoreWorkspaceKek(workspace.id)
       console.log('[workspace] KEK created successfully for workspace:', workspace.id)
     } catch (error) {
       console.error('[workspace] Failed to create KEK:', error)
       // Don't throw - workspace is created, KEK can be created later
     }
   } else {
-    console.warn('[workspace] E2EE is not unlocked, skipping KEK creation')
+    console.warn('[workspace] KeyVault is not unlocked, skipping KEK creation')
   }
 
   return workspace
@@ -76,8 +78,8 @@ export async function sendWorkspaceInvitationAction(params: {
   email: string
   selection: WorkspaceRoleSelection
 }) {
-  const keyManager = getKeyManager()
-  await keyManager.initialize()
+  const service = getKeyVaultService()
+  await service.ready()
 
   // 1. Build role payload
   const payload =
@@ -91,15 +93,15 @@ export async function sendWorkspaceInvitationAction(params: {
     ...payload,
   })
 
-  // 3. If E2EE unlocked, encrypt KEK for invitation
-  if (keyManager.isUnlocked && invitation.token) {
+  // 3. If KeyVault unlocked, encrypt KEK for invitation
+  if (service.isUnlocked && invitation.token) {
     try {
       // Get current key version
       const versionResponse = await getWorkspaceKeyVersion({ id: params.workspaceId })
       const kekVersion = versionResponse.keyVersion ?? 1
 
       // Encrypt KEK with invitation token
-      const encryptedKekForInvite = await keyManager.encryptKekForInvitationToken(
+      const encryptedKekForInvite = await service.keyManager.encryptKekForInvitationToken(
         params.workspaceId,
         invitation.token
       )
@@ -127,15 +129,15 @@ export async function acceptWorkspaceInvitationAction(token: string) {
   const response = await acceptWorkspaceInvitation(token)
 
   // 2. If encrypted KEK provided, decrypt and store
-  const keyManager = getKeyManager()
-  await keyManager.initialize()
+  const service = getKeyVaultService()
+  await service.ready()
   if (
-    keyManager.isUnlocked &&
+    service.isUnlocked &&
     response.encryptedKekForInvite &&
     response.kekVersion
   ) {
     try {
-      await keyManager.acceptInvitationAndStoreKek(
+      await service.keyManager.acceptInvitationAndStoreKek(
         response.workspaceId,
         token,
         response.encryptedKekForInvite,

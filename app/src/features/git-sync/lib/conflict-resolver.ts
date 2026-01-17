@@ -1,13 +1,15 @@
 /**
- * Conflict Resolver for E2EE Git Sync
+ * Conflict Resolver for KeyVault Git Sync
  *
  * Handles resolving merge conflicts client-side.
  */
 
 import * as git from 'isomorphic-git'
+
+import { getKeyVaultService } from '@/features/security'
+
 import { GitClient } from './git-client'
 import { loadGitCredentials } from './git-credentials'
-import { getKeyManager } from '@/features/security'
 
 export interface ConflictResolution {
   path: string
@@ -58,11 +60,11 @@ export async function finalizeConflictResolution(
   workspaceId: string,
   commitMessage?: string
 ): Promise<{ success: boolean; message: string; commitSha?: string }> {
-  const keyManager = getKeyManager()
-  if (!keyManager.isUnlocked) {
+  const service = getKeyVaultService()
+  if (!service.isUnlocked) {
     return {
       success: false,
-      message: 'E2EE is locked. Please unlock first.',
+      message: 'KeyVault is locked. Please unlock first.',
     }
   }
 

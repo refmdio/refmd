@@ -5,8 +5,32 @@
  * Replaces y-websocket with encrypted communication.
  */
 
-import type * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
+import type * as Y from 'yjs'
+
+import { getMyWorkspaceKey, getDocumentKey } from '@/shared/api/client'
+import { getDocument } from '@/shared/api/client'
+
+import { getPublishStatus, publishDocument } from '@/entities/public'
+import { updateDocumentTagsFromContent } from '@/entities/tag'
+
+import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
+import {
+  getKeyVaultService,
+  getSodium,
+  fromBase64,
+} from '@/features/security'
+
+import {
+  createEphemeralSession,
+  createEphemeralMessage,
+  createInitializeMessage,
+  verifyAndDecryptEphemeralMessage,
+  generateSessionId,
+  type EphemeralSession,
+  type EphemeralMessage,
+  type EphemeralPublicData as EphemeralPublicDataFromEphemeral,
+} from './ephemeral'
 import {
   createUpdate,
   createSnapshot,
@@ -22,27 +46,6 @@ import {
   type UpdatePublicData,
   type SnapshotPublicData,
 } from './messages'
-import {
-  createEphemeralSession,
-  createEphemeralMessage,
-  createInitializeMessage,
-  verifyAndDecryptEphemeralMessage,
-  generateSessionId,
-  type EphemeralSession,
-  type EphemeralMessage,
-  type EphemeralPublicData as EphemeralPublicDataFromEphemeral,
-} from './ephemeral'
-import {
-  getKeyManager,
-  SessionLockedError,
-  getSodium,
-  fromBase64,
-} from '@/features/security'
-import { getMyWorkspaceKey, getDocumentKey } from '@/shared/api/client'
-import { updateDocumentTagsFromContent } from '@/entities/tag'
-import { getPublishStatus, publishDocument } from '@/entities/public'
-import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
-import { getDocument } from '@/shared/api/client'
 
 // ============================================
 // Types
@@ -251,17 +254,15 @@ export class Sync {
     }
 
     // Normal mode: workspace-based key derivation
-    const keyManager = getKeyManager()
-    await keyManager.initialize()
+    const service = getKeyVaultService()
+    await service.ready()
 
     // Verify session is unlocked
-    if (!keyManager.isUnlocked) {
-      throw new SessionLockedError()
-    }
+    service.ensureUnlocked()
 
-    // Get signing key pair
-    this.signingKeyPair = keyManager.getSigningKeyPair()
-    const publicKeys = await keyManager.getPublicKeysBase64()
+    // Get signing key pair (via underlying KeyManager)
+    this.signingKeyPair = service.keyManager.getSigningKeyPair()
+    const publicKeys = await service.keyManager.getPublicKeysBase64()
     this.publicKeyBase64 = publicKeys.signingPublicKey
 
     // Get KEK for this workspace
@@ -270,7 +271,7 @@ export class Sync {
       return response.encryptedKek
     })
 
-    const kek = await keyManager.getWorkspaceKek(this.workspaceId, fetchKek)
+    const kek = await service.getWorkspaceKek(this.workspaceId, fetchKek)
 
     // Get DEK for this document
     const fetchDek = this.options.fetchDek ?? (async () => {
@@ -278,7 +279,7 @@ export class Sync {
       return { encryptedDek: response.encryptedDek, nonce: response.nonce }
     })
 
-    this.dek = await keyManager.getDocumentDek(this.documentId, kek, fetchDek)
+    this.dek = await service.getDocumentDek(this.documentId, kek, fetchDek)
 
     // Create ephemeral session for awareness
     this.ephemeralSession = await createEphemeralSession()

@@ -1,27 +1,26 @@
 /**
- * Dirty File Calculator for E2EE Git Sync
+ * Dirty File Calculator for KeyVault Git Sync
  *
  * Calculates dirty files on-demand by comparing document content with Git HEAD.
  * No persistence - ensures cross-device consistency.
  */
 
+import * as Y from 'yjs'
+
 import {
   listDocuments,
   getDocumentContent,
-  getDocumentKey,
-  getMyWorkspaceKey,
   type Document,
   type EncryptedUpdateEntry,
 } from '@/shared/api/client'
 
 import {
-  getKeyManager,
+  fetchDocumentKeys,
+  SessionLockedError,
   decrypt,
   getSodium,
-  decryptDekFromApiResponse,
 } from '@/features/security'
 
-import * as Y from 'yjs'
 
 import { GitClient } from './git-client'
 
@@ -64,21 +63,18 @@ async function fetchDecryptedDocumentContent(
     const sodium = await getSodium()
     const doc = new Y.Doc()
 
-    const keyManager = getKeyManager()
-    if (!keyManager.isUnlocked) {
-      doc.destroy()
-      return ''
+    // Get encryption keys
+    let dek: Uint8Array
+    try {
+      const keys = await fetchDocumentKeys(documentId, workspaceId)
+      dek = keys.dek
+    } catch (err) {
+      if (err instanceof SessionLockedError) {
+        doc.destroy()
+        return ''
+      }
+      throw err
     }
-
-    // Get workspace KEK
-    const kek = await keyManager.getWorkspaceKek(workspaceId, async () => {
-      const response = await getMyWorkspaceKey({ id: workspaceId })
-      return response.encryptedKek
-    })
-
-    // Get document DEK
-    const keyRes = await getDocumentKey({ id: documentId })
-    const dek = await decryptDekFromApiResponse(keyRes.encryptedDek, keyRes.nonce, kek)
 
     // Apply snapshot if present
     if (hasSnapshot) {

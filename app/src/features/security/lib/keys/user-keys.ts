@@ -14,6 +14,7 @@ import {
   type EcdhKeyPair,
   type Ed25519KeyPair,
 } from '../crypto'
+
 import type { StoredKeys } from './key-store'
 
 /** Complete user key set */

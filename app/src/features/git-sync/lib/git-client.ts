@@ -5,11 +5,14 @@
  * Network operations go through backend proxy (HTTPS) or tunnel (SSH).
  */
 
+import LightningFS from '@isomorphic-git/lightning-fs'
 import * as git from 'isomorphic-git'
 import type { HttpClient, GitHttpRequest, GitHttpResponse } from 'isomorphic-git'
-import LightningFS from '@isomorphic-git/lightning-fs'
-import type { GitCredentials } from './git-credentials'
+
 import { API_BASE_URL } from '@/shared/lib/config'
+
+import type { GitCredentials } from './git-credentials'
+
 
 /**
  * Parse Git SSH URL to extract host and repo

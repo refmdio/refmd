@@ -1,5 +1,5 @@
-import { keymap, KeyBinding } from '@codemirror/view'
 import { Extension } from '@codemirror/state'
+import { keymap, KeyBinding } from '@codemirror/view'
 import { EditorView } from '@codemirror/view'
 
 export type MarkdownAction =

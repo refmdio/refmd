@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 
-import { getWasmRuntime } from '@/features/plugins/lib/wasm-runtime'
-import { loadPluginWasm, hasPluginWasm } from '@/features/plugins/lib/wasm-loader'
-import { handleEffects as handleEffectsFull } from '@/features/plugins/lib/effect-handler'
 import { API_BASE_URL } from '@/shared/lib/config'
-import { getKeyManager } from '@/features/security/lib/keys'
-import { getDocumentKey, getMyWorkspaceKey } from '@/shared/api'
+
+import { handleEffects as handleEffectsFull } from '@/features/plugins/lib/effect-handler'
+import { loadPluginWasm, hasPluginWasm } from '@/features/plugins/lib/wasm-loader'
+import { getWasmRuntime } from '@/features/plugins/lib/wasm-runtime'
+import { getKeyVaultService, fetchDocumentDek } from '@/features/security'
 
 import { getPluginKv } from '../api'
 import type { PluginManifestItem } from '../api'
@@ -40,25 +40,10 @@ async function getDocumentDEK(
   if (!docId || !workspaceId) return null
 
   try {
-    const km = getKeyManager()
-    if (!km.isInitialized || !km.isUnlocked) return null
+    const service = getKeyVaultService()
+    if (!service.isInitialized || !service.isUnlocked) return null
 
-    // Get workspace KEK
-    const kek = await km.getWorkspaceKek(workspaceId, async () => {
-      const response = await getMyWorkspaceKey({ id: workspaceId })
-      return response.encryptedKek
-    })
-
-    // Get document DEK
-    const dek = await km.getDocumentDek(docId, kek, async () => {
-      const response = await getDocumentKey({ id: docId })
-      return {
-        encryptedDek: response.encryptedDek,
-        nonce: response.nonce,
-      }
-    })
-
-    return dek
+    return await fetchDocumentDek(docId, workspaceId)
   } catch {
     // E2EE not available for this document
     return null

@@ -5,9 +5,42 @@
  * It coordinates between the KeyStore, KeyCache, and individual key modules.
  */
 
+import {
+  storeWorkspaceKey,
+  getMyWorkspaceKey,
+  listMembers,
+  getUserPublicKey,
+  rotateWorkspaceKey,
+  rotateDocumentKey,
+} from '@/shared/api/client'
+
 import { toBase64, fromBase64 } from '../crypto'
-import { KeyStore, getKeyStore, type StoredKeys } from './key-store'
+
+import {
+  generateDocumentDek,
+  getOrFetchDek,
+  invalidateCachedDek,
+  invalidateWorkspaceDeks,
+  createEncryptedDekForApi,
+  decryptDekFromApiResponse,
+} from './document-dek'
+import {
+  encryptKekForInvitation,
+  decryptKekFromInvitation,
+  encodeInvitationKekForApi,
+  decodeInvitationKekFromApi,
+} from './invitation-kek'
 import { clearAllCaches } from './key-cache'
+import { getKekCache, getDekCache } from './key-cache'
+import { KeyStore, getKeyStore, type StoredKeys } from './key-store'
+import {
+  generateShareKey,
+  extractShareKeyFromFragment,
+  deriveShareKeyFromPassword,
+  createPasswordProtectedShareKey,
+  encryptDekWithShareKey,
+  decryptDekWithShareKey,
+} from './share-key'
 import {
   generateUmk,
   deriveUmkFromPassphrase,
@@ -32,37 +65,6 @@ import {
   encryptKekForRecipient,
   encodeKekForApi,
 } from './workspace-kek'
-import {
-  encryptKekForInvitation,
-  decryptKekFromInvitation,
-  encodeInvitationKekForApi,
-  decodeInvitationKekFromApi,
-} from './invitation-kek'
-import { getKekCache, getDekCache } from './key-cache'
-import {
-  storeWorkspaceKey,
-  getMyWorkspaceKey,
-  listMembers,
-  getUserPublicKey,
-  rotateWorkspaceKey,
-  rotateDocumentKey,
-} from '@/shared/api/client'
-import {
-  generateDocumentDek,
-  getOrFetchDek,
-  invalidateCachedDek,
-  invalidateWorkspaceDeks,
-  createEncryptedDekForApi,
-  decryptDekFromApiResponse,
-} from './document-dek'
-import {
-  generateShareKey,
-  extractShareKeyFromFragment,
-  deriveShareKeyFromPassword,
-  createPasswordProtectedShareKey,
-  encryptDekWithShareKey,
-  decryptDekWithShareKey,
-} from './share-key'
 
 /** Encrypted keys data for server storage */
 export interface EncryptedKeysBundle {

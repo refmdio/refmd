@@ -5,16 +5,6 @@
  * workspace KEKs and document DEKs.
  */
 
-import { toBase64 } from './crypto'
-import {
-  generateWorkspaceKek,
-  encryptKekForRecipient,
-  encodeKekForApi,
-} from './keys/workspace-kek'
-import {
-  generateDocumentDek,
-  createEncryptedDekForApi,
-} from './keys/document-dek'
 import {
   me as fetchMe,
   switchWorkspace,
@@ -26,6 +16,17 @@ import type {
   MemberEncryptedKekRequest,
   EncryptedDekRequest,
 } from '@/shared/api'
+
+import { toBase64 } from './crypto'
+import {
+  generateDocumentDek,
+  createEncryptedDekForApi,
+} from './keys/document-dek'
+import {
+  generateWorkspaceKek,
+  encryptKekForRecipient,
+  encodeKekForApi,
+} from './keys/workspace-kek'
 
 export interface MigrationProgress {
   stage: 'preparing' | 'generating_keys' | 'migrating' | 'complete'

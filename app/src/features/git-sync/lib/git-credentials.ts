@@ -1,15 +1,14 @@
 /**
- * Git Credentials Manager for E2EE
+ * Git Credentials Manager for KeyVault
  *
  * Handles encrypted storage of Git authentication credentials.
  * Credentials are encrypted with workspace KEK and stored on server.
  * This enables cross-device sync while maintaining E2EE security.
  */
 
-import { getKeyManager } from '@/features/security/lib/keys/key-manager'
-import { encrypt, decrypt } from '@/features/security/lib/crypto/xchacha20'
-import { getSodium } from '@/features/security'
 import { createOrUpdateConfig, getConfig, deleteConfig } from '@/entities/git'
+
+import { getKeyVaultService, encrypt, decrypt, getSodium } from '@/features/security'
 
 export interface GitCredentials {
   repositoryUrl: string
@@ -35,13 +34,11 @@ export async function saveGitCredentials(
   workspaceId: string,
   credentials: GitCredentials
 ): Promise<void> {
-  const keyManager = getKeyManager()
-  if (!keyManager.isUnlocked) {
-    throw new Error('E2EE is locked')
-  }
+  const service = getKeyVaultService()
+  service.ensureUnlocked()
 
   // Get or create workspace KEK
-  const kek = await keyManager.getOrCreateWorkspaceKek(workspaceId)
+  const kek = await service.keyManager.getOrCreateWorkspaceKek(workspaceId)
 
   // Prepare auth data to encrypt
   const authDataPlain = {
@@ -84,10 +81,8 @@ export async function saveGitCredentials(
 export async function loadGitCredentials(
   workspaceId: string
 ): Promise<GitCredentials | null> {
-  const keyManager = getKeyManager()
-  if (!keyManager.isUnlocked) {
-    throw new Error('E2EE is locked')
-  }
+  const service = getKeyVaultService()
+  service.ensureUnlocked()
 
   // Get config from server
   const config = await getConfig()
@@ -95,10 +90,10 @@ export async function loadGitCredentials(
     return null
   }
 
-  // Check if we have E2EE encrypted auth data
+  // Check if we have encrypted auth data
   const rawAuthData = (config as any).encrypted_auth_data
   if (!rawAuthData || !rawAuthData.e2ee) {
-    // Legacy non-E2EE config - return without auth data
+    // Legacy non-encrypted config - return without auth data
     return {
       repositoryUrl: config.repository_url,
       branchName: config.branch_name,
@@ -107,7 +102,7 @@ export async function loadGitCredentials(
   }
 
   // Get or create workspace KEK
-  const kek = await keyManager.getOrCreateWorkspaceKek(workspaceId)
+  const kek = await service.keyManager.getOrCreateWorkspaceKek(workspaceId)
 
   // Decrypt auth data
   const sodium = await getSodium()

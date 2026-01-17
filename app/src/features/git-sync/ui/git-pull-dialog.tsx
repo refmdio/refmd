@@ -1,11 +1,12 @@
 import { Link } from '@tanstack/react-router'
 import { AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 
-import type { ConflictItem } from '@/features/git-sync'
 import { overlayPanelClass } from '@/shared/lib/overlay-classes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
+
+import type { ConflictItem } from '@/features/git-sync'
 
 type Props = {
   open: boolean

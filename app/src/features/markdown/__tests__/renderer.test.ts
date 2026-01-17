@@ -3,8 +3,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { renderMarkdown } from '../renderer'
+
 import { resetPlaceholderCounter } from '../plugins'
+import { renderMarkdown } from '../renderer'
 
 describe('Markdown Renderer', () => {
   beforeEach(() => {

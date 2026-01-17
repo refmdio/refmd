@@ -11,6 +11,7 @@ import {
   decrypt,
   getSodium,
 } from '../crypto'
+
 import { getDekCache } from './key-cache'
 
 /** DEK size (32 bytes) */
