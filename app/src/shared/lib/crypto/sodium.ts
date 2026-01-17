@@ -3,9 +3,12 @@
  *
  * Provides a singleton pattern for libsodium initialization.
  * All crypto modules should use getSodium() to ensure libsodium is ready.
+ *
+ * Note: Uses standard libsodium-wrappers (not sumo) to reduce bundle size.
+ * The standard version includes all APIs used by this application.
  */
 
-import _sodium from 'libsodium-wrappers-sumo'
+import _sodium from 'libsodium-wrappers'
 
 export type Sodium = typeof _sodium
 

@@ -5,10 +5,15 @@
  * Comrak compatibility:
  * - Wraps highlighted code in <div class="not-prose">...</div>
  * - Default theme: one-dark-pro (similar to OneHalfDark in Syntect)
+ *
+ * Bundle optimization:
+ * - Uses fine-grained imports to avoid bundling all languages/themes
+ * - Languages and themes are loaded on-demand via dynamic imports
  */
 
 import type { Root, Element } from 'hast'
-import { createHighlighter, type Highlighter, type BundledLanguage } from 'shiki'
+import { createHighlighterCore, type HighlighterCore } from 'shiki/core'
+import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
 import type { Plugin } from 'unified'
 import { visit } from 'unist-util-visit'
 
@@ -20,56 +25,66 @@ export interface HighlightOptions {
 }
 
 // Singleton highlighter instance
-let highlighterPromise: Promise<Highlighter> | null = null
+let highlighterPromise: Promise<HighlighterCore> | null = null
 let loadedLanguages = new Set<string>()
 
-// Common languages to preload
-const PRELOAD_LANGUAGES: BundledLanguage[] = [
-  'javascript',
-  'typescript',
-  'jsx',
-  'tsx',
-  'json',
-  'html',
-  'css',
-  'markdown',
-  'python',
-  'rust',
-  'go',
-  'bash',
-  'shell',
-  'yaml',
-  'toml',
-  'sql',
-  'graphql',
-]
-
-async function getHighlighter(): Promise<Highlighter> {
+async function getHighlighter(): Promise<HighlighterCore> {
   if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({
-      themes: ['one-dark-pro', 'github-light', 'github-dark'],
-      langs: PRELOAD_LANGUAGES,
+    highlighterPromise = createHighlighterCore({
+      engine: createOnigurumaEngine(import('shiki/wasm')),
+      // Load themes via dynamic imports (fine-grained bundle)
+      themes: [
+        import('shiki/themes/one-dark-pro.mjs'),
+        import('shiki/themes/github-light.mjs'),
+        import('shiki/themes/github-dark.mjs'),
+      ],
+      // Load common languages via dynamic imports (fine-grained bundle)
+      langs: [
+        import('shiki/langs/javascript.mjs'),
+        import('shiki/langs/typescript.mjs'),
+        import('shiki/langs/jsx.mjs'),
+        import('shiki/langs/tsx.mjs'),
+        import('shiki/langs/json.mjs'),
+        import('shiki/langs/html.mjs'),
+        import('shiki/langs/css.mjs'),
+        import('shiki/langs/markdown.mjs'),
+        import('shiki/langs/python.mjs'),
+        import('shiki/langs/rust.mjs'),
+        import('shiki/langs/go.mjs'),
+        import('shiki/langs/bash.mjs'),
+        import('shiki/langs/shell.mjs'),
+        import('shiki/langs/yaml.mjs'),
+        import('shiki/langs/toml.mjs'),
+        import('shiki/langs/sql.mjs'),
+        import('shiki/langs/graphql.mjs'),
+      ],
     })
   }
   return highlighterPromise
 }
 
-async function ensureLanguage(highlighter: Highlighter, lang: string): Promise<boolean> {
+async function ensureLanguage(highlighter: HighlighterCore, lang: string): Promise<boolean> {
   if (loadedLanguages.has(lang)) {
     return true
   }
 
   try {
     const languages = highlighter.getLoadedLanguages()
-    if (languages.includes(lang as BundledLanguage)) {
+    if (languages.includes(lang)) {
       loadedLanguages.add(lang)
       return true
     }
 
-    // Try to load the language dynamically
-    await highlighter.loadLanguage(lang as BundledLanguage)
-    loadedLanguages.add(lang)
-    return true
+    // Try to load the language dynamically via dynamic import
+    try {
+      const langModule = await import(`shiki/langs/${lang}.mjs`)
+      await highlighter.loadLanguage(langModule.default)
+      loadedLanguages.add(lang)
+      return true
+    } catch {
+      // Language module not found
+      return false
+    }
   } catch {
     // Language not available, will use plaintext
     return false

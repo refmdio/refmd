@@ -244,6 +244,38 @@ export default defineConfig(() => {
             if (id.includes('wasm-pandoc')) {
               return 'pandoc'
             }
+            // Shiki (syntax highlighting ~2-3MB)
+            if (id.includes('shiki')) {
+              return 'shiki'
+            }
+            // Markdown pipeline (~1-2MB)
+            if (id.includes('remark') || id.includes('rehype') || id.includes('unified') || id.includes('micromark') || id.includes('mdast') || id.includes('hast')) {
+              return 'markdown'
+            }
+            // KaTeX (math rendering)
+            if (id.includes('katex')) {
+              return 'katex'
+            }
+            // OG image generation (~1MB)
+            if (id.includes('satori') || id.includes('@resvg')) {
+              return 'og-image'
+            }
+            // Crypto library
+            if (id.includes('libsodium')) {
+              return 'crypto'
+            }
+            // Git functionality
+            if (id.includes('isomorphic-git')) {
+              return 'git'
+            }
+            // Archive handling
+            if (id.includes('jszip')) {
+              return 'archive'
+            }
+            // Password strength checker
+            if (id.includes('zxcvbn')) {
+              return 'password-strength'
+            }
           }
           return undefined
         },

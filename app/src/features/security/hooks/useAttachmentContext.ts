@@ -16,12 +16,9 @@ import {
 } from '@/entities/file'
 import { validateShareToken } from '@/entities/share'
 
-import {
-  fetchDocumentKeys,
-  extractShareKeyFromFragment,
-  decryptDekWithShareKey,
-  getSodium,
-} from '@/features/security'
+import { getSodium } from '../lib/crypto'
+import { fetchDocumentKeys } from '../lib/key-helpers'
+import { extractShareKeyFromFragment, decryptDekWithShareKey } from '../lib/keys'
 
 export interface UseAttachmentContextOptions {
   /** Document ID */

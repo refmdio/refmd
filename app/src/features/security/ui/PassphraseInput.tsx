@@ -1,6 +1,6 @@
 import { Eye, EyeOff, Check, X } from 'lucide-react'
-import { useState, useCallback, useMemo, useEffect } from 'react'
-import zxcvbn from 'zxcvbn'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import type zxcvbnType from 'zxcvbn'
 
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
@@ -25,7 +25,7 @@ interface StrengthInfo {
   feedback: string[]
 }
 
-function getStrengthInfo(result: zxcvbn.ZXCVBNResult): StrengthInfo {
+function getStrengthInfo(result: zxcvbnType.ZXCVBNResult): StrengthInfo {
   const labels = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong']
   const colors = [
     'bg-red-500',
@@ -62,9 +62,23 @@ export function PassphraseInput({
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [touched, setTouched] = useState(false)
 
+  // Dynamically load zxcvbn only when needed (saves ~800KB initial bundle)
+  const zxcvbnRef = useRef<typeof zxcvbnType | null>(null)
+  const [, forceUpdate] = useState({})
+
+  useEffect(() => {
+    // Load zxcvbn on mount (preload for better UX)
+    if (!zxcvbnRef.current) {
+      import('zxcvbn').then((module) => {
+        zxcvbnRef.current = module.default
+        forceUpdate({})
+      })
+    }
+  }, [])
+
   const strength = useMemo(() => {
-    if (!passphrase) return null
-    return getStrengthInfo(zxcvbn(passphrase))
+    if (!passphrase || !zxcvbnRef.current) return null
+    return getStrengthInfo(zxcvbnRef.current(passphrase))
   }, [passphrase])
 
   const validations = useMemo(() => {
