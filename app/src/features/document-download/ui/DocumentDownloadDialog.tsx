@@ -8,12 +8,12 @@ import { Button } from '@/shared/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/ui/dialog'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 
-import type { DocumentDownloadFormat } from '@/entities/document'
+import type { ExportFormat } from '@/features/export'
 
 import type { DownloadOption, DownloadOptionGroup } from '../model/options'
 
 // Icons for supported client-side export formats
-const formatIcons: Partial<Record<DocumentDownloadFormat, React.ComponentType<{ className?: string }>>> = {
+const formatIcons: Partial<Record<ExportFormat, React.ComponentType<{ className?: string }>>> = {
   archive: Archive,
   markdown: FileText,
   html: Globe,
@@ -26,7 +26,7 @@ type DocumentDownloadDialogProps = {
   onOpenChange: (value: boolean) => void
   primaryOptions: DownloadOption[]
   otherGroups: DownloadOptionGroup[]
-  onSelect: (format: DocumentDownloadFormat) => void | Promise<void>
+  onSelect: (format: ExportFormat) => void | Promise<void>
   isPending: boolean
 }
 

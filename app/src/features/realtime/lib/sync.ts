@@ -10,16 +10,14 @@ import type * as Y from 'yjs'
 
 import { getMyWorkspaceKey, getDocumentKey } from '@/shared/api/client'
 import { getDocument } from '@/shared/api/client'
+import { getSodium, fromBase64 } from '@/shared/lib/crypto'
 
 import { getPublishStatus, publishDocument } from '@/entities/public'
 import { updateDocumentTagsFromContent } from '@/entities/tag'
 
+
 import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
-import {
-  getKeyVaultService,
-  getSodium,
-  fromBase64,
-} from '@/features/security'
+import { getKeyVaultService, fetchWorkspaceKek } from '@/features/security'
 
 import {
   createEphemeralSession,
@@ -1139,7 +1137,9 @@ export class Sync {
       const content = this.doc.getText('content').toString()
       if (!content) return
 
-      await updateDocumentTagsFromContent(this.documentId, this.workspaceId, content)
+      // Fetch KEK and update tags
+      const kek = await fetchWorkspaceKek(this.workspaceId)
+      await updateDocumentTagsFromContent(this.documentId, kek, content)
     } catch (err) {
       // Don't throw - tag update failure shouldn't break sync
       console.warn('[Sync] Tag extraction failed:', err)

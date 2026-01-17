@@ -45,6 +45,7 @@ export {
 export {
   useExport,
   exportDocumentFile,
+  downloadWorkspaceArchive,
   type UseExportOptions,
   type UseExportResult,
   type ExportState,

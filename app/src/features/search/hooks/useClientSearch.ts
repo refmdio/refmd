@@ -10,6 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { listDocuments, type Document } from '@/entities/document'
 import { encryptTagForApi } from '@/entities/tag'
 
+import { fetchWorkspaceKek } from '@/features/security'
+
 import { fetchDecryptedContent } from '../lib/fetch-decrypted-content'
 import type { TitleDocument, WorkerRequest, WorkerResponse } from '../workers/search.worker'
 
@@ -188,7 +190,8 @@ export function useClientSearch(params: UseClientSearchParams): UseClientSearchR
         let encryptedTag: string | null = null
         if (tag) {
           try {
-            encryptedTag = await encryptTagForApi(tag, workspaceId)
+            const kek = await fetchWorkspaceKek(workspaceId)
+            encryptedTag = await encryptTagForApi(tag, kek)
           } catch (err) {
             console.warn('[useClientSearch] Failed to encrypt tag:', err)
             // If encryption fails (e.g., session locked), proceed without tag filter

@@ -1,5 +1,6 @@
 import { AlertTriangle, Key, RefreshCw, ShieldAlert, X } from 'lucide-react'
 
+import { type CryptoError, ERROR_CODES } from '@/shared/types/security'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -10,7 +11,6 @@ import {
 } from '@/shared/ui/alert-dialog'
 import { Button } from '@/shared/ui/button'
 
-import { type CryptoError, ERROR_CODES } from '../lib/types/errors'
 
 type RecoveryAction = 'retry' | 'recovery_key' | 'contact_admin' | 'close'
 

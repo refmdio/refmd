@@ -5,10 +5,11 @@
  * No server-side sessions - everything is client-side.
  */
 
+import { getClientWorkspaceId } from '@/shared/api/client.config'
+
 import type { ConflictItem } from './pull'
 
 export type { ConflictItem }
-import { getClientWorkspaceId } from '@/shared/api/client.config'
 
 export const GIT_CONFLICT_EVENT = 'refmd:git-conflicts-updated'
 

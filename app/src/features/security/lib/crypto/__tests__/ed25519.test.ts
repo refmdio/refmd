@@ -11,8 +11,8 @@ import {
   PUBLIC_KEY_SIZE,
   PRIVATE_KEY_SIZE,
   SIGNATURE_SIZE,
-} from '../ed25519'
-import { getSodium } from '../sodium'
+  getSodium,
+} from '@/shared/lib/crypto'
 
 describe('Ed25519', () => {
   beforeAll(async () => {

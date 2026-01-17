@@ -17,7 +17,8 @@ import {
 
 /** Decryption context set by React app */
 interface DecryptionContext {
-  workspaceId: string | null
+  /** Document encryption key */
+  dek: Uint8Array | null
   token?: string
 }
 
@@ -27,8 +28,8 @@ let defaultContext: DecryptionContext | null = null
 // File map registry: documentId → FileMap
 const fileMapRegistry = new Map<string, FileMap>()
 const fileMapInitPromises = new Map<string, Promise<FileMap>>()
-// Store workspaceId used for each document's file map (for fallback context)
-const fileMapWorkspaceRegistry = new Map<string, string>()
+// Store DEK used for each document's file map (for fallback context)
+const fileMapDekRegistry = new Map<string, Uint8Array>()
 
 // Blob URL cache: "documentId:logicalPath" → { blobUrl, filename, mimeType }
 // This ensures each unique path gets a consistent blob URL across renders
@@ -86,17 +87,17 @@ export async function downloadAndDecrypt(
   }
 
   const context = getDecryptionContext(documentId) ?? defaultContext
-  // Fallback to workspaceId stored during initFileMap if context is not available
+  // Fallback to DEK stored during initFileMap if context is not available
   // This handles race conditions during SPA navigation where cleanup runs after new context is set
-  const workspaceId = context?.workspaceId ?? fileMapWorkspaceRegistry.get(documentId)
-  if (!workspaceId) {
-    console.warn('[Decrypt] No context available for document:', documentId)
+  const dek = context?.dek ?? fileMapDekRegistry.get(documentId)
+  if (!dek) {
+    console.warn('[Decrypt] No DEK available for document:', documentId)
     return null
   }
 
   try {
     const result = await downloadAttachment(documentId, url, {
-      workspaceId,
+      dek,
       token: context?.token,
     })
 
@@ -152,8 +153,8 @@ export async function resolveAndDecrypt(
       // This handles SPA navigation where the context is set but initFileMap hasn't been called yet
       if (!fileMap) {
         const context = getDecryptionContext(documentId) ?? defaultContext
-        if (context?.workspaceId) {
-          fileMap = await initFileMap(documentId, context.workspaceId)
+        if (context?.dek) {
+          fileMap = await initFileMap(documentId, context.dek)
         }
       }
 
@@ -204,8 +205,11 @@ export function revokeBlobUrl(blobUrl: string): void {
  *
  * This fetches the file list and decrypts metadata to build a
  * logicalPath → fileId mapping.
+ *
+ * @param documentId - Document ID
+ * @param dek - Document encryption key
  */
-export async function initFileMap(documentId: string, workspaceId: string): Promise<FileMap> {
+export async function initFileMap(documentId: string, dek: Uint8Array): Promise<FileMap> {
   // Check if initialization is in progress
   const inProgress = fileMapInitPromises.get(documentId)
   if (inProgress) {
@@ -218,13 +222,13 @@ export async function initFileMap(documentId: string, workspaceId: string): Prom
     return existing
   }
 
-  // Store workspaceId for fallback context
-  fileMapWorkspaceRegistry.set(documentId, workspaceId)
+  // Store DEK for fallback context
+  fileMapDekRegistry.set(documentId, dek)
 
   // Start initialization
   const initPromise = (async () => {
     try {
-      const fileMap = await buildFileMap(documentId, workspaceId)
+      const fileMap = await buildFileMap(documentId, dek)
 
       // Merge with any entries added while we were fetching
       // (e.g., from concurrent uploads via addFileToMap)
@@ -280,7 +284,7 @@ export async function waitForFileMap(documentId: string): Promise<FileMap | unde
 export function clearFileMap(documentId: string): void {
   fileMapRegistry.delete(documentId)
   fileMapInitPromises.delete(documentId)
-  fileMapWorkspaceRegistry.delete(documentId)
+  fileMapDekRegistry.delete(documentId)
 
   // Also clear blob URL cache for this document
   const prefix = `${documentId}:`

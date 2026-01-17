@@ -2,14 +2,14 @@
  * File encryption for .rme format
  */
 
-import { encrypt } from '../crypto/xchacha20'
+import { encrypt } from '@/shared/lib/crypto'
 import {
   RME_MAGIC,
   RME_VERSION,
   type EncryptFileOptions,
   type RmeFile,
   type RmeMetadata,
-} from '../types/file-format'
+} from '@/shared/types/security'
 
 import { serializeRme } from './format'
 import { computeSha256 } from './hash'

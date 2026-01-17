@@ -9,7 +9,6 @@ import { useRealtime } from '@/shared/contexts/realtime-context'
 import type { DocumentHeaderAction } from '@/shared/types/document'
 import { Button } from '@/shared/ui/button'
 
-import { downloadDocumentFile, type DocumentDownloadFormat } from '@/entities/document'
 import { createShareMount, shareMountsQuery } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
@@ -21,6 +20,7 @@ import {
 import { SnapshotHistoryDialog } from '@/features/document-snapshots'
 import { EditorOverlay, MarkdownEditor, useCollaborativeDocument } from '@/features/edit-document'
 import type { PreviewPaneProps } from '@/features/edit-document/ui/PreviewPane'
+import { exportDocumentFile, type ExportFormat } from '@/features/export'
 import { finalizeConflictResolution, resolveConflict, type ConflictResolution } from '@/features/git-sync'
 import { setConflicts as setGlobalConflicts, readConflicts, clearAllConflicts, type ConflictItem } from '@/features/git-sync/lib/git-conflict-store'
 import { PluginDocumentMount } from '@/features/plugins/ui/PluginDocumentMount'
@@ -370,7 +370,7 @@ function DocumentClient({
   }, [hasDoc])
 
   const handleDownload = useCallback(
-    async (format: DocumentDownloadFormat) => {
+    async (format: ExportFormat) => {
       if (!hasDoc) return
       const workspaceId = loaderData?.workspace_id ?? activeWorkspaceId
       if (!workspaceId) {
@@ -379,10 +379,7 @@ function DocumentClient({
       }
       setDownloadPending(true)
       try {
-        const filename = await downloadDocumentFile(id, workspaceId, {
-          title: resolvedTitle,
-          format,
-        })
+        const filename = await exportDocumentFile(id, workspaceId, resolvedTitle || 'Untitled', format)
         toast.success(`Download ready: ${filename}`)
         setShowDownloadDialog(false)
       } catch (error) {

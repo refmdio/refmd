@@ -10,12 +10,7 @@ import {
   getDocumentTags as apiGetDocumentTags,
   updateDocumentTags as apiUpdateDocumentTags,
 } from '@/shared/api'
-
-import {
-  fetchWorkspaceKek,
-  getTagLookupManager,
-  extractTags,
-} from '@/features/security'
+import { extractTags, getTagLookupManager } from '@/shared/lib/tags'
 
 // Query keys for React Query
 export const tagKeys = {
@@ -39,18 +34,17 @@ export interface DecryptedDocumentTag {
 /**
  * List all tags for a workspace (decrypted).
  *
- * @param workspaceId - Workspace ID for KEK lookup
+ * @param kek - Workspace KEK for decryption
  * @returns Array of decrypted tags with document counts
  */
-export async function listDecryptedTags(workspaceId: string): Promise<DecryptedTag[]> {
+export async function listDecryptedTags(kek: Uint8Array): Promise<DecryptedTag[]> {
   const response = await apiListTags({})
 
   if (!response.tags || response.tags.length === 0) {
     return []
   }
 
-  // Get KEK and setup lookup manager
-  const kek = await fetchWorkspaceKek(workspaceId)
+  // Setup lookup manager with provided KEK
   const lookupManager = getTagLookupManager()
   lookupManager.setKek(kek)
 
@@ -71,12 +65,12 @@ export async function listDecryptedTags(workspaceId: string): Promise<DecryptedT
  * Get tags for a specific document (decrypted).
  *
  * @param documentId - Document ID
- * @param workspaceId - Workspace ID for KEK lookup
+ * @param kek - Workspace KEK for decryption
  * @returns Array of decrypted document tags
  */
 export async function getDecryptedDocumentTags(
   documentId: string,
-  workspaceId: string
+  kek: Uint8Array
 ): Promise<DecryptedDocumentTag[]> {
   const response = await apiGetDocumentTags({ id: documentId })
 
@@ -84,8 +78,7 @@ export async function getDecryptedDocumentTags(
     return []
   }
 
-  // Get KEK and setup lookup manager
-  const kek = await fetchWorkspaceKek(workspaceId)
+  // Setup lookup manager with provided KEK
   const lookupManager = getTagLookupManager()
   lookupManager.setKek(kek)
 
@@ -107,12 +100,12 @@ export async function getDecryptedDocumentTags(
  * Update document tags with encryption.
  *
  * @param documentId - Document ID
- * @param workspaceId - Workspace ID for KEK lookup
+ * @param kek - Workspace KEK for encryption
  * @param tags - Array of plaintext tag names
  */
 export async function updateEncryptedDocumentTags(
   documentId: string,
-  workspaceId: string,
+  kek: Uint8Array,
   tags: string[]
 ): Promise<void> {
   if (tags.length === 0) {
@@ -124,8 +117,7 @@ export async function updateEncryptedDocumentTags(
     return
   }
 
-  // Get KEK
-  const kek = await fetchWorkspaceKek(workspaceId)
+  // Setup lookup manager with provided KEK
   const lookupManager = getTagLookupManager()
   lookupManager.setKek(kek)
 
@@ -150,20 +142,20 @@ export async function updateEncryptedDocumentTags(
  * It extracts #tags from the markdown and sends encrypted tags to the server.
  *
  * @param documentId - Document ID
- * @param workspaceId - Workspace ID for KEK lookup
+ * @param kek - Workspace KEK for encryption
  * @param markdownContent - Raw markdown content
  * @returns Array of extracted tag names
  */
 export async function updateDocumentTagsFromContent(
   documentId: string,
-  workspaceId: string,
+  kek: Uint8Array,
   markdownContent: string
 ): Promise<string[]> {
   // Extract tags from markdown
   const tags = extractTags(markdownContent)
 
   // Update with encrypted tags
-  await updateEncryptedDocumentTags(documentId, workspaceId, tags)
+  await updateEncryptedDocumentTags(documentId, kek, tags)
 
   return tags
 }
@@ -185,14 +177,13 @@ export function addKnownTags(tags: string[]): void {
  * Encrypt a plaintext tag for API calls.
  *
  * @param tag - Plaintext tag name
- * @param workspaceId - Workspace ID for KEK lookup
+ * @param kek - Workspace KEK for encryption
  * @returns Base64-encoded encrypted tag
  */
 export async function encryptTagForApi(
   tag: string,
-  workspaceId: string
+  kek: Uint8Array
 ): Promise<string> {
-  const kek = await fetchWorkspaceKek(workspaceId)
   const lookupManager = getTagLookupManager()
   lookupManager.setKek(kek)
   return lookupManager.encrypt(tag)

@@ -19,7 +19,7 @@ import {
   RME_VERSION,
   type RmeFile,
   type RmeHeader,
-} from '../types/file-format'
+} from '@/shared/types/security'
 
 /** Fixed header size: magic(4) + version(1) + headerLength(2) + metadataLength(4) = 11 bytes */
 const HEADER_SIZE = 11

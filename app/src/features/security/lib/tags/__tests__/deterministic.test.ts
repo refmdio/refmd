@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 
-import { getSodium } from '../../crypto/sodium'
+import { getSodium } from '@/shared/lib/crypto'
 import {
   encryptTagDeterministic,
   encryptTags,
@@ -11,7 +11,7 @@ import {
   getTagLookupManager,
   resetTagLookupManager,
   HMAC_KEY_SIZE,
-} from '../deterministic'
+} from '@/shared/lib/tags'
 
 describe('deterministic tag encryption', () => {
   let testKek: Uint8Array

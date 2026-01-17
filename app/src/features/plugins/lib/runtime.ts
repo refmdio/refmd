@@ -11,13 +11,13 @@ import {
 import type { DocumentHeaderAction } from '@/shared/types/document'
 
 import * as documentWc from '@/entities/document/wc'
-import { renderMarkdown, renderMarkdownMany } from '@/entities/markdown'
 import {
   getPluginKv as apiGetPluginKv,
   listPluginRecords as apiListPluginRecords,
   putPluginKv as apiPutPluginKv,
 } from '@/entities/plugin/api'
 
+import { renderMarkdown, renderMarkdownMany } from '@/features/markdown'
 import {
   mountSplitEditorStage,
   type SplitEditorPreviewDelegate,
@@ -280,10 +280,10 @@ export async function createPluginHost(manifest: ManifestItem, ctx: PluginHostCo
     origin: apiOrigin,
     api: {
       me: () => fetchMe(),
-      renderMarkdown: (text: string, options: any) =>
-        renderMarkdown({ text, options }),
-      renderMarkdownMany: (items: Array<{ text: string; options: any }>) =>
-        renderMarkdownMany({ items }),
+      renderMarkdown: (text: string, options?: any) =>
+        renderMarkdown(text, options),
+      renderMarkdownMany: (items: Array<{ text: string; options?: any }>) =>
+        renderMarkdownMany(items),
     },
     ui: {
       hydrateAttachments: async (root: Element) => {

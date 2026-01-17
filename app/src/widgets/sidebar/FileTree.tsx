@@ -18,10 +18,10 @@ import { ScrollArea } from '@/shared/ui/scroll-area'
 import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuSkeleton } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
-import { downloadWorkspaceArchive } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
 import { useEditorContext } from '@/features/edit-document'
+import { downloadWorkspaceArchive } from '@/features/export'
 import {
   FileTreeProvider,
   useFileTree,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { extractTags, extractTagsPreserveCase } from '../extract'
+import { extractTags, extractTagsPreserveCase } from '@/shared/lib/tags'
 
 describe('extractTags', () => {
   describe('basic extraction', () => {

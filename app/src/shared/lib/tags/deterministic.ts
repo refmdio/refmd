@@ -10,7 +10,7 @@
  * - One-way function (cannot derive plaintext from ciphertext without known plaintexts)
  */
 
-import { getSodium } from '../crypto/sodium'
+import { getSodium } from '@/shared/lib/crypto'
 
 /** Domain separation prefix for tag encryption */
 const TAG_DOMAIN_PREFIX = 'refmd:tag:'

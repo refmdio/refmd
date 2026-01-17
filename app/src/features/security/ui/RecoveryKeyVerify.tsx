@@ -1,12 +1,12 @@
 import { ArrowLeft, Check, X } from 'lucide-react'
 import { useState, useCallback, useMemo } from 'react'
 
+import { generateVerificationIndices, getWordsAtIndices } from '@/shared/lib/crypto'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 
-import { generateVerificationIndices, getWordsAtIndices } from '../lib/crypto/bip39'
 
 interface RecoveryKeyVerifyProps {
   /** Recovery key (24 words space-separated) */

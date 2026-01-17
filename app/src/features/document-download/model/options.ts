@@ -1,11 +1,11 @@
 import {
-  DOWNLOAD_FORMAT_METADATA,
-  type DocumentDownloadFormat,
-  type DocumentDownloadFormatMetadata,
-} from '@/entities/document'
+  EXPORT_FORMATS,
+  type ExportFormat,
+  type ExportFormatMetadata,
+} from '@/features/export'
 
 export type DownloadOption = {
-  format: DocumentDownloadFormat
+  format: ExportFormat
   label: string
   description: string
 }
@@ -16,10 +16,10 @@ export type DownloadOptionGroup = {
   items: DownloadOption[]
 }
 
-const PRIMARY_FORMATS: DocumentDownloadFormat[] = ['archive', 'markdown', 'html', 'pdf', 'docx']
+const PRIMARY_FORMATS: ExportFormat[] = ['archive', 'markdown', 'html', 'pdf', 'docx']
 
 export const PRIMARY_DOWNLOAD_OPTIONS: DownloadOption[] = PRIMARY_FORMATS.map((format) => {
-  const meta = DOWNLOAD_FORMAT_METADATA[format]
+  const meta = EXPORT_FORMATS[format]
   return { format, label: meta.label, description: meta.description }
 })
 
@@ -43,8 +43,8 @@ const GROUP_DESCRIPTIONS: Record<string, string> = {
   Manuals: 'Formats suited for manuals and reference pages.',
 }
 
-const METADATA_ENTRIES = Object.entries(DOWNLOAD_FORMAT_METADATA) as Array<
-  [DocumentDownloadFormat, DocumentDownloadFormatMetadata]
+const METADATA_ENTRIES = Object.entries(EXPORT_FORMATS) as Array<
+  [ExportFormat, ExportFormatMetadata]
 >
 
 export const OTHER_DOWNLOAD_FORMAT_GROUPS: DownloadOptionGroup[] = (() => {

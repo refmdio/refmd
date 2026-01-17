@@ -1,3 +1,4 @@
-export default function RoutePending({ label = 'Loading…' }: { label?: string }) {
-  return <div className="p-6 text-sm text-muted-foreground">{label}</div>
-}
+/**
+ * Re-exported from shared/ui/loading for backward compatibility.
+ */
+export { RoutePending as default } from '@/shared/ui/loading'

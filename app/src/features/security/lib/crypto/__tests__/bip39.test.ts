@@ -11,7 +11,7 @@ import {
   getWordList,
   WORD_COUNT,
   ENTROPY_BYTES,
-} from '../bip39'
+} from '@/shared/lib/crypto'
 
 describe('BIP39 Recovery Key', () => {
   describe('generateRecoveryKey', () => {

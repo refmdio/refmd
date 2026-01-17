@@ -1,40 +1,32 @@
 import { getFile } from '@/shared/api'
+import { decryptFile, isRmeFile } from '@/shared/lib/files'
 
 import { buildFileMap } from '@/entities/file'
-
-import { getKeyVaultService, fetchDocumentKeys } from '@/features/security'
-import { decryptFile, isRmeFile } from '@/features/security/lib/files'
 
 import { uploadPublicFile } from '../api'
 
 export interface UploadPublicFilesOptions {
   documentId: string
-  workspaceId: string
+  /** Document encryption key */
+  dek: Uint8Array
 }
 
 /**
  * Upload decrypted attachments for a published E2EE document.
  * Downloads each file, decrypts it, and uploads to the public files API.
+ *
+ * @param options - Options including document ID and DEK
  */
 export async function uploadPublicFilesForDocument(
   options: UploadPublicFilesOptions
 ): Promise<{ uploaded: number; failed: number }> {
-  const { documentId, workspaceId } = options
-  const service = getKeyVaultService()
-
-  if (!service.isUnlocked) {
-    console.warn('[uploadPublicFiles] KeyVault not unlocked, skipping')
-    return { uploaded: 0, failed: 0 }
-  }
+  const { documentId, dek } = options
 
   // Build file map to get decrypted metadata
-  const fileMap = await buildFileMap(documentId, workspaceId)
+  const fileMap = await buildFileMap(documentId, dek)
   if (fileMap.size === 0) {
     return { uploaded: 0, failed: 0 }
   }
-
-  // Get document DEK for decryption
-  const { dek } = await fetchDocumentKeys(documentId, workspaceId)
 
   let uploaded = 0
   let failed = 0

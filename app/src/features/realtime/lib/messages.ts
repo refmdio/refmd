@@ -11,17 +11,19 @@ import {
   sign,
   verify,
   SIGNATURE_DOMAINS,
-  type SigningMessage,
   canonicalizeAndToBase64,
   toBase64,
   fromBase64,
   fromBase64Json,
+  type SigningMessage,
+} from '@/shared/lib/crypto'
+import {
+  createRealtimeMessage,
   type RealtimeMessage,
   type UpdatePublicData,
   type SnapshotPublicData,
   type EphemeralPublicData,
-  createRealtimeMessage,
-} from '@/features/security'
+} from '@/shared/types/security'
 
 // Ephemeral messages are now handled by ephemeral.ts
 // See: createEphemeralMessage, verifyAndDecryptEphemeralMessage

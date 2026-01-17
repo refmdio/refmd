@@ -4,7 +4,7 @@
  * Provides retry functionality for network operations.
  */
 
-import { CryptoError, ERROR_CODES, isCryptoError } from '../types/errors'
+import { CryptoError, ERROR_CODES, isCryptoError } from '@/shared/types/security'
 
 const DEFAULT_MAX_RETRIES = 3
 const DEFAULT_RETRY_DELAYS = [1000, 5000, 15000] // 1s, 5s, 15s

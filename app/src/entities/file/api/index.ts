@@ -3,17 +3,15 @@ import {
   listFiles,
   type ListFileResponse,
 } from '@/shared/api'
-
-import { fetchDocumentKeys } from '@/features/security'
-import { encryptFile, decryptFile, isRmeFile, decryptMetadata } from '@/features/security/lib/files'
+import { encryptFile, decryptFile, isRmeFile, decryptMetadata } from '@/shared/lib/files'
 
 export const fileKeys = {
   all: ['files'] as const,
 }
 
 export interface UploadAttachmentOptions {
-  /** Workspace ID (required for E2EE) */
-  workspaceId: string
+  /** Document encryption key */
+  dek: Uint8Array
   /** Existing logical paths for collision detection */
   existingPaths?: Set<string>
 }
@@ -23,7 +21,7 @@ export interface UploadAttachmentOptions {
  *
  * @param documentId - Document ID
  * @param file - File to upload
- * @param options - Upload options
+ * @param options - Upload options including DEK
  */
 export async function uploadAttachment(
   documentId: string,
@@ -33,8 +31,8 @@ export async function uploadAttachment(
   // 1. Read file content
   const content = new Uint8Array(await file.arrayBuffer())
 
-  // 2. Get encryption keys
-  const { dek } = await fetchDocumentKeys(documentId, options.workspaceId)
+  // 2. Use provided DEK
+  const { dek } = options
 
   // 3. Resolve logical path with collision detection
   const logicalPath = options.existingPaths
@@ -82,8 +80,8 @@ export async function uploadAttachment(
 }
 
 export interface DownloadAttachmentOptions {
-  /** Workspace ID (required for E2EE) */
-  workspaceId: string
+  /** Document encryption key */
+  dek: Uint8Array
   /** Share token for authentication */
   token?: string
 }
@@ -100,13 +98,13 @@ export interface DownloadAttachmentResult {
 /**
  * Download and decrypt an attachment
  *
- * @param documentId - Document ID
+ * @param _documentId - Document ID (unused, kept for backward compatibility)
  * @param url - Full URL to the attachment
- * @param options - Download options
+ * @param options - Download options including DEK
  * @returns Decrypted file content and metadata
  */
 export async function downloadAttachment(
-  documentId: string,
+  _documentId: string,
   url: string,
   options: DownloadAttachmentOptions
 ): Promise<DownloadAttachmentResult> {
@@ -139,9 +137,8 @@ export async function downloadAttachment(
     }
   }
 
-  // 3. Get encryption keys and decrypt
-  const { dek } = await fetchDocumentKeys(documentId, options.workspaceId)
-  const decrypted = await decryptFile(bytes, dek)
+  // 3. Decrypt using provided DEK
+  const decrypted = await decryptFile(bytes, options.dek)
 
   // 4. Return decrypted content
   return {
@@ -200,20 +197,17 @@ export async function listDocumentFiles(documentId: string): Promise<ListFileRes
  * Build a file map for a document by fetching and decrypting file metadata.
  *
  * @param documentId - Document ID
- * @param workspaceId - Workspace ID for key access
+ * @param dek - Document encryption key
  * @returns FileMap with logicalPath → FileMapEntry mapping
  */
 export async function buildFileMap(
   documentId: string,
-  workspaceId: string
+  dek: Uint8Array
 ): Promise<FileMap> {
   // 1. Fetch file list
   const files = await listDocumentFiles(documentId)
 
-  // 2. Get encryption keys
-  const { dek } = await fetchDocumentKeys(documentId, workspaceId)
-
-  // 3. Build map by decrypting each file's metadata
+  // 2. Build map by decrypting each file's metadata using provided DEK
   const map: FileMap = new Map()
 
   for (const file of files) {

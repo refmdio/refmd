@@ -32,6 +32,7 @@ import {
   buildShareUrl,
   getSodium,
   URL_FRAGMENT_PREFIX,
+  fetchDocumentKeys,
 } from '@/features/security'
 
 type ShareLink = {
@@ -263,9 +264,10 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
       // Upload decrypted attachments for encrypted documents
       if (service.isUnlocked && activeWorkspaceId) {
         try {
+          const { dek } = await fetchDocumentKeys(targetId, activeWorkspaceId)
           await uploadPublicFilesForDocument({
             documentId: targetId,
-            workspaceId: activeWorkspaceId,
+            dek,
           })
         } catch (err) {
           console.error('[ShareDialog] Failed to upload attachments:', err)

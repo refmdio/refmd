@@ -6,7 +6,7 @@
  * cannot access each other's encrypted data.
  */
 
-import { deriveKey, HKDF_CONTEXTS } from '../crypto/hkdf'
+import { deriveKey, HKDF_CONTEXTS } from '@/shared/lib/crypto'
 
 /**
  * Derive a plugin-specific DEK from the document DEK.

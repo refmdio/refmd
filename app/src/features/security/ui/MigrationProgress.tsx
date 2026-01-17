@@ -97,7 +97,7 @@ export function MigrationProgress({
   // Start migration on mount
   useEffect(() => {
     runMigration()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [runMigration])
 
   const progress = steps.filter((s) => s.status === 'completed').length / steps.length
 

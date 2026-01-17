@@ -14,9 +14,10 @@ import { Input } from '@/shared/ui/input'
 import { SidebarMenuItem, SidebarMenuButton, SidebarMenuSub } from '@/shared/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 
-import { downloadDocumentFile, useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
+import { useArchiveDocument, useUnarchiveDocument } from '@/entities/document'
 
 import { useAuthContext } from '@/features/auth'
+import { exportDocumentFile } from '@/features/export'
 import { useFileTree, type DocumentNode } from '@/features/file-tree'
 
 
@@ -182,7 +183,7 @@ export const FolderNode = memo(function FolderNode({
     }
     setDownloadPending(true)
     try {
-      const filename = await downloadDocumentFile(node.id, activeWorkspaceId, { title: node.title, format: 'archive' })
+      const filename = await exportDocumentFile(node.id, activeWorkspaceId, node.title, 'archive')
       toast.success(`Download ready: ${filename}`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to download folder'

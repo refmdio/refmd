@@ -1,8 +1,7 @@
 /**
  * E2EE Type Definitions
+ *
+ * Re-exported from shared/types/security for backward compatibility.
  */
 
-export * from './keys'
-export * from './messages'
-export * from './file-format'
-export * from './errors'
+export * from '@/shared/types/security'

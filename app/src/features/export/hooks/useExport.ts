@@ -175,7 +175,8 @@ async function convertToFormat(
 
   // Initialize file map if documentId is provided (needed for all formats with attachments)
   if (documentId && workspaceId) {
-    await initFileMap(documentId, workspaceId)
+    const { dek } = await fetchDocumentKeys(documentId, workspaceId)
+    await initFileMap(documentId, dek)
   }
 
   // Special handling: PDF (pandoc → HTML → browser print)
@@ -290,6 +291,23 @@ export async function exportDocumentFile(
   downloadBlob(blob, filename)
 
   return filename
+}
+
+/**
+ * Download workspace archive (not yet implemented)
+ *
+ * @deprecated Workspace archive download is not yet available.
+ * This feature is being migrated to client-side export for E2EE compliance.
+ */
+export async function downloadWorkspaceArchive(_params: {
+  workspaceId: string
+  workspaceName: string
+  format?: ExportFormat
+}): Promise<string> {
+  throw new Error(
+    'Workspace archive download is not yet available. ' +
+    'This feature is being migrated to client-side export for E2EE compliance.'
+  )
 }
 
 /**

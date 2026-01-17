@@ -1,16 +1,17 @@
 import { AlertTriangle, Key, RefreshCw } from 'lucide-react'
 import { Component, type ReactNode } from 'react'
 
-import { Button } from '@/shared/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
-
-import { logError } from '../lib/error-log/log-error'
 import {
   CryptoError,
   ERROR_CATEGORY,
   ERROR_CODES,
   isCryptoError,
-} from '../lib/types/errors'
+} from '@/shared/types/security'
+import { Button } from '@/shared/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
+
+
+import { logError } from '../lib/error-log/log-error'
 
 interface ErrorBoundaryProps {
   /** Children to render */

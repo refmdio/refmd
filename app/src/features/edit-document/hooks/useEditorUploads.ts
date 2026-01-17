@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { addFileToMap, getExistingPaths } from '@/entities/file'
 
 import { useEditorContext } from '@/features/edit-document/model/editor-context'
+import { fetchDocumentKeys } from '@/features/security'
 
 export type UploadStatus =
   | { state: 'idle'; total: 0; completed: 0 }
@@ -45,7 +46,15 @@ export function useEditorUploads(
       return
     }
     if (!files?.length) return
+    if (!workspaceId) {
+      toast.error('No workspace selected')
+      return
+    }
     const { uploadAttachment } = await import('@/entities/file')
+
+    // Fetch DEK first
+    const { dek } = await fetchDocumentKeys(documentId, workspaceId)
+
     let completed = 0
     let failed = 0
     setUploadStatus({ state: 'uploading', total: files.length, completed: 0, currentFile: files[0]?.name })
@@ -61,7 +70,7 @@ export function useEditorUploads(
         const existingPaths = await getExistingPaths(documentId)
 
         const resp = await uploadAttachment(documentId, f, {
-          workspaceId: workspaceId ?? '',
+          dek,
           existingPaths,
         })
 

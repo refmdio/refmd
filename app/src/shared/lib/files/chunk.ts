@@ -2,8 +2,8 @@
  * Chunked encryption for large files (>10MB)
  */
 
-import { encrypt, decrypt } from '../crypto/xchacha20'
-import { DEFAULT_CHUNK_SIZE } from '../types/file-format'
+import { encrypt, decrypt } from '@/shared/lib/crypto'
+import { DEFAULT_CHUNK_SIZE } from '@/shared/types/security'
 
 /** Large file threshold: 10MB */
 export const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024

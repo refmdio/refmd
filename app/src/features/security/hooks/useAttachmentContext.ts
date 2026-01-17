@@ -1,11 +1,11 @@
 /**
  * Hook to set up decryption context for attachments
  *
- * This hook registers the decryption context (workspaceId, token) for a document
+ * This hook registers the decryption context (DEK, token) for a document
  * so that the attachment Web Component can decrypt files.
  */
 
-import { useLayoutEffect, useEffect } from 'react'
+import { useLayoutEffect, useEffect, useRef } from 'react'
 
 import {
   setDecryptionContext,
@@ -14,6 +14,8 @@ import {
   initFileMap,
   clearFileMap,
 } from '@/entities/file'
+
+import { fetchDocumentKeys } from '@/features/security'
 
 export interface UseAttachmentContextOptions {
   /** Document ID */
@@ -29,35 +31,48 @@ export interface UseAttachmentContextOptions {
 /**
  * Set up decryption context for attachments
  *
- * When a documentId and workspaceId are provided, this hook registers
- * the context so that attachments can be decrypted when downloaded
+ * When a documentId and workspaceId are provided, this hook fetches the DEK
+ * and registers the context so that attachments can be decrypted when downloaded
  * or previewed.
- *
- * Context and file map initialization are started synchronously during render
- * to ensure they're available before child components' useLayoutEffect runs.
  */
 export function useAttachmentContext(options: UseAttachmentContextOptions): void {
   const { documentId, workspaceId, token, setAsDefault } = options
+  const initStartedRef = useRef(false)
 
-  // Set context and start file map init synchronously during render
-  // (before children's useLayoutEffect)
-  if (workspaceId) {
-    const context = { workspaceId, token }
-    if (setAsDefault) {
-      setDefaultDecryptionContext(context)
-    } else if (documentId) {
-      setDecryptionContext(documentId, context)
-    }
+  // Initialize context and file map
+  useEffect(() => {
+    if (!workspaceId || !documentId) return
 
-    // Start file map initialization for specific document
-    if (documentId) {
-      // Start immediately (async but started sync)
-      // This ensures waitForFileMap can return the pending promise
-      initFileMap(documentId, workspaceId).catch(() => {
-        // Errors handled by waitForFileMap callers
-      })
+    let cancelled = false
+    initStartedRef.current = true
+
+    ;(async () => {
+      try {
+        // Fetch DEK for this document
+        const { dek } = await fetchDocumentKeys(documentId, workspaceId)
+        if (cancelled) return
+
+        // Set context with DEK
+        const context = { dek, token }
+        if (setAsDefault) {
+          setDefaultDecryptionContext(context)
+        } else {
+          setDecryptionContext(documentId, context)
+        }
+
+        // Initialize file map with DEK
+        initFileMap(documentId, dek).catch(() => {
+          // Errors handled by waitForFileMap callers
+        })
+      } catch (err) {
+        console.warn('[useAttachmentContext] Failed to fetch DEK:', err)
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
-  }
+  }, [documentId, workspaceId, token, setAsDefault])
 
   // Cleanup on unmount or when dependencies change
   useLayoutEffect(() => {

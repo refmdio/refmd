@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 
-import { generateKey } from '../../crypto/xchacha20'
+import { generateKey } from '@/shared/lib/crypto'
+
 import { derivePluginDEK } from '../plugin-dek'
 import {
   encryptKV,

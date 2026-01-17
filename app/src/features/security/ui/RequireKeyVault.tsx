@@ -1,7 +1,7 @@
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect } from 'react'
 
-import RoutePending from '@/widgets/routes/RoutePending'
+import { RoutePending } from '@/shared/ui/loading'
 
 import { useKeyVault } from '../context/key-vault-context'
 

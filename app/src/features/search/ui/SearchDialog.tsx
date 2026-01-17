@@ -21,6 +21,7 @@ import { Dialog, DialogContent } from '@/shared/ui/dialog'
 import { listDecryptedTags } from '@/entities/tag'
 
 import { useAuthContext } from '@/features/auth/model/auth-context'
+import { fetchWorkspaceKek } from '@/features/security'
 
 import { useClientSearch, type DocumentHit } from '../hooks/useClientSearch'
 import { fetchDecryptedContent } from '../lib/fetch-decrypted-content'
@@ -130,8 +131,9 @@ export default function SearchDialog({ open, onOpenChange, presetTag }: Props) {
     let cancelled = false
     ;(async () => {
       try {
-        // Use decrypted tags API for E2EE
-        const decryptedTags = await listDecryptedTags(activeWorkspaceId)
+        // Fetch KEK and use decrypted tags API for E2EE
+        const kek = await fetchWorkspaceKek(activeWorkspaceId)
+        const decryptedTags = await listDecryptedTags(kek)
         if (!cancelled) {
           const mapped = decryptedTags.map((tag) => ({
             name: tag.name,

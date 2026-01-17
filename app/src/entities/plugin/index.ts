@@ -1,3 +1,4 @@
 export * from './api'
 export * from './hooks/usePluginManifest'
-export * from './hooks/usePluginExecutor'
+// Re-export from features for backward compatibility
+export { usePluginExecutor } from '@/features/plugins/hooks/usePluginExecutor'

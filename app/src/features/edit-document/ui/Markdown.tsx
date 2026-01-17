@@ -6,10 +6,10 @@ import { API_BASE_URL } from '@/shared/lib/config'
 import { cn } from '@/shared/lib/utils'
 
 import { upgradeAll } from '@/entities/document/wc/markdown/hydrate-all'
-import { renderMarkdown } from '@/entities/markdown'
 import { usePluginManifest } from '@/entities/plugin'
 
 import { ImageModal } from '@/features/edit-document/ui/ImageModal'
+import { renderMarkdown } from '@/features/markdown'
 import { collectRendererSpecs, addPlaceholderHydration } from '@/features/markdown/lib/add-placeholder-hydration'
 import '@/entities/document/wc/wiki/wikilink'
 
@@ -89,21 +89,18 @@ function ServerMarkdown({ content, className, documentIdOverride, onTagClick, on
       let token: string | undefined
       try { token = new URLSearchParams(window.location.search).get('token') || undefined } catch {}
 
-      const promise = renderMarkdown({
-        text,
-        options: {
-          flavor: 'doc',
-          features: ['gfm', 'highlight'],
-          sanitize: true,
-          hardbreaks: true as any,
-          // Keep attachment paths as-is (./attachments/xxx) for client-side file map resolution
-          absolute_attachments: false as any,
-          base_origin: apiOrigin as any,
-          doc_id: override as any,
-          token: token as any,
-          theme: highlightTheme as any,
-          placeholder_kinds: placeholderKinds.length > 0 ? placeholderKinds : undefined,
-        } as any,
+      const promise = renderMarkdown(text, {
+        flavor: 'doc',
+        features: ['gfm', 'highlight'],
+        sanitize: true,
+        hardbreaks: true,
+        // Keep attachment paths as-is (./attachments/xxx) for client-side file map resolution
+        absoluteAttachments: false,
+        baseOrigin: apiOrigin,
+        docId: override,
+        token: token,
+        theme: highlightTheme,
+        placeholderKinds: placeholderKinds.length > 0 ? placeholderKinds : undefined,
       })
 
       requestRef.current = promise as any

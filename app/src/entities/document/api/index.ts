@@ -29,13 +29,6 @@ import type {
   SnapshotSummary,
 } from '@/shared/api'
 
-// Re-export client-side export functionality
-import {
-  exportDocumentFile as exportDocument,
-  type ExportFormat,
-  EXPORT_FORMATS,
-  sanitizeFilename,
-} from '@/features/export'
 
 type DocumentListParams = {
   tag?: string
@@ -272,56 +265,3 @@ export async function updateDocumentContent(params: { id: string; content: strin
 export async function deleteDocument(id: string) {
   return apiDeleteDocument({ id })
 }
-
-// Document Download Format (E2EE-compliant client-side export)
-// Only formats that can be generated client-side are supported
-export type DocumentDownloadFormat = ExportFormat
-
-export type DocumentDownloadFormatCategory = 'primary' | 'other'
-
-export type DocumentDownloadFormatMetadata = {
-  label: string
-  description: string
-  extension: string
-  category: DocumentDownloadFormatCategory
-  group?: string
-}
-
-// Re-export EXPORT_FORMATS as DOWNLOAD_FORMAT_METADATA for backward compatibility
-export const DOWNLOAD_FORMAT_METADATA: Record<DocumentDownloadFormat, DocumentDownloadFormatMetadata> = {
-  ...EXPORT_FORMATS,
-} as const
-
-/**
- * Download a document in the specified format.
- * This function uses client-side export for E2EE compliance.
- *
- * @param id - Document ID
- * @param workspaceId - Workspace ID (required for E2EE key retrieval)
- * @param options - Download options
- */
-export async function downloadDocumentFile(
-  id: string,
-  workspaceId: string,
-  options?: { title?: string; format?: DocumentDownloadFormat },
-): Promise<string> {
-  const format: DocumentDownloadFormat = options?.format ?? 'archive'
-  const title = options?.title ?? 'document'
-
-  // Use client-side export (E2EE compliant)
-  return exportDocument(id, workspaceId, title, format)
-}
-
-// Note: Workspace archive download is temporarily unavailable.
-// Server-side export has been removed for E2EE compliance.
-// Client-side workspace archive export will be implemented in a future update.
-export async function downloadWorkspaceArchive(_params: {
-  workspaceId: string
-  workspaceName: string
-  format?: DocumentDownloadFormat
-}): Promise<string> {
-  throw new Error('Workspace archive download is not yet available. This feature is being migrated to client-side export for E2EE compliance.')
-}
-
-// Re-export sanitizeFilename for backward compatibility
-export { sanitizeFilename as sanitizeExportName }

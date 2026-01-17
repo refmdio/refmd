@@ -2,13 +2,14 @@
  * File decryption for .rme format
  */
 
-import { decrypt } from '../crypto/xchacha20'
-import { CryptoError, ERROR_CODES } from '../types/errors'
+import { decrypt } from '@/shared/lib/crypto'
 import {
+  CryptoError,
+  ERROR_CODES,
   isRmeFile,
   type DecryptedRmeFile,
   type RmeMetadata,
-} from '../types/file-format'
+} from '@/shared/types/security'
 
 import { parseRme } from './format'
 import { computeSha256 } from './hash'

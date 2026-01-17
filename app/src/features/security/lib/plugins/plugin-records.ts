@@ -9,8 +9,7 @@
  * createdAt, updatedAt) remain in plaintext for routing and sorting.
  */
 
-import { toBase64, fromBase64 } from '../crypto/canonicalize'
-import { encrypt, decrypt } from '../crypto/xchacha20'
+import { toBase64, fromBase64, encrypt, decrypt } from '@/shared/lib/crypto'
 
 import { derivePluginDEK } from './plugin-dek'
 

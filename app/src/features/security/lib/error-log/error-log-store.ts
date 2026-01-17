@@ -5,7 +5,7 @@
  * Sensitive information is never stored.
  */
 
-import type { ErrorCode, ErrorCategory, ErrorContext } from '../types/errors'
+import type { ErrorCode, ErrorCategory, ErrorContext } from '@/shared/types/security'
 
 const DB_NAME = 'refmd-error-logs'
 const DB_VERSION = 1

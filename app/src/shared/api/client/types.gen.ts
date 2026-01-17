@@ -210,10 +210,6 @@ export type Document = {
     workspace_id: string;
 };
 
-export type DocumentArchiveBinary = Blob | File;
-
-export type DocumentDownloadBinary = Blob | File;
-
 export type DocumentKeyResponse = {
     createdAt: string;
     documentId: string;
@@ -308,17 +304,6 @@ export type DocumentTagEntry = {
  */
 export type DocumentTagsResponse = {
     tags: Array<DocumentTagEntry>;
-};
-
-export type DownloadDocumentQuery = {
-    format?: DownloadFormat;
-    token?: (string) | null;
-};
-
-export type DownloadFormat = 'archive' | 'markdown' | 'html' | 'html5' | 'pdf' | 'docx' | 'latex' | 'beamer' | 'context' | 'man' | 'mediawiki' | 'dokuwiki' | 'textile' | 'org' | 'texinfo' | 'opml' | 'docbook' | 'opendocument' | 'odt' | 'rtf' | 'epub' | 'epub3' | 'fb2' | 'asciidoc' | 'icml' | 'slidy' | 'slideous' | 'dzslides' | 'revealjs' | 's5' | 'json' | 'plain' | 'commonmark' | 'commonmark_x' | 'markdown_strict' | 'markdown_phpextra' | 'markdown_github' | 'rst' | 'native' | 'haddock';
-
-export type DownloadWorkspaceQuery = {
-    format?: DownloadFormat;
 };
 
 export type DuplicateDocumentRequest = {
@@ -688,6 +673,10 @@ export type PublicFile = {
  */
 export type PublishRequest = {
     /**
+     * If true, adds noindex meta tag to prevent search engine indexing (default: true)
+     */
+    noindex?: (boolean) | null;
+    /**
      * Plaintext content (required for E2EE mode)
      */
     plaintextContent?: (string) | null;
@@ -695,29 +684,15 @@ export type PublishRequest = {
      * Plaintext title (required for E2EE mode)
      */
     plaintextTitle?: (string) | null;
-    /**
-     * If true, adds noindex meta tag to prevent search engine indexing (default: true)
-     */
-    noindex?: (boolean) | null;
 };
 
 export type PublishResponse = {
-    public_url: string;
-    slug: string;
     /**
      * If true, noindex meta tag is added to prevent search engine indexing
      */
     noindex: boolean;
-};
-
-/**
- * Request to update noindex setting for a published document
- */
-export type UpdatePublishSettingsRequest = {
-    /**
-     * If true, adds noindex meta tag to prevent search engine indexing
-     */
-    noindex: boolean;
+    public_url: string;
+    slug: string;
 };
 
 export type RecordsResponse = {
@@ -1110,6 +1085,16 @@ export type UpdateMemberRoleRequest = {
     system_role?: (string) | null;
 };
 
+/**
+ * Request to update noindex setting for a published document
+ */
+export type UpdatePublishSettingsRequest = {
+    /**
+     * If true, adds noindex meta tag to prevent search engine indexing
+     */
+    noindex: boolean;
+};
+
 export type UpdateRecordBody = {
     patch: unknown;
 };
@@ -1477,23 +1462,6 @@ export type PatchDocumentContentData = {
 
 export type PatchDocumentContentResponse = (Document);
 
-export type DownloadDocumentData = {
-    /**
-     * Download format (see schema for supported values)
-     */
-    format?: ((DownloadFormat) | null);
-    /**
-     * Document ID
-     */
-    id: string;
-    /**
-     * Share token (optional)
-     */
-    token?: (string) | null;
-};
-
-export type DownloadDocumentResponse = (DocumentDownloadBinary);
-
 export type DuplicateDocumentData = {
     /**
      * Document ID
@@ -1604,23 +1572,6 @@ export type GetDocumentSnapshotDiffData = {
 };
 
 export type GetDocumentSnapshotDiffResponse = (SnapshotDiffResponse);
-
-export type DownloadDocumentSnapshotData = {
-    /**
-     * Document ID
-     */
-    id: string;
-    /**
-     * Snapshot ID
-     */
-    snapshotId: string;
-    /**
-     * Share token (optional)
-     */
-    token?: (string) | null;
-};
-
-export type DownloadDocumentSnapshotResponse = (DocumentArchiveBinary);
 
 export type RestoreDocumentSnapshotData = {
     /**
@@ -2089,6 +2040,10 @@ export type GetShareKeyData = {
      * Share ID
      */
     id: string;
+    /**
+     * Share token for authentication
+     */
+    token: string;
 };
 
 export type GetShareKeyResponse = (ShareKeyResponse);
@@ -2118,6 +2073,10 @@ export type GetShareSalt1Data = {
      * Share ID
      */
     id: string;
+    /**
+     * Share token for authentication
+     */
+    token: string;
 };
 
 export type GetShareSalt1Response = (ShareSaltResponse);
@@ -2199,19 +2158,6 @@ export type DeleteWorkspaceData = {
 };
 
 export type DeleteWorkspaceResponse = (void);
-
-export type DownloadWorkspaceArchiveData = {
-    /**
-     * Download format (archive only)
-     */
-    format?: ((DownloadFormat) | null);
-    /**
-     * Workspace ID
-     */
-    id: string;
-};
-
-export type DownloadWorkspaceArchiveResponse = (DocumentDownloadBinary);
 
 export type ListInvitationsData = {
     /**

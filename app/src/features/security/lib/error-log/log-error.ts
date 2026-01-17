@@ -5,7 +5,7 @@
  * Never sends error data to the server.
  */
 
-import { type CryptoError, type ErrorContext } from '../types/errors'
+import { type CryptoError, type ErrorContext } from '@/shared/types/security'
 
 import { getErrorLogStore, type ErrorLog } from './error-log-store'
 

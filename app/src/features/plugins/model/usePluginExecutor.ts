@@ -1,1 +1,1 @@
-export { usePluginExecutor } from '@/entities/plugin/hooks/usePluginExecutor'
+export { usePluginExecutor } from '@/features/plugins/hooks/usePluginExecutor'

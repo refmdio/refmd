@@ -3,13 +3,12 @@ import { toast } from 'sonner'
 
 import { API_BASE_URL } from '@/shared/lib/config'
 
+import { getPluginKv, type PluginManifestItem } from '@/entities/plugin/api'
+
 import { handleEffects as handleEffectsFull } from '@/features/plugins/lib/effect-handler'
 import { loadPluginWasm, hasPluginWasm } from '@/features/plugins/lib/wasm-loader'
 import { getWasmRuntime } from '@/features/plugins/lib/wasm-runtime'
 import { getKeyVaultService, fetchDocumentDek } from '@/features/security'
-
-import { getPluginKv } from '../api'
-import type { PluginManifestItem } from '../api'
 
 type Options = {
   plugins: PluginManifestItem[]
