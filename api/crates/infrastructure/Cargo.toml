@@ -13,7 +13,6 @@ chrono = { version = "0.4", features = ["serde", "clock"] }
 dotenvy = "0.15"
 futures-core = "0.3"
 futures-util = { version = "0.3", features = ["sink"] }
-git2 = { version = "0.18", default-features = true, features = ["vendored-libgit2"] }
 htmlescape = "0.3"
 hex = "0.4"
 hmac = "0.12"
@@ -59,8 +58,6 @@ aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1"
 
 extism = { version = "1" }
-
-pandoc = "0.8"
 
 base64 = "0.21"
 ed25519-dalek = { version = "2", features = ["std"] }

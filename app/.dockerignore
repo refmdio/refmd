@@ -1,7 +1,45 @@
+# Dependencies and build outputs
 node_modules
 dist
 .output
+.nitro
+.tanstack
+.vinxi
+
+# Environment and secrets
 .env
+.env.*
+!.env.example
 *.local
+
+# Logs
 npm-debug.log*
 yarn-error.log*
+openapi-ts-error-*.log
+
+# Docker
+Dockerfile*
+.dockerignore
+
+# Dev tools config (not needed at runtime)
+prettier.config.js
+.prettierignore
+.cta.json
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Test
+*.test.ts
+*.spec.ts
+__tests__
+coverage
+
+# Misc
+*.md
+LICENSE
+.git
+.gitignore
