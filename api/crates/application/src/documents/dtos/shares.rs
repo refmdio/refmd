@@ -65,6 +65,10 @@ pub struct ShareBrowseTreeItemDto {
     pub r#type: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Child share token for documents within a folder share
+    pub share_token: Option<String>,
+    /// Encrypted DEK for this document (base64, nonce prepended)
+    pub encrypted_dek: Option<String>,
 }
 
 #[derive(Debug, Clone)]

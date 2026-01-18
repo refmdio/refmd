@@ -75,6 +75,16 @@ pub struct ShareSubtreeNode {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Child share info for a document within a folder share
+#[derive(Debug, Clone)]
+pub struct ChildShareInfo {
+    pub share_id: Uuid,
+    pub document_id: Uuid,
+    pub token: String,
+    /// Encrypted DEK stored for this child share (raw bytes, nonce prepended)
+    pub encrypted_dek: Option<Vec<u8>>,
+}
+
 #[async_trait]
 pub trait SharesRepository: Send + Sync {
     async fn create_share(
@@ -128,6 +138,9 @@ pub trait SharesRepository: Send + Sync {
     async fn list_subtree_nodes(&self, root_id: Uuid) -> PortResult<Vec<ShareSubtreeNode>>;
 
     async fn list_materialized_children(&self, parent_share_id: Uuid) -> PortResult<Vec<Uuid>>;
+
+    /// Get child share info (token + encrypted DEK) for documents in a folder share
+    async fn list_child_share_info(&self, parent_share_id: Uuid) -> PortResult<Vec<ChildShareInfo>>;
 
     async fn materialize_folder_share(
         &self,

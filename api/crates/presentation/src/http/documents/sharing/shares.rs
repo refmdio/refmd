@@ -51,29 +51,34 @@ pub async fn create_share(
         .await
         .map_err(map_share_error)?;
 
-    // Store encrypted DEK if provided (E2EE mode)
-    if let Some(encrypted_dek_b64) = req.encrypted_dek {
-        let encrypted_dek = base64::engine::general_purpose::STANDARD
-            .decode(&encrypted_dek_b64)
-            .map_err(|_| ApiError::bad_request("invalid_encrypted_dek_base64"))?;
+    // Decode E2EE fields
+    let encrypted_dek = req
+        .encrypted_dek
+        .as_ref()
+        .map(|s| base64::engine::general_purpose::STANDARD.decode(s))
+        .transpose()
+        .map_err(|_| ApiError::bad_request("invalid_encrypted_dek_base64"))?;
+    let creator_encrypted_share_key = req
+        .creator_encrypted_share_key
+        .as_ref()
+        .map(|s| base64::engine::general_purpose::STANDARD.decode(s))
+        .transpose()
+        .map_err(|_| ApiError::bad_request("invalid_creator_encrypted_share_key_base64"))?;
+    let creator_share_key_nonce = req
+        .creator_share_key_nonce
+        .as_ref()
+        .map(|s| base64::engine::general_purpose::STANDARD.decode(s))
+        .transpose()
+        .map_err(|_| ApiError::bad_request("invalid_creator_share_key_nonce_base64"))?;
 
-        // Decode creator_encrypted_share_key if provided
-        let creator_encrypted_share_key = req
-            .creator_encrypted_share_key
-            .as_ref()
-            .map(|s| base64::engine::general_purpose::STANDARD.decode(s))
-            .transpose()
-            .map_err(|_| ApiError::bad_request("invalid_creator_encrypted_share_key_base64"))?;
-        let creator_share_key_nonce = req
-            .creator_share_key_nonce
-            .as_ref()
-            .map(|s| base64::engine::general_purpose::STANDARD.decode(s))
-            .transpose()
-            .map_err(|_| ApiError::bad_request("invalid_creator_share_key_nonce_base64"))?;
-
+    // Store share key if we have DEK (document) or creator keys (folder for URL recovery)
+    // Documents: encrypted_dek is Some, folders: encrypted_dek is None but creator keys are Some
+    let has_creator_keys = creator_encrypted_share_key.is_some() && creator_share_key_nonce.is_some();
+    if encrypted_dek.is_some() || has_creator_keys {
+        let dek = encrypted_dek.unwrap_or_default(); // Empty for folders (no content to encrypt)
         let keys_service = ctx.document_keys_service();
 
-        if let (Some(salt_b64), Some(kdf_params_json)) = (req.salt, req.kdf_params) {
+        if let (Some(salt_b64), Some(kdf_params_json)) = (req.salt.clone(), req.kdf_params.clone()) {
             // Password-protected share
             let salt = base64::engine::general_purpose::STANDARD
                 .decode(&salt_b64)
@@ -84,7 +89,7 @@ pub async fn create_share(
             keys_service
                 .store_password_protected_share_key(
                     res.share_id,
-                    encrypted_dek,
+                    dek,
                     salt,
                     kdf_params,
                     creator_encrypted_share_key,
@@ -98,17 +103,40 @@ pub async fn create_share(
         } else {
             // URL fragment based share (no password)
             keys_service
-                .store_share_key(
-                    res.share_id,
-                    encrypted_dek,
-                    creator_encrypted_share_key,
-                    creator_share_key_nonce,
-                )
+                .store_share_key(res.share_id, dek, creator_encrypted_share_key, creator_share_key_nonce)
                 .await
                 .map_err(|e| {
                     tracing::error!(error = ?e, "failed_to_store_share_key");
                     ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "failed_to_store_share_key")
                 })?;
+        }
+    }
+
+    // For folder shares: store child document DEKs
+    if res.document_type == "folder" {
+        if let Some(doc_encrypted_deks) = req.document_encrypted_deks {
+            let keys_service = ctx.document_keys_service();
+            let child_shares = service
+                .list_child_share_info(res.share_id)
+                .await
+                .map_err(map_share_error)?;
+
+            for child in child_shares {
+                let doc_id_str = child.document_id.to_string();
+                if let Some(encrypted_dek_b64) = doc_encrypted_deks.get(&doc_id_str) {
+                    let child_dek = base64::engine::general_purpose::STANDARD
+                        .decode(encrypted_dek_b64)
+                        .map_err(|_| ApiError::bad_request("invalid_document_encrypted_dek_base64"))?;
+
+                    keys_service
+                        .store_share_key(child.share_id, child_dek, None, None)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!(error = ?e, document_id = %child.document_id, "failed_to_store_child_share_key");
+                            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "failed_to_store_child_share_key")
+                        })?;
+                }
+            }
         }
     }
 

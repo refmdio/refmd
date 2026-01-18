@@ -20,6 +20,7 @@ import { getPublishStatus, publishDocument, unpublishDocument, updatePublishSett
 import { createShare, deleteShare, listDocumentShares, shareKeys } from '@/entities/share'
 
 import { useAuthContext } from '@/features/auth'
+import type { DocumentNode } from '@/features/file-tree/model/types'
 import { decryptDocumentTitle } from '@/features/git-sync/lib/sync'
 import { fetchDecryptedContent } from '@/features/search/lib/fetch-decrypted-content'
 import {
@@ -54,18 +55,50 @@ type Props = {
   onOpenChange: (open: boolean) => void
   targetId: string
   targetType?: 'document' | 'folder'
+  /** Documents tree for folder share - required when targetType is 'folder' */
+  documents?: DocumentNode[]
 }
 
 const PERMISSION_ICONS = { view: Eye, edit: Edit, admin: Settings } as const
 const PERMISSION_LABELS = { view: 'View only', edit: 'Can edit', admin: 'Admin' } as const
 
-export default function ShareDialog({ open, onOpenChange, targetId, targetType = 'document' }: Props) {
+export default function ShareDialog({ open, onOpenChange, targetId, targetType = 'document', documents = [] }: Props) {
   if (!targetId) {
     throw new Error('ShareDialog requires a targetId')
   }
 
   const qc = useQueryClient()
   const { activeWorkspaceId } = useAuthContext()
+
+  // Helper function to collect all document IDs in a folder subtree
+  const collectDocumentIdsInFolder = useCallback((folderId: string): string[] => {
+    if (documents.length === 0) return []
+    const result: string[] = []
+    const findFolder = (nodes: DocumentNode[]): DocumentNode | null => {
+      for (const node of nodes) {
+        if (node.id === folderId) return node
+        if (node.children?.length) {
+          const found = findFolder(node.children)
+          if (found) return found
+        }
+      }
+      return null
+    }
+    const collectDocs = (nodes: DocumentNode[]) => {
+      for (const node of nodes) {
+        if (node.type === 'file') {
+          result.push(node.id)
+        } else if (node.children?.length) {
+          collectDocs(node.children)
+        }
+      }
+    }
+    const folder = findFolder(documents)
+    if (folder?.children) {
+      collectDocs(folder.children)
+    }
+    return result
+  }, [documents])
 
   const [permissionLevel, setPermissionLevel] = useState<string>('edit')
   const [shareLinks, setShareLinks] = useState<ShareLink[]>([])
@@ -156,6 +189,7 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
       let encryptedDekForShare: string | undefined
       let creatorEncryptedShareKey: string | undefined
       let creatorShareKeyNonce: string | undefined
+      let documentEncryptedDeks: Record<string, string> | undefined
 
       try {
         const service = getKeyVaultService()
@@ -166,27 +200,57 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
           const kekResponse = await getMyWorkspaceKey({ id: activeWorkspaceId })
           const kek = await service.getWorkspaceKek(activeWorkspaceId, async () => kekResponse.encryptedKek)
 
-          // Get document DEK
-          const dekResponse = await getDocumentKey({ id: targetId })
-          const dek = await service.getDocumentDek(targetId, kek, async () => ({
-            encryptedDek: dekResponse.encryptedDek,
-            nonce: dekResponse.nonce,
-          }))
-
-          // Generate share key
+          // Generate share key (same key for all documents in folder share)
           const { key: shareKey } = await generateShareKey()
-
-          // Encrypt DEK with share key
-          const { encryptedDek, nonce } = await encryptDekWithShareKey(dek, shareKey)
-
-          // Combine nonce + ciphertext for storage (since API doesn't have separate nonce field)
           const sodium = await getSodium()
-          const nonceBytes = sodium.from_base64(nonce, sodium.base64_variants.ORIGINAL)
-          const ciphertextBytes = sodium.from_base64(encryptedDek, sodium.base64_variants.ORIGINAL)
-          const combined = new Uint8Array(nonceBytes.length + ciphertextBytes.length)
-          combined.set(nonceBytes)
-          combined.set(ciphertextBytes, nonceBytes.length)
-          encryptedDekForShare = sodium.to_base64(combined, sodium.base64_variants.ORIGINAL)
+
+          if (targetType === 'folder') {
+            // For folder shares: encrypt DEKs for all documents in the folder
+            const docIds = collectDocumentIdsInFolder(targetId)
+            documentEncryptedDeks = {}
+
+            for (const docId of docIds) {
+              try {
+                const dekResponse = await getDocumentKey({ id: docId })
+                const dek = await service.getDocumentDek(docId, kek, async () => ({
+                  encryptedDek: dekResponse.encryptedDek,
+                  nonce: dekResponse.nonce,
+                }))
+
+                // Encrypt DEK with share key
+                const { encryptedDek, nonce } = await encryptDekWithShareKey(dek, shareKey)
+
+                // Combine nonce + ciphertext for storage
+                const nonceBytes = sodium.from_base64(nonce, sodium.base64_variants.ORIGINAL)
+                const ciphertextBytes = sodium.from_base64(encryptedDek, sodium.base64_variants.ORIGINAL)
+                const combined = new Uint8Array(nonceBytes.length + ciphertextBytes.length)
+                combined.set(nonceBytes)
+                combined.set(ciphertextBytes, nonceBytes.length)
+                documentEncryptedDeks[docId] = sodium.to_base64(combined, sodium.base64_variants.ORIGINAL)
+              } catch (e) {
+                console.warn(`[ShareDialog] Failed to encrypt DEK for document ${docId}:`, e)
+                // Continue with other documents
+              }
+            }
+          } else {
+            // For single document shares
+            const dekResponse = await getDocumentKey({ id: targetId })
+            const dek = await service.getDocumentDek(targetId, kek, async () => ({
+              encryptedDek: dekResponse.encryptedDek,
+              nonce: dekResponse.nonce,
+            }))
+
+            // Encrypt DEK with share key
+            const { encryptedDek, nonce } = await encryptDekWithShareKey(dek, shareKey)
+
+            // Combine nonce + ciphertext for storage (since API doesn't have separate nonce field)
+            const nonceBytes = sodium.from_base64(nonce, sodium.base64_variants.ORIGINAL)
+            const ciphertextBytes = sodium.from_base64(encryptedDek, sodium.base64_variants.ORIGINAL)
+            const combined = new Uint8Array(nonceBytes.length + ciphertextBytes.length)
+            combined.set(nonceBytes)
+            combined.set(ciphertextBytes, nonceBytes.length)
+            encryptedDekForShare = sodium.to_base64(combined, sodium.base64_variants.ORIGINAL)
+          }
 
           // Encrypt the share key with creator's KEK for later recovery
           const encryptedShareKeyResult = await encryptDekWithKek(shareKey, kek)
@@ -209,6 +273,7 @@ export default function ShareDialog({ open, onOpenChange, targetId, targetType =
         encryptedDek: encryptedDekForShare,
         creatorEncryptedShareKey,
         creatorShareKeyNonce,
+        documentEncryptedDeks,
       })
 
       if (result?.token) {

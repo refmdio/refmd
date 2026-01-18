@@ -24,6 +24,7 @@ type ShareNode = {
   title: string
   type: 'folder' | 'document'
   parent_id?: string | null
+  shareToken?: string | null
 }
 
 type TreeNode = ShareNode & {
@@ -142,8 +143,10 @@ function FolderShareList({
       const items = resp.tree.map((n: any) => ({
         id: String(n.id),
         title: String(n.title),
-        parent_id: (n.parent_id ?? null) as string | null,
+        // Support both camelCase (new) and snake_case (legacy) parent_id
+        parent_id: (n.parentId ?? n.parent_id ?? null) as string | null,
         type: (n.type === 'folder' ? 'folder' : 'document') as 'folder' | 'document',
+        shareToken: n.shareToken ?? null,
       }))
       setDocs(items)
     } catch (err) {
@@ -203,9 +206,9 @@ function FolderShareList({
     nodes.map((node) => {
       if (node.type === 'document') {
         const childShare = childShareForDoc(node.id)
-        const localUrl = childShare
-          ? `/document/${node.id}?token=${childShare.token}`
-          : `/document/${node.id}?token=${share.token}`
+        // Prefer shareToken from browse response, then childShare, then fallback to folder token
+        const docToken = node.shareToken ?? childShare?.token ?? share.token
+        const localUrl = `/document/${node.id}?token=${docToken}`
         const fullUrl = childShare ? childShare.url : `${siteOrigin}${localUrl}`
         return (
           <Card

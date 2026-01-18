@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use base64::Engine;
+
 use crate::documents::dtos::{ShareBrowseResponseDto, ShareBrowseTreeItemDto};
 use crate::documents::ports::sharing::shares_repository::SharesRepository;
 use domain::documents::doc_type::DocumentType;
@@ -28,6 +32,8 @@ impl<'a, R: SharesRepository + ?Sized> BrowseShare<'a, R> {
                     r#type: node.document_type.as_str().to_string(),
                     created_at: node.created_at,
                     updated_at: node.updated_at,
+                    share_token: None,
+                    encrypted_dek: None,
                 });
             } else {
                 let fallback_title = self
@@ -43,19 +49,43 @@ impl<'a, R: SharesRepository + ?Sized> BrowseShare<'a, R> {
                     r#type: ctx.shared_type.as_str().to_string(),
                     created_at: chrono::Utc::now(),
                     updated_at: chrono::Utc::now(),
+                    share_token: None,
+                    encrypted_dek: None,
                 });
             }
             return Ok(Some(ShareBrowseResponseDto { tree }));
         }
         // Folder: list subtree and filter to materialized shares under this folder share
         let rows = self.repo.list_subtree_nodes(ctx.shared_id).await?;
-        let allowed = self.repo.list_materialized_children(ctx.share_id).await?;
+
+        // Get child share info (token + encrypted DEK) for documents
+        let child_info = self.repo.list_child_share_info(ctx.share_id).await?;
+        let child_info_map: HashMap<_, _> = child_info
+            .into_iter()
+            .map(|info| (info.document_id, (info.token, info.encrypted_dek)))
+            .collect();
+
         let tree: Vec<ShareBrowseTreeItemDto> = rows
             .into_iter()
             .filter_map(|node| {
-                if node.document_type == DocumentType::Document && !allowed.contains(&node.id) {
-                    return None;
+                // For documents, check if they have a materialized child share
+                if node.document_type == DocumentType::Document {
+                    let child = child_info_map.get(&node.id)?;
+                    let (child_token, encrypted_dek) = child;
+                    return Some(ShareBrowseTreeItemDto {
+                        id: node.id,
+                        title: node.title.into_string(),
+                        parent_id: node.parent_id,
+                        r#type: node.document_type.as_str().to_string(),
+                        created_at: node.created_at,
+                        updated_at: node.updated_at,
+                        share_token: Some(child_token.clone()),
+                        encrypted_dek: encrypted_dek.as_ref().map(|dek| {
+                            base64::engine::general_purpose::STANDARD.encode(dek)
+                        }),
+                    });
                 }
+                // For folders, include without child share info
                 Some(ShareBrowseTreeItemDto {
                     id: node.id,
                     title: node.title.into_string(),
@@ -63,6 +93,8 @@ impl<'a, R: SharesRepository + ?Sized> BrowseShare<'a, R> {
                     r#type: node.document_type.as_str().to_string(),
                     created_at: node.created_at,
                     updated_at: node.updated_at,
+                    share_token: None,
+                    encrypted_dek: None,
                 })
             })
             .collect();

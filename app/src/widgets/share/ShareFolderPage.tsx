@@ -12,7 +12,7 @@ import { createShareMount, shareMountsQuery } from '@/entities/share'
 type ShareFolderPageProps = {
   token: string
   title: string
-  items: Array<{ id: string; title: string; path?: string }>
+  items: Array<{ id: string; title: string; path?: string; shareToken?: string }>
 }
 
 export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
@@ -20,11 +20,18 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
   const qc = useQueryClient()
   const [saving, setSaving] = useState(false)
 
-  const handleClick = (id: string) => {
+  const handleClick = (id: string, docShareToken?: string) => {
+    // Use the document's child share token if available, otherwise fall back to folder token
+    const tokenToUse = docShareToken ?? token
+    // Share key is now managed via ShareContext, no need to preserve URL hash
     navigate({
       to: '/document/$id',
       params: { id },
-      search: (prev: { token?: string; shareScope?: 'document' | 'folder' }) => ({ ...prev, token, shareScope: 'folder' as const }),
+      search: (prev: { token?: string; shareScope?: 'document' | 'folder' }) => ({
+        ...prev,
+        token: tokenToUse,
+        shareScope: docShareToken ? ('document' as const) : ('folder' as const),
+      }),
     })
   }
 
@@ -72,7 +79,7 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
                   <div
                     key={doc.id}
                     className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors bg-card"
-                    onClick={() => handleClick(doc.id)}
+                    onClick={() => handleClick(doc.id, doc.shareToken)}
                   >
                     <div className="flex items-start gap-3">
                       <FileText className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
@@ -119,7 +126,7 @@ export function ShareFolderPage({ token, title, items }: ShareFolderPageProps) {
                   <div
                     key={doc.id}
                     className="p-3 border rounded hover:bg-accent cursor-pointer transition-colors"
-                    onClick={() => handleClick(doc.id)}
+                    onClick={() => handleClick(doc.id, doc.shareToken)}
                   >
                     <div className="flex items-start gap-3">
                       <FileText className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />

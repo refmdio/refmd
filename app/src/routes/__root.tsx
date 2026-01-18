@@ -20,6 +20,7 @@ import { Toaster } from '@/shared/ui/sonner'
 import { AuthProvider, useAuthContext } from '@/features/auth'
 import { EditorProvider, ViewProvider } from '@/features/edit-document'
 import { KeyVaultProvider } from '@/features/security'
+import { ShareProvider } from '@/features/sharing'
 import { ShortcutRegistryProvider } from '@/features/shortcuts'
 
 import { Header } from '@/widgets/header/Header'
@@ -125,7 +126,9 @@ function RootComponent() {
             <ShortcutRegistryBoundary>
               <RealtimeProvider>
                 <ShareTokenProvider token={shareToken}>
-                  <LayoutContent layout={layout} />
+                  <ShareProvider>
+                    <LayoutContent layout={layout} />
+                  </ShareProvider>
                 </ShareTokenProvider>
                 <Toaster richColors position="bottom-right" />
               </RealtimeProvider>

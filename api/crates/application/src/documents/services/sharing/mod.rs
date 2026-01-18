@@ -7,7 +7,7 @@ use crate::documents::dtos::{
     ActiveShareItemDto, ApplicableShareDto, CreatedShareDto, ShareBrowseResponseDto,
     ShareDocumentDto, ShareItemDto, ShareMountDto,
 };
-use crate::documents::ports::sharing::shares_repository::SharesRepository;
+use crate::documents::ports::sharing::shares_repository::{ChildShareInfo, SharesRepository};
 use async_trait::async_trait;
 use domain::access::permissions::PermissionSet;
 use domain::documents::share;
@@ -113,6 +113,12 @@ pub trait ShareServiceFacade: Send + Sync {
         permissions: &PermissionSet,
         token: &str,
     ) -> Result<i64, ServiceError>;
+
+    /// Get child share info (token, share_id, encrypted_dek) for documents in a folder share
+    async fn list_child_share_info(
+        &self,
+        parent_share_id: Uuid,
+    ) -> Result<Vec<ChildShareInfo>, ServiceError>;
 }
 
 #[async_trait]
@@ -238,6 +244,16 @@ impl ShareServiceFacade for ShareService {
     ) -> Result<i64, ServiceError> {
         self.materialize_folder_share(workspace_id, actor_id, permissions, token)
             .await
+    }
+
+    async fn list_child_share_info(
+        &self,
+        parent_share_id: Uuid,
+    ) -> Result<Vec<ChildShareInfo>, ServiceError> {
+        self.repo
+            .list_child_share_info(parent_share_id)
+            .await
+            .map_err(|e| ServiceError::Unexpected(e.into()))
     }
 }
 

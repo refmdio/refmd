@@ -64,6 +64,11 @@ pub struct CreateShareRequest {
     #[serde(default)]
     #[schema(value_type = Option<String>, format = "byte")]
     pub creator_share_key_nonce: Option<String>,
+    /// For folder shares: encrypted DEKs for each document in the folder
+    /// Map of document_id (as string) -> base64 encoded encrypted DEK (nonce prepended)
+    #[serde(default)]
+    #[schema(value_type = Option<std::collections::HashMap<String, String>>)]
+    pub document_encrypted_deks: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -237,6 +242,7 @@ impl From<ShareMountDto> for ShareMountItem {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ShareBrowseTreeItem {
     pub id: Uuid,
     pub title: String,
@@ -245,6 +251,13 @@ pub struct ShareBrowseTreeItem {
     pub r#type: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Child share token for documents within a folder share
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share_token: Option<String>,
+    /// Encrypted DEK for this document (base64, nonce prepended)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, format = "byte")]
+    pub encrypted_dek: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -261,6 +274,8 @@ impl From<ShareBrowseTreeItemDto> for ShareBrowseTreeItem {
             r#type: t.r#type,
             created_at: t.created_at,
             updated_at: t.updated_at,
+            share_token: t.share_token,
+            encrypted_dek: t.encrypted_dek,
         }
     }
 }

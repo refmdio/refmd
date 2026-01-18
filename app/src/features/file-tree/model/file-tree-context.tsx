@@ -343,9 +343,9 @@ export function FileTreeProvider({ children }: { children: React.ReactNode }) {
       const items: DbDoc[] = resp.tree.map((n) => ({
         id: n.id,
         title: n.title,
-        parent_id: n.parent_id ?? null,
-        created_at: n.created_at,
-        updated_at: n.updated_at,
+        parent_id: n.parentId ?? null,
+        created_at: n.createdAt,
+        updated_at: n.updatedAt,
         type: n.type === 'folder' ? ('folder' as const) : ('document' as const),
       }))
       return buildTree(items)

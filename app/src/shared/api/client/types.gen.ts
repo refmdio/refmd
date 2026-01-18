@@ -136,6 +136,13 @@ export type CreateShareRequest = {
      * Base64 encoded nonce for creator_encrypted_share_key
      */
     creatorShareKeyNonce?: (string) | null;
+    /**
+     * For folder shares: encrypted DEKs for each document in the folder
+     * Map of document_id (as string) -> base64 encoded encrypted DEK (nonce prepended)
+     */
+    documentEncryptedDeks?: {
+        [key: string]: string;
+    } | null;
     documentId: string;
     /**
      * Base64 encoded encrypted DEK (encrypted with share key derived from password)
@@ -792,12 +799,20 @@ export type ShareBrowseResponse = {
 };
 
 export type ShareBrowseTreeItem = {
-    created_at: string;
+    createdAt: string;
+    /**
+     * Encrypted DEK for this document (base64, nonce prepended)
+     */
+    encryptedDek?: (string) | null;
     id: string;
-    parent_id?: (string) | null;
+    parentId?: (string) | null;
+    /**
+     * Child share token for documents within a folder share
+     */
+    shareToken?: (string) | null;
     title: string;
     type: string;
-    updated_at: string;
+    updatedAt: string;
 };
 
 export type ShareDocumentResponse = {

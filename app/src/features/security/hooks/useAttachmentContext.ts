@@ -16,6 +16,8 @@ import {
 } from '@/entities/file'
 import { validateShareToken } from '@/entities/share'
 
+import { useShareContextOptional } from '@/features/sharing'
+
 import { getSodium } from '../lib/crypto'
 import { fetchDocumentKeys } from '../lib/key-helpers'
 import { extractShareKeyFromFragment, decryptDekWithShareKey } from '../lib/keys'
@@ -42,6 +44,9 @@ export function useAttachmentContext(options: UseAttachmentContextOptions): void
   const { documentId, workspaceId, token, setAsDefault } = options
   const initStartedRef = useRef(false)
 
+  // Try to get share context (available when navigating from folder share page)
+  const shareCtx = useShareContextOptional()
+
   // Initialize context and file map
   useEffect(() => {
     if (!documentId) return
@@ -54,26 +59,39 @@ export function useAttachmentContext(options: UseAttachmentContextOptions): void
         let dek: Uint8Array | null = null
 
         if (token) {
-          // Shared documents: decrypt DEK using share key from URL fragment
-          const fragment = typeof window !== 'undefined' ? window.location.hash : ''
-          const shareKey = fragment ? await extractShareKeyFromFragment(fragment) : null
+          // Shared documents: try ShareContext first, then fall back to URL fragment
+          let shareKey = shareCtx?.shareKey ?? null
+          let encryptedDekBase64: string | null = null
 
-          if (shareKey) {
-            // Validate share token to get encrypted DEK
+          // Try to get encrypted DEK from ShareContext (folder share navigation)
+          if (shareCtx?.encryptedDeks && documentId) {
+            encryptedDekBase64 = shareCtx.encryptedDeks.get(documentId) ?? null
+          }
+
+          // Fallback: extract share key from URL fragment (direct document share links)
+          if (!shareKey) {
+            const fragment = typeof window !== 'undefined' ? window.location.hash : ''
+            shareKey = fragment ? await extractShareKeyFromFragment(fragment) : null
+          }
+
+          // Fallback: fetch encrypted DEK from API if not in context
+          if (!encryptedDekBase64 && shareKey) {
             const shareInfo = await validateShareToken(token)
-            if (shareInfo?.encryptedDek) {
-              // Decrypt DEK using share key
-              // The encrypted_dek from API has nonce prepended (24 bytes for XChaCha20)
-              const sodium = await getSodium()
-              const combined = sodium.from_base64(shareInfo.encryptedDek, sodium.base64_variants.ORIGINAL)
-              const NONCE_LENGTH = 24
-              if (combined.length > NONCE_LENGTH) {
-                const nonce = combined.slice(0, NONCE_LENGTH)
-                const ciphertext = combined.slice(NONCE_LENGTH)
-                const nonceBase64 = sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL)
-                const ciphertextBase64 = sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL)
-                dek = await decryptDekWithShareKey(ciphertextBase64, nonceBase64, shareKey)
-              }
+            encryptedDekBase64 = shareInfo?.encryptedDek ?? null
+          }
+
+          if (shareKey && encryptedDekBase64) {
+            // Decrypt DEK using share key
+            // The encrypted_dek from API has nonce prepended (24 bytes for XChaCha20)
+            const sodium = await getSodium()
+            const combined = sodium.from_base64(encryptedDekBase64, sodium.base64_variants.ORIGINAL)
+            const NONCE_LENGTH = 24
+            if (combined.length > NONCE_LENGTH) {
+              const nonce = combined.slice(0, NONCE_LENGTH)
+              const ciphertext = combined.slice(NONCE_LENGTH)
+              const nonceBase64 = sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL)
+              const ciphertextBase64 = sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL)
+              dek = await decryptDekWithShareKey(ciphertextBase64, nonceBase64, shareKey)
             }
           }
         } else if (workspaceId) {
@@ -109,7 +127,7 @@ export function useAttachmentContext(options: UseAttachmentContextOptions): void
     return () => {
       cancelled = true
     }
-  }, [documentId, workspaceId, token, setAsDefault])
+  }, [documentId, workspaceId, token, setAsDefault, shareCtx])
 
   // Cleanup on unmount or when dependencies change
   useLayoutEffect(() => {

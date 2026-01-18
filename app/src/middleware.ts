@@ -49,6 +49,7 @@ const PUBLIC_PREFIXES = [
   '/u/',
   '/w/',
   '/assets',
+  '/share/',
   ...(IS_DEV ? ['/@', '/__vite', '/node_modules', '/src'] : []),
 ]
 const AUTH_REQUEST_TIMEOUT_MS = 5000

@@ -1,7 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
 import { buildCanonicalUrl, buildOgImageUrl } from '@/entities/public'
 import { browseShare, buildShareSummary } from '@/entities/share'
+
+import { extractShareKeyFromFragment } from '@/features/security'
+import { useShareContext } from '@/features/sharing'
 
 import RouteError from '@/widgets/routes/RouteError'
 import RoutePending from '@/widgets/routes/RoutePending'
@@ -10,8 +14,8 @@ import { ShareFolderPage } from '@/widgets/share/ShareFolderPage'
 type LoaderData = {
   token: string
   title: string
-  items: Array<{ id: string; title: string; path?: string }>
-  tree: Array<{ id: string; title: string; parent_id?: string | null; type: string }>
+  items: Array<{ id: string; title: string; path?: string; shareToken?: string; encryptedDek?: string }>
+  tree: Array<{ id: string; title: string; parent_id?: string | null; type: string; shareToken?: string; encryptedDek?: string }>
   description: string
 }
 
@@ -39,8 +43,10 @@ export const Route = createFileRoute('/(share)/share/$token')({
     const getPath = (nodeId: string): string => {
       const parts: string[] = []
       let cur = idMap.get(nodeId)
-      while (cur && cur.parent_id) {
-        const parent = idMap.get(String(cur.parent_id))
+      // Support both camelCase (new) and snake_case (legacy) parent_id
+      while (cur && (cur.parentId || cur.parent_id)) {
+        const parentId = cur.parentId ?? cur.parent_id
+        const parent = idMap.get(String(parentId))
         if (!parent) break
         if (String(parent.id) === String(root.id)) break
         parts.push(parent.title)
@@ -52,13 +58,21 @@ export const Route = createFileRoute('/(share)/share/$token')({
     const documents = treeData
       .filter((n: any) => n.type === 'document')
       .sort((a: any, b: any) => String(a.title).localeCompare(String(b.title)))
-      .map((n: any) => ({ id: String(n.id), title: String(n.title ?? 'Untitled Document'), path: getPath(String(n.id)) }))
+      .map((n: any) => ({
+        id: String(n.id),
+        title: String(n.title ?? 'Untitled Document'),
+        path: getPath(String(n.id)),
+        shareToken: n.shareToken ?? undefined,
+        encryptedDek: n.encryptedDek ?? undefined,
+      }))
 
     const normalizedTree = treeData.map((n: any) => ({
       id: String(n.id),
       title: String(n.title ?? ''),
-      parent_id: n.parent_id ? String(n.parent_id) : null,
+      parent_id: n.parentId ? String(n.parentId) : null,
       type: String(n.type ?? ''),
+      shareToken: n.shareToken ?? undefined,
+      encryptedDek: n.encryptedDek ?? undefined,
     }))
     const summary = buildShareSummary(normalizedTree)
 
@@ -111,6 +125,36 @@ export const Route = createFileRoute('/(share)/share/$token')({
 
 
 function ShareEntry() {
-  const { token, items, title } = Route.useLoaderData() as LoaderData
+  const { token, items, title, tree } = Route.useLoaderData() as LoaderData
+  const { setShareKey, setParentToken, setEncryptedDeks } = useShareContext()
+
+  useEffect(() => {
+    // Initialize share context on mount
+    const initShareContext = async () => {
+      // Set parent token
+      setParentToken(token)
+
+      // Extract share key from URL fragment ONCE on mount
+      const fragment = typeof window !== 'undefined' ? window.location.hash : ''
+      if (fragment) {
+        const key = await extractShareKeyFromFragment(fragment)
+        if (key) {
+          setShareKey(key)
+        }
+      }
+
+      // Build encryptedDeks map from tree
+      const deks = new Map<string, string>()
+      for (const node of tree) {
+        if (node.encryptedDek) {
+          deks.set(node.id, node.encryptedDek)
+        }
+      }
+      setEncryptedDeks(deks)
+    }
+
+    initShareContext()
+  }, [token, tree, setShareKey, setParentToken, setEncryptedDeks])
+
   return <ShareFolderPage token={token} title={title} items={items} />
 }

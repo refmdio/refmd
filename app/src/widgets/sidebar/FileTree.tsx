@@ -1058,6 +1058,7 @@ function FileTreeInner() {
           }}
           targetId={shareFolderId}
           targetType="folder"
+          documents={documents}
         />
       )}
     </div>

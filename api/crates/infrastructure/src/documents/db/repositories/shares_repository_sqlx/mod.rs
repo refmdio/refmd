@@ -496,6 +496,32 @@ impl SharesRepository for SqlxSharesRepository {
         out.map_err(Into::into)
     }
 
+    async fn list_child_share_info(&self, parent_share_id: Uuid) -> PortResult<Vec<application::documents::ports::sharing::shares_repository::ChildShareInfo>> {
+        let out: anyhow::Result<Vec<application::documents::ports::sharing::shares_repository::ChildShareInfo>> = async {
+            let rows = sqlx::query(
+                r#"SELECT s.id as share_id, s.document_id, s.token, sek.encrypted_dek
+                   FROM shares s
+                   LEFT JOIN share_encrypted_keys sek ON sek.share_id = s.id
+                   WHERE s.parent_share_id = $1 AND (s.expires_at IS NULL OR s.expires_at > now())"#
+            )
+            .bind(parent_share_id)
+            .fetch_all(&self.pool)
+            .await?;
+            let mut out = Vec::with_capacity(rows.len());
+            for r in rows.into_iter() {
+                out.push(application::documents::ports::sharing::shares_repository::ChildShareInfo {
+                    share_id: r.get("share_id"),
+                    document_id: r.get("document_id"),
+                    token: r.get("token"),
+                    encrypted_dek: r.try_get::<Option<Vec<u8>>, _>("encrypted_dek").ok().flatten(),
+                });
+            }
+            Ok(out)
+        }
+        .await;
+        out.map_err(Into::into)
+    }
+
     async fn materialize_folder_share(
         &self,
         workspace_id: Uuid,
