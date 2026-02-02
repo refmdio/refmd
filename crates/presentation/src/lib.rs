@@ -9,9 +9,11 @@
 // Re-export application for convenience
 pub use application;
 
+pub mod auth;
 mod state;
 pub mod routes;
 
+pub use auth::{AuthUser, AuthUserFull};
 pub use state::AppState;
 
 use utoipa::OpenApi;
@@ -25,17 +27,28 @@ use utoipa::OpenApi;
         description = "RefMD E2EE Document Editor API"
     ),
     paths(
-        routes::users::register_user,
+        routes::auth::get_salt,
+        routes::auth::register,
+        routes::auth::login,
+        routes::auth::logout,
+        routes::auth::me,
     ),
     components(
         schemas(
-            routes::users::RegisterUserRequest,
-            routes::users::RegisterUserResponse,
-            routes::users::ErrorResponse,
+            routes::auth::GetSaltQueryParams,
+            routes::auth::GetSaltResponse,
+            routes::auth::KdfParamsResponse,
+            routes::auth::AuthErrorResponse,
+            routes::auth::RegisterRequest,
+            routes::auth::RegisterResponse,
+            routes::auth::LoginRequest,
+            routes::auth::LoginResponse,
+            routes::auth::LogoutResponse,
+            routes::auth::MeResponse,
         )
     ),
     tags(
-        (name = "users", description = "User management endpoints"),
+        (name = "auth", description = "Authentication endpoints"),
     )
 )]
 pub struct ApiDoc;

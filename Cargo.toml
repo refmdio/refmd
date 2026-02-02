@@ -48,6 +48,13 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
+# Cryptography
+hmac = "0.12"
+sha2 = "0.10"
+base64-url = "3"
+bcrypt = "0.17"
+hex = "0.4"
+
 # Configuration
 dotenvy = "0.15"
 

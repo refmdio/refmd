@@ -5,6 +5,10 @@
 use axum::{Router, routing::get};
 use infrastructure::{create_pool, DatabaseConfig};
 use infrastructure::identity::{PgUserRepository, PgSessionRepository, PgUserSettingsRepository};
+use infrastructure::encryption::{
+    PgUserIdentityPublicKeyRepository, PgUserEncryptedMasterKeyRepository,
+    PgUserEncryptedIdentityKeyRepository,
+};
 use presentation::{ApiDoc, AppState, routes};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -16,6 +20,25 @@ use utoipa_swagger_ui::SwaggerUi;
 
 async fn health_check() -> &'static str {
     "OK"
+}
+
+/// Load server secret from environment variable
+/// SERVER_SECRET must be a 64-character hex string (32 bytes)
+fn load_server_secret() -> anyhow::Result<[u8; 32]> {
+    let secret_hex = std::env::var("SERVER_SECRET")
+        .map_err(|_| anyhow::anyhow!("SERVER_SECRET environment variable is required"))?;
+
+    if secret_hex.len() != 64 {
+        return Err(anyhow::anyhow!(
+            "SERVER_SECRET must be exactly 64 hex characters (32 bytes)"
+        ));
+    }
+
+    let mut secret = [0u8; 32];
+    hex::decode_to_slice(&secret_hex, &mut secret)
+        .map_err(|e| anyhow::anyhow!("Invalid SERVER_SECRET hex encoding: {}", e))?;
+
+    Ok(secret)
 }
 
 #[tokio::main]
@@ -37,13 +60,38 @@ async fn main() -> anyhow::Result<()> {
     let pool = create_pool(&db_config).await?;
     tracing::info!("Connected to database");
 
+    // Load server secret (32 bytes for HMAC operations)
+    let server_secret = load_server_secret()?;
+
     // Create repositories (Dependency Injection)
     let user_repo = Arc::new(PgUserRepository::new(pool.clone()));
     let session_repo = Arc::new(PgSessionRepository::new(pool.clone()));
-    let user_settings_repo = Arc::new(PgUserSettingsRepository::new(pool));
+    let user_settings_repo = Arc::new(PgUserSettingsRepository::new(pool.clone()));
+    let user_identity_public_key_repo = Arc::new(PgUserIdentityPublicKeyRepository::new(pool.clone()));
+    let user_encrypted_master_key_repo = Arc::new(PgUserEncryptedMasterKeyRepository::new(pool.clone()));
+    let user_encrypted_identity_key_repo = Arc::new(PgUserEncryptedIdentityKeyRepository::new(pool));
+
+    // Determine if cookies should have Secure attribute
+    // Default to true for production, can be disabled for local development
+    let secure_cookies = std::env::var("SECURE_COOKIES")
+        .map(|v| v.to_lowercase() != "false" && v != "0")
+        .unwrap_or(true);
+
+    if !secure_cookies {
+        tracing::warn!("SECURE_COOKIES is disabled. This should only be used in development!");
+    }
 
     // Create application state
-    let state = AppState::new(user_repo, session_repo, user_settings_repo);
+    let state = AppState::new(
+        user_repo,
+        session_repo,
+        user_settings_repo,
+        user_identity_public_key_repo,
+        user_encrypted_master_key_repo,
+        user_encrypted_identity_key_repo,
+        server_secret,
+        secure_cookies,
+    );
 
     // Build application
     let app = Router::new()

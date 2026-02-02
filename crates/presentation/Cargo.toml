@@ -28,4 +28,10 @@ anyhow.workspace = true
 
 # Utilities
 uuid.workspace = true
+chrono.workspace = true
 tracing.workspace = true
+
+# Cryptography (for auth)
+hmac.workspace = true
+sha2.workspace = true
+base64-url.workspace = true

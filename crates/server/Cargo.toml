@@ -32,3 +32,6 @@ tracing-subscriber.workspace = true
 
 # Configuration
 dotenvy.workspace = true
+
+# Cryptography
+hex.workspace = true
