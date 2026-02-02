@@ -15,8 +15,9 @@ use application::document::{
 };
 use application::domain::document::{DocumentId, DocumentRepository};
 use application::domain::encryption::{
-    UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
-    UserIdentityPublicKeyRepository,
+    DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
+    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
+    WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -32,8 +33,8 @@ use crate::AppState;
 /// Create document routes
 ///
 /// Note: This router does not have its own state - it receives state from the parent workspace router.
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-) -> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+) -> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>
 where
     U: UserRepository + Send + Sync + Clone + 'static,
     S: SessionRepository + Send + Sync + Clone + 'static,
@@ -45,27 +46,29 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route(
             "/",
-            get(list_documents::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>)
-                .post(create_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>),
+            get(list_documents::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
+                .post(create_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
         )
         .route(
             "/{document_id}",
-            get(get_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>)
-                .patch(update_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>)
-                .delete(delete_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>),
+            get(get_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
+                .patch(update_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
+                .delete(delete_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
         )
         .route(
             "/{document_id}/archive",
-            post(archive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>),
+            post(archive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
         )
         .route(
             "/{document_id}/unarchive",
-            post(unarchive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>),
+            post(unarchive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
         )
 }
 
@@ -171,8 +174,8 @@ fn document_to_response(doc: application::domain::document::Document) -> Documen
     ),
     tag = "document"
 )]
-pub async fn list_documents<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn list_documents<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     Path(workspace_id): Path<Uuid>,
     Query(params): Query<ListDocumentsParams>,
     headers: axum::http::HeaderMap,
@@ -188,6 +191,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Authenticate user
@@ -251,8 +256,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn create_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn create_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     Path(workspace_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     Json(request): Json<CreateDocumentRequest>,
@@ -268,6 +273,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Authenticate user
@@ -366,8 +373,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn get_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn get_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -382,6 +389,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     let _ = workspace_id; // Workspace ID is validated by the document's workspace_id
@@ -436,8 +445,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn update_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn update_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
     headers: axum::http::HeaderMap,
     Json(request): Json<UpdateDocumentRequest>,
@@ -453,6 +462,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     let _ = workspace_id;
@@ -551,8 +562,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn delete_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn delete_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -567,6 +578,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     let _ = workspace_id;
@@ -622,8 +635,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn archive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn archive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -638,6 +651,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     let _ = workspace_id;
@@ -693,8 +708,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn unarchive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn unarchive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -709,6 +724,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     let _ = workspace_id;
@@ -753,8 +770,8 @@ struct AuthenticatedUser {
 }
 
 /// Authenticate user from session cookie
-async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
+async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthenticatedUser, axum::response::Response>
 where
@@ -768,6 +785,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Extract session token from cookie

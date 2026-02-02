@@ -9,5 +9,6 @@
 pub use domain;
 
 pub mod document;
+pub mod encryption;
 pub mod identity;
 pub mod workspace;

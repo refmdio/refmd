@@ -9,8 +9,9 @@ use axum::{
 };
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
-    UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
-    UserIdentityPublicKeyRepository,
+    DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
+    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
+    WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -27,8 +28,8 @@ use uuid::Uuid;
 use crate::AppState;
 
 /// Create workspace routes
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -41,12 +42,14 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()
-        .route("/", get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
-        .route("/{id}", get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
-        .nest("/{workspace_id}/documents", super::document::routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>())
+        .route("/", get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
+        .route("/{id}", get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
+        .nest("/{workspace_id}/documents", super::document::routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>())
         .with_state(state)
 }
 
@@ -131,8 +134,8 @@ pub struct WorkspaceErrorResponse {
     ),
     tag = "workspace"
 )]
-pub async fn list_workspaces<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn list_workspaces<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -146,6 +149,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Authenticate user
@@ -220,8 +225,8 @@ where
     ),
     tag = "workspace"
 )]
-pub async fn get_workspace<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
+pub async fn get_workspace<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse
@@ -236,6 +241,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Authenticate user
@@ -315,8 +322,8 @@ struct AuthenticatedUser {
 }
 
 /// Authenticate user from session cookie
-async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
+async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthenticatedUser, axum::response::Response>
 where
@@ -330,6 +337,8 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Extract session token from cookie

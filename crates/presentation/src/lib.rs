@@ -41,6 +41,10 @@ use utoipa::OpenApi;
         routes::document::delete_document,
         routes::document::archive_document,
         routes::document::unarchive_document,
+        routes::encryption::save_workspace_key,
+        routes::encryption::get_workspace_key,
+        routes::encryption::save_document_key,
+        routes::encryption::get_document_key,
     ),
     components(
         schemas(
@@ -66,12 +70,19 @@ use utoipa::OpenApi;
             routes::document::ListDocumentsParams,
             routes::document::ListDocumentsResponse,
             routes::document::DocumentErrorResponse,
+            routes::encryption::SaveWorkspaceKeyRequest,
+            routes::encryption::WorkspaceKeyResponse,
+            routes::encryption::GetWorkspaceKeyParams,
+            routes::encryption::SaveDocumentKeyRequest,
+            routes::encryption::DocumentKeyResponse,
+            routes::encryption::EncryptionErrorResponse,
         )
     ),
     tags(
         (name = "auth", description = "Authentication endpoints"),
         (name = "workspace", description = "Workspace management endpoints"),
         (name = "document", description = "Document management endpoints"),
+        (name = "encryption", description = "Encryption key management endpoints"),
     )
 )]
 pub struct ApiDoc;

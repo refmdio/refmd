@@ -134,6 +134,26 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
     }
 
     async fn save(&self, key: &WorkspaceEncryptedKey) -> Result<(), Self::Error> {
+        // Use transaction to ensure atomicity of deactivation + insert
+        let mut tx = self.pool.begin().await?;
+
+        // If saving as active, first deactivate any existing active keys for this workspace/user/device
+        // to avoid unique constraint violation on idx_workspace_keys_single_active
+        if key.is_active {
+            sqlx::query(
+                r#"
+                UPDATE workspace_encrypted_keys
+                SET is_active = FALSE
+                WHERE workspace_id = $1 AND user_id = $2 AND device_id = $3 AND is_active = TRUE
+                "#,
+            )
+            .bind(key.workspace_id.as_uuid())
+            .bind(key.user_id.as_uuid())
+            .bind(key.device_id.as_uuid())
+            .execute(&mut *tx)
+            .await?;
+        }
+
         sqlx::query(
             r#"
             INSERT INTO workspace_encrypted_keys (
@@ -154,9 +174,10 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
         .bind(&key.nonce)
         .bind(key.is_active)
         .bind(key.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
+        tx.commit().await?;
         Ok(())
     }
 
@@ -264,6 +285,24 @@ impl DocumentEncryptedKeyRepository for PgDocumentEncryptedKeyRepository {
     }
 
     async fn save(&self, key: &DocumentEncryptedKey) -> Result<(), Self::Error> {
+        // Use transaction to ensure atomicity of deactivation + insert
+        let mut tx = self.pool.begin().await?;
+
+        // If saving as active, first deactivate any existing active keys for this document
+        // to avoid unique constraint violation on idx_document_keys_single_active
+        if key.is_active {
+            sqlx::query(
+                r#"
+                UPDATE document_encrypted_keys
+                SET is_active = FALSE
+                WHERE document_id = $1 AND is_active = TRUE
+                "#,
+            )
+            .bind(key.document_id.as_uuid())
+            .execute(&mut *tx)
+            .await?;
+        }
+
         sqlx::query(
             r#"
             INSERT INTO document_encrypted_keys (
@@ -280,9 +319,10 @@ impl DocumentEncryptedKeyRepository for PgDocumentEncryptedKeyRepository {
         .bind(&key.nonce)
         .bind(key.is_active)
         .bind(key.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
+        tx.commit().await?;
         Ok(())
     }
 

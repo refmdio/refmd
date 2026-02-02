@@ -9,7 +9,8 @@ use infrastructure::document::PgDocumentRepository;
 use infrastructure::identity::{PgUserRepository, PgSessionRepository, PgUserSettingsRepository};
 use infrastructure::encryption::{
     PgUserIdentityPublicKeyRepository, PgUserEncryptedMasterKeyRepository,
-    PgUserEncryptedIdentityKeyRepository,
+    PgUserEncryptedIdentityKeyRepository, PgWorkspaceEncryptedKeyRepository,
+    PgDocumentEncryptedKeyRepository,
 };
 use infrastructure::workspace::{
     PgWorkspaceRepository, PgWorkspaceMemberRepository, PgWorkspaceRoleRepository,
@@ -81,6 +82,8 @@ async fn main() -> anyhow::Result<()> {
     let workspace_member_repo = Arc::new(PgWorkspaceMemberRepository::new((*pool_arc).clone()));
     let workspace_role_repo = Arc::new(PgWorkspaceRoleRepository::new((*pool_arc).clone()));
     let document_repo = Arc::new(PgDocumentRepository::new((*pool_arc).clone()));
+    let workspace_key_repo = Arc::new(PgWorkspaceEncryptedKeyRepository::new((*pool_arc).clone()));
+    let document_key_repo = Arc::new(PgDocumentEncryptedKeyRepository::new((*pool_arc).clone()));
     let registration_service = Arc::new(PgRegistrationService::new(pool_arc));
 
     // Determine if cookies should have Secure attribute
@@ -105,6 +108,8 @@ async fn main() -> anyhow::Result<()> {
         workspace_member_repo,
         workspace_role_repo,
         document_repo,
+        workspace_key_repo,
+        document_key_repo,
         registration_service,
         server_secret,
         secure_cookies,

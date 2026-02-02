@@ -2,13 +2,15 @@
 
 pub mod auth;
 pub mod document;
+pub mod encryption;
 pub mod workspace;
 
 use axum::Router;
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
-    UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
-    UserIdentityPublicKeyRepository,
+    DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
+    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
+    WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -18,8 +20,8 @@ use application::identity::RegistrationService;
 use crate::AppState;
 
 /// Create all API routes
-pub fn create_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
+pub fn create_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -32,13 +34,15 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new().nest("/api", api_routes(state))
 }
 
-fn api_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
+fn api_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -51,9 +55,12 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()
         .nest("/auth", auth::routes(state.clone()))
-        .nest("/workspaces", workspace::routes(state))
+        .nest("/workspaces", workspace::routes(state.clone()))
+        .nest("/encryption", encryption::routes(state))
 }
