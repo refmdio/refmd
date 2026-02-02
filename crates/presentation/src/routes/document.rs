@@ -30,11 +30,39 @@ use uuid::Uuid;
 
 use crate::AppState;
 
-/// Create document routes
+/// Create document routes under /api/workspaces/{workspace_id}/documents
 ///
-/// Note: This router does not have its own state - it receives state from the parent workspace router.
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>()
+/// Only for listing and creating documents (require workspace context).
+pub fn workspace_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>()
 -> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+{
+    Router::new().route(
+        "/",
+        get(list_documents::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
+            .post(create_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+    )
+}
+
+/// Create document routes under /api/documents
+///
+/// For single document access by document ID only.
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
+) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
     S: SessionRepository + Send + Sync + Clone + 'static,
@@ -52,11 +80,6 @@ where
 {
     Router::new()
         .route(
-            "/",
-            get(list_documents::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
-                .post(create_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
-        )
-        .route(
             "/{document_id}",
             get(get_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
                 .patch(update_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
@@ -70,6 +93,7 @@ where
             "/{document_id}/unarchive",
             post(unarchive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
         )
+        .with_state(state)
 }
 
 /// Document response
@@ -378,9 +402,8 @@ where
 /// Get a document
 #[utoipa::path(
     get,
-    path = "/api/workspaces/{workspace_id}/documents/{document_id}",
+    path = "/api/documents/{document_id}",
     params(
-        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
         ("document_id" = Uuid, Path, description = "Document ID"),
     ),
     responses(
@@ -393,7 +416,7 @@ where
 )]
 pub async fn get_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
     State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
-    Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
+    Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -411,8 +434,6 @@ where
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
-    let _ = workspace_id; // Workspace ID is validated by the document's workspace_id
-
     // Authenticate user
     let user = match authenticate_user(&state, &headers).await {
         Ok(u) => u,
@@ -454,9 +475,8 @@ where
 /// Update a document
 #[utoipa::path(
     patch,
-    path = "/api/workspaces/{workspace_id}/documents/{document_id}",
+    path = "/api/documents/{document_id}",
     params(
-        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
         ("document_id" = Uuid, Path, description = "Document ID"),
     ),
     request_body = UpdateDocumentRequest,
@@ -471,7 +491,7 @@ where
 )]
 pub async fn update_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
     State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
-    Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
+    Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     Json(request): Json<UpdateDocumentRequest>,
 ) -> impl IntoResponse
@@ -490,8 +510,6 @@ where
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
-    let _ = workspace_id;
-
     // Authenticate user
     let user = match authenticate_user(&state, &headers).await {
         Ok(u) => u,
@@ -578,9 +596,8 @@ where
 /// Delete a document (permanent)
 #[utoipa::path(
     delete,
-    path = "/api/workspaces/{workspace_id}/documents/{document_id}",
+    path = "/api/documents/{document_id}",
     params(
-        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
         ("document_id" = Uuid, Path, description = "Document ID"),
     ),
     responses(
@@ -594,7 +611,7 @@ where
 )]
 pub async fn delete_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
     State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
-    Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
+    Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -612,8 +629,6 @@ where
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
-    let _ = workspace_id;
-
     // Authenticate user
     let user = match authenticate_user(&state, &headers).await {
         Ok(u) => u,
@@ -657,9 +672,8 @@ where
 /// Archive a document (read-only)
 #[utoipa::path(
     post,
-    path = "/api/workspaces/{workspace_id}/documents/{document_id}/archive",
+    path = "/api/documents/{document_id}/archive",
     params(
-        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
         ("document_id" = Uuid, Path, description = "Document ID"),
     ),
     responses(
@@ -673,7 +687,7 @@ where
 )]
 pub async fn archive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
     State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
-    Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
+    Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -691,8 +705,6 @@ where
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
-    let _ = workspace_id;
-
     // Authenticate user
     let user = match authenticate_user(&state, &headers).await {
         Ok(u) => u,
@@ -736,9 +748,8 @@ where
 /// Unarchive a document
 #[utoipa::path(
     post,
-    path = "/api/workspaces/{workspace_id}/documents/{document_id}/unarchive",
+    path = "/api/documents/{document_id}/unarchive",
     params(
-        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
         ("document_id" = Uuid, Path, description = "Document ID"),
     ),
     responses(
@@ -752,7 +763,7 @@ where
 )]
 pub async fn unarchive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
     State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
-    Path((workspace_id, document_id)): Path<(Uuid, Uuid)>,
+    Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -770,8 +781,6 @@ where
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
-    let _ = workspace_id;
-
     // Authenticate user
     let user = match authenticate_user(&state, &headers).await {
         Ok(u) => u,

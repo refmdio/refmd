@@ -62,5 +62,6 @@ where
     Router::new()
         .nest("/auth", auth::routes(state.clone()))
         .nest("/workspaces", workspace::routes(state.clone()))
+        .nest("/documents", document::routes(state.clone()))
         .nest("/encryption", encryption::routes(state))
 }

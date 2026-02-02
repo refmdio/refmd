@@ -57,7 +57,7 @@ where
         )
         .nest(
             "/{workspace_id}/documents",
-            super::document::routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(),
+            super::document::workspace_routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(),
         )
         .with_state(state)
 }
