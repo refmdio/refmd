@@ -65,6 +65,16 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --color-glass-tint-subtle: var(----glass-tint-subtle);
+  --color-glass-tint-strong: var(----glass-tint-strong);
+  --color-glass-tint-heavy: var(----glass-tint-heavy);
+  --color-glass-tint-base: var(----glass-tint-base);
+  --color-glass-highlight-strong: var(----glass-highlight-strong);
+  --color-glass-highlight-bright: var(----glass-highlight-bright);
+  --color-glass-toast-warning: var(----glass-toast-warning);
+  --color-glass-radiant-warning: var(----glass-radiant-warning);
+  --color-glass-highlight-subtle: var(----glass-highlight-subtle);
+  --color-glass-highlight-soft: var(----glass-highlight-soft);
 }
 
 :root {
@@ -109,10 +119,23 @@
   --tone-destructive-gradient: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.5), transparent);
   --tone-destructive-icon-border: rgba(239, 68, 68, 0.5);
   --tone-destructive-icon-bg: rgba(239, 68, 68, 0.15);
+  --glass-highlight-bright: rgba(255, 255, 255, 0.14);
+  --glass-highlight-strong: rgba(255, 255, 255, 0.12);
+  --glass-shadow-card: 0 0 4px rgba(0, 0, 0, 0.08);
+  --glass-shadow-card-dark: 0 0 10px rgba(0, 0, 0, 0.45);
+  --glass-shadow-card-inner-light: 0 0 0 1px rgba(15, 23, 42, 0.06), inset 0 0 0 0.8px rgba(255, 255, 255, 0.03);
+  --glass-shadow-outline: 0 0 0 1px rgba(15, 23, 42, 0.12);
+  --glass-shadow-outline-strong: 0 0 0 1px rgba(15, 23, 42, 0.18);
+  --glass-shadow-outline-subtle: 0 0 0 1px rgba(15, 23, 42, 0.08);
+  --glass-tint-base: rgba(15, 23, 42, 0.12);
+  --glass-tint-heavy: rgba(15, 23, 42, 0.2);
+  --glass-tint-strong: rgba(15, 23, 42, 0.18);
+  --glass-tint-subtle: rgba(15, 23, 42, 0.08);
 }
 
 :root,
 .light {
+  color-scheme: light;
   --glass-shadow-outline: 0 0 0 1px rgba(15, 23, 42, 0.12);
   --glass-shadow-outline-subtle: 0 0 0 1px rgba(15, 23, 42, 0.08);
   --glass-shadow-outline-strong: 0 0 0 1px rgba(15, 23, 42, 0.18);
@@ -154,40 +177,43 @@
   --tone-destructive-description: rgba(185, 28, 28, 0.9);
   --tone-destructive-icon-fg: #dc2626;
 
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #ffffff;
+  --foreground: #252a33;
+  --card: #fdfdfd;
+  --card-foreground: #252a33;
+  --popover: #ffffff;
+  --popover-foreground: #252a33;
+  --primary: #6e63d6;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f3f6;
+  --secondary-foreground: #252a33;
+  --muted: #f2f3f6;
+  --muted-foreground: #596272;
+  --accent: #6e63d6;
+  --accent-foreground: #ffffff;
+  --destructive: #cd4f51;
+  --border: rgba(18, 20, 28, 0.08);
+  --input: rgba(18, 20, 28, 0.08);
+  --ring: #b8bcff;
+  --chart-1: #6e63d6;
+  --chart-2: #db8a5d;
+  --chart-3: #3f8f6b;
+  --chart-4: #c29a3b;
+  --chart-5: #2f8cd3;
+  --sidebar: #f6f6f6;
+  --sidebar-foreground: #252a33;
+  --sidebar-primary: #6e63d6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ebeef5;
+  --sidebar-accent-foreground: #252a33;
+  --sidebar-border: rgba(18, 20, 28, 0.08);
+  --sidebar-ring: #b8bcff;
+  --prose-list-indent: 1.5rem;
+  --prose-task-offset: 1.1rem;
 }
 
 .dark {
+  color-scheme: dark;
   --glass-shadow-card: 0 0 10px rgba(0, 0, 0, 0.45);
   --glass-shadow-card-dark: 0 0 10px rgba(0, 0, 0, 0.45);
   --glass-shadow-card-inner-light: var(--glass-shadow-card-inner-dark);
@@ -226,37 +252,37 @@
   --tone-destructive-title: #fca5a5;
   --tone-destructive-description: rgba(248, 113, 113, 0.85);
   --tone-destructive-icon-fg: #fca5a5;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: rgb(10 10 10);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #1e1e1e;
+  --foreground: #e4e7eb;
+  --card: #262626;
+  --card-foreground: #e4e7eb;
+  --popover: #262626;
+  --popover-foreground: #e4e7eb;
+  --primary: #8f86e8;
+  --primary-foreground: #14141b;
+  --secondary: #2a2a2a;
+  --secondary-foreground: #e4e7eb;
+  --muted: #2a2a2a;
+  --muted-foreground: #9aa1b0;
+  --accent: #8f86e8;
+  --accent-foreground: #14141b;
+  --destructive: #ff6b6b;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #7770e0;
+  --chart-1: #8f86e8;
+  --chart-2: #f28fad;
+  --chart-3: #4fd67c;
+  --chart-4: #f1aa42;
+  --chart-5: #5fb3b3;
+  --sidebar: #262626;
+  --sidebar-foreground: #d3d6dc;
+  --sidebar-primary: #8f86e8;
+  --sidebar-primary-foreground: #14141b;
+  --sidebar-accent: #313131;
+  --sidebar-accent-foreground: #d3d6dc;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #7770e0;
 }
 
 @layer base {
@@ -266,4 +292,75 @@
   body {
     @apply bg-background text-foreground;
   }
+  input[type='checkbox'] {
+    @apply cursor-pointer;
+    accent-color: var(--primary);
+  }
+}
+
+/* Checkbox styles for prose/markdown */
+.prose input[type='checkbox'],
+.md-checkbox {
+  @apply cursor-pointer;
+  margin: 0;
+  accent-color: var(--primary);
+}
+.prose li:has(> input[type='checkbox']) {
+  @apply list-none;
+  margin-left: calc(-1 * var(--prose-task-offset));
+  padding-left: var(--prose-task-offset);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.5rem;
+  row-gap: 0.25rem;
+  align-items: flex-start;
+}
+.prose li:has(> input[type='checkbox']) > *:not(input[type='checkbox']) {
+  min-width: 0;
+  grid-column: 2;
+}
+.prose li:has(> input[type='checkbox']) > .refmd-task-content {
+  grid-row: 1;
+  overflow-wrap: anywhere;
+}
+.prose li:has(> input[type='checkbox']) > p,
+.prose li:has(> input[type='checkbox']) > .refmd-task-content > p {
+  @apply m-0;
+  overflow-wrap: anywhere;
+}
+.prose li:has(> input[type='checkbox']) > input[type='checkbox'] {
+  grid-column: 1;
+  grid-row: 1;
+  margin-left: calc(-1 * var(--prose-task-offset));
+  margin-top: 0.35rem;
+}
+.prose li:has(> input[type='checkbox']) > ul,
+.prose li:has(> input[type='checkbox']) > ol {
+  grid-column: 2;
+  margin: 0.25rem 0 0 var(--prose-list-indent);
+  padding-left: var(--prose-list-indent);
+}
+.prose li:has(> input[type='checkbox']) > .refmd-task-content > ul,
+.prose li:has(> input[type='checkbox']) > .refmd-task-content > ol {
+  margin: 0.25rem 0 0 var(--prose-list-indent);
+  padding-left: var(--prose-list-indent);
+}
+.prose li:has(> input[type='checkbox']:checked) {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+.prose li:has(> input[type='checkbox']:checked) > input[type='checkbox'] {
+  text-decoration: none;
+  color: inherit;
+}
+.prose li:has(> input[type='checkbox']:checked) > ul,
+.prose li:has(> input[type='checkbox']:checked) > ol,
+.prose li:has(> input[type='checkbox']:checked) > .refmd-task-content > ul,
+.prose li:has(> input[type='checkbox']:checked) > .refmd-task-content > ol {
+  text-decoration: none;
+  color: inherit;
+}
+.prose ul:has(li input[type='checkbox']) {
+  margin-left: 0;
+  padding-left: var(--prose-list-indent);
 }

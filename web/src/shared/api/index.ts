@@ -1,2 +1,2 @@
-export { api, authApi, ApiRequestError } from './client'
+export { api, authApi, workspaceApi, documentApi, ApiRequestError, ApiError } from './client'
 export type { paths, components } from './schema'

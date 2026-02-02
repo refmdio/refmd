@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
@@ -6,6 +6,7 @@ import { Label } from '@/shared/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
 import { login } from '@/features/auth'
 import { ApiRequestError } from '@/shared/api'
+import { useAuthContext } from '@/shared/context/AuthContext'
 
 export const Route = createFileRoute('/auth/login')({
   component: LoginPage,
@@ -13,6 +14,8 @@ export const Route = createFileRoute('/auth/login')({
 
 function LoginPage() {
   const navigate = useNavigate()
+  const router = useRouter()
+  const { setAuthState } = useAuthContext()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
@@ -25,8 +28,16 @@ function LoginPage() {
     setLoading(true)
 
     try {
-      await login(email, password, rememberMe)
-      navigate({ to: '/' })
+      const result = await login(email, password, rememberMe)
+      setAuthState({
+        userId: result.userId,
+        email: result.email,
+        expiresAt: result.expiresAt,
+        umk: result.umk,
+        identityKeys: result.identityKeys,
+      })
+      await router.invalidate()
+      navigate({ to: '/dashboard' })
     } catch (err) {
       if (err instanceof ApiRequestError) {
         setError(err.message)
@@ -92,7 +103,7 @@ function LoginPage() {
                 disabled={loading}
                 className="h-4 w-4 rounded border-input bg-background"
               />
-              <Label htmlFor="remember" className="text-sm text-muted-foreground">
+              <Label htmlFor="remember" className="text-xs font-sans normal-case tracking-normal">
                 Keep me signed in
               </Label>
             </div>

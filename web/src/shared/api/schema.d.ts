@@ -80,6 +80,7 @@ export interface paths {
          * Register a new password user
          * @description Creates a new user account with password authentication and E2EE keys.
          *     All encryption is performed client-side; server stores encrypted data only.
+         *     Registration is atomic - all entities are created in a single transaction.
          */
         post: operations["register"];
         delete?: never;
@@ -110,6 +111,169 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/documents/{document_id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get document key (DEK)
+         * @description Retrieves the active DEK for a document.
+         *     Requires workspace membership with Read permission.
+         */
+        get: operations["get_document_key"];
+        put?: never;
+        /**
+         * Save document key (DEK)
+         * @description Saves an encrypted DEK for a document.
+         *     Requires workspace membership with Write permission.
+         */
+        post: operations["save_document_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get workspace key (KEK)
+         * @description Retrieves the active KEK for the authenticated user's device.
+         *     Requires workspace membership with Read permission.
+         */
+        get: operations["get_workspace_key"];
+        put?: never;
+        /**
+         * Save workspace key (KEK)
+         * @description Saves an encrypted KEK for the authenticated user's device.
+         *     Requires workspace membership with Read permission.
+         */
+        post: operations["save_workspace_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List user's workspaces
+         * @description Returns all workspaces the authenticated user is a member of.
+         */
+        get: operations["list_workspaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get workspace details
+         * @description Returns workspace details with membership info for the authenticated user.
+         */
+        get: operations["get_workspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List documents in a workspace */
+        get: operations["list_documents"];
+        put?: never;
+        /** Create a new document */
+        post: operations["create_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a document */
+        get: operations["get_document"];
+        put?: never;
+        post?: never;
+        /** Delete a document (permanent) */
+        delete: operations["delete_document"];
+        options?: never;
+        head?: never;
+        /** Update a document */
+        patch: operations["update_document"];
+        trace?: never;
+    };
+    "/api/documents/{document_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive a document (read-only) */
+        post: operations["archive_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unarchive a document */
+        post: operations["unarchive_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -119,6 +283,72 @@ export interface components {
             /**
              * @description Error message
              * @example invalid email
+             */
+            error: string;
+        };
+        /** @description Create document request */
+        CreateDocumentRequest: {
+            encrypted_title?: string | null;
+            encrypted_title_nonce?: string | null;
+            is_folder?: boolean;
+            /** Format: uuid */
+            parent_id?: string | null;
+            title: string;
+        };
+        /** @description Document error response */
+        DocumentErrorResponse: {
+            error: string;
+        };
+        /** @description Document key response */
+        DocumentKeyResponse: {
+            /**
+             * @description Document ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            document_id: string;
+            /**
+             * @description Encrypted DEK (base64url encoded)
+             * @example base64url-encoded-encrypted-dek
+             */
+            encrypted_dek: string;
+            /**
+             * @description Whether this is the active key
+             * @example true
+             */
+            is_active: boolean;
+            /**
+             * Format: int32
+             * @description Key version
+             * @example 1
+             */
+            key_version: number;
+            /**
+             * @description Encryption nonce (base64url encoded)
+             * @example base64url-encoded-nonce
+             */
+            nonce: string;
+        };
+        /** @description Document response */
+        DocumentResponse: {
+            archived_at?: string | null;
+            created_at: string;
+            created_by?: string | null;
+            doc_type: string;
+            encrypted_title?: string | null;
+            id: string;
+            is_archived: boolean;
+            is_encrypted: boolean;
+            parent_id?: string | null;
+            slug: string;
+            title: string;
+            updated_at: string;
+            workspace_id: string;
+        };
+        /** @description Error response */
+        EncryptionErrorResponse: {
+            /**
+             * @description Error message
+             * @example key not found
              */
             error: string;
         };
@@ -145,6 +375,15 @@ export interface components {
              */
             salt: string;
         };
+        /** @description Get workspace key query params */
+        GetWorkspaceKeyParams: {
+            /**
+             * Format: uuid
+             * @description Device ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            device_id: string;
+        };
         /** @description KDF parameters response */
         KdfParamsResponse: {
             /**
@@ -165,6 +404,22 @@ export interface components {
              * @example 3
              */
             time_cost: number;
+        };
+        /** @description List documents query params */
+        ListDocumentsParams: {
+            include_archived?: boolean;
+            /** Format: uuid */
+            parent_id?: string | null;
+            root_only?: boolean;
+        };
+        /** @description List documents response */
+        ListDocumentsResponse: {
+            documents: components["schemas"]["DocumentResponse"][];
+        };
+        /** @description List workspaces response */
+        ListWorkspacesResponse: {
+            /** @description List of workspaces with membership info */
+            workspaces: components["schemas"]["WorkspaceWithMembershipResponse"][];
         };
         /** @description Login request */
         LoginRequest: {
@@ -296,6 +551,13 @@ export interface components {
              */
             user_id: string;
         };
+        /** @description Workspace membership response */
+        MembershipResponse: {
+            /** @description Whether this is the user's default workspace */
+            is_default: boolean;
+            /** @description User's role in the workspace */
+            role: components["schemas"]["RoleResponse"];
+        };
         /** @description Register password user request */
         RegisterRequest: {
             /**
@@ -381,6 +643,178 @@ export interface components {
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
             id: string;
+        };
+        /** @description Role response */
+        RoleResponse: {
+            /**
+             * @description Base role type
+             * @example owner
+             */
+            base_role: string;
+            /**
+             * @description Role ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            id: string;
+            /**
+             * @description Role name
+             * @example owner
+             */
+            name: string;
+        };
+        /** @description Save document key request */
+        SaveDocumentKeyRequest: {
+            /**
+             * @description Encrypted DEK (base64url encoded)
+             * @example base64url-encoded-encrypted-dek
+             */
+            encrypted_dek: string;
+            /**
+             * @description Whether this is the active key
+             * @example true
+             */
+            is_active: boolean;
+            /**
+             * Format: int32
+             * @description Key version (optional, default: 1)
+             * @example 1
+             */
+            key_version?: number | null;
+            /**
+             * @description Encryption nonce (base64url encoded)
+             * @example base64url-encoded-nonce
+             */
+            nonce: string;
+        };
+        /** @description Save workspace key request */
+        SaveWorkspaceKeyRequest: {
+            /**
+             * Format: uuid
+             * @description Device ID (client-generated UUID)
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            device_id: string;
+            /**
+             * @description Encrypted KEK (base64url encoded)
+             * @example base64url-encoded-encrypted-kek
+             */
+            encrypted_kek: string;
+            /**
+             * @description Whether this is the active key
+             * @example true
+             */
+            is_active: boolean;
+            /**
+             * Format: int32
+             * @description Key version (optional, default: 1)
+             * @example 1
+             */
+            key_version?: number | null;
+            /**
+             * @description Encryption nonce (base64url encoded)
+             * @example base64url-encoded-nonce
+             */
+            nonce: string;
+            /**
+             * Format: uuid
+             * @description Sender device ID (for HKDF info)
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            sender_device_id: string;
+        };
+        /** @description Update document request */
+        UpdateDocumentRequest: {
+            encrypted_title?: string | null;
+            encrypted_title_nonce?: string | null;
+            /** Format: uuid */
+            parent_id?: string | null;
+            title?: string | null;
+        };
+        /** @description Workspace error response */
+        WorkspaceErrorResponse: {
+            /**
+             * @description Error message
+             * @example workspace not found
+             */
+            error: string;
+        };
+        /** @description Workspace key response */
+        WorkspaceKeyResponse: {
+            /**
+             * @description Device ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            device_id: string;
+            /**
+             * @description Encrypted KEK (base64url encoded)
+             * @example base64url-encoded-encrypted-kek
+             */
+            encrypted_kek: string;
+            /**
+             * @description Whether this is the active key
+             * @example true
+             */
+            is_active: boolean;
+            /**
+             * Format: int32
+             * @description Key version
+             * @example 1
+             */
+            key_version: number;
+            /**
+             * @description Encryption nonce (base64url encoded)
+             * @example base64url-encoded-nonce
+             */
+            nonce: string;
+            /**
+             * @description Sender device ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            sender_device_id: string;
+            /**
+             * @description User ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            user_id: string;
+            /**
+             * @description Workspace ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            workspace_id: string;
+        };
+        /** @description Workspace response */
+        WorkspaceResponse: {
+            /** @description Creation timestamp */
+            created_at: string;
+            /**
+             * @description Workspace ID (UUID)
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            id: string;
+            /**
+             * @description Workspace name
+             * @example My Workspace
+             */
+            name: string;
+            /**
+             * @description Owner user ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            owner_id: string;
+            /**
+             * @description Workspace slug
+             * @example my-workspace
+             */
+            slug: string;
+            /** @description Last update timestamp */
+            updated_at: string;
+        };
+        /** @description Workspace with membership response */
+        WorkspaceWithMembershipResponse: {
+            /** @description User's membership in the workspace */
+            membership: components["schemas"]["MembershipResponse"];
+            /** @description Workspace details */
+            workspace: components["schemas"]["WorkspaceResponse"];
         };
     };
     responses: never;
@@ -579,6 +1013,722 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    get_document_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Key found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentKeyResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Key not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+        };
+    };
+    save_document_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveDocumentKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key saved successfully */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentKeyResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+        };
+    };
+    get_workspace_key: {
+        parameters: {
+            query: {
+                /** @description Device ID */
+                device_id: string;
+            };
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Key found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceKeyResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Key not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+        };
+    };
+    save_workspace_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveWorkspaceKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key saved successfully */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceKeyResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+        };
+    };
+    list_workspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of user's workspaces */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListWorkspacesResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    get_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceWithMembershipResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not a member of this workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    list_documents: {
+        parameters: {
+            query: {
+                /** @description Filter by parent ID */
+                parent_id?: string;
+                /** @description Only return root documents */
+                root_only: boolean;
+                /** @description Include archived documents */
+                include_archived: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of documents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListDocumentsResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Not a member of this workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    create_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Document created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Slug conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    get_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Folder not empty */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    update_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Document updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    archive_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document archived */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Already archived */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    unarchive_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document unarchived */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Document not archived */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
                 };
             };
         };

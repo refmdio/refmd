@@ -30,6 +30,16 @@ export class ApiRequestError extends Error {
   }
 }
 
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public body: { error: string }
+  ) {
+    super(body.error)
+    this.name = 'ApiError'
+  }
+}
+
 /**
  * Auth API wrapper with error handling
  */
@@ -99,10 +109,133 @@ export const authApi = {
    * Logout and clear session cookie
    */
   async logout() {
-    const { data, error, response } = await api.POST('/api/auth/logout')
+    const { data } = await api.POST('/api/auth/logout')
+    return data
+  },
+}
+
+export const workspaceApi = {
+  async list() {
+    const { data, error, response } = await api.GET('/api/workspaces')
 
     if (error) {
-      throw new ApiRequestError(response.status, error)
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  async get(id: string) {
+    const { data, error, response } = await api.GET('/api/workspaces/{id}', {
+      params: { path: { id } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+}
+
+export const documentApi = {
+  async list(
+    workspaceId: string,
+    params?: { parentId?: string; rootOnly?: boolean; includeArchived?: boolean }
+  ) {
+    const { data, error, response } = await api.GET(
+      '/api/workspaces/{workspace_id}/documents',
+      {
+        params: {
+          path: { workspace_id: workspaceId },
+          query: {
+            parent_id: params?.parentId,
+            root_only: params?.rootOnly ?? true,
+            include_archived: params?.includeArchived ?? false,
+          },
+        },
+      }
+    )
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  async get(documentId: string) {
+    const { data, error, response } = await api.GET('/api/documents/{document_id}', {
+      params: {
+        path: { document_id: documentId },
+      },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  async create(workspaceId: string, body: components['schemas']['CreateDocumentRequest']) {
+    const { data, error, response } = await api.POST(
+      '/api/workspaces/{workspace_id}/documents',
+      {
+        params: { path: { workspace_id: workspaceId } },
+        body,
+      }
+    )
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  async update(documentId: string, body: components['schemas']['UpdateDocumentRequest']) {
+    const { data, error, response } = await api.PATCH('/api/documents/{document_id}', {
+      params: { path: { document_id: documentId } },
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  async delete(documentId: string) {
+    const { error, response } = await api.DELETE('/api/documents/{document_id}', {
+      params: { path: { document_id: documentId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+  },
+
+  async archive(documentId: string) {
+    const { data, error, response } = await api.POST('/api/documents/{document_id}/archive', {
+      params: { path: { document_id: documentId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  async unarchive(documentId: string) {
+    const { data, error, response } = await api.POST('/api/documents/{document_id}/unarchive', {
+      params: { path: { document_id: documentId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
     }
 
     return data
