@@ -3,9 +3,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::encryption::{
-    AuthType, KdfParams, KdfType, UserEncryptedIdentityKey,
-    UserEncryptedIdentityKeyRepository, UserEncryptedMasterKey, UserEncryptedMasterKeyRepository,
-    UserIdentityPublicKey, UserIdentityPublicKeyRepository,
+    AuthType, KdfParams, KdfType, UserEncryptedIdentityKey, UserEncryptedIdentityKeyRepository,
+    UserEncryptedMasterKey, UserEncryptedMasterKeyRepository, UserIdentityPublicKey,
+    UserIdentityPublicKeyRepository,
 };
 use domain::identity::UserId;
 use sqlx::PgPool;
@@ -57,7 +57,10 @@ impl From<UserIdentityPublicKeyRow> for UserIdentityPublicKey {
 impl UserIdentityPublicKeyRepository for PgUserIdentityPublicKeyRepository {
     type Error = PgUserIdentityPublicKeyRepositoryError;
 
-    async fn find_by_user_id(&self, user_id: UserId) -> Result<Option<UserIdentityPublicKey>, Self::Error> {
+    async fn find_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<UserIdentityPublicKey>, Self::Error> {
         let row = sqlx::query_as::<_, UserIdentityPublicKeyRow>(
             r#"
             SELECT user_id, ecdh_public_key, signing_public_key, created_at, updated_at
@@ -147,11 +150,12 @@ struct UserEncryptedMasterKeyRow {
 }
 
 impl UserEncryptedMasterKeyRow {
-    fn try_into_key(self) -> Result<UserEncryptedMasterKey, PgUserEncryptedMasterKeyRepositoryError> {
-        let auth_type: AuthType = self
-            .auth_type
-            .parse()
-            .map_err(|_| PgUserEncryptedMasterKeyRepositoryError::InvalidAuthType(self.auth_type.clone()))?;
+    fn try_into_key(
+        self,
+    ) -> Result<UserEncryptedMasterKey, PgUserEncryptedMasterKeyRepositoryError> {
+        let auth_type: AuthType = self.auth_type.parse().map_err(|_| {
+            PgUserEncryptedMasterKeyRepositoryError::InvalidAuthType(self.auth_type.clone())
+        })?;
 
         let kdf_type = self
             .kdf_type
@@ -182,7 +186,10 @@ impl UserEncryptedMasterKeyRow {
 impl UserEncryptedMasterKeyRepository for PgUserEncryptedMasterKeyRepository {
     type Error = PgUserEncryptedMasterKeyRepositoryError;
 
-    async fn find_by_user_id(&self, user_id: UserId) -> Result<Option<UserEncryptedMasterKey>, Self::Error> {
+    async fn find_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<UserEncryptedMasterKey>, Self::Error> {
         let row = sqlx::query_as::<_, UserEncryptedMasterKeyRow>(
             r#"
             SELECT user_id, auth_type, encrypted_umk, umk_nonce, salt, kdf_type, kdf_params,
@@ -225,7 +232,7 @@ impl UserEncryptedMasterKeyRepository for PgUserEncryptedMasterKeyRepository {
         .bind(&key.umk_nonce)
         .bind(&key.salt)
         .bind(key.kdf_type.map(|t| t.as_str()))
-        .bind(key.kdf_params.as_ref().map(|p| sqlx::types::Json(p)))
+        .bind(key.kdf_params.as_ref().map(sqlx::types::Json))
         .bind(&key.auth_key_hash)
         .bind(&key.recovery_encrypted_umk)
         .bind(&key.recovery_nonce)
@@ -296,7 +303,10 @@ impl From<UserEncryptedIdentityKeyRow> for UserEncryptedIdentityKey {
 impl UserEncryptedIdentityKeyRepository for PgUserEncryptedIdentityKeyRepository {
     type Error = PgUserEncryptedIdentityKeyRepositoryError;
 
-    async fn find_by_user_id(&self, user_id: UserId) -> Result<Option<UserEncryptedIdentityKey>, Self::Error> {
+    async fn find_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<UserEncryptedIdentityKey>, Self::Error> {
         let row = sqlx::query_as::<_, UserEncryptedIdentityKeyRow>(
             r#"
             SELECT user_id, encrypted_ecdh_private, encrypted_ecdh_private_nonce,

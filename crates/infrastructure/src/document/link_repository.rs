@@ -2,7 +2,9 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::document::{DocumentId, DocumentLink, DocumentLinkId, DocumentLinkRepository, LinkType};
+use domain::document::{
+    DocumentId, DocumentLink, DocumentLinkId, DocumentLinkRepository, LinkType,
+};
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -67,7 +69,10 @@ impl DocumentLinkRepository for PgDocumentLinkRepository {
         Ok(row.map(DocumentLink::from))
     }
 
-    async fn find_by_source_id(&self, source_id: DocumentId) -> Result<Vec<DocumentLink>, Self::Error> {
+    async fn find_by_source_id(
+        &self,
+        source_id: DocumentId,
+    ) -> Result<Vec<DocumentLink>, Self::Error> {
         let rows = sqlx::query_as::<_, DocumentLinkRow>(
             r#"
             SELECT id, source_id, target_id, link_type, link_text, created_at
@@ -83,7 +88,10 @@ impl DocumentLinkRepository for PgDocumentLinkRepository {
         Ok(rows.into_iter().map(DocumentLink::from).collect())
     }
 
-    async fn find_by_target_id(&self, target_id: DocumentId) -> Result<Vec<DocumentLink>, Self::Error> {
+    async fn find_by_target_id(
+        &self,
+        target_id: DocumentId,
+    ) -> Result<Vec<DocumentLink>, Self::Error> {
         let rows = sqlx::query_as::<_, DocumentLinkRow>(
             r#"
             SELECT id, source_id, target_id, link_type, link_text, created_at

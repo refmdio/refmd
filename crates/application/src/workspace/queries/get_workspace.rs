@@ -2,12 +2,12 @@
 //!
 //! Returns workspace details with membership info for the requesting user.
 
-use std::sync::Arc;
 use domain::identity::UserId;
 use domain::workspace::{
     Workspace, WorkspaceId, WorkspaceMember, WorkspaceMemberRepository, WorkspaceRepository,
     WorkspaceRole, WorkspaceRoleRepository,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Get workspace query
@@ -75,11 +75,7 @@ where
     WMR: WorkspaceMemberRepository,
     WRR: WorkspaceRoleRepository,
 {
-    pub fn new(
-        workspace_repo: Arc<WR>,
-        member_repo: Arc<WMR>,
-        role_repo: Arc<WRR>,
-    ) -> Self {
+    pub fn new(workspace_repo: Arc<WR>, member_repo: Arc<WMR>, role_repo: Arc<WRR>) -> Self {
         Self {
             workspace_repo,
             member_repo,

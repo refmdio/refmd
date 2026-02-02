@@ -44,10 +44,9 @@ struct PendingDeviceRow {
 
 impl PendingDeviceRow {
     fn try_into_pending_device(self) -> Result<PendingDevice, PgPendingDeviceRepositoryError> {
-        let device_type: DeviceType = self
-            .device_type
-            .parse()
-            .map_err(|_| PgPendingDeviceRepositoryError::InvalidDeviceType(self.device_type.clone()))?;
+        let device_type: DeviceType = self.device_type.parse().map_err(|_| {
+            PgPendingDeviceRepositoryError::InvalidDeviceType(self.device_type.clone())
+        })?;
 
         Ok(PendingDevice {
             id: DeviceId::from_uuid(self.id),
@@ -97,7 +96,9 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter().map(|r| r.try_into_pending_device()).collect()
+        rows.into_iter()
+            .map(|r| r.try_into_pending_device())
+            .collect()
     }
 
     async fn save(&self, device: &PendingDevice) -> Result<(), Self::Error> {

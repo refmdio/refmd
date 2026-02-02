@@ -67,7 +67,10 @@ impl SnapshotArchiveRow {
 impl SnapshotArchiveRepository for PgSnapshotArchiveRepository {
     type Error = PgSnapshotArchiveRepositoryError;
 
-    async fn find_by_id(&self, id: SnapshotArchiveId) -> Result<Option<DocumentSnapshotArchive>, Self::Error> {
+    async fn find_by_id(
+        &self,
+        id: SnapshotArchiveId,
+    ) -> Result<Option<DocumentSnapshotArchive>, Self::Error> {
         let row = sqlx::query_as::<_, SnapshotArchiveRow>(
             r#"
             SELECT id, document_id, snapshot_id, label, notes, kind, created_by, created_at
@@ -82,7 +85,10 @@ impl SnapshotArchiveRepository for PgSnapshotArchiveRepository {
         row.map(|r| r.try_into_archive()).transpose()
     }
 
-    async fn find_by_document_id(&self, document_id: DocumentId) -> Result<Vec<DocumentSnapshotArchive>, Self::Error> {
+    async fn find_by_document_id(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Vec<DocumentSnapshotArchive>, Self::Error> {
         let rows = sqlx::query_as::<_, SnapshotArchiveRow>(
             r#"
             SELECT id, document_id, snapshot_id, label, notes, kind, created_by, created_at

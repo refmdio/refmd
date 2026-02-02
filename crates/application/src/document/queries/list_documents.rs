@@ -2,13 +2,13 @@
 //!
 //! Lists documents in a workspace with RBAC permission check.
 
-use std::sync::Arc;
 use domain::document::{Document, DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
     can_perform,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// List documents query

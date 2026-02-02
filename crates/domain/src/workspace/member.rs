@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::identity::UserId;
 use super::value_objects::{RoleId, WorkspaceId};
+use crate::identity::UserId;
 
 /// Workspace member
 #[derive(Debug, Clone)]

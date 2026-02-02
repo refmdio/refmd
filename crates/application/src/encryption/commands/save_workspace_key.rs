@@ -7,13 +7,16 @@
 //! Currently, the client provides device_id and sender_device_id without server-side
 //! validation of ownership. This will be addressed when Device management is implemented.
 
-use std::sync::Arc;
-use domain::encryption::{DeviceId, KeyVersion, WorkspaceEncryptedKey, WorkspaceEncryptedKeyRepository};
+use domain::encryption::{
+    DeviceId, KeyVersion, NewWorkspaceKeyParams, WorkspaceEncryptedKey,
+    WorkspaceEncryptedKeyRepository,
+};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
     can_perform,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Save workspace key command
@@ -90,11 +93,7 @@ where
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
 {
-    pub fn new(
-        workspace_key_repo: Arc<WKR>,
-        member_repo: Arc<MR>,
-        role_repo: Arc<RR>,
-    ) -> Self {
+    pub fn new(workspace_key_repo: Arc<WKR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
         Self {
             workspace_key_repo,
             member_repo,
@@ -138,16 +137,16 @@ where
             KeyVersion::initial()
         };
 
-        let key = WorkspaceEncryptedKey::new(
-            command.workspace_id,
-            command.user_id,
-            command.device_id,
-            command.sender_device_id,
+        let key = WorkspaceEncryptedKey::new(NewWorkspaceKeyParams {
+            workspace_id: command.workspace_id,
+            user_id: command.user_id,
+            device_id: command.device_id,
+            sender_device_id: command.sender_device_id,
             key_version,
-            command.encrypted_kek,
-            command.nonce,
-            command.is_active,
-        );
+            encrypted_kek: command.encrypted_kek,
+            nonce: command.nonce,
+            is_active: command.is_active,
+        });
 
         // 4. Save key
         self.workspace_key_repo

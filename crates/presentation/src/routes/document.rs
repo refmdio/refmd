@@ -1,12 +1,5 @@
 //! Document routes
 
-use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
-};
 use application::document::{
     ArchiveDocumentCommand, ArchiveDocumentHandler, CreateDocumentCommand, CreateDocumentHandler,
     DeleteDocumentCommand, DeleteDocumentHandler, GetDocumentHandler, GetDocumentQuery,
@@ -24,6 +17,13 @@ use application::domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
 };
 use application::identity::RegistrationService;
+use axum::{
+    Json, Router,
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -33,8 +33,8 @@ use crate::AppState;
 /// Create document routes
 ///
 /// Note: This router does not have its own state - it receives state from the parent workspace router.
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-) -> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>()
+-> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>
 where
     U: UserRepository + Send + Sync + Clone + 'static,
     S: SessionRepository + Send + Sync + Clone + 'static,
@@ -223,7 +223,11 @@ where
 
     match handler.handle(query).await {
         Ok(result) => {
-            let documents = result.documents.into_iter().map(document_to_response).collect();
+            let documents = result
+                .documents
+                .into_iter()
+                .map(document_to_response)
+                .collect();
             (StatusCode::OK, Json(ListDocumentsResponse { documents })).into_response()
         }
         Err(e) => {
@@ -234,7 +238,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DocumentErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -337,9 +347,11 @@ where
     };
 
     match handler.handle(command).await {
-        Ok(result) => {
-            (StatusCode::CREATED, Json(document_to_response(result.document))).into_response()
-        }
+        Ok(result) => (
+            StatusCode::CREATED,
+            Json(document_to_response(result.document)),
+        )
+            .into_response(),
         Err(e) => {
             let status = if e.is_not_found() {
                 StatusCode::NOT_FOUND
@@ -352,7 +364,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DocumentErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -422,7 +440,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DocumentErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -540,7 +564,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DocumentErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -613,7 +643,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DocumentErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -686,7 +722,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DocumentErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -759,7 +801,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DocumentErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }

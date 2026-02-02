@@ -1,12 +1,5 @@
 //! Encryption key routes (KEK/DEK)
 
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::post,
-    Json, Router,
-};
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     DeviceId, DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
@@ -23,6 +16,13 @@ use application::encryption::{
     SaveWorkspaceKeyHandler,
 };
 use application::identity::RegistrationService;
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::post,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;

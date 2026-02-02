@@ -2,9 +2,9 @@
 
 use chrono::{DateTime, Utc};
 
+use super::value_objects::{DocumentId, DocumentType};
 use crate::identity::UserId;
 use crate::workspace::WorkspaceId;
-use super::value_objects::{DocumentId, DocumentType};
 
 /// Document
 #[derive(Debug, Clone)]

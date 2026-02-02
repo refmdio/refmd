@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::identity::UserId;
 use super::value_objects::{InvitationId, RoleId, WorkspaceId};
+use crate::identity::UserId;
 
 /// Workspace invitation
 #[derive(Debug, Clone)]
@@ -79,17 +79,17 @@ impl WorkspaceInvitation {
     /// Check if invitation is still valid
     pub fn is_valid(&self) -> bool {
         // Check expiration
-        if let Some(expires_at) = self.expires_at {
-            if Utc::now() > expires_at {
-                return false;
-            }
+        if let Some(expires_at) = self.expires_at
+            && Utc::now() > expires_at
+        {
+            return false;
         }
 
         // Check max uses
-        if let Some(max_uses) = self.max_uses {
-            if self.use_count >= max_uses {
-                return false;
-            }
+        if let Some(max_uses) = self.max_uses
+            && self.use_count >= max_uses
+        {
+            return false;
         }
 
         true

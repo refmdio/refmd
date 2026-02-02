@@ -2,9 +2,9 @@
 //!
 //! Authenticates a password-based user and creates a session.
 
-use std::sync::Arc;
 use domain::encryption::{UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository};
 use domain::identity::{Email, EmailError, Session, SessionRepository, User, UserRepository};
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Dummy bcrypt hash for timing attack mitigation.
@@ -43,7 +43,12 @@ pub struct LoginPasswordUserResult {
 
 /// Login password user error
 #[derive(Debug, Error)]
-pub enum LoginPasswordUserError<UR: std::error::Error, SR: std::error::Error, UEM: std::error::Error, UEI: std::error::Error> {
+pub enum LoginPasswordUserError<
+    UR: std::error::Error,
+    SR: std::error::Error,
+    UEM: std::error::Error,
+    UEI: std::error::Error,
+> {
     #[error("invalid email: {0}")]
     InvalidEmail(#[from] EmailError),
 
@@ -288,7 +293,8 @@ fn hash_session_token(token: &str) -> String {
     let hash = Sha256::digest(token.as_bytes());
     let mut hex = String::with_capacity(64);
     for b in hash {
-        std::fmt::Write::write_fmt(&mut hex, format_args!("{:02x}", b)).expect("Failed to write hex");
+        std::fmt::Write::write_fmt(&mut hex, format_args!("{:02x}", b))
+            .expect("Failed to write hex");
     }
     hex
 }

@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::identity::UserId;
 use super::value_objects::{AuthType, KdfParams, KdfType, PublicKeyPair};
+use crate::identity::UserId;
 
 /// User Identity public key
 /// Long-term user identification key, shared across all devices.
@@ -69,30 +69,34 @@ pub struct UserEncryptedMasterKey {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Parameters for creating a password user's encrypted master key
+#[derive(Debug, Clone)]
+pub struct PasswordUserMasterKeyParams {
+    pub user_id: UserId,
+    pub encrypted_umk: Vec<u8>,
+    pub umk_nonce: Vec<u8>,
+    pub salt: Vec<u8>,
+    pub kdf_params: KdfParams,
+    pub auth_key_hash: String,
+    pub recovery_encrypted_umk: Vec<u8>,
+    pub recovery_nonce: Vec<u8>,
+}
+
 impl UserEncryptedMasterKey {
     /// Create for password user
-    pub fn new_password_user(
-        user_id: UserId,
-        encrypted_umk: Vec<u8>,
-        umk_nonce: Vec<u8>,
-        salt: Vec<u8>,
-        kdf_params: KdfParams,
-        auth_key_hash: String,
-        recovery_encrypted_umk: Vec<u8>,
-        recovery_nonce: Vec<u8>,
-    ) -> Self {
+    pub fn new_password_user(params: PasswordUserMasterKeyParams) -> Self {
         let now = Utc::now();
         Self {
-            user_id,
+            user_id: params.user_id,
             auth_type: AuthType::Password,
-            encrypted_umk: Some(encrypted_umk),
-            umk_nonce: Some(umk_nonce),
-            salt: Some(salt),
+            encrypted_umk: Some(params.encrypted_umk),
+            umk_nonce: Some(params.umk_nonce),
+            salt: Some(params.salt),
             kdf_type: Some(KdfType::Argon2id),
-            kdf_params: Some(kdf_params),
-            auth_key_hash: Some(auth_key_hash),
-            recovery_encrypted_umk,
-            recovery_nonce,
+            kdf_params: Some(params.kdf_params),
+            auth_key_hash: Some(params.auth_key_hash),
+            recovery_encrypted_umk: params.recovery_encrypted_umk,
+            recovery_nonce: params.recovery_nonce,
             created_at: now,
             updated_at: now,
         }

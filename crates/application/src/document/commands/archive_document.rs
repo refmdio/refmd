@@ -3,12 +3,12 @@
 //! Sets a document to read-only (archived) state.
 //! Archived documents can still be viewed but not edited.
 
-use std::sync::Arc;
 use domain::document::{Document, DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Archive document command
@@ -149,7 +149,8 @@ where
     fn archive_descendants(
         &self,
         parent_id: DocumentId,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DR::Error>> + Send + '_>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DR::Error>> + Send + '_>>
+    {
         Box::pin(async move {
             let children = self.document_repo.find_by_parent_id(parent_id).await?;
 

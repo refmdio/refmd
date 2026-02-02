@@ -2,12 +2,12 @@
 //!
 //! Updates document metadata with RBAC permission check.
 
-use std::sync::Arc;
 use domain::document::{Document, DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Update document command
@@ -210,14 +210,13 @@ where
                 }
 
                 // Check for circular reference (cannot move to descendant)
-                if document.is_folder() {
-                    if self
+                if document.is_folder()
+                    && self
                         .is_descendant(parent_id, command.document_id)
                         .await
                         .map_err(UpdateDocumentError::DocumentRepository)?
-                    {
-                        return Err(UpdateDocumentError::CircularReference);
-                    }
+                {
+                    return Err(UpdateDocumentError::CircularReference);
                 }
 
                 // Verify parent is in same workspace

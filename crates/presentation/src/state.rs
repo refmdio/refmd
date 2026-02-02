@@ -1,6 +1,5 @@
 //! Application state with generics for dependency injection
 
-use std::sync::Arc;
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
@@ -12,6 +11,28 @@ use application::domain::workspace::{
     WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
 };
 use application::identity::RegistrationService;
+use std::sync::Arc;
+
+/// Parameters for creating AppState
+pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS> {
+    pub user_repo: Arc<U>,
+    pub session_repo: Arc<S>,
+    pub user_settings_repo: Arc<US>,
+    pub user_identity_public_key_repo: Arc<UIP>,
+    pub user_encrypted_master_key_repo: Arc<UEM>,
+    pub user_encrypted_identity_key_repo: Arc<UEI>,
+    pub workspace_repo: Arc<WR>,
+    pub workspace_member_repo: Arc<WMR>,
+    pub workspace_role_repo: Arc<WRR>,
+    pub document_repo: Arc<DR>,
+    pub workspace_key_repo: Arc<WKR>,
+    pub document_key_repo: Arc<DKR>,
+    pub registration_service: Arc<RS>,
+    /// Server secret for dummy salt generation (prevents user enumeration)
+    pub server_secret: [u8; 32],
+    /// Whether to set Secure attribute on cookies (should be true in production)
+    pub secure_cookies: bool,
+}
 
 /// Application state holding repository implementations
 #[derive(Clone)]
@@ -67,40 +88,25 @@ where
     DKR: DocumentEncryptedKeyRepository + Send + Sync + 'static,
     RS: RegistrationService + Send + Sync + 'static,
 {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        user_repo: Arc<U>,
-        session_repo: Arc<S>,
-        user_settings_repo: Arc<US>,
-        user_identity_public_key_repo: Arc<UIP>,
-        user_encrypted_master_key_repo: Arc<UEM>,
-        user_encrypted_identity_key_repo: Arc<UEI>,
-        workspace_repo: Arc<WR>,
-        workspace_member_repo: Arc<WMR>,
-        workspace_role_repo: Arc<WRR>,
-        document_repo: Arc<DR>,
-        workspace_key_repo: Arc<WKR>,
-        document_key_repo: Arc<DKR>,
-        registration_service: Arc<RS>,
-        server_secret: [u8; 32],
-        secure_cookies: bool,
+        params: AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
     ) -> Self {
         Self {
-            user_repo,
-            session_repo,
-            user_settings_repo,
-            user_identity_public_key_repo,
-            user_encrypted_master_key_repo,
-            user_encrypted_identity_key_repo,
-            workspace_repo,
-            workspace_member_repo,
-            workspace_role_repo,
-            document_repo,
-            workspace_key_repo,
-            document_key_repo,
-            registration_service,
-            server_secret: Arc::new(server_secret),
-            secure_cookies,
+            user_repo: params.user_repo,
+            session_repo: params.session_repo,
+            user_settings_repo: params.user_settings_repo,
+            user_identity_public_key_repo: params.user_identity_public_key_repo,
+            user_encrypted_master_key_repo: params.user_encrypted_master_key_repo,
+            user_encrypted_identity_key_repo: params.user_encrypted_identity_key_repo,
+            workspace_repo: params.workspace_repo,
+            workspace_member_repo: params.workspace_member_repo,
+            workspace_role_repo: params.workspace_role_repo,
+            document_repo: params.document_repo,
+            workspace_key_repo: params.workspace_key_repo,
+            document_key_repo: params.document_key_repo,
+            registration_service: params.registration_service,
+            server_secret: Arc::new(params.server_secret),
+            secure_cookies: params.secure_cookies,
         }
     }
 

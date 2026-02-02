@@ -1,7 +1,7 @@
 //! Tag and DocumentTag entities
 
-use crate::workspace::WorkspaceId;
 use super::value_objects::{DocumentId, TagId};
+use crate::workspace::WorkspaceId;
 
 /// Tag (workspace scoped)
 #[derive(Debug, Clone)]

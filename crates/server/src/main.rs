@@ -2,20 +2,20 @@
 //!
 //! This is the Composition Root - where all dependencies are wired together.
 
+use axum::http::{Method, header};
 use axum::{Router, routing::get};
-use axum::http::{header, Method};
-use infrastructure::{create_pool, DatabaseConfig, PgRegistrationService};
 use infrastructure::document::PgDocumentRepository;
-use infrastructure::identity::{PgUserRepository, PgSessionRepository, PgUserSettingsRepository};
 use infrastructure::encryption::{
-    PgUserIdentityPublicKeyRepository, PgUserEncryptedMasterKeyRepository,
-    PgUserEncryptedIdentityKeyRepository, PgWorkspaceEncryptedKeyRepository,
-    PgDocumentEncryptedKeyRepository,
+    PgDocumentEncryptedKeyRepository, PgUserEncryptedIdentityKeyRepository,
+    PgUserEncryptedMasterKeyRepository, PgUserIdentityPublicKeyRepository,
+    PgWorkspaceEncryptedKeyRepository,
 };
+use infrastructure::identity::{PgSessionRepository, PgUserRepository, PgUserSettingsRepository};
 use infrastructure::workspace::{
-    PgWorkspaceRepository, PgWorkspaceMemberRepository, PgWorkspaceRoleRepository,
+    PgWorkspaceMemberRepository, PgWorkspaceRepository, PgWorkspaceRoleRepository,
 };
-use presentation::{ApiDoc, AppState, routes};
+use infrastructure::{DatabaseConfig, PgRegistrationService, create_pool};
+use presentation::{ApiDoc, AppState, AppStateParams, routes};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -75,9 +75,13 @@ async fn main() -> anyhow::Result<()> {
     let user_repo = Arc::new(PgUserRepository::new((*pool_arc).clone()));
     let session_repo = Arc::new(PgSessionRepository::new((*pool_arc).clone()));
     let user_settings_repo = Arc::new(PgUserSettingsRepository::new((*pool_arc).clone()));
-    let user_identity_public_key_repo = Arc::new(PgUserIdentityPublicKeyRepository::new((*pool_arc).clone()));
-    let user_encrypted_master_key_repo = Arc::new(PgUserEncryptedMasterKeyRepository::new((*pool_arc).clone()));
-    let user_encrypted_identity_key_repo = Arc::new(PgUserEncryptedIdentityKeyRepository::new((*pool_arc).clone()));
+    let user_identity_public_key_repo =
+        Arc::new(PgUserIdentityPublicKeyRepository::new((*pool_arc).clone()));
+    let user_encrypted_master_key_repo =
+        Arc::new(PgUserEncryptedMasterKeyRepository::new((*pool_arc).clone()));
+    let user_encrypted_identity_key_repo = Arc::new(PgUserEncryptedIdentityKeyRepository::new(
+        (*pool_arc).clone(),
+    ));
     let workspace_repo = Arc::new(PgWorkspaceRepository::new((*pool_arc).clone()));
     let workspace_member_repo = Arc::new(PgWorkspaceMemberRepository::new((*pool_arc).clone()));
     let workspace_role_repo = Arc::new(PgWorkspaceRoleRepository::new((*pool_arc).clone()));
@@ -97,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create application state
-    let state = AppState::new(
+    let state = AppState::new(AppStateParams {
         user_repo,
         session_repo,
         user_settings_repo,
@@ -113,12 +117,12 @@ async fn main() -> anyhow::Result<()> {
         registration_service,
         server_secret,
         secure_cookies,
-    );
+    });
 
     // CORS configuration for development
     // In production, this should be restricted to specific origins
-    let cors_origins = std::env::var("CORS_ORIGINS")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let cors_origins =
+        std::env::var("CORS_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     let origins: Vec<_> = cors_origins
         .split(',')
@@ -127,7 +131,13 @@ async fn main() -> anyhow::Result<()> {
 
     let cors = CorsLayer::new()
         .allow_origin(origins)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::COOKIE])
         .allow_credentials(true);
 

@@ -3,11 +3,11 @@
 //! Returns salt and KDF parameters for password authentication.
 //! For unknown users, returns a deterministic dummy salt to prevent user enumeration.
 
-use std::sync::Arc;
 use domain::encryption::{KdfParams, UserEncryptedMasterKeyRepository};
 use domain::identity::{Email, EmailError, UserRepository};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Get salt query
@@ -88,7 +88,11 @@ where
         let salt = match self.user_repo.find_by_email(&email).await {
             Ok(Some(user)) => {
                 // User exists, get their actual salt
-                match self.encrypted_master_key_repo.find_by_user_id(user.id).await {
+                match self
+                    .encrypted_master_key_repo
+                    .find_by_user_id(user.id)
+                    .await
+                {
                     Ok(Some(umk)) => {
                         if let Some(salt) = umk.salt {
                             salt

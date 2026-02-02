@@ -61,7 +61,10 @@ impl TagRepository for PgTagRepository {
         Ok(row.map(Tag::from))
     }
 
-    async fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<Tag>, Self::Error> {
+    async fn find_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<Tag>, Self::Error> {
         let rows = sqlx::query_as::<_, TagRow>(
             r#"
             SELECT id, workspace_id, name
@@ -163,7 +166,10 @@ impl From<DocumentTagRow> for DocumentTag {
 impl DocumentTagRepository for PgDocumentTagRepository {
     type Error = PgDocumentTagRepositoryError;
 
-    async fn find_by_document_id(&self, document_id: DocumentId) -> Result<Vec<DocumentTag>, Self::Error> {
+    async fn find_by_document_id(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Vec<DocumentTag>, Self::Error> {
         let rows = sqlx::query_as::<_, DocumentTagRow>(
             r#"
             SELECT document_id, tag_id, encrypted_tag

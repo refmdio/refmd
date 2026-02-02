@@ -210,7 +210,10 @@ impl WorkspaceRolePermissionRepository for PgWorkspaceRolePermissionRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(WorkspaceRolePermission::from).collect())
+        Ok(rows
+            .into_iter()
+            .map(WorkspaceRolePermission::from)
+            .collect())
     }
 
     async fn find_by_role_and_permission(
@@ -252,11 +255,13 @@ impl WorkspaceRolePermissionRepository for PgWorkspaceRolePermissionRepository {
     }
 
     async fn delete(&self, role_id: RoleId, permission: &Permission) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM workspace_role_permissions WHERE role_id = $1 AND permission = $2")
-            .bind(role_id.as_uuid())
-            .bind(permission.as_str())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "DELETE FROM workspace_role_permissions WHERE role_id = $1 AND permission = $2",
+        )
+        .bind(role_id.as_uuid())
+        .bind(permission.as_str())
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }

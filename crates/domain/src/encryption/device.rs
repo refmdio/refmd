@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::identity::UserId;
 use super::value_objects::{DeviceId, DeviceType, PublicKeyPair};
+use crate::identity::UserId;
 
 /// User device with cryptographic key pair
 #[derive(Debug, Clone)]
@@ -27,10 +27,7 @@ pub struct Device {
 
 impl Device {
     /// Create a new device from a pending device after SAS verification
-    pub fn from_pending(
-        pending: PendingDevice,
-        identity_signature: Vec<u8>,
-    ) -> Self {
+    pub fn from_pending(pending: PendingDevice, identity_signature: Vec<u8>) -> Self {
         let now = Utc::now();
         Self {
             id: pending.id,

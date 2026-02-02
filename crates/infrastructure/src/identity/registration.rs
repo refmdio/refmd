@@ -2,9 +2,7 @@
 //!
 //! Handles user registration with all related entities in a single transaction.
 
-use application::identity::{
-    RegistrationData, RegistrationService, RegistrationServiceError,
-};
+use application::identity::{RegistrationData, RegistrationService, RegistrationServiceError};
 use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -30,7 +28,10 @@ impl PgRegistrationService {
 
 #[async_trait]
 impl RegistrationService for PgRegistrationService {
-    async fn register_atomic(&self, data: RegistrationData) -> Result<(), RegistrationServiceError> {
+    async fn register_atomic(
+        &self,
+        data: RegistrationData,
+    ) -> Result<(), RegistrationServiceError> {
         register_user_atomic(&self.pool, data)
             .await
             .map_err(|e| RegistrationServiceError::Database(e.to_string()))
@@ -106,7 +107,12 @@ pub async fn register_user_atomic(
     .bind(&data.encrypted_master_key.umk_nonce)
     .bind(&data.encrypted_master_key.salt)
     .bind(data.encrypted_master_key.kdf_type.map(|t| t.as_str()))
-    .bind(data.encrypted_master_key.kdf_params.as_ref().map(|p| sqlx::types::Json(p)))
+    .bind(
+        data.encrypted_master_key
+            .kdf_params
+            .as_ref()
+            .map(sqlx::types::Json),
+    )
     .bind(&data.encrypted_master_key.auth_key_hash)
     .bind(&data.encrypted_master_key.recovery_encrypted_umk)
     .bind(&data.encrypted_master_key.recovery_nonce)

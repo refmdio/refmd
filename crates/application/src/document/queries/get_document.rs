@@ -2,12 +2,12 @@
 //!
 //! Retrieves a single document with RBAC permission check.
 
-use std::sync::Arc;
 use domain::document::{Document, DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Get document query

@@ -177,7 +177,10 @@ impl Slug {
         }
 
         // Slug must be lowercase alphanumeric with hyphens
-        if !slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+        if !slug
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
             return Err(SlugError::InvalidCharacters);
         }
 

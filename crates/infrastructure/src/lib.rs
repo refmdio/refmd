@@ -15,5 +15,5 @@ pub mod encryption;
 pub mod identity;
 pub mod workspace;
 
-pub use database::{create_pool, DatabaseConfig};
+pub use database::{DatabaseConfig, create_pool};
 pub use identity::PgRegistrationService;

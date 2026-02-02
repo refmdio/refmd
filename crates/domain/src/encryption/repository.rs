@@ -2,13 +2,13 @@
 
 use async_trait::async_trait;
 
-use crate::identity::UserId;
 use super::device::{Device, PendingDevice};
 use super::device_keys::{DeviceEncryptedUMK, DeviceRevocationEvent};
 use super::user_keys::{UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey};
 use super::value_objects::DeviceId;
 use super::workspace_keys::{DocumentEncryptedKey, WorkspaceEncryptedKey};
 use crate::document::DocumentId;
+use crate::identity::UserId;
 use crate::workspace::WorkspaceId;
 
 /// Device repository trait
@@ -59,7 +59,10 @@ pub trait UserIdentityPublicKeyRepository: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Find by user ID
-    async fn find_by_user_id(&self, user_id: UserId) -> Result<Option<UserIdentityPublicKey>, Self::Error>;
+    async fn find_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<UserIdentityPublicKey>, Self::Error>;
 
     /// Save
     async fn save(&self, key: &UserIdentityPublicKey) -> Result<(), Self::Error>;
@@ -74,7 +77,10 @@ pub trait UserEncryptedMasterKeyRepository: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Find by user ID
-    async fn find_by_user_id(&self, user_id: UserId) -> Result<Option<UserEncryptedMasterKey>, Self::Error>;
+    async fn find_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<UserEncryptedMasterKey>, Self::Error>;
 
     /// Save
     async fn save(&self, key: &UserEncryptedMasterKey) -> Result<(), Self::Error>;
@@ -89,7 +95,10 @@ pub trait UserEncryptedIdentityKeyRepository: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Find by user ID
-    async fn find_by_user_id(&self, user_id: UserId) -> Result<Option<UserEncryptedIdentityKey>, Self::Error>;
+    async fn find_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<UserEncryptedIdentityKey>, Self::Error>;
 
     /// Save
     async fn save(&self, key: &UserEncryptedIdentityKey) -> Result<(), Self::Error>;
@@ -104,7 +113,10 @@ pub trait WorkspaceEncryptedKeyRepository: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Find all keys for a workspace
-    async fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<WorkspaceEncryptedKey>, Self::Error>;
+    async fn find_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<WorkspaceEncryptedKey>, Self::Error>;
 
     /// Find keys for a specific user's device in a workspace
     async fn find_by_workspace_and_device(
@@ -139,10 +151,16 @@ pub trait DocumentEncryptedKeyRepository: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Find all keys for a document
-    async fn find_by_document_id(&self, document_id: DocumentId) -> Result<Vec<DocumentEncryptedKey>, Self::Error>;
+    async fn find_by_document_id(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Vec<DocumentEncryptedKey>, Self::Error>;
 
     /// Find active key for a document
-    async fn find_active_by_document_id(&self, document_id: DocumentId) -> Result<Option<DocumentEncryptedKey>, Self::Error>;
+    async fn find_active_by_document_id(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Option<DocumentEncryptedKey>, Self::Error>;
 
     /// Save
     async fn save(&self, key: &DocumentEncryptedKey) -> Result<(), Self::Error>;
@@ -164,7 +182,10 @@ pub trait DeviceRevocationEventRepository: Send + Sync {
     ) -> Result<Option<DeviceRevocationEvent>, Self::Error>;
 
     /// Find all revocation events for a user
-    async fn find_by_user_id(&self, user_id: UserId) -> Result<Vec<DeviceRevocationEvent>, Self::Error>;
+    async fn find_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<DeviceRevocationEvent>, Self::Error>;
 
     /// Save
     async fn save(&self, event: &DeviceRevocationEvent) -> Result<(), Self::Error>;

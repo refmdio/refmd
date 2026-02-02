@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::identity::UserId;
 use super::value_objects::DeviceId;
+use crate::identity::UserId;
 
 /// Device Revocation Event
 /// Signed by Identity key to prevent server tampering.
@@ -41,8 +41,7 @@ impl DeviceRevocationEvent {
 
     /// Get revocation timestamp as DateTime
     pub fn revoked_at_datetime(&self) -> DateTime<Utc> {
-        DateTime::from_timestamp_millis(self.revoked_at)
-            .unwrap_or(self.created_at)
+        DateTime::from_timestamp_millis(self.revoked_at).unwrap_or(self.created_at)
     }
 
     /// Get the data that should be signed

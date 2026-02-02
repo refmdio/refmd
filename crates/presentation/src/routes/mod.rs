@@ -5,7 +5,7 @@ pub mod document;
 pub mod encryption;
 pub mod workspace;
 
-use axum::Router;
+use crate::AppState;
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
@@ -17,7 +17,7 @@ use application::domain::workspace::{
     WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
 };
 use application::identity::RegistrationService;
-use crate::AppState;
+use axum::Router;
 
 /// Create all API routes
 pub fn create_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(

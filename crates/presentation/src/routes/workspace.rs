@@ -1,12 +1,5 @@
 //! Workspace routes
 
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
@@ -20,6 +13,13 @@ use application::domain::workspace::{
 use application::identity::RegistrationService;
 use application::workspace::{
     GetWorkspaceHandler, GetWorkspaceQuery, ListUserWorkspacesHandler, ListUserWorkspacesQuery,
+};
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::get,
 };
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -47,9 +47,18 @@ where
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()
-        .route("/", get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
-        .route("/{id}", get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
-        .nest("/{workspace_id}/documents", super::document::routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>())
+        .route(
+            "/",
+            get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+        )
+        .route(
+            "/{id}",
+            get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+        )
+        .nest(
+            "/{workspace_id}/documents",
+            super::document::routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(),
+        )
         .with_state(state)
 }
 

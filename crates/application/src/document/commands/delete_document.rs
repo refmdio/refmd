@@ -7,12 +7,12 @@
 //!
 //! For read-only state, use ArchiveDocument instead.
 
-use std::sync::Arc;
 use domain::document::{DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Delete document command

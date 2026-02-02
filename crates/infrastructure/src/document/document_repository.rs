@@ -119,7 +119,10 @@ impl DocumentRepository for PgDocumentRepository {
         row.map(|r| r.try_into_document()).transpose()
     }
 
-    async fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<Document>, Self::Error> {
+    async fn find_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<Document>, Self::Error> {
         let rows = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
@@ -155,7 +158,10 @@ impl DocumentRepository for PgDocumentRepository {
         rows.into_iter().map(|r| r.try_into_document()).collect()
     }
 
-    async fn find_roots_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<Document>, Self::Error> {
+    async fn find_roots_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<Document>, Self::Error> {
         let rows = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
@@ -173,7 +179,10 @@ impl DocumentRepository for PgDocumentRepository {
         rows.into_iter().map(|r| r.try_into_document()).collect()
     }
 
-    async fn find_needing_dek_rotation(&self, workspace_id: WorkspaceId) -> Result<Vec<Document>, Self::Error> {
+    async fn find_needing_dek_rotation(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<Document>, Self::Error> {
         let rows = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
@@ -190,7 +199,11 @@ impl DocumentRepository for PgDocumentRepository {
         rows.into_iter().map(|r| r.try_into_document()).collect()
     }
 
-    async fn slug_exists(&self, workspace_id: WorkspaceId, slug: &str) -> Result<bool, Self::Error> {
+    async fn slug_exists(
+        &self,
+        workspace_id: WorkspaceId,
+        slug: &str,
+    ) -> Result<bool, Self::Error> {
         let result = sqlx::query_scalar::<_, bool>(
             r#"
             SELECT EXISTS(SELECT 1 FROM documents WHERE workspace_id = $1 AND slug = $2)

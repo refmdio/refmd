@@ -3,7 +3,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::identity::UserId;
-use domain::workspace::{InvitationId, RoleId, WorkspaceId, WorkspaceInvitation, WorkspaceInvitationRepository};
+use domain::workspace::{
+    InvitationId, RoleId, WorkspaceId, WorkspaceInvitation, WorkspaceInvitationRepository,
+};
 use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
@@ -63,7 +65,10 @@ impl From<WorkspaceInvitationRow> for WorkspaceInvitation {
 impl WorkspaceInvitationRepository for PgWorkspaceInvitationRepository {
     type Error = PgWorkspaceInvitationRepositoryError;
 
-    async fn find_by_id(&self, id: InvitationId) -> Result<Option<WorkspaceInvitation>, Self::Error> {
+    async fn find_by_id(
+        &self,
+        id: InvitationId,
+    ) -> Result<Option<WorkspaceInvitation>, Self::Error> {
         let row = sqlx::query_as::<_, WorkspaceInvitationRow>(
             r#"
             SELECT id, workspace_id, token_hash, token_prefix, role_id, invited_by,
@@ -79,7 +84,10 @@ impl WorkspaceInvitationRepository for PgWorkspaceInvitationRepository {
         Ok(row.map(WorkspaceInvitation::from))
     }
 
-    async fn find_by_token_hash(&self, token_hash: &str) -> Result<Option<WorkspaceInvitation>, Self::Error> {
+    async fn find_by_token_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<WorkspaceInvitation>, Self::Error> {
         let row = sqlx::query_as::<_, WorkspaceInvitationRow>(
             r#"
             SELECT id, workspace_id, token_hash, token_prefix, role_id, invited_by,

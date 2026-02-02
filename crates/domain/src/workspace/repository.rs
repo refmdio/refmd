@@ -2,12 +2,12 @@
 
 use async_trait::async_trait;
 
-use crate::identity::UserId;
 use super::invitation::WorkspaceInvitation;
 use super::member::WorkspaceMember;
 use super::role::{WorkspaceRole, WorkspaceRolePermission};
 use super::value_objects::{InvitationId, Permission, RoleId, Slug, WorkspaceId};
 use super::workspace::Workspace;
+use crate::identity::UserId;
 
 /// Workspace repository trait
 #[async_trait]
@@ -46,13 +46,19 @@ pub trait WorkspaceMemberRepository: Send + Sync {
     ) -> Result<Option<WorkspaceMember>, Self::Error>;
 
     /// Find all members of a workspace
-    async fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<WorkspaceMember>, Self::Error>;
+    async fn find_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<WorkspaceMember>, Self::Error>;
 
     /// Find all workspaces a user is a member of
     async fn find_by_user_id(&self, user_id: UserId) -> Result<Vec<WorkspaceMember>, Self::Error>;
 
     /// Find user's default workspace
-    async fn find_default_by_user_id(&self, user_id: UserId) -> Result<Option<WorkspaceMember>, Self::Error>;
+    async fn find_default_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<WorkspaceMember>, Self::Error>;
 
     /// Save member
     async fn save(&self, member: &WorkspaceMember) -> Result<(), Self::Error>;
@@ -76,10 +82,16 @@ pub trait WorkspaceRoleRepository: Send + Sync {
     async fn find_by_id(&self, id: RoleId) -> Result<Option<WorkspaceRole>, Self::Error>;
 
     /// Find all roles for a workspace
-    async fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<WorkspaceRole>, Self::Error>;
+    async fn find_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<WorkspaceRole>, Self::Error>;
 
     /// Find default role for a workspace
-    async fn find_default_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Option<WorkspaceRole>, Self::Error>;
+    async fn find_default_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Option<WorkspaceRole>, Self::Error>;
 
     /// Save role
     async fn save(&self, role: &WorkspaceRole) -> Result<(), Self::Error>;
@@ -97,7 +109,10 @@ pub trait WorkspaceRolePermissionRepository: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Find all permissions for a role
-    async fn find_by_role_id(&self, role_id: RoleId) -> Result<Vec<WorkspaceRolePermission>, Self::Error>;
+    async fn find_by_role_id(
+        &self,
+        role_id: RoleId,
+    ) -> Result<Vec<WorkspaceRolePermission>, Self::Error>;
 
     /// Find specific permission for a role
     async fn find_by_role_and_permission(
@@ -122,13 +137,22 @@ pub trait WorkspaceInvitationRepository: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
     /// Find invitation by ID
-    async fn find_by_id(&self, id: InvitationId) -> Result<Option<WorkspaceInvitation>, Self::Error>;
+    async fn find_by_id(
+        &self,
+        id: InvitationId,
+    ) -> Result<Option<WorkspaceInvitation>, Self::Error>;
 
     /// Find invitation by token hash
-    async fn find_by_token_hash(&self, token_hash: &str) -> Result<Option<WorkspaceInvitation>, Self::Error>;
+    async fn find_by_token_hash(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<WorkspaceInvitation>, Self::Error>;
 
     /// Find all invitations for a workspace
-    async fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<WorkspaceInvitation>, Self::Error>;
+    async fn find_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<WorkspaceInvitation>, Self::Error>;
 
     /// Find invitation by workspace and email
     async fn find_by_workspace_and_email(

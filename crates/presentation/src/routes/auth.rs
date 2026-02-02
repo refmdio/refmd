@@ -1,12 +1,5 @@
 //! Authentication routes
 
-use axum::{
-    extract::{Query, State},
-    http::{header, StatusCode},
-    response::{AppendHeaders, IntoResponse},
-    routing::{get, post},
-    Json, Router,
-};
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     DocumentEncryptedKeyRepository, KdfParams, UserEncryptedIdentityKeyRepository,
@@ -19,9 +12,15 @@ use application::domain::workspace::{
 };
 use application::identity::{
     GetCurrentUserHandler, GetCurrentUserQuery, GetSaltHandler, GetSaltQuery,
-    LoginPasswordUserCommand, LoginPasswordUserHandler,
-    RegisterPasswordUserAtomicCommand, RegisterPasswordUserAtomicHandler,
-    RegistrationService,
+    LoginPasswordUserCommand, LoginPasswordUserHandler, RegisterPasswordUserAtomicCommand,
+    RegisterPasswordUserAtomicHandler, RegistrationService,
+};
+use axum::{
+    Json, Router,
+    extract::{Query, State},
+    http::{StatusCode, header},
+    response::{AppendHeaders, IntoResponse},
+    routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -48,11 +47,26 @@ where
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()
-        .route("/salt", get(get_salt::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
-        .route("/register", post(register::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
-        .route("/login", post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
-        .route("/logout", post(logout::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
-        .route("/me", get(me::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>))
+        .route(
+            "/salt",
+            get(get_salt::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+        )
+        .route(
+            "/register",
+            post(register::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+        )
+        .route(
+            "/login",
+            post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+        )
+        .route(
+            "/logout",
+            post(logout::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+        )
+        .route(
+            "/me",
+            get(me::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+        )
         .with_state(state)
 }
 
@@ -171,7 +185,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(AuthErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(AuthErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -375,18 +395,19 @@ where
         }
     };
 
-    let encrypted_ecdh_private_nonce = match base64_url::decode(&request.encrypted_ecdh_private_nonce) {
-        Ok(s) => s,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(AuthErrorResponse {
-                    error: "invalid encrypted_ecdh_private_nonce encoding".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
+    let encrypted_ecdh_private_nonce =
+        match base64_url::decode(&request.encrypted_ecdh_private_nonce) {
+            Ok(s) => s,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(AuthErrorResponse {
+                        error: "invalid encrypted_ecdh_private_nonce encoding".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
 
     let encrypted_signing_private = match base64_url::decode(&request.encrypted_signing_private) {
         Ok(s) => s,
@@ -401,18 +422,19 @@ where
         }
     };
 
-    let encrypted_signing_private_nonce = match base64_url::decode(&request.encrypted_signing_private_nonce) {
-        Ok(s) => s,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(AuthErrorResponse {
-                    error: "invalid encrypted_signing_private_nonce encoding".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
+    let encrypted_signing_private_nonce =
+        match base64_url::decode(&request.encrypted_signing_private_nonce) {
+            Ok(s) => s,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(AuthErrorResponse {
+                        error: "invalid encrypted_signing_private_nonce encoding".to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+        };
 
     // Use atomic handler for transactional registration
     let handler = RegisterPasswordUserAtomicHandler::new(
@@ -454,7 +476,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(AuthErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(AuthErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -579,9 +607,13 @@ where
                 encrypted_umk: base64_url::encode(&result.encrypted_umk),
                 umk_nonce: base64_url::encode(&result.umk_nonce),
                 encrypted_ecdh_private: base64_url::encode(&result.encrypted_ecdh_private),
-                encrypted_ecdh_private_nonce: base64_url::encode(&result.encrypted_ecdh_private_nonce),
+                encrypted_ecdh_private_nonce: base64_url::encode(
+                    &result.encrypted_ecdh_private_nonce,
+                ),
                 encrypted_signing_private: base64_url::encode(&result.encrypted_signing_private),
-                encrypted_signing_private_nonce: base64_url::encode(&result.encrypted_signing_private_nonce),
+                encrypted_signing_private_nonce: base64_url::encode(
+                    &result.encrypted_signing_private_nonce,
+                ),
             };
 
             (
@@ -603,7 +635,13 @@ where
                 StatusCode::INTERNAL_SERVER_ERROR
             };
             // Use safe_message() to prevent user enumeration
-            (status, Json(AuthErrorResponse { error: e.safe_message().to_string() })).into_response()
+            (
+                status,
+                Json(AuthErrorResponse {
+                    error: e.safe_message().to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -615,7 +653,10 @@ fn build_session_cookie(
     remember_me: bool,
     secure: bool,
 ) -> String {
-    let mut cookie = format!("{}={}; Path=/api; HttpOnly; SameSite=Lax", SESSION_COOKIE_NAME, token);
+    let mut cookie = format!(
+        "{}={}; Path=/api; HttpOnly; SameSite=Lax",
+        SESSION_COOKIE_NAME, token
+    );
 
     // Add Secure attribute based on runtime configuration
     if secure {
@@ -797,7 +838,11 @@ where
     let token = match crate::auth::extract_session_token(&headers) {
         Ok(t) => t,
         Err(e) => {
-            return (StatusCode::UNAUTHORIZED, Json(AuthErrorResponse { error: e.error })).into_response();
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(AuthErrorResponse { error: e.error }),
+            )
+                .into_response();
         }
     };
 
@@ -822,7 +867,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            return (status, Json(AuthErrorResponse { error: e.to_string() })).into_response();
+            return (
+                status,
+                Json(AuthErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response();
         }
     };
 
@@ -832,19 +883,26 @@ where
     let identity_keys = result.encrypted_identity_key;
 
     let is_password_user = umk.is_password_user();
-    let auth_type = if is_password_user { "password" } else { "oauth" };
+    let auth_type = if is_password_user {
+        "password"
+    } else {
+        "oauth"
+    };
 
     // Build response with proper handling for OAuth vs password users
     let (encrypted_umk, umk_nonce) = match (&umk.encrypted_umk, &umk.umk_nonce) {
-        (Some(enc), Some(nonce)) if !enc.is_empty() => {
-            (Some(base64_url::encode(enc)), Some(base64_url::encode(nonce)))
-        }
+        (Some(enc), Some(nonce)) if !enc.is_empty() => (
+            Some(base64_url::encode(enc)),
+            Some(base64_url::encode(nonce)),
+        ),
         _ => {
             if is_password_user {
                 // Password user without encrypted_umk is a data inconsistency
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(AuthErrorResponse { error: "internal server error".to_string() }),
+                    Json(AuthErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
                 )
                     .into_response();
             }
@@ -862,9 +920,13 @@ where
         encrypted_umk,
         umk_nonce,
         encrypted_ecdh_private: base64_url::encode(&identity_keys.encrypted_ecdh_private),
-        encrypted_ecdh_private_nonce: base64_url::encode(&identity_keys.encrypted_ecdh_private_nonce),
+        encrypted_ecdh_private_nonce: base64_url::encode(
+            &identity_keys.encrypted_ecdh_private_nonce,
+        ),
         encrypted_signing_private: base64_url::encode(&identity_keys.encrypted_signing_private),
-        encrypted_signing_private_nonce: base64_url::encode(&identity_keys.encrypted_signing_private_nonce),
+        encrypted_signing_private_nonce: base64_url::encode(
+            &identity_keys.encrypted_signing_private_nonce,
+        ),
     };
 
     (StatusCode::OK, Json(response)).into_response()

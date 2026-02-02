@@ -2,12 +2,12 @@
 //!
 //! Returns user info and encrypted keys for session restoration.
 
-use std::sync::Arc;
 use domain::encryption::{
     UserEncryptedIdentityKey, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKey,
     UserEncryptedMasterKeyRepository,
 };
 use domain::identity::{Session, SessionRepository, User, UserRepository};
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Get current user query
@@ -28,7 +28,12 @@ pub struct GetCurrentUserResult {
 
 /// Get current user error
 #[derive(Debug, Error)]
-pub enum GetCurrentUserError<UR: std::error::Error, SR: std::error::Error, UEM: std::error::Error, UEI: std::error::Error> {
+pub enum GetCurrentUserError<
+    UR: std::error::Error,
+    SR: std::error::Error,
+    UEM: std::error::Error,
+    UEI: std::error::Error,
+> {
     #[error("session not found")]
     SessionNotFound,
 

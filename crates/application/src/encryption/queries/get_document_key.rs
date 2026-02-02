@@ -3,13 +3,13 @@
 //! Retrieves the active DEK for a document.
 //! Requires workspace membership with Read permission.
 
-use std::sync::Arc;
 use domain::document::{DocumentId, DocumentRepository};
 use domain::encryption::{DocumentEncryptedKey, DocumentEncryptedKeyRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Get document key query
@@ -58,12 +58,8 @@ pub enum GetDocumentKeyError<
     RoleRepository(RR),
 }
 
-impl<
-        DKR: std::error::Error,
-        DR: std::error::Error,
-        MR: std::error::Error,
-        RR: std::error::Error,
-    > GetDocumentKeyError<DKR, DR, MR, RR>
+impl<DKR: std::error::Error, DR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
+    GetDocumentKeyError<DKR, DR, MR, RR>
 {
     pub fn is_not_found(&self) -> bool {
         matches!(
@@ -112,8 +108,10 @@ where
     pub async fn handle(
         &self,
         query: GetDocumentKeyQuery,
-    ) -> Result<GetDocumentKeyResult, GetDocumentKeyError<DKR::Error, DR::Error, MR::Error, RR::Error>>
-    {
+    ) -> Result<
+        GetDocumentKeyResult,
+        GetDocumentKeyError<DKR::Error, DR::Error, MR::Error, RR::Error>,
+    > {
         // 1. Get document to find workspace
         let document = self
             .document_repo

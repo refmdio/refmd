@@ -2,12 +2,12 @@
 //!
 //! Provides authentication helpers for authenticated requests.
 
-use axum::{
-    http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
-    Json,
-};
 use application::domain::identity::{Session, SessionRepository, User, UserId, UserRepository};
+use axum::{
+    Json,
+    http::{HeaderMap, StatusCode, header},
+    response::{IntoResponse, Response},
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -76,10 +76,10 @@ pub fn extract_session_token(headers: &HeaderMap) -> Result<&str, AuthError> {
 
     for cookie in cookie_header.split(';') {
         let cookie = cookie.trim();
-        if let Some(value) = cookie.strip_prefix(&format!("{}=", SESSION_COOKIE_NAME)) {
-            if !value.is_empty() {
-                return Ok(value);
-            }
+        if let Some(value) = cookie.strip_prefix(&format!("{}=", SESSION_COOKIE_NAME))
+            && !value.is_empty()
+        {
+            return Ok(value);
         }
     }
 
@@ -138,7 +138,8 @@ pub fn hash_session_token(token: &str) -> String {
     let hash = Sha256::digest(token.as_bytes());
     let mut hex = String::with_capacity(64);
     for b in hash {
-        std::fmt::Write::write_fmt(&mut hex, format_args!("{:02x}", b)).expect("Failed to write hex");
+        std::fmt::Write::write_fmt(&mut hex, format_args!("{:02x}", b))
+            .expect("Failed to write hex");
     }
     hex
 }
@@ -172,7 +173,10 @@ mod tests {
         assert!(extract_session_token(&headers).is_err());
 
         // Cookie header without session cookie
-        headers.insert(header::COOKIE, HeaderValue::from_static("other_cookie=value"));
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("other_cookie=value"),
+        );
         assert!(extract_session_token(&headers).is_err());
 
         // Valid session cookie
@@ -183,7 +187,10 @@ mod tests {
         assert_eq!(extract_session_token(&headers).unwrap(), "my-token");
 
         // Session cookie only
-        headers.insert(header::COOKIE, HeaderValue::from_static("refmd_session=token123"));
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("refmd_session=token123"),
+        );
         assert_eq!(extract_session_token(&headers).unwrap(), "token123");
     }
 }

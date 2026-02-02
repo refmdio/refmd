@@ -5,7 +5,9 @@ pub mod member_repository;
 pub mod role_repository;
 pub mod workspace_repository;
 
-pub use invitation_repository::{PgWorkspaceInvitationRepository, PgWorkspaceInvitationRepositoryError};
+pub use invitation_repository::{
+    PgWorkspaceInvitationRepository, PgWorkspaceInvitationRepositoryError,
+};
 pub use member_repository::{PgWorkspaceMemberRepository, PgWorkspaceMemberRepositoryError};
 pub use role_repository::{
     PgWorkspaceRolePermissionRepository, PgWorkspaceRolePermissionRepositoryError,

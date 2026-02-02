@@ -1,7 +1,7 @@
 //! Database connection and pool management
 
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 
 /// Database configuration
 #[derive(Debug, Clone)]

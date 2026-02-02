@@ -77,7 +77,10 @@ impl DocumentSnapshotRepository for PgDocumentSnapshotRepository {
         Ok(row.map(DocumentSnapshot::from))
     }
 
-    async fn find_by_document_id(&self, document_id: DocumentId) -> Result<Vec<DocumentSnapshot>, Self::Error> {
+    async fn find_by_document_id(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Vec<DocumentSnapshot>, Self::Error> {
         let rows = sqlx::query_as::<_, DocumentSnapshotRow>(
             r#"
             SELECT id, document_id, version, snapshot_data, nonce, key_version,
@@ -94,7 +97,10 @@ impl DocumentSnapshotRepository for PgDocumentSnapshotRepository {
         Ok(rows.into_iter().map(DocumentSnapshot::from).collect())
     }
 
-    async fn find_latest_by_document_id(&self, document_id: DocumentId) -> Result<Option<DocumentSnapshot>, Self::Error> {
+    async fn find_latest_by_document_id(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Option<DocumentSnapshot>, Self::Error> {
         let row = sqlx::query_as::<_, DocumentSnapshotRow>(
             r#"
             SELECT id, document_id, version, snapshot_data, nonce, key_version,

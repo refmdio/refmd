@@ -31,10 +31,9 @@ impl WorkspacePermission {
             WorkspacePermission::Read => true,
 
             // Write: owner, admin, editor
-            WorkspacePermission::Write => matches!(
-                role,
-                BaseRole::Owner | BaseRole::Admin | BaseRole::Editor
-            ),
+            WorkspacePermission::Write => {
+                matches!(role, BaseRole::Owner | BaseRole::Admin | BaseRole::Editor)
+            }
 
             // Delete: owner, admin
             WorkspacePermission::Delete => matches!(role, BaseRole::Owner | BaseRole::Admin),
@@ -70,10 +69,22 @@ mod tests {
         assert!(can_perform(BaseRole::Owner, WorkspacePermission::Read));
         assert!(can_perform(BaseRole::Owner, WorkspacePermission::Write));
         assert!(can_perform(BaseRole::Owner, WorkspacePermission::Delete));
-        assert!(can_perform(BaseRole::Owner, WorkspacePermission::InviteMembers));
-        assert!(can_perform(BaseRole::Owner, WorkspacePermission::ManageRoles));
-        assert!(can_perform(BaseRole::Owner, WorkspacePermission::DeleteWorkspace));
-        assert!(can_perform(BaseRole::Owner, WorkspacePermission::TransferOwnership));
+        assert!(can_perform(
+            BaseRole::Owner,
+            WorkspacePermission::InviteMembers
+        ));
+        assert!(can_perform(
+            BaseRole::Owner,
+            WorkspacePermission::ManageRoles
+        ));
+        assert!(can_perform(
+            BaseRole::Owner,
+            WorkspacePermission::DeleteWorkspace
+        ));
+        assert!(can_perform(
+            BaseRole::Owner,
+            WorkspacePermission::TransferOwnership
+        ));
     }
 
     #[test]
@@ -81,10 +92,22 @@ mod tests {
         assert!(can_perform(BaseRole::Admin, WorkspacePermission::Read));
         assert!(can_perform(BaseRole::Admin, WorkspacePermission::Write));
         assert!(can_perform(BaseRole::Admin, WorkspacePermission::Delete));
-        assert!(can_perform(BaseRole::Admin, WorkspacePermission::InviteMembers));
-        assert!(can_perform(BaseRole::Admin, WorkspacePermission::ManageRoles));
-        assert!(!can_perform(BaseRole::Admin, WorkspacePermission::DeleteWorkspace));
-        assert!(!can_perform(BaseRole::Admin, WorkspacePermission::TransferOwnership));
+        assert!(can_perform(
+            BaseRole::Admin,
+            WorkspacePermission::InviteMembers
+        ));
+        assert!(can_perform(
+            BaseRole::Admin,
+            WorkspacePermission::ManageRoles
+        ));
+        assert!(!can_perform(
+            BaseRole::Admin,
+            WorkspacePermission::DeleteWorkspace
+        ));
+        assert!(!can_perform(
+            BaseRole::Admin,
+            WorkspacePermission::TransferOwnership
+        ));
     }
 
     #[test]
@@ -92,10 +115,22 @@ mod tests {
         assert!(can_perform(BaseRole::Editor, WorkspacePermission::Read));
         assert!(can_perform(BaseRole::Editor, WorkspacePermission::Write));
         assert!(!can_perform(BaseRole::Editor, WorkspacePermission::Delete));
-        assert!(!can_perform(BaseRole::Editor, WorkspacePermission::InviteMembers));
-        assert!(!can_perform(BaseRole::Editor, WorkspacePermission::ManageRoles));
-        assert!(!can_perform(BaseRole::Editor, WorkspacePermission::DeleteWorkspace));
-        assert!(!can_perform(BaseRole::Editor, WorkspacePermission::TransferOwnership));
+        assert!(!can_perform(
+            BaseRole::Editor,
+            WorkspacePermission::InviteMembers
+        ));
+        assert!(!can_perform(
+            BaseRole::Editor,
+            WorkspacePermission::ManageRoles
+        ));
+        assert!(!can_perform(
+            BaseRole::Editor,
+            WorkspacePermission::DeleteWorkspace
+        ));
+        assert!(!can_perform(
+            BaseRole::Editor,
+            WorkspacePermission::TransferOwnership
+        ));
     }
 
     #[test]
@@ -103,9 +138,21 @@ mod tests {
         assert!(can_perform(BaseRole::Viewer, WorkspacePermission::Read));
         assert!(!can_perform(BaseRole::Viewer, WorkspacePermission::Write));
         assert!(!can_perform(BaseRole::Viewer, WorkspacePermission::Delete));
-        assert!(!can_perform(BaseRole::Viewer, WorkspacePermission::InviteMembers));
-        assert!(!can_perform(BaseRole::Viewer, WorkspacePermission::ManageRoles));
-        assert!(!can_perform(BaseRole::Viewer, WorkspacePermission::DeleteWorkspace));
-        assert!(!can_perform(BaseRole::Viewer, WorkspacePermission::TransferOwnership));
+        assert!(!can_perform(
+            BaseRole::Viewer,
+            WorkspacePermission::InviteMembers
+        ));
+        assert!(!can_perform(
+            BaseRole::Viewer,
+            WorkspacePermission::ManageRoles
+        ));
+        assert!(!can_perform(
+            BaseRole::Viewer,
+            WorkspacePermission::DeleteWorkspace
+        ));
+        assert!(!can_perform(
+            BaseRole::Viewer,
+            WorkspacePermission::TransferOwnership
+        ));
     }
 }

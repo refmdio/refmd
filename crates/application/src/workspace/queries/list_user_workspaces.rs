@@ -2,12 +2,12 @@
 //!
 //! Returns all workspaces a user is a member of.
 
-use std::sync::Arc;
 use domain::identity::UserId;
 use domain::workspace::{
-    RoleId, Workspace, WorkspaceMember, WorkspaceMemberRepository, WorkspaceId, WorkspaceRepository,
-    WorkspaceRole, WorkspaceRoleRepository,
+    RoleId, Workspace, WorkspaceId, WorkspaceMember, WorkspaceMemberRepository,
+    WorkspaceRepository, WorkspaceRole, WorkspaceRoleRepository,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// List user workspaces query
@@ -32,7 +32,11 @@ pub struct ListUserWorkspacesResult {
 
 /// List user workspaces error
 #[derive(Debug, Error)]
-pub enum ListUserWorkspacesError<WR: std::error::Error, WMR: std::error::Error, WRR: std::error::Error> {
+pub enum ListUserWorkspacesError<
+    WR: std::error::Error,
+    WMR: std::error::Error,
+    WRR: std::error::Error,
+> {
     #[error("workspace repository error: {0}")]
     WorkspaceRepository(WR),
 
@@ -62,11 +66,7 @@ where
     WMR: WorkspaceMemberRepository,
     WRR: WorkspaceRoleRepository,
 {
-    pub fn new(
-        workspace_repo: Arc<WR>,
-        member_repo: Arc<WMR>,
-        role_repo: Arc<WRR>,
-    ) -> Self {
+    pub fn new(workspace_repo: Arc<WR>, member_repo: Arc<WMR>, role_repo: Arc<WRR>) -> Self {
         Self {
             workspace_repo,
             member_repo,
@@ -128,13 +128,13 @@ where
         }
 
         // Sort: default workspace first, then by name
-        workspaces.sort_by(|a, b| {
-            match (a.membership.is_default, b.membership.is_default) {
+        workspaces.sort_by(
+            |a, b| match (a.membership.is_default, b.membership.is_default) {
                 (true, false) => std::cmp::Ordering::Less,
                 (false, true) => std::cmp::Ordering::Greater,
                 _ => a.workspace.name.cmp(&b.workspace.name),
-            }
-        });
+            },
+        );
 
         Ok(ListUserWorkspacesResult { workspaces })
     }

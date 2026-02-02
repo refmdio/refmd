@@ -6,15 +6,18 @@
 //! - Request/Response transformation: JSON to/from DTOs
 //! - Authentication middleware: Session validation, authorization
 
+// Allow type_complexity for AppState generics - this is by design for DI
+#![allow(clippy::type_complexity)]
+
 // Re-export application for convenience
 pub use application;
 
 pub mod auth;
-mod state;
 pub mod routes;
+mod state;
 
 pub use auth::{AuthUser, AuthUserFull};
-pub use state::AppState;
+pub use state::{AppState, AppStateParams};
 
 use utoipa::OpenApi;
 

@@ -1,7 +1,7 @@
 //! Get user query
 
-use std::sync::Arc;
 use domain::identity::{User, UserId, UserRepository};
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Get user query

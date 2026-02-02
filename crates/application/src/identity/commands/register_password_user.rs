@@ -3,11 +3,10 @@
 //! Complete registration for password-based users including all encryption keys.
 //! Also creates a personal workspace for the user.
 
-use std::sync::Arc;
 use domain::encryption::{
-    KdfParams, PublicKeyPair, UserEncryptedIdentityKey, UserEncryptedIdentityKeyRepository,
-    UserEncryptedMasterKey, UserEncryptedMasterKeyRepository, UserIdentityPublicKey,
-    UserIdentityPublicKeyRepository,
+    KdfParams, PasswordUserMasterKeyParams, PublicKeyPair, UserEncryptedIdentityKey,
+    UserEncryptedIdentityKeyRepository, UserEncryptedMasterKey, UserEncryptedMasterKeyRepository,
+    UserIdentityPublicKey, UserIdentityPublicKeyRepository,
 };
 use domain::identity::{
     Email, EmailError, User, UserRepository, UserSettings, UserSettingsRepository,
@@ -16,6 +15,7 @@ use domain::workspace::{
     Slug, SlugError, Workspace, WorkspaceMember, WorkspaceMemberRepository, WorkspaceRepository,
     WorkspaceRole, WorkspaceRoleRepository,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Register password user command
@@ -112,7 +112,8 @@ pub enum RegisterPasswordUserError<
     WorkspaceRoleRepository(WRR),
 }
 
-impl<UR, US, UIP, UEM, UEI, WR, WMR, WRR> RegisterPasswordUserError<UR, US, UIP, UEM, UEI, WR, WMR, WRR>
+impl<UR, US, UIP, UEM, UEI, WR, WMR, WRR>
+    RegisterPasswordUserError<UR, US, UIP, UEM, UEI, WR, WMR, WRR>
 where
     UR: std::error::Error,
     US: std::error::Error,
@@ -137,6 +138,18 @@ where
     }
 }
 
+/// Parameters for creating RegisterPasswordUserHandler
+pub struct RegisterPasswordUserHandlerParams<U, US, UIP, UEM, UEI, WR, WMR, WRR> {
+    pub user_repo: Arc<U>,
+    pub settings_repo: Arc<US>,
+    pub identity_public_key_repo: Arc<UIP>,
+    pub encrypted_master_key_repo: Arc<UEM>,
+    pub encrypted_identity_key_repo: Arc<UEI>,
+    pub workspace_repo: Arc<WR>,
+    pub workspace_member_repo: Arc<WMR>,
+    pub workspace_role_repo: Arc<WRR>,
+}
+
 /// Register password user handler
 pub struct RegisterPasswordUserHandler<U, US, UIP, UEM, UEI, WR, WMR, WRR> {
     user_repo: Arc<U>,
@@ -149,7 +162,8 @@ pub struct RegisterPasswordUserHandler<U, US, UIP, UEM, UEI, WR, WMR, WRR> {
     workspace_role_repo: Arc<WRR>,
 }
 
-impl<U, US, UIP, UEM, UEI, WR, WMR, WRR> RegisterPasswordUserHandler<U, US, UIP, UEM, UEI, WR, WMR, WRR>
+impl<U, US, UIP, UEM, UEI, WR, WMR, WRR>
+    RegisterPasswordUserHandler<U, US, UIP, UEM, UEI, WR, WMR, WRR>
 where
     U: UserRepository,
     US: UserSettingsRepository,
@@ -160,26 +174,18 @@ where
     WMR: WorkspaceMemberRepository,
     WRR: WorkspaceRoleRepository,
 {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        user_repo: Arc<U>,
-        settings_repo: Arc<US>,
-        identity_public_key_repo: Arc<UIP>,
-        encrypted_master_key_repo: Arc<UEM>,
-        encrypted_identity_key_repo: Arc<UEI>,
-        workspace_repo: Arc<WR>,
-        workspace_member_repo: Arc<WMR>,
-        workspace_role_repo: Arc<WRR>,
+        params: RegisterPasswordUserHandlerParams<U, US, UIP, UEM, UEI, WR, WMR, WRR>,
     ) -> Self {
         Self {
-            user_repo,
-            settings_repo,
-            identity_public_key_repo,
-            encrypted_master_key_repo,
-            encrypted_identity_key_repo,
-            workspace_repo,
-            workspace_member_repo,
-            workspace_role_repo,
+            user_repo: params.user_repo,
+            settings_repo: params.settings_repo,
+            identity_public_key_repo: params.identity_public_key_repo,
+            encrypted_master_key_repo: params.encrypted_master_key_repo,
+            encrypted_identity_key_repo: params.encrypted_identity_key_repo,
+            workspace_repo: params.workspace_repo,
+            workspace_member_repo: params.workspace_member_repo,
+            workspace_role_repo: params.workspace_role_repo,
         }
     }
 
@@ -188,7 +194,16 @@ where
         command: RegisterPasswordUserCommand,
     ) -> Result<
         RegisterPasswordUserResult,
-        RegisterPasswordUserError<U::Error, US::Error, UIP::Error, UEM::Error, UEI::Error, WR::Error, WMR::Error, WRR::Error>,
+        RegisterPasswordUserError<
+            U::Error,
+            US::Error,
+            UIP::Error,
+            UEM::Error,
+            UEI::Error,
+            WR::Error,
+            WMR::Error,
+            WRR::Error,
+        >,
     > {
         // Validate email
         let email = Email::new(&command.email)?;
@@ -244,16 +259,17 @@ where
             .map_err(RegisterPasswordUserError::IdentityPublicKeyRepository)?;
 
         // Create and save encrypted master key
-        let encrypted_master_key = UserEncryptedMasterKey::new_password_user(
-            user.id,
-            command.encrypted_umk,
-            command.umk_nonce,
-            command.salt,
-            KdfParams::default(),
-            auth_key_hash,
-            command.recovery_encrypted_umk,
-            command.recovery_nonce,
-        );
+        let encrypted_master_key =
+            UserEncryptedMasterKey::new_password_user(PasswordUserMasterKeyParams {
+                user_id: user.id,
+                encrypted_umk: command.encrypted_umk,
+                umk_nonce: command.umk_nonce,
+                salt: command.salt,
+                kdf_params: KdfParams::default(),
+                auth_key_hash,
+                recovery_encrypted_umk: command.recovery_encrypted_umk,
+                recovery_nonce: command.recovery_nonce,
+            });
         self.encrypted_master_key_repo
             .save(&encrypted_master_key)
             .await
@@ -284,7 +300,16 @@ where
         user: &User,
     ) -> Result<
         Workspace,
-        RegisterPasswordUserError<U::Error, US::Error, UIP::Error, UEM::Error, UEI::Error, WR::Error, WMR::Error, WRR::Error>,
+        RegisterPasswordUserError<
+            U::Error,
+            US::Error,
+            UIP::Error,
+            UEM::Error,
+            UEI::Error,
+            WR::Error,
+            WMR::Error,
+            WRR::Error,
+        >,
     > {
         // Generate slug from user name
         let slug = generate_slug(&user.name)?;
@@ -336,7 +361,16 @@ where
         base_slug: Slug,
     ) -> Result<
         Slug,
-        RegisterPasswordUserError<U::Error, US::Error, UIP::Error, UEM::Error, UEI::Error, WR::Error, WMR::Error, WRR::Error>,
+        RegisterPasswordUserError<
+            U::Error,
+            US::Error,
+            UIP::Error,
+            UEM::Error,
+            UEI::Error,
+            WR::Error,
+            WMR::Error,
+            WRR::Error,
+        >,
     > {
         let exists = self
             .workspace_repo

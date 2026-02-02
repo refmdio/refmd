@@ -8,12 +8,13 @@ pub mod permission;
 pub mod repository;
 pub mod role;
 pub mod value_objects;
+#[allow(clippy::module_inception)]
 pub mod workspace;
 
 // Re-export commonly used types
 pub use invitation::WorkspaceInvitation;
 pub use member::WorkspaceMember;
-pub use permission::{can_perform, WorkspacePermission};
+pub use permission::{WorkspacePermission, can_perform};
 pub use repository::{
     WorkspaceInvitationRepository, WorkspaceMemberRepository, WorkspaceRepository,
     WorkspaceRolePermissionRepository, WorkspaceRoleRepository,

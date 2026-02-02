@@ -71,7 +71,10 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
         Ok(row.map(WorkspaceMember::from))
     }
 
-    async fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<WorkspaceMember>, Self::Error> {
+    async fn find_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<WorkspaceMember>, Self::Error> {
         let rows = sqlx::query_as::<_, WorkspaceMemberRow>(
             r#"
             SELECT workspace_id, user_id, role_id, is_default, joined_at
@@ -103,7 +106,10 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
         Ok(rows.into_iter().map(WorkspaceMember::from).collect())
     }
 
-    async fn find_default_by_user_id(&self, user_id: UserId) -> Result<Option<WorkspaceMember>, Self::Error> {
+    async fn find_default_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<WorkspaceMember>, Self::Error> {
         let row = sqlx::query_as::<_, WorkspaceMemberRow>(
             r#"
             SELECT workspace_id, user_id, role_id, is_default, joined_at

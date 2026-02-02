@@ -65,7 +65,10 @@ impl From<DocumentUpdateRow> for DocumentUpdate {
 impl DocumentUpdateRepository for PgDocumentUpdateRepository {
     type Error = PgDocumentUpdateRepositoryError;
 
-    async fn find_by_document_id(&self, document_id: DocumentId) -> Result<Vec<DocumentUpdate>, Self::Error> {
+    async fn find_by_document_id(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Vec<DocumentUpdate>, Self::Error> {
         let rows = sqlx::query_as::<_, DocumentUpdateRow>(
             r#"
             SELECT id, document_id, seq, update_data, nonce, key_version, update_hash,
@@ -170,12 +173,17 @@ impl DocumentUpdateRepository for PgDocumentUpdateRepository {
         Ok(())
     }
 
-    async fn delete_before_seq(&self, document_id: DocumentId, before_seq: i64) -> Result<u64, Self::Error> {
-        let result = sqlx::query("DELETE FROM document_updates WHERE document_id = $1 AND seq < $2")
-            .bind(document_id.as_uuid())
-            .bind(before_seq)
-            .execute(&self.pool)
-            .await?;
+    async fn delete_before_seq(
+        &self,
+        document_id: DocumentId,
+        before_seq: i64,
+    ) -> Result<u64, Self::Error> {
+        let result =
+            sqlx::query("DELETE FROM document_updates WHERE document_id = $1 AND seq < $2")
+                .bind(document_id.as_uuid())
+                .bind(before_seq)
+                .execute(&self.pool)
+                .await?;
 
         Ok(result.rows_affected())
     }

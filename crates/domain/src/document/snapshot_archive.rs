@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::identity::UserId;
 use super::value_objects::{ArchiveKind, DocumentId, SnapshotArchiveId};
+use crate::identity::UserId;
 
 /// Document snapshot archive (labeled snapshot)
 #[derive(Debug, Clone)]
@@ -40,11 +40,7 @@ impl DocumentSnapshotArchive {
     }
 
     /// Create a new auto snapshot archive
-    pub fn auto(
-        document_id: DocumentId,
-        snapshot_id: i64,
-        label: String,
-    ) -> Self {
+    pub fn auto(document_id: DocumentId, snapshot_id: i64, label: String) -> Self {
         Self {
             id: SnapshotArchiveId::new(),
             document_id,

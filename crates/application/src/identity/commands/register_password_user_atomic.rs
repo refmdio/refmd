@@ -4,12 +4,15 @@
 //! The actual transaction handling is delegated to the infrastructure layer
 //! via the RegistrationService trait.
 
-use std::sync::Arc;
 use domain::encryption::{
-    KdfParams, PublicKeyPair, UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey,
+    KdfParams, PasswordUserMasterKeyParams, PublicKeyPair, UserEncryptedIdentityKey,
+    UserEncryptedMasterKey, UserIdentityPublicKey,
 };
 use domain::identity::{Email, EmailError, User, UserRepository, UserSettings};
-use domain::workspace::{Slug, SlugError, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceRepository};
+use domain::workspace::{
+    Slug, SlugError, Workspace, WorkspaceMember, WorkspaceRepository, WorkspaceRole,
+};
+use std::sync::Arc;
 use thiserror::Error;
 
 use crate::identity::services::{RegistrationData, RegistrationService};
@@ -114,11 +117,7 @@ where
     WR: WorkspaceRepository,
     RS: RegistrationService,
 {
-    pub fn new(
-        user_repo: Arc<U>,
-        workspace_repo: Arc<WR>,
-        registration_service: Arc<RS>,
-    ) -> Self {
+    pub fn new(user_repo: Arc<U>, workspace_repo: Arc<WR>, registration_service: Arc<RS>) -> Self {
         Self {
             user_repo,
             workspace_repo,
@@ -129,7 +128,10 @@ where
     pub async fn handle(
         &self,
         command: RegisterPasswordUserAtomicCommand,
-    ) -> Result<RegisterPasswordUserAtomicResult, RegisterPasswordUserAtomicError<U::Error, WR::Error>> {
+    ) -> Result<
+        RegisterPasswordUserAtomicResult,
+        RegisterPasswordUserAtomicError<U::Error, WR::Error>,
+    > {
         // Validate email
         let email = Email::new(&command.email)?;
 
@@ -169,16 +171,17 @@ where
         let identity_public_key = UserIdentityPublicKey::new(user.id, public_keys);
 
         // Create encrypted master key
-        let encrypted_master_key = UserEncryptedMasterKey::new_password_user(
-            user.id,
-            command.encrypted_umk,
-            command.umk_nonce,
-            command.salt,
-            KdfParams::default(),
-            auth_key_hash,
-            command.recovery_encrypted_umk,
-            command.recovery_nonce,
-        );
+        let encrypted_master_key =
+            UserEncryptedMasterKey::new_password_user(PasswordUserMasterKeyParams {
+                user_id: user.id,
+                encrypted_umk: command.encrypted_umk,
+                umk_nonce: command.umk_nonce,
+                salt: command.salt,
+                kdf_params: KdfParams::default(),
+                auth_key_hash,
+                recovery_encrypted_umk: command.recovery_encrypted_umk,
+                recovery_nonce: command.recovery_nonce,
+            });
 
         // Create encrypted identity key
         let encrypted_identity_key = UserEncryptedIdentityKey::new(

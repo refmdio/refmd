@@ -3,13 +3,13 @@
 //! Retrieves the active KEK for a user's device in a workspace.
 //! Requires workspace membership (Read permission minimum).
 
-use std::sync::Arc;
 use domain::encryption::{DeviceId, WorkspaceEncryptedKey, WorkspaceEncryptedKeyRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
     can_perform,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Get workspace key query
@@ -77,11 +77,7 @@ where
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
 {
-    pub fn new(
-        workspace_key_repo: Arc<WKR>,
-        member_repo: Arc<MR>,
-        role_repo: Arc<RR>,
-    ) -> Self {
+    pub fn new(workspace_key_repo: Arc<WKR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
         Self {
             workspace_key_repo,
             member_repo,
@@ -92,8 +88,7 @@ where
     pub async fn handle(
         &self,
         query: GetWorkspaceKeyQuery,
-    ) -> Result<GetWorkspaceKeyResult, GetWorkspaceKeyError<WKR::Error, MR::Error, RR::Error>>
-    {
+    ) -> Result<GetWorkspaceKeyResult, GetWorkspaceKeyError<WKR::Error, MR::Error, RR::Error>> {
         // 1. Check membership
         let member = self
             .member_repo

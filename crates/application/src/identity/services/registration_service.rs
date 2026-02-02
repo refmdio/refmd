@@ -44,5 +44,6 @@ pub trait RegistrationService: Send + Sync {
     ///
     /// All data is persisted in a single transaction. If any part fails,
     /// the entire registration is rolled back.
-    async fn register_atomic(&self, data: RegistrationData) -> Result<(), RegistrationServiceError>;
+    async fn register_atomic(&self, data: RegistrationData)
+    -> Result<(), RegistrationServiceError>;
 }

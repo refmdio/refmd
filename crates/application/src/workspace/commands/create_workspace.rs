@@ -2,12 +2,12 @@
 //!
 //! Creates a new workspace with default roles.
 
-use std::sync::Arc;
 use domain::identity::UserId;
 use domain::workspace::{
     Slug, SlugError, Workspace, WorkspaceMember, WorkspaceMemberRepository, WorkspaceRepository,
     WorkspaceRole, WorkspaceRoleRepository,
 };
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Create workspace command
@@ -31,7 +31,8 @@ pub struct CreateWorkspaceResult {
 
 /// Create workspace error
 #[derive(Debug, Error)]
-pub enum CreateWorkspaceError<WR: std::error::Error, WMR: std::error::Error, WRR: std::error::Error> {
+pub enum CreateWorkspaceError<WR: std::error::Error, WMR: std::error::Error, WRR: std::error::Error>
+{
     #[error("invalid slug: {0}")]
     InvalidSlug(#[from] SlugError),
 
@@ -61,11 +62,7 @@ where
     WMR: WorkspaceMemberRepository,
     WRR: WorkspaceRoleRepository,
 {
-    pub fn new(
-        workspace_repo: Arc<WR>,
-        member_repo: Arc<WMR>,
-        role_repo: Arc<WRR>,
-    ) -> Self {
+    pub fn new(workspace_repo: Arc<WR>, member_repo: Arc<WMR>, role_repo: Arc<WRR>) -> Self {
         Self {
             workspace_repo,
             member_repo,
