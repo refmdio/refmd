@@ -3,6 +3,7 @@
 //! This is the Composition Root - where all dependencies are wired together.
 
 use axum::{Router, routing::get};
+use axum::http::{header, Method};
 use infrastructure::{create_pool, DatabaseConfig};
 use infrastructure::identity::{PgUserRepository, PgSessionRepository, PgUserSettingsRepository};
 use infrastructure::encryption::{
@@ -13,6 +14,7 @@ use presentation::{ApiDoc, AppState, routes};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -93,11 +95,28 @@ async fn main() -> anyhow::Result<()> {
         secure_cookies,
     );
 
+    // CORS configuration for development
+    // In production, this should be restricted to specific origins
+    let cors_origins = std::env::var("CORS_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+
+    let origins: Vec<_> = cors_origins
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
+
+    let cors = CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::COOKIE])
+        .allow_credentials(true);
+
     // Build application
     let app = Router::new()
         .route("/health", get(health_check))
         .merge(routes::create_routes(state))
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
+        .layer(cors)
         .layer(TraceLayer::new_for_http());
 
     // Start server
