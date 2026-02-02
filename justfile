@@ -6,7 +6,7 @@ set dotenv-load
 default:
     @just --list
 
-# ============ Build & Run ============
+# ============ Build ============
 
 # Build all Rust crates
 build:
@@ -16,15 +16,20 @@ build:
 build-release:
     cargo build --release
 
-# Run the backend server
-run:
-    cargo run -p presentation
+# ============ Development ============
 
-# Run the backend server in watch mode
-watch:
+# Start all dev services (infra + API + Web)
+dev: services-up
+    @trap 'kill 0' EXIT; \
+    cargo watch -x 'run -p presentation' & \
+    cd web && pnpm dev & \
+    wait
+
+# Run API server with hot reload
+dev-api:
     cargo watch -x 'run -p presentation'
 
-# Run the frontend dev server
+# Run Web server with hot reload
 dev-web:
     cd web && pnpm dev
 
@@ -59,19 +64,55 @@ fmt-check:
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
 
-# ============ Database ============
+# ============ Docker ============
 
-# Start development services
+# Build Docker images
+docker-build:
+    docker compose --profile app build
+
+# Build Docker images (no cache)
+docker-build-clean:
+    docker compose --profile app build --no-cache
+
+# Start all services (infra + app)
+docker-up:
+    docker compose --profile app up -d
+
+# Start all services with rebuild
+docker-up-build:
+    docker compose --profile app up -d --build
+
+# Stop all services
+docker-down:
+    docker compose --profile app down
+
+# View logs
+docker-logs:
+    docker compose --profile app logs -f
+
+# View API logs
+docker-logs-api:
+    docker compose logs -f api
+
+# View web logs
+docker-logs-web:
+    docker compose logs -f web
+
+# ============ Infrastructure ============
+
+# Start infrastructure services (postgres, garage)
 services-up:
     docker compose up -d
 
-# Stop development services
+# Stop infrastructure services
 services-down:
     docker compose down
 
 # Stop and remove all data
 services-clean:
-    docker compose down -v
+    docker compose --profile app down -v
+
+# ============ Database ============
 
 # Run database migrations
 migrate:
@@ -144,4 +185,4 @@ setup: services-up
 # Clean all build artifacts
 clean:
     cargo clean
-    rm -rf web/node_modules web/.vinxi
+    rm -rf web/node_modules web/.vinxi web/.output

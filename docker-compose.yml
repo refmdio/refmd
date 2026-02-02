@@ -1,4 +1,5 @@
 services:
+  # Infrastructure services
   postgres:
     image: postgres:17
     container_name: refmd-postgres
@@ -26,13 +27,51 @@ services:
     volumes:
       - garage_data:/var/lib/garage/data
       - garage_meta:/var/lib/garage/meta
-      - ./local/garage.toml:/etc/garage.toml:ro
+      - ./docker/garage.toml:/etc/garage.toml:ro
     command: ["/garage", "server"]
     healthcheck:
       test: ["CMD", "/garage", "status"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Application services (use --profile app to start)
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: crates/presentation/Dockerfile
+    container_name: refmd-api
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-refmd}:${POSTGRES_PASSWORD:-refmd_dev}@postgres:5432/${POSTGRES_DB:-refmd}
+      S3_ENDPOINT: http://garage:3900
+      S3_REGION: ${S3_REGION:-garage}
+      S3_BUCKET: ${S3_BUCKET:-refmd-files}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 3001
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${SERVER_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      garage:
+        condition: service_healthy
+
+  web:
+    profiles: ["app"]
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: refmd-web
+    environment:
+      VITE_API_URL: http://api:3001
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
 
 volumes:
   postgres_data:
