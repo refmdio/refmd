@@ -9,6 +9,7 @@ application.workspace = true
 
 # Async
 tokio.workspace = true
+async-trait.workspace = true
 
 # Database
 sqlx.workspace = true

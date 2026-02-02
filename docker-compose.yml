@@ -40,7 +40,7 @@ services:
     profiles: ["app"]
     build:
       context: .
-      dockerfile: crates/presentation/Dockerfile
+      dockerfile: crates/server/Dockerfile
     container_name: refmd-api
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-refmd}:${POSTGRES_PASSWORD:-refmd_dev}@postgres:5432/${POSTGRES_DB:-refmd}

@@ -8,4 +8,4 @@
 // Re-export domain for convenience
 pub use domain;
 
-// TODO: Add use case modules as features are implemented
+pub mod identity;

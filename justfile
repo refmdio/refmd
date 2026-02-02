@@ -27,7 +27,7 @@ dev: services-up
 
 # Run API server with hot reload
 dev-api:
-    cargo watch -x 'run -p presentation'
+    cargo watch -x 'run -p server'
 
 # Run Web server with hot reload
 dev-web:

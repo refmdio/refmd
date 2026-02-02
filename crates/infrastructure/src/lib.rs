@@ -9,6 +9,7 @@
 pub use application;
 pub use domain;
 
-// TODO: Add repository implementations as features are implemented
-// TODO: Add external service clients
-// TODO: Add configuration module
+pub mod database;
+pub mod identity;
+
+pub use database::{create_pool, DatabaseConfig};

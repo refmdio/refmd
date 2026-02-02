@@ -1,31 +1,34 @@
 [package]
-name = "presentation"
+name = "server"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "refmd-server"
+path = "src/main.rs"
+
 [dependencies]
+presentation.workspace = true
+infrastructure.workspace = true
 application.workspace = true
 
 # Async
 tokio.workspace = true
-async-trait.workspace = true
 
 # Web framework
 axum.workspace = true
-tower.workspace = true
 tower-http.workspace = true
 
 # OpenAPI
 utoipa.workspace = true
-
-# Serialization
-serde.workspace = true
-serde_json.workspace = true
+utoipa-swagger-ui.workspace = true
 
 # Error handling
-thiserror.workspace = true
 anyhow.workspace = true
 
 # Utilities
-uuid.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Configuration
+dotenvy.workspace = true
