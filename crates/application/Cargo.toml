@@ -1,0 +1,22 @@
+[package]
+name = "application"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+domain.workspace = true
+
+# Async
+tokio.workspace = true
+
+# Serialization
+serde.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Utilities
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true

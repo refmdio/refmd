@@ -1,0 +1,11 @@
+[package]
+name = "domain"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Domain layer has minimal dependencies - only what's needed for domain modeling
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+serde.workspace = true

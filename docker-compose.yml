@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: refmd-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-refmd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-refmd_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-refmd}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-refmd}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  garage:
+    image: dxflrs/garage:v1.1.0
+    container_name: refmd-garage
+    ports:
+      - "${GARAGE_S3_PORT:-3900}:3900"
+      - "${GARAGE_WEB_PORT:-3902}:3902"
+      - "${GARAGE_ADMIN_PORT:-3903}:3903"
+    volumes:
+      - garage_data:/var/lib/garage/data
+      - garage_meta:/var/lib/garage/meta
+      - ./local/garage.toml:/etc/garage.toml:ro
+    command: ["/garage", "server"]
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  garage_data:
+  garage_meta:

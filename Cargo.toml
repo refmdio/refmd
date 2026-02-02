@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/domain",
+    "crates/application",
+    "crates/infrastructure",
+    "crates/presentation",
+    "crates/tests",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["RefMD Team"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Web framework
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Utilities
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Configuration
+dotenvy = "0.15"
+
+# Testing
+tokio-test = "0.4"
+
+# Workspace crates
+domain = { path = "crates/domain" }
+application = { path = "crates/application" }
+infrastructure = { path = "crates/infrastructure" }
+presentation = { path = "crates/presentation" }

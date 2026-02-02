@@ -1,0 +1,30 @@
+[package]
+name = "infrastructure"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+
+# Async
+tokio.workspace = true
+
+# Database
+sqlx.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Utilities
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+
+# Configuration
+dotenvy.workspace = true

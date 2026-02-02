@@ -1,0 +1,17 @@
+[package]
+name = "tests"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+domain.workspace = true
+application.workspace = true
+infrastructure.workspace = true
+presentation.workspace = true
+
+# Async
+tokio.workspace = true
+tokio-test.workspace = true
+
+# Testing utilities
+# TODO: Add testing dependencies as needed
