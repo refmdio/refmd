@@ -10,6 +10,7 @@ pub use application;
 pub use domain;
 
 pub mod database;
+pub mod encryption;
 pub mod identity;
 
 pub use database::{create_pool, DatabaseConfig};
