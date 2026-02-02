@@ -11,6 +11,13 @@ import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
+import { buildRecoveryUmkWrapAad } from './aad'
+
+/** HKDF salt: 32 bytes of zeros (per spec) */
+const HKDF_ZERO_SALT = new Uint8Array(32)
+
+/** HKDF info constant (per spec) */
+const HKDF_INFO_RUK = 'ruk'
 
 /**
  * Recovery key data returned to user
@@ -67,9 +74,9 @@ export async function deriveRukFromMnemonic(mnemonic: string): Promise<Uint8Arra
   // BIP39: mnemonic → seed (with empty passphrase per ADR-005)
   const seed = await mnemonicToSeed(mnemonic, '')
 
-  // HKDF: seed → RUK
-  const rukInfo = new TextEncoder().encode('refmd-ruk')
-  const ruk = hkdf(sha256, seed, undefined, rukInfo, 32)
+  // HKDF: seed → RUK (using 32-byte zero salt per spec)
+  const rukInfo = new TextEncoder().encode(HKDF_INFO_RUK)
+  const ruk = hkdf(sha256, seed, HKDF_ZERO_SALT, rukInfo, 32)
 
   return ruk
 }
@@ -79,11 +86,15 @@ export async function deriveRukFromMnemonic(mnemonic: string): Promise<Uint8Arra
  *
  * @param umk User Master Key (32 bytes)
  * @param ruk Recovery Unlock Key (32 bytes)
+ * @param userId User ID for AAD binding
  * @returns Encrypted UMK and nonce
  */
-export function wrapUmkWithRuk(umk: Uint8Array, ruk: Uint8Array): RecoveryWrappedUmk {
+export function wrapUmkWithRuk(umk: Uint8Array, ruk: Uint8Array, userId: string): RecoveryWrappedUmk {
+  // Build AAD for context binding (per spec)
+  const aad = buildRecoveryUmkWrapAad(userId)
+
   const nonce = randomBytes(24)
-  const cipher = xchacha20poly1305(ruk, nonce)
+  const cipher = xchacha20poly1305(ruk, nonce, aad)
   const encryptedUmk = cipher.encrypt(umk)
 
   return {
@@ -97,11 +108,15 @@ export function wrapUmkWithRuk(umk: Uint8Array, ruk: Uint8Array): RecoveryWrappe
  *
  * @param wrapped Encrypted UMK from server
  * @param ruk Recovery Unlock Key (32 bytes)
+ * @param userId User ID for AAD binding
  * @returns Decrypted UMK
  * @throws Error if decryption fails (wrong mnemonic)
  */
-export function unwrapUmkWithRuk(wrapped: RecoveryWrappedUmk, ruk: Uint8Array): Uint8Array {
-  const cipher = xchacha20poly1305(ruk, wrapped.nonce)
+export function unwrapUmkWithRuk(wrapped: RecoveryWrappedUmk, ruk: Uint8Array, userId: string): Uint8Array {
+  // Reconstruct AAD for verification (per spec)
+  const aad = buildRecoveryUmkWrapAad(userId)
+
+  const cipher = xchacha20poly1305(ruk, wrapped.nonce, aad)
   return cipher.decrypt(wrapped.encryptedUmk)
 }
 

@@ -26,6 +26,7 @@ export {
   sign,
   verify,
   ecdhSharedSecret,
+  isValidX25519PublicKey,
   type IdentityKeyPair,
   type EncryptedIdentityKeys,
   type EncryptedIdentityPrivateKeys,
@@ -51,3 +52,16 @@ export {
   bytesToHex,
   hexToBytes,
 } from './encoding'
+
+// AAD constants and helpers
+export {
+  SIGNATURE_PROTOCOL,
+  AAD_PURPOSE,
+  buildAad,
+  buildUmkWrapAad,
+  buildRecoveryUmkWrapAad,
+  buildIdentityEcdhAad,
+  buildIdentitySigningAad,
+  type AadPurpose,
+  type AadCommonHeader,
+} from './aad'

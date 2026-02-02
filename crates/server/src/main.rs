@@ -2,8 +2,9 @@
 //!
 //! This is the Composition Root - where all dependencies are wired together.
 
-use axum::http::{Method, header};
+use axum::http::{Method, header, HeaderName, HeaderValue};
 use axum::{Router, routing::get};
+use tower::ServiceBuilder;
 use infrastructure::document::PgDocumentRepository;
 use infrastructure::encryption::{
     PgDocumentEncryptedKeyRepository, PgUserEncryptedIdentityKeyRepository,
@@ -20,6 +21,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
@@ -141,12 +143,40 @@ async fn main() -> anyhow::Result<()> {
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::COOKIE])
         .allow_credentials(true);
 
+    // Security headers middleware
+    let security_headers = ServiceBuilder::new()
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static("geolocation=(), microphone=(), camera=()"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+        ));
+
     // Build application
     let app = Router::new()
         .route("/health", get(health_check))
         .merge(routes::create_routes(state))
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(cors)
+        .layer(security_headers)
         .layer(TraceLayer::new_for_http());
 
     // Start server

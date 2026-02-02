@@ -28,7 +28,7 @@ pub struct RegisterPasswordUserCommand {
     // authKey for login (will be bcrypt hashed on server)
     pub auth_key: String,
 
-    // Salt for KDF (client-generated, 32 bytes base64)
+    // Salt for KDF (client-generated, 16 bytes per spec)
     pub salt: Vec<u8>,
 
     // Encrypted UMK (encrypted with PUK derived from password)
@@ -222,7 +222,8 @@ where
         if command.ecdh_public_key.len() != 32 || command.signing_public_key.len() != 32 {
             return Err(RegisterPasswordUserError::InvalidKeyLength);
         }
-        if command.salt.len() != 32 {
+        // Salt is 16 bytes per spec
+        if command.salt.len() != 16 {
             return Err(RegisterPasswordUserError::InvalidKeyLength);
         }
 

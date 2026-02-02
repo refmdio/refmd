@@ -59,6 +59,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      h3:
+        specifier: 2.0.1-rc.11
+        version: 2.0.1-rc.11(crossws@0.4.4(srvx@0.10.1))
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0

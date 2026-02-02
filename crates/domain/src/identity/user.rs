@@ -48,11 +48,26 @@ impl std::fmt::Display for UserId {
 }
 
 impl User {
-    /// Create a new user
+    /// Create a new user with server-generated ID
     pub fn new(email: Email, name: String) -> Self {
         let now = Utc::now();
         Self {
             id: UserId::new(),
+            email,
+            name,
+            encryption_setup_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Create a new user with client-provided ID
+    ///
+    /// Used for AAD binding where client generates ID before encryption
+    pub fn with_id(id: Uuid, email: Email, name: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id: UserId::from_uuid(id),
             email,
             name,
             encryption_setup_at: None,

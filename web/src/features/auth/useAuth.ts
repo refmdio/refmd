@@ -71,24 +71,30 @@ export async function register(
   const kdfParams: KdfParams = saltResponse.kdf_params
 
   // Step 2: Generate salt and derive keys from password
-  const salt = new Uint8Array(32)
+  // Note: salt is 16 bytes per spec
+  const salt = new Uint8Array(16)
   crypto.getRandomValues(salt)
   const derivedKeys = await deriveAuthKeys(password, base64UrlEncode(salt), kdfParams)
 
+  // Generate user ID for AAD binding (client generates, server accepts)
+  // This ensures AAD is bound to user context before server response
+  const userId = crypto.randomUUID()
+
   // Step 3: Generate and wrap UMK with PUK
   const umk = generateUmk()
-  const { encryptedUmk, nonce: umkNonce } = wrapUmk(umk, derivedKeys.puk)
+  const { encryptedUmk, nonce: umkNonce } = wrapUmk(umk, derivedKeys.puk, userId)
 
   // Step 4: Generate BIP39 recovery key and wrap UMK with RUK
   const recoveryKeyData = await generateRecoveryKey()
-  const recoveryWrapped = wrapUmkWithRuk(umk, recoveryKeyData.ruk)
+  const recoveryWrapped = wrapUmkWithRuk(umk, recoveryKeyData.ruk, userId)
 
   // Step 5: Generate and encrypt identity keys
   const identityKeys = generateIdentityKeyPair()
-  const encryptedIdentity = encryptIdentityKeys(identityKeys, umk)
+  const encryptedIdentity = encryptIdentityKeys(identityKeys, umk, userId)
 
   // Step 6: Build register request (using generated type)
   const request: components['schemas']['RegisterRequest'] = {
+    user_id: userId,
     email,
     name,
     auth_key: derivedKeys.authKeyBase64,
@@ -143,10 +149,10 @@ export async function login(
     remember_me: rememberMe,
   })
 
-  // Step 4: Decrypt UMK
+  // Step 4: Decrypt UMK (using user_id for AAD)
   const encryptedUmk = base64UrlDecode(loginResponse.encrypted_umk)
   const umkNonce = base64UrlDecode(loginResponse.umk_nonce)
-  const umk = unwrapUmk(encryptedUmk, umkNonce, derivedKeys.puk)
+  const umk = unwrapUmk(encryptedUmk, umkNonce, derivedKeys.puk, loginResponse.user_id)
 
   // Step 5: Decrypt identity keys (public keys are derived from private keys)
   const identityKeys = decryptIdentityPrivateKeys(
@@ -156,7 +162,8 @@ export async function login(
       encryptedSigningPrivate: base64UrlDecode(loginResponse.encrypted_signing_private),
       signingPrivateNonce: base64UrlDecode(loginResponse.encrypted_signing_private_nonce),
     },
-    umk
+    umk,
+    loginResponse.user_id
   )
 
   return {

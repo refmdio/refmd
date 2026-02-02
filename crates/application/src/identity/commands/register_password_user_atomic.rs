@@ -20,6 +20,9 @@ use crate::identity::services::{RegistrationData, RegistrationService};
 /// Register password user command (atomic version)
 #[derive(Debug)]
 pub struct RegisterPasswordUserAtomicCommand {
+    // Client-generated user ID (for AAD binding)
+    pub user_id: uuid::Uuid,
+
     // Basic info
     pub email: String,
     pub name: String,
@@ -27,7 +30,7 @@ pub struct RegisterPasswordUserAtomicCommand {
     // authKey for login (will be bcrypt hashed on server)
     pub auth_key: String,
 
-    // Salt for KDF (client-generated, 32 bytes)
+    // Salt for KDF (client-generated, 16 bytes per spec)
     pub salt: Vec<u8>,
 
     // Encrypted UMK (encrypted with PUK derived from password)
@@ -149,7 +152,8 @@ where
         if command.ecdh_public_key.len() != 32 || command.signing_public_key.len() != 32 {
             return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
         }
-        if command.salt.len() != 32 {
+        // Salt is 16 bytes per spec
+        if command.salt.len() != 16 {
             return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
         }
 
@@ -157,8 +161,8 @@ where
         let auth_key_hash = bcrypt::hash(&command.auth_key, bcrypt::DEFAULT_COST)
             .map_err(|_| RegisterPasswordUserAtomicError::BcryptError)?;
 
-        // Create user
-        let user = User::new(email, command.name.clone());
+        // Create user with client-provided ID (for AAD binding)
+        let user = User::with_id(command.user_id, email, command.name.clone());
 
         // Create settings
         let settings = UserSettings::new(user.id);

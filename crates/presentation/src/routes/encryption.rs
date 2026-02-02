@@ -1,5 +1,8 @@
 //! Encryption key routes (KEK/DEK)
 
+/// XChaCha20-Poly1305 nonce size in bytes
+const XCHACHA20_NONCE_SIZE: usize = 24;
+
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     DeviceId, DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
@@ -234,7 +237,16 @@ where
     };
 
     let nonce = match base64_url::decode(&request.nonce) {
-        Ok(n) => n,
+        Ok(n) if n.len() == XCHACHA20_NONCE_SIZE => n,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(EncryptionErrorResponse {
+                    error: "invalid nonce length: expected 24 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -278,20 +290,18 @@ where
             (StatusCode::CREATED, Json(response)).into_response()
         }
         Err(e) => {
-            let status = if e.is_bad_request() {
-                StatusCode::BAD_REQUEST
+            let (status, message) = if e.is_bad_request() {
+                (StatusCode::BAD_REQUEST, e.to_string())
             } else if e.is_forbidden() {
-                StatusCode::FORBIDDEN
+                (StatusCode::FORBIDDEN, e.to_string())
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("save_workspace_key internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
             };
-            (
-                status,
-                Json(EncryptionErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-                .into_response()
+            (status, Json(EncryptionErrorResponse { error: message })).into_response()
         }
     }
 }
@@ -369,20 +379,18 @@ where
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
-            let status = if e.is_not_found() {
-                StatusCode::NOT_FOUND
+            let (status, message) = if e.is_not_found() {
+                (StatusCode::NOT_FOUND, e.to_string())
             } else if e.is_forbidden() {
-                StatusCode::FORBIDDEN
+                (StatusCode::FORBIDDEN, e.to_string())
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("get_workspace_key internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
             };
-            (
-                status,
-                Json(EncryptionErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-                .into_response()
+            (status, Json(EncryptionErrorResponse { error: message })).into_response()
         }
     }
 }
@@ -449,7 +457,16 @@ where
     };
 
     let nonce = match base64_url::decode(&request.nonce) {
-        Ok(n) => n,
+        Ok(n) if n.len() == XCHACHA20_NONCE_SIZE => n,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(EncryptionErrorResponse {
+                    error: "invalid nonce length: expected 24 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -489,22 +506,20 @@ where
             (StatusCode::CREATED, Json(response)).into_response()
         }
         Err(e) => {
-            let status = if e.is_bad_request() {
-                StatusCode::BAD_REQUEST
+            let (status, message) = if e.is_bad_request() {
+                (StatusCode::BAD_REQUEST, e.to_string())
             } else if e.is_not_found() {
-                StatusCode::NOT_FOUND
+                (StatusCode::NOT_FOUND, e.to_string())
             } else if e.is_forbidden() {
-                StatusCode::FORBIDDEN
+                (StatusCode::FORBIDDEN, e.to_string())
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("save_document_key internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
             };
-            (
-                status,
-                Json(EncryptionErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-                .into_response()
+            (status, Json(EncryptionErrorResponse { error: message })).into_response()
         }
     }
 }
@@ -577,20 +592,18 @@ where
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
-            let status = if e.is_not_found() {
-                StatusCode::NOT_FOUND
+            let (status, message) = if e.is_not_found() {
+                (StatusCode::NOT_FOUND, e.to_string())
             } else if e.is_forbidden() {
-                StatusCode::FORBIDDEN
+                (StatusCode::FORBIDDEN, e.to_string())
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("get_document_key internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
             };
-            (
-                status,
-                Json(EncryptionErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-                .into_response()
+            (status, Json(EncryptionErrorResponse { error: message })).into_response()
         }
     }
 }

@@ -1,5 +1,69 @@
 //! Authentication routes
 
+/// XChaCha20-Poly1305 nonce size in bytes
+const XCHACHA20_NONCE_SIZE: usize = 24;
+
+/// Argon2id salt size in bytes (per spec)
+const ARGON2_SALT_SIZE: usize = 16;
+
+/// X25519/Ed25519 public key size in bytes
+const PUBLIC_KEY_SIZE: usize = 32;
+
+/// Known X25519 low-order points that must be rejected
+/// These can lead to all-zero shared secrets which are security vulnerabilities
+const X25519_LOW_ORDER_POINTS: &[[u8; 32]] = &[
+    // Point of order 1 (identity)
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    // Point of order 2
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    // Point of order 4 (two representations)
+    [0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f, 0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16, 0x5f, 0x49, 0xb8, 0x00],
+    [0x5f, 0x9c, 0x95, 0xbc, 0xa3, 0x50, 0x8c, 0x24, 0xb1, 0xd0, 0xb1, 0x55, 0x9c, 0x83, 0xef, 0x5b, 0x04, 0x44, 0x5c, 0xc4, 0x58, 0x1c, 0x8e, 0x86, 0xd8, 0x22, 0x4e, 0xdd, 0xd0, 0x9f, 0x11, 0x57],
+    // Point of order 8 (four representations)
+    [0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+    [0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+    [0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+];
+
+/// Check if a 32-byte key is a valid X25519 public key (not a low-order point)
+fn is_valid_x25519_public_key(key: &[u8]) -> bool {
+    if key.len() != 32 {
+        return false;
+    }
+    let key_array: [u8; 32] = key.try_into().unwrap();
+    !X25519_LOW_ORDER_POINTS.contains(&key_array)
+}
+
+/// Known Ed25519 small-order points that must be rejected (all 8 torsion points)
+/// These points have small order and can lead to signature forgery
+const ED25519_SMALL_ORDER_POINTS: &[[u8; 32]] = &[
+    // Order 1: Identity (0, 1)
+    [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+    // Order 4: (0, -1)
+    [0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+    // Order 8 points (both sign variants)
+    [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+    [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
+    // Order 8 point and its negative
+    [0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac, 0x03, 0x7a],
+    [0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac, 0x03, 0xfa],
+    // Order 8 point and its negative
+    [0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53, 0xfc, 0x05],
+    [0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53, 0xfc, 0x85],
+    // Non-canonical encodings (y >= p)
+    [0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
+    [0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+];
+
+/// Check if a 32-byte key is a valid Ed25519 public key (not a small-order point)
+fn is_valid_ed25519_public_key(key: &[u8]) -> bool {
+    if key.len() != 32 {
+        return false;
+    }
+    let key_array: [u8; 32] = key.try_into().unwrap();
+    !ED25519_SMALL_ORDER_POINTS.contains(&key_array)
+}
+
 use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     DocumentEncryptedKeyRepository, KdfParams, UserEncryptedIdentityKeyRepository,
@@ -81,7 +145,7 @@ pub struct GetSaltQueryParams {
 /// Get salt response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GetSaltResponse {
-    /// Salt for KDF (base64 encoded, 32 bytes)
+    /// Salt for KDF (base64 encoded, 16 bytes per spec)
     #[schema(example = "base64-encoded-salt")]
     pub salt: String,
     /// KDF type (always "argon2id")
@@ -180,18 +244,16 @@ where
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
-            let status = if e.is_bad_request() {
-                StatusCode::BAD_REQUEST
+            let (status, message) = if e.is_bad_request() {
+                (StatusCode::BAD_REQUEST, e.to_string())
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("get_salt internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
             };
-            (
-                status,
-                Json(AuthErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-                .into_response()
+            (status, Json(AuthErrorResponse { error: message })).into_response()
         }
     }
 }
@@ -199,6 +261,9 @@ where
 /// Register password user request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RegisterRequest {
+    /// Client-generated User ID (UUID) - required for AAD binding
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    pub user_id: uuid::Uuid,
     /// User email address
     #[schema(example = "user@example.com")]
     pub email: String,
@@ -208,7 +273,7 @@ pub struct RegisterRequest {
     /// authKey for login (base64url encoded)
     #[schema(example = "base64url-encoded-auth-key")]
     pub auth_key: String,
-    /// Salt for KDF (base64url encoded, 32 bytes)
+    /// Salt for KDF (base64url encoded, 16 bytes per spec)
     #[schema(example = "base64url-encoded-salt")]
     pub salt: String,
     /// Encrypted UMK (base64url encoded)
@@ -290,9 +355,18 @@ where
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
-    // Decode base64url fields
+    // Decode base64url fields with length validation
     let salt = match base64_url::decode(&request.salt) {
-        Ok(s) => s,
+        Ok(s) if s.len() == ARGON2_SALT_SIZE => s,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid salt length: expected 16 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -318,7 +392,16 @@ where
     };
 
     let umk_nonce = match base64_url::decode(&request.umk_nonce) {
-        Ok(s) => s,
+        Ok(s) if s.len() == XCHACHA20_NONCE_SIZE => s,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid umk_nonce length: expected 24 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -344,7 +427,16 @@ where
     };
 
     let recovery_nonce = match base64_url::decode(&request.recovery_nonce) {
-        Ok(s) => s,
+        Ok(s) if s.len() == XCHACHA20_NONCE_SIZE => s,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid recovery_nonce length: expected 24 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -357,7 +449,25 @@ where
     };
 
     let ecdh_public_key = match base64_url::decode(&request.ecdh_public_key) {
-        Ok(s) => s,
+        Ok(s) if s.len() == PUBLIC_KEY_SIZE && is_valid_x25519_public_key(&s) => s,
+        Ok(s) if s.len() != PUBLIC_KEY_SIZE => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid ecdh_public_key length: expected 32 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid ecdh_public_key: low-order point rejected".to_string(),
+                }),
+            )
+                .into_response();
+        }
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -370,7 +480,25 @@ where
     };
 
     let signing_public_key = match base64_url::decode(&request.signing_public_key) {
-        Ok(s) => s,
+        Ok(s) if s.len() == PUBLIC_KEY_SIZE && is_valid_ed25519_public_key(&s) => s,
+        Ok(s) if s.len() != PUBLIC_KEY_SIZE => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid signing_public_key length: expected 32 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid signing_public_key: small-order point rejected".to_string(),
+                }),
+            )
+                .into_response();
+        }
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -397,7 +525,17 @@ where
 
     let encrypted_ecdh_private_nonce =
         match base64_url::decode(&request.encrypted_ecdh_private_nonce) {
-            Ok(s) => s,
+            Ok(s) if s.len() == XCHACHA20_NONCE_SIZE => s,
+            Ok(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(AuthErrorResponse {
+                        error: "invalid encrypted_ecdh_private_nonce length: expected 24 bytes"
+                            .to_string(),
+                    }),
+                )
+                    .into_response();
+            }
             Err(_) => {
                 return (
                     StatusCode::BAD_REQUEST,
@@ -424,7 +562,17 @@ where
 
     let encrypted_signing_private_nonce =
         match base64_url::decode(&request.encrypted_signing_private_nonce) {
-            Ok(s) => s,
+            Ok(s) if s.len() == XCHACHA20_NONCE_SIZE => s,
+            Ok(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(AuthErrorResponse {
+                        error: "invalid encrypted_signing_private_nonce length: expected 24 bytes"
+                            .to_string(),
+                    }),
+                )
+                    .into_response();
+            }
             Err(_) => {
                 return (
                     StatusCode::BAD_REQUEST,
@@ -444,6 +592,7 @@ where
     );
 
     let command = RegisterPasswordUserAtomicCommand {
+        user_id: request.user_id,
         email: request.email.clone(),
         name: request.name,
         auth_key: request.auth_key,
@@ -469,20 +618,18 @@ where
             (StatusCode::CREATED, Json(response)).into_response()
         }
         Err(e) => {
-            let status = if e.is_conflict() {
-                StatusCode::CONFLICT
+            let (status, message) = if e.is_conflict() {
+                (StatusCode::CONFLICT, e.to_string())
             } else if e.is_bad_request() {
-                StatusCode::BAD_REQUEST
+                (StatusCode::BAD_REQUEST, e.to_string())
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("register internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
             };
-            (
-                status,
-                Json(AuthErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-                .into_response()
+            (status, Json(AuthErrorResponse { error: message })).into_response()
         }
     }
 }
@@ -647,10 +794,14 @@ where
 }
 
 /// Build session cookie string
+///
+/// Note: Always set Expires attribute regardless of remember_me flag.
+/// This ensures sessions persist for 24 hours (or 30 days for remember_me)
+/// even when the browser is closed and reopened.
 fn build_session_cookie(
     token: &str,
     expires_at: chrono::DateTime<chrono::Utc>,
-    remember_me: bool,
+    _remember_me: bool,
     secure: bool,
 ) -> String {
     let mut cookie = format!(
@@ -663,12 +814,10 @@ fn build_session_cookie(
         cookie.push_str("; Secure");
     }
 
-    if remember_me {
-        // Set explicit expiration for persistent cookie
-        let expires = expires_at.format("%a, %d %b %Y %H:%M:%S GMT");
-        cookie.push_str(&format!("; Expires={}", expires));
-    }
-    // If not remember_me, cookie is a session cookie (deleted when browser closes)
+    // Always set Expires attribute so session persists across browser restarts
+    // Session duration (24h vs 30d) is controlled by expires_at from application layer
+    let expires = expires_at.format("%a, %d %b %Y %H:%M:%S GMT");
+    cookie.push_str(&format!("; Expires={}", expires));
 
     cookie
 }
@@ -862,18 +1011,16 @@ where
     let result = match handler.handle(query).await {
         Ok(r) => r,
         Err(e) => {
-            let status = if e.is_unauthorized() {
-                StatusCode::UNAUTHORIZED
+            let (status, message) = if e.is_unauthorized() {
+                (StatusCode::UNAUTHORIZED, e.to_string())
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("get_current_user internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
             };
-            return (
-                status,
-                Json(AuthErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-                .into_response();
+            return (status, Json(AuthErrorResponse { error: message })).into_response();
         }
     };
 

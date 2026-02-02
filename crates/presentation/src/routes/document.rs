@@ -260,7 +260,14 @@ where
             } else if e.is_forbidden() {
                 StatusCode::FORBIDDEN
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("document operation internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
             };
             (
                 status,
@@ -386,7 +393,14 @@ where
             } else if e.is_bad_request() {
                 StatusCode::BAD_REQUEST
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("document operation internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
             };
             (
                 status,
@@ -459,7 +473,14 @@ where
             } else if e.is_forbidden() {
                 StatusCode::FORBIDDEN
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("document operation internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
             };
             (
                 status,
@@ -580,7 +601,14 @@ where
             } else if e.is_bad_request() {
                 StatusCode::BAD_REQUEST
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("document operation internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
             };
             (
                 status,
@@ -656,7 +684,14 @@ where
             } else if e.is_bad_request() {
                 StatusCode::BAD_REQUEST
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("document operation internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
             };
             (
                 status,
@@ -732,7 +767,14 @@ where
             } else if e.is_conflict() {
                 StatusCode::CONFLICT
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("document operation internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
             };
             (
                 status,
@@ -808,7 +850,14 @@ where
             } else if e.is_bad_request() {
                 StatusCode::BAD_REQUEST
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                tracing::error!("document operation internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
             };
             (
                 status,
