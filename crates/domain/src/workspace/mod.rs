@@ -4,6 +4,7 @@
 
 pub mod invitation;
 pub mod member;
+pub mod permission;
 pub mod repository;
 pub mod role;
 pub mod value_objects;
@@ -12,6 +13,7 @@ pub mod workspace;
 // Re-export commonly used types
 pub use invitation::WorkspaceInvitation;
 pub use member::WorkspaceMember;
+pub use permission::{can_perform, WorkspacePermission};
 pub use repository::{
     WorkspaceInvitationRepository, WorkspaceMemberRepository, WorkspaceRepository,
     WorkspaceRolePermissionRepository, WorkspaceRoleRepository,

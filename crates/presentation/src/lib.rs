@@ -32,6 +32,8 @@ use utoipa::OpenApi;
         routes::auth::login,
         routes::auth::logout,
         routes::auth::me,
+        routes::workspace::list_workspaces,
+        routes::workspace::get_workspace,
     ),
     components(
         schemas(
@@ -45,10 +47,17 @@ use utoipa::OpenApi;
             routes::auth::LoginResponse,
             routes::auth::LogoutResponse,
             routes::auth::MeResponse,
+            routes::workspace::WorkspaceResponse,
+            routes::workspace::MembershipResponse,
+            routes::workspace::RoleResponse,
+            routes::workspace::WorkspaceWithMembershipResponse,
+            routes::workspace::ListWorkspacesResponse,
+            routes::workspace::WorkspaceErrorResponse,
         )
     ),
     tags(
         (name = "auth", description = "Authentication endpoints"),
+        (name = "workspace", description = "Workspace management endpoints"),
     )
 )]
 pub struct ApiDoc;

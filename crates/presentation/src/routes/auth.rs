@@ -12,10 +12,14 @@ use application::domain::encryption::{
     UserIdentityPublicKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
+use application::domain::workspace::{
+    WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
+};
 use application::identity::{
     GetCurrentUserHandler, GetCurrentUserQuery, GetSaltHandler, GetSaltQuery,
-    LoginPasswordUserCommand, LoginPasswordUserHandler, RegisterPasswordUserCommand,
-    RegisterPasswordUserHandler,
+    LoginPasswordUserCommand, LoginPasswordUserHandler,
+    RegisterPasswordUserAtomicCommand, RegisterPasswordUserAtomicHandler,
+    RegistrationService,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -23,7 +27,9 @@ use utoipa::ToSchema;
 use crate::AppState;
 
 /// Create auth routes
-pub fn routes<U, S, US, UIP, UEM, UEI>(state: AppState<U, S, US, UIP, UEM, UEI>) -> Router
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>,
+) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
     S: SessionRepository + Send + Sync + Clone + 'static,
@@ -31,13 +37,17 @@ where
     UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
     UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
     UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()
-        .route("/salt", get(get_salt::<U, S, US, UIP, UEM, UEI>))
-        .route("/register", post(register::<U, S, US, UIP, UEM, UEI>))
-        .route("/login", post(login::<U, S, US, UIP, UEM, UEI>))
-        .route("/logout", post(logout::<U, S, US, UIP, UEM, UEI>))
-        .route("/me", get(me::<U, S, US, UIP, UEM, UEI>))
+        .route("/salt", get(get_salt::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
+        .route("/register", post(register::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
+        .route("/login", post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
+        .route("/logout", post(logout::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
+        .route("/me", get(me::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
         .with_state(state)
 }
 
@@ -111,8 +121,8 @@ pub struct AuthErrorResponse {
     ),
     tag = "auth"
 )]
-pub async fn get_salt<U, S, US, UIP, UEM, UEI>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI>>,
+pub async fn get_salt<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
     Query(params): Query<GetSaltQueryParams>,
 ) -> impl IntoResponse
 where
@@ -122,6 +132,10 @@ where
     UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
     UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
     UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Use application layer handler
     let handler = GetSaltHandler::new(
@@ -216,6 +230,7 @@ pub struct RegisterResponse {
 ///
 /// Creates a new user account with password authentication and E2EE keys.
 /// All encryption is performed client-side; server stores encrypted data only.
+/// Registration is atomic - all entities are created in a single transaction.
 #[utoipa::path(
     post,
     path = "/api/auth/register",
@@ -228,8 +243,8 @@ pub struct RegisterResponse {
     ),
     tag = "auth"
 )]
-pub async fn register<U, S, US, UIP, UEM, UEI>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI>>,
+pub async fn register<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
     Json(request): Json<RegisterRequest>,
 ) -> impl IntoResponse
 where
@@ -239,6 +254,10 @@ where
     UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
     UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
     UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Decode base64url fields
     let salt = match base64_url::decode(&request.salt) {
@@ -384,15 +403,14 @@ where
         }
     };
 
-    let handler = RegisterPasswordUserHandler::new(
+    // Use atomic handler for transactional registration
+    let handler = RegisterPasswordUserAtomicHandler::new(
         state.user_repo(),
-        state.user_settings_repo(),
-        state.user_identity_public_key_repo(),
-        state.user_encrypted_master_key_repo(),
-        state.user_encrypted_identity_key_repo(),
+        state.workspace_repo(),
+        state.registration_service(),
     );
 
-    let command = RegisterPasswordUserCommand {
+    let command = RegisterPasswordUserAtomicCommand {
         email: request.email.clone(),
         name: request.name,
         auth_key: request.auth_key,
@@ -497,8 +515,8 @@ pub const SESSION_COOKIE_NAME: &str = "refmd_session";
     ),
     tag = "auth"
 )]
-pub async fn login<U, S, US, UIP, UEM, UEI>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI>>,
+pub async fn login<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
     Json(request): Json<LoginRequest>,
 ) -> impl IntoResponse
 where
@@ -508,6 +526,10 @@ where
     UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
     UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
     UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     let remember_me = request.remember_me;
 
@@ -629,8 +651,8 @@ pub struct LogoutResponse {
     ),
     tag = "auth"
 )]
-pub async fn logout<U, S, US, UIP, UEM, UEI>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI>>,
+pub async fn logout<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -640,6 +662,10 @@ where
     UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
     UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
     UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Try to invalidate session on server if cookie exists
     if let Some(token) = extract_session_cookie(&headers) {
@@ -731,8 +757,8 @@ pub struct MeResponse {
     ),
     tag = "auth"
 )]
-pub async fn me<U, S, US, UIP, UEM, UEI>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI>>,
+pub async fn me<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -742,6 +768,10 @@ where
     UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
     UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
     UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Extract session token from cookie
     let token = match crate::auth::extract_session_token(&headers) {

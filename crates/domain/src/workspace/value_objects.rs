@@ -114,6 +114,12 @@ impl BaseRole {
     }
 }
 
+impl std::fmt::Display for BaseRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 impl std::str::FromStr for BaseRole {
     type Err = BaseRoleError;
 

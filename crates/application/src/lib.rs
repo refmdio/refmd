@@ -9,3 +9,4 @@
 pub use domain;
 
 pub mod identity;
+pub mod workspace;

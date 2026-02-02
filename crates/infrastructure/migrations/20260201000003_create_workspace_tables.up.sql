@@ -7,7 +7,6 @@ CREATE TABLE workspaces (
     slug VARCHAR(100) NOT NULL UNIQUE,
     description TEXT,
     icon VARCHAR(255),
-    is_personal BOOLEAN NOT NULL DEFAULT FALSE,
     owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

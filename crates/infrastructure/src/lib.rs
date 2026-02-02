@@ -16,3 +16,4 @@ pub mod identity;
 pub mod workspace;
 
 pub use database::{create_pool, DatabaseConfig};
+pub use identity::PgRegistrationService;
