@@ -7,6 +7,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
     UserIdentityPublicKeyRepository,
@@ -26,8 +27,8 @@ use uuid::Uuid;
 use crate::AppState;
 
 /// Create workspace routes
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>,
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -39,11 +40,13 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()
-        .route("/", get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
-        .route("/{id}", get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
+        .route("/", get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
+        .route("/{id}", get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
+        .nest("/{workspace_id}/documents", super::document::routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>())
         .with_state(state)
 }
 
@@ -128,8 +131,8 @@ pub struct WorkspaceErrorResponse {
     ),
     tag = "workspace"
 )]
-pub async fn list_workspaces<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
+pub async fn list_workspaces<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -142,6 +145,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Authenticate user
@@ -216,8 +220,8 @@ where
     ),
     tag = "workspace"
 )]
-pub async fn get_workspace<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
+pub async fn get_workspace<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse
@@ -231,6 +235,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Authenticate user
@@ -310,8 +315,8 @@ struct AuthenticatedUser {
 }
 
 /// Authenticate user from session cookie
-async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>,
+async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthenticatedUser, axum::response::Response>
 where
@@ -324,6 +329,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Extract session token from cookie

@@ -34,6 +34,13 @@ use utoipa::OpenApi;
         routes::auth::me,
         routes::workspace::list_workspaces,
         routes::workspace::get_workspace,
+        routes::document::list_documents,
+        routes::document::create_document,
+        routes::document::get_document,
+        routes::document::update_document,
+        routes::document::delete_document,
+        routes::document::archive_document,
+        routes::document::unarchive_document,
     ),
     components(
         schemas(
@@ -53,11 +60,18 @@ use utoipa::OpenApi;
             routes::workspace::WorkspaceWithMembershipResponse,
             routes::workspace::ListWorkspacesResponse,
             routes::workspace::WorkspaceErrorResponse,
+            routes::document::DocumentResponse,
+            routes::document::CreateDocumentRequest,
+            routes::document::UpdateDocumentRequest,
+            routes::document::ListDocumentsParams,
+            routes::document::ListDocumentsResponse,
+            routes::document::DocumentErrorResponse,
         )
     ),
     tags(
         (name = "auth", description = "Authentication endpoints"),
         (name = "workspace", description = "Workspace management endpoints"),
+        (name = "document", description = "Document management endpoints"),
     )
 )]
 pub struct ApiDoc;

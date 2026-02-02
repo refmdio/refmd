@@ -8,5 +8,6 @@
 // Re-export domain for convenience
 pub use domain;
 
+pub mod document;
 pub mod identity;
 pub mod workspace;

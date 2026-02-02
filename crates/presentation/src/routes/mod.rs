@@ -1,9 +1,11 @@
 //! API routes
 
 pub mod auth;
+pub mod document;
 pub mod workspace;
 
 use axum::Router;
+use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
     UserIdentityPublicKeyRepository,
@@ -16,8 +18,8 @@ use application::identity::RegistrationService;
 use crate::AppState;
 
 /// Create all API routes
-pub fn create_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>,
+pub fn create_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -29,13 +31,14 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new().nest("/api", api_routes(state))
 }
 
-fn api_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>,
+fn api_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -47,6 +50,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()

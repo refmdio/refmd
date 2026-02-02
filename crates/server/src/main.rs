@@ -5,6 +5,7 @@
 use axum::{Router, routing::get};
 use axum::http::{header, Method};
 use infrastructure::{create_pool, DatabaseConfig, PgRegistrationService};
+use infrastructure::document::PgDocumentRepository;
 use infrastructure::identity::{PgUserRepository, PgSessionRepository, PgUserSettingsRepository};
 use infrastructure::encryption::{
     PgUserIdentityPublicKeyRepository, PgUserEncryptedMasterKeyRepository,
@@ -79,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
     let workspace_repo = Arc::new(PgWorkspaceRepository::new((*pool_arc).clone()));
     let workspace_member_repo = Arc::new(PgWorkspaceMemberRepository::new((*pool_arc).clone()));
     let workspace_role_repo = Arc::new(PgWorkspaceRoleRepository::new((*pool_arc).clone()));
+    let document_repo = Arc::new(PgDocumentRepository::new((*pool_arc).clone()));
     let registration_service = Arc::new(PgRegistrationService::new(pool_arc));
 
     // Determine if cookies should have Secure attribute
@@ -102,6 +104,7 @@ async fn main() -> anyhow::Result<()> {
         workspace_repo,
         workspace_member_repo,
         workspace_role_repo,
+        document_repo,
         registration_service,
         server_secret,
         secure_cookies,

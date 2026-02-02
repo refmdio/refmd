@@ -7,6 +7,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     KdfParams, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
     UserIdentityPublicKeyRepository,
@@ -27,8 +28,8 @@ use utoipa::ToSchema;
 use crate::AppState;
 
 /// Create auth routes
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>,
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -40,14 +41,15 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new()
-        .route("/salt", get(get_salt::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
-        .route("/register", post(register::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
-        .route("/login", post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
-        .route("/logout", post(logout::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
-        .route("/me", get(me::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>))
+        .route("/salt", get(get_salt::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
+        .route("/register", post(register::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
+        .route("/login", post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
+        .route("/logout", post(logout::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
+        .route("/me", get(me::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>))
         .with_state(state)
 }
 
@@ -121,8 +123,8 @@ pub struct AuthErrorResponse {
     ),
     tag = "auth"
 )]
-pub async fn get_salt<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
+pub async fn get_salt<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
     Query(params): Query<GetSaltQueryParams>,
 ) -> impl IntoResponse
 where
@@ -135,6 +137,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Use application layer handler
@@ -243,8 +246,8 @@ pub struct RegisterResponse {
     ),
     tag = "auth"
 )]
-pub async fn register<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
+pub async fn register<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
     Json(request): Json<RegisterRequest>,
 ) -> impl IntoResponse
 where
@@ -257,6 +260,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Decode base64url fields
@@ -515,8 +519,8 @@ pub const SESSION_COOKIE_NAME: &str = "refmd_session";
     ),
     tag = "auth"
 )]
-pub async fn login<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
+pub async fn login<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
     Json(request): Json<LoginRequest>,
 ) -> impl IntoResponse
 where
@@ -529,6 +533,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     let remember_me = request.remember_me;
@@ -651,8 +656,8 @@ pub struct LogoutResponse {
     ),
     tag = "auth"
 )]
-pub async fn logout<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
+pub async fn logout<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -665,6 +670,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Try to invalidate session on server if cookie exists
@@ -757,8 +763,8 @@ pub struct MeResponse {
     ),
     tag = "auth"
 )]
-pub async fn me<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>>,
+pub async fn me<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -771,6 +777,7 @@ where
     WR: WorkspaceRepository + Send + Sync + Clone + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     // Extract session token from cookie

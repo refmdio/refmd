@@ -1,6 +1,7 @@
 //! Application state with generics for dependency injection
 
 use std::sync::Arc;
+use application::domain::document::DocumentRepository;
 use application::domain::encryption::{
     UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
     UserIdentityPublicKeyRepository,
@@ -13,7 +14,7 @@ use application::identity::RegistrationService;
 
 /// Application state holding repository implementations
 #[derive(Clone)]
-pub struct AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>
+pub struct AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>
 where
     U: UserRepository + Send + Sync + 'static,
     S: SessionRepository + Send + Sync + 'static,
@@ -24,6 +25,7 @@ where
     WR: WorkspaceRepository + Send + Sync + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + 'static,
+    DR: DocumentRepository + Send + Sync + 'static,
     RS: RegistrationService + Send + Sync + 'static,
 {
     user_repo: Arc<U>,
@@ -35,6 +37,7 @@ where
     workspace_repo: Arc<WR>,
     workspace_member_repo: Arc<WMR>,
     workspace_role_repo: Arc<WRR>,
+    document_repo: Arc<DR>,
     registration_service: Arc<RS>,
     /// Server secret for dummy salt generation (prevents user enumeration)
     server_secret: Arc<[u8; 32]>,
@@ -42,7 +45,7 @@ where
     secure_cookies: bool,
 }
 
-impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS> AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, RS>
+impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS> AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, RS>
 where
     U: UserRepository + Send + Sync + 'static,
     S: SessionRepository + Send + Sync + 'static,
@@ -53,6 +56,7 @@ where
     WR: WorkspaceRepository + Send + Sync + 'static,
     WMR: WorkspaceMemberRepository + Send + Sync + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + 'static,
+    DR: DocumentRepository + Send + Sync + 'static,
     RS: RegistrationService + Send + Sync + 'static,
 {
     #[allow(clippy::too_many_arguments)]
@@ -66,6 +70,7 @@ where
         workspace_repo: Arc<WR>,
         workspace_member_repo: Arc<WMR>,
         workspace_role_repo: Arc<WRR>,
+        document_repo: Arc<DR>,
         registration_service: Arc<RS>,
         server_secret: [u8; 32],
         secure_cookies: bool,
@@ -80,6 +85,7 @@ where
             workspace_repo,
             workspace_member_repo,
             workspace_role_repo,
+            document_repo,
             registration_service,
             server_secret: Arc::new(server_secret),
             secure_cookies,
@@ -120,6 +126,10 @@ where
 
     pub fn workspace_role_repo(&self) -> Arc<WRR> {
         Arc::clone(&self.workspace_role_repo)
+    }
+
+    pub fn document_repo(&self) -> Arc<DR> {
+        Arc::clone(&self.document_repo)
     }
 
     pub fn registration_service(&self) -> Arc<RS> {
