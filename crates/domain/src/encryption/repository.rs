@@ -7,7 +7,9 @@ use super::device::{Device, PendingDevice};
 use super::device_keys::{DeviceEncryptedUMK, DeviceRevocationEvent};
 use super::user_keys::{UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey};
 use super::value_objects::DeviceId;
-use super::workspace_keys::{DocumentEncryptedKey, DocumentId, WorkspaceEncryptedKey, WorkspaceId};
+use super::workspace_keys::{DocumentEncryptedKey, WorkspaceEncryptedKey};
+use crate::document::DocumentId;
+use crate::workspace::WorkspaceId;
 
 /// Device repository trait
 #[async_trait]

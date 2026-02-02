@@ -23,4 +23,7 @@ pub use value_objects::{
     AuthType, AuthTypeError, DeviceId, DeviceType, DeviceTypeError, EncryptedData, KdfParams,
     KdfType, KdfTypeError, KeyVersion, PublicKeyPair,
 };
-pub use workspace_keys::{DocumentEncryptedKey, DocumentId, WorkspaceEncryptedKey, WorkspaceId};
+pub use workspace_keys::{DocumentEncryptedKey, WorkspaceEncryptedKey};
+// WorkspaceId and DocumentId are defined in their respective domains, re-export for convenience
+pub use crate::document::DocumentId;
+pub use crate::workspace::WorkspaceId;
