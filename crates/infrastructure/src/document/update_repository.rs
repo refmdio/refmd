@@ -34,10 +34,11 @@ struct DocumentUpdateRow {
     update_data: Vec<u8>,
     nonce: Vec<u8>,
     key_version: i32,
-    update_hash: String,
+    // Phase 2 fields are nullable
+    update_hash: Option<String>,
     prev_update_hash: Option<String>,
-    signature: Vec<u8>,
-    author_device_id: Uuid,
+    signature: Option<Vec<u8>>,
+    author_device_id: Option<Uuid>,
     timestamp: i64,
     created_at: DateTime<Utc>,
 }
@@ -54,7 +55,7 @@ impl From<DocumentUpdateRow> for DocumentUpdate {
             update_hash: row.update_hash,
             prev_update_hash: row.prev_update_hash,
             signature: row.signature,
-            author_device_id: DeviceId::from_uuid(row.author_device_id),
+            author_device_id: row.author_device_id.map(DeviceId::from_uuid),
             timestamp: row.timestamp,
             created_at: row.created_at,
         }
@@ -155,7 +156,7 @@ impl DocumentUpdateRepository for PgDocumentUpdateRepository {
         .bind(&update.update_hash)
         .bind(&update.prev_update_hash)
         .bind(&update.signature)
-        .bind(update.author_device_id.as_uuid())
+        .bind(update.author_device_id.as_ref().map(|d| d.as_uuid()))
         .bind(update.timestamp)
         .bind(update.created_at)
         .fetch_one(&self.pool)

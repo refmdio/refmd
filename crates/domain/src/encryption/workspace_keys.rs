@@ -12,8 +12,8 @@ use crate::workspace::WorkspaceId;
 pub struct NewWorkspaceKeyParams {
     pub workspace_id: WorkspaceId,
     pub user_id: UserId,
-    pub device_id: DeviceId,
-    pub sender_device_id: DeviceId,
+    pub device_id: Option<DeviceId>,
+    pub sender_device_id: Option<DeviceId>,
     pub key_version: KeyVersion,
     pub encrypted_kek: Vec<u8>,
     pub nonce: Vec<u8>,
@@ -21,20 +21,17 @@ pub struct NewWorkspaceKeyParams {
 }
 
 /// Workspace Encrypted Key (KEK)
-/// Encrypted with each member's device public key.
+/// Encrypted with device public key or UMK.
 /// Supports key rotation with multiple versions.
 #[derive(Debug, Clone)]
 pub struct WorkspaceEncryptedKey {
     pub workspace_id: WorkspaceId,
     pub user_id: UserId,
-    pub device_id: DeviceId,
-    /// Device that sent/created this encrypted key (for HKDF info reconstruction)
-    pub sender_device_id: DeviceId,
+    pub device_id: Option<DeviceId>,
+    pub sender_device_id: Option<DeviceId>,
     pub key_version: KeyVersion,
-    /// KEK encrypted with device's public key
     pub encrypted_kek: Vec<u8>,
     pub nonce: Vec<u8>,
-    /// Whether this is the currently active key version
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
 }
@@ -58,7 +55,7 @@ impl WorkspaceEncryptedKey {
     pub fn new_initial(
         workspace_id: WorkspaceId,
         user_id: UserId,
-        device_id: DeviceId,
+        device_id: Option<DeviceId>,
         encrypted_kek: Vec<u8>,
         nonce: Vec<u8>,
     ) -> Self {

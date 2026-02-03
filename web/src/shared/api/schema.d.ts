@@ -164,6 +164,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List document updates (CRDT update log) */
+        get: operations["list_updates"];
+        put?: never;
+        /** Create a new document update (CRDT update) */
+        post: operations["create_update"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/documents/{document_id}/keys": {
         parameters: {
             query?: never;
@@ -295,6 +313,28 @@ export interface components {
             parent_id?: string | null;
             title: string;
         };
+        /** @description Create document update request */
+        CreateDocumentUpdateRequest: {
+            /**
+             * Format: int32
+             * @description DEK version used for encryption
+             */
+            key_version: number;
+            /** @description Base64url-encoded 24-byte nonce */
+            nonce: string;
+            /**
+             * Format: int64
+             * @description Client timestamp (milliseconds since epoch)
+             */
+            timestamp: number;
+            /** @description Base64url-encoded encrypted Yjs update binary */
+            update_data: string;
+        };
+        /** @description Create document update response */
+        CreateDocumentUpdateResponse: {
+            /** Format: int64 */
+            seq: number;
+        };
         /** @description Document error response */
         DocumentErrorResponse: {
             error: string;
@@ -344,6 +384,25 @@ export interface components {
             updated_at: string;
             workspace_id: string;
         };
+        /** @description Document update response (single update) */
+        DocumentUpdateResponse: {
+            /**
+             * Format: int32
+             * @description DEK version used for encryption
+             */
+            key_version: number;
+            /** @description Base64url-encoded 24-byte nonce */
+            nonce: string;
+            /** Format: int64 */
+            seq: number;
+            /**
+             * Format: int64
+             * @description Client timestamp (milliseconds since epoch)
+             */
+            timestamp: number;
+            /** @description Base64url-encoded encrypted Yjs update binary */
+            update_data: string;
+        };
         /** @description Error response */
         EncryptionErrorResponse: {
             /**
@@ -370,7 +429,7 @@ export interface components {
              */
             kdf_type: string;
             /**
-             * @description Salt for KDF (base64 encoded, 32 bytes)
+             * @description Salt for KDF (base64 encoded, 16 bytes per spec)
              * @example base64-encoded-salt
              */
             salt: string;
@@ -379,10 +438,10 @@ export interface components {
         GetWorkspaceKeyParams: {
             /**
              * Format: uuid
-             * @description Device ID
+             * @description Device ID (optional)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            device_id: string;
+            device_id?: string | null;
         };
         /** @description KDF parameters response */
         KdfParamsResponse: {
@@ -404,6 +463,18 @@ export interface components {
              * @example 3
              */
             time_cost: number;
+        };
+        /** @description List document updates query params */
+        ListDocumentUpdatesParams: {
+            /**
+             * Format: int64
+             * @description If provided, only return updates after this sequence number
+             */
+            after_seq?: number | null;
+        };
+        /** @description List document updates response */
+        ListDocumentUpdatesResponse: {
+            updates: components["schemas"]["DocumentUpdateResponse"][];
         };
         /** @description List documents query params */
         ListDocumentsParams: {
@@ -616,7 +687,7 @@ export interface components {
              */
             recovery_nonce: string;
             /**
-             * @description Salt for KDF (base64url encoded, 32 bytes)
+             * @description Salt for KDF (base64url encoded, 16 bytes per spec)
              * @example base64url-encoded-salt
              */
             salt: string;
@@ -696,10 +767,10 @@ export interface components {
         SaveWorkspaceKeyRequest: {
             /**
              * Format: uuid
-             * @description Device ID (client-generated UUID)
+             * @description Device ID (optional, for multi-device support)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            device_id: string;
+            device_id?: string | null;
             /**
              * @description Encrypted KEK (base64url encoded)
              * @example base64url-encoded-encrypted-kek
@@ -723,10 +794,10 @@ export interface components {
             nonce: string;
             /**
              * Format: uuid
-             * @description Sender device ID (for HKDF info)
+             * @description Sender device ID (optional, for multi-device support)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            sender_device_id: string;
+            sender_device_id?: string | null;
         };
         /** @description Update document request */
         UpdateDocumentRequest: {
@@ -747,10 +818,10 @@ export interface components {
         /** @description Workspace key response */
         WorkspaceKeyResponse: {
             /**
-             * @description Device ID
+             * @description Device ID (optional)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            device_id: string;
+            device_id?: string | null;
             /**
              * @description Encrypted KEK (base64url encoded)
              * @example base64url-encoded-encrypted-kek
@@ -773,10 +844,10 @@ export interface components {
              */
             nonce: string;
             /**
-             * @description Sender device ID
+             * @description Sender device ID (optional)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            sender_device_id: string;
+            sender_device_id?: string | null;
             /**
              * @description User ID
              * @example 01234567-89ab-cdef-0123-456789abcdef
@@ -1311,6 +1382,131 @@ export interface operations {
             };
         };
     };
+    list_updates: {
+        parameters: {
+            query?: {
+                /** @description Only return updates after this sequence number */
+                after_seq?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of encrypted document updates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListDocumentUpdatesResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    create_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Document ID */
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Document update created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateDocumentUpdateResponse"];
+                };
+            };
+            /** @description Bad request (invalid nonce, encoding) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Document is archived */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
     get_document_key: {
         parameters: {
             query?: never;
@@ -1426,9 +1622,9 @@ export interface operations {
     };
     get_workspace_key: {
         parameters: {
-            query: {
-                /** @description Device ID */
-                device_id: string;
+            query?: {
+                /** @description Device ID (optional) */
+                device_id?: string;
             };
             header?: never;
             path: {

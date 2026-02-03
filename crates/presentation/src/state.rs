@@ -1,6 +1,6 @@
 //! Application state with generics for dependency injection
 
-use application::domain::document::DocumentRepository;
+use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
     DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
     UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
@@ -14,7 +14,7 @@ use application::identity::RegistrationService;
 use std::sync::Arc;
 
 /// Parameters for creating AppState
-pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS> {
+pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS> {
     pub user_repo: Arc<U>,
     pub session_repo: Arc<S>,
     pub user_settings_repo: Arc<US>,
@@ -25,6 +25,7 @@ pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, R
     pub workspace_member_repo: Arc<WMR>,
     pub workspace_role_repo: Arc<WRR>,
     pub document_repo: Arc<DR>,
+    pub document_update_repo: Arc<DUR>,
     pub workspace_key_repo: Arc<WKR>,
     pub document_key_repo: Arc<DKR>,
     pub registration_service: Arc<RS>,
@@ -36,7 +37,7 @@ pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, R
 
 /// Application state holding repository implementations
 #[derive(Clone)]
-pub struct AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>
+pub struct AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>
 where
     U: UserRepository + Send + Sync + 'static,
     S: SessionRepository + Send + Sync + 'static,
@@ -48,6 +49,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + 'static,
     DR: DocumentRepository + Send + Sync + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + 'static,
     RS: RegistrationService + Send + Sync + 'static,
@@ -62,6 +64,7 @@ where
     workspace_member_repo: Arc<WMR>,
     workspace_role_repo: Arc<WRR>,
     document_repo: Arc<DR>,
+    document_update_repo: Arc<DUR>,
     workspace_key_repo: Arc<WKR>,
     document_key_repo: Arc<DKR>,
     registration_service: Arc<RS>,
@@ -71,8 +74,8 @@ where
     secure_cookies: bool,
 }
 
-impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>
-    AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>
+impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>
+    AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>
 where
     U: UserRepository + Send + Sync + 'static,
     S: SessionRepository + Send + Sync + 'static,
@@ -84,12 +87,13 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + 'static,
     DR: DocumentRepository + Send + Sync + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + 'static,
     RS: RegistrationService + Send + Sync + 'static,
 {
     pub fn new(
-        params: AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
+        params: AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
     ) -> Self {
         Self {
             user_repo: params.user_repo,
@@ -102,6 +106,7 @@ where
             workspace_member_repo: params.workspace_member_repo,
             workspace_role_repo: params.workspace_role_repo,
             document_repo: params.document_repo,
+            document_update_repo: params.document_update_repo,
             workspace_key_repo: params.workspace_key_repo,
             document_key_repo: params.document_key_repo,
             registration_service: params.registration_service,
@@ -148,6 +153,10 @@ where
 
     pub fn document_repo(&self) -> Arc<DR> {
         Arc::clone(&self.document_repo)
+    }
+
+    pub fn document_update_repo(&self) -> Arc<DUR> {
+        Arc::clone(&self.document_update_repo)
     }
 
     pub fn workspace_key_repo(&self) -> Arc<WKR> {

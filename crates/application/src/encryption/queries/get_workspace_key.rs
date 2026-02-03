@@ -17,7 +17,7 @@ use thiserror::Error;
 pub struct GetWorkspaceKeyQuery {
     pub workspace_id: WorkspaceId,
     pub user_id: UserId,
-    pub device_id: DeviceId,
+    pub device_id: Option<DeviceId>,
 }
 
 /// Get workspace key result
@@ -109,13 +109,20 @@ where
             return Err(GetWorkspaceKeyError::PermissionDenied);
         }
 
-        // 3. Get active key for device
-        let key = self
-            .workspace_key_repo
-            .find_active_by_device(query.workspace_id, query.user_id, query.device_id)
-            .await
-            .map_err(GetWorkspaceKeyError::WorkspaceKeyRepository)?
-            .ok_or(GetWorkspaceKeyError::KeyNotFound)?;
+        // 3. Get active key
+        let key = if let Some(device_id) = query.device_id {
+            self.workspace_key_repo
+                .find_active_by_device(query.workspace_id, query.user_id, device_id)
+                .await
+                .map_err(GetWorkspaceKeyError::WorkspaceKeyRepository)?
+        } else {
+            self.workspace_key_repo
+                .find_active_by_user(query.workspace_id, query.user_id)
+                .await
+                .map_err(GetWorkspaceKeyError::WorkspaceKeyRepository)?
+        };
+
+        let key = key.ok_or(GetWorkspaceKeyError::KeyNotFound)?;
 
         Ok(GetWorkspaceKeyResult { key })
     }

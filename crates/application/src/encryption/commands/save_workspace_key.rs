@@ -24,11 +24,11 @@ use thiserror::Error;
 pub struct SaveWorkspaceKeyCommand {
     pub workspace_id: WorkspaceId,
     pub user_id: UserId,
-    pub device_id: DeviceId,
-    pub sender_device_id: DeviceId,
+    pub device_id: Option<DeviceId>,
+    pub sender_device_id: Option<DeviceId>,
     /// Key version (default: 1 for new keys)
     pub key_version: Option<u32>,
-    /// Encrypted KEK (encrypted with device's ECDH public key)
+    /// Encrypted KEK
     pub encrypted_kek: Vec<u8>,
     /// Encryption nonce
     pub nonce: Vec<u8>,

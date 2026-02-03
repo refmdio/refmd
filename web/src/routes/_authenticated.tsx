@@ -1,38 +1,31 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Outlet, createFileRoute, redirect, useNavigate, useParams } from '@tanstack/react-router'
-import { authApi, workspaceApi, documentApi, ApiRequestError, ApiError } from '@/shared/api'
+import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
+import { workspaceApi, documentApi, ApiError } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
+import { restoreSession } from '@/features/auth'
 import { Sidebar } from '@/widgets/sidebar'
 import { CreateDocumentDialog } from '@/features/document-create'
+import { MosaicDocumentWorkspace } from '@/widgets/document-workspace'
+import {
+  DocumentWorkspaceProvider,
+  useDocumentWorkspace,
+} from '@/shared/context/DocumentWorkspaceContext'
+import { Loader2 } from 'lucide-react'
 import type { components } from '@/shared/api'
 
 type WorkspaceWithMembership = components['schemas']['WorkspaceWithMembershipResponse']
 type DocumentResponse = components['schemas']['DocumentResponse']
 
 export const Route = createFileRoute('/_authenticated')({
-  beforeLoad: async () => {
-    // Skip auth check during SSR (no cookies available on server)
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    try {
-      await authApi.me()
-    } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 401) {
-        throw redirect({ to: '/auth/login' })
-      }
-      throw error
-    }
-  },
   component: AuthenticatedLayout,
 })
 
 function AuthenticatedLayout() {
   const navigate = useNavigate()
   const params = useParams({ strict: false })
-  const { currentWorkspaceId, setCurrentWorkspaceId } = useAuthContext()
+  const { auth, setAuthState, currentWorkspaceId, setCurrentWorkspaceId } = useAuthContext()
 
+  const [isRestoring, setIsRestoring] = useState(!auth) // Need restoration if no auth
   const [workspaces, setWorkspaces] = useState<WorkspaceWithMembership[]>([])
   const [documents, setDocuments] = useState<DocumentResponse[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
@@ -44,8 +37,47 @@ function AuthenticatedLayout() {
   // Effective workspace ID (URL > context > default)
   const effectiveWorkspaceId = urlWorkspaceId ?? currentWorkspaceId
 
-  // Fetch workspaces on mount
+  // Restore session from IndexedDB if not already authenticated
   useEffect(() => {
+    if (auth) {
+      // Already authenticated (from login)
+      setIsRestoring(false)
+      return
+    }
+
+    async function tryRestoreSession() {
+      try {
+        const result = await restoreSession()
+        if (result) {
+          // Session restored successfully
+          setAuthState({
+            userId: result.userId,
+            email: result.email,
+            umk: result.umk,
+            identityKeys: result.identityKeys,
+            expiresAt: result.expiresAt,
+          })
+        } else {
+          // No cached session or restoration failed
+          navigate({ to: '/auth/login' })
+        }
+      } catch (err) {
+        console.error('Session restoration failed:', err)
+        navigate({ to: '/auth/login' })
+      } finally {
+        setIsRestoring(false)
+      }
+    }
+
+    tryRestoreSession()
+  }, [auth, setAuthState, navigate])
+
+  // Fetch workspaces on mount (only when authenticated)
+  useEffect(() => {
+    if (!auth || isRestoring) {
+      return
+    }
+
     async function fetchWorkspaces() {
       try {
         const response = await workspaceApi.list()
@@ -63,11 +95,11 @@ function AuthenticatedLayout() {
     }
 
     fetchWorkspaces()
-  }, [effectiveWorkspaceId, setCurrentWorkspaceId])
+  }, [auth, isRestoring, effectiveWorkspaceId, setCurrentWorkspaceId])
 
-  // Fetch documents when workspace changes
+  // Fetch documents when workspace changes (only when authenticated)
   useEffect(() => {
-    if (!effectiveWorkspaceId) {
+    if (!auth || isRestoring || !effectiveWorkspaceId) {
       setDocuments([])
       return
     }
@@ -88,7 +120,7 @@ function AuthenticatedLayout() {
     }
 
     fetchDocuments()
-  }, [effectiveWorkspaceId])
+  }, [auth, isRestoring, effectiveWorkspaceId])
 
   const handleSelectWorkspace = useCallback(
     (workspaceId: string) => {
@@ -102,6 +134,73 @@ function AuthenticatedLayout() {
     setDocuments((prev) => [doc, ...prev])
   }, [])
 
+  // Show loading state while restoring session
+  if (isRestoring) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="text-muted-foreground">Restoring session...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Don't render content if not authenticated
+  if (!auth) {
+    return null
+  }
+
+  return (
+    <DocumentWorkspaceProvider>
+      <AuthenticatedLayoutInner
+        workspaces={workspaces}
+        documents={documents}
+        documentsLoading={documentsLoading}
+        effectiveWorkspaceId={effectiveWorkspaceId}
+        onSelectWorkspace={handleSelectWorkspace}
+        createDialogOpen={createDialogOpen}
+        setCreateDialogOpen={setCreateDialogOpen}
+        onDocumentCreated={handleDocumentCreated}
+      />
+    </DocumentWorkspaceProvider>
+  )
+}
+
+interface AuthenticatedLayoutInnerProps {
+  workspaces: WorkspaceWithMembership[]
+  documents: DocumentResponse[]
+  documentsLoading: boolean
+  effectiveWorkspaceId: string | null | undefined
+  onSelectWorkspace: (workspaceId: string) => void
+  createDialogOpen: boolean
+  setCreateDialogOpen: (open: boolean) => void
+  onDocumentCreated: (doc: DocumentResponse) => void
+}
+
+function AuthenticatedLayoutInner({
+  workspaces,
+  documents,
+  documentsLoading,
+  effectiveWorkspaceId,
+  onSelectWorkspace,
+  createDialogOpen,
+  setCreateDialogOpen,
+  onDocumentCreated,
+}: AuthenticatedLayoutInnerProps) {
+  const { openDocument } = useDocumentWorkspace()
+
+  const handleSelectDocument = useCallback(
+    (doc: DocumentResponse) => {
+      openDocument({
+        id: doc.id,
+        title: doc.title,
+        workspaceId: doc.workspace_id,
+      })
+    },
+    [openDocument]
+  )
+
   return (
     <div className="flex h-screen">
       <Sidebar
@@ -109,18 +208,19 @@ function AuthenticatedLayout() {
         currentWorkspaceId={effectiveWorkspaceId ?? undefined}
         documents={documents}
         documentsLoading={documentsLoading}
-        onSelectWorkspace={handleSelectWorkspace}
+        onSelectWorkspace={onSelectWorkspace}
+        onSelectDocument={handleSelectDocument}
         onCreateDocument={() => setCreateDialogOpen(true)}
       />
-      <main className="flex-1 overflow-auto">
-        <Outlet />
+      <main className="flex-1 overflow-hidden">
+        <MosaicDocumentWorkspace />
       </main>
       {effectiveWorkspaceId && (
         <CreateDocumentDialog
           open={createDialogOpen}
           onOpenChange={setCreateDialogOpen}
           workspaceId={effectiveWorkspaceId}
-          onCreated={handleDocumentCreated}
+          onCreated={onDocumentCreated}
         />
       )}
     </div>

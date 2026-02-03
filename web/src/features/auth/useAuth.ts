@@ -16,6 +16,13 @@ import {
   wrapUmkWithRuk,
   base64UrlEncode,
   base64UrlDecode,
+  generateDsk,
+  storeDsk,
+  loadDsk,
+  wrapAndStoreUmk,
+  loadAndUnwrapUmk,
+  clearDskData,
+  hasCachedSession,
   type KdfParams,
   type IdentityKeyPair,
 } from '@/shared/lib/crypto'
@@ -166,6 +173,17 @@ export async function login(
     loginResponse.user_id
   )
 
+  // Step 6: Handle DSK/UMK caching based on KMSI preference
+  if (rememberMe) {
+    // Generate DSK and cache UMK in IndexedDB for session persistence
+    const dsk = await generateDsk()
+    await storeDsk(dsk)
+    await wrapAndStoreUmk(umk, dsk, loginResponse.user_id)
+  } else {
+    // Clear any existing DSK cache when KMSI is disabled
+    await clearDskData()
+  }
+
   return {
     userId: loginResponse.user_id,
     email: loginResponse.email,
@@ -176,10 +194,90 @@ export async function login(
 }
 
 /**
- * Get current session (for session restoration)
+ * Session restoration result
+ */
+export interface SessionRestoreResult {
+  userId: string
+  email: string
+  umk: Uint8Array
+  identityKeys: IdentityKeyPair
+  expiresAt: Date
+}
+
+/**
+ * Restore session from IndexedDB cache
  *
- * Note: Full session restoration with UMK unwrap via DSK requires
- * additional implementation (Phase 2: Device Key management)
+ * 1. Check if DSK and wrapped UMK exist in IndexedDB
+ * 2. Call /api/auth/me to validate session and get encrypted keys
+ * 3. Unwrap UMK using DSK
+ * 4. Decrypt identity keys using UMK
+ *
+ * @returns Session data if restoration successful, null otherwise
+ */
+export async function restoreSession(): Promise<SessionRestoreResult | null> {
+  // Step 1: Check if we have cached session data
+  if (!(await hasCachedSession())) {
+    return null
+  }
+
+  // Step 2: Validate session with server
+  let meResponse: MeResponse
+  try {
+    meResponse = await authApi.me()
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 401) {
+      // Session expired, clear cached data
+      await clearDskData()
+      return null
+    }
+    throw error
+  }
+
+  // Step 3: Load DSK and unwrap UMK
+  const dsk = await loadDsk()
+  if (!dsk) {
+    return null
+  }
+
+  const unwrapped = await loadAndUnwrapUmk(dsk)
+  if (!unwrapped) {
+    // Decryption failed, clear cached data
+    await clearDskData()
+    return null
+  }
+
+  // Verify user ID matches
+  if (unwrapped.userId !== meResponse.user_id) {
+    // Different user, clear cached data
+    await clearDskData()
+    return null
+  }
+
+  const umk = unwrapped.umk
+
+  // Step 4: Decrypt identity keys
+  const identityKeys = decryptIdentityPrivateKeys(
+    {
+      encryptedEcdhPrivate: base64UrlDecode(meResponse.encrypted_ecdh_private),
+      ecdhPrivateNonce: base64UrlDecode(meResponse.encrypted_ecdh_private_nonce),
+      encryptedSigningPrivate: base64UrlDecode(meResponse.encrypted_signing_private),
+      signingPrivateNonce: base64UrlDecode(meResponse.encrypted_signing_private_nonce),
+    },
+    umk,
+    meResponse.user_id
+  )
+
+  return {
+    userId: meResponse.user_id,
+    email: meResponse.email,
+    umk,
+    identityKeys,
+    expiresAt: new Date(meResponse.expires_at),
+  }
+}
+
+/**
+ * Get current session (for session validation only, without UMK)
  */
 export async function getCurrentUser(): Promise<MeResponse | null> {
   try {
@@ -193,8 +291,26 @@ export async function getCurrentUser(): Promise<MeResponse | null> {
 }
 
 /**
- * Logout
+ * Logout (normal) - keeps IndexedDB cache for quick re-login
+ *
+ * Per deletion-semantics.md:
+ * - Normal logout: IndexedDB preserved, session destroyed
+ * - User can re-login without password if DSK cache exists
  */
 export async function logout(): Promise<void> {
   await authApi.logout()
+}
+
+/**
+ * Secure logout - clears all local data including IndexedDB
+ *
+ * Per deletion-semantics.md:
+ * - Secure logout: IndexedDB cleared, session destroyed
+ * - All local cryptographic material is erased
+ */
+export async function secureLogout(): Promise<void> {
+  await Promise.all([
+    authApi.logout(),
+    clearDskData(),
+  ])
 }

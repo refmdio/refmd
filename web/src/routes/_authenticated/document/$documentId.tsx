@@ -1,4 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { Loader2, AlertCircle, FileX } from 'lucide-react'
+import { useDocumentEdit } from '@/features/document-edit'
+import { DocumentEditor } from '@/widgets/document-editor'
 
 export const Route = createFileRoute('/_authenticated/document/$documentId')({
   component: DocumentEditorPage,
@@ -6,14 +9,42 @@ export const Route = createFileRoute('/_authenticated/document/$documentId')({
 
 function DocumentEditorPage() {
   const { documentId } = Route.useParams()
+  const { document, yDoc, isLoading, error, save } = useDocumentEdit(documentId)
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <p className="mt-4 text-muted-foreground">Loading document...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full">
+        <AlertCircle className="w-8 h-8 text-destructive" />
+        <p className="mt-4 text-destructive font-medium">Failed to load document</p>
+        <p className="text-sm text-muted-foreground">{error.message}</p>
+      </div>
+    )
+  }
+
+  if (!document || !yDoc) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full">
+        <FileX className="w-8 h-8 text-muted-foreground" />
+        <p className="mt-4 text-muted-foreground">Document not found</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold mb-4">Document Editor</h1>
-      <p className="text-muted-foreground">Document: {documentId}</p>
-      <p className="text-muted-foreground mt-4">
-        Editor will be implemented in Phase 1C-5
-      </p>
-    </div>
+    <DocumentEditor
+      documentId={documentId}
+      yDoc={yDoc}
+      onSave={save}
+      readOnly={document.is_archived}
+    />
   )
 }

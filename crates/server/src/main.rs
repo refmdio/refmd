@@ -5,7 +5,7 @@
 use axum::http::{Method, header, HeaderName, HeaderValue};
 use axum::{Router, routing::get};
 use tower::ServiceBuilder;
-use infrastructure::document::PgDocumentRepository;
+use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository};
 use infrastructure::encryption::{
     PgDocumentEncryptedKeyRepository, PgUserEncryptedIdentityKeyRepository,
     PgUserEncryptedMasterKeyRepository, PgUserIdentityPublicKeyRepository,
@@ -88,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
     let workspace_member_repo = Arc::new(PgWorkspaceMemberRepository::new((*pool_arc).clone()));
     let workspace_role_repo = Arc::new(PgWorkspaceRoleRepository::new((*pool_arc).clone()));
     let document_repo = Arc::new(PgDocumentRepository::new((*pool_arc).clone()));
+    let document_update_repo = Arc::new(PgDocumentUpdateRepository::new((*pool_arc).clone()));
     let workspace_key_repo = Arc::new(PgWorkspaceEncryptedKeyRepository::new((*pool_arc).clone()));
     let document_key_repo = Arc::new(PgDocumentEncryptedKeyRepository::new((*pool_arc).clone()));
     let registration_service = Arc::new(PgRegistrationService::new(pool_arc));
@@ -114,6 +115,7 @@ async fn main() -> anyhow::Result<()> {
         workspace_member_repo,
         workspace_role_repo,
         document_repo,
+        document_update_repo,
         workspace_key_repo,
         document_key_repo,
         registration_service,

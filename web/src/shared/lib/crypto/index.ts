@@ -62,6 +62,28 @@ export {
   buildRecoveryUmkWrapAad,
   buildIdentityEcdhAad,
   buildIdentitySigningAad,
+  buildDekWrapAad,
+  buildDocumentContentAad,
   type AadPurpose,
   type AadCommonHeader,
 } from './aad'
+
+// Document encryption functions
+export {
+  generateDek,
+  wrapDek,
+  unwrapDek,
+  encryptContent,
+  decryptContent,
+} from './document'
+
+// DSK (Device Storage Key) functions
+export {
+  generateDsk,
+  storeDsk,
+  loadDsk,
+  wrapAndStoreUmk,
+  loadAndUnwrapUmk,
+  clearDskData,
+  hasCachedSession,
+} from './dsk'

@@ -1,4 +1,4 @@
-import { Link, useParams } from '@tanstack/react-router'
+import { useParams } from '@tanstack/react-router'
 import { FileText, Folder, Archive } from 'lucide-react'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 import type { components } from '@/shared/api'
@@ -8,9 +8,10 @@ type DocumentResponse = components['schemas']['DocumentResponse']
 interface DocumentTreeProps {
   documents: DocumentResponse[]
   loading?: boolean
+  onSelectDocument: (doc: DocumentResponse) => void
 }
 
-export function DocumentTree({ documents, loading }: DocumentTreeProps) {
+export function DocumentTree({ documents, loading, onSelectDocument }: DocumentTreeProps) {
   const params = useParams({ strict: false })
   const currentDocumentId = params.documentId as string | undefined
 
@@ -34,6 +35,7 @@ export function DocumentTree({ documents, loading }: DocumentTreeProps) {
             key={doc.id}
             document={doc}
             isActive={doc.id === currentDocumentId}
+            onSelect={() => onSelectDocument(doc)}
           />
         ))}
       </div>
@@ -44,16 +46,17 @@ export function DocumentTree({ documents, loading }: DocumentTreeProps) {
 interface DocumentTreeItemProps {
   document: DocumentResponse
   isActive: boolean
+  onSelect: () => void
 }
 
-function DocumentTreeItem({ document, isActive }: DocumentTreeItemProps) {
+function DocumentTreeItem({ document, isActive, onSelect }: DocumentTreeItemProps) {
   const isFolder = document.doc_type === 'folder'
 
   return (
-    <Link
-      to="/document/$documentId"
-      params={{ documentId: document.id }}
-      className={`flex items-center gap-1.5 mx-3 px-3 py-1.5 text-xs rounded-md hover:bg-sidebar-accent transition-colors ${
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex items-center gap-1.5 mx-3 px-3 py-1.5 text-xs rounded-md hover:bg-sidebar-accent transition-colors w-[calc(100%-1.5rem)] text-left ${
         isActive ? 'bg-sidebar-accent text-sidebar-foreground' : 'text-sidebar-foreground/70'
       }`}
     >
@@ -67,6 +70,6 @@ function DocumentTreeItem({ document, isActive }: DocumentTreeItemProps) {
         )}
       </span>
       <span className="truncate">{document.title}</span>
-    </Link>
+    </button>
   )
 }

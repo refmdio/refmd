@@ -126,6 +126,12 @@ migrate-new name:
 migrate-revert:
     sqlx migrate revert --source crates/infrastructure/migrations
 
+# Reset database (drop, create, migrate)
+db-reset:
+    sqlx database drop -y
+    sqlx database create
+    sqlx migrate run --source crates/infrastructure/migrations
+
 # ============ Garage (S3) ============
 
 # Initialize Garage cluster layout (run once after first start)
@@ -167,6 +173,10 @@ web-build:
 # Lint frontend
 web-lint:
     cd web && pnpm lint
+
+# Generate API types from OpenAPI schema (requires API server running)
+web-generate-api:
+    cd web && pnpm api:generate
 
 # ============ Development Setup ============
 

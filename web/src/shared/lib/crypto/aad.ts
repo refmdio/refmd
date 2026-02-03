@@ -123,3 +123,26 @@ export function buildIdentitySigningAad(userId: string): Uint8Array {
     user_id: userId,
   })
 }
+
+/**
+ * Build AAD for DEK wrap (DEK encrypted with KEK)
+ */
+export function buildDekWrapAad(documentId: string, workspaceId: string): Uint8Array {
+  return buildAad({
+    ...SIGNATURE_PROTOCOL,
+    purpose: AAD_PURPOSE.DEK_WRAP,
+    document_id: documentId,
+    workspace_id: workspaceId,
+  })
+}
+
+/**
+ * Build AAD for document content encryption (Yjs updates encrypted with DEK)
+ */
+export function buildDocumentContentAad(documentId: string): Uint8Array {
+  return buildAad({
+    ...SIGNATURE_PROTOCOL,
+    purpose: AAD_PURPOSE.DOCUMENT_CONTENT,
+    document_id: documentId,
+  })
+}

@@ -3,7 +3,7 @@
 /// XChaCha20-Poly1305 nonce size in bytes
 const XCHACHA20_NONCE_SIZE: usize = 24;
 
-use application::domain::document::DocumentRepository;
+use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
     DeviceId, DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
     UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
@@ -33,8 +33,8 @@ use uuid::Uuid;
 use crate::AppState;
 
 /// Create encryption routes
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -47,6 +47,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -55,14 +56,14 @@ where
         // Workspace KEK endpoints
         .route(
             "/workspaces/{workspace_id}/keys",
-            post(save_workspace_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
-                .get(get_workspace_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+            post(save_workspace_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>)
+                .get(get_workspace_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
         )
         // Document DEK endpoints
         .route(
             "/documents/{document_id}/keys",
-            post(save_document_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
-                .get(get_document_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+            post(save_document_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>)
+                .get(get_document_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
         )
         .with_state(state)
 }
@@ -72,12 +73,12 @@ where
 /// Save workspace key request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SaveWorkspaceKeyRequest {
-    /// Device ID (client-generated UUID)
+    /// Device ID (optional, for multi-device support)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    pub device_id: Uuid,
-    /// Sender device ID (for HKDF info)
+    pub device_id: Option<Uuid>,
+    /// Sender device ID (optional, for multi-device support)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    pub sender_device_id: Uuid,
+    pub sender_device_id: Option<Uuid>,
     /// Key version (optional, default: 1)
     #[schema(example = 1)]
     pub key_version: Option<u32>,
@@ -101,12 +102,14 @@ pub struct WorkspaceKeyResponse {
     /// User ID
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
     pub user_id: String,
-    /// Device ID
+    /// Device ID (optional)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    pub device_id: String,
-    /// Sender device ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    /// Sender device ID (optional)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    pub sender_device_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_device_id: Option<String>,
     /// Key version
     #[schema(example = 1)]
     pub key_version: i32,
@@ -124,9 +127,9 @@ pub struct WorkspaceKeyResponse {
 /// Get workspace key query params
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct GetWorkspaceKeyParams {
-    /// Device ID
+    /// Device ID (optional)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    pub device_id: Uuid,
+    pub device_id: Option<Uuid>,
 }
 
 /// Save document key request
@@ -195,8 +198,8 @@ pub struct EncryptionErrorResponse {
     ),
     tag = "encryption"
 )]
-pub async fn save_workspace_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn save_workspace_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     headers: axum::http::HeaderMap,
     Path(workspace_id): Path<Uuid>,
     Json(request): Json<SaveWorkspaceKeyRequest>,
@@ -212,6 +215,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -267,8 +271,8 @@ where
     let command = SaveWorkspaceKeyCommand {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
         user_id: auth_user.user_id,
-        device_id: DeviceId::from_uuid(request.device_id),
-        sender_device_id: DeviceId::from_uuid(request.sender_device_id),
+        device_id: request.device_id.map(DeviceId::from_uuid),
+        sender_device_id: request.sender_device_id.map(DeviceId::from_uuid),
         key_version: request.key_version,
         encrypted_kek,
         nonce,
@@ -280,8 +284,8 @@ where
             let response = WorkspaceKeyResponse {
                 workspace_id: result.key.workspace_id.to_string(),
                 user_id: result.key.user_id.to_string(),
-                device_id: result.key.device_id.to_string(),
-                sender_device_id: result.key.sender_device_id.to_string(),
+                device_id: result.key.device_id.map(|d| d.to_string()),
+                sender_device_id: result.key.sender_device_id.map(|d| d.to_string()),
                 key_version: result.key.key_version.as_i32(),
                 encrypted_kek: base64_url::encode(&result.key.encrypted_kek),
                 nonce: base64_url::encode(&result.key.nonce),
@@ -315,7 +319,7 @@ where
     path = "/api/encryption/workspaces/{workspace_id}/keys",
     params(
         ("workspace_id" = Uuid, Path, description = "Workspace ID"),
-        ("device_id" = Uuid, Query, description = "Device ID")
+        ("device_id" = Option<Uuid>, Query, description = "Device ID (optional)")
     ),
     responses(
         (status = 200, description = "Key found", body = WorkspaceKeyResponse),
@@ -325,8 +329,8 @@ where
     ),
     tag = "encryption"
 )]
-pub async fn get_workspace_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn get_workspace_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     headers: axum::http::HeaderMap,
     Path(workspace_id): Path<Uuid>,
     axum::extract::Query(params): axum::extract::Query<GetWorkspaceKeyParams>,
@@ -342,6 +346,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -361,7 +366,7 @@ where
     let query = GetWorkspaceKeyQuery {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
         user_id: auth_user.user_id,
-        device_id: DeviceId::from_uuid(params.device_id),
+        device_id: params.device_id.map(DeviceId::from_uuid),
     };
 
     match handler.handle(query).await {
@@ -369,8 +374,8 @@ where
             let response = WorkspaceKeyResponse {
                 workspace_id: result.key.workspace_id.to_string(),
                 user_id: result.key.user_id.to_string(),
-                device_id: result.key.device_id.to_string(),
-                sender_device_id: result.key.sender_device_id.to_string(),
+                device_id: result.key.device_id.map(|d| d.to_string()),
+                sender_device_id: result.key.sender_device_id.map(|d| d.to_string()),
                 key_version: result.key.key_version.as_i32(),
                 encrypted_kek: base64_url::encode(&result.key.encrypted_kek),
                 nonce: base64_url::encode(&result.key.nonce),
@@ -415,8 +420,8 @@ where
     ),
     tag = "encryption"
 )]
-pub async fn save_document_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn save_document_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     headers: axum::http::HeaderMap,
     Path(document_id): Path<Uuid>,
     Json(request): Json<SaveDocumentKeyRequest>,
@@ -432,6 +437,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -542,8 +548,8 @@ where
     ),
     tag = "encryption"
 )]
-pub async fn get_document_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn get_document_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     headers: axum::http::HeaderMap,
     Path(document_id): Path<Uuid>,
 ) -> impl IntoResponse
@@ -558,6 +564,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,

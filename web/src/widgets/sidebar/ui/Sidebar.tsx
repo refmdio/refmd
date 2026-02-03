@@ -13,6 +13,7 @@ interface SidebarProps {
   documents: DocumentResponse[]
   documentsLoading?: boolean
   onSelectWorkspace: (workspaceId: string) => void
+  onSelectDocument: (doc: DocumentResponse) => void
   onCreateDocument: () => void
   onCreateFolder?: () => void
 }
@@ -23,6 +24,7 @@ export function Sidebar({
   documents,
   documentsLoading,
   onSelectWorkspace,
+  onSelectDocument,
   onCreateDocument,
   onCreateFolder,
 }: SidebarProps) {
@@ -52,7 +54,11 @@ export function Sidebar({
 
       {/* Document Tree */}
       <div className="flex-1 overflow-hidden flex flex-col">
-        <DocumentTree documents={documents} loading={documentsLoading} />
+        <DocumentTree
+          documents={documents}
+          loading={documentsLoading}
+          onSelectDocument={onSelectDocument}
+        />
       </div>
 
       {/* User Menu with Workspace Switcher */}

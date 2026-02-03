@@ -2,11 +2,12 @@
 
 use application::document::{
     ArchiveDocumentCommand, ArchiveDocumentHandler, CreateDocumentCommand, CreateDocumentHandler,
-    DeleteDocumentCommand, DeleteDocumentHandler, GetDocumentHandler, GetDocumentQuery,
-    ListDocumentsHandler, ListDocumentsQuery, UnarchiveDocumentCommand, UnarchiveDocumentHandler,
-    UpdateDocumentCommand, UpdateDocumentHandler,
+    CreateDocumentUpdateCommand, CreateDocumentUpdateHandler, DeleteDocumentCommand,
+    DeleteDocumentHandler, GetDocumentHandler, GetDocumentQuery, ListDocumentUpdatesHandler,
+    ListDocumentUpdatesQuery, ListDocumentsHandler, ListDocumentsQuery, UnarchiveDocumentCommand,
+    UnarchiveDocumentHandler, UpdateDocumentCommand, UpdateDocumentHandler,
 };
-use application::domain::document::{DocumentId, DocumentRepository};
+use application::domain::document::{DocumentId, DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
     DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
     UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
@@ -33,8 +34,8 @@ use crate::AppState;
 /// Create document routes under /api/workspaces/{workspace_id}/documents
 ///
 /// Only for listing and creating documents (require workspace context).
-pub fn workspace_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>()
--> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>
+pub fn workspace_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>()
+-> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>
 where
     U: UserRepository + Send + Sync + Clone + 'static,
     S: SessionRepository + Send + Sync + Clone + 'static,
@@ -46,22 +47,23 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
 {
     Router::new().route(
         "/",
-        get(list_documents::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
-            .post(create_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+        get(list_documents::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>)
+            .post(create_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
     )
 }
 
 /// Create document routes under /api/documents
 ///
 /// For single document access by document ID only.
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -74,6 +76,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -81,17 +84,22 @@ where
     Router::new()
         .route(
             "/{document_id}",
-            get(get_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
-                .patch(update_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>)
-                .delete(delete_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+            get(get_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>)
+                .patch(update_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>)
+                .delete(delete_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
         )
         .route(
             "/{document_id}/archive",
-            post(archive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+            post(archive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
         )
         .route(
             "/{document_id}/unarchive",
-            post(unarchive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>),
+            post(unarchive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
+        )
+        .route(
+            "/{document_id}/updates",
+            get(list_updates::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>)
+                .post(create_update::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
         )
         .with_state(state)
 }
@@ -159,6 +167,52 @@ pub struct ListDocumentsResponse {
     pub documents: Vec<DocumentResponse>,
 }
 
+/// Document update response (single update)
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DocumentUpdateResponse {
+    pub seq: i64,
+    /// Base64url-encoded encrypted Yjs update binary
+    pub update_data: String,
+    /// Base64url-encoded 24-byte nonce
+    pub nonce: String,
+    /// DEK version used for encryption
+    pub key_version: i32,
+    /// Client timestamp (milliseconds since epoch)
+    pub timestamp: i64,
+}
+
+/// List document updates response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ListDocumentUpdatesResponse {
+    pub updates: Vec<DocumentUpdateResponse>,
+}
+
+/// List document updates query params
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ListDocumentUpdatesParams {
+    /// If provided, only return updates after this sequence number
+    pub after_seq: Option<i64>,
+}
+
+/// Create document update request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateDocumentUpdateRequest {
+    /// Base64url-encoded encrypted Yjs update binary
+    pub update_data: String,
+    /// Base64url-encoded 24-byte nonce
+    pub nonce: String,
+    /// DEK version used for encryption
+    pub key_version: i32,
+    /// Client timestamp (milliseconds since epoch)
+    pub timestamp: i64,
+}
+
+/// Create document update response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CreateDocumentUpdateResponse {
+    pub seq: i64,
+}
+
 // Helper to convert Document to DocumentResponse
 fn document_to_response(doc: application::domain::document::Document) -> DocumentResponse {
     // Compute is_archived before moving fields out of doc
@@ -198,8 +252,8 @@ fn document_to_response(doc: application::domain::document::Document) -> Documen
     ),
     tag = "document"
 )]
-pub async fn list_documents<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn list_documents<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     Path(workspace_id): Path<Uuid>,
     Query(params): Query<ListDocumentsParams>,
     headers: axum::http::HeaderMap,
@@ -215,6 +269,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -297,8 +352,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn create_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn create_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     Path(workspace_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     Json(request): Json<CreateDocumentRequest>,
@@ -314,6 +369,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -428,8 +484,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn get_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn get_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -444,6 +500,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -510,8 +567,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn update_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn update_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     Json(request): Json<UpdateDocumentRequest>,
@@ -527,6 +584,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -637,8 +695,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn delete_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn delete_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -653,6 +711,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -720,8 +779,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn archive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn archive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -736,6 +795,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -803,8 +863,8 @@ where
     ),
     tag = "document"
 )]
-pub async fn unarchive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>>,
+pub async fn unarchive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -819,6 +879,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -876,8 +937,8 @@ struct AuthenticatedUser {
 }
 
 /// Authenticate user from session cookie
-async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>(
-    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, WKR, DKR, RS>,
+async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthenticatedUser, axum::response::Response>
 where
@@ -891,6 +952,7 @@ where
     WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
     WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
     DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
@@ -949,4 +1011,228 @@ where
     Ok(AuthenticatedUser {
         id: session.user_id,
     })
+}
+
+/// List document updates (CRDT update log)
+#[utoipa::path(
+    get,
+    path = "/api/documents/{document_id}/updates",
+    params(
+        ("document_id" = Uuid, Path, description = "Document ID"),
+        ("after_seq" = Option<i64>, Query, description = "Only return updates after this sequence number"),
+    ),
+    responses(
+        (status = 200, description = "List of encrypted document updates", body = ListDocumentUpdatesResponse),
+        (status = 401, description = "Not authenticated", body = DocumentErrorResponse),
+        (status = 403, description = "Permission denied", body = DocumentErrorResponse),
+        (status = 404, description = "Document not found", body = DocumentErrorResponse),
+    ),
+    tag = "document"
+)]
+pub async fn list_updates<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+    Path(document_id): Path<Uuid>,
+    Query(params): Query<ListDocumentUpdatesParams>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+{
+    // Authenticate user
+    let user = match authenticate_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(response) => return response,
+    };
+
+    let handler = ListDocumentUpdatesHandler::new(
+        state.document_repo(),
+        state.document_update_repo(),
+        state.workspace_member_repo(),
+        state.workspace_role_repo(),
+    );
+
+    let query = ListDocumentUpdatesQuery {
+        document_id: DocumentId::from_uuid(document_id),
+        user_id: user.id,
+        after_seq: params.after_seq,
+    };
+
+    match handler.handle(query).await {
+        Ok(result) => {
+            let updates = result
+                .updates
+                .into_iter()
+                .map(|u| DocumentUpdateResponse {
+                    seq: u.seq,
+                    update_data: base64_url::encode(&u.update_data),
+                    nonce: base64_url::encode(&u.nonce),
+                    key_version: u.key_version,
+                    timestamp: u.timestamp,
+                })
+                .collect();
+            (StatusCode::OK, Json(ListDocumentUpdatesResponse { updates })).into_response()
+        }
+        Err(e) => {
+            let status = if e.is_not_found() {
+                StatusCode::NOT_FOUND
+            } else if e.is_forbidden() {
+                StatusCode::FORBIDDEN
+            } else {
+                tracing::error!("document update list internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
+            };
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Create a new document update (CRDT update)
+#[utoipa::path(
+    post,
+    path = "/api/documents/{document_id}/updates",
+    params(
+        ("document_id" = Uuid, Path, description = "Document ID"),
+    ),
+    request_body = CreateDocumentUpdateRequest,
+    responses(
+        (status = 201, description = "Document update created", body = CreateDocumentUpdateResponse),
+        (status = 400, description = "Bad request (invalid nonce, encoding)", body = DocumentErrorResponse),
+        (status = 401, description = "Not authenticated", body = DocumentErrorResponse),
+        (status = 403, description = "Permission denied", body = DocumentErrorResponse),
+        (status = 404, description = "Document not found", body = DocumentErrorResponse),
+        (status = 409, description = "Document is archived", body = DocumentErrorResponse),
+    ),
+    tag = "document"
+)]
+pub async fn create_update<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+    Path(document_id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<CreateDocumentUpdateRequest>,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+{
+    // Authenticate user
+    let user = match authenticate_user(&state, &headers).await {
+        Ok(u) => u,
+        Err(response) => return response,
+    };
+
+    // Decode update_data
+    let update_data = match base64_url::decode(&request.update_data) {
+        Ok(d) => d,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DocumentErrorResponse {
+                    error: "invalid update_data encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Decode nonce
+    let nonce = match base64_url::decode(&request.nonce) {
+        Ok(n) => n,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DocumentErrorResponse {
+                    error: "invalid nonce encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let handler = CreateDocumentUpdateHandler::new(
+        state.document_repo(),
+        state.document_update_repo(),
+        state.workspace_member_repo(),
+        state.workspace_role_repo(),
+    );
+
+    let command = CreateDocumentUpdateCommand {
+        document_id: DocumentId::from_uuid(document_id),
+        user_id: user.id,
+        update_data,
+        nonce,
+        key_version: request.key_version,
+        timestamp: request.timestamp,
+    };
+
+    match handler.handle(command).await {
+        Ok(result) => (
+            StatusCode::CREATED,
+            Json(CreateDocumentUpdateResponse { seq: result.seq }),
+        )
+            .into_response(),
+        Err(e) => {
+            let status = if e.is_not_found() {
+                StatusCode::NOT_FOUND
+            } else if e.is_forbidden() {
+                StatusCode::FORBIDDEN
+            } else if e.is_conflict() {
+                StatusCode::CONFLICT
+            } else if e.is_bad_request() {
+                StatusCode::BAD_REQUEST
+            } else {
+                tracing::error!("document update create internal error: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(DocumentErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
+                )
+                    .into_response();
+            };
+            (
+                status,
+                Json(DocumentErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
 }

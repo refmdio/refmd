@@ -240,4 +240,132 @@ export const documentApi = {
 
     return data
   },
+
+  /**
+   * List document updates (CRDT update log)
+   */
+  async listUpdates(documentId: string, afterSeq?: number) {
+    const { data, error, response } = await api.GET('/api/documents/{document_id}/updates', {
+      params: {
+        path: { document_id: documentId },
+        query: afterSeq !== undefined ? { after_seq: afterSeq } : undefined,
+      },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Create a document update (CRDT update)
+   */
+  async createUpdate(
+    documentId: string,
+    body: {
+      update_data: string
+      nonce: string
+      key_version: number
+      timestamp: number
+    }
+  ) {
+    const { data, error, response } = await api.POST('/api/documents/{document_id}/updates', {
+      params: { path: { document_id: documentId } },
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+}
+
+export const encryptionApi = {
+  /**
+   * Get workspace key (KEK)
+   * @param deviceId - Device ID (optional, for multi-device support)
+   */
+  async getWorkspaceKey(workspaceId: string, deviceId?: string) {
+    const { data, error, response } = await api.GET('/api/encryption/workspaces/{workspace_id}/keys', {
+      params: {
+        path: { workspace_id: workspaceId },
+        query: { device_id: deviceId },
+      },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Save workspace key (KEK)
+   */
+  async saveWorkspaceKey(
+    workspaceId: string,
+    body: {
+      device_id?: string
+      sender_device_id?: string
+      key_version?: number
+      encrypted_kek: string
+      nonce: string
+      is_active: boolean
+    }
+  ) {
+    const { data, error, response } = await api.POST('/api/encryption/workspaces/{workspace_id}/keys', {
+      params: { path: { workspace_id: workspaceId } },
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Get document key (DEK)
+   */
+  async getDocumentKey(documentId: string) {
+    const { data, error, response } = await api.GET('/api/encryption/documents/{document_id}/keys', {
+      params: { path: { document_id: documentId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Save document key (DEK)
+   */
+  async saveDocumentKey(
+    documentId: string,
+    body: {
+      key_version?: number
+      encrypted_dek: string
+      nonce: string
+      is_active: boolean
+    }
+  ) {
+    const { data, error, response } = await api.POST('/api/encryption/documents/{document_id}/keys', {
+      params: { path: { document_id: documentId } },
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
 }
