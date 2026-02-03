@@ -82,4 +82,4 @@ just services-up  # Start PostgreSQL & Garage
 
 ## License
 
-MIT
+GPL-3.0-only (see `LICENSE`)

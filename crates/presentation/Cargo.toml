@@ -2,6 +2,8 @@
 name = "presentation"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 [dependencies]
 application.workspace = true
