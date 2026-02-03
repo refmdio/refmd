@@ -133,35 +133,29 @@ function AuthenticatedLayout() {
     setDocuments((prev) => [doc, ...prev])
   }, [])
 
-  // Show loading state while restoring session
-  if (isRestoring) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-muted-foreground">Restoring session...</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Don't render content if not authenticated
-  if (!auth) {
-    return null
-  }
-
+  // Always wrap in DocumentWorkspaceProvider to ensure context is available
+  // for child routes that may render during navigation
   return (
     <DocumentWorkspaceProvider>
-      <AuthenticatedLayoutInner
-        workspaces={workspaces}
-        documents={documents}
-        documentsLoading={documentsLoading}
-        effectiveWorkspaceId={effectiveWorkspaceId}
-        onSelectWorkspace={handleSelectWorkspace}
-        createDialogOpen={createDialogOpen}
-        setCreateDialogOpen={setCreateDialogOpen}
-        onDocumentCreated={handleDocumentCreated}
-      />
+      {isRestoring ? (
+        <div className="flex h-screen items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="text-muted-foreground">Restoring session...</p>
+          </div>
+        </div>
+      ) : !auth ? null : (
+        <AuthenticatedLayoutInner
+          workspaces={workspaces}
+          documents={documents}
+          documentsLoading={documentsLoading}
+          effectiveWorkspaceId={effectiveWorkspaceId}
+          onSelectWorkspace={handleSelectWorkspace}
+          createDialogOpen={createDialogOpen}
+          setCreateDialogOpen={setCreateDialogOpen}
+          onDocumentCreated={handleDocumentCreated}
+        />
+      )}
     </DocumentWorkspaceProvider>
   )
 }
@@ -210,6 +204,23 @@ function AuthenticatedLayoutInner({
     [navigate, openDocuments, openDocument, setFocusedDocumentId]
   )
 
+  const handleOpenInNewTile = useCallback(
+    (doc: DocumentResponse) => {
+      // Always open a new tile, even if document is already open
+      openDocument({
+        id: doc.id,
+        title: doc.title,
+        workspaceId: doc.workspace_id,
+      })
+
+      navigate({
+        to: '/document/$documentId',
+        params: { documentId: doc.id },
+      })
+    },
+    [navigate, openDocument]
+  )
+
   return (
     <div className="flex h-screen">
       <Sidebar
@@ -219,6 +230,7 @@ function AuthenticatedLayoutInner({
         documentsLoading={documentsLoading}
         onSelectWorkspace={onSelectWorkspace}
         onSelectDocument={handleSelectDocument}
+        onOpenInNewTile={handleOpenInNewTile}
         onCreateDocument={() => setCreateDialogOpen(true)}
       />
       <div className="flex-1 overflow-hidden">

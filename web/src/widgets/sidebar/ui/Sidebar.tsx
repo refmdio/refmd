@@ -14,6 +14,7 @@ interface SidebarProps {
   documentsLoading?: boolean
   onSelectWorkspace: (workspaceId: string) => void
   onSelectDocument: (doc: DocumentResponse) => void
+  onOpenInNewTile?: (doc: DocumentResponse) => void
   onCreateDocument: () => void
   onCreateFolder?: () => void
 }
@@ -25,6 +26,7 @@ export function Sidebar({
   documentsLoading,
   onSelectWorkspace,
   onSelectDocument,
+  onOpenInNewTile,
   onCreateDocument,
   onCreateFolder,
 }: SidebarProps) {
@@ -58,6 +60,7 @@ export function Sidebar({
           documents={documents}
           loading={documentsLoading}
           onSelectDocument={onSelectDocument}
+          onOpenInNewTile={onOpenInNewTile}
         />
       </div>
 
