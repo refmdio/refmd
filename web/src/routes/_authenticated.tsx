@@ -1,15 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import { createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
+import { Outlet, createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
 import { workspaceApi, documentApi, ApiError } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
 import { restoreSession } from '@/features/auth'
 import { Sidebar } from '@/widgets/sidebar'
 import { CreateDocumentDialog } from '@/features/document-create'
-import { MosaicDocumentWorkspace } from '@/widgets/document-workspace'
 import {
   DocumentWorkspaceProvider,
   useDocumentWorkspace,
-} from '@/shared/context/DocumentWorkspaceContext'
+} from '@/widgets/document-workspace'
 import { Loader2 } from 'lucide-react'
 import type { components } from '@/shared/api'
 
@@ -188,17 +187,27 @@ function AuthenticatedLayoutInner({
   setCreateDialogOpen,
   onDocumentCreated,
 }: AuthenticatedLayoutInnerProps) {
-  const { openDocument } = useDocumentWorkspace()
+  const navigate = useNavigate()
+  const { openDocuments, openDocument, setFocusedDocumentId } = useDocumentWorkspace()
 
   const handleSelectDocument = useCallback(
     (doc: DocumentResponse) => {
-      openDocument({
-        id: doc.id,
-        title: doc.title,
-        workspaceId: doc.workspace_id,
+      if (openDocuments.has(doc.id)) {
+        setFocusedDocumentId(doc.id)
+      } else {
+        openDocument({
+          id: doc.id,
+          title: doc.title,
+          workspaceId: doc.workspace_id,
+        })
+      }
+
+      navigate({
+        to: '/document/$documentId',
+        params: { documentId: doc.id },
       })
     },
-    [openDocument]
+    [navigate, openDocuments, openDocument, setFocusedDocumentId]
   )
 
   return (
@@ -212,9 +221,9 @@ function AuthenticatedLayoutInner({
         onSelectDocument={handleSelectDocument}
         onCreateDocument={() => setCreateDialogOpen(true)}
       />
-      <main className="flex-1 overflow-hidden">
-        <MosaicDocumentWorkspace />
-      </main>
+      <div className="flex-1 overflow-hidden">
+        <Outlet />
+      </div>
       {effectiveWorkspaceId && (
         <CreateDocumentDialog
           open={createDialogOpen}

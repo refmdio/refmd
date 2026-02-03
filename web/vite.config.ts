@@ -8,23 +8,30 @@ import { fileURLToPath, URL } from 'url'
 import tailwindcss from '@tailwindcss/vite'
 import { nitro } from 'nitro/vite'
 
-const config = defineConfig({
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
-  },
-  plugins: [
-    devtools(),
-    nitro(),
-    // this is the plugin that enables path aliases
-    viteTsConfigPaths({
-      projects: ['./tsconfig.json'],
-    }),
-    tailwindcss(),
-    tanstackStart(),
-    viteReact(),
-  ],
-})
+export default defineConfig(({ mode }) => {
+  const isTest = mode === 'test' || Boolean(process.env.VITEST)
 
-export default config
+  return {
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
+    plugins: [
+      // Some TanStack Start/Nitro plugins may attempt to bind ports during tests.
+      // Skip them so `vitest run` stays hermetic.
+      !isTest && devtools(),
+      !isTest && nitro(),
+      viteTsConfigPaths({
+        projects: ['./tsconfig.json'],
+      }),
+      tailwindcss(),
+      !isTest && tanstackStart(),
+      viteReact(),
+    ].filter(Boolean),
+    test: {
+      environment: 'jsdom',
+      passWithNoTests: true,
+    },
+  }
+})

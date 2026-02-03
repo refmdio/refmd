@@ -4,9 +4,11 @@
  * CodeMirror editor panel for use within mosaic workspace.
  */
 
+import { useEffect } from 'react'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { useDocumentEdit } from '@/features/document-edit'
 import { DocumentEditor } from '@/widgets/document-editor'
+import { useDocumentWorkspace } from '../model/DocumentWorkspaceContext'
 
 interface EditorPanelProps {
   documentId: string
@@ -14,6 +16,16 @@ interface EditorPanelProps {
 
 export function EditorPanel({ documentId }: EditorPanelProps) {
   const { document, yDoc, isLoading, error, save } = useDocumentEdit(documentId)
+  const { upsertDocumentMetadata } = useDocumentWorkspace()
+
+  useEffect(() => {
+    if (!document) return
+    upsertDocumentMetadata({
+      id: document.id,
+      title: document.title,
+      workspaceId: document.workspace_id,
+    })
+  }, [document, upsertDocumentMetadata])
 
   if (isLoading) {
     return (

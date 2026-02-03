@@ -1,12 +1,38 @@
+import { Suspense, lazy } from 'react'
 import { HeadContent, Scripts, createRootRouteWithContext } from '@tanstack/react-router'
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
-import { TanStackDevtools } from '@tanstack/react-devtools'
 
 import { AuthProvider } from '@/shared/context/AuthContext'
 import { ThemeProvider } from '@/shared/context/ThemeContext'
 import type { RouterContext } from '@/router'
 
 import appCss from '../styles.css?url'
+
+const Devtools = import.meta.env.DEV
+  ? lazy(async () => {
+      const [{ TanStackRouterDevtoolsPanel }, { TanStackDevtools }] = await Promise.all([
+        import('@tanstack/react-router-devtools'),
+        import('@tanstack/react-devtools'),
+      ])
+
+      function DevtoolsInner() {
+        return (
+          <TanStackDevtools
+            config={{
+              position: 'bottom-right',
+            }}
+            plugins={[
+              {
+                name: 'Tanstack Router',
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+            ]}
+          />
+        )
+      }
+
+      return { default: DevtoolsInner }
+    })
+  : null
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
@@ -43,17 +69,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <ThemeProvider>
           <AuthProvider>
             {children}
-            <TanStackDevtools
-              config={{
-                position: 'bottom-right',
-              }}
-              plugins={[
-                {
-                  name: 'Tanstack Router',
-                  render: <TanStackRouterDevtoolsPanel />,
-                },
-              ]}
-            />
+            {import.meta.env.DEV && Devtools ? (
+              <Suspense fallback={null}>
+                <Devtools />
+              </Suspense>
+            ) : null}
           </AuthProvider>
         </ThemeProvider>
         <Scripts />

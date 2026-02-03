@@ -1,50 +1,31 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Loader2, AlertCircle, FileX } from 'lucide-react'
-import { useDocumentEdit } from '@/features/document-edit'
-import { DocumentEditor } from '@/widgets/document-editor'
+import { useEffect, useRef } from 'react'
+import { MosaicDocumentWorkspace, useDocumentWorkspace } from '@/widgets/document-workspace'
 
 export const Route = createFileRoute('/_authenticated/document/$documentId')({
-  component: DocumentEditorPage,
+  component: DocumentWorkspacePage,
 })
 
-function DocumentEditorPage() {
+function DocumentWorkspacePage() {
   const { documentId } = Route.useParams()
-  const { document, yDoc, isLoading, error, save } = useDocumentEdit(documentId)
+  const { openDocuments, openDocument, setFocusedDocumentId } = useDocumentWorkspace()
+  const openedFromRouteRef = useRef<string | null>(null)
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-        <p className="mt-4 text-muted-foreground">Loading document...</p>
-      </div>
-    )
-  }
+  useEffect(() => {
+    if (openedFromRouteRef.current === documentId) return
+    openedFromRouteRef.current = documentId
 
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full">
-        <AlertCircle className="w-8 h-8 text-destructive" />
-        <p className="mt-4 text-destructive font-medium">Failed to load document</p>
-        <p className="text-sm text-muted-foreground">{error.message}</p>
-      </div>
-    )
-  }
+    if (openDocuments.has(documentId)) {
+      setFocusedDocumentId(documentId)
+      return
+    }
 
-  if (!document || !yDoc) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full">
-        <FileX className="w-8 h-8 text-muted-foreground" />
-        <p className="mt-4 text-muted-foreground">Document not found</p>
-      </div>
-    )
-  }
+    openDocument({ id: documentId })
+  }, [documentId, openDocument, openDocuments, setFocusedDocumentId])
 
   return (
-    <DocumentEditor
-      documentId={documentId}
-      yDoc={yDoc}
-      onSave={save}
-      readOnly={document.is_archived}
-    />
+    <div className="h-full">
+      <MosaicDocumentWorkspace />
+    </div>
   )
 }

@@ -5,13 +5,13 @@
  * Each document has separate Editor and Preview panels.
  */
 
-import React, { createContext, useContext, useCallback, useState } from 'react'
+import React, { createContext, useCallback, useContext, useState } from 'react'
 import type { MosaicNode } from 'react-mosaic-component'
 
 export interface OpenDocument {
   id: string
-  title: string
-  workspaceId: string
+  title?: string
+  workspaceId?: string
 }
 
 export type PanelType = 'editor' | 'preview'
@@ -35,11 +35,14 @@ export function encodePanelId(documentId: string, type: PanelType, instanceId?: 
 export function decodePanelId(panelId: string): PanelId | null {
   const parts = panelId.split(':')
   if (parts.length < 3) return null
+
   const [documentId, type, ...rest] = parts
-  const instanceId = rest.join(':') // Handle case where instanceId might contain colons
+  const instanceId = rest.join(':')
+
   if (!documentId || (type !== 'editor' && type !== 'preview') || !instanceId) {
     return null
   }
+
   return { documentId, type: type as PanelType, instanceId }
 }
 
@@ -48,6 +51,7 @@ interface DocumentWorkspaceContextValue {
   mosaicState: MosaicNode<string> | null
   focusedDocumentId: string | null
   openDocument: (doc: OpenDocument) => void
+  upsertDocumentMetadata: (doc: OpenDocument) => void
   closeDocument: (documentId: string) => void
   closePanel: (panelId: string) => void
   splitPanel: (panelId: string, direction: 'row' | 'column') => void
@@ -63,66 +67,43 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
   const [mosaicState, setMosaicState] = useState<MosaicNode<string> | null>(null)
   const [focusedDocumentId, setFocusedDocumentId] = useState<string | null>(null)
 
-  const openDocument = useCallback((doc: OpenDocument) => {
-    // Always track document metadata
-    if (!openDocuments.has(doc.id)) {
-      setOpenDocuments((prev) => {
-        const next = new Map(prev)
-        next.set(doc.id, doc)
-        return next
-      })
-    }
-
-    // Always create new panels (allows multiple instances of same document)
-    const editorId = encodePanelId(doc.id, 'editor')
-    const previewId = encodePanelId(doc.id, 'preview')
-
-    // Create editor + preview side by side
-    const newDocPanels: MosaicNode<string> = {
-      direction: 'row',
-      first: editorId,
-      second: previewId,
-      splitPercentage: 50,
-    }
-
-    // Update mosaic state to include new document panels
-    setMosaicState((prev) => {
-      if (!prev) {
-        return newDocPanels
-      }
-      // Add below existing
-      return {
-        direction: 'column',
-        first: prev,
-        second: newDocPanels,
-        splitPercentage: 50,
-      }
-    })
-
-    setFocusedDocumentId(doc.id)
-  }, [openDocuments])
-
-  const closePanel = useCallback((panelId: string) => {
-    const panel = decodePanelId(panelId)
-    if (!panel) return
-
-    // Remove panel from mosaic state and check if document should be removed
-    setMosaicState((prev) => {
-      if (!prev) return null
-      const newState = removeFromMosaic(prev, panelId)
-
-      // Check if any panels for this document remain
-      if (!newState || !hasDocumentPanels(newState, panel.documentId)) {
-        setOpenDocuments((docs) => {
-          const next = new Map(docs)
-          next.delete(panel.documentId)
-          return next
-        })
-      }
-
-      return newState
+  const upsertDocumentMetadata = useCallback((doc: OpenDocument) => {
+    setOpenDocuments((prev) => {
+      const next = new Map(prev)
+      const existing = next.get(doc.id)
+      next.set(doc.id, { ...existing, ...doc })
+      return next
     })
   }, [])
+
+  const openDocument = useCallback(
+    (doc: OpenDocument) => {
+      upsertDocumentMetadata(doc)
+
+      const editorId = encodePanelId(doc.id, 'editor')
+      const previewId = encodePanelId(doc.id, 'preview')
+
+      const newDocPanels: MosaicNode<string> = {
+        direction: 'row',
+        first: editorId,
+        second: previewId,
+        splitPercentage: 50,
+      }
+
+      setMosaicState((prev) => {
+        if (!prev) return newDocPanels
+        return {
+          direction: 'column',
+          first: prev,
+          second: newDocPanels,
+          splitPercentage: 50,
+        }
+      })
+
+      setFocusedDocumentId(doc.id)
+    },
+    [upsertDocumentMetadata]
+  )
 
   const closeDocument = useCallback((documentId: string) => {
     setOpenDocuments((prev) => {
@@ -131,29 +112,61 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
       return next
     })
 
-    // Remove all panels for this document from mosaic state
     setMosaicState((prev) => {
-      if (!prev) return null
-      return removeDocumentFromMosaic(prev, documentId)
-    })
-
-    // Update focus if closing focused document
-    setFocusedDocumentId((prev) => {
-      if (prev === documentId) {
-        const remaining = Array.from(openDocuments.keys()).filter((id) => id !== documentId)
-        return remaining[0] ?? null
+      if (!prev) {
+        setFocusedDocumentId((current) => (current === documentId ? null : current))
+        return null
       }
-      return prev
+
+      const nextState = removeDocumentFromMosaic(prev, documentId)
+
+      setFocusedDocumentId((current) => {
+        if (current !== documentId) return current
+        return findFirstDocumentId(nextState)
+      })
+
+      return nextState
     })
-  }, [openDocuments])
+  }, [])
+
+  const closePanel = useCallback(
+    (panelId: string) => {
+      const panel = decodePanelId(panelId)
+      if (!panel) return
+
+      setMosaicState((prev) => {
+        if (!prev) return null
+
+        const nextState = removeFromMosaic(prev, panelId)
+
+        const documentStillOpen =
+          nextState != null && hasDocumentPanels(nextState, panel.documentId)
+
+        if (!documentStillOpen) {
+          setOpenDocuments((docs) => {
+            const next = new Map(docs)
+            next.delete(panel.documentId)
+            return next
+          })
+
+          setFocusedDocumentId((current) => {
+            if (current !== panel.documentId) return current
+            return findFirstDocumentId(nextState)
+          })
+        }
+
+        return nextState
+      })
+    },
+    []
+  )
 
   const splitPanel = useCallback((panelId: string, direction: 'row' | 'column') => {
     const panel = decodePanelId(panelId)
     if (!panel) return
 
-    // Create the other panel type with new instance ID
     const newType: PanelType = panel.type === 'editor' ? 'preview' : 'editor'
-    const newPanelId = encodePanelId(panel.documentId, newType) // generates new instanceId
+    const newPanelId = encodePanelId(panel.documentId, newType)
 
     setMosaicState((prev) => {
       if (!prev) return null
@@ -171,7 +184,6 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
     if (!panel) return
 
     const newType: PanelType = panel.type === 'editor' ? 'preview' : 'editor'
-    // Keep same instance ID when switching type
     const newPanelId = encodePanelId(panel.documentId, newType, panel.instanceId)
 
     setMosaicState((prev) => {
@@ -187,6 +199,7 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
         mosaicState,
         focusedDocumentId,
         openDocument,
+        upsertDocumentMetadata,
         closeDocument,
         closePanel,
         splitPanel,
@@ -208,11 +221,15 @@ export function useDocumentWorkspace() {
   return context
 }
 
-// Helper to remove a node from mosaic
-function removeFromMosaic(
-  node: MosaicNode<string>,
-  idToRemove: string
-): MosaicNode<string> | null {
+function findFirstDocumentId(node: MosaicNode<string> | null): string | null {
+  if (!node) return null
+  if (typeof node === 'string') {
+    return decodePanelId(node)?.documentId ?? null
+  }
+  return findFirstDocumentId(node.first) ?? findFirstDocumentId(node.second)
+}
+
+function removeFromMosaic(node: MosaicNode<string>, idToRemove: string): MosaicNode<string> | null {
   if (typeof node === 'string') {
     return node === idToRemove ? null : node
   }
@@ -227,7 +244,6 @@ function removeFromMosaic(
   return { ...node, first, second }
 }
 
-// Helper to replace a panel with a new node structure
 function replacePanelInMosaic(
   node: MosaicNode<string>,
   panelId: string,
@@ -244,7 +260,6 @@ function replacePanelInMosaic(
   }
 }
 
-// Helper to replace a panel ID with another
 function replacePanelIdInMosaic(
   node: MosaicNode<string>,
   oldId: string,
@@ -261,7 +276,6 @@ function replacePanelIdInMosaic(
   }
 }
 
-// Helper to remove all panels for a document
 function removeDocumentFromMosaic(
   node: MosaicNode<string>,
   documentId: string
@@ -281,7 +295,6 @@ function removeDocumentFromMosaic(
   return { ...node, first, second }
 }
 
-// Helper to check if any panels for a document exist
 function hasDocumentPanels(node: MosaicNode<string>, documentId: string): boolean {
   if (typeof node === 'string') {
     const panel = decodePanelId(node)
@@ -290,3 +303,4 @@ function hasDocumentPanels(node: MosaicNode<string>, documentId: string): boolea
 
   return hasDocumentPanels(node.first, documentId) || hasDocumentPanels(node.second, documentId)
 }
+

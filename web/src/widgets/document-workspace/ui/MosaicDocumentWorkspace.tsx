@@ -4,14 +4,13 @@
  * Renders Editor and Preview panels in a resizable tile layout using react-mosaic.
  */
 
-import { useCallback, useEffect } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { useCallback } from 'react'
 import { Mosaic, MosaicWindow, MosaicNode, MosaicBranch } from 'react-mosaic-component'
 import { MoreVertical, FileText, SplitSquareHorizontal, SplitSquareVertical, RefreshCw, X } from 'lucide-react'
 import {
   useDocumentWorkspace,
   decodePanelId,
-} from '@/shared/context/DocumentWorkspaceContext'
+} from '../model/DocumentWorkspaceContext'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,28 +25,15 @@ import 'react-mosaic-component/react-mosaic-component.css'
 import './mosaic-theme.css'
 
 export function MosaicDocumentWorkspace() {
-  const navigate = useNavigate()
   const {
     openDocuments,
     mosaicState,
-    focusedDocumentId,
     closePanel,
     splitPanel,
     switchPanelType,
     setMosaicState,
     setFocusedDocumentId,
   } = useDocumentWorkspace()
-
-  // Update URL when focused document changes
-  useEffect(() => {
-    if (focusedDocumentId) {
-      navigate({
-        to: '/document/$documentId',
-        params: { documentId: focusedDocumentId },
-        replace: true,
-      })
-    }
-  }, [focusedDocumentId, navigate])
 
   const handleChange = useCallback(
     (newNode: MosaicNode<string> | null) => {

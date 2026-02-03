@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
@@ -114,9 +114,9 @@ function LoginPage() {
 
             <p className="text-center text-sm text-muted-foreground">
               Don't have an account?{' '}
-              <a href="/auth/register" className="text-primary hover:underline">
+              <Link to="/auth/register" className="text-primary hover:underline">
                 Register
-              </a>
+              </Link>
             </p>
           </form>
         </CardContent>
