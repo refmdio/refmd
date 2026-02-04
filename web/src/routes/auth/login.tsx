@@ -7,15 +7,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/sha
 import { login } from '@/features/auth'
 import { ApiRequestError } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
+import { loadDsk, loadAndUnwrapDeviceKeys } from '@/shared/lib/crypto'
+
+type LoginSearch = {
+  deviceApproved?: boolean
+}
 
 export const Route = createFileRoute('/auth/login')({
   component: LoginPage,
+  validateSearch: (search: Record<string, unknown>): LoginSearch => ({
+    deviceApproved: search.deviceApproved === true || search.deviceApproved === 'true',
+  }),
 })
 
 function LoginPage() {
   const navigate = useNavigate()
   const router = useRouter()
-  const { setAuthState } = useAuthContext()
+  const { deviceApproved } = Route.useSearch()
+  const { setAuthState, setDeviceState } = useAuthContext()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
@@ -29,6 +38,25 @@ function LoginPage() {
 
     try {
       const result = await login(email, password, rememberMe)
+      await router.invalidate()
+
+      // Handle based on login result type
+      if (result.type === 'device_required') {
+        // New/unverified device - needs to go through PendingDevice flow
+        // Session is created but no keys were returned
+        // Set partial auth state so device-register can access userId
+        setAuthState({
+          userId: result.userId,
+          email: result.email,
+          expiresAt: result.expiresAt,
+          umk: null,
+          identityKeys: null,
+        })
+        navigate({ to: '/auth/device-register' })
+        return
+      }
+
+      // Device verified - we have UMK and identity keys
       setAuthState({
         userId: result.userId,
         email: result.email,
@@ -36,7 +64,24 @@ function LoginPage() {
         umk: result.umk,
         identityKeys: result.identityKeys,
       })
-      await router.invalidate()
+
+      // Load device keys for PoP authentication
+      const dsk = await loadDsk()
+      if (dsk) {
+        const deviceKeysData = await loadAndUnwrapDeviceKeys(dsk)
+        if (deviceKeysData && deviceKeysData.userId === result.userId) {
+          setDeviceState({
+            deviceId: result.deviceId,
+            deviceKeys: {
+              ecdhPrivateKey: deviceKeysData.ecdhPrivateKey,
+              ecdhPublicKey: deviceKeysData.ecdhPublicKey,
+              signingPrivateKey: deviceKeysData.signingPrivateKey,
+              signingPublicKey: deviceKeysData.signingPublicKey,
+            },
+          })
+        }
+      }
+
       navigate({ to: '/dashboard' })
     } catch (err) {
       if (err instanceof ApiRequestError) {
@@ -60,6 +105,11 @@ function LoginPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {deviceApproved && (
+              <div className="p-3 text-sm text-green-700 bg-green-100 border border-green-200 rounded dark:text-green-400 dark:bg-green-900/30 dark:border-green-800">
+                Device approved successfully. Please log in to complete setup.
+              </div>
+            )}
             {error && (
               <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/50 rounded">
                 {error}

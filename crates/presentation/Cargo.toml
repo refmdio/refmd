@@ -10,7 +10,9 @@ application.workspace = true
 
 # Async
 tokio.workspace = true
+tokio-stream.workspace = true
 async-trait.workspace = true
+futures.workspace = true
 
 # Web framework
 axum.workspace = true
@@ -41,5 +43,5 @@ blake3.workspace = true
 ed25519-dalek.workspace = true
 
 # Rate limiting
-tower_governor = "0.6"
-governor = "0.8"
+tower_governor.workspace = true
+governor.workspace = true

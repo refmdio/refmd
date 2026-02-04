@@ -13,13 +13,15 @@
 pub use application;
 
 pub mod auth;
+pub mod events;
 pub mod middleware;
 pub mod rate_limit;
 pub mod routes;
 pub mod sas;
 mod state;
 
-pub use auth::{AuthUser, AuthUserFull};
+pub use auth::{AuthUser, AuthUserFull, PopError, PopVerified, verify_pop, authenticate_with_pop, POP_NONCE_HEADER, POP_SIGNATURE_HEADER, POP_DEVICE_ID_HEADER};
+pub use events::DeviceEventBus;
 pub use state::{AppState, AppStateParams};
 
 use utoipa::OpenApi;
@@ -54,11 +56,14 @@ use utoipa::OpenApi;
         routes::encryption::save_document_key,
         routes::encryption::get_document_key,
         routes::device::create_pending_device,
+        routes::device::list_pending_devices,
         routes::device::get_sas,
         routes::device::approve_device,
+        routes::device::reject_pending_device,
         routes::device::list_devices,
         routes::device::revoke_device,
         routes::device::distribute_umk,
+        routes::device::get_device_umk,
     ),
     components(
         schemas(
@@ -100,10 +105,14 @@ use utoipa::OpenApi;
             routes::device::GetSasResponse,
             routes::device::ApproveDeviceRequest,
             routes::device::ApproveDeviceResponse,
+            routes::device::RejectPendingDeviceResponse,
+            routes::device::PendingDeviceResponse,
+            routes::device::ListPendingDevicesResponse,
             routes::device::DeviceResponse,
             routes::device::ListDevicesResponse,
             routes::device::DistributeUmkRequest,
             routes::device::DistributeUmkResponse,
+            routes::device::GetDeviceUmkResponse,
             routes::device::DeviceErrorResponse,
         )
     ),

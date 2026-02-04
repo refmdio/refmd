@@ -192,6 +192,28 @@ pub async fn register_user_atomic(
     .execute(&mut *tx)
     .await?;
 
+    // 9. Create first device for PoP authentication
+    sqlx::query(
+        r#"
+        INSERT INTO devices (id, user_id, name, device_type, ecdh_public_key, signing_public_key,
+                            identity_signature, client_nonce, last_seen_at, created_at, revoked_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        "#,
+    )
+    .bind(data.device.id.as_uuid())
+    .bind(data.device.user_id.as_uuid())
+    .bind(&data.device.name)
+    .bind(data.device.device_type.as_str())
+    .bind(&data.device.ecdh_public_key)
+    .bind(&data.device.signing_public_key)
+    .bind(&data.device.identity_signature)
+    .bind(&data.device.client_nonce)
+    .bind(data.device.last_seen_at)
+    .bind(data.device.created_at)
+    .bind(data.device.revoked_at)
+    .execute(&mut *tx)
+    .await?;
+
     // Commit transaction
     tx.commit().await?;
 

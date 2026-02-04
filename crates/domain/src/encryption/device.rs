@@ -106,6 +106,8 @@ pub struct PendingDevice {
     pub signing_public_key: Vec<u8>,
     /// Client nonce for SAS verification (16 bytes)
     pub client_nonce: Vec<u8>,
+    /// IP address of the requesting device
+    pub ip_address: Option<String>,
     pub created_at: DateTime<Utc>,
     /// Expires after ~5 minutes
     pub expires_at: DateTime<Utc>,
@@ -121,6 +123,7 @@ impl PendingDevice {
         device_type: DeviceType,
         public_keys: PublicKeyPair,
         client_nonce: Vec<u8>,
+        ip_address: Option<String>,
     ) -> Self {
         let now = Utc::now();
         Self {
@@ -131,6 +134,7 @@ impl PendingDevice {
             ecdh_public_key: public_keys.ecdh_public_key,
             signing_public_key: public_keys.signing_public_key,
             client_nonce,
+            ip_address,
             created_at: now,
             expires_at: now + chrono::Duration::seconds(Self::DEFAULT_EXPIRATION_SECS),
         }

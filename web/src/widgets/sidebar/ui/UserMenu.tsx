@@ -1,8 +1,7 @@
-import { useNavigate } from '@tanstack/react-router'
-import { Settings, ChevronsUpDown, Check, LogOut, Moon, Sun } from 'lucide-react'
-import { useAuthContext } from '@/shared/context/AuthContext'
-import { useTheme } from '@/shared/context/ThemeContext'
-import { logout } from '@/features/auth'
+import { useState } from 'react'
+import { Settings, ChevronsUpDown, Check } from 'lucide-react'
+import { NotificationList } from '@/widgets/notification'
+import { SettingsDialog } from '@/widgets/settings'
 import { Button } from '@/shared/ui/button'
 import {
   DropdownMenu,
@@ -21,9 +20,7 @@ interface UserMenuProps {
 }
 
 export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace }: UserMenuProps) {
-  const { clearAuthState } = useAuthContext()
-  const { isDarkMode, toggleTheme } = useTheme()
-  const navigate = useNavigate()
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const currentWorkspace = workspaces.find((w) => w.workspace.id === currentWorkspaceId)
 
@@ -31,17 +28,6 @@ export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace }: 
   const displayName = currentWorkspace?.workspace.name
     ? formatWorkspaceName(currentWorkspace.workspace.name)
     : 'Select workspace'
-
-  const handleLogout = async () => {
-    try {
-      await logout()
-    } catch {
-      // Ignore errors
-    } finally {
-      clearAuthState()
-      navigate({ to: '/auth/login' })
-    }
-  }
 
   return (
     <div className="border-t border-border px-2 py-1">
@@ -75,25 +61,21 @@ export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace }: 
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Notification List */}
+        <NotificationList />
+
         {/* Settings Button */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <Settings className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="end">
-            <DropdownMenuItem onClick={toggleTheme}>
-              {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              <span>{isDarkMode ? 'Light mode' : 'Dark mode'}</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-              <span>Logout</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
       </div>
+
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }

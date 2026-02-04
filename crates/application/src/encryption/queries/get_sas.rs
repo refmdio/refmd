@@ -1,9 +1,9 @@
 //! Get SAS query
 //!
-//! Retrieves the SAS (Short Authentication String) for a pending device.
-//! Both the existing device and the new device use this to verify the connection.
+//! Returns device public keys for client-side SAS calculation.
+//! Both the existing device and the new device calculate SAS locally for MITM protection.
 
-use domain::encryption::{DeviceId, PendingDeviceRepository, UserIdentityPublicKeyRepository};
+use domain::encryption::{DeviceId, PendingDeviceRepository};
 use domain::identity::UserId;
 use std::sync::Arc;
 use thiserror::Error;
@@ -17,11 +17,9 @@ pub struct GetSasQuery {
     pub user_id: UserId,
 }
 
-/// Get SAS result
+/// Get SAS result - returns device public keys for client-side SAS calculation
 #[derive(Debug)]
 pub struct GetSasResult {
-    /// SAS emoji indices (7 bytes, each 0-255) - computed server-side for reference
-    pub sas_indices: Vec<u8>,
     /// Device name
     pub device_name: String,
     /// Device type as string
@@ -38,7 +36,7 @@ pub struct GetSasResult {
 
 /// Get SAS error
 #[derive(Debug, Error)]
-pub enum GetSasError<PDR: std::error::Error, UIPR: std::error::Error> {
+pub enum GetSasError<PDR: std::error::Error> {
     #[error("pending device not found")]
     PendingDeviceNotFound,
 
@@ -48,22 +46,13 @@ pub enum GetSasError<PDR: std::error::Error, UIPR: std::error::Error> {
     #[error("pending device does not belong to this user")]
     NotOwner,
 
-    #[error("user identity public key not found")]
-    IdentityKeyNotFound,
-
     #[error("pending device repository error: {0}")]
     PendingDeviceRepository(PDR),
-
-    #[error("identity public key repository error: {0}")]
-    IdentityPublicKeyRepository(UIPR),
 }
 
-impl<PDR: std::error::Error, UIPR: std::error::Error> GetSasError<PDR, UIPR> {
+impl<PDR: std::error::Error> GetSasError<PDR> {
     pub fn is_not_found(&self) -> bool {
-        matches!(
-            self,
-            GetSasError::PendingDeviceNotFound | GetSasError::IdentityKeyNotFound
-        )
+        matches!(self, GetSasError::PendingDeviceNotFound)
     }
 
     pub fn is_forbidden(&self) -> bool {
@@ -76,27 +65,24 @@ impl<PDR: std::error::Error, UIPR: std::error::Error> GetSasError<PDR, UIPR> {
 }
 
 /// Get SAS handler
-pub struct GetSasHandler<PDR, UIPR> {
+pub struct GetSasHandler<PDR> {
     pending_device_repo: Arc<PDR>,
-    identity_public_key_repo: Arc<UIPR>,
 }
 
-impl<PDR, UIPR> GetSasHandler<PDR, UIPR>
+impl<PDR> GetSasHandler<PDR>
 where
     PDR: PendingDeviceRepository,
-    UIPR: UserIdentityPublicKeyRepository,
 {
-    pub fn new(pending_device_repo: Arc<PDR>, identity_public_key_repo: Arc<UIPR>) -> Self {
+    pub fn new(pending_device_repo: Arc<PDR>) -> Self {
         Self {
             pending_device_repo,
-            identity_public_key_repo,
         }
     }
 
     pub async fn handle(
         &self,
         query: GetSasQuery,
-    ) -> Result<GetSasResult, GetSasError<PDR::Error, UIPR::Error>> {
+    ) -> Result<GetSasResult, GetSasError<PDR::Error>> {
         // Find pending device
         let pending_device = self
             .pending_device_repo
@@ -115,24 +101,8 @@ where
             return Err(GetSasError::PendingDeviceExpired);
         }
 
-        // Get user's identity public key for SAS generation
-        let identity_key = self
-            .identity_public_key_repo
-            .find_by_user_id(query.user_id)
-            .await
-            .map_err(GetSasError::IdentityPublicKeyRepository)?
-            .ok_or(GetSasError::IdentityKeyNotFound)?;
-
-        // Generate SAS indices using BLAKE3
-        let sas_indices = generate_sas_indices(
-            &identity_key.signing_public_key,
-            &pending_device.signing_public_key,
-            &pending_device.ecdh_public_key,
-            &pending_device.client_nonce,
-        );
-
+        // Return device public keys for client-side SAS calculation
         Ok(GetSasResult {
-            sas_indices,
             device_name: pending_device.name.clone(),
             device_type: pending_device.device_type.as_str().to_string(),
             expires_at: pending_device.expires_at,
@@ -141,23 +111,4 @@ where
             client_nonce: pending_device.client_nonce.clone(),
         })
     }
-}
-
-/// Generate SAS indices from public keys and nonce
-fn generate_sas_indices(
-    identity_signing_pk: &[u8],
-    device_signing_pk: &[u8],
-    device_ecdh_pk: &[u8],
-    client_nonce: &[u8],
-) -> Vec<u8> {
-    use blake3::Hasher;
-
-    let mut hasher = Hasher::new();
-    hasher.update(identity_signing_pk);
-    hasher.update(device_signing_pk);
-    hasher.update(device_ecdh_pk);
-    hasher.update(client_nonce);
-
-    let hash = hasher.finalize();
-    hash.as_bytes()[..7].to_vec()
 }

@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Outlet, createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
 import { workspaceApi, documentApi, ApiError } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
 import { restoreSession } from '@/features/auth'
+import { loadDeviceId, loadDsk, loadAndUnwrapDeviceKeys } from '@/shared/lib/crypto'
+import { setPopCredentials } from '@/shared/lib/pop-store'
+import { PendingDeviceProvider } from '@/features/device'
 import { Sidebar } from '@/widgets/sidebar'
 import { CreateDocumentDialog } from '@/features/document-create'
 import {
@@ -22,13 +25,16 @@ export const Route = createFileRoute('/_authenticated')({
 function AuthenticatedLayout() {
   const navigate = useNavigate()
   const params = useParams({ strict: false })
-  const { auth, setAuthState, currentWorkspaceId, setCurrentWorkspaceId } = useAuthContext()
+  const { auth, setAuthState, setDeviceState, currentWorkspaceId, setCurrentWorkspaceId } = useAuthContext()
 
   const [isRestoring, setIsRestoring] = useState(!auth) // Need restoration if no auth
   const [workspaces, setWorkspaces] = useState<WorkspaceWithMembership[]>([])
   const [documents, setDocuments] = useState<DocumentResponse[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+
+  // Track if restoration has been attempted to prevent re-running on auth change
+  const restorationAttempted = useRef(false)
 
   // Get workspaceId from URL params if available
   const urlWorkspaceId = params.workspaceId as string | undefined
@@ -38,17 +44,50 @@ function AuthenticatedLayout() {
 
   // Restore session from IndexedDB if not already authenticated
   useEffect(() => {
-    if (auth) {
-      // Already authenticated (from login)
+    // If already authenticated (e.g., from login page), skip restoration
+    if (auth && !restorationAttempted.current) {
       setIsRestoring(false)
       return
     }
+
+    // If restoration already attempted, don't re-run
+    // This prevents the effect from re-running when setAuthState triggers a re-render
+    if (restorationAttempted.current) {
+      return
+    }
+
+    restorationAttempted.current = true
 
     async function tryRestoreSession() {
       try {
         const result = await restoreSession()
         if (result) {
-          // Session restored successfully
+          // Also restore device keys for PoP authentication FIRST
+          // This must happen before setAuthState to ensure PoP credentials
+          // are available when child components make API calls
+          const deviceId = await loadDeviceId()
+          if (deviceId) {
+            const dsk = await loadDsk()
+            if (dsk) {
+              const deviceKeysData = await loadAndUnwrapDeviceKeys(dsk)
+              if (deviceKeysData && deviceKeysData.userId === result.userId) {
+                // Set PoP credentials synchronously before any state updates
+                setPopCredentials(deviceId, deviceKeysData.signingPrivateKey)
+
+                setDeviceState({
+                  deviceId,
+                  deviceKeys: {
+                    ecdhPrivateKey: deviceKeysData.ecdhPrivateKey,
+                    ecdhPublicKey: deviceKeysData.ecdhPublicKey,
+                    signingPrivateKey: deviceKeysData.signingPrivateKey,
+                    signingPublicKey: deviceKeysData.signingPublicKey,
+                  },
+                })
+              }
+            }
+          }
+
+          // Session restored successfully - set auth state AFTER device keys
           setAuthState({
             userId: result.userId,
             email: result.email,
@@ -69,7 +108,7 @@ function AuthenticatedLayout() {
     }
 
     tryRestoreSession()
-  }, [auth, setAuthState, navigate])
+  }, [auth, setAuthState, setDeviceState, navigate])
 
   // Fetch workspaces on mount (only when authenticated)
   useEffect(() => {
@@ -145,6 +184,7 @@ function AuthenticatedLayout() {
           </div>
         </div>
       ) : !auth ? null : (
+        <PendingDeviceProvider>
         <AuthenticatedLayoutInner
           workspaces={workspaces}
           documents={documents}
@@ -155,6 +195,7 @@ function AuthenticatedLayout() {
           setCreateDialogOpen={setCreateDialogOpen}
           onDocumentCreated={handleDocumentCreated}
         />
+        </PendingDeviceProvider>
       )}
     </DocumentWorkspaceProvider>
   )

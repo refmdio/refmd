@@ -16,7 +16,6 @@ import {
   generateClientNonce,
   base64UrlEncode,
   base64UrlDecode,
-  sasIndicesToEmojis,
   generateSasEmojis,
   sign,
   type DeviceKeyPair,
@@ -60,6 +59,9 @@ export interface UseDeviceReturn {
 
   /** List all user's devices */
   listDevices: () => Promise<Awaited<ReturnType<typeof deviceApi.listDevices>>>
+
+  /** List pending devices awaiting approval */
+  listPendingDevices: () => Promise<Awaited<ReturnType<typeof deviceApi.listPendingDevices>>>
 
   /** Revoke a device */
   revokeDevice: (deviceId: string) => Promise<void>
@@ -206,6 +208,13 @@ export function useDevice(): UseDeviceReturn {
   }, [])
 
   /**
+   * List pending devices awaiting approval
+   */
+  const listPendingDevices = useCallback(async () => {
+    return await deviceApi.listPendingDevices()
+  }, [])
+
+  /**
    * Revoke a device
    */
   const revokeDevice = useCallback(async (deviceId: string) => {
@@ -218,6 +227,7 @@ export function useDevice(): UseDeviceReturn {
     getSas,
     approveDevice,
     listDevices,
+    listPendingDevices,
     revokeDevice,
     reset,
   }

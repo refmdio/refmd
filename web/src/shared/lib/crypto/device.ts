@@ -33,11 +33,11 @@ export interface DeviceKeyPair {
  */
 export function generateDeviceKeyPair(): DeviceKeyPair {
   // Generate X25519 ECDH key pair
-  const ecdhPrivateKey = x25519.utils.randomPrivateKey()
+  const ecdhPrivateKey = x25519.utils.randomSecretKey()
   const ecdhPublicKey = x25519.getPublicKey(ecdhPrivateKey)
 
   // Generate Ed25519 signing key pair
-  const signingPrivateKey = ed25519.utils.randomPrivateKey()
+  const signingPrivateKey = ed25519.utils.randomSecretKey()
   const signingPublicKey = ed25519.getPublicKey(signingPrivateKey)
 
   return {

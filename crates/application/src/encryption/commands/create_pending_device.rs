@@ -23,6 +23,8 @@ pub struct CreatePendingDeviceCommand {
     pub signing_public_key: Vec<u8>,
     /// Client-generated nonce for SAS (16 bytes)
     pub client_nonce: Vec<u8>,
+    /// IP address of the requesting device
+    pub ip_address: Option<String>,
 }
 
 /// Create pending device result
@@ -132,6 +134,7 @@ where
             command.device_type,
             public_keys,
             command.client_nonce,
+            command.ip_address,
         );
 
         // Save to repository

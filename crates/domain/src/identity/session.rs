@@ -5,12 +5,14 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::user::UserId;
+use crate::encryption::DeviceId;
 
 /// Session entity
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: SessionId,
     pub user_id: UserId,
+    pub device_id: Option<DeviceId>,
     pub token_hash: String,
     pub remember_me: bool,
     pub ip_address: Option<String>,
@@ -62,6 +64,18 @@ impl Session {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Self {
+        Self::with_device(user_id, None, token_hash, remember_me, ip_address, user_agent)
+    }
+
+    /// Create a new session with a device ID
+    pub fn with_device(
+        user_id: UserId,
+        device_id: Option<DeviceId>,
+        token_hash: String,
+        remember_me: bool,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Self {
         let now = Utc::now();
         let expires_at = if remember_me {
             now + Duration::days(REMEMBER_ME_DURATION_DAYS)
@@ -72,6 +86,7 @@ impl Session {
         Self {
             id: SessionId::new(),
             user_id,
+            device_id,
             token_hash,
             remember_me,
             ip_address,

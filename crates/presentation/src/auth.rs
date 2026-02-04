@@ -4,7 +4,7 @@
 
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
+    Device, DeviceEncryptedUMKRepository, DeviceId, DeviceRepository, DocumentEncryptedKeyRepository,
     PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
     UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
 };
@@ -23,8 +23,9 @@ use axum::{
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
-use crate::{AppState, routes::auth::SESSION_COOKIE_NAME};
+use crate::{AppState, middleware::NonceCache, routes::auth::SESSION_COOKIE_NAME};
 
 /// Authenticated user information extracted from session
 #[derive(Debug, Clone)]
@@ -219,6 +220,190 @@ pub async fn authenticate_full<S: SessionRepository, U: UserRepository>(
         .ok_or_else(AuthError::user_not_found)?;
 
     Ok((user, auth_user.session))
+}
+
+/// PoP (Proof of Possession) verification error
+#[derive(Debug, Serialize)]
+pub struct PopError {
+    pub error: String,
+}
+
+impl PopError {
+    pub fn new(error: impl Into<String>) -> Self {
+        Self {
+            error: error.into(),
+        }
+    }
+
+    pub fn missing_header(name: &str) -> Self {
+        Self::new(format!("missing {} header", name))
+    }
+
+    pub fn invalid_header(name: &str) -> Self {
+        Self::new(format!("invalid {} header", name))
+    }
+
+    pub fn nonce_reused() -> Self {
+        Self::new("nonce already used (possible replay attack)")
+    }
+
+    pub fn device_not_found() -> Self {
+        Self::new("device not found")
+    }
+
+    pub fn device_revoked() -> Self {
+        Self::new("device has been revoked")
+    }
+
+    pub fn device_user_mismatch() -> Self {
+        Self::new("device does not belong to user")
+    }
+
+    pub fn invalid_signature() -> Self {
+        Self::new("invalid signature")
+    }
+
+    pub fn internal_error() -> Self {
+        Self::new("internal server error")
+    }
+}
+
+impl IntoResponse for PopError {
+    fn into_response(self) -> Response {
+        (StatusCode::UNAUTHORIZED, Json(self)).into_response()
+    }
+}
+
+/// PoP header names
+pub const POP_NONCE_HEADER: &str = "X-PoP-Nonce";
+pub const POP_SIGNATURE_HEADER: &str = "X-PoP-Signature";
+pub const POP_DEVICE_ID_HEADER: &str = "X-PoP-Device-Id";
+
+/// Verified PoP result containing the device
+#[derive(Debug)]
+pub struct PopVerified {
+    pub device: Device,
+}
+
+/// Verify PoP (Proof of Possession) headers
+///
+/// This function validates the PoP headers to ensure the request comes from
+/// a legitimate device. It checks:
+/// 1. All required headers are present
+/// 2. The nonce hasn't been used before (replay attack prevention)
+/// 3. The device exists and belongs to the authenticated user
+/// 4. The signature is valid
+///
+/// Returns the verified device on success.
+pub async fn verify_pop<D: DeviceRepository>(
+    headers: &HeaderMap,
+    user_id: UserId,
+    device_repo: &D,
+    nonce_cache: &Arc<NonceCache>,
+) -> Result<PopVerified, PopError> {
+    // Extract X-PoP-Nonce
+    let nonce_header = headers
+        .get(POP_NONCE_HEADER)
+        .ok_or_else(|| PopError::missing_header(POP_NONCE_HEADER))?;
+    let nonce_str = nonce_header
+        .to_str()
+        .map_err(|_| PopError::invalid_header(POP_NONCE_HEADER))?;
+    let nonce = base64_url::decode(nonce_str)
+        .map_err(|_| PopError::invalid_header(POP_NONCE_HEADER))?;
+    if nonce.len() != 32 {
+        return Err(PopError::new("nonce must be 32 bytes"));
+    }
+
+    // Extract X-PoP-Signature
+    let sig_header = headers
+        .get(POP_SIGNATURE_HEADER)
+        .ok_or_else(|| PopError::missing_header(POP_SIGNATURE_HEADER))?;
+    let sig_str = sig_header
+        .to_str()
+        .map_err(|_| PopError::invalid_header(POP_SIGNATURE_HEADER))?;
+    let signature = base64_url::decode(sig_str)
+        .map_err(|_| PopError::invalid_header(POP_SIGNATURE_HEADER))?;
+    if signature.len() != 64 {
+        return Err(PopError::new("signature must be 64 bytes"));
+    }
+
+    // Extract X-PoP-Device-Id
+    let device_id_header = headers
+        .get(POP_DEVICE_ID_HEADER)
+        .ok_or_else(|| PopError::missing_header(POP_DEVICE_ID_HEADER))?;
+    let device_id_str = device_id_header
+        .to_str()
+        .map_err(|_| PopError::invalid_header(POP_DEVICE_ID_HEADER))?;
+    let device_uuid = uuid::Uuid::parse_str(device_id_str)
+        .map_err(|_| PopError::invalid_header(POP_DEVICE_ID_HEADER))?;
+    let device_id = DeviceId::from_uuid(device_uuid);
+
+    // Check nonce hasn't been used (replay attack prevention)
+    if !nonce_cache.check_and_store(nonce_str) {
+        return Err(PopError::nonce_reused());
+    }
+
+    // Fetch device
+    let device = device_repo
+        .find_by_id(device_id)
+        .await
+        .map_err(|_| PopError::internal_error())?
+        .ok_or_else(PopError::device_not_found)?;
+
+    // Check device belongs to authenticated user
+    if device.user_id != user_id {
+        return Err(PopError::device_user_mismatch());
+    }
+
+    // Check device is not revoked
+    if device.is_revoked() {
+        return Err(PopError::device_revoked());
+    }
+
+    // Verify Ed25519 signature
+    let pk_bytes: [u8; 32] = device
+        .signing_public_key
+        .as_slice()
+        .try_into()
+        .map_err(|_| PopError::internal_error())?;
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes)
+        .map_err(|_| PopError::internal_error())?;
+    let sig_bytes: [u8; 64] = signature
+        .as_slice()
+        .try_into()
+        .map_err(|_| PopError::invalid_signature())?;
+    let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes);
+
+    use ed25519_dalek::Verifier;
+    verifying_key
+        .verify(&nonce, &sig)
+        .map_err(|_| PopError::invalid_signature())?;
+
+    Ok(PopVerified { device })
+}
+
+/// Authenticate with PoP verification combined
+///
+/// This is a convenience function that performs both session authentication
+/// and PoP verification in one call. Returns the authenticated user info
+/// along with the verified device.
+pub async fn authenticate_with_pop<S: SessionRepository, D: DeviceRepository>(
+    headers: &HeaderMap,
+    session_repo: &S,
+    device_repo: &D,
+    nonce_cache: &Arc<NonceCache>,
+) -> Result<(AuthUser, PopVerified), Response> {
+    // First, authenticate the session
+    let auth_user = authenticate(headers, session_repo)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    // Then, verify PoP
+    let pop_verified = verify_pop(headers, auth_user.user_id, device_repo, nonce_cache)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    Ok((auth_user, pop_verified))
 }
 
 /// Hash session token for storage/lookup

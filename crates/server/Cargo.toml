@@ -40,4 +40,4 @@ dotenvy.workspace = true
 hex.workspace = true
 
 # Rate limiting
-tower_governor = "0.6"
+tower_governor.workspace = true

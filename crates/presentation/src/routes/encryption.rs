@@ -1,4 +1,7 @@
 //! Encryption key routes (KEK/DEK)
+//!
+//! These routes handle E2EE key material and require PoP (Proof of Possession)
+//! verification per ADR-009.
 
 /// XChaCha20-Poly1305 nonce size in bytes
 const XCHACHA20_NONCE_SIZE: usize = 24;
@@ -31,6 +34,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::verify_pop;
 
 /// Create encryption routes
 pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
@@ -232,6 +236,18 @@ where
         Err(e) => return e.into_response(),
     };
 
+    // Verify PoP (Proof of Possession) - required for E2EE key operations
+    if let Err(e) = verify_pop(
+        &headers,
+        auth_user.user_id,
+        state.device_repo().as_ref(),
+        &state.nonce_cache(),
+    )
+    .await
+    {
+        return e.into_response();
+    }
+
     // Decode base64url fields
     let encrypted_kek = match base64_url::decode(&request.encrypted_kek) {
         Ok(k) => k,
@@ -366,6 +382,18 @@ where
         Err(e) => return e.into_response(),
     };
 
+    // Verify PoP (Proof of Possession) - required for E2EE key operations
+    if let Err(e) = verify_pop(
+        &headers,
+        auth_user.user_id,
+        state.device_repo().as_ref(),
+        &state.nonce_cache(),
+    )
+    .await
+    {
+        return e.into_response();
+    }
+
     let handler = GetWorkspaceKeyHandler::new(
         state.workspace_key_repo(),
         state.workspace_member_repo(),
@@ -459,6 +487,18 @@ where
         Ok(u) => u,
         Err(e) => return e.into_response(),
     };
+
+    // Verify PoP (Proof of Possession) - required for E2EE key operations
+    if let Err(e) = verify_pop(
+        &headers,
+        auth_user.user_id,
+        state.device_repo().as_ref(),
+        &state.nonce_cache(),
+    )
+    .await
+    {
+        return e.into_response();
+    }
 
     // Decode base64url fields
     let encrypted_dek = match base64_url::decode(&request.encrypted_dek) {
@@ -589,6 +629,18 @@ where
         Ok(u) => u,
         Err(e) => return e.into_response(),
     };
+
+    // Verify PoP (Proof of Possession) - required for E2EE key operations
+    if let Err(e) = verify_pop(
+        &headers,
+        auth_user.user_id,
+        state.device_repo().as_ref(),
+        &state.nonce_cache(),
+    )
+    .await
+    {
+        return e.into_response();
+    }
 
     let handler = GetDocumentKeyHandler::new(
         state.document_key_repo(),

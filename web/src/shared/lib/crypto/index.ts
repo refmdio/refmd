@@ -13,7 +13,7 @@
 export { deriveAuthKeys, deriveRegistrationKeys, type DerivedKeys, type KdfParams } from './kdf'
 
 // UMK functions
-export { generateUmk, wrapUmk, unwrapUmk } from './umk'
+export { generateUmk, wrapUmk, unwrapUmk, encryptUmkForDevice, decryptUmkFromDevice } from './umk'
 
 // Identity key functions
 export {
@@ -62,6 +62,7 @@ export {
   buildRecoveryUmkWrapAad,
   buildIdentityEcdhAad,
   buildIdentitySigningAad,
+  buildDeviceUmkDistributionAad,
   buildDekWrapAad,
   buildDocumentContentAad,
   type AadPurpose,
@@ -84,8 +85,20 @@ export {
   loadDsk,
   wrapAndStoreUmk,
   loadAndUnwrapUmk,
+  clearSessionCache,
   clearDskData,
   hasCachedSession,
+  storeDeviceId,
+  loadDeviceId,
+  wrapAndStoreDeviceKeys,
+  loadAndUnwrapDeviceKeys,
+  hasDeviceKeys,
+  hasDeviceKeysForUser,
+  // Session storage (for rememberMe=false)
+  storeSessionUmk,
+  loadSessionUmk,
+  clearSessionUmk,
+  hasSessionUmk,
 } from './dsk'
 
 // SAS (Short Authentication String) functions
@@ -105,3 +118,12 @@ export {
   verifyDeviceSignature,
   type DeviceKeyPair,
 } from './device'
+
+// PoP (Proof of Possession) functions
+export {
+  generatePopHeaders,
+  POP_NONCE_HEADER,
+  POP_SIGNATURE_HEADER,
+  POP_DEVICE_ID_HEADER,
+  type PopHeaders,
+} from './pop'

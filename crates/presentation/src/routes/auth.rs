@@ -9,6 +9,12 @@ const ARGON2_SALT_SIZE: usize = 16;
 /// X25519/Ed25519 public key size in bytes
 const PUBLIC_KEY_SIZE: usize = 32;
 
+/// Client nonce size in bytes (for SAS verification)
+const CLIENT_NONCE_SIZE: usize = 16;
+
+/// Ed25519 signature size in bytes
+const ED25519_SIGNATURE_SIZE: usize = 64;
+
 /// Known X25519 low-order points that must be rejected
 /// These can lead to all-zero shared secrets which are security vulnerabilities
 const X25519_LOW_ORDER_POINTS: &[[u8; 32]] = &[
@@ -66,8 +72,9 @@ fn is_valid_ed25519_public_key(key: &[u8]) -> bool {
 
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository, KdfParams,
-    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+    DeviceEncryptedUMKRepository, DeviceId, DeviceRepository, DeviceType,
+    DocumentEncryptedKeyRepository, KdfParams, PendingDeviceRepository,
+    UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
     UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
@@ -337,6 +344,24 @@ pub struct RegisterRequest {
     /// Encrypted signing private key nonce (base64url encoded)
     #[schema(example = "base64url-encoded-nonce")]
     pub encrypted_signing_private_nonce: String,
+    /// Device name for the first device
+    #[schema(example = "Chrome on MacOS")]
+    pub device_name: String,
+    /// Device type: "browser", "desktop", or "mobile"
+    #[schema(example = "browser")]
+    pub device_type: String,
+    /// Device ECDH public key (base64url encoded, 32 bytes)
+    #[schema(example = "base64url-encoded-device-ecdh-public-key")]
+    pub device_ecdh_public_key: String,
+    /// Device signing public key (base64url encoded, 32 bytes)
+    #[schema(example = "base64url-encoded-device-signing-public-key")]
+    pub device_signing_public_key: String,
+    /// Device client nonce for SAS (base64url encoded, 16 bytes)
+    #[schema(example = "base64url-encoded-device-nonce")]
+    pub device_client_nonce: String,
+    /// Identity signature over device keys (base64url encoded, 64 bytes Ed25519 signature)
+    #[schema(example = "base64url-encoded-identity-signature")]
+    pub device_identity_signature: String,
 }
 
 /// Register response
@@ -348,6 +373,9 @@ pub struct RegisterResponse {
     /// User email address
     #[schema(example = "user@example.com")]
     pub email: String,
+    /// Device ID (UUID) - the first registered device
+    #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
+    pub device_id: String,
 }
 
 /// Register a new password user
@@ -619,6 +647,129 @@ where
             }
         };
 
+    // Decode device fields
+    let device_ecdh_public_key = match base64_url::decode(&request.device_ecdh_public_key) {
+        Ok(s) if s.len() == PUBLIC_KEY_SIZE && is_valid_x25519_public_key(&s) => s,
+        Ok(s) if s.len() != PUBLIC_KEY_SIZE => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_ecdh_public_key length: expected 32 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_ecdh_public_key: low-order point rejected".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_ecdh_public_key encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let device_signing_public_key = match base64_url::decode(&request.device_signing_public_key) {
+        Ok(s) if s.len() == PUBLIC_KEY_SIZE && is_valid_ed25519_public_key(&s) => s,
+        Ok(s) if s.len() != PUBLIC_KEY_SIZE => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_signing_public_key length: expected 32 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_signing_public_key: small-order point rejected"
+                        .to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_signing_public_key encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let device_client_nonce = match base64_url::decode(&request.device_client_nonce) {
+        Ok(s) if s.len() == CLIENT_NONCE_SIZE => s,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_client_nonce length: expected 16 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_client_nonce encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let device_identity_signature = match base64_url::decode(&request.device_identity_signature) {
+        Ok(s) if s.len() == ED25519_SIGNATURE_SIZE => s,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_identity_signature length: expected 64 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_identity_signature encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Parse device type
+    let device_type: DeviceType = match request.device_type.parse() {
+        Ok(t) => t,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device_type: must be 'browser', 'desktop', or 'mobile'"
+                        .to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
     // Use atomic handler for transactional registration
     let handler = RegisterPasswordUserAtomicHandler::new(
         state.user_repo(),
@@ -642,6 +793,12 @@ where
         encrypted_ecdh_private_nonce,
         encrypted_signing_private,
         encrypted_signing_private_nonce,
+        device_name: request.device_name,
+        device_type,
+        device_ecdh_public_key,
+        device_signing_public_key,
+        device_client_nonce,
+        device_identity_signature,
     };
 
     match handler.handle(command).await {
@@ -649,6 +806,7 @@ where
             let response = RegisterResponse {
                 id: result.user.id.to_string(),
                 email: result.user.email.to_string(),
+                device_id: result.device.id.to_string(),
             };
             (StatusCode::CREATED, Json(response)).into_response()
         }
@@ -681,11 +839,17 @@ pub struct LoginRequest {
     /// Remember me flag for extended session duration
     #[schema(example = false)]
     pub remember_me: bool,
+    /// Device ID for session binding (optional, for existing devices)
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    #[serde(default)]
+    pub device_id: Option<String>,
 }
 
 /// Login response
 ///
 /// Session token is set via HttpOnly cookie, not in JSON body.
+/// Note: Encrypted keys are only returned for verified (registered) devices.
+/// New devices must go through the PendingDevice flow to receive keys.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct LoginResponse {
     /// Session expiration timestamp
@@ -696,6 +860,24 @@ pub struct LoginResponse {
     /// User email
     #[schema(example = "user@example.com")]
     pub email: String,
+    /// Whether user has any registered devices (for PoP enforcement)
+    #[schema(example = true)]
+    pub has_devices: bool,
+    /// Whether the login device is verified (registered and active)
+    #[schema(example = true)]
+    pub device_verified: bool,
+    /// Device ID if verified
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    /// Encrypted keys (only present for verified devices)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keys: Option<LoginResponseKeys>,
+}
+
+/// Encrypted keys returned only for verified devices
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LoginResponseKeys {
     /// Encrypted UMK (base64url encoded)
     #[schema(example = "base64url-encoded-encrypted-umk")]
     pub encrypted_umk: String,
@@ -766,7 +948,13 @@ where
         state.session_repo(),
         state.user_encrypted_master_key_repo(),
         state.user_encrypted_identity_key_repo(),
+        state.device_repo(),
     );
+
+    // Parse device_id if provided
+    let device_id = request.device_id.as_ref().and_then(|id| {
+        uuid::Uuid::parse_str(id).ok().map(DeviceId::from_uuid)
+    });
 
     let command = LoginPasswordUserCommand {
         email: request.email,
@@ -774,6 +962,7 @@ where
         remember_me,
         ip_address: None, // TODO: Extract from request headers
         user_agent: None, // TODO: Extract from request headers
+        device_id,
     };
 
     match handler.handle(command).await {
@@ -786,20 +975,24 @@ where
                 state.secure_cookies(),
             );
 
+            // Only include keys if device is verified
+            let keys = result.keys.map(|k| LoginResponseKeys {
+                encrypted_umk: base64_url::encode(&k.encrypted_umk),
+                umk_nonce: base64_url::encode(&k.umk_nonce),
+                encrypted_ecdh_private: base64_url::encode(&k.encrypted_ecdh_private),
+                encrypted_ecdh_private_nonce: base64_url::encode(&k.encrypted_ecdh_private_nonce),
+                encrypted_signing_private: base64_url::encode(&k.encrypted_signing_private),
+                encrypted_signing_private_nonce: base64_url::encode(&k.encrypted_signing_private_nonce),
+            });
+
             let response = LoginResponse {
                 expires_at: result.expires_at.to_rfc3339(),
                 user_id: result.user.id.to_string(),
                 email: result.user.email.to_string(),
-                encrypted_umk: base64_url::encode(&result.encrypted_umk),
-                umk_nonce: base64_url::encode(&result.umk_nonce),
-                encrypted_ecdh_private: base64_url::encode(&result.encrypted_ecdh_private),
-                encrypted_ecdh_private_nonce: base64_url::encode(
-                    &result.encrypted_ecdh_private_nonce,
-                ),
-                encrypted_signing_private: base64_url::encode(&result.encrypted_signing_private),
-                encrypted_signing_private_nonce: base64_url::encode(
-                    &result.encrypted_signing_private_nonce,
-                ),
+                has_devices: result.has_devices,
+                device_verified: result.device_verified,
+                device_id: result.device_id.map(|d| d.to_string()),
+                keys,
             };
 
             (

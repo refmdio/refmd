@@ -17,7 +17,7 @@ use infrastructure::workspace::{
     PgWorkspaceMemberRepository, PgWorkspaceRepository, PgWorkspaceRoleRepository,
 };
 use infrastructure::{DatabaseConfig, PgRegistrationService, create_pool};
-use presentation::{ApiDoc, AppState, AppStateParams, routes};
+use presentation::{ApiDoc, AppState, AppStateParams, DeviceEventBus, middleware::NonceCache, routes};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -107,6 +107,12 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("SECURE_COOKIES is disabled. This should only be used in development!");
     }
 
+    // Create device event bus for SSE
+    let device_event_bus = DeviceEventBus::new();
+
+    // Create nonce cache for PoP replay attack prevention
+    let nonce_cache = Arc::new(NonceCache::default());
+
     // Create application state
     let state = AppState::new(AppStateParams {
         user_repo,
@@ -126,6 +132,8 @@ async fn main() -> anyhow::Result<()> {
         device_repo,
         pending_device_repo,
         device_encrypted_umk_repo,
+        device_event_bus,
+        nonce_cache,
         server_secret,
         secure_cookies,
     });
@@ -140,6 +148,11 @@ async fn main() -> anyhow::Result<()> {
         .filter_map(|s| s.trim().parse().ok())
         .collect();
 
+    // PoP (Proof of Possession) headers for device authentication
+    let pop_device_id = HeaderName::from_static("x-pop-device-id");
+    let pop_nonce = HeaderName::from_static("x-pop-nonce");
+    let pop_signature = HeaderName::from_static("x-pop-signature");
+
     let cors = CorsLayer::new()
         .allow_origin(origins)
         .allow_methods([
@@ -147,9 +160,18 @@ async fn main() -> anyhow::Result<()> {
             Method::POST,
             Method::PUT,
             Method::DELETE,
+            Method::PATCH,
             Method::OPTIONS,
         ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::COOKIE])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::COOKIE,
+            pop_device_id.clone(),
+            pop_nonce.clone(),
+            pop_signature.clone(),
+        ])
+        .expose_headers([pop_device_id, pop_nonce, pop_signature])
         .allow_credentials(true);
 
     // Security headers middleware

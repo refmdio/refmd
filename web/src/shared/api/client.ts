@@ -4,10 +4,87 @@
  * Uses openapi-fetch for type-safe API calls with OpenAPI schema
  */
 
-import createClient from 'openapi-fetch'
+import createClient, { type Middleware } from 'openapi-fetch'
 import type { paths, components } from './schema'
+import { getPopCredentials } from '@/shared/lib/pop-store'
+import { generatePopHeaders } from '@/shared/lib/crypto/pop'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+
+/**
+ * Paths that don't require PoP headers (auth endpoints)
+ */
+const POP_EXEMPT_PATHS = [
+  '/api/auth/salt',
+  '/api/auth/register',
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/auth/me',
+  '/api/devices/pending', // Pending device creation doesn't require PoP
+]
+
+/**
+ * Check if a path is exempt from PoP requirements
+ *
+ * Most device endpoints require PoP. Only specific patterns for new device
+ * setup are exempt:
+ * - /api/devices/pending/* (creating/viewing pending devices)
+ * - GET /api/devices/{uuid}/keys/umk (new device fetching their UMK)
+ *
+ * Endpoints that require PoP:
+ * - POST /api/devices/{uuid}/keys/umk (distributing UMK - requires sender PoP)
+ * - DELETE /api/devices/{uuid} (revoking devices)
+ * - GET /api/devices (listing devices)
+ */
+function isPopExempt(path: string, method?: string): boolean {
+  // Check prefix matches (auth endpoints and pending device endpoints)
+  if (POP_EXEMPT_PATHS.some(exempt => path.startsWith(exempt))) {
+    return true
+  }
+  // Exempt GET device UMK retrieval (new devices don't have PoP yet)
+  // POST to same endpoint (distribute) requires PoP
+  // Use case-insensitive regex to handle both uppercase and lowercase UUIDs
+  if (
+    /^\/api\/devices\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/keys\/umk$/i.test(
+      path
+    ) && method === 'GET'
+  ) {
+    return true
+  }
+  return false
+}
+
+/**
+ * Middleware that adds PoP headers to protected requests
+ */
+const popMiddleware: Middleware = {
+  async onRequest({ request }) {
+    const url = new URL(request.url)
+    const path = url.pathname
+    const method = request.method
+
+    // Skip PoP for exempt paths
+    if (isPopExempt(path, method)) {
+      return request
+    }
+
+    // Add PoP headers if credentials are available
+    const credentials = getPopCredentials()
+    if (credentials) {
+      const popHeaders = generatePopHeaders(
+        credentials.deviceId,
+        credentials.signingPrivateKey
+      )
+
+      // Add PoP headers to the request
+      for (const [key, value] of Object.entries(popHeaders)) {
+        request.headers.set(key, value)
+      }
+    }
+
+    return request
+  },
+}
 
 /**
  * Type-safe API client generated from OpenAPI schema
@@ -16,6 +93,9 @@ export const api = createClient<paths>({
   baseUrl: API_BASE,
   credentials: 'include', // Include HttpOnly cookies
 })
+
+// Add PoP middleware
+api.use(popMiddleware)
 
 /**
  * Custom error class for API errors
@@ -305,7 +385,20 @@ export const deviceApi = {
   },
 
   /**
-   * Get SAS emoji indices for pending device verification
+   * List pending devices awaiting approval
+   */
+  async listPendingDevices() {
+    const { data, error, response } = await api.GET('/api/devices/pending')
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Get SAS data for pending device verification
    */
   async getSas(pendingDeviceId: string) {
     const { data, error, response } = await api.GET('/api/devices/pending/{id}/sas', {
@@ -336,6 +429,19 @@ export const deviceApi = {
     }
 
     return data
+  },
+
+  /**
+   * Reject a pending device
+   */
+  async rejectPendingDevice(pendingDeviceId: string) {
+    const { error, response } = await api.DELETE('/api/devices/pending/{id}', {
+      params: { path: { id: pendingDeviceId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
   },
 
   /**
@@ -371,6 +477,22 @@ export const deviceApi = {
     const { data, error, response } = await api.POST('/api/devices/{id}/keys/umk', {
       params: { path: { id: deviceId } },
       body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Get encrypted UMK for a device
+   * Used by new devices after approval to retrieve their UMK
+   */
+  async getDeviceUmk(deviceId: string) {
+    const { data, error, response } = await api.GET('/api/devices/{id}/keys/umk', {
+      params: { path: { id: deviceId } },
     })
 
     if (error) {

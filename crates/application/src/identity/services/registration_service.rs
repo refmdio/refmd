@@ -4,7 +4,9 @@
 //! The infrastructure layer provides the implementation.
 
 use async_trait::async_trait;
-use domain::encryption::{UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey};
+use domain::encryption::{
+    Device, UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey,
+};
 use domain::identity::{User, UserSettings};
 use domain::workspace::{Workspace, WorkspaceMember, WorkspaceRole};
 use thiserror::Error;
@@ -21,6 +23,8 @@ pub struct RegistrationData {
     pub editor_role: WorkspaceRole,
     pub viewer_role: WorkspaceRole,
     pub member: WorkspaceMember,
+    /// First device for PoP authentication
+    pub device: Device,
 }
 
 /// Registration service error

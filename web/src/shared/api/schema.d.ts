@@ -135,11 +135,29 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List pending devices awaiting approval */
+        get: operations["list_pending_devices"];
         put?: never;
         /** Create a new pending device */
         post: operations["create_pending_device"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/pending/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Reject a pending device */
+        delete: operations["reject_pending_device"];
         options?: never;
         head?: never;
         patch?: never;
@@ -203,7 +221,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get device's encrypted UMK
+         * @description Retrieves the encrypted UMK that was distributed to this device.
+         *     The device uses its ECDH private key and the sender's ECDH public key
+         *     to derive the shared secret and decrypt the UMK.
+         */
+        get: operations["get_device_umk"];
         put?: never;
         /** Distribute UMK to a device */
         post: operations["distribute_umk"];
@@ -520,6 +544,12 @@ export interface components {
             nonce: string;
             /**
              * Format: uuid
+             * @description Pending device ID (for SSE notification to the new device)
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            pending_device_id: string;
+            /**
+             * Format: uuid
              * @description Sender device ID
              * @example 550e8400-e29b-41d4-a716-446655440000
              */
@@ -605,6 +635,17 @@ export interface components {
              */
             error: string;
         };
+        /** @description Get device UMK response */
+        GetDeviceUmkResponse: {
+            /** @description UMK encrypted with shared secret (base64url) */
+            encrypted_umk: string;
+            /** @description Encryption nonce (base64url, 24 bytes) */
+            nonce: string;
+            /** @description Sender device ID */
+            sender_device_id: string;
+            /** @description Sender's ECDH public key for shared secret derivation (base64url, 32 bytes) */
+            sender_ecdh_public_key: string;
+        };
         /** @description Get salt query parameters (HTTP) */
         GetSaltQueryParams: {
             /**
@@ -628,7 +669,15 @@ export interface components {
              */
             salt: string;
         };
-        /** @description Get SAS response */
+        /**
+         * @description Get SAS response
+         *
+         *     Get SAS response - returns device public keys for client-side SAS calculation.
+         *
+         *     For MITM detection, clients MUST calculate SAS locally using
+         *     `device_signing_public_key`, `device_ecdh_public_key`, `client_nonce`
+         *     and their LOCAL identity signing public key.
+         */
         GetSasResponse: {
             /** @description Client nonce (base64url, 16 bytes) - for client-side SAS calculation */
             client_nonce: string;
@@ -642,8 +691,6 @@ export interface components {
             device_type: string;
             /** @description Expiration time */
             expires_at: string;
-            /** @description SAS emoji indices (7 values, 0-255 each) - server-computed for reference */
-            sas_indices: number[];
         };
         /** @description Get workspace key query params */
         GetWorkspaceKeyParams: {
@@ -702,6 +749,10 @@ export interface components {
         ListDocumentsResponse: {
             documents: components["schemas"]["DocumentResponse"][];
         };
+        /** @description List pending devices response */
+        ListPendingDevicesResponse: {
+            pending_devices: components["schemas"]["PendingDeviceResponse"][];
+        };
         /** @description List workspaces response */
         ListWorkspacesResponse: {
             /** @description List of workspaces with membership info */
@@ -714,6 +765,11 @@ export interface components {
              * @example base64url-encoded-auth-key
              */
             auth_key: string;
+            /**
+             * @description Device ID for session binding (optional, for existing devices)
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            device_id?: string | null;
             /**
              * @description User email address
              * @example user@example.com
@@ -729,13 +785,41 @@ export interface components {
          * @description Login response
          *
          *     Session token is set via HttpOnly cookie, not in JSON body.
+         *     Note: Encrypted keys are only returned for verified (registered) devices.
+         *     New devices must go through the PendingDevice flow to receive keys.
          */
         LoginResponse: {
+            /**
+             * @description Device ID if verified
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            device_id?: string | null;
+            /**
+             * @description Whether the login device is verified (registered and active)
+             * @example true
+             */
+            device_verified: boolean;
             /**
              * @description User email
              * @example user@example.com
              */
             email: string;
+            /** @description Session expiration timestamp */
+            expires_at: string;
+            /**
+             * @description Whether user has any registered devices (for PoP enforcement)
+             * @example true
+             */
+            has_devices: boolean;
+            keys?: null | components["schemas"]["LoginResponseKeys"];
+            /**
+             * @description User ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            user_id: string;
+        };
+        /** @description Encrypted keys returned only for verified devices */
+        LoginResponseKeys: {
             /**
              * @description Encrypted ECDH private key (base64url encoded)
              * @example base64url-encoded-encrypted-ecdh-private
@@ -761,18 +845,11 @@ export interface components {
              * @example base64url-encoded-encrypted-umk
              */
             encrypted_umk: string;
-            /** @description Session expiration timestamp */
-            expires_at: string;
             /**
              * @description UMK nonce (base64url encoded)
              * @example base64url-encoded-nonce
              */
             umk_nonce: string;
-            /**
-             * @description User ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
-            user_id: string;
         };
         /** @description Logout response */
         LogoutResponse: {
@@ -844,6 +921,15 @@ export interface components {
             /** @description User's role in the workspace */
             role: components["schemas"]["RoleResponse"];
         };
+        /** @description Pending device response */
+        PendingDeviceResponse: {
+            created_at: string;
+            device_type: string;
+            expires_at: string;
+            id: string;
+            ip_address?: string | null;
+            name: string;
+        };
         /** @description Register password user request */
         RegisterRequest: {
             /**
@@ -851,6 +937,36 @@ export interface components {
              * @example base64url-encoded-auth-key
              */
             auth_key: string;
+            /**
+             * @description Device client nonce for SAS (base64url encoded, 16 bytes)
+             * @example base64url-encoded-device-nonce
+             */
+            device_client_nonce: string;
+            /**
+             * @description Device ECDH public key (base64url encoded, 32 bytes)
+             * @example base64url-encoded-device-ecdh-public-key
+             */
+            device_ecdh_public_key: string;
+            /**
+             * @description Identity signature over device keys (base64url encoded, 64 bytes Ed25519 signature)
+             * @example base64url-encoded-identity-signature
+             */
+            device_identity_signature: string;
+            /**
+             * @description Device name for the first device
+             * @example Chrome on MacOS
+             */
+            device_name: string;
+            /**
+             * @description Device signing public key (base64url encoded, 32 bytes)
+             * @example base64url-encoded-device-signing-public-key
+             */
+            device_signing_public_key: string;
+            /**
+             * @description Device type: "browser", "desktop", or "mobile"
+             * @example browser
+             */
+            device_type: string;
             /**
              * @description ECDH public key (base64url encoded, 32 bytes)
              * @example base64url-encoded-ecdh-public-key
@@ -926,6 +1042,11 @@ export interface components {
         /** @description Register response */
         RegisterResponse: {
             /**
+             * @description Device ID (UUID) - the first registered device
+             * @example 550e8400-e29b-41d4-a716-446655440000
+             */
+            device_id: string;
+            /**
              * @description User email address
              * @example user@example.com
              */
@@ -935,6 +1056,10 @@ export interface components {
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
             id: string;
+        };
+        /** @description Reject pending device response */
+        RejectPendingDeviceResponse: {
+            message: string;
         };
         /** @description Revoke device response */
         RevokeDeviceResponse: {
@@ -1342,6 +1467,35 @@ export interface operations {
             };
         };
     };
+    list_pending_devices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of pending devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListPendingDevicesResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
+        };
+    };
     create_pending_device: {
         parameters: {
             query?: never;
@@ -1375,6 +1529,56 @@ export interface operations {
             };
             /** @description Not authenticated */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
+        };
+    };
+    reject_pending_device: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Pending device ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending device rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RejectPendingDeviceResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
+            /** @description Not owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
+            /** @description Device not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1546,6 +1750,56 @@ export interface operations {
                 };
             };
             /** @description Device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
+        };
+    };
+    get_device_umk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encrypted UMK data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetDeviceUmkResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
+            /** @description Device does not belong to this user */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
+            /** @description UMK not found for this device */
             404: {
                 headers: {
                     [name: string]: unknown;

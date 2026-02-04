@@ -12,8 +12,7 @@ import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
-import { isValidMnemonic, deriveRukFromMnemonic, unwrapUmkWithRuk, base64UrlDecode } from '@/shared/lib/crypto'
-import { authApi } from '@/shared/api'
+import { isValidMnemonic } from '@/shared/lib/crypto'
 
 export const Route = createFileRoute('/auth/recovery')({
   component: RecoveryPage,
@@ -24,7 +23,6 @@ function RecoveryPage() {
   const [words, setWords] = useState<string[]>(Array(24).fill(''))
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [step, setStep] = useState<'input' | 'validating' | 'success'>('input')
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // Focus first input on mount
@@ -84,7 +82,6 @@ function RecoveryPage() {
     }
 
     setLoading(true)
-    setStep('validating')
 
     try {
       // TODO: Implement actual recovery flow
@@ -98,10 +95,8 @@ function RecoveryPage() {
 
       // For now, just show a message that recovery is in progress
       setError('Recovery functionality is under development. Please use an existing device to approve this device.')
-      setStep('input')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Recovery failed')
-      setStep('input')
     } finally {
       setLoading(false)
     }

@@ -5,3 +5,4 @@
  */
 
 export { useDevice, type UseDeviceReturn, type DeviceRegistrationState, type DeviceRegistrationStep } from './useDevice'
+export { PendingDeviceProvider, usePendingDevices } from './ui/PendingDeviceMonitor'

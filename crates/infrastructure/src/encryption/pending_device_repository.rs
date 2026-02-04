@@ -38,6 +38,7 @@ struct PendingDeviceRow {
     ecdh_public_key: Vec<u8>,
     signing_public_key: Vec<u8>,
     client_nonce: Vec<u8>,
+    ip_address: Option<String>,
     created_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
 }
@@ -56,6 +57,7 @@ impl PendingDeviceRow {
             ecdh_public_key: self.ecdh_public_key,
             signing_public_key: self.signing_public_key,
             client_nonce: self.client_nonce,
+            ip_address: self.ip_address,
             created_at: self.created_at,
             expires_at: self.expires_at,
         })
@@ -70,7 +72,7 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
         let row = sqlx::query_as::<_, PendingDeviceRow>(
             r#"
             SELECT id, user_id, name, device_type, ecdh_public_key, signing_public_key,
-                   client_nonce, created_at, expires_at
+                   client_nonce, ip_address, created_at, expires_at
             FROM pending_devices
             WHERE id = $1
             "#,
@@ -86,7 +88,7 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
         let rows = sqlx::query_as::<_, PendingDeviceRow>(
             r#"
             SELECT id, user_id, name, device_type, ecdh_public_key, signing_public_key,
-                   client_nonce, created_at, expires_at
+                   client_nonce, ip_address, created_at, expires_at
             FROM pending_devices
             WHERE user_id = $1 AND expires_at > NOW()
             ORDER BY created_at DESC
@@ -105,8 +107,8 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
         sqlx::query(
             r#"
             INSERT INTO pending_devices (id, user_id, name, device_type, ecdh_public_key,
-                                        signing_public_key, client_nonce, created_at, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                        signing_public_key, client_nonce, ip_address, created_at, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO UPDATE SET
                 expires_at = EXCLUDED.expires_at
             "#,
@@ -118,6 +120,7 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
         .bind(&device.ecdh_public_key)
         .bind(&device.signing_public_key)
         .bind(&device.client_nonce)
+        .bind(&device.ip_address)
         .bind(device.created_at)
         .bind(device.expires_at)
         .execute(&self.pool)

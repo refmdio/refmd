@@ -33,11 +33,11 @@ export function SasVerification({ emojis, role, className }: SasVerificationProp
         </p>
       </div>
 
-      <div className="flex justify-center gap-2 p-4 bg-muted rounded-lg">
+      <div className="flex flex-wrap justify-center gap-2 p-4 bg-muted rounded-lg max-w-full">
         {emojiArray.map((emoji, index) => (
           <span
             key={index}
-            className="text-4xl p-2 hover:scale-110 transition-transform"
+            className="text-3xl sm:text-4xl hover:scale-110 transition-transform select-none"
             title={`Emoji ${index + 1}`}
           >
             {emoji}

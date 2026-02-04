@@ -5,8 +5,8 @@
 //! via the RegistrationService trait.
 
 use domain::encryption::{
-    KdfParams, PasswordUserMasterKeyParams, PublicKeyPair, UserEncryptedIdentityKey,
-    UserEncryptedMasterKey, UserIdentityPublicKey,
+    Device, DeviceType, KdfParams, PasswordUserMasterKeyParams, PublicKeyPair,
+    UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey,
 };
 use domain::identity::{Email, EmailError, User, UserRepository, UserSettings};
 use domain::workspace::{
@@ -50,6 +50,16 @@ pub struct RegisterPasswordUserAtomicCommand {
     pub encrypted_ecdh_private_nonce: Vec<u8>,
     pub encrypted_signing_private: Vec<u8>,
     pub encrypted_signing_private_nonce: Vec<u8>,
+
+    // First device info (for PoP authentication)
+    pub device_name: String,
+    pub device_type: DeviceType,
+    pub device_ecdh_public_key: Vec<u8>,
+    pub device_signing_public_key: Vec<u8>,
+    /// Client nonce for device (16 bytes)
+    pub device_client_nonce: Vec<u8>,
+    /// Identity signature over device keys (device_signing_pk || device_ecdh_pk || client_nonce)
+    pub device_identity_signature: Vec<u8>,
 }
 
 /// Register password user result
@@ -57,6 +67,7 @@ pub struct RegisterPasswordUserAtomicCommand {
 pub struct RegisterPasswordUserAtomicResult {
     pub user: User,
     pub workspace: Workspace,
+    pub device: Device,
 }
 
 /// Register password user error
@@ -156,6 +167,17 @@ where
         if command.salt.len() != 16 {
             return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
         }
+        // Validate device key lengths
+        if command.device_ecdh_public_key.len() != 32
+            || command.device_signing_public_key.len() != 32
+        {
+            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
+        }
+        // Validate device client nonce (16 bytes) and identity signature (64 bytes for Ed25519)
+        if command.device_client_nonce.len() != 16 || command.device_identity_signature.len() != 64
+        {
+            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
+        }
 
         // Hash the authKey with bcrypt
         let auth_key_hash = bcrypt::hash(&command.auth_key, bcrypt::DEFAULT_COST)
@@ -214,6 +236,20 @@ where
         // Create member
         let member = WorkspaceMember::new_owner(workspace.id, user.id, owner_role.id);
 
+        // Create first device for PoP authentication
+        let device_public_keys = PublicKeyPair::new(
+            command.device_ecdh_public_key.clone(),
+            command.device_signing_public_key.clone(),
+        );
+        let device = Device::new(
+            user.id,
+            command.device_name,
+            command.device_type,
+            device_public_keys,
+            command.device_identity_signature,
+            command.device_client_nonce,
+        );
+
         // Prepare registration data
         let registration_data = RegistrationData {
             user: user.clone(),
@@ -226,6 +262,7 @@ where
             editor_role,
             viewer_role,
             member,
+            device: device.clone(),
         };
 
         // Execute atomic registration
@@ -234,7 +271,11 @@ where
             .await
             .map_err(|e| RegisterPasswordUserAtomicError::Transaction(e.to_string()))?;
 
-        Ok(RegisterPasswordUserAtomicResult { user, workspace })
+        Ok(RegisterPasswordUserAtomicResult {
+            user,
+            workspace,
+            device,
+        })
     }
 
     async fn ensure_unique_slug(

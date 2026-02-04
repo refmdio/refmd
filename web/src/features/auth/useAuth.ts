@@ -21,11 +21,24 @@ import {
   loadDsk,
   wrapAndStoreUmk,
   loadAndUnwrapUmk,
+  clearSessionCache,
   clearDskData,
   hasCachedSession,
+  wrapAndStoreDeviceKeys,
+  storeDeviceId,
+  loadDeviceId,
+  generateDeviceKeyPair,
+  generateClientNonce,
+  sign,
+  // Session storage (for rememberMe=false)
+  storeSessionUmk,
+  loadSessionUmk,
+  clearSessionUmk,
   type KdfParams,
   type IdentityKeyPair,
+  type DeviceKeyPair,
 } from '@/shared/lib/crypto'
+import { detectDeviceType, detectDeviceName } from '@/shared/lib/device'
 
 // Re-export for convenience
 export { ApiRequestError }
@@ -38,22 +51,43 @@ type MeResponse = components['schemas']['MeResponse']
  */
 export interface RegistrationResult {
   userId: string
+  deviceId: string
   umk: Uint8Array
   identityKeys: IdentityKeyPair
+  deviceKeys: DeviceKeyPair
   /** BIP39 24-word recovery mnemonic - user MUST save this */
   recoveryMnemonic: string
 }
 
 /**
- * Login result
+ * Login result for verified devices (has access to keys)
  */
 export interface LoginResult {
+  type: 'verified'
   userId: string
   email: string
+  deviceId: string
   umk: Uint8Array
   identityKeys: IdentityKeyPair
   expiresAt: Date
+  hasDevices: boolean
 }
+
+/**
+ * Login result for new/unverified devices (needs device registration)
+ */
+export interface LoginDeviceRequired {
+  type: 'device_required'
+  userId: string
+  email: string
+  expiresAt: Date
+  hasDevices: boolean
+}
+
+/**
+ * Combined login result type
+ */
+export type LoginResponse = LoginResult | LoginDeviceRequired
 
 /**
  * Register a new user
@@ -99,7 +133,24 @@ export async function register(
   const identityKeys = generateIdentityKeyPair()
   const encryptedIdentity = encryptIdentityKeys(identityKeys, umk, userId)
 
-  // Step 6: Build register request (using generated type)
+  // Step 6: Generate device keys and sign with identity key
+  const deviceKeys = generateDeviceKeyPair()
+  const clientNonce = generateClientNonce()
+
+  // Build message to sign: device_signing_pk || device_ecdh_pk || client_nonce
+  const deviceSignMessage = new Uint8Array(32 + 32 + 16)
+  deviceSignMessage.set(deviceKeys.signingPublicKey, 0)
+  deviceSignMessage.set(deviceKeys.ecdhPublicKey, 32)
+  deviceSignMessage.set(clientNonce, 64)
+
+  // Sign with identity signing private key
+  const deviceIdentitySignature = sign(deviceSignMessage, identityKeys.signingPrivate)
+
+  // Detect device type
+  const deviceType = detectDeviceType()
+  const deviceName = detectDeviceName()
+
+  // Step 7: Build register request (using generated type)
   const request: components['schemas']['RegisterRequest'] = {
     user_id: userId,
     email,
@@ -116,15 +167,29 @@ export async function register(
     encrypted_ecdh_private_nonce: base64UrlEncode(encryptedIdentity.ecdhPrivateNonce),
     encrypted_signing_private: base64UrlEncode(encryptedIdentity.encryptedSigningPrivate),
     encrypted_signing_private_nonce: base64UrlEncode(encryptedIdentity.signingPrivateNonce),
+    device_name: deviceName,
+    device_type: deviceType,
+    device_ecdh_public_key: base64UrlEncode(deviceKeys.ecdhPublicKey),
+    device_signing_public_key: base64UrlEncode(deviceKeys.signingPublicKey),
+    device_client_nonce: base64UrlEncode(clientNonce),
+    device_identity_signature: base64UrlEncode(deviceIdentitySignature),
   }
 
-  // Step 7: Send to server
+  // Step 8: Send to server
   const response = await authApi.register(request)
+
+  // Step 9: Store device keys in IndexedDB (encrypted by DSK)
+  const dsk = await generateDsk()
+  await storeDsk(dsk)
+  await wrapAndStoreDeviceKeys(deviceKeys, dsk, response.id)
+  await storeDeviceId(response.device_id)
 
   return {
     userId: response.id,
+    deviceId: response.device_id,
     umk,
     identityKeys,
+    deviceKeys,
     recoveryMnemonic: recoveryKeyData.mnemonic,
   }
 }
@@ -135,61 +200,92 @@ export async function register(
  * 1. Get salt from server
  * 2. Derive authKey and PUK
  * 3. Authenticate with server
- * 4. Decrypt UMK with PUK
- * 5. Decrypt identity keys with UMK (deriving public keys from private)
+ * 4. If device verified: Decrypt UMK and identity keys
+ * 5. If device not verified: Return device_required result
  */
 export async function login(
   email: string,
   password: string,
   rememberMe: boolean = false
-): Promise<LoginResult> {
+): Promise<LoginResponse> {
   // Step 1: Get salt from server
   const saltResponse = await authApi.getSalt(email)
 
   // Step 2: Derive keys
   const derivedKeys = await deriveAuthKeys(password, saltResponse.salt, saltResponse.kdf_params)
 
-  // Step 3: Login
+  // Step 3: Load existing device_id if available (for session binding)
+  const deviceId = await loadDeviceId()
+
+  // Step 4: Login
   const loginResponse = await authApi.login({
     email,
     auth_key: derivedKeys.authKeyBase64,
     remember_me: rememberMe,
+    device_id: deviceId ?? undefined,
   })
 
-  // Step 4: Decrypt UMK (using user_id for AAD)
-  const encryptedUmk = base64UrlDecode(loginResponse.encrypted_umk)
-  const umkNonce = base64UrlDecode(loginResponse.umk_nonce)
+  // Step 5: Check if device is verified
+  if (!loginResponse.device_verified || !loginResponse.keys) {
+    // Device not verified - needs to go through PendingDevice flow
+    return {
+      type: 'device_required',
+      userId: loginResponse.user_id,
+      email: loginResponse.email,
+      expiresAt: new Date(loginResponse.expires_at),
+      hasDevices: loginResponse.has_devices,
+    }
+  }
+
+  // Step 6: Decrypt UMK (using user_id for AAD)
+  const keys = loginResponse.keys
+  const encryptedUmk = base64UrlDecode(keys.encrypted_umk)
+  const umkNonce = base64UrlDecode(keys.umk_nonce)
   const umk = unwrapUmk(encryptedUmk, umkNonce, derivedKeys.puk, loginResponse.user_id)
 
-  // Step 5: Decrypt identity keys (public keys are derived from private keys)
+  // Step 7: Decrypt identity keys (public keys are derived from private keys)
   const identityKeys = decryptIdentityPrivateKeys(
     {
-      encryptedEcdhPrivate: base64UrlDecode(loginResponse.encrypted_ecdh_private),
-      ecdhPrivateNonce: base64UrlDecode(loginResponse.encrypted_ecdh_private_nonce),
-      encryptedSigningPrivate: base64UrlDecode(loginResponse.encrypted_signing_private),
-      signingPrivateNonce: base64UrlDecode(loginResponse.encrypted_signing_private_nonce),
+      encryptedEcdhPrivate: base64UrlDecode(keys.encrypted_ecdh_private),
+      ecdhPrivateNonce: base64UrlDecode(keys.encrypted_ecdh_private_nonce),
+      encryptedSigningPrivate: base64UrlDecode(keys.encrypted_signing_private),
+      signingPrivateNonce: base64UrlDecode(keys.encrypted_signing_private_nonce),
     },
     umk,
     loginResponse.user_id
   )
 
-  // Step 6: Handle DSK/UMK caching based on KMSI preference
+  // Step 8: Handle UMK caching based on KMSI preference
   if (rememberMe) {
-    // Generate DSK and cache UMK in IndexedDB for session persistence
-    const dsk = await generateDsk()
-    await storeDsk(dsk)
+    // rememberMe=true: Store UMK in IndexedDB (persists across browser restarts)
+    // Reuse existing DSK if available, otherwise generate new one
+    // This preserves device keys which are encrypted with DSK
+    let dsk = await loadDsk()
+    if (!dsk) {
+      dsk = await generateDsk()
+      await storeDsk(dsk)
+    }
     await wrapAndStoreUmk(umk, dsk, loginResponse.user_id)
+    // Clear sessionStorage UMK if it exists (we're using IndexedDB now)
+    clearSessionUmk()
   } else {
-    // Clear any existing DSK cache when KMSI is disabled
-    await clearDskData()
+    // rememberMe=false: Store UMK in sessionStorage (persists until tab close)
+    // This allows page reloads without requiring re-authentication
+    storeSessionUmk(umk, loginResponse.user_id)
+    // Clear IndexedDB UMK cache (don't persist across browser restarts)
+    // DSK and device keys are preserved for device identity
+    await clearSessionCache()
   }
 
   return {
+    type: 'verified',
     userId: loginResponse.user_id,
     email: loginResponse.email,
+    deviceId: loginResponse.device_id!,
     umk,
     identityKeys,
     expiresAt: new Date(loginResponse.expires_at),
+    hasDevices: loginResponse.has_devices,
   }
 }
 
@@ -205,18 +301,44 @@ export interface SessionRestoreResult {
 }
 
 /**
- * Restore session from IndexedDB cache
+ * Restore session from cache
  *
- * 1. Check if DSK and wrapped UMK exist in IndexedDB
- * 2. Call /api/auth/me to validate session and get encrypted keys
- * 3. Unwrap UMK using DSK
- * 4. Decrypt identity keys using UMK
+ * Checks for UMK in order of preference:
+ * 1. sessionStorage (for rememberMe=false, persists until tab close)
+ * 2. IndexedDB wrapped with DSK (for rememberMe=true, persists across restarts)
+ *
+ * Then:
+ * 1. Call /api/auth/me to validate session and get encrypted keys
+ * 2. Decrypt identity keys using UMK
  *
  * @returns Session data if restoration successful, null otherwise
  */
 export async function restoreSession(): Promise<SessionRestoreResult | null> {
-  // Step 1: Check if we have cached session data
-  if (!(await hasCachedSession())) {
+  // Step 1: Try to get UMK from cache (sessionStorage first, then IndexedDB)
+  let umk: Uint8Array | null = null
+  let cachedUserId: string | null = null
+
+  // First, check sessionStorage (rememberMe=false sessions)
+  const sessionData = loadSessionUmk()
+  if (sessionData) {
+    umk = sessionData.umk
+    cachedUserId = sessionData.userId
+  }
+
+  // If not in sessionStorage, check IndexedDB (rememberMe=true sessions)
+  if (!umk && (await hasCachedSession())) {
+    const dsk = await loadDsk()
+    if (dsk) {
+      const unwrapped = await loadAndUnwrapUmk(dsk)
+      if (unwrapped) {
+        umk = unwrapped.umk
+        cachedUserId = unwrapped.userId
+      }
+    }
+  }
+
+  // No cached UMK found
+  if (!umk || !cachedUserId) {
     return null
   }
 
@@ -226,36 +348,23 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
     meResponse = await authApi.me()
   } catch (error) {
     if (error instanceof ApiRequestError && error.status === 401) {
-      // Session expired, clear cached data
+      // Session expired, clear all cached data
+      clearSessionUmk()
       await clearDskData()
       return null
     }
     throw error
   }
 
-  // Step 3: Load DSK and unwrap UMK
-  const dsk = await loadDsk()
-  if (!dsk) {
-    return null
-  }
-
-  const unwrapped = await loadAndUnwrapUmk(dsk)
-  if (!unwrapped) {
-    // Decryption failed, clear cached data
-    await clearDskData()
-    return null
-  }
-
   // Verify user ID matches
-  if (unwrapped.userId !== meResponse.user_id) {
+  if (cachedUserId !== meResponse.user_id) {
     // Different user, clear cached data
+    clearSessionUmk()
     await clearDskData()
     return null
   }
 
-  const umk = unwrapped.umk
-
-  // Step 4: Decrypt identity keys
+  // Step 3: Decrypt identity keys
   const identityKeys = decryptIdentityPrivateKeys(
     {
       encryptedEcdhPrivate: base64UrlDecode(meResponse.encrypted_ecdh_private),
@@ -296,8 +405,11 @@ export async function getCurrentUser(): Promise<MeResponse | null> {
  * Per deletion-semantics.md:
  * - Normal logout: IndexedDB preserved, session destroyed
  * - User can re-login without password if DSK cache exists
+ *
+ * Note: sessionStorage UMK is cleared since it's only for the current tab session
  */
 export async function logout(): Promise<void> {
+  clearSessionUmk()
   await authApi.logout()
 }
 
@@ -309,6 +421,7 @@ export async function logout(): Promise<void> {
  * - All local cryptographic material is erased
  */
 export async function secureLogout(): Promise<void> {
+  clearSessionUmk()
   await Promise.all([
     authApi.logout(),
     clearDskData(),

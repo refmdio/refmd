@@ -1,18 +1,28 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
-import type { IdentityKeyPair } from '@/shared/lib/crypto'
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
+import type { IdentityKeyPair, DeviceKeyPair } from '@/shared/lib/crypto'
+import { setPopCredentials, clearPopCredentials } from '@/shared/lib/pop-store'
 
 export interface AuthState {
   userId: string
   email: string
   expiresAt: Date
-  umk: Uint8Array
-  identityKeys: IdentityKeyPair
+  /** UMK - may be null for device_required state (new device pending approval) */
+  umk: Uint8Array | null
+  /** Identity keys - may be null for device_required state (new device pending approval) */
+  identityKeys: IdentityKeyPair | null
+}
+
+export interface DeviceState {
+  deviceId: string
+  deviceKeys: DeviceKeyPair
 }
 
 interface AuthContextValue {
   auth: AuthState | null
+  device: DeviceState | null
   isAuthenticated: boolean
   setAuthState: (state: AuthState) => void
+  setDeviceState: (state: DeviceState) => void
   clearAuthState: () => void
   currentWorkspaceId: string | null
   setCurrentWorkspaceId: (id: string | null) => void
@@ -22,14 +32,30 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [auth, setAuth] = useState<AuthState | null>(null)
+  const [device, setDevice] = useState<DeviceState | null>(null)
   const [currentWorkspaceId, setCurrentWorkspaceIdState] = useState<string | null>(null)
+
+  // Sync device state to pop-store for API client access
+  useEffect(() => {
+    if (device) {
+      setPopCredentials(device.deviceId, device.deviceKeys.signingPrivateKey)
+    } else {
+      clearPopCredentials()
+    }
+  }, [device])
 
   const setAuthState = useCallback((state: AuthState) => {
     setAuth(state)
   }, [])
 
+  const setDeviceState = useCallback((state: DeviceState) => {
+    setDevice(state)
+  }, [])
+
   const clearAuthState = useCallback(() => {
     setAuth(null)
+    setDevice(null)
+    clearPopCredentials()
     setCurrentWorkspaceIdState(null)
   }, [])
 
@@ -39,8 +65,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthContextValue = {
     auth,
+    device,
     isAuthenticated: auth !== null,
     setAuthState,
+    setDeviceState,
     clearAuthState,
     currentWorkspaceId,
     setCurrentWorkspaceId,

@@ -125,6 +125,23 @@ export function buildIdentitySigningAad(userId: string): Uint8Array {
 }
 
 /**
+ * Build AAD for device UMK distribution (UMK encrypted with ECDH shared secret)
+ */
+export function buildDeviceUmkDistributionAad(
+  userId: string,
+  senderDeviceId: string,
+  targetDeviceId: string
+): Uint8Array {
+  return buildAad({
+    ...SIGNATURE_PROTOCOL,
+    purpose: AAD_PURPOSE.DEVICE_UMK_WRAP,
+    user_id: userId,
+    sender_device_id: senderDeviceId,
+    target_device_id: targetDeviceId,
+  })
+}
+
+/**
  * Build AAD for DEK wrap (DEK encrypted with KEK)
  */
 export function buildDekWrapAad(documentId: string, workspaceId: string): Uint8Array {

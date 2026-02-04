@@ -1,5 +1,7 @@
 //! Application state with generics for dependency injection
 
+use crate::events::DeviceEventBus;
+use crate::middleware::NonceCache;
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
     DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
@@ -33,6 +35,10 @@ pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, D
     pub device_repo: Arc<DER>,
     pub pending_device_repo: Arc<PDR>,
     pub device_encrypted_umk_repo: Arc<UMKR>,
+    /// Device event bus for SSE notifications
+    pub device_event_bus: DeviceEventBus,
+    /// Nonce cache for PoP replay attack prevention
+    pub nonce_cache: Arc<NonceCache>,
     /// Server secret for dummy salt generation (prevents user enumeration)
     pub server_secret: [u8; 32],
     /// Whether to set Secure attribute on cookies (should be true in production)
@@ -78,6 +84,10 @@ where
     device_repo: Arc<DER>,
     pending_device_repo: Arc<PDR>,
     device_encrypted_umk_repo: Arc<UMKR>,
+    /// Device event bus for SSE notifications
+    device_event_bus: DeviceEventBus,
+    /// Nonce cache for PoP replay attack prevention
+    nonce_cache: Arc<NonceCache>,
     /// Server secret for dummy salt generation (prevents user enumeration)
     server_secret: Arc<[u8; 32]>,
     /// Whether to set Secure attribute on cookies (should be true in production)
@@ -126,6 +136,8 @@ where
             device_repo: params.device_repo,
             pending_device_repo: params.pending_device_repo,
             device_encrypted_umk_repo: params.device_encrypted_umk_repo,
+            device_event_bus: params.device_event_bus,
+            nonce_cache: params.nonce_cache,
             server_secret: Arc::new(params.server_secret),
             secure_cookies: params.secure_cookies,
         }
@@ -197,6 +209,14 @@ where
 
     pub fn device_encrypted_umk_repo(&self) -> Arc<UMKR> {
         Arc::clone(&self.device_encrypted_umk_repo)
+    }
+
+    pub fn device_event_bus(&self) -> &DeviceEventBus {
+        &self.device_event_bus
+    }
+
+    pub fn nonce_cache(&self) -> Arc<NonceCache> {
+        Arc::clone(&self.nonce_cache)
     }
 
     pub fn server_secret(&self) -> &[u8; 32] {

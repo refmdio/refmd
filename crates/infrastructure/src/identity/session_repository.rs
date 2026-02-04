@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use domain::encryption::DeviceId;
 use domain::identity::{Session, SessionId, SessionRepository, UserId};
 use sqlx::PgPool;
 use thiserror::Error;
@@ -28,6 +29,7 @@ pub struct PgSessionRepositoryError(#[from] sqlx::Error);
 struct SessionRow {
     id: Uuid,
     user_id: Uuid,
+    device_id: Option<Uuid>,
     token_hash: String,
     remember_me: bool,
     ip_address: Option<String>,
@@ -41,6 +43,7 @@ impl From<SessionRow> for Session {
         Self {
             id: SessionId::from_uuid(row.id),
             user_id: UserId::from_uuid(row.user_id),
+            device_id: row.device_id.map(DeviceId::from_uuid),
             token_hash: row.token_hash,
             remember_me: row.remember_me,
             ip_address: row.ip_address,
@@ -58,7 +61,7 @@ impl SessionRepository for PgSessionRepository {
     async fn find_by_id(&self, id: SessionId) -> Result<Option<Session>, Self::Error> {
         let row = sqlx::query_as::<_, SessionRow>(
             r#"
-            SELECT id, user_id, token_hash, remember_me, ip_address, user_agent, expires_at, created_at
+            SELECT id, user_id, device_id, token_hash, remember_me, ip_address, user_agent, expires_at, created_at
             FROM sessions
             WHERE id = $1
             "#,
@@ -73,7 +76,7 @@ impl SessionRepository for PgSessionRepository {
     async fn find_by_token_hash(&self, token_hash: &str) -> Result<Option<Session>, Self::Error> {
         let row = sqlx::query_as::<_, SessionRow>(
             r#"
-            SELECT id, user_id, token_hash, remember_me, ip_address, user_agent, expires_at, created_at
+            SELECT id, user_id, device_id, token_hash, remember_me, ip_address, user_agent, expires_at, created_at
             FROM sessions
             WHERE token_hash = $1
             "#,
@@ -88,7 +91,7 @@ impl SessionRepository for PgSessionRepository {
     async fn find_by_user_id(&self, user_id: UserId) -> Result<Vec<Session>, Self::Error> {
         let rows = sqlx::query_as::<_, SessionRow>(
             r#"
-            SELECT id, user_id, token_hash, remember_me, ip_address, user_agent, expires_at, created_at
+            SELECT id, user_id, device_id, token_hash, remember_me, ip_address, user_agent, expires_at, created_at
             FROM sessions
             WHERE user_id = $1
             ORDER BY created_at DESC
@@ -104,14 +107,16 @@ impl SessionRepository for PgSessionRepository {
     async fn save(&self, session: &Session) -> Result<(), Self::Error> {
         sqlx::query(
             r#"
-            INSERT INTO sessions (id, user_id, token_hash, remember_me, ip_address, user_agent, expires_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO sessions (id, user_id, device_id, token_hash, remember_me, ip_address, user_agent, expires_at, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (id) DO UPDATE SET
-                expires_at = EXCLUDED.expires_at
+                expires_at = EXCLUDED.expires_at,
+                device_id = EXCLUDED.device_id
             "#,
         )
         .bind(session.id.as_uuid())
         .bind(session.user_id.as_uuid())
+        .bind(session.device_id.map(|d| d.as_uuid()))
         .bind(&session.token_hash)
         .bind(session.remember_me)
         .bind(&session.ip_address)

@@ -2,7 +2,9 @@
 //!
 //! Authenticates a password-based user and creates a session.
 
-use domain::encryption::{UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository};
+use domain::encryption::{
+    DeviceId, DeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+};
 use domain::identity::{Email, EmailError, Session, SessionRepository, User, UserRepository};
 use std::sync::Arc;
 use thiserror::Error;
@@ -23,6 +25,8 @@ pub struct LoginPasswordUserCommand {
     pub remember_me: bool,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    /// Device ID for session binding (for is_current detection)
+    pub device_id: Option<DeviceId>,
 }
 
 /// Login password user result
@@ -31,6 +35,20 @@ pub struct LoginPasswordUserResult {
     pub user: User,
     pub session_token: String,
     pub expires_at: chrono::DateTime<chrono::Utc>,
+    /// Whether user has any registered devices (for PoP enforcement)
+    pub has_devices: bool,
+    /// Whether the login device is verified (registered and active)
+    pub device_verified: bool,
+    /// Device ID if verified
+    pub device_id: Option<DeviceId>,
+    /// Encrypted keys - only present if device is verified
+    /// This prevents new/unverified devices from receiving UMK
+    pub keys: Option<LoginKeys>,
+}
+
+/// Encrypted keys returned only for verified devices
+#[derive(Debug)]
+pub struct LoginKeys {
     /// Encrypted UMK (for client to decrypt with PUK)
     pub encrypted_umk: Vec<u8>,
     pub umk_nonce: Vec<u8>,
@@ -48,6 +66,7 @@ pub enum LoginPasswordUserError<
     SR: std::error::Error,
     UEM: std::error::Error,
     UEI: std::error::Error,
+    DR: std::error::Error,
 > {
     #[error("invalid email: {0}")]
     InvalidEmail(#[from] EmailError),
@@ -72,14 +91,18 @@ pub enum LoginPasswordUserError<
 
     #[error("encrypted identity key repository error: {0}")]
     EncryptedIdentityKeyRepository(UEI),
+
+    #[error("device repository error: {0}")]
+    DeviceRepository(DR),
 }
 
-impl<UR, SR, UEM, UEI> LoginPasswordUserError<UR, SR, UEM, UEI>
+impl<UR, SR, UEM, UEI, DR> LoginPasswordUserError<UR, SR, UEM, UEI, DR>
 where
     UR: std::error::Error,
     SR: std::error::Error,
     UEM: std::error::Error,
     UEI: std::error::Error,
+    DR: std::error::Error,
 {
     pub fn is_unauthorized(&self) -> bool {
         matches!(
@@ -113,7 +136,8 @@ where
             | LoginPasswordUserError::UserRepository(_)
             | LoginPasswordUserError::SessionRepository(_)
             | LoginPasswordUserError::EncryptedMasterKeyRepository(_)
-            | LoginPasswordUserError::EncryptedIdentityKeyRepository(_) => "internal server error",
+            | LoginPasswordUserError::EncryptedIdentityKeyRepository(_)
+            | LoginPasswordUserError::DeviceRepository(_) => "internal server error",
         }
     }
 
@@ -123,31 +147,35 @@ where
 }
 
 /// Login password user handler
-pub struct LoginPasswordUserHandler<U, S, UEM, UEI> {
+pub struct LoginPasswordUserHandler<U, S, UEM, UEI, DR> {
     user_repo: Arc<U>,
     session_repo: Arc<S>,
     encrypted_master_key_repo: Arc<UEM>,
     encrypted_identity_key_repo: Arc<UEI>,
+    device_repo: Arc<DR>,
 }
 
-impl<U, S, UEM, UEI> LoginPasswordUserHandler<U, S, UEM, UEI>
+impl<U, S, UEM, UEI, DR> LoginPasswordUserHandler<U, S, UEM, UEI, DR>
 where
     U: UserRepository,
     S: SessionRepository,
     UEM: UserEncryptedMasterKeyRepository,
     UEI: UserEncryptedIdentityKeyRepository,
+    DR: DeviceRepository,
 {
     pub fn new(
         user_repo: Arc<U>,
         session_repo: Arc<S>,
         encrypted_master_key_repo: Arc<UEM>,
         encrypted_identity_key_repo: Arc<UEI>,
+        device_repo: Arc<DR>,
     ) -> Self {
         Self {
             user_repo,
             session_repo,
             encrypted_master_key_repo,
             encrypted_identity_key_repo,
+            device_repo,
         }
     }
 
@@ -156,7 +184,7 @@ where
         command: LoginPasswordUserCommand,
     ) -> Result<
         LoginPasswordUserResult,
-        LoginPasswordUserError<U::Error, S::Error, UEM::Error, UEI::Error>,
+        LoginPasswordUserError<U::Error, S::Error, UEM::Error, UEI::Error, DR::Error>,
     > {
         // Validate and parse email
         // Note: InvalidEmail is returned as HTTP 400 (Bad Request), not 401 (Unauthorized).
@@ -245,9 +273,10 @@ where
         let session_token = generate_session_token();
         let token_hash = hash_session_token(&session_token);
 
-        // Create session
-        let session = Session::new(
+        // Create session with device binding
+        let session = Session::with_device(
             user.id,
+            command.device_id,
             token_hash,
             command.remember_me,
             command.ip_address,
@@ -260,17 +289,47 @@ where
             .await
             .map_err(LoginPasswordUserError::SessionRepository)?;
 
-        // Return result with encrypted keys
+        // Check if user has any active devices
+        let devices = self
+            .device_repo
+            .find_active_by_user_id(user.id)
+            .await
+            .map_err(LoginPasswordUserError::DeviceRepository)?;
+        let has_devices = !devices.is_empty();
+
+        // Verify if the provided device_id is valid and belongs to this user
+        let (device_verified, verified_device_id) = if let Some(device_id) = command.device_id {
+            // Check if the device exists, is active, and belongs to this user
+            let device_valid = devices.iter().any(|d| d.id == device_id);
+            (device_valid, if device_valid { Some(device_id) } else { None })
+        } else {
+            (false, None)
+        };
+
+        // Only return encrypted keys if the device is verified
+        // This prevents unverified/new devices from receiving UMK
+        let keys = if device_verified {
+            Some(LoginKeys {
+                encrypted_umk,
+                umk_nonce,
+                encrypted_ecdh_private: encrypted_identity_key.encrypted_ecdh_private,
+                encrypted_ecdh_private_nonce: encrypted_identity_key.encrypted_ecdh_private_nonce,
+                encrypted_signing_private: encrypted_identity_key.encrypted_signing_private,
+                encrypted_signing_private_nonce: encrypted_identity_key.encrypted_signing_private_nonce,
+            })
+        } else {
+            None
+        };
+
+        // Return result with encrypted keys only for verified devices
         Ok(LoginPasswordUserResult {
             user,
             session_token,
             expires_at: session.expires_at,
-            encrypted_umk,
-            umk_nonce,
-            encrypted_ecdh_private: encrypted_identity_key.encrypted_ecdh_private,
-            encrypted_ecdh_private_nonce: encrypted_identity_key.encrypted_ecdh_private_nonce,
-            encrypted_signing_private: encrypted_identity_key.encrypted_signing_private,
-            encrypted_signing_private_nonce: encrypted_identity_key.encrypted_signing_private_nonce,
+            has_devices,
+            device_verified,
+            device_id: verified_device_id,
+            keys,
         })
     }
 }
