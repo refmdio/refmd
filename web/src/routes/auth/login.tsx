@@ -5,7 +5,7 @@ import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
 import { login } from '@/features/auth'
-import { ApiRequestError } from '@/shared/api'
+import { ApiRequestError, authApi } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
 import { loadDsk, loadAndUnwrapDeviceKeys } from '@/shared/lib/crypto'
 
@@ -24,7 +24,7 @@ function LoginPage() {
   const navigate = useNavigate()
   const router = useRouter()
   const { deviceApproved } = Route.useSearch()
-  const { setAuthState, setDeviceState } = useAuthContext()
+  const { setAuthState, setDeviceState, clearAuthState } = useAuthContext()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
@@ -57,6 +57,37 @@ function LoginPage() {
       }
 
       // Device verified - we have UMK and identity keys
+      // Load device keys for PoP authentication
+      const dsk = await loadDsk()
+      if (!dsk) {
+        // DSK not found - device keys were cleared from local storage
+        // This can happen if the user cleared browser data
+        // Clear the server session and client state
+        try {
+          await authApi.logout()
+        } catch {
+          // Ignore logout errors
+        }
+        clearAuthState()
+        setError('Device keys not found. Please use account recovery to restore access.')
+        return
+      }
+
+      const deviceKeysData = await loadAndUnwrapDeviceKeys(dsk)
+      if (!deviceKeysData || deviceKeysData.userId !== result.userId) {
+        // Device keys don't match current user
+        // Clear the server session and client state
+        try {
+          await authApi.logout()
+        } catch {
+          // Ignore logout errors
+        }
+        clearAuthState()
+        setError('Device keys mismatch. Please use account recovery to restore access.')
+        return
+      }
+
+      // Set auth state with UMK and identity keys
       setAuthState({
         userId: result.userId,
         email: result.email,
@@ -65,22 +96,16 @@ function LoginPage() {
         identityKeys: result.identityKeys,
       })
 
-      // Load device keys for PoP authentication
-      const dsk = await loadDsk()
-      if (dsk) {
-        const deviceKeysData = await loadAndUnwrapDeviceKeys(dsk)
-        if (deviceKeysData && deviceKeysData.userId === result.userId) {
-          setDeviceState({
-            deviceId: result.deviceId,
-            deviceKeys: {
-              ecdhPrivateKey: deviceKeysData.ecdhPrivateKey,
-              ecdhPublicKey: deviceKeysData.ecdhPublicKey,
-              signingPrivateKey: deviceKeysData.signingPrivateKey,
-              signingPublicKey: deviceKeysData.signingPublicKey,
-            },
-          })
-        }
-      }
+      // Set device state for PoP authentication
+      setDeviceState({
+        deviceId: result.deviceId,
+        deviceKeys: {
+          ecdhPrivateKey: deviceKeysData.ecdhPrivateKey,
+          ecdhPublicKey: deviceKeysData.ecdhPublicKey,
+          signingPrivateKey: deviceKeysData.signingPrivateKey,
+          signingPublicKey: deviceKeysData.signingPublicKey,
+        },
+      })
 
       navigate({ to: '/dashboard' })
     } catch (err) {

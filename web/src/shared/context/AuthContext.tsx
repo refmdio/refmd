@@ -63,10 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setCurrentWorkspaceIdState(id)
   }, [])
 
+  // isAuthenticated is true only when user has full auth state (with UMK and identity keys)
+  // Partial auth (device_required) should not be considered authenticated for app access
+  const isAuthenticated = auth !== null && auth.umk !== null && auth.identityKeys !== null
+
   const value: AuthContextValue = {
     auth,
     device,
-    isAuthenticated: auth !== null,
+    isAuthenticated,
     setAuthState,
     setDeviceState,
     clearAuthState,

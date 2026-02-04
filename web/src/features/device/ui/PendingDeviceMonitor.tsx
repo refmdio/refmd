@@ -109,10 +109,11 @@ export function PendingDeviceProvider({ children }: PendingDeviceProviderProps) 
               return [...prev, newDevice]
             })
 
-            // Auto-show dialog if not dismissed
+            // Auto-show dialog if not dismissed and no dialog is currently open
             if (!dismissedRef.current.has(data.pending_id)) {
               setSeenDeviceIds((prev) => new Set([...prev, data.pending_id]))
-              setCurrentDialog(newDevice)
+              // Only show if no other dialog is open to avoid overriding
+              setCurrentDialog((current) => current ?? newDevice)
             }
             break
           }
@@ -143,7 +144,7 @@ export function PendingDeviceProvider({ children }: PendingDeviceProviderProps) 
 
   // Auto-show dialog for pending devices on initial load
   useEffect(() => {
-    if (pendingDevices.length === 0 || currentDialog) {
+    if (pendingDevices.length === 0) {
       return
     }
 
@@ -154,9 +155,10 @@ export function PendingDeviceProvider({ children }: PendingDeviceProviderProps) 
 
     if (newDevice) {
       setSeenDeviceIds((prev) => new Set([...prev, newDevice.id]))
-      setCurrentDialog(newDevice)
+      // Use functional update to avoid overriding a dialog opened by SSE
+      setCurrentDialog((current) => current ?? newDevice)
     }
-  }, [pendingDevices, seenDeviceIds, currentDialog])
+  }, [pendingDevices, seenDeviceIds])
 
   const showApprovalDialog = useCallback((device: PendingDevice) => {
     setCurrentDialog(device)

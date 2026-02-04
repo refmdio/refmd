@@ -43,7 +43,7 @@ export const Route = createFileRoute('/auth/device-register')({
 
 function DeviceRegisterPage() {
   const navigate = useNavigate()
-  const { auth, setAuthState, setDeviceState } = useAuthContext()
+  const { auth, setAuthState, setDeviceState, clearAuthState } = useAuthContext()
   const { state, startRegistration, reset } = useDevice()
 
   const [sasEmojis, setSasEmojis] = useState<string | null>(null)
@@ -281,6 +281,15 @@ function DeviceRegisterPage() {
       }
     }
 
+    // Logout to clear session cookie and auth state
+    try {
+      await authApi.logout()
+    } catch {
+      // Ignore logout errors
+    }
+
+    // Clear client-side auth state
+    clearAuthState()
     reset()
     hasStartedRef.current = false
     navigate({ to: '/auth/login' })

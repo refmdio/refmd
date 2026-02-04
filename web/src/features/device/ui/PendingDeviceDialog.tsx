@@ -5,7 +5,7 @@
  * Allows existing device to approve via SAS verification.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -47,13 +47,10 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
     ecdhPk: Uint8Array
     clientNonce: Uint8Array
   } | null>(null)
+  const cancelledRef = useRef(false)
 
-  // Load SAS on mount
-  useEffect(() => {
-    loadSas()
-  }, [device.id])
-
-  const loadSas = async () => {
+  // Load SAS function (reusable for retry)
+  const loadSas = useCallback(async () => {
     if (!auth?.identityKeys) {
       setError('Identity keys not available')
       setStep('error')
@@ -66,6 +63,9 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
 
       // Get SAS data from server
       const sasResponse = await deviceApi.getSas(device.id)
+
+      // Check if cancelled after async operation
+      if (cancelledRef.current) return
 
       // Decode keys
       const deviceSigningPk = base64UrlDecode(sasResponse.device_signing_public_key)
@@ -89,10 +89,21 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
       setSasEmojis(emojis)
       setStep('verify')
     } catch (err) {
+      if (cancelledRef.current) return
       setError(err instanceof Error ? err.message : 'Failed to load SAS')
       setStep('error')
     }
-  }
+  }, [device.id, auth?.identityKeys])
+
+  // Load SAS on mount with cancellation support
+  useEffect(() => {
+    cancelledRef.current = false
+    loadSas()
+
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [loadSas])
 
   const handleApprove = async () => {
     if (!auth?.identityKeys || !auth?.umk || !currentDevice || !pendingDeviceKeys) {
