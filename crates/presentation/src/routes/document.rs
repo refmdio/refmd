@@ -30,6 +30,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
+use crate::auth::verify_pop;
 
 /// Create document routes under /api/workspaces/{workspace_id}/documents
 ///
@@ -1034,6 +1035,22 @@ where
             Json(DocumentErrorResponse {
                 error: "session expired".to_string(),
             }),
+        )
+            .into_response());
+    }
+
+    // Verify PoP (Proof of Possession) - required for E2EE key operations
+    if let Err(e) = verify_pop(
+        headers,
+        session.user_id,
+        state.device_repo().as_ref(),
+        &state.challenge_cache(),
+    )
+    .await
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(DocumentErrorResponse { error: e.error }),
         )
             .into_response());
     }

@@ -37,6 +37,8 @@ struct WorkspaceRow {
     description: Option<String>,
     icon: Option<String>,
     owner_id: Uuid,
+    min_kek_version: i32,
+    needs_kek_rotation: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -53,6 +55,8 @@ impl WorkspaceRow {
             description: self.description,
             icon: self.icon,
             owner_id: UserId::from_uuid(self.owner_id),
+            min_kek_version: self.min_kek_version,
+            needs_kek_rotation: self.needs_kek_rotation,
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -66,7 +70,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     async fn find_by_id(&self, id: WorkspaceId) -> Result<Option<Workspace>, Self::Error> {
         let row = sqlx::query_as::<_, WorkspaceRow>(
             r#"
-            SELECT id, name, slug, description, icon, owner_id, created_at, updated_at
+            SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at
             FROM workspaces
             WHERE id = $1
             "#,
@@ -81,7 +85,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     async fn find_by_slug(&self, slug: &Slug) -> Result<Option<Workspace>, Self::Error> {
         let row = sqlx::query_as::<_, WorkspaceRow>(
             r#"
-            SELECT id, name, slug, description, icon, owner_id, created_at, updated_at
+            SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at
             FROM workspaces
             WHERE slug = $1
             "#,
@@ -96,7 +100,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     async fn find_by_owner_id(&self, owner_id: UserId) -> Result<Vec<Workspace>, Self::Error> {
         let rows = sqlx::query_as::<_, WorkspaceRow>(
             r#"
-            SELECT id, name, slug, description, icon, owner_id, created_at, updated_at
+            SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at
             FROM workspaces
             WHERE owner_id = $1
             ORDER BY created_at DESC
@@ -125,12 +129,14 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     async fn save(&self, workspace: &Workspace) -> Result<(), Self::Error> {
         sqlx::query(
             r#"
-            INSERT INTO workspaces (id, name, slug, description, icon, owner_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO workspaces (id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
                 description = EXCLUDED.description,
                 icon = EXCLUDED.icon,
+                min_kek_version = EXCLUDED.min_kek_version,
+                needs_kek_rotation = EXCLUDED.needs_kek_rotation,
                 updated_at = EXCLUDED.updated_at
             "#,
         )
@@ -140,6 +146,8 @@ impl WorkspaceRepository for PgWorkspaceRepository {
         .bind(&workspace.description)
         .bind(&workspace.icon)
         .bind(workspace.owner_id.as_uuid())
+        .bind(workspace.min_kek_version)
+        .bind(workspace.needs_kek_rotation)
         .bind(workspace.created_at)
         .bind(workspace.updated_at)
         .execute(&self.pool)

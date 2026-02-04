@@ -63,11 +63,19 @@ export {
   buildIdentityEcdhAad,
   buildIdentitySigningAad,
   buildDeviceUmkDistributionAad,
+  buildDeviceKekDistributionAad,
   buildDekWrapAad,
   buildDocumentContentAad,
   type AadPurpose,
   type AadCommonHeader,
 } from './aad'
+
+// KEK (Key Encryption Key) functions
+export {
+  generateKek,
+  encryptKekForDevice,
+  decryptKekFromDevice,
+} from './kek'
 
 // Document encryption functions
 export {
@@ -121,9 +129,12 @@ export {
 
 // PoP (Proof of Possession) functions
 export {
-  generatePopHeaders,
-  POP_NONCE_HEADER,
+  getPopHeaders,
+  fetchPopChallenge,
+  signPopChallenge,
+  POP_CHALLENGE_HEADER,
   POP_SIGNATURE_HEADER,
   POP_DEVICE_ID_HEADER,
   type PopHeaders,
+  type PopChallengeResponse,
 } from './pop'

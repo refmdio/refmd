@@ -73,7 +73,7 @@ const initializingPromises = new Map<string, Promise<DocumentState | null>>()
  * @param documentId Document ID to edit
  */
 export function useDocumentEdit(documentId: string): UseDocumentEditResult {
-  const { auth } = useAuthContext()
+  const { auth, device } = useAuthContext()
   const [document, setDocument] = useState<DocumentResponse | null>(null)
   const [content, setContent] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -82,11 +82,12 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
   const [isDirty, setIsDirty] = useState(false)
   const [yDoc, setYDoc] = useState<Y.Doc | null>(null)
 
-  // Get workspace KEK
+  // Get workspace KEK (using device ECDH for per-device key wrapping)
   const { kek, isLoading: kekLoading, error: kekError } = useWorkspaceKek(
     document?.workspace_id,
-    auth?.umk,
-    auth?.userId
+    auth?.userId,
+    device?.deviceId,
+    device?.deviceKeys
   )
 
   // Load document metadata

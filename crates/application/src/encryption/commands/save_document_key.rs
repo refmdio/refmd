@@ -53,6 +53,9 @@ pub enum SaveDocumentKeyError<
     #[error("invalid key version: must be between 1 and {}", i32::MAX)]
     InvalidKeyVersion,
 
+    #[error("key version too old: minimum required is {min_version}, got {provided_version}")]
+    KeyVersionTooOld { min_version: i32, provided_version: i32 },
+
     #[error("document key repository error: {0}")]
     DocumentKeyRepository(DKR),
 
@@ -81,7 +84,10 @@ impl<DKR: std::error::Error, DR: std::error::Error, MR: std::error::Error, RR: s
     }
 
     pub fn is_bad_request(&self) -> bool {
-        matches!(self, SaveDocumentKeyError::InvalidKeyVersion)
+        matches!(
+            self,
+            SaveDocumentKeyError::InvalidKeyVersion | SaveDocumentKeyError::KeyVersionTooOld { .. }
+        )
     }
 }
 
@@ -160,6 +166,15 @@ where
             KeyVersion::initial()
         };
 
+        // 5. Check min_dek_version constraint
+        let key_version_i32 = key_version.as_i32();
+        if key_version_i32 < document.min_dek_version {
+            return Err(SaveDocumentKeyError::KeyVersionTooOld {
+                min_version: document.min_dek_version,
+                provided_version: key_version_i32,
+            });
+        }
+
         let key = DocumentEncryptedKey::new(
             command.document_id,
             key_version,
@@ -168,7 +183,7 @@ where
             command.is_active,
         );
 
-        // 5. Save key
+        // 6. Save key
         self.document_key_repo
             .save(&key)
             .await

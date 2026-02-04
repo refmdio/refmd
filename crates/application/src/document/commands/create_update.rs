@@ -54,6 +54,9 @@ pub enum CreateDocumentUpdateError<
     #[error("invalid nonce length: expected 24 bytes")]
     InvalidNonceLength,
 
+    #[error("key version too old: minimum required is {min_version}, got {provided_version}")]
+    KeyVersionTooOld { min_version: i32, provided_version: i32 },
+
     #[error("document repository error: {0}")]
     DocumentRepository(DR),
 
@@ -90,7 +93,7 @@ impl<
     }
 
     pub fn is_bad_request(&self) -> bool {
-        matches!(self, CreateDocumentUpdateError::InvalidNonceLength)
+        matches!(self, CreateDocumentUpdateError::InvalidNonceLength | CreateDocumentUpdateError::KeyVersionTooOld { .. })
     }
 }
 
@@ -146,6 +149,14 @@ where
         // 3. Check if document is archived
         if document.is_archived() {
             return Err(CreateDocumentUpdateError::DocumentArchived);
+        }
+
+        // 3.5. Check DEK version meets minimum requirement (after key rotation)
+        if command.key_version < document.min_dek_version {
+            return Err(CreateDocumentUpdateError::KeyVersionTooOld {
+                min_version: document.min_dek_version,
+                provided_version: command.key_version,
+            });
         }
 
         // 4. Check membership and get role

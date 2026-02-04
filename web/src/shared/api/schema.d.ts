@@ -67,6 +67,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get recovery data for account recovery
+         * @description Returns encrypted UMK (encrypted with recovery key) and encrypted identity keys.
+         *     Client will decrypt UMK using the recovery key derived from 24-word mnemonic,
+         *     then use UMK to decrypt identity keys.
+         */
+        get: operations["get_recovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/register": {
         parameters: {
             query?: never;
@@ -128,6 +150,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSE endpoint for existing devices to receive pending device notifications
+         * @description Streams events when:
+         *     - A new pending device is created for this user
+         *     - A pending device is approved
+         *     - A pending device expires/is removed
+         */
+        get: operations["device_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/pending": {
         parameters: {
             query?: never;
@@ -174,6 +219,28 @@ export interface paths {
         put?: never;
         /** Approve a pending device after SAS verification */
         post: operations["approve_device"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/pending/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * SSE endpoint for a new device waiting for approval
+         * @description Streams events when:
+         *     - This pending device is approved
+         *     - This pending device expires/is removed
+         */
+        get: operations["pending_device_events"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -645,6 +712,52 @@ export interface components {
             sender_device_id: string;
             /** @description Sender's ECDH public key for shared secret derivation (base64url, 32 bytes) */
             sender_ecdh_public_key: string;
+        };
+        /** @description Get recovery data query parameters (HTTP) */
+        GetRecoveryQueryParams: {
+            /**
+             * @description User email address
+             * @example user@example.com
+             */
+            email: string;
+        };
+        /** @description Get recovery data response */
+        GetRecoveryResponse: {
+            /**
+             * @description Encrypted ECDH private key (base64url encoded)
+             * @example base64url-encoded-encrypted-ecdh-private
+             */
+            encrypted_ecdh_private: string;
+            /**
+             * @description Encrypted ECDH private key nonce (base64url encoded)
+             * @example base64url-encoded-nonce
+             */
+            encrypted_ecdh_private_nonce: string;
+            /**
+             * @description Encrypted signing private key (base64url encoded)
+             * @example base64url-encoded-encrypted-signing-private
+             */
+            encrypted_signing_private: string;
+            /**
+             * @description Encrypted signing private key nonce (base64url encoded)
+             * @example base64url-encoded-nonce
+             */
+            encrypted_signing_private_nonce: string;
+            /**
+             * @description Recovery encrypted UMK (base64url encoded)
+             * @example base64url-encoded-recovery-encrypted-umk
+             */
+            recovery_encrypted_umk: string;
+            /**
+             * @description Recovery nonce (base64url encoded)
+             * @example base64url-encoded-recovery-nonce
+             */
+            recovery_nonce: string;
+            /**
+             * @description User ID (needed for AAD verification)
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            user_id: string;
         };
         /** @description Get salt query parameters (HTTP) */
         GetSaltQueryParams: {
@@ -1193,6 +1306,11 @@ export interface components {
              */
             sender_device_id?: string | null;
             /**
+             * @description Sender device's ECDH public key (base64url encoded, for ECDH decryption)
+             * @example base64url-encoded-ecdh-public-key
+             */
+            sender_ecdh_public_key?: string | null;
+            /**
              * @description User ID
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
@@ -1355,6 +1473,47 @@ export interface operations {
             };
         };
     };
+    get_recovery: {
+        parameters: {
+            query: {
+                /** @description User email address */
+                email: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recovery data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetRecoveryResponse"];
+                };
+            };
+            /** @description Invalid email */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description User not found or recovery data unavailable */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
     register: {
         parameters: {
             query?: never;
@@ -1464,6 +1623,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeviceErrorResponse"];
                 };
+            };
+        };
+    };
+    device_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SSE event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1648,6 +1834,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeviceErrorResponse"];
                 };
+            };
+        };
+    };
+    pending_device_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Pending device ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SSE event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Pending device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

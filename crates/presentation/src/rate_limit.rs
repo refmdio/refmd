@@ -2,7 +2,7 @@
 //!
 //! Uses tower-governor for rate limiting on sensitive endpoints.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     http::{Request, StatusCode},
@@ -63,13 +63,13 @@ pub fn create_auth_rate_limit_config() -> Arc<RateLimitConfig> {
 
 /// Create stricter rate limiting configuration for registration
 ///
-/// Default: 3 requests per minute with burst of 5
+/// Limit: 3 requests per minute (1 per 20 seconds, burst of 3)
 pub fn create_register_rate_limit_config() -> Arc<RateLimitConfig> {
     Arc::new(
         GovernorConfigBuilder::default()
             .key_extractor(ClientIpKeyExtractor)
-            .per_second(20) // 3 per minute = 1 per 20 seconds
-            .burst_size(5)
+            .period(Duration::from_secs(20))
+            .burst_size(3)
             .finish()
             .expect("failed to create rate limit config")
     )
@@ -77,13 +77,13 @@ pub fn create_register_rate_limit_config() -> Arc<RateLimitConfig> {
 
 /// Create rate limiting configuration for device registration
 ///
-/// Default: 5 requests per minute with burst of 10
+/// Limit: 5 requests per minute (1 per 12 seconds, burst of 5)
 pub fn create_device_rate_limit_config() -> Arc<RateLimitConfig> {
     Arc::new(
         GovernorConfigBuilder::default()
             .key_extractor(ClientIpKeyExtractor)
-            .per_second(12) // 5 per minute = 1 per 12 seconds
-            .burst_size(10)
+            .period(Duration::from_secs(12))
+            .burst_size(5)
             .finish()
             .expect("failed to create rate limit config")
     )

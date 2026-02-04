@@ -12,6 +12,7 @@ use domain::identity::{Email, EmailError, User, UserRepository, UserSettings};
 use domain::workspace::{
     Slug, SlugError, Workspace, WorkspaceMember, WorkspaceRepository, WorkspaceRole,
 };
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -88,6 +89,9 @@ pub enum RegisterPasswordUserAtomicError<UR: std::error::Error, WR: std::error::
     #[error("invalid key length")]
     InvalidKeyLength,
 
+    #[error("invalid identity signature")]
+    InvalidIdentitySignature,
+
     #[error("invalid slug: {0}")]
     InvalidSlug(#[from] SlugError),
 
@@ -112,6 +116,7 @@ impl<UR: std::error::Error, WR: std::error::Error> RegisterPasswordUserAtomicErr
             RegisterPasswordUserAtomicError::InvalidEmail(_)
                 | RegisterPasswordUserAtomicError::InvalidAuthKey
                 | RegisterPasswordUserAtomicError::InvalidKeyLength
+                | RegisterPasswordUserAtomicError::InvalidIdentitySignature
         )
     }
 }
@@ -178,6 +183,17 @@ where
         {
             return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
         }
+
+        // Verify identity signature over device keys
+        // Signature is over: device_signing_pk || device_ecdh_pk || client_nonce
+        verify_device_identity_signature(
+            &command.signing_public_key,
+            &command.device_signing_public_key,
+            &command.device_ecdh_public_key,
+            &command.device_client_nonce,
+            &command.device_identity_signature,
+        )
+        .map_err(|_| RegisterPasswordUserAtomicError::InvalidIdentitySignature)?;
 
         // Hash the authKey with bcrypt
         let auth_key_hash = bcrypt::hash(&command.auth_key, bcrypt::DEFAULT_COST)
@@ -342,4 +358,37 @@ fn generate_random_suffix() -> String {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     format!("{:04x}", nanos % 0xFFFF)
+}
+
+/// Verify identity signature over device keys
+///
+/// The signature payload is: device_signing_pk || device_ecdh_pk || client_nonce
+/// This proves the user's identity key approved this device's key material.
+fn verify_device_identity_signature(
+    identity_signing_pk: &[u8],
+    device_signing_pk: &[u8],
+    device_ecdh_pk: &[u8],
+    client_nonce: &[u8],
+    signature: &[u8],
+) -> Result<(), ed25519_dalek::SignatureError> {
+    // Parse identity signing public key
+    let pk_bytes: [u8; 32] = identity_signing_pk
+        .try_into()
+        .map_err(|_| ed25519_dalek::SignatureError::new())?;
+    let verifying_key = VerifyingKey::from_bytes(&pk_bytes)?;
+
+    // Build signature payload: device_signing_pk || device_ecdh_pk || client_nonce
+    let mut payload = Vec::with_capacity(32 + 32 + 16);
+    payload.extend_from_slice(device_signing_pk);
+    payload.extend_from_slice(device_ecdh_pk);
+    payload.extend_from_slice(client_nonce);
+
+    // Parse signature
+    let sig_bytes: [u8; 64] = signature
+        .try_into()
+        .map_err(|_| ed25519_dalek::SignatureError::new())?;
+    let sig = Signature::from_bytes(&sig_bytes);
+
+    // Verify signature
+    verifying_key.verify(&payload, &sig)
 }

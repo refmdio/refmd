@@ -60,6 +60,7 @@ bcrypt = "0.17"
 hex = "0.4"
 blake3 = "1.5"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+rand = "0.9"
 
 # Configuration
 dotenvy = "0.15"

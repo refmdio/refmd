@@ -7,9 +7,9 @@
 import createClient, { type Middleware } from 'openapi-fetch'
 import type { paths, components } from './schema'
 import { getPopCredentials } from '@/shared/lib/pop-store'
-import { generatePopHeaders } from '@/shared/lib/crypto/pop'
+import { getPopHeaders } from '@/shared/lib/crypto/pop'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 /**
  * Paths that don't require PoP headers (auth endpoints)
@@ -20,6 +20,8 @@ const POP_EXEMPT_PATHS = [
   '/api/auth/login',
   '/api/auth/logout',
   '/api/auth/me',
+  '/api/auth/recovery', // Recovery data fetch doesn't require PoP
+  '/api/auth/pop-challenge', // Challenge request itself doesn't require PoP
   '/api/devices/pending', // Pending device creation doesn't require PoP
 ]
 
@@ -56,6 +58,11 @@ function isPopExempt(path: string, method?: string): boolean {
 
 /**
  * Middleware that adds PoP headers to protected requests
+ *
+ * For each PoP-protected request:
+ * 1. Fetches a server-issued challenge from /api/auth/pop-challenge
+ * 2. Signs the challenge with the device signing key
+ * 3. Attaches the challenge and signature as headers
  */
 const popMiddleware: Middleware = {
   async onRequest({ request }) {
@@ -71,7 +78,9 @@ const popMiddleware: Middleware = {
     // Add PoP headers if credentials are available
     const credentials = getPopCredentials()
     if (credentials) {
-      const popHeaders = generatePopHeaders(
+      // Fetch server-issued challenge and sign it
+      const popHeaders = await getPopHeaders(
+        API_BASE,
         credentials.deviceId,
         credentials.signingPrivateKey
       )
@@ -190,6 +199,22 @@ export const authApi = {
    */
   async logout() {
     const { data } = await api.POST('/api/auth/logout')
+    return data
+  },
+
+  /**
+   * Get recovery data for account recovery
+   * Returns encrypted UMK and identity keys needed to restore access
+   */
+  async getRecoveryData(email: string) {
+    const { data, error, response } = await api.GET('/api/auth/recovery', {
+      params: { query: { email } },
+    })
+
+    if (error) {
+      throw new ApiRequestError(response.status, error)
+    }
+
     return data
   },
 }
@@ -503,12 +528,36 @@ export const deviceApi = {
   },
 }
 
+/**
+ * SSE (Server-Sent Events) URL builders
+ *
+ * EventSource doesn't work with openapi-fetch, so we provide type-safe URL builders
+ * that match the OpenAPI schema paths.
+ */
+export const sseUrls = {
+  /**
+   * SSE endpoint for existing devices to receive pending device notifications
+   * @see /api/devices/events in OpenAPI schema
+   */
+  deviceEvents(): string {
+    return `${API_BASE}/api/devices/events`
+  },
+
+  /**
+   * SSE endpoint for a new device waiting for approval
+   * @see /api/devices/pending/{id}/events in OpenAPI schema
+   */
+  pendingDeviceEvents(pendingDeviceId: string): string {
+    return `${API_BASE}/api/devices/pending/${pendingDeviceId}/events`
+  },
+}
+
 export const encryptionApi = {
   /**
    * Get workspace key (KEK)
-   * @param deviceId - Device ID (optional, for multi-device support)
+   * @param deviceId - Device ID (required for multi-device support)
    */
-  async getWorkspaceKey(workspaceId: string, deviceId?: string) {
+  async getWorkspaceKey(workspaceId: string, deviceId: string) {
     const { data, error, response } = await api.GET('/api/encryption/workspaces/{workspace_id}/keys', {
       params: {
         path: { workspace_id: workspaceId },
@@ -529,8 +578,8 @@ export const encryptionApi = {
   async saveWorkspaceKey(
     workspaceId: string,
     body: {
-      device_id?: string
-      sender_device_id?: string
+      device_id: string
+      sender_device_id: string
       key_version?: number
       encrypted_kek: string
       nonce: string

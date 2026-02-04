@@ -36,6 +36,7 @@ export const AAD_PURPOSE = {
 
   // KEK/DEK related
   KEK_WRAP: 'kek_wrap',
+  DEVICE_KEK_WRAP: 'device_kek_wrap',
   DEK_WRAP: 'dek_wrap',
   DOCUMENT_CONTENT: 'document_content',
   DOCUMENT_TAG_VALUE: 'document_tag_value',
@@ -135,6 +136,25 @@ export function buildDeviceUmkDistributionAad(
   return buildAad({
     ...SIGNATURE_PROTOCOL,
     purpose: AAD_PURPOSE.DEVICE_UMK_WRAP,
+    user_id: userId,
+    sender_device_id: senderDeviceId,
+    target_device_id: targetDeviceId,
+  })
+}
+
+/**
+ * Build AAD for device KEK distribution (KEK encrypted with ECDH shared secret)
+ */
+export function buildDeviceKekDistributionAad(
+  workspaceId: string,
+  userId: string,
+  senderDeviceId: string,
+  targetDeviceId: string
+): Uint8Array {
+  return buildAad({
+    ...SIGNATURE_PROTOCOL,
+    purpose: AAD_PURPOSE.DEVICE_KEK_WRAP,
+    workspace_id: workspaceId,
     user_id: userId,
     sender_device_id: senderDeviceId,
     target_device_id: targetDeviceId,

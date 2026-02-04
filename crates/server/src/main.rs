@@ -17,7 +17,7 @@ use infrastructure::workspace::{
     PgWorkspaceMemberRepository, PgWorkspaceRepository, PgWorkspaceRoleRepository,
 };
 use infrastructure::{DatabaseConfig, PgRegistrationService, create_pool};
-use presentation::{ApiDoc, AppState, AppStateParams, DeviceEventBus, middleware::NonceCache, routes};
+use presentation::{ApiDoc, AppState, AppStateParams, DeviceEventBus, ChallengeCache, routes};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -110,8 +110,8 @@ async fn main() -> anyhow::Result<()> {
     // Create device event bus for SSE
     let device_event_bus = DeviceEventBus::new();
 
-    // Create nonce cache for PoP replay attack prevention
-    let nonce_cache = Arc::new(NonceCache::default());
+    // Create challenge cache for server-issued PoP challenges
+    let challenge_cache = Arc::new(ChallengeCache::default());
 
     // Create application state
     let state = AppState::new(AppStateParams {
@@ -133,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
         pending_device_repo,
         device_encrypted_umk_repo,
         device_event_bus,
-        nonce_cache,
+        challenge_cache,
         server_secret,
         secure_cookies,
     });
@@ -143,14 +143,31 @@ async fn main() -> anyhow::Result<()> {
     let cors_origins =
         std::env::var("CORS_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
+    // Validate CORS origins - reject wildcard with credentials
+    // Check for '*' anywhere in the list (not just as sole value)
+    for origin in cors_origins.split(',') {
+        if origin.trim() == "*" {
+            anyhow::bail!(
+                "CORS_ORIGINS contains '*' which is not allowed with credentials. Specify explicit origins (e.g., 'http://localhost:3000')."
+            );
+        }
+    }
+
     let origins: Vec<_> = cors_origins
         .split(',')
         .filter_map(|s| s.trim().parse().ok())
         .collect();
 
+    // Ensure at least one valid origin was parsed
+    if origins.is_empty() {
+        anyhow::bail!(
+            "CORS_ORIGINS contains no valid origins. Specify at least one valid origin URL."
+        );
+    }
+
     // PoP (Proof of Possession) headers for device authentication
     let pop_device_id = HeaderName::from_static("x-pop-device-id");
-    let pop_nonce = HeaderName::from_static("x-pop-nonce");
+    let pop_challenge = HeaderName::from_static("x-pop-challenge");
     let pop_signature = HeaderName::from_static("x-pop-signature");
 
     let cors = CorsLayer::new()
@@ -168,10 +185,10 @@ async fn main() -> anyhow::Result<()> {
             header::AUTHORIZATION,
             header::COOKIE,
             pop_device_id.clone(),
-            pop_nonce.clone(),
+            pop_challenge.clone(),
             pop_signature.clone(),
         ])
-        .expose_headers([pop_device_id, pop_nonce, pop_signature])
+        .expose_headers([pop_device_id, pop_challenge, pop_signature])
         .allow_credentials(true);
 
     // Security headers middleware

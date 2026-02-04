@@ -6,10 +6,8 @@
  */
 
 import { useState, useEffect, useCallback, createContext, useContext, useRef, type ReactNode } from 'react'
-import { deviceApi } from '@/shared/api'
+import { deviceApi, sseUrls } from '@/shared/api'
 import { PendingDeviceDialog } from './PendingDeviceDialog'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface PendingDevice {
   id: string
@@ -81,7 +79,7 @@ export function PendingDeviceProvider({ children }: PendingDeviceProviderProps) 
     fetchPendingDevices()
 
     // Connect to SSE endpoint
-    const eventSource = new EventSource(`${API_BASE}/api/devices/events`, {
+    const eventSource = new EventSource(sseUrls.deviceEvents(), {
       withCredentials: true,
     })
     eventSourceRef.current = eventSource

@@ -1,5 +1,7 @@
 //! Authentication routes
 
+use crate::crypto_validation::{is_valid_x25519_public_key, is_valid_ed25519_public_key};
+
 /// XChaCha20-Poly1305 nonce size in bytes
 const XCHACHA20_NONCE_SIZE: usize = 24;
 
@@ -15,61 +17,6 @@ const CLIENT_NONCE_SIZE: usize = 16;
 /// Ed25519 signature size in bytes
 const ED25519_SIGNATURE_SIZE: usize = 64;
 
-/// Known X25519 low-order points that must be rejected
-/// These can lead to all-zero shared secrets which are security vulnerabilities
-const X25519_LOW_ORDER_POINTS: &[[u8; 32]] = &[
-    // Point of order 1 (identity)
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    // Point of order 2
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    // Point of order 4 (two representations)
-    [0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f, 0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16, 0x5f, 0x49, 0xb8, 0x00],
-    [0x5f, 0x9c, 0x95, 0xbc, 0xa3, 0x50, 0x8c, 0x24, 0xb1, 0xd0, 0xb1, 0x55, 0x9c, 0x83, 0xef, 0x5b, 0x04, 0x44, 0x5c, 0xc4, 0x58, 0x1c, 0x8e, 0x86, 0xd8, 0x22, 0x4e, 0xdd, 0xd0, 0x9f, 0x11, 0x57],
-    // Point of order 8 (four representations)
-    [0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
-    [0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
-    [0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
-];
-
-/// Check if a 32-byte key is a valid X25519 public key (not a low-order point)
-fn is_valid_x25519_public_key(key: &[u8]) -> bool {
-    if key.len() != 32 {
-        return false;
-    }
-    let key_array: [u8; 32] = key.try_into().unwrap();
-    !X25519_LOW_ORDER_POINTS.contains(&key_array)
-}
-
-/// Known Ed25519 small-order points that must be rejected (all 8 torsion points)
-/// These points have small order and can lead to signature forgery
-const ED25519_SMALL_ORDER_POINTS: &[[u8; 32]] = &[
-    // Order 1: Identity (0, 1)
-    [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-    // Order 4: (0, -1)
-    [0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
-    // Order 8 points (both sign variants)
-    [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-    [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80],
-    // Order 8 point and its negative
-    [0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac, 0x03, 0x7a],
-    [0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac, 0x03, 0xfa],
-    // Order 8 point and its negative
-    [0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53, 0xfc, 0x05],
-    [0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53, 0xfc, 0x85],
-    // Non-canonical encodings (y >= p)
-    [0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f],
-    [0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-];
-
-/// Check if a 32-byte key is a valid Ed25519 public key (not a small-order point)
-fn is_valid_ed25519_public_key(key: &[u8]) -> bool {
-    if key.len() != 32 {
-        return false;
-    }
-    let key_array: [u8; 32] = key.try_into().unwrap();
-    !ED25519_SMALL_ORDER_POINTS.contains(&key_array)
-}
-
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
     DeviceEncryptedUMKRepository, DeviceId, DeviceRepository, DeviceType,
@@ -82,9 +29,9 @@ use application::domain::workspace::{
     WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
 };
 use application::identity::{
-    GetCurrentUserHandler, GetCurrentUserQuery, GetSaltHandler, GetSaltQuery,
-    LoginPasswordUserCommand, LoginPasswordUserHandler, RegisterPasswordUserAtomicCommand,
-    RegisterPasswordUserAtomicHandler, RegistrationService,
+    GetCurrentUserHandler, GetCurrentUserQuery, GetRecoveryDataHandler, GetRecoveryDataQuery,
+    GetSaltHandler, GetSaltQuery, LoginPasswordUserCommand, LoginPasswordUserHandler,
+    RegisterPasswordUserAtomicCommand, RegisterPasswordUserAtomicHandler, RegistrationService,
 };
 use axum::{
     Json, Router,
@@ -97,7 +44,9 @@ use serde::{Deserialize, Serialize};
 use tower_governor::GovernorLayer;
 use utoipa::ToSchema;
 
-use crate::{AppState, rate_limit::{create_auth_rate_limit_config, create_register_rate_limit_config}};
+use crate::{AppState, rate_limit::{create_auth_rate_limit_config, create_register_rate_limit_config}, middleware::{POP_DEVICE_ID_HEADER, CHALLENGE_TTL_SECS}};
+use chrono::{Duration as ChronoDuration, Utc};
+use rand::Rng;
 
 /// Create auth routes
 pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
@@ -136,7 +85,7 @@ where
             config: register_rate_limit,
         });
 
-    // Routes with standard auth rate limiting (login, salt)
+    // Routes with standard auth rate limiting (login, salt, recovery, pop-challenge)
     let auth_rate_limited_routes = Router::new()
         .route(
             "/salt",
@@ -145,6 +94,14 @@ where
         .route(
             "/login",
             post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+        )
+        .route(
+            "/recovery",
+            get(get_recovery::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+        )
+        .route(
+            "/pop-challenge",
+            post(create_pop_challenge::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
         )
         .layer(GovernorLayer {
             config: auth_rate_limit,
@@ -1025,6 +982,122 @@ where
     }
 }
 
+/// Get recovery data query parameters (HTTP)
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct GetRecoveryQueryParams {
+    /// User email address
+    #[schema(example = "user@example.com")]
+    pub email: String,
+}
+
+/// Get recovery data response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GetRecoveryResponse {
+    /// User ID (needed for AAD verification)
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    pub user_id: String,
+    /// Recovery encrypted UMK (base64url encoded)
+    #[schema(example = "base64url-encoded-recovery-encrypted-umk")]
+    pub recovery_encrypted_umk: String,
+    /// Recovery nonce (base64url encoded)
+    #[schema(example = "base64url-encoded-recovery-nonce")]
+    pub recovery_nonce: String,
+    /// Encrypted ECDH private key (base64url encoded)
+    #[schema(example = "base64url-encoded-encrypted-ecdh-private")]
+    pub encrypted_ecdh_private: String,
+    /// Encrypted ECDH private key nonce (base64url encoded)
+    #[schema(example = "base64url-encoded-nonce")]
+    pub encrypted_ecdh_private_nonce: String,
+    /// Encrypted signing private key (base64url encoded)
+    #[schema(example = "base64url-encoded-encrypted-signing-private")]
+    pub encrypted_signing_private: String,
+    /// Encrypted signing private key nonce (base64url encoded)
+    #[schema(example = "base64url-encoded-nonce")]
+    pub encrypted_signing_private_nonce: String,
+}
+
+/// Get recovery data for account recovery
+///
+/// Returns encrypted UMK (encrypted with recovery key) and encrypted identity keys.
+/// Client will decrypt UMK using the recovery key derived from 24-word mnemonic,
+/// then use UMK to decrypt identity keys.
+#[utoipa::path(
+    get,
+    path = "/api/auth/recovery",
+    params(
+        ("email" = String, Query, description = "User email address")
+    ),
+    responses(
+        (status = 200, description = "Recovery data", body = GetRecoveryResponse),
+        (status = 400, description = "Invalid email", body = AuthErrorResponse),
+        (status = 404, description = "User not found or recovery data unavailable", body = AuthErrorResponse),
+    ),
+    tag = "auth"
+)]
+pub async fn get_recovery<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+    Query(params): Query<GetRecoveryQueryParams>,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    let handler = GetRecoveryDataHandler::new(
+        state.user_repo(),
+        state.user_encrypted_master_key_repo(),
+        state.user_encrypted_identity_key_repo(),
+    );
+
+    let query = GetRecoveryDataQuery {
+        email: params.email,
+    };
+
+    match handler.handle(query).await {
+        Ok(result) => {
+            let response = GetRecoveryResponse {
+                user_id: result.user_id.to_string(),
+                recovery_encrypted_umk: base64_url::encode(&result.recovery_encrypted_umk),
+                recovery_nonce: base64_url::encode(&result.recovery_nonce),
+                encrypted_ecdh_private: base64_url::encode(&result.encrypted_ecdh_private),
+                encrypted_ecdh_private_nonce: base64_url::encode(&result.encrypted_ecdh_private_nonce),
+                encrypted_signing_private: base64_url::encode(&result.encrypted_signing_private),
+                encrypted_signing_private_nonce: base64_url::encode(&result.encrypted_signing_private_nonce),
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            let (status, message) = if e.is_bad_request() {
+                (StatusCode::BAD_REQUEST, e.to_string())
+            } else if e.is_not_found() {
+                // Don't reveal whether user exists or recovery data is missing
+                (StatusCode::NOT_FOUND, "recovery data not available".to_string())
+            } else {
+                tracing::error!("get_recovery internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
+            };
+            (status, Json(AuthErrorResponse { error: message })).into_response()
+        }
+    }
+}
+
 /// Build session cookie string
 ///
 /// Note: Always set Expires attribute regardless of remember_me flag.
@@ -1314,6 +1387,176 @@ where
         encrypted_signing_private_nonce: base64_url::encode(
             &identity_keys.encrypted_signing_private_nonce,
         ),
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// PoP challenge response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PopChallengeResponse {
+    /// Server-issued challenge (32 bytes, base64url encoded)
+    #[schema(example = "base64url-encoded-challenge")]
+    pub challenge: String,
+    /// Challenge expiration timestamp (Unix timestamp)
+    #[schema(example = 1738700000)]
+    pub expires_at: i64,
+}
+
+/// Create a PoP challenge for device verification
+///
+/// Returns a server-issued challenge that the client must sign with
+/// the device's Ed25519 signing key. The challenge is single-use and
+/// expires after 5 minutes.
+///
+/// Requires:
+/// - Valid session cookie
+/// - X-PoP-Device-Id header with the device UUID
+#[utoipa::path(
+    post,
+    path = "/api/auth/pop-challenge",
+    responses(
+        (status = 200, description = "Challenge created", body = PopChallengeResponse),
+        (status = 400, description = "Missing or invalid device ID", body = AuthErrorResponse),
+        (status = 401, description = "Not authenticated", body = AuthErrorResponse),
+        (status = 404, description = "Device not found", body = AuthErrorResponse),
+    ),
+    tag = "auth"
+)]
+pub async fn create_pop_challenge<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    // Authenticate session first
+    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(AuthErrorResponse { error: e.error }),
+            )
+                .into_response();
+        }
+    };
+
+    // Extract device ID from header
+    let device_id_header = match headers.get(POP_DEVICE_ID_HEADER) {
+        Some(h) => h,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: format!("missing {} header", POP_DEVICE_ID_HEADER),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let device_id_str = match device_id_header.to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: format!("invalid {} header", POP_DEVICE_ID_HEADER),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let device_uuid = match uuid::Uuid::parse_str(device_id_str) {
+        Ok(u) => u,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid device ID format".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let device_id = DeviceId::from_uuid(device_uuid);
+
+    // Verify device exists and belongs to user
+    let device_repo = state.device_repo();
+    let device = match device_repo.find_by_id(device_id).await {
+        Ok(Some(d)) => d,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(AuthErrorResponse {
+                    error: "device not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AuthErrorResponse {
+                    error: "internal server error".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Verify device belongs to authenticated user
+    if device.user_id != auth_user.user_id {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(AuthErrorResponse {
+                error: "device not found".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // Check device is not revoked
+    if device.is_revoked() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AuthErrorResponse {
+                error: "device has been revoked".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // Generate random 32-byte challenge
+    let challenge: [u8; 32] = rand::rng().random();
+    let expires_at = Utc::now() + ChronoDuration::seconds(CHALLENGE_TTL_SECS);
+
+    // Store challenge in cache
+    let challenge_cache = state.challenge_cache();
+    challenge_cache.store(device_id, challenge, expires_at);
+
+    let response = PopChallengeResponse {
+        challenge: base64_url::encode(&challenge),
+        expires_at: expires_at.timestamp(),
     };
 
     (StatusCode::OK, Json(response)).into_response()

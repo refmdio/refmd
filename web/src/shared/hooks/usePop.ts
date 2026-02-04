@@ -3,11 +3,14 @@
  *
  * Provides PoP header generation capability using the device context.
  * PoP headers are required for protected API endpoints per ADR-009.
+ *
+ * Uses server-issued challenges for replay attack prevention.
  */
 
 import { useCallback } from 'react'
 import { useAuthContext } from '@/shared/context/AuthContext'
-import { generatePopHeaders, type PopHeaders } from '@/shared/lib/crypto'
+import { getPopHeaders as fetchPopHeaders, type PopHeaders } from '@/shared/lib/crypto'
+import { API_BASE } from '@/shared/api/client'
 
 /**
  * Hook result for PoP operations
@@ -21,8 +24,9 @@ export interface UsePopResult {
   /**
    * Generate PoP headers for an API request
    * Returns undefined if device keys are not available
+   * Now async because it fetches a server-issued challenge
    */
-  getPopHeaders: () => PopHeaders | undefined
+  getPopHeaders: () => Promise<PopHeaders | undefined>
 
   /**
    * Device ID if available
@@ -38,7 +42,7 @@ export interface UsePopResult {
  * const { hasDevice, getPopHeaders } = usePop()
  *
  * if (hasDevice) {
- *   const headers = getPopHeaders()
+ *   const headers = await getPopHeaders()
  *   // Add headers to API request
  * }
  * ```
@@ -46,12 +50,12 @@ export interface UsePopResult {
 export function usePop(): UsePopResult {
   const { device } = useAuthContext()
 
-  const getPopHeaders = useCallback((): PopHeaders | undefined => {
+  const getPopHeaders = useCallback(async (): Promise<PopHeaders | undefined> => {
     if (!device) {
       return undefined
     }
 
-    return generatePopHeaders(device.deviceId, device.deviceKeys.signingPrivateKey)
+    return fetchPopHeaders(API_BASE, device.deviceId, device.deviceKeys.signingPrivateKey)
   }, [device])
 
   return {

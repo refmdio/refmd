@@ -25,7 +25,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-use crate::{AppState, middleware::NonceCache, routes::auth::SESSION_COOKIE_NAME};
+use crate::{AppState, middleware::{ChallengeCache, ChallengeError, POP_CHALLENGE_HEADER, POP_SIGNATURE_HEADER, POP_DEVICE_ID_HEADER}, routes::auth::SESSION_COOKIE_NAME};
 
 /// Authenticated user information extracted from session
 #[derive(Debug, Clone)]
@@ -243,8 +243,12 @@ impl PopError {
         Self::new(format!("invalid {} header", name))
     }
 
-    pub fn nonce_reused() -> Self {
-        Self::new("nonce already used (possible replay attack)")
+    pub fn challenge_not_found() -> Self {
+        Self::new("challenge not found or already used")
+    }
+
+    pub fn challenge_expired() -> Self {
+        Self::new("challenge has expired")
     }
 
     pub fn device_not_found() -> Self {
@@ -274,10 +278,6 @@ impl IntoResponse for PopError {
     }
 }
 
-/// PoP header names
-pub const POP_NONCE_HEADER: &str = "X-PoP-Nonce";
-pub const POP_SIGNATURE_HEADER: &str = "X-PoP-Signature";
-pub const POP_DEVICE_ID_HEADER: &str = "X-PoP-Device-Id";
 
 /// Verified PoP result containing the device
 #[derive(Debug)]
@@ -285,34 +285,38 @@ pub struct PopVerified {
     pub device: Device,
 }
 
-/// Verify PoP (Proof of Possession) headers
+/// Verify PoP (Proof of Possession) headers with server-issued challenge
 ///
 /// This function validates the PoP headers to ensure the request comes from
 /// a legitimate device. It checks:
 /// 1. All required headers are present
-/// 2. The nonce hasn't been used before (replay attack prevention)
-/// 3. The device exists and belongs to the authenticated user
-/// 4. The signature is valid
+/// 2. The challenge was issued by the server and hasn't been used (one-time use)
+/// 3. The challenge hasn't expired
+/// 4. The device exists and belongs to the authenticated user
+/// 5. The signature is valid
 ///
 /// Returns the verified device on success.
 pub async fn verify_pop<D: DeviceRepository>(
     headers: &HeaderMap,
     user_id: UserId,
     device_repo: &D,
-    nonce_cache: &Arc<NonceCache>,
+    challenge_cache: &Arc<ChallengeCache>,
 ) -> Result<PopVerified, PopError> {
-    // Extract X-PoP-Nonce
-    let nonce_header = headers
-        .get(POP_NONCE_HEADER)
-        .ok_or_else(|| PopError::missing_header(POP_NONCE_HEADER))?;
-    let nonce_str = nonce_header
+    // Extract X-PoP-Challenge (server-issued)
+    let challenge_header = headers
+        .get(POP_CHALLENGE_HEADER)
+        .ok_or_else(|| PopError::missing_header(POP_CHALLENGE_HEADER))?;
+    let challenge_str = challenge_header
         .to_str()
-        .map_err(|_| PopError::invalid_header(POP_NONCE_HEADER))?;
-    let nonce = base64_url::decode(nonce_str)
-        .map_err(|_| PopError::invalid_header(POP_NONCE_HEADER))?;
-    if nonce.len() != 32 {
-        return Err(PopError::new("nonce must be 32 bytes"));
+        .map_err(|_| PopError::invalid_header(POP_CHALLENGE_HEADER))?;
+    let challenge = base64_url::decode(challenge_str)
+        .map_err(|_| PopError::invalid_header(POP_CHALLENGE_HEADER))?;
+    if challenge.len() != 32 {
+        return Err(PopError::new("challenge must be 32 bytes"));
     }
+    let challenge_bytes: [u8; 32] = challenge
+        .try_into()
+        .map_err(|_| PopError::invalid_header(POP_CHALLENGE_HEADER))?;
 
     // Extract X-PoP-Signature
     let sig_header = headers
@@ -338,10 +342,13 @@ pub async fn verify_pop<D: DeviceRepository>(
         .map_err(|_| PopError::invalid_header(POP_DEVICE_ID_HEADER))?;
     let device_id = DeviceId::from_uuid(device_uuid);
 
-    // Check nonce hasn't been used (replay attack prevention)
-    if !nonce_cache.check_and_store(nonce_str) {
-        return Err(PopError::nonce_reused());
-    }
+    // Verify server-issued challenge exists and is valid (does NOT consume yet)
+    challenge_cache
+        .verify(device_id, &challenge_bytes)
+        .map_err(|e| match e {
+            ChallengeError::NotFound => PopError::challenge_not_found(),
+            ChallengeError::Expired => PopError::challenge_expired(),
+        })?;
 
     // Fetch device
     let device = device_repo
@@ -360,7 +367,7 @@ pub async fn verify_pop<D: DeviceRepository>(
         return Err(PopError::device_revoked());
     }
 
-    // Verify Ed25519 signature
+    // Verify Ed25519 signature over the challenge
     let pk_bytes: [u8; 32] = device
         .signing_public_key
         .as_slice()
@@ -376,8 +383,14 @@ pub async fn verify_pop<D: DeviceRepository>(
 
     use ed25519_dalek::Verifier;
     verifying_key
-        .verify(&nonce, &sig)
+        .verify(&challenge_bytes, &sig)
         .map_err(|_| PopError::invalid_signature())?;
+
+    // Signature verified successfully - now consume the challenge (one-time use)
+    // This is atomic: if another request consumed it first, we fail here
+    challenge_cache
+        .consume(device_id, &challenge_bytes)
+        .map_err(|_| PopError::challenge_not_found())?;
 
     Ok(PopVerified { device })
 }
@@ -391,7 +404,7 @@ pub async fn authenticate_with_pop<S: SessionRepository, D: DeviceRepository>(
     headers: &HeaderMap,
     session_repo: &S,
     device_repo: &D,
-    nonce_cache: &Arc<NonceCache>,
+    challenge_cache: &Arc<ChallengeCache>,
 ) -> Result<(AuthUser, PopVerified), Response> {
     // First, authenticate the session
     let auth_user = authenticate(headers, session_repo)
@@ -399,7 +412,7 @@ pub async fn authenticate_with_pop<S: SessionRepository, D: DeviceRepository>(
         .map_err(|e| e.into_response())?;
 
     // Then, verify PoP
-    let pop_verified = verify_pop(headers, auth_user.user_id, device_repo, nonce_cache)
+    let pop_verified = verify_pop(headers, auth_user.user_id, device_repo, challenge_cache)
         .await
         .map_err(|e| e.into_response())?;
 

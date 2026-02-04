@@ -25,10 +25,8 @@ import {
   base64UrlDecode,
 } from '@/shared/lib/crypto'
 import { setPopCredentials } from '@/shared/lib/pop-store'
-import { deviceApi, authApi } from '@/shared/api'
+import { deviceApi, authApi, sseUrls } from '@/shared/api'
 import { detectDeviceType, detectDeviceName } from '@/shared/lib/device'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface DeviceEvent {
   type: 'pending_created' | 'pending_approved' | 'pending_removed'
@@ -187,7 +185,7 @@ function DeviceRegisterPage() {
 
     // Connect to SSE endpoint for this pending device
     const eventSource = new EventSource(
-      `${API_BASE}/api/devices/pending/${state.pendingDeviceId}/events`,
+      sseUrls.pendingDeviceEvents(state.pendingDeviceId),
       { withCredentials: true }
     )
     eventSourceRef.current = eventSource
@@ -234,10 +232,10 @@ function DeviceRegisterPage() {
       if (isHandled || !state.pendingDeviceId) return
 
       try {
-        const res = await fetch(`${API_BASE}/api/devices/pending/${state.pendingDeviceId}/sas`, {
-          credentials: 'include',
-        })
-        if (res.status === 404) {
+        await deviceApi.getSas(state.pendingDeviceId)
+      } catch (err) {
+        // Check if pending device no longer exists (404)
+        if (err && typeof err === 'object' && 'status' in err && err.status === 404) {
           // Pending device no longer exists
           // Could be approved (device_id received via SSE) or rejected/expired
           // Since we can't reliably determine which, show a generic message
@@ -252,8 +250,7 @@ function DeviceRegisterPage() {
           // Note: hasStartedRef.current stays true to prevent auto-restart
           // User must manually click "Try Again" to retry
         }
-      } catch {
-        // Ignore polling errors - SSE or next poll will handle it
+        // Ignore other polling errors - SSE or next poll will handle it
       }
     }, 5000)
 

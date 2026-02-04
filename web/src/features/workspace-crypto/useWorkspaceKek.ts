@@ -1,13 +1,20 @@
 /**
  * Hook for fetching and caching workspace KEK
+ *
+ * KEK is encrypted per-device using ECDH shared secret.
+ * This provides per-device isolation for security.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { encryptionApi, ApiError } from '@/shared/api'
-import { base64UrlDecode, base64UrlEncode } from '@/shared/lib/crypto'
-import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
-import { randomBytes } from '@noble/ciphers/utils.js'
-import { buildAad, SIGNATURE_PROTOCOL, AAD_PURPOSE } from '@/shared/lib/crypto/aad'
+import {
+  base64UrlDecode,
+  base64UrlEncode,
+  generateKek,
+  encryptKekForDevice,
+  decryptKekFromDevice,
+} from '@/shared/lib/crypto'
+import type { DeviceKeyPair } from '@/shared/lib/crypto'
 
 export interface UseWorkspaceKekResult {
   kek: Uint8Array | null
@@ -20,59 +27,18 @@ export interface UseWorkspaceKekResult {
 const kekCache = new Map<string, Uint8Array>()
 
 /**
- * Build AAD for KEK wrap (Phase 1C: UMK-wrapped KEK)
- */
-function buildKekWrapAad(workspaceId: string, userId: string): Uint8Array {
-  return buildAad({
-    ...SIGNATURE_PROTOCOL,
-    purpose: AAD_PURPOSE.KEK_WRAP,
-    workspace_id: workspaceId,
-    user_id: userId,
-  })
-}
-
-/**
- * Decrypt KEK using UMK
- */
-function unwrapKek(
-  encryptedKek: Uint8Array,
-  nonce: Uint8Array,
-  umk: Uint8Array,
-  workspaceId: string,
-  userId: string
-): Uint8Array {
-  const aad = buildKekWrapAad(workspaceId, userId)
-  const cipher = xchacha20poly1305(umk, nonce, aad)
-  return cipher.decrypt(encryptedKek)
-}
-
-/**
- * Encrypt KEK using UMK
- */
-function wrapKek(
-  kek: Uint8Array,
-  umk: Uint8Array,
-  workspaceId: string,
-  userId: string
-): { encryptedKek: Uint8Array; nonce: Uint8Array } {
-  const nonce = randomBytes(24)
-  const aad = buildKekWrapAad(workspaceId, userId)
-  const cipher = xchacha20poly1305(umk, nonce, aad)
-  const encryptedKek = cipher.encrypt(kek)
-  return { encryptedKek, nonce }
-}
-
-/**
  * Hook to fetch and cache workspace KEK
  *
  * @param workspaceId Workspace ID
- * @param umk User Master Key (from AuthContext)
  * @param userId User ID (from AuthContext)
+ * @param deviceId Current device ID (from AuthContext)
+ * @param deviceKeys Current device key pair (from AuthContext)
  */
 export function useWorkspaceKek(
   workspaceId: string | null | undefined,
-  umk: Uint8Array | null | undefined,
-  userId: string | null | undefined
+  userId: string | null | undefined,
+  deviceId: string | null | undefined,
+  deviceKeys: DeviceKeyPair | null | undefined
 ): UseWorkspaceKekResult {
   const [kek, setKek] = useState<Uint8Array | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -80,7 +46,7 @@ export function useWorkspaceKek(
   const fetchingRef = useRef(false)
 
   const fetchKek = useCallback(async () => {
-    if (!workspaceId || !umk || !userId) {
+    if (!workspaceId || !userId || !deviceId || !deviceKeys) {
       setKek(null)
       return
     }
@@ -102,29 +68,52 @@ export function useWorkspaceKek(
     setError(null)
 
     try {
-      // Try to get existing KEK from server
-      const response = await encryptionApi.getWorkspaceKey(workspaceId)
+      // Try to get existing KEK from server (device-specific)
+      const response = await encryptionApi.getWorkspaceKey(workspaceId, deviceId)
       const encryptedKek = base64UrlDecode(response.encrypted_kek)
       const nonce = base64UrlDecode(response.nonce)
+      const senderEcdhPublicKey = response.sender_ecdh_public_key
+        ? base64UrlDecode(response.sender_ecdh_public_key)
+        : deviceKeys.ecdhPublicKey // Self-wrapped (same device)
+      const senderDeviceId = response.sender_device_id || deviceId
 
-      // Decrypt KEK with UMK
-      const decryptedKek = unwrapKek(encryptedKek, nonce, umk, workspaceId, userId)
+      // Decrypt KEK with ECDH shared secret
+      const decryptedKek = decryptKekFromDevice(
+        encryptedKek,
+        nonce,
+        deviceKeys.ecdhPrivateKey,
+        senderEcdhPublicKey,
+        workspaceId,
+        userId,
+        senderDeviceId,
+        deviceId
+      )
 
       // Cache and set
       kekCache.set(workspaceId, decryptedKek)
       setKek(decryptedKek)
     } catch (err) {
-      // If 404, generate new KEK
+      // If 404, generate new KEK (workspace creator case)
       if (err instanceof ApiError && err.status === 404) {
         try {
           // Generate new KEK (32 bytes)
-          const newKek = randomBytes(32)
+          const newKek = generateKek()
 
-          // Wrap with UMK
-          const { encryptedKek, nonce } = wrapKek(newKek, umk, workspaceId, userId)
+          // Wrap with own device ECDH (self-wrapped)
+          const { encryptedKek, nonce } = encryptKekForDevice(
+            newKek,
+            deviceKeys.ecdhPrivateKey,
+            deviceKeys.ecdhPublicKey,
+            workspaceId,
+            userId,
+            deviceId,
+            deviceId
+          )
 
-          // Save to server
+          // Save to server with device_id
           await encryptionApi.saveWorkspaceKey(workspaceId, {
+            device_id: deviceId,
+            sender_device_id: deviceId,
             encrypted_kek: base64UrlEncode(encryptedKek),
             nonce: base64UrlEncode(nonce),
             is_active: true,
@@ -143,7 +132,7 @@ export function useWorkspaceKek(
       setIsLoading(false)
       fetchingRef.current = false
     }
-  }, [workspaceId, umk, userId])
+  }, [workspaceId, userId, deviceId, deviceKeys])
 
   // Fetch on mount and when dependencies change
   useEffect(() => {

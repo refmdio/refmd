@@ -20,6 +20,9 @@ pub struct Document {
     pub doc_type: DocumentType,
     pub is_encrypted: bool,
     pub needs_dek_rotation: bool,
+    /// Minimum DEK version allowed for content encryption
+    /// Updates with key_version below this are rejected (used after key rotation)
+    pub min_dek_version: i32,
     pub created_by: Option<UserId>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -47,6 +50,7 @@ impl Document {
             doc_type: DocumentType::Document,
             is_encrypted: false,
             needs_dek_rotation: false,
+            min_dek_version: 1,
             created_by,
             created_at: now,
             updated_at: now,
@@ -125,6 +129,12 @@ impl Document {
     /// Clear DEK rotation flag
     pub fn clear_dek_rotation_flag(&mut self) {
         self.needs_dek_rotation = false;
+        self.updated_at = Utc::now();
+    }
+
+    /// Update the minimum DEK version (used after key rotation)
+    pub fn set_min_dek_version(&mut self, version: i32) {
+        self.min_dek_version = version;
         self.updated_at = Utc::now();
     }
 }

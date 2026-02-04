@@ -80,12 +80,12 @@ where
 /// Save workspace key request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SaveWorkspaceKeyRequest {
-    /// Device ID (optional, for multi-device support)
+    /// Device ID (required for multi-device support)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    pub device_id: Option<Uuid>,
-    /// Sender device ID (optional, for multi-device support)
+    pub device_id: Uuid,
+    /// Sender device ID (required for multi-device support)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    pub sender_device_id: Option<Uuid>,
+    pub sender_device_id: Uuid,
     /// Key version (optional, default: 1)
     #[schema(example = 1)]
     pub key_version: Option<u32>,
@@ -109,14 +109,16 @@ pub struct WorkspaceKeyResponse {
     /// User ID
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
     pub user_id: String,
-    /// Device ID (optional)
+    /// Device ID
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub device_id: Option<String>,
-    /// Sender device ID (optional)
+    pub device_id: String,
+    /// Sender device ID
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    pub sender_device_id: String,
+    /// Sender device's ECDH public key (base64url encoded, for ECDH decryption)
+    #[schema(example = "base64url-encoded-ecdh-public-key")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sender_device_id: Option<String>,
+    pub sender_ecdh_public_key: Option<String>,
     /// Key version
     #[schema(example = 1)]
     pub key_version: i32,
@@ -134,9 +136,9 @@ pub struct WorkspaceKeyResponse {
 /// Get workspace key query params
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct GetWorkspaceKeyParams {
-    /// Device ID (optional)
+    /// Device ID (required)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
-    pub device_id: Option<Uuid>,
+    pub device_id: Uuid,
 }
 
 /// Save document key request
@@ -237,15 +239,28 @@ where
     };
 
     // Verify PoP (Proof of Possession) - required for E2EE key operations
-    if let Err(e) = verify_pop(
+    let pop_verified = match verify_pop(
         &headers,
         auth_user.user_id,
         state.device_repo().as_ref(),
-        &state.nonce_cache(),
+        &state.challenge_cache(),
     )
     .await
     {
-        return e.into_response();
+        Ok(v) => v,
+        Err(e) => return e.into_response(),
+    };
+
+    // Verify sender_device_id matches the PoP-verified device
+    // This ensures the sender cannot impersonate another device
+    if pop_verified.device.id.as_uuid() != request.sender_device_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(EncryptionErrorResponse {
+                error: "sender_device_id must match PoP device".to_string(),
+            }),
+        )
+            .into_response();
     }
 
     // Decode base64url fields
@@ -288,13 +303,15 @@ where
         state.workspace_key_repo(),
         state.workspace_member_repo(),
         state.workspace_role_repo(),
+        state.device_repo(),
+        state.workspace_repo(),
     );
 
     let command = SaveWorkspaceKeyCommand {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
         user_id: auth_user.user_id,
-        device_id: request.device_id.map(DeviceId::from_uuid),
-        sender_device_id: request.sender_device_id.map(DeviceId::from_uuid),
+        device_id: DeviceId::from_uuid(request.device_id),
+        sender_device_id: DeviceId::from_uuid(request.sender_device_id),
         key_version: request.key_version,
         encrypted_kek,
         nonce,
@@ -306,8 +323,9 @@ where
             let response = WorkspaceKeyResponse {
                 workspace_id: result.key.workspace_id.to_string(),
                 user_id: result.key.user_id.to_string(),
-                device_id: result.key.device_id.map(|d| d.to_string()),
-                sender_device_id: result.key.sender_device_id.map(|d| d.to_string()),
+                device_id: result.key.device_id.to_string(),
+                sender_device_id: result.key.sender_device_id.to_string(),
+                sender_ecdh_public_key: None, // Not needed for save response (caller knows sender key)
                 key_version: result.key.key_version.as_i32(),
                 encrypted_kek: base64_url::encode(&result.key.encrypted_kek),
                 nonce: base64_url::encode(&result.key.nonce),
@@ -318,6 +336,8 @@ where
         Err(e) => {
             let (status, message) = if e.is_bad_request() {
                 (StatusCode::BAD_REQUEST, e.to_string())
+            } else if e.is_not_found() {
+                (StatusCode::NOT_FOUND, e.to_string())
             } else if e.is_forbidden() {
                 (StatusCode::FORBIDDEN, e.to_string())
             } else {
@@ -387,7 +407,7 @@ where
         &headers,
         auth_user.user_id,
         state.device_repo().as_ref(),
-        &state.nonce_cache(),
+        &state.challenge_cache(),
     )
     .await
     {
@@ -398,12 +418,13 @@ where
         state.workspace_key_repo(),
         state.workspace_member_repo(),
         state.workspace_role_repo(),
+        state.device_repo(),
     );
 
     let query = GetWorkspaceKeyQuery {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
         user_id: auth_user.user_id,
-        device_id: params.device_id.map(DeviceId::from_uuid),
+        device_id: DeviceId::from_uuid(params.device_id),
     };
 
     match handler.handle(query).await {
@@ -411,8 +432,9 @@ where
             let response = WorkspaceKeyResponse {
                 workspace_id: result.key.workspace_id.to_string(),
                 user_id: result.key.user_id.to_string(),
-                device_id: result.key.device_id.map(|d| d.to_string()),
-                sender_device_id: result.key.sender_device_id.map(|d| d.to_string()),
+                device_id: result.key.device_id.to_string(),
+                sender_device_id: result.key.sender_device_id.to_string(),
+                sender_ecdh_public_key: result.sender_ecdh_public_key.map(|k| base64_url::encode(&k)),
                 key_version: result.key.key_version.as_i32(),
                 encrypted_kek: base64_url::encode(&result.key.encrypted_kek),
                 nonce: base64_url::encode(&result.key.nonce),
@@ -493,7 +515,7 @@ where
         &headers,
         auth_user.user_id,
         state.device_repo().as_ref(),
-        &state.nonce_cache(),
+        &state.challenge_cache(),
     )
     .await
     {
@@ -635,7 +657,7 @@ where
         &headers,
         auth_user.user_id,
         state.device_repo().as_ref(),
-        &state.nonce_cache(),
+        &state.challenge_cache(),
     )
     .await
     {

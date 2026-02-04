@@ -15,9 +15,17 @@ import {
 } from '@/shared/ui/dialog'
 import { Button } from '@/shared/ui/button'
 import { SasVerification } from './SasVerification'
-import { deviceApi } from '@/shared/api'
+import { deviceApi, workspaceApi, encryptionApi, ApiError } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
-import { base64UrlDecode, generateSasEmojis, sign, base64UrlEncode, encryptUmkForDevice } from '@/shared/lib/crypto'
+import {
+  base64UrlDecode,
+  base64UrlEncode,
+  generateSasEmojis,
+  sign,
+  encryptUmkForDevice,
+  decryptKekFromDevice,
+  encryptKekForDevice,
+} from '@/shared/lib/crypto'
 
 interface PendingDevice {
   id: string
@@ -149,6 +157,79 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
         encrypted_umk: base64UrlEncode(encryptedUmk),
         nonce: base64UrlEncode(nonce),
       })
+
+      // Distribute KEKs for all workspaces the user has access to
+      // This is required because KEKs are wrapped per-device
+      try {
+        console.log('[KEK Distribution] Starting KEK distribution for new device:', approveResponse.id)
+        const workspacesResponse = await workspaceApi.list()
+        console.log('[KEK Distribution] Workspaces to process:', workspacesResponse.workspaces.length)
+
+        for (const item of workspacesResponse.workspaces) {
+          const workspaceId = item.workspace.id
+          console.log('[KEK Distribution] Processing workspace:', workspaceId)
+          try {
+            // Get existing KEK for current device
+            const existingKey = await encryptionApi.getWorkspaceKey(workspaceId, currentDevice.deviceId)
+            console.log('[KEK Distribution] Got existing KEK for workspace:', workspaceId)
+
+            // Decode the encrypted KEK
+            const existingEncryptedKek = base64UrlDecode(existingKey.encrypted_kek)
+            const existingNonce = base64UrlDecode(existingKey.nonce)
+
+            // Get sender's ECDH public key (self for current device)
+            const senderEcdhPk = existingKey.sender_ecdh_public_key
+              ? base64UrlDecode(existingKey.sender_ecdh_public_key)
+              : currentDevice.deviceKeys.ecdhPublicKey
+            const senderDeviceId = existingKey.sender_device_id || currentDevice.deviceId
+
+            // Decrypt KEK with current device's ECDH
+            const decryptedKek = decryptKekFromDevice(
+              existingEncryptedKek,
+              existingNonce,
+              currentDevice.deviceKeys.ecdhPrivateKey,
+              senderEcdhPk,
+              workspaceId,
+              auth.userId,
+              senderDeviceId,
+              currentDevice.deviceId
+            )
+
+            // Re-encrypt KEK for new device using ECDH
+            const { encryptedKek: newEncryptedKek, nonce: newKekNonce } = encryptKekForDevice(
+              decryptedKek,
+              currentDevice.deviceKeys.ecdhPrivateKey,
+              pendingDeviceKeys.ecdhPk,
+              workspaceId,
+              auth.userId,
+              currentDevice.deviceId,
+              approveResponse.id
+            )
+
+            // Save KEK for new device
+            console.log('[KEK Distribution] Saving KEK for new device, workspace:', workspaceId)
+            await encryptionApi.saveWorkspaceKey(workspaceId, {
+              device_id: approveResponse.id,
+              sender_device_id: currentDevice.deviceId,
+              encrypted_kek: base64UrlEncode(newEncryptedKek),
+              nonce: base64UrlEncode(newKekNonce),
+              is_active: true,
+            })
+            console.log('[KEK Distribution] Successfully saved KEK for workspace:', workspaceId)
+          } catch (err) {
+            // Skip workspaces where we don't have KEK yet (might be new workspace)
+            if (!(err instanceof ApiError && err.status === 404)) {
+              console.error(`[KEK Distribution] Failed to distribute KEK for workspace ${workspaceId}:`, err)
+            } else {
+              console.log('[KEK Distribution] No existing KEK for workspace (404):', workspaceId)
+            }
+          }
+        }
+        console.log('[KEK Distribution] Completed')
+      } catch (err) {
+        // Log but don't fail approval - KEK can be distributed on-demand
+        console.error('[KEK Distribution] Failed to distribute KEKs:', err)
+      }
 
       onApproved()
     } catch (err) {

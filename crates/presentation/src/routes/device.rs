@@ -45,7 +45,7 @@ use tower_governor::GovernorLayer;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{AppState, AuthUserFull, auth::verify_pop, rate_limit::create_device_rate_limit_config};
+use crate::{AppState, AuthUserFull, auth::verify_pop, crypto_validation::{is_valid_x25519_public_key, is_valid_ed25519_public_key}, rate_limit::create_device_rate_limit_config};
 
 /// Extract client IP from request headers
 ///
@@ -304,14 +304,23 @@ where
         }
     };
 
-    // Decode base64url fields
+    // Decode base64url fields with security validation
     let ecdh_public_key = match base64_url::decode(&request.ecdh_public_key) {
-        Ok(k) if k.len() == 32 => k,
-        Ok(_) => {
+        Ok(k) if k.len() == 32 && is_valid_x25519_public_key(&k) => k,
+        Ok(k) if k.len() != 32 => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(DeviceErrorResponse {
                     error: "invalid ecdh_public_key: must be 32 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DeviceErrorResponse {
+                    error: "invalid ecdh_public_key: low-order point rejected".to_string(),
                 }),
             )
                 .into_response();
@@ -328,12 +337,21 @@ where
     };
 
     let signing_public_key = match base64_url::decode(&request.signing_public_key) {
-        Ok(k) if k.len() == 32 => k,
-        Ok(_) => {
+        Ok(k) if k.len() == 32 && is_valid_ed25519_public_key(&k) => k,
+        Ok(k) if k.len() != 32 => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(DeviceErrorResponse {
                     error: "invalid signing_public_key: must be 32 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DeviceErrorResponse {
+                    error: "invalid signing_public_key: small-order point rejected".to_string(),
                 }),
             )
                 .into_response();
@@ -895,7 +913,7 @@ where
         &headers,
         auth_user.user.id,
         state.device_repo().as_ref(),
-        &state.nonce_cache(),
+        &state.challenge_cache(),
     )
     .await
     {
@@ -936,6 +954,8 @@ where
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RevokeDeviceResponse {
     pub message: String,
+    /// List of workspace IDs that now need KEK rotation for forward secrecy
+    pub workspaces_needing_kek_rotation: Vec<Uuid>,
 }
 
 /// Revoke (deauthorize) a device
@@ -983,7 +1003,7 @@ where
         &headers,
         auth_user.user.id,
         state.device_repo().as_ref(),
-        &state.nonce_cache(),
+        &state.challenge_cache(),
     )
     .await
     {
@@ -1041,22 +1061,51 @@ where
     // Revoke device
     device.revoke();
 
-    match device_repo.save(&device).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(RevokeDeviceResponse {
-                message: "device revoked".to_string(),
-            }),
-        )
-            .into_response(),
-        Err(e) => (
+    if let Err(e) = device_repo.save(&device).await {
+        return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(DeviceErrorResponse {
                 error: format!("failed to revoke device: {}", e),
             }),
         )
-            .into_response(),
+            .into_response();
     }
+
+    // Mark all user's workspaces as needing KEK rotation
+    // This ensures forward secrecy after device compromise
+    let member_repo = state.workspace_member_repo();
+    let workspace_repo = state.workspace_repo();
+
+    let workspace_ids_needing_rotation = match member_repo.find_by_user_id(auth_user.user.id).await {
+        Ok(members) => {
+            let mut workspace_ids = Vec::new();
+            for member in members {
+                // Get workspace and mark for rotation
+                if let Ok(Some(mut workspace)) = workspace_repo.find_by_id(member.workspace_id).await {
+                    workspace.mark_needs_kek_rotation();
+                    if let Err(e) = workspace_repo.save(&workspace).await {
+                        tracing::error!("failed to mark workspace {} for KEK rotation: {}", workspace.id, e);
+                    } else {
+                        workspace_ids.push(workspace.id.as_uuid());
+                    }
+                }
+            }
+            workspace_ids
+        }
+        Err(e) => {
+            tracing::error!("failed to find user workspaces for KEK rotation marking: {}", e);
+            Vec::new()
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(RevokeDeviceResponse {
+            message: "device revoked".to_string(),
+            workspaces_needing_kek_rotation: workspace_ids_needing_rotation,
+        }),
+    )
+        .into_response()
 }
 
 /// Distribute UMK request
@@ -1131,7 +1180,7 @@ where
         &headers,
         auth_user.user.id,
         state.device_repo().as_ref(),
-        &state.nonce_cache(),
+        &state.challenge_cache(),
     )
     .await
     {
@@ -1435,6 +1484,18 @@ where
 /// - A new pending device is created for this user
 /// - A pending device is approved
 /// - A pending device expires/is removed
+#[utoipa::path(
+    get,
+    path = "/api/devices/events",
+    tag = "device",
+    responses(
+        (status = 200, description = "SSE event stream", content_type = "text/event-stream"),
+        (status = 401, description = "Unauthorized")
+    ),
+    security(
+        ("session_cookie" = [])
+    )
+)]
 pub async fn device_events<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
     State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
@@ -1480,6 +1541,22 @@ where
 /// Streams events when:
 /// - This pending device is approved
 /// - This pending device expires/is removed
+#[utoipa::path(
+    get,
+    path = "/api/devices/pending/{id}/events",
+    tag = "device",
+    params(
+        ("id" = Uuid, Path, description = "Pending device ID")
+    ),
+    responses(
+        (status = 200, description = "SSE event stream", content_type = "text/event-stream"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Pending device not found")
+    ),
+    security(
+        ("session_cookie" = [])
+    )
+)]
 pub async fn pending_device_events<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
     State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,

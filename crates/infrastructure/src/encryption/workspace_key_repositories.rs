@@ -35,8 +35,8 @@ pub enum PgWorkspaceEncryptedKeyRepositoryError {
 struct WorkspaceEncryptedKeyRow {
     workspace_id: Uuid,
     user_id: Uuid,
-    device_id: Option<Uuid>,
-    sender_device_id: Option<Uuid>,
+    device_id: Uuid,
+    sender_device_id: Uuid,
     key_version: i32,
     encrypted_kek: Vec<u8>,
     nonce: Vec<u8>,
@@ -49,8 +49,8 @@ impl From<WorkspaceEncryptedKeyRow> for WorkspaceEncryptedKey {
         Self {
             workspace_id: WorkspaceId::from_uuid(row.workspace_id),
             user_id: UserId::from_uuid(row.user_id),
-            device_id: row.device_id.map(DeviceId::from_uuid),
-            sender_device_id: row.sender_device_id.map(DeviceId::from_uuid),
+            device_id: DeviceId::from_uuid(row.device_id),
+            sender_device_id: DeviceId::from_uuid(row.sender_device_id),
             key_version: KeyVersion::new(row.key_version),
             encrypted_kek: row.encrypted_kek,
             nonce: row.nonce,
@@ -133,44 +133,22 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
         Ok(row.map(WorkspaceEncryptedKey::from))
     }
 
-    async fn find_active_by_user(
-        &self,
-        workspace_id: WorkspaceId,
-        user_id: UserId,
-    ) -> Result<Option<WorkspaceEncryptedKey>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceEncryptedKeyRow>(
-            r#"
-            SELECT workspace_id, user_id, device_id, sender_device_id, key_version,
-                   encrypted_kek, nonce, is_active, created_at
-            FROM workspace_encrypted_keys
-            WHERE workspace_id = $1 AND user_id = $2 AND is_active = TRUE
-            ORDER BY key_version DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(workspace_id.as_uuid())
-        .bind(user_id.as_uuid())
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(row.map(WorkspaceEncryptedKey::from))
-    }
-
     async fn save(&self, key: &WorkspaceEncryptedKey) -> Result<(), Self::Error> {
         // Use transaction to ensure atomicity of deactivation + insert
         let mut tx = self.pool.begin().await?;
 
-        // If saving as active, first deactivate any existing active keys for this workspace/user
+        // If saving as active, first deactivate any existing active keys for this workspace/user/device
         if key.is_active {
             sqlx::query(
                 r#"
                 UPDATE workspace_encrypted_keys
                 SET is_active = FALSE
-                WHERE workspace_id = $1 AND user_id = $2 AND is_active = TRUE
+                WHERE workspace_id = $1 AND user_id = $2 AND device_id = $3 AND is_active = TRUE
                 "#,
             )
             .bind(key.workspace_id.as_uuid())
             .bind(key.user_id.as_uuid())
+            .bind(key.device_id.as_uuid())
             .execute(&mut *tx)
             .await?;
         }
@@ -182,14 +160,14 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
                 encrypted_kek, nonce, is_active, created_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (workspace_id, user_id, key_version) DO UPDATE SET
+            ON CONFLICT (workspace_id, user_id, device_id, key_version) DO UPDATE SET
                 is_active = EXCLUDED.is_active
             "#,
         )
         .bind(key.workspace_id.as_uuid())
         .bind(key.user_id.as_uuid())
-        .bind(key.device_id.map(|d| d.as_uuid()))
-        .bind(key.sender_device_id.map(|d| d.as_uuid()))
+        .bind(key.device_id.as_uuid())
+        .bind(key.sender_device_id.as_uuid())
         .bind(key.key_version.as_i32())
         .bind(&key.encrypted_kek)
         .bind(&key.nonce)

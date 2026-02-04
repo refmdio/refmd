@@ -134,13 +134,6 @@ pub trait WorkspaceEncryptedKeyRepository: Send + Sync {
         device_id: DeviceId,
     ) -> Result<Option<WorkspaceEncryptedKey>, Self::Error>;
 
-    /// Find active key for a user (without device)
-    async fn find_active_by_user(
-        &self,
-        workspace_id: WorkspaceId,
-        user_id: UserId,
-    ) -> Result<Option<WorkspaceEncryptedKey>, Self::Error>;
-
     /// Save
     async fn save(&self, key: &WorkspaceEncryptedKey) -> Result<(), Self::Error>;
 

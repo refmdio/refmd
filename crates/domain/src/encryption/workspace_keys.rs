@@ -12,8 +12,8 @@ use crate::workspace::WorkspaceId;
 pub struct NewWorkspaceKeyParams {
     pub workspace_id: WorkspaceId,
     pub user_id: UserId,
-    pub device_id: Option<DeviceId>,
-    pub sender_device_id: Option<DeviceId>,
+    pub device_id: DeviceId,
+    pub sender_device_id: DeviceId,
     pub key_version: KeyVersion,
     pub encrypted_kek: Vec<u8>,
     pub nonce: Vec<u8>,
@@ -27,8 +27,8 @@ pub struct NewWorkspaceKeyParams {
 pub struct WorkspaceEncryptedKey {
     pub workspace_id: WorkspaceId,
     pub user_id: UserId,
-    pub device_id: Option<DeviceId>,
-    pub sender_device_id: Option<DeviceId>,
+    pub device_id: DeviceId,
+    pub sender_device_id: DeviceId,
     pub key_version: KeyVersion,
     pub encrypted_kek: Vec<u8>,
     pub nonce: Vec<u8>,
@@ -55,7 +55,7 @@ impl WorkspaceEncryptedKey {
     pub fn new_initial(
         workspace_id: WorkspaceId,
         user_id: UserId,
-        device_id: Option<DeviceId>,
+        device_id: DeviceId,
         encrypted_kek: Vec<u8>,
         nonce: Vec<u8>,
     ) -> Self {

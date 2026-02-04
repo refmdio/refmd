@@ -13,6 +13,7 @@
 pub use application;
 
 pub mod auth;
+pub mod crypto_validation;
 pub mod events;
 pub mod middleware;
 pub mod rate_limit;
@@ -20,7 +21,8 @@ pub mod routes;
 pub mod sas;
 mod state;
 
-pub use auth::{AuthUser, AuthUserFull, PopError, PopVerified, verify_pop, authenticate_with_pop, POP_NONCE_HEADER, POP_SIGNATURE_HEADER, POP_DEVICE_ID_HEADER};
+pub use auth::{AuthUser, AuthUserFull, PopError, PopVerified, verify_pop, authenticate_with_pop};
+pub use middleware::{ChallengeCache, ChallengeError, CHALLENGE_TTL_SECS, POP_CHALLENGE_HEADER, POP_SIGNATURE_HEADER, POP_DEVICE_ID_HEADER};
 pub use events::DeviceEventBus;
 pub use state::{AppState, AppStateParams};
 
@@ -36,10 +38,12 @@ use utoipa::OpenApi;
     ),
     paths(
         routes::auth::get_salt,
+        routes::auth::get_recovery,
         routes::auth::register,
         routes::auth::login,
         routes::auth::logout,
         routes::auth::me,
+        routes::auth::create_pop_challenge,
         routes::workspace::list_workspaces,
         routes::workspace::get_workspace,
         routes::document::list_documents,
@@ -64,6 +68,8 @@ use utoipa::OpenApi;
         routes::device::revoke_device,
         routes::device::distribute_umk,
         routes::device::get_device_umk,
+        routes::device::device_events,
+        routes::device::pending_device_events,
     ),
     components(
         schemas(
@@ -71,12 +77,15 @@ use utoipa::OpenApi;
             routes::auth::GetSaltResponse,
             routes::auth::KdfParamsResponse,
             routes::auth::AuthErrorResponse,
+            routes::auth::GetRecoveryQueryParams,
+            routes::auth::GetRecoveryResponse,
             routes::auth::RegisterRequest,
             routes::auth::RegisterResponse,
             routes::auth::LoginRequest,
             routes::auth::LoginResponse,
             routes::auth::LogoutResponse,
             routes::auth::MeResponse,
+            routes::auth::PopChallengeResponse,
             routes::workspace::WorkspaceResponse,
             routes::workspace::MembershipResponse,
             routes::workspace::RoleResponse,

@@ -1,293 +1,279 @@
 //! Proof of Possession (PoP) verification middleware
 //!
-//! ADR-009 compliant: Verifies device ownership via cryptographic signature.
+//! ADR-009 compliant: Verifies device ownership via server-issued challenge.
 //!
 //! Headers required:
-//! - X-PoP-Nonce: 32 bytes base64url encoded random nonce
-//! - X-PoP-Signature: Ed25519 signature of nonce by device signing key
+//! - X-PoP-Challenge: Server-issued 32 bytes base64url encoded challenge
+//! - X-PoP-Signature: Ed25519 signature of challenge by device signing key
 //! - X-PoP-Device-Id: Device UUID
 
 use std::{
-    collections::HashSet,
-    sync::{Arc, RwLock},
+    collections::HashMap,
+    sync::RwLock,
     time::{Duration, Instant},
 };
 
-use axum::{
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::{IntoResponse, Response},
-    Json,
-};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use serde::Serialize;
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use application::domain::encryption::{DeviceId, DeviceRepository};
+use application::domain::encryption::DeviceId;
 
 /// PoP header names
-pub const POP_NONCE_HEADER: &str = "X-PoP-Nonce";
+pub const POP_CHALLENGE_HEADER: &str = "X-PoP-Challenge";
 pub const POP_SIGNATURE_HEADER: &str = "X-PoP-Signature";
 pub const POP_DEVICE_ID_HEADER: &str = "X-PoP-Device-Id";
 
-/// Error response for PoP failures
-#[derive(Debug, Serialize)]
-pub struct PopError {
-    pub error: String,
-}
+/// Challenge TTL (5 minutes)
+pub const CHALLENGE_TTL_SECS: i64 = 300;
 
-/// Nonce cache for replay attack prevention
-pub struct NonceCache {
-    nonces: RwLock<HashSet<String>>,
-    ttl: Duration,
+/// Challenge cache for server-issued PoP challenges
+///
+/// Stores (device_id, challenge) → expires_at mappings.
+/// Each challenge can only be used once (removed on verification).
+pub struct ChallengeCache {
+    /// (device_id, challenge_bytes) → expires_at
+    challenges: RwLock<HashMap<(Uuid, [u8; 32]), DateTime<Utc>>>,
+    /// Cleanup interval
+    cleanup_interval: Duration,
+    /// Last cleanup time
     last_cleanup: RwLock<Instant>,
 }
 
-impl NonceCache {
-    /// Create a new nonce cache with the given TTL
-    pub fn new(ttl: Duration) -> Self {
+impl ChallengeCache {
+    /// Create a new challenge cache
+    pub fn new(cleanup_interval: Duration) -> Self {
         Self {
-            nonces: RwLock::new(HashSet::new()),
-            ttl,
+            challenges: RwLock::new(HashMap::new()),
+            cleanup_interval,
             last_cleanup: RwLock::new(Instant::now()),
         }
     }
 
-    /// Check if nonce exists (replay attack detection)
-    /// Returns true if the nonce is new (not seen before)
-    pub fn check_and_store(&self, nonce: &str) -> bool {
-        // Cleanup old entries periodically
+    /// Store a new challenge for a device
+    ///
+    /// Returns the challenge bytes for sending to client.
+    pub fn store(&self, device_id: DeviceId, challenge: [u8; 32], expires_at: DateTime<Utc>) {
         self.maybe_cleanup();
 
-        let mut nonces = self.nonces.write().unwrap();
-
-        // Check if nonce already exists
-        if nonces.contains(nonce) {
-            return false;
-        }
-
-        // Store new nonce
-        nonces.insert(nonce.to_string());
-        true
+        let mut challenges = self.challenges.write().unwrap();
+        challenges.insert((device_id.as_uuid(), challenge), expires_at);
     }
 
+    /// Verify and consume a challenge
+    ///
+    /// Returns Ok(()) if the challenge is valid and not expired.
+    /// The challenge is removed after verification (one-time use).
+    ///
+    /// Note: Prefer using `verify()` followed by `consume()` separately
+    /// when signature verification happens between them, to avoid consuming
+    /// the challenge on invalid signature attempts.
+    pub fn verify_and_remove(
+        &self,
+        device_id: DeviceId,
+        challenge: &[u8; 32],
+    ) -> Result<(), ChallengeError> {
+        self.maybe_cleanup();
+
+        let mut challenges = self.challenges.write().unwrap();
+        let key = (device_id.as_uuid(), *challenge);
+
+        // Remove and check in one operation
+        match challenges.remove(&key) {
+            Some(expires_at) => {
+                if expires_at < Utc::now() {
+                    Err(ChallengeError::Expired)
+                } else {
+                    Ok(())
+                }
+            }
+            None => Err(ChallengeError::NotFound),
+        }
+    }
+
+    /// Verify challenge exists and is valid (does NOT consume)
+    ///
+    /// Use this when you need to verify signature validity before consuming.
+    /// Follow up with `consume()` after successful signature verification.
+    pub fn verify(&self, device_id: DeviceId, challenge: &[u8; 32]) -> Result<(), ChallengeError> {
+        self.maybe_cleanup();
+
+        let challenges = self.challenges.read().unwrap();
+        let key = (device_id.as_uuid(), *challenge);
+
+        match challenges.get(&key) {
+            Some(expires_at) => {
+                if *expires_at < Utc::now() {
+                    Err(ChallengeError::Expired)
+                } else {
+                    Ok(())
+                }
+            }
+            None => Err(ChallengeError::NotFound),
+        }
+    }
+
+    /// Consume (remove) a previously verified challenge
+    ///
+    /// Call this after successful signature verification.
+    /// Returns Ok(()) if successfully consumed, Err if already consumed (concurrent request).
+    pub fn consume(&self, device_id: DeviceId, challenge: &[u8; 32]) -> Result<(), ChallengeError> {
+        let mut challenges = self.challenges.write().unwrap();
+        match challenges.remove(&(device_id.as_uuid(), *challenge)) {
+            Some(_) => Ok(()),
+            None => Err(ChallengeError::NotFound),
+        }
+    }
+
+    /// Periodic cleanup of expired challenges
     fn maybe_cleanup(&self) {
         let now = Instant::now();
         let should_cleanup = {
             let last = self.last_cleanup.read().unwrap();
-            now.duration_since(*last) > self.ttl
+            now.duration_since(*last) > self.cleanup_interval
         };
 
         if should_cleanup {
-            let mut nonces = self.nonces.write().unwrap();
+            let mut challenges = self.challenges.write().unwrap();
             let mut last = self.last_cleanup.write().unwrap();
 
-            // Clear all nonces (simple strategy - old nonces expire after TTL)
-            nonces.clear();
+            let now_utc = Utc::now();
+            challenges.retain(|_, expires_at| *expires_at > now_utc);
             *last = now;
         }
     }
 }
 
-impl Default for NonceCache {
+impl Default for ChallengeCache {
     fn default() -> Self {
-        Self::new(Duration::from_secs(300)) // 5 minute TTL
+        Self::new(Duration::from_secs(60)) // Cleanup every minute
     }
 }
 
-/// Extract and validate PoP headers
-pub fn extract_pop_headers(
-    req: &Request,
-) -> Result<(Vec<u8>, Vec<u8>, Uuid), PopError> {
-    // Extract nonce
-    let nonce_header = req
-        .headers()
-        .get(POP_NONCE_HEADER)
-        .ok_or_else(|| PopError {
-            error: format!("missing {} header", POP_NONCE_HEADER),
-        })?;
-
-    let nonce_str = nonce_header.to_str().map_err(|_| PopError {
-        error: format!("invalid {} header encoding", POP_NONCE_HEADER),
-    })?;
-
-    let nonce = base64_url::decode(nonce_str).map_err(|_| PopError {
-        error: "invalid nonce encoding".to_string(),
-    })?;
-
-    if nonce.len() != 32 {
-        return Err(PopError {
-            error: "nonce must be 32 bytes".to_string(),
-        });
-    }
-
-    // Extract signature
-    let sig_header = req
-        .headers()
-        .get(POP_SIGNATURE_HEADER)
-        .ok_or_else(|| PopError {
-            error: format!("missing {} header", POP_SIGNATURE_HEADER),
-        })?;
-
-    let sig_str = sig_header.to_str().map_err(|_| PopError {
-        error: format!("invalid {} header encoding", POP_SIGNATURE_HEADER),
-    })?;
-
-    let signature = base64_url::decode(sig_str).map_err(|_| PopError {
-        error: "invalid signature encoding".to_string(),
-    })?;
-
-    if signature.len() != 64 {
-        return Err(PopError {
-            error: "signature must be 64 bytes".to_string(),
-        });
-    }
-
-    // Extract device ID
-    let device_id_header = req
-        .headers()
-        .get(POP_DEVICE_ID_HEADER)
-        .ok_or_else(|| PopError {
-            error: format!("missing {} header", POP_DEVICE_ID_HEADER),
-        })?;
-
-    let device_id_str = device_id_header.to_str().map_err(|_| PopError {
-        error: format!("invalid {} header encoding", POP_DEVICE_ID_HEADER),
-    })?;
-
-    let device_id = Uuid::parse_str(device_id_str).map_err(|_| PopError {
-        error: "invalid device ID format".to_string(),
-    })?;
-
-    Ok((nonce, signature, device_id))
+/// Challenge verification error
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChallengeError {
+    /// Challenge not found (invalid or already used)
+    NotFound,
+    /// Challenge has expired
+    Expired,
 }
 
-/// Verify PoP signature using Ed25519
-pub fn verify_pop_signature(
-    nonce: &[u8],
-    signature: &[u8],
-    signing_public_key: &[u8],
-) -> Result<(), PopError> {
-    // Parse public key
-    let pk_bytes: [u8; 32] = signing_public_key.try_into().map_err(|_| PopError {
-        error: "invalid public key length".to_string(),
-    })?;
-
-    let verifying_key = VerifyingKey::from_bytes(&pk_bytes).map_err(|_| PopError {
-        error: "invalid public key".to_string(),
-    })?;
-
-    // Parse signature
-    let sig_bytes: [u8; 64] = signature.try_into().map_err(|_| PopError {
-        error: "invalid signature length".to_string(),
-    })?;
-
-    let sig = Signature::from_bytes(&sig_bytes);
-
-    // Verify
-    verifying_key.verify(nonce, &sig).map_err(|_| PopError {
-        error: "invalid signature".to_string(),
-    })
-}
-
-/// PoP verification middleware
-///
-/// Verifies device ownership via cryptographic signature on nonce
-pub async fn require_pop<D>(
-    device_repo: Arc<D>,
-    nonce_cache: Arc<NonceCache>,
-    req: Request,
-    next: Next,
-) -> Response
-where
-    D: DeviceRepository + Send + Sync + 'static,
-{
-    // Extract PoP headers
-    let (nonce, signature, device_id) = match extract_pop_headers(&req) {
-        Ok(h) => h,
-        Err(e) => {
-            return (StatusCode::UNAUTHORIZED, Json(e)).into_response();
+impl std::fmt::Display for ChallengeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChallengeError::NotFound => write!(f, "challenge not found or already used"),
+            ChallengeError::Expired => write!(f, "challenge has expired"),
         }
-    };
-
-    // Check nonce hasn't been used (replay attack prevention)
-    let nonce_key = base64_url::encode(&nonce);
-    if !nonce_cache.check_and_store(&nonce_key) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(PopError {
-                error: "nonce already used (possible replay attack)".to_string(),
-            }),
-        )
-            .into_response();
     }
-
-    // Fetch device
-    let device = match device_repo.find_by_id(DeviceId::from_uuid(device_id)).await {
-        Ok(Some(d)) => d,
-        Ok(None) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(PopError {
-                    error: "device not found".to_string(),
-                }),
-            )
-                .into_response();
-        }
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(PopError {
-                    error: "internal server error".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    // Check device is not revoked
-    if device.is_revoked() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(PopError {
-                error: "device has been revoked".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    // Verify signature
-    if let Err(e) = verify_pop_signature(&nonce, &signature, &device.signing_public_key) {
-        return (StatusCode::UNAUTHORIZED, Json(e)).into_response();
-    }
-
-    next.run(req).await
 }
+
+impl std::error::Error for ChallengeError {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration as ChronoDuration;
 
     #[test]
-    fn test_nonce_cache_prevents_replay() {
-        let cache = NonceCache::new(Duration::from_secs(60));
+    fn test_challenge_cache_basic() {
+        let cache = ChallengeCache::new(Duration::from_secs(60));
+        let device_id = DeviceId::from_uuid(Uuid::new_v4());
+        let challenge = [1u8; 32];
+        let expires_at = Utc::now() + ChronoDuration::minutes(5);
 
-        let nonce = "test_nonce_123";
+        // Store challenge
+        cache.store(device_id, challenge, expires_at);
 
-        // First use should succeed
-        assert!(cache.check_and_store(nonce));
+        // First verification should succeed
+        assert!(cache.verify_and_remove(device_id, &challenge).is_ok());
 
-        // Second use should fail (replay)
-        assert!(!cache.check_and_store(nonce));
+        // Second verification should fail (challenge consumed)
+        assert_eq!(
+            cache.verify_and_remove(device_id, &challenge),
+            Err(ChallengeError::NotFound)
+        );
     }
 
     #[test]
-    fn test_nonce_cache_allows_different_nonces() {
-        let cache = NonceCache::new(Duration::from_secs(60));
+    fn test_challenge_cache_expired() {
+        let cache = ChallengeCache::new(Duration::from_secs(60));
+        let device_id = DeviceId::from_uuid(Uuid::new_v4());
+        let challenge = [2u8; 32];
+        let expires_at = Utc::now() - ChronoDuration::seconds(1); // Already expired
 
-        assert!(cache.check_and_store("nonce1"));
-        assert!(cache.check_and_store("nonce2"));
-        assert!(cache.check_and_store("nonce3"));
+        cache.store(device_id, challenge, expires_at);
+
+        // Verification should fail (expired)
+        assert_eq!(
+            cache.verify_and_remove(device_id, &challenge),
+            Err(ChallengeError::Expired)
+        );
+    }
+
+    #[test]
+    fn test_challenge_cache_wrong_device() {
+        let cache = ChallengeCache::new(Duration::from_secs(60));
+        let device_id1 = DeviceId::from_uuid(Uuid::new_v4());
+        let device_id2 = DeviceId::from_uuid(Uuid::new_v4());
+        let challenge = [3u8; 32];
+        let expires_at = Utc::now() + ChronoDuration::minutes(5);
+
+        cache.store(device_id1, challenge, expires_at);
+
+        // Verification with wrong device should fail
+        assert_eq!(
+            cache.verify_and_remove(device_id2, &challenge),
+            Err(ChallengeError::NotFound)
+        );
+
+        // Verification with correct device should succeed
+        assert!(cache.verify_and_remove(device_id1, &challenge).is_ok());
+    }
+
+    #[test]
+    fn test_challenge_cache_verify_without_consume() {
+        let cache = ChallengeCache::new(Duration::from_secs(60));
+        let device_id = DeviceId::from_uuid(Uuid::new_v4());
+        let challenge = [4u8; 32];
+        let expires_at = Utc::now() + ChronoDuration::minutes(5);
+
+        cache.store(device_id, challenge, expires_at);
+
+        // Verify should succeed without consuming
+        assert!(cache.verify(device_id, &challenge).is_ok());
+
+        // Verify should still succeed (not consumed)
+        assert!(cache.verify(device_id, &challenge).is_ok());
+
+        // Now consume - should succeed
+        assert!(cache.consume(device_id, &challenge).is_ok());
+
+        // Verify should fail after consume
+        assert_eq!(
+            cache.verify(device_id, &challenge),
+            Err(ChallengeError::NotFound)
+        );
+
+        // Second consume should fail (already consumed)
+        assert_eq!(
+            cache.consume(device_id, &challenge),
+            Err(ChallengeError::NotFound)
+        );
+    }
+
+    #[test]
+    fn test_challenge_cache_verify_expired() {
+        let cache = ChallengeCache::new(Duration::from_secs(60));
+        let device_id = DeviceId::from_uuid(Uuid::new_v4());
+        let challenge = [5u8; 32];
+        let expires_at = Utc::now() - ChronoDuration::seconds(1); // Already expired
+
+        cache.store(device_id, challenge, expires_at);
+
+        // Verify should fail (expired)
+        assert_eq!(
+            cache.verify(device_id, &challenge),
+            Err(ChallengeError::Expired)
+        );
     }
 }

@@ -14,6 +14,11 @@ pub struct Workspace {
     pub description: Option<String>,
     pub icon: Option<String>,
     pub owner_id: UserId,
+    /// Minimum KEK version allowed for encryption operations
+    /// Keys with versions below this are rejected (used after key rotation)
+    pub min_kek_version: i32,
+    /// Whether the workspace needs KEK rotation (e.g., after device revocation)
+    pub needs_kek_rotation: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -29,9 +34,29 @@ impl Workspace {
             description: None,
             icon: None,
             owner_id,
+            min_kek_version: 1,
+            needs_kek_rotation: false,
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// Update the minimum KEK version (used after key rotation)
+    pub fn set_min_kek_version(&mut self, version: i32) {
+        self.min_kek_version = version;
+        self.updated_at = Utc::now();
+    }
+
+    /// Mark workspace as needing KEK rotation (e.g., after device revocation)
+    pub fn mark_needs_kek_rotation(&mut self) {
+        self.needs_kek_rotation = true;
+        self.updated_at = Utc::now();
+    }
+
+    /// Clear the KEK rotation flag (after rotation is complete)
+    pub fn clear_kek_rotation_flag(&mut self) {
+        self.needs_kek_rotation = false;
+        self.updated_at = Utc::now();
     }
 
     /// Update workspace details

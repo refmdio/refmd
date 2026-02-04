@@ -43,6 +43,7 @@ struct DocumentRow {
     doc_type: String,
     is_encrypted: bool,
     needs_dek_rotation: bool,
+    min_dek_version: i32,
     created_by: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -68,6 +69,7 @@ impl DocumentRow {
             doc_type,
             is_encrypted: self.is_encrypted,
             needs_dek_rotation: self.needs_dek_rotation,
+            min_dek_version: self.min_dek_version,
             created_by: self.created_by.map(UserId::from_uuid),
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -84,8 +86,8 @@ impl DocumentRepository for PgDocumentRepository {
         let row = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, created_by,
-                   created_at, updated_at, archived_at
+                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
+                   created_by, created_at, updated_at, archived_at
             FROM documents
             WHERE id = $1
             "#,
@@ -105,8 +107,8 @@ impl DocumentRepository for PgDocumentRepository {
         let row = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, created_by,
-                   created_at, updated_at, archived_at
+                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
+                   created_by, created_at, updated_at, archived_at
             FROM documents
             WHERE workspace_id = $1 AND slug = $2
             "#,
@@ -126,8 +128,8 @@ impl DocumentRepository for PgDocumentRepository {
         let rows = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, created_by,
-                   created_at, updated_at, archived_at
+                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
+                   created_by, created_at, updated_at, archived_at
             FROM documents
             WHERE workspace_id = $1
             ORDER BY created_at DESC
@@ -144,8 +146,8 @@ impl DocumentRepository for PgDocumentRepository {
         let rows = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, created_by,
-                   created_at, updated_at, archived_at
+                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
+                   created_by, created_at, updated_at, archived_at
             FROM documents
             WHERE parent_id = $1
             ORDER BY title
@@ -165,8 +167,8 @@ impl DocumentRepository for PgDocumentRepository {
         let rows = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, created_by,
-                   created_at, updated_at, archived_at
+                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
+                   created_by, created_at, updated_at, archived_at
             FROM documents
             WHERE workspace_id = $1 AND parent_id IS NULL
             ORDER BY title
@@ -186,8 +188,8 @@ impl DocumentRepository for PgDocumentRepository {
         let rows = sqlx::query_as::<_, DocumentRow>(
             r#"
             SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, created_by,
-                   created_at, updated_at, archived_at
+                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
+                   created_by, created_at, updated_at, archived_at
             FROM documents
             WHERE workspace_id = $1 AND needs_dek_rotation = TRUE
             "#,
@@ -222,10 +224,10 @@ impl DocumentRepository for PgDocumentRepository {
             r#"
             INSERT INTO documents (
                 id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                slug, path, doc_type, is_encrypted, needs_dek_rotation, created_by,
-                created_at, updated_at, archived_at
+                slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
+                created_by, created_at, updated_at, archived_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             ON CONFLICT (id) DO UPDATE SET
                 parent_id = EXCLUDED.parent_id,
                 title = EXCLUDED.title,
@@ -234,6 +236,7 @@ impl DocumentRepository for PgDocumentRepository {
                 path = EXCLUDED.path,
                 is_encrypted = EXCLUDED.is_encrypted,
                 needs_dek_rotation = EXCLUDED.needs_dek_rotation,
+                min_dek_version = EXCLUDED.min_dek_version,
                 updated_at = EXCLUDED.updated_at,
                 archived_at = EXCLUDED.archived_at
             "#,
@@ -249,6 +252,7 @@ impl DocumentRepository for PgDocumentRepository {
         .bind(document.doc_type.as_str())
         .bind(document.is_encrypted)
         .bind(document.needs_dek_rotation)
+        .bind(document.min_dek_version)
         .bind(document.created_by.map(|id| id.as_uuid()))
         .bind(document.created_at)
         .bind(document.updated_at)

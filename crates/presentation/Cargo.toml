@@ -41,6 +41,7 @@ sha2.workspace = true
 base64-url.workspace = true
 blake3.workspace = true
 ed25519-dalek.workspace = true
+rand.workspace = true
 
 # Rate limiting
 tower_governor.workspace = true
