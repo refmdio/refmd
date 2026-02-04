@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
+import { Route as AuthRecoveryRouteImport } from './routes/auth/recovery'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
+import { Route as AuthDeviceRegisterRouteImport } from './routes/auth/device-register'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedWorkspaceWorkspaceIdRouteImport } from './routes/_authenticated/workspace/$workspaceId'
 import { Route as AuthenticatedDocumentDocumentIdRouteImport } from './routes/_authenticated/document/$documentId'
@@ -31,9 +33,19 @@ const AuthRegisterRoute = AuthRegisterRouteImport.update({
   path: '/auth/register',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthRecoveryRoute = AuthRecoveryRouteImport.update({
+  id: '/auth/recovery',
+  path: '/auth/recovery',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/auth/login',
   path: '/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthDeviceRegisterRoute = AuthDeviceRegisterRouteImport.update({
+  id: '/auth/device-register',
+  path: '/auth/device-register',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -57,7 +69,9 @@ const AuthenticatedDocumentDocumentIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/auth/device-register': typeof AuthDeviceRegisterRoute
   '/auth/login': typeof AuthLoginRoute
+  '/auth/recovery': typeof AuthRecoveryRoute
   '/auth/register': typeof AuthRegisterRoute
   '/document/$documentId': typeof AuthenticatedDocumentDocumentIdRoute
   '/workspace/$workspaceId': typeof AuthenticatedWorkspaceWorkspaceIdRoute
@@ -65,7 +79,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/auth/device-register': typeof AuthDeviceRegisterRoute
   '/auth/login': typeof AuthLoginRoute
+  '/auth/recovery': typeof AuthRecoveryRoute
   '/auth/register': typeof AuthRegisterRoute
   '/document/$documentId': typeof AuthenticatedDocumentDocumentIdRoute
   '/workspace/$workspaceId': typeof AuthenticatedWorkspaceWorkspaceIdRoute
@@ -75,7 +91,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/auth/device-register': typeof AuthDeviceRegisterRoute
   '/auth/login': typeof AuthLoginRoute
+  '/auth/recovery': typeof AuthRecoveryRoute
   '/auth/register': typeof AuthRegisterRoute
   '/_authenticated/document/$documentId': typeof AuthenticatedDocumentDocumentIdRoute
   '/_authenticated/workspace/$workspaceId': typeof AuthenticatedWorkspaceWorkspaceIdRoute
@@ -85,7 +103,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
+    | '/auth/device-register'
     | '/auth/login'
+    | '/auth/recovery'
     | '/auth/register'
     | '/document/$documentId'
     | '/workspace/$workspaceId'
@@ -93,7 +113,9 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/dashboard'
+    | '/auth/device-register'
     | '/auth/login'
+    | '/auth/recovery'
     | '/auth/register'
     | '/document/$documentId'
     | '/workspace/$workspaceId'
@@ -102,7 +124,9 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/_authenticated/dashboard'
+    | '/auth/device-register'
     | '/auth/login'
+    | '/auth/recovery'
     | '/auth/register'
     | '/_authenticated/document/$documentId'
     | '/_authenticated/workspace/$workspaceId'
@@ -111,7 +135,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  AuthDeviceRegisterRoute: typeof AuthDeviceRegisterRoute
   AuthLoginRoute: typeof AuthLoginRoute
+  AuthRecoveryRoute: typeof AuthRecoveryRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
 }
 
@@ -138,11 +164,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/recovery': {
+      id: '/auth/recovery'
+      path: '/auth/recovery'
+      fullPath: '/auth/recovery'
+      preLoaderRoute: typeof AuthRecoveryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth/login': {
       id: '/auth/login'
       path: '/auth/login'
       fullPath: '/auth/login'
       preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/device-register': {
+      id: '/auth/device-register'
+      path: '/auth/device-register'
+      fullPath: '/auth/device-register'
+      preLoaderRoute: typeof AuthDeviceRegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/dashboard': {
@@ -189,7 +229,9 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  AuthDeviceRegisterRoute: AuthDeviceRegisterRoute,
   AuthLoginRoute: AuthLoginRoute,
+  AuthRecoveryRoute: AuthRecoveryRoute,
   AuthRegisterRoute: AuthRegisterRoute,
 }
 export const routeTree = rootRouteImport

@@ -1,7 +1,13 @@
 //! Encryption commands
 
+mod approve_device;
+mod create_pending_device;
+mod distribute_umk;
 mod save_document_key;
 mod save_workspace_key;
 
+pub use approve_device::*;
+pub use create_pending_device::*;
+pub use distribute_umk::*;
 pub use save_document_key::*;
 pub use save_workspace_key::*;

@@ -1,6 +1,7 @@
 //! API routes
 
 pub mod auth;
+pub mod device;
 pub mod document;
 pub mod encryption;
 pub mod workspace;
@@ -8,9 +9,9 @@ pub mod workspace;
 use crate::AppState;
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
-    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
-    WorkspaceEncryptedKeyRepository,
+    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
+    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -20,8 +21,8 @@ use application::identity::RegistrationService;
 use axum::Router;
 
 /// Create all API routes
-pub fn create_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
+pub fn create_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -38,12 +39,15 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     Router::new().nest("/api", api_routes(state))
 }
 
-fn api_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
+fn api_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -60,10 +64,14 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     Router::new()
         .nest("/auth", auth::routes(state.clone()))
         .nest("/workspaces", workspace::routes(state.clone()))
         .nest("/documents", document::routes(state.clone()))
-        .nest("/encryption", encryption::routes(state))
+        .nest("/encryption", encryption::routes(state.clone()))
+        .nest("/devices", device::routes(state))
 }

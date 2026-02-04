@@ -2,9 +2,9 @@
 
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
-    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
-    WorkspaceEncryptedKeyRepository,
+    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
+    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -28,8 +28,8 @@ use uuid::Uuid;
 use crate::AppState;
 
 /// Create workspace routes
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -46,19 +46,22 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     Router::new()
         .route(
             "/",
-            get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
+            get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
         )
         .route(
             "/{id}",
-            get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
+            get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
         )
         .nest(
             "/{workspace_id}/documents",
-            super::document::workspace_routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(),
+            super::document::workspace_routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(),
         )
         .with_state(state)
 }
@@ -144,8 +147,8 @@ pub struct WorkspaceErrorResponse {
     ),
     tag = "workspace"
 )]
-pub async fn list_workspaces<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+pub async fn list_workspaces<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -163,6 +166,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     // Authenticate user
     let user = match authenticate_user(&state, &headers).await {
@@ -236,8 +242,8 @@ where
     ),
     tag = "workspace"
 )]
-pub async fn get_workspace<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+pub async fn get_workspace<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse
@@ -256,6 +262,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     // Authenticate user
     let user = match authenticate_user(&state, &headers).await {
@@ -334,8 +343,8 @@ struct AuthenticatedUser {
 }
 
 /// Authenticate user from session cookie
-async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
+async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthenticatedUser, axum::response::Response>
 where
@@ -353,6 +362,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     // Extract session token from cookie
     let token = match crate::auth::extract_session_token(headers) {

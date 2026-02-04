@@ -54,6 +54,8 @@ sha2 = "0.10"
 base64-url = "3"
 bcrypt = "0.17"
 hex = "0.4"
+blake3 = "1.5"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 
 # Configuration
 dotenvy = "0.15"

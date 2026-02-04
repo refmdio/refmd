@@ -66,9 +66,9 @@ fn is_valid_ed25519_public_key(key: &[u8]) -> bool {
 
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    DocumentEncryptedKeyRepository, KdfParams, UserEncryptedIdentityKeyRepository,
-    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
-    WorkspaceEncryptedKeyRepository,
+    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository, KdfParams,
+    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -87,13 +87,14 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use tower_governor::GovernorLayer;
 use utoipa::ToSchema;
 
-use crate::AppState;
+use crate::{AppState, rate_limit::{create_auth_rate_limit_config, create_register_rate_limit_config}};
 
 /// Create auth routes
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
+pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
 ) -> Router
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -110,28 +111,53 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    Router::new()
-        .route(
-            "/salt",
-            get(get_salt::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
-        )
+    // Rate limiting configs
+    let register_rate_limit = create_register_rate_limit_config();
+    let auth_rate_limit = create_auth_rate_limit_config();
+
+    // Routes with stricter rate limiting (registration)
+    let register_routes = Router::new()
         .route(
             "/register",
-            post(register::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
+            post(register::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+        )
+        .layer(GovernorLayer {
+            config: register_rate_limit,
+        });
+
+    // Routes with standard auth rate limiting (login, salt)
+    let auth_rate_limited_routes = Router::new()
+        .route(
+            "/salt",
+            get(get_salt::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
         )
         .route(
             "/login",
-            post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
+            post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
         )
+        .layer(GovernorLayer {
+            config: auth_rate_limit,
+        });
+
+    // Routes without rate limiting (authenticated endpoints)
+    let non_rate_limited_routes = Router::new()
         .route(
             "/logout",
-            post(logout::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
+            post(logout::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
         )
         .route(
             "/me",
-            get(me::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>),
-        )
+            get(me::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+        );
+
+    Router::new()
+        .merge(register_routes)
+        .merge(auth_rate_limited_routes)
+        .merge(non_rate_limited_routes)
         .with_state(state)
 }
 
@@ -205,8 +231,8 @@ pub struct AuthErrorResponse {
     ),
     tag = "auth"
 )]
-pub async fn get_salt<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+pub async fn get_salt<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     Query(params): Query<GetSaltQueryParams>,
 ) -> impl IntoResponse
 where
@@ -224,6 +250,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     // Use application layer handler
     let handler = GetSaltHandler::new(
@@ -338,8 +367,8 @@ pub struct RegisterResponse {
     ),
     tag = "auth"
 )]
-pub async fn register<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+pub async fn register<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     Json(request): Json<RegisterRequest>,
 ) -> impl IntoResponse
 where
@@ -357,6 +386,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     // Decode base64url fields with length validation
     let salt = match base64_url::decode(&request.salt) {
@@ -704,8 +736,8 @@ pub const SESSION_COOKIE_NAME: &str = "refmd_session";
     ),
     tag = "auth"
 )]
-pub async fn login<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+pub async fn login<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     Json(request): Json<LoginRequest>,
 ) -> impl IntoResponse
 where
@@ -723,6 +755,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     let remember_me = request.remember_me;
 
@@ -859,8 +894,8 @@ pub struct LogoutResponse {
     ),
     tag = "auth"
 )]
-pub async fn logout<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+pub async fn logout<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -878,6 +913,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     // Try to invalidate session on server if cookie exists
     if let Some(token) = extract_session_cookie(&headers) {
@@ -969,8 +1007,8 @@ pub struct MeResponse {
     ),
     tag = "auth"
 )]
-pub async fn me<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>>,
+pub async fn me<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -988,6 +1026,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
     RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
     // Extract session token from cookie
     let token = match crate::auth::extract_session_token(&headers) {

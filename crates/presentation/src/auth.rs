@@ -2,16 +2,29 @@
 //!
 //! Provides authentication helpers for authenticated requests.
 
-use application::domain::identity::{Session, SessionRepository, User, UserId, UserRepository};
+use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
+use application::domain::encryption::{
+    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
+    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
+};
+use application::domain::identity::{
+    Session, SessionRepository, User, UserId, UserRepository, UserSettingsRepository,
+};
+use application::domain::workspace::{
+    WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
+};
+use application::identity::RegistrationService;
 use axum::{
     Json,
-    http::{HeaderMap, StatusCode, header},
+    extract::FromRequestParts,
+    http::{HeaderMap, StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::routes::auth::SESSION_COOKIE_NAME;
+use crate::{AppState, routes::auth::SESSION_COOKIE_NAME};
 
 /// Authenticated user information extracted from session
 #[derive(Debug, Clone)]
@@ -22,9 +35,87 @@ pub struct AuthUser {
 
 /// Authenticated user with full user data
 #[derive(Debug, Clone)]
-pub struct AuthUserFull {
+pub struct AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+where
+    U: UserRepository + Send + Sync + 'static,
+    S: SessionRepository + Send + Sync + 'static,
+    US: UserSettingsRepository + Send + Sync + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + 'static,
+    WR: WorkspaceRepository + Send + Sync + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + 'static,
+    DR: DocumentRepository + Send + Sync + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + 'static,
+    RS: RegistrationService + Send + Sync + 'static,
+    DER: DeviceRepository + Send + Sync + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + 'static,
+{
     pub user: User,
     pub session: Session,
+    #[doc(hidden)]
+    _phantom: std::marker::PhantomData<(U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR)>,
+}
+
+impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+    FromRequestParts<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>
+    for AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    type Rejection = AuthError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    ) -> Result<Self, Self::Rejection> {
+        let token = extract_session_token(&parts.headers)?;
+        let token_hash = hash_session_token(token);
+
+        let session_repo = state.session_repo();
+        let session = session_repo
+            .find_by_token_hash(&token_hash)
+            .await
+            .map_err(|_| AuthError::internal_error())?
+            .ok_or_else(AuthError::invalid_session)?;
+
+        if session.is_expired() {
+            return Err(AuthError::expired_session());
+        }
+
+        let user_repo = state.user_repo();
+        let user = user_repo
+            .find_by_id(session.user_id)
+            .await
+            .map_err(|_| AuthError::internal_error())?
+            .ok_or_else(AuthError::user_not_found)?;
+
+        Ok(AuthUserFull {
+            user,
+            session,
+            _phantom: std::marker::PhantomData,
+        })
+    }
 }
 
 /// Authentication error response
@@ -118,7 +209,7 @@ pub async fn authenticate_full<S: SessionRepository, U: UserRepository>(
     headers: &HeaderMap,
     session_repo: &S,
     user_repo: &U,
-) -> Result<AuthUserFull, AuthError> {
+) -> Result<(User, Session), AuthError> {
     let auth_user = authenticate(headers, session_repo).await?;
 
     let user = user_repo
@@ -127,10 +218,7 @@ pub async fn authenticate_full<S: SessionRepository, U: UserRepository>(
         .map_err(|_| AuthError::internal_error())?
         .ok_or_else(AuthError::user_not_found)?;
 
-    Ok(AuthUserFull {
-        user,
-        session: auth_user.session,
-    })
+    Ok((user, auth_user.session))
 }
 
 /// Hash session token for storage/lookup

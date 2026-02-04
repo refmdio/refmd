@@ -2,9 +2,9 @@
 
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    DocumentEncryptedKeyRepository, UserEncryptedIdentityKeyRepository,
-    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
-    WorkspaceEncryptedKeyRepository,
+    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
+    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -14,7 +14,8 @@ use application::identity::RegistrationService;
 use std::sync::Arc;
 
 /// Parameters for creating AppState
-pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS> {
+pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+{
     pub user_repo: Arc<U>,
     pub session_repo: Arc<S>,
     pub user_settings_repo: Arc<US>,
@@ -29,6 +30,9 @@ pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, D
     pub workspace_key_repo: Arc<WKR>,
     pub document_key_repo: Arc<DKR>,
     pub registration_service: Arc<RS>,
+    pub device_repo: Arc<DER>,
+    pub pending_device_repo: Arc<PDR>,
+    pub device_encrypted_umk_repo: Arc<UMKR>,
     /// Server secret for dummy salt generation (prevents user enumeration)
     pub server_secret: [u8; 32],
     /// Whether to set Secure attribute on cookies (should be true in production)
@@ -37,7 +41,7 @@ pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, D
 
 /// Application state holding repository implementations
 #[derive(Clone)]
-pub struct AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>
+pub struct AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
 where
     U: UserRepository + Send + Sync + 'static,
     S: SessionRepository + Send + Sync + 'static,
@@ -53,6 +57,9 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + 'static,
     RS: RegistrationService + Send + Sync + 'static,
+    DER: DeviceRepository + Send + Sync + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + 'static,
 {
     user_repo: Arc<U>,
     session_repo: Arc<S>,
@@ -68,14 +75,17 @@ where
     workspace_key_repo: Arc<WKR>,
     document_key_repo: Arc<DKR>,
     registration_service: Arc<RS>,
+    device_repo: Arc<DER>,
+    pending_device_repo: Arc<PDR>,
+    device_encrypted_umk_repo: Arc<UMKR>,
     /// Server secret for dummy salt generation (prevents user enumeration)
     server_secret: Arc<[u8; 32]>,
     /// Whether to set Secure attribute on cookies (should be true in production)
     secure_cookies: bool,
 }
 
-impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>
-    AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>
+impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+    AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
 where
     U: UserRepository + Send + Sync + 'static,
     S: SessionRepository + Send + Sync + 'static,
@@ -91,9 +101,12 @@ where
     WKR: WorkspaceEncryptedKeyRepository + Send + Sync + 'static,
     DKR: DocumentEncryptedKeyRepository + Send + Sync + 'static,
     RS: RegistrationService + Send + Sync + 'static,
+    DER: DeviceRepository + Send + Sync + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + 'static,
 {
     pub fn new(
-        params: AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS>,
+        params: AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     ) -> Self {
         Self {
             user_repo: params.user_repo,
@@ -110,6 +123,9 @@ where
             workspace_key_repo: params.workspace_key_repo,
             document_key_repo: params.document_key_repo,
             registration_service: params.registration_service,
+            device_repo: params.device_repo,
+            pending_device_repo: params.pending_device_repo,
+            device_encrypted_umk_repo: params.device_encrypted_umk_repo,
             server_secret: Arc::new(params.server_secret),
             secure_cookies: params.secure_cookies,
         }
@@ -169,6 +185,18 @@ where
 
     pub fn registration_service(&self) -> Arc<RS> {
         Arc::clone(&self.registration_service)
+    }
+
+    pub fn device_repo(&self) -> Arc<DER> {
+        Arc::clone(&self.device_repo)
+    }
+
+    pub fn pending_device_repo(&self) -> Arc<PDR> {
+        Arc::clone(&self.pending_device_repo)
+    }
+
+    pub fn device_encrypted_umk_repo(&self) -> Arc<UMKR> {
+        Arc::clone(&self.device_encrypted_umk_repo)
     }
 
     pub fn server_secret(&self) -> &[u8; 32] {

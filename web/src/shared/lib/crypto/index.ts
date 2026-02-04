@@ -87,3 +87,21 @@ export {
   clearDskData,
   hasCachedSession,
 } from './dsk'
+
+// SAS (Short Authentication String) functions
+export {
+  SAS_EMOJIS,
+  indicesToEmojis,
+  generateSasIndices,
+  generateSasEmojis,
+  sasIndicesToEmojis,
+} from './sas'
+
+// Device key functions
+export {
+  generateDeviceKeyPair,
+  generateClientNonce,
+  signWithDeviceKey,
+  verifyDeviceSignature,
+  type DeviceKeyPair,
+} from './device'

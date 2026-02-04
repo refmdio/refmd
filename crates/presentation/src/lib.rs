@@ -13,7 +13,10 @@
 pub use application;
 
 pub mod auth;
+pub mod middleware;
+pub mod rate_limit;
 pub mod routes;
+pub mod sas;
 mod state;
 
 pub use auth::{AuthUser, AuthUserFull};
@@ -50,6 +53,12 @@ use utoipa::OpenApi;
         routes::encryption::get_workspace_key,
         routes::encryption::save_document_key,
         routes::encryption::get_document_key,
+        routes::device::create_pending_device,
+        routes::device::get_sas,
+        routes::device::approve_device,
+        routes::device::list_devices,
+        routes::device::revoke_device,
+        routes::device::distribute_umk,
     ),
     components(
         schemas(
@@ -86,6 +95,16 @@ use utoipa::OpenApi;
             routes::encryption::SaveDocumentKeyRequest,
             routes::encryption::DocumentKeyResponse,
             routes::encryption::EncryptionErrorResponse,
+            routes::device::CreatePendingDeviceRequest,
+            routes::device::CreatePendingDeviceResponse,
+            routes::device::GetSasResponse,
+            routes::device::ApproveDeviceRequest,
+            routes::device::ApproveDeviceResponse,
+            routes::device::DeviceResponse,
+            routes::device::ListDevicesResponse,
+            routes::device::DistributeUmkRequest,
+            routes::device::DistributeUmkResponse,
+            routes::device::DeviceErrorResponse,
         )
     ),
     tags(
@@ -93,6 +112,7 @@ use utoipa::OpenApi;
         (name = "workspace", description = "Workspace management endpoints"),
         (name = "document", description = "Document management endpoints"),
         (name = "encryption", description = "Encryption key management endpoints"),
+        (name = "device", description = "Device management endpoints"),
     )
 )]
 pub struct ApiDoc;

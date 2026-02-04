@@ -7,7 +7,8 @@ use axum::{Router, routing::get};
 use tower::ServiceBuilder;
 use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository};
 use infrastructure::encryption::{
-    PgDocumentEncryptedKeyRepository, PgUserEncryptedIdentityKeyRepository,
+    PgDeviceEncryptedUMKRepository, PgDeviceRepository, PgDocumentEncryptedKeyRepository,
+    PgPendingDeviceRepository, PgUserEncryptedIdentityKeyRepository,
     PgUserEncryptedMasterKeyRepository, PgUserIdentityPublicKeyRepository,
     PgWorkspaceEncryptedKeyRepository,
 };
@@ -91,7 +92,10 @@ async fn main() -> anyhow::Result<()> {
     let document_update_repo = Arc::new(PgDocumentUpdateRepository::new((*pool_arc).clone()));
     let workspace_key_repo = Arc::new(PgWorkspaceEncryptedKeyRepository::new((*pool_arc).clone()));
     let document_key_repo = Arc::new(PgDocumentEncryptedKeyRepository::new((*pool_arc).clone()));
-    let registration_service = Arc::new(PgRegistrationService::new(pool_arc));
+    let registration_service = Arc::new(PgRegistrationService::new(pool_arc.clone()));
+    let device_repo = Arc::new(PgDeviceRepository::new((*pool_arc).clone()));
+    let pending_device_repo = Arc::new(PgPendingDeviceRepository::new((*pool_arc).clone()));
+    let device_encrypted_umk_repo = Arc::new(PgDeviceEncryptedUMKRepository::new((*pool_arc).clone()));
 
     // Determine if cookies should have Secure attribute
     // Default to true for production, can be disabled for local development
@@ -119,6 +123,9 @@ async fn main() -> anyhow::Result<()> {
         workspace_key_repo,
         document_key_repo,
         registration_service,
+        device_repo,
+        pending_device_repo,
+        device_encrypted_umk_repo,
         server_secret,
         secure_cookies,
     });

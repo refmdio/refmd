@@ -284,6 +284,103 @@ export const documentApi = {
   },
 }
 
+/**
+ * Device API wrapper for multi-device support
+ */
+export const deviceApi = {
+  /**
+   * Create a new pending device
+   * Returns pending device ID and expiration time
+   */
+  async createPendingDevice(body: components['schemas']['CreatePendingDeviceRequest']) {
+    const { data, error, response } = await api.POST('/api/devices/pending', {
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Get SAS emoji indices for pending device verification
+   */
+  async getSas(pendingDeviceId: string) {
+    const { data, error, response } = await api.GET('/api/devices/pending/{id}/sas', {
+      params: { path: { id: pendingDeviceId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Approve a pending device after SAS verification
+   */
+  async approveDevice(
+    pendingDeviceId: string,
+    body: components['schemas']['ApproveDeviceRequest']
+  ) {
+    const { data, error, response } = await api.POST('/api/devices/pending/{id}/approve', {
+      params: { path: { id: pendingDeviceId } },
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * List all devices for the current user
+   */
+  async listDevices() {
+    const { data, error, response } = await api.GET('/api/devices')
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Revoke a device
+   */
+  async revokeDevice(deviceId: string) {
+    const { error, response } = await api.DELETE('/api/devices/{id}', {
+      params: { path: { id: deviceId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+  },
+
+  /**
+   * Distribute UMK to an approved device
+   */
+  async distributeUmk(deviceId: string, body: components['schemas']['DistributeUmkRequest']) {
+    const { data, error, response } = await api.POST('/api/devices/{id}/keys/umk', {
+      params: { path: { id: deviceId } },
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+}
+
 export const encryptionApi = {
   /**
    * Get workspace key (KEK)
