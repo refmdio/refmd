@@ -20,7 +20,7 @@ pub mod workspace;
 
 pub use challenge_store::RedisChallengeStore;
 pub use database::{DatabaseConfig, create_pool};
-pub use sqlx::PgPool;
 pub use device_events::RedisDeviceEventBus;
 pub use identity::PgRegistrationService;
 pub use redis::{RedisConfig, RedisError, RedisPool, create_redis_pool};
+pub use sqlx::PgPool;

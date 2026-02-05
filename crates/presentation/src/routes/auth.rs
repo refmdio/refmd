@@ -1775,7 +1775,10 @@ where
 
     // Store challenge in cache
     let challenge_store = state.challenge_store();
-    if let Err(e) = challenge_store.store(device_id, challenge, expires_at).await {
+    if let Err(e) = challenge_store
+        .store(device_id, challenge, expires_at)
+        .await
+    {
         tracing::error!("Failed to store PoP challenge: {:?}", e);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,

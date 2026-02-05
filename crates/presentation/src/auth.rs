@@ -313,20 +313,16 @@ impl PopError {
         Self::new("challenge has expired")
     }
 
-    pub fn device_not_found() -> Self {
-        Self::new("device not found")
-    }
-
     pub fn device_revoked() -> Self {
         Self::new("device has been revoked")
     }
 
-    pub fn device_user_mismatch() -> Self {
-        Self::new("device does not belong to user")
-    }
-
     pub fn invalid_signature() -> Self {
         Self::new("invalid signature")
+    }
+
+    pub fn unauthorized() -> Self {
+        Self::new("unauthorized")
     }
 
     pub fn internal_error() -> Self {
@@ -404,15 +400,17 @@ pub async fn verify_pop<D: DeviceRepository>(
     let device_id = DeviceId::from_uuid(device_uuid);
 
     // Fetch device first (before consuming challenge)
+    // Use unified error message to prevent information leakage about device existence/ownership
     let device = device_repo
         .find_by_id(device_id)
         .await
         .map_err(|_| PopError::internal_error())?
-        .ok_or_else(PopError::device_not_found)?;
+        .ok_or_else(PopError::unauthorized)?;
 
     // Check device belongs to authenticated user
+    // Use same error as device_not_found to prevent enumeration
     if device.user_id != user_id {
-        return Err(PopError::device_user_mismatch());
+        return Err(PopError::unauthorized());
     }
 
     // Check device is not revoked

@@ -50,8 +50,11 @@ impl RedisDeviceEventBus {
     /// Create a new Redis event bus and start the subscription listener
     pub fn new(redis: RedisPool, redis_url: String) -> Arc<Self> {
         let (local_sender, _) = broadcast::channel(256);
-        // Generate unique instance ID for deduplication
-        let instance_id = uuid::Uuid::new_v4().to_string();
+        // Use CLUSTER_BACKEND_ID if set, otherwise generate unique instance ID
+        let instance_id = std::env::var("CLUSTER_BACKEND_ID")
+            .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+
+        tracing::info!("RedisDeviceEventBus instance_id: {}", instance_id);
 
         let bus = Arc::new(Self {
             redis: redis.clone(),

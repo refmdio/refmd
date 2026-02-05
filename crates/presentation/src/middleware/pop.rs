@@ -210,7 +210,10 @@ mod tests {
         let challenge = [3u8; 32];
         let expires_at = Utc::now() + ChronoDuration::minutes(5);
 
-        store.store(device_id1, challenge, expires_at).await.unwrap();
+        store
+            .store(device_id1, challenge, expires_at)
+            .await
+            .unwrap();
 
         // Verification with wrong device should fail
         assert_eq!(

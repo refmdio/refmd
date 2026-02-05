@@ -19,20 +19,18 @@ impl KeyExtractor for ClientIpKeyExtractor {
 
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
         // Try X-Forwarded-For first (for proxied requests)
-        if let Some(forwarded_for) = req.headers().get("X-Forwarded-For") {
-            if let Ok(value) = forwarded_for.to_str() {
-                // Take the first IP in the chain (original client)
-                if let Some(client_ip) = value.split(',').next() {
-                    return Ok(client_ip.trim().to_string());
-                }
-            }
+        if let Some(forwarded_for) = req.headers().get("X-Forwarded-For")
+            && let Ok(value) = forwarded_for.to_str()
+            && let Some(client_ip) = value.split(',').next()
+        {
+            return Ok(client_ip.trim().to_string());
         }
 
         // Fall back to X-Real-IP
-        if let Some(real_ip) = req.headers().get("X-Real-IP") {
-            if let Ok(value) = real_ip.to_str() {
-                return Ok(value.trim().to_string());
-            }
+        if let Some(real_ip) = req.headers().get("X-Real-IP")
+            && let Ok(value) = real_ip.to_str()
+        {
+            return Ok(value.trim().to_string());
         }
 
         // Default fallback IP (shouldn't happen in production with proper proxy config)

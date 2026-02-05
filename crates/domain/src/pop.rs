@@ -46,7 +46,7 @@ pub trait ChallengeStore: Send + Sync {
 
     /// Verify challenge exists and is valid (does NOT consume)
     async fn verify(&self, device_id: DeviceId, challenge: &[u8; 32])
-        -> Result<(), ChallengeError>;
+    -> Result<(), ChallengeError>;
 
     /// Consume (remove) a previously verified challenge
     async fn consume(

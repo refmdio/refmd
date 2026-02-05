@@ -4,8 +4,8 @@
 
 use axum::http::{HeaderName, HeaderValue, Method, header};
 use axum::{Json, Router, extract::State, routing::get};
-use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository};
 use infrastructure::PgPool;
+use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository};
 use infrastructure::encryption::{
     PgDeviceEncryptedUMKRepository, PgDeviceRepository, PgDocumentEncryptedKeyRepository,
     PgPendingDeviceRepository, PgUserEncryptedIdentityKeyRepository,
@@ -17,8 +17,8 @@ use infrastructure::workspace::{
     PgWorkspaceMemberRepository, PgWorkspaceRepository, PgWorkspaceRoleRepository,
 };
 use infrastructure::{DatabaseConfig, PgRegistrationService, create_pool};
-use infrastructure::{RedisConfig, RedisPool, create_redis_pool};
 use infrastructure::{RedisChallengeStore, RedisDeviceEventBus};
+use infrastructure::{RedisConfig, RedisPool, create_redis_pool};
 use presentation::{
     ApiDoc, AppState, AppStateParams, InMemoryChallengeStore, InMemoryDeviceEventBus, routes,
 };
@@ -127,6 +127,14 @@ fn load_server_secret() -> anyhow::Result<[u8; 32]> {
 /// Check if cluster mode is enabled via environment variable
 fn is_cluster_enabled() -> bool {
     std::env::var("CLUSTER_ENABLED")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false)
+}
+
+/// Check if Swagger UI is enabled via environment variable
+/// Defaults to false (disabled) for security in production
+fn is_swagger_enabled() -> bool {
+    std::env::var("ENABLE_SWAGGER")
         .map(|v| v.to_lowercase() == "true" || v == "1")
         .unwrap_or(false)
 }
@@ -312,6 +320,21 @@ async fn main() -> anyhow::Result<()> {
         .expose_headers([pop_device_id, pop_challenge, pop_signature])
         .allow_credentials(true);
 
+    // Build application
+    let enable_swagger = is_swagger_enabled();
+
+    // CSP varies based on Swagger UI enablement
+    // Swagger UI requires inline scripts/styles, so we relax CSP when enabled
+    let csp_value = if enable_swagger {
+        // Relaxed CSP for Swagger UI (development only)
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+        )
+    } else {
+        // Strict CSP for production
+        HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'")
+    };
+
     // Security headers middleware
     let security_headers = ServiceBuilder::new()
         .layer(SetResponseHeaderLayer::overriding(
@@ -336,14 +359,19 @@ async fn main() -> anyhow::Result<()> {
         ))
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+            csp_value,
         ));
-
-    // Build application
     let app = Router::new()
         .route("/health", get(health_check).with_state(health_state))
-        .merge(routes::create_routes(state))
-        .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
+        .merge(routes::create_routes(state));
+
+    let app = if enable_swagger {
+        app.merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
+    } else {
+        app
+    };
+
+    let app = app
         .layer(cors)
         .layer(security_headers)
         .layer(TraceLayer::new_for_http());
@@ -354,7 +382,9 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = format!("{host}:{port}").parse()?;
 
     tracing::info!("Starting server on {}", addr);
-    tracing::info!("Swagger UI available at http://{}:{}/api/docs", host, port);
+    if enable_swagger {
+        tracing::info!("Swagger UI available at http://{}:{}/api/docs", host, port);
+    }
 
     let listener = TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

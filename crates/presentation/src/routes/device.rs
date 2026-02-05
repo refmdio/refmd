@@ -71,42 +71,42 @@ fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
     // and are harder to spoof through multiple proxy hops
 
     // Try CF-Connecting-IP (Cloudflare - most trusted)
-    if let Some(cf_ip) = headers.get("cf-connecting-ip") {
-        if let Ok(value) = cf_ip.to_str() {
-            let ip = value.trim();
-            if is_valid_ip(ip) {
-                return Some(ip.to_string());
-            }
+    if let Some(cf_ip) = headers.get("cf-connecting-ip")
+        && let Ok(value) = cf_ip.to_str()
+    {
+        let ip = value.trim();
+        if is_valid_ip(ip) {
+            return Some(ip.to_string());
         }
     }
 
     // Try X-Real-IP (nginx - single IP, trusted)
-    if let Some(xri) = headers.get("x-real-ip") {
-        if let Ok(value) = xri.to_str() {
-            let ip = value.trim();
-            if is_valid_ip(ip) {
-                return Some(ip.to_string());
-            }
+    if let Some(xri) = headers.get("x-real-ip")
+        && let Ok(value) = xri.to_str()
+    {
+        let ip = value.trim();
+        if is_valid_ip(ip) {
+            return Some(ip.to_string());
         }
     }
 
     // Try X-Forwarded-For (take rightmost non-private IP for better security)
     // The rightmost IP is the one added by the closest trusted proxy
-    if let Some(xff) = headers.get("x-forwarded-for") {
-        if let Ok(value) = xff.to_str() {
-            // Split and reverse to get rightmost first
-            for ip in value.split(',').rev() {
-                let ip = ip.trim();
-                if is_valid_ip(ip) && !is_private_ip(ip) {
-                    return Some(ip.to_string());
-                }
+    if let Some(xff) = headers.get("x-forwarded-for")
+        && let Ok(value) = xff.to_str()
+    {
+        // Split and reverse to get rightmost first
+        for ip in value.split(',').rev() {
+            let ip = ip.trim();
+            if is_valid_ip(ip) && !is_private_ip(ip) {
+                return Some(ip.to_string());
             }
-            // If all IPs are private, take the leftmost (original client)
-            if let Some(ip) = value.split(',').next() {
-                let ip = ip.trim();
-                if is_valid_ip(ip) {
-                    return Some(ip.to_string());
-                }
+        }
+        // If all IPs are private, take the leftmost (original client)
+        if let Some(ip) = value.split(',').next() {
+            let ip = ip.trim();
+            if is_valid_ip(ip) {
+                return Some(ip.to_string());
             }
         }
     }
