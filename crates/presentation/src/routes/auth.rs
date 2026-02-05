@@ -31,7 +31,8 @@ use application::domain::workspace::{
 use application::identity::{
     GetCurrentUserHandler, GetCurrentUserQuery, GetRecoveryDataHandler, GetRecoveryDataQuery,
     GetSaltHandler, GetSaltQuery, LoginPasswordUserCommand, LoginPasswordUserHandler,
-    RegisterPasswordUserAtomicCommand, RegisterPasswordUserAtomicHandler, RegistrationService,
+    RecoverySessionCommand, RecoverySessionHandler, RegisterPasswordUserAtomicCommand,
+    RegisterPasswordUserAtomicHandler, RegistrationService,
 };
 use axum::{
     Json, Router,
@@ -179,6 +180,54 @@ where
                     PDR,
                     UMKR,
                 >),
+            )
+            .route(
+                "/recovery/challenge",
+                post(
+                    create_recovery_challenge::<
+                        U,
+                        S,
+                        US,
+                        UIP,
+                        UEM,
+                        UEI,
+                        WR,
+                        WMR,
+                        WRR,
+                        DR,
+                        DUR,
+                        WKR,
+                        DKR,
+                        RS,
+                        DER,
+                        PDR,
+                        UMKR,
+                    >,
+                ),
+            )
+            .route(
+                "/recovery/session",
+                post(
+                    create_recovery_session::<
+                        U,
+                        S,
+                        US,
+                        UIP,
+                        UEM,
+                        UEI,
+                        WR,
+                        WMR,
+                        WRR,
+                        DR,
+                        DUR,
+                        WKR,
+                        DKR,
+                        RS,
+                        DER,
+                        PDR,
+                        UMKR,
+                    >,
+                ),
             )
             .layer(GovernorLayer {
                 config: auth_rate_limit,
@@ -1795,4 +1844,328 @@ where
     };
 
     (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Recovery challenge TTL in seconds (5 minutes)
+const RECOVERY_CHALLENGE_TTL_SECS: i64 = 300;
+
+/// Recovery challenge request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RecoveryChallengeRequest {
+    /// User email address
+    #[schema(example = "user@example.com")]
+    pub email: String,
+}
+
+/// Recovery challenge response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RecoveryChallengeResponse {
+    /// Server-issued challenge (32 bytes, base64url encoded)
+    #[schema(example = "base64url-encoded-challenge")]
+    pub challenge: String,
+    /// Challenge expiration timestamp (Unix timestamp)
+    #[schema(example = 1738700000)]
+    pub expires_at: i64,
+}
+
+/// Create a recovery challenge for account recovery
+///
+/// Returns a server-issued challenge that must be signed with the user's
+/// Identity signing key. The challenge is single-use and expires after 5 minutes.
+///
+/// For user enumeration prevention, always returns a challenge even for
+/// non-existent users (the challenge just won't be usable).
+#[utoipa::path(
+    post,
+    path = "/api/auth/recovery/challenge",
+    request_body = RecoveryChallengeRequest,
+    responses(
+        (status = 200, description = "Challenge created", body = RecoveryChallengeResponse),
+        (status = 400, description = "Invalid email", body = AuthErrorResponse),
+    ),
+    tag = "auth"
+)]
+pub async fn create_recovery_challenge<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    Json(request): Json<RecoveryChallengeRequest>,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    // Basic email validation (just check it's not empty and has @)
+    let email = request.email.trim().to_lowercase();
+    if email.is_empty() || !email.contains('@') {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AuthErrorResponse {
+                error: "invalid email".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // Generate random 32-byte challenge
+    let challenge: [u8; 32] = rand::rng().random();
+    let expires_at = Utc::now() + ChronoDuration::seconds(RECOVERY_CHALLENGE_TTL_SECS);
+
+    // Store challenge (always succeeds, even for non-existent users)
+    let recovery_challenge_store = state.recovery_challenge_store();
+    if let Err(e) = recovery_challenge_store
+        .store(&email, challenge, expires_at)
+        .await
+    {
+        tracing::error!("Failed to store recovery challenge: {:?}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(AuthErrorResponse {
+                error: "failed to create challenge".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let response = RecoveryChallengeResponse {
+        challenge: base64_url::encode(&challenge),
+        expires_at: expires_at.timestamp(),
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Recovery session request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RecoverySessionRequest {
+    /// User email address
+    #[schema(example = "user@example.com")]
+    pub email: String,
+    /// Server-issued challenge (base64url encoded, 32 bytes)
+    #[schema(example = "base64url-encoded-challenge")]
+    pub challenge: String,
+    /// Ed25519 signature of recovery session message (base64url encoded, 64 bytes)
+    #[schema(example = "base64url-encoded-signature")]
+    pub identity_signature: String,
+    /// Unix timestamp (seconds) included in signed message
+    #[schema(example = 1738700000)]
+    pub timestamp: i64,
+}
+
+/// Recovery session response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RecoverySessionResponse {
+    /// User ID
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    pub user_id: String,
+    /// User email
+    #[schema(example = "user@example.com")]
+    pub email: String,
+    /// Session expiration timestamp (ISO 8601)
+    pub expires_at: String,
+    /// Whether user has any registered devices
+    #[schema(example = true)]
+    pub has_devices: bool,
+}
+
+/// Create a recovery session using Identity signature
+///
+/// Authenticates the user by verifying their Identity key signature
+/// over the server-issued challenge. No password required.
+///
+/// The client must sign: "recovery-session:" || challenge(32) || email || timestamp(8, LE)
+#[utoipa::path(
+    post,
+    path = "/api/auth/recovery/session",
+    request_body = RecoverySessionRequest,
+    responses(
+        (status = 200, description = "Session created. Session cookie is set.", body = RecoverySessionResponse),
+        (status = 400, description = "Invalid request", body = AuthErrorResponse),
+        (status = 401, description = "Invalid signature or challenge", body = AuthErrorResponse),
+        (status = 500, description = "Internal server error", body = AuthErrorResponse),
+    ),
+    tag = "auth"
+)]
+pub async fn create_recovery_session<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    Json(request): Json<RecoverySessionRequest>,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    // Decode base64url fields
+    let challenge = match base64_url::decode(&request.challenge) {
+        Ok(c) if c.len() == 32 => c,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid challenge length".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid challenge encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let identity_signature = match base64_url::decode(&request.identity_signature) {
+        Ok(s) if s.len() == ED25519_SIGNATURE_SIZE => s,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid signature length".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AuthErrorResponse {
+                    error: "invalid signature encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Normalize email (must match challenge creation)
+    let email = request.email.trim().to_lowercase();
+
+    // Use the application layer handler
+    let handler = RecoverySessionHandler::new(
+        state.user_repo(),
+        state.session_repo(),
+        state.user_identity_public_key_repo(),
+        state.device_repo(),
+        state.recovery_challenge_store(),
+    );
+
+    let command = RecoverySessionCommand {
+        email,
+        challenge,
+        identity_signature,
+        timestamp: request.timestamp,
+    };
+
+    match handler.handle(command).await {
+        Ok(result) => {
+            // Build HttpOnly cookie
+            let cookie = build_session_cookie(
+                &result.session_token,
+                result.expires_at,
+                false, // Recovery sessions don't use remember_me
+                state.secure_cookies(),
+            );
+
+            let response = RecoverySessionResponse {
+                user_id: result.user.id.to_string(),
+                email: result.user.email.to_string(),
+                expires_at: result.expires_at.to_rfc3339(),
+                has_devices: result.has_devices,
+            };
+
+            (
+                StatusCode::OK,
+                AppendHeaders([(header::SET_COOKIE, cookie)]),
+                Json(response),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            let status = if e.is_bad_request() {
+                StatusCode::BAD_REQUEST
+            } else if e.is_unauthorized() {
+                StatusCode::UNAUTHORIZED
+            } else {
+                tracing::error!("recovery session error: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (
+                status,
+                Json(AuthErrorResponse {
+                    error: e.safe_message().to_string(),
+                }),
+            )
+                .into_response()
+        }
+    }
 }

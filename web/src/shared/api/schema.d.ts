@@ -115,6 +115,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/recovery/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a recovery challenge for account recovery
+         * @description Returns a server-issued challenge that must be signed with the user's
+         *     Identity signing key. The challenge is single-use and expires after 5 minutes.
+         *
+         *     For user enumeration prevention, always returns a challenge even for
+         *     non-existent users (the challenge just won't be usable).
+         */
+        post: operations["create_recovery_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/recovery/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a recovery session using Identity signature
+         * @description Authenticates the user by verifying their Identity key signature
+         *     over the server-issued challenge. No password required.
+         *
+         *     The client must sign: "recovery-session:" || challenge(32) || email || timestamp(8, LE)
+         */
+        post: operations["create_recovery_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/register": {
         parameters: {
             query?: never;
@@ -1130,6 +1177,72 @@ export interface components {
              */
             expires_at: number;
         };
+        /** @description Recovery challenge request */
+        RecoveryChallengeRequest: {
+            /**
+             * @description User email address
+             * @example user@example.com
+             */
+            email: string;
+        };
+        /** @description Recovery challenge response */
+        RecoveryChallengeResponse: {
+            /**
+             * @description Server-issued challenge (32 bytes, base64url encoded)
+             * @example base64url-encoded-challenge
+             */
+            challenge: string;
+            /**
+             * Format: int64
+             * @description Challenge expiration timestamp (Unix timestamp)
+             * @example 1738700000
+             */
+            expires_at: number;
+        };
+        /** @description Recovery session request */
+        RecoverySessionRequest: {
+            /**
+             * @description Server-issued challenge (base64url encoded, 32 bytes)
+             * @example base64url-encoded-challenge
+             */
+            challenge: string;
+            /**
+             * @description User email address
+             * @example user@example.com
+             */
+            email: string;
+            /**
+             * @description Ed25519 signature of recovery session message (base64url encoded, 64 bytes)
+             * @example base64url-encoded-signature
+             */
+            identity_signature: string;
+            /**
+             * Format: int64
+             * @description Unix timestamp (seconds) included in signed message
+             * @example 1738700000
+             */
+            timestamp: number;
+        };
+        /** @description Recovery session response */
+        RecoverySessionResponse: {
+            /**
+             * @description User email
+             * @example user@example.com
+             */
+            email: string;
+            /** @description Session expiration timestamp (ISO 8601) */
+            expires_at: string;
+            /**
+             * @description Whether user has any registered devices
+             * @example true
+             */
+            has_devices: boolean;
+            /**
+             * @description User ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            user_id: string;
+        };
         /** @description Register password user request */
         RegisterRequest: {
             /**
@@ -1641,6 +1754,90 @@ export interface operations {
             };
             /** @description User not found or recovery data unavailable */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    create_recovery_challenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoveryChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Challenge created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryChallengeResponse"];
+                };
+            };
+            /** @description Invalid email */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    create_recovery_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecoverySessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Session created. Session cookie is set. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoverySessionResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Invalid signature or challenge */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,6 +1,6 @@
 //! Application state with generics for dependency injection
 
-use crate::middleware::ChallengeStore;
+use crate::middleware::{ChallengeStore, RecoveryChallengeStore};
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
     DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
@@ -16,6 +16,9 @@ use std::sync::Arc;
 
 /// Type alias for dynamic ChallengeStore
 pub type DynChallengeStore = Arc<dyn ChallengeStore>;
+
+/// Type alias for dynamic RecoveryChallengeStore
+pub type DynRecoveryChallengeStore = Arc<dyn RecoveryChallengeStore>;
 
 /// Type alias for dynamic DeviceEventBus
 /// Note: We use the DeviceEventBus trait which combines DeviceEventPublisher + DeviceEventSubscriber
@@ -62,6 +65,8 @@ pub struct AppStateParams<
     pub device_event_bus: DynDeviceEventBus,
     /// Challenge store for server-issued PoP challenges (dynamic dispatch)
     pub challenge_store: DynChallengeStore,
+    /// Recovery challenge store for recovery session authentication (dynamic dispatch)
+    pub recovery_challenge_store: DynRecoveryChallengeStore,
     /// Server secret for dummy salt generation (prevents user enumeration)
     pub server_secret: [u8; 32],
     /// Whether to set Secure attribute on cookies (should be true in production)
@@ -113,6 +118,8 @@ where
     device_event_bus: DynDeviceEventBus,
     /// Challenge store for server-issued PoP challenges (dynamic dispatch)
     challenge_store: DynChallengeStore,
+    /// Recovery challenge store for recovery session authentication (dynamic dispatch)
+    recovery_challenge_store: DynRecoveryChallengeStore,
     /// Server secret for dummy salt generation (prevents user enumeration)
     server_secret: Arc<[u8; 32]>,
     /// Whether to set Secure attribute on cookies (should be true in production)
@@ -183,6 +190,7 @@ where
             device_encrypted_umk_repo: params.device_encrypted_umk_repo,
             device_event_bus: params.device_event_bus,
             challenge_store: params.challenge_store,
+            recovery_challenge_store: params.recovery_challenge_store,
             server_secret: Arc::new(params.server_secret),
             secure_cookies: params.secure_cookies,
             cluster_enabled: params.cluster_enabled,
@@ -263,6 +271,10 @@ where
 
     pub fn challenge_store(&self) -> DynChallengeStore {
         Arc::clone(&self.challenge_store)
+    }
+
+    pub fn recovery_challenge_store(&self) -> DynRecoveryChallengeStore {
+        Arc::clone(&self.recovery_challenge_store)
     }
 
     pub fn server_secret(&self) -> &[u8; 32] {

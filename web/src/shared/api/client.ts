@@ -22,6 +22,8 @@ const POP_EXEMPT_PATHS = [
   '/api/auth/me',
   '/api/auth/recovery', // Recovery data fetch doesn't require PoP
   '/api/auth/pop-challenge', // Challenge request itself doesn't require PoP
+  '/api/auth/recovery/challenge', // Recovery challenge doesn't require PoP
+  '/api/auth/recovery/session', // Recovery session creation doesn't require PoP
   '/api/devices/pending', // Pending device creation doesn't require PoP
 ]
 
@@ -209,6 +211,43 @@ export const authApi = {
   async getRecoveryData(email: string) {
     const { data, error, response } = await api.GET('/api/auth/recovery', {
       params: { query: { email } },
+    })
+
+    if (error) {
+      throw new ApiRequestError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Get a recovery challenge for account recovery
+   * Returns a server-issued challenge to be signed with identity key
+   */
+  async getRecoveryChallenge(email: string) {
+    const { data, error, response } = await api.POST('/api/auth/recovery/challenge', {
+      body: { email },
+    })
+
+    if (error) {
+      throw new ApiRequestError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Create a recovery session using identity signature
+   * No password required - authenticates via identity key
+   */
+  async createRecoverySession(body: {
+    email: string
+    challenge: string
+    identity_signature: string
+    timestamp: number
+  }) {
+    const { data, error, response } = await api.POST('/api/auth/recovery/session', {
+      body,
     })
 
     if (error) {

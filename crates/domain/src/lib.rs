@@ -15,9 +15,11 @@ pub mod git;
 pub mod identity;
 pub mod plugin;
 pub mod pop;
+pub mod recovery_challenge;
 pub mod sharing;
 pub mod workspace;
 
 // Re-export commonly used types
 pub use device_events::DeviceEvent;
 pub use pop::{ChallengeError, ChallengeStore};
+pub use recovery_challenge::{RecoveryChallengeError, RecoveryChallengeStore};

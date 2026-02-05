@@ -129,3 +129,44 @@ export function unwrapUmkWithRuk(wrapped: RecoveryWrappedUmk, ruk: Uint8Array, u
 export function isValidMnemonic(mnemonic: string): boolean {
   return validateMnemonic(mnemonic, wordlist)
 }
+
+/**
+ * Build recovery session message for signing
+ *
+ * Format: "recovery-session:" || challenge(32) || email || timestamp(8, LE)
+ *
+ * @param challenge Server-issued challenge (32 bytes)
+ * @param email User email (will be lowercased)
+ * @param timestamp Unix timestamp (seconds)
+ * @returns Message bytes to sign
+ */
+export function buildRecoverySessionMessage(
+  challenge: Uint8Array,
+  email: string,
+  timestamp: number
+): Uint8Array {
+  const prefix = new TextEncoder().encode('recovery-session:')
+  const emailBytes = new TextEncoder().encode(email.toLowerCase())
+
+  // Timestamp as 8-byte little-endian
+  const timestampBytes = new Uint8Array(8)
+  const view = new DataView(timestampBytes.buffer)
+  // Split into low and high 32-bit parts for 64-bit LE
+  view.setUint32(0, timestamp & 0xffffffff, true) // low 32 bits, little-endian
+  view.setUint32(4, Math.floor(timestamp / 0x100000000), true) // high 32 bits
+
+  // Concatenate all parts
+  const message = new Uint8Array(
+    prefix.length + challenge.length + emailBytes.length + timestampBytes.length
+  )
+  let offset = 0
+  message.set(prefix, offset)
+  offset += prefix.length
+  message.set(challenge, offset)
+  offset += challenge.length
+  message.set(emailBytes, offset)
+  offset += emailBytes.length
+  message.set(timestampBytes, offset)
+
+  return message
+}

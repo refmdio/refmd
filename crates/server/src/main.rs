@@ -17,7 +17,7 @@ use infrastructure::workspace::{
     PgWorkspaceMemberRepository, PgWorkspaceRepository, PgWorkspaceRoleRepository,
 };
 use infrastructure::{DatabaseConfig, PgRegistrationService, create_pool};
-use infrastructure::{RedisChallengeStore, RedisDeviceEventBus};
+use infrastructure::{RedisChallengeStore, RedisDeviceEventBus, RedisRecoveryChallengeStore};
 use infrastructure::{RedisConfig, RedisPool, create_redis_pool};
 use presentation::{
     ApiDoc, AppState, AppStateParams, InMemoryChallengeStore, InMemoryDeviceEventBus, routes,
@@ -216,22 +216,27 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("SECURE_COOKIES is disabled. This should only be used in development!");
     }
 
-    // Create challenge store and device event bus based on cluster mode
-    let (challenge_store, device_event_bus): (
+    // Create challenge store, recovery challenge store, and device event bus based on cluster mode
+    let (challenge_store, recovery_challenge_store, device_event_bus): (
         Arc<dyn presentation::ChallengeStore>,
+        Arc<dyn presentation::RecoveryChallengeStore>,
         Arc<dyn presentation::DeviceEventBus>,
     ) = if let Some(ref redis) = redis_pool {
         // Cluster mode: use Redis-backed implementations
         let url = redis_url.clone().unwrap();
         let challenge_store = Arc::new(RedisChallengeStore::new(redis.clone()));
+        let recovery_challenge_store =
+            Arc::new(RedisRecoveryChallengeStore::new(redis.clone()));
         let redis_bus = RedisDeviceEventBus::new(redis.clone(), url);
         let device_event_bus = Arc::new(RedisEventBusAdapter(redis_bus));
-        (challenge_store, device_event_bus)
+        (challenge_store, recovery_challenge_store, device_event_bus)
     } else {
         // Single-node mode: use in-memory implementations
         let challenge_store = Arc::new(InMemoryChallengeStore::default());
+        let recovery_challenge_store =
+            Arc::new(presentation::InMemoryRecoveryChallengeStore::default());
         let device_event_bus = Arc::new(InMemoryDeviceEventBus::new());
-        (challenge_store, device_event_bus)
+        (challenge_store, recovery_challenge_store, device_event_bus)
     };
 
     // Create application state
@@ -255,6 +260,7 @@ async fn main() -> anyhow::Result<()> {
         device_encrypted_umk_repo,
         device_event_bus,
         challenge_store,
+        recovery_challenge_store,
         server_secret,
         secure_cookies,
         cluster_enabled,

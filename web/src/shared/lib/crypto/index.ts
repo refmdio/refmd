@@ -39,6 +39,7 @@ export {
   wrapUmkWithRuk,
   unwrapUmkWithRuk,
   isValidMnemonic,
+  buildRecoverySessionMessage,
   type RecoveryKeyData,
   type RecoveryWrappedUmk,
 } from './recovery'

@@ -28,7 +28,8 @@ pub use events::{
 };
 pub use middleware::{
     CHALLENGE_TTL_SECS, ChallengeCache, ChallengeError, ChallengeStore, InMemoryChallengeStore,
-    POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER, POP_SIGNATURE_HEADER,
+    InMemoryRecoveryChallengeStore, POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER,
+    POP_SIGNATURE_HEADER, RecoveryChallengeError, RecoveryChallengeStore,
 };
 pub use state::{AppState, AppStateParams};
 
@@ -50,6 +51,8 @@ use utoipa::OpenApi;
         routes::auth::logout,
         routes::auth::me,
         routes::auth::create_pop_challenge,
+        routes::auth::create_recovery_challenge,
+        routes::auth::create_recovery_session,
         routes::workspace::list_workspaces,
         routes::workspace::get_workspace,
         routes::document::list_documents,
@@ -93,6 +96,10 @@ use utoipa::OpenApi;
             routes::auth::LogoutResponse,
             routes::auth::MeResponse,
             routes::auth::PopChallengeResponse,
+            routes::auth::RecoveryChallengeRequest,
+            routes::auth::RecoveryChallengeResponse,
+            routes::auth::RecoverySessionRequest,
+            routes::auth::RecoverySessionResponse,
             routes::workspace::WorkspaceResponse,
             routes::workspace::MembershipResponse,
             routes::workspace::RoleResponse,

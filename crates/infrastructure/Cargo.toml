@@ -31,6 +31,7 @@ uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 base64-url.workspace = true
+sha2.workspace = true
 
 # Configuration
 dotenvy.workspace = true

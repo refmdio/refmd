@@ -5,15 +5,17 @@
  * This is used when the user has lost access to all their devices
  * and needs to restore their UMK (User Master Key).
  *
- * Recovery Flow:
- * 1. User enters email + 24-word mnemonic + password
+ * Recovery Flow (no password required):
+ * 1. User enters email + 24-word mnemonic
  * 2. Fetch recovery data (recovery-encrypted UMK, identity keys)
  * 3. Derive RUK from mnemonic, decrypt UMK
  * 4. Decrypt identity keys with UMK
- * 5. Login with email/password
- * 6. Generate new device keys
- * 7. Create pending device and self-approve using recovered identity keys
- * 8. Store device keys and complete authentication
+ * 5. Get recovery challenge from server
+ * 6. Sign challenge with recovered identity key
+ * 7. Create recovery session (no password needed)
+ * 8. Generate new device keys
+ * 9. Create pending device and self-approve using recovered identity keys
+ * 10. Store device keys and complete authentication
  */
 
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
@@ -29,7 +31,6 @@ import {
   decryptIdentityPrivateKeys,
   generateDeviceKeyPair,
   sign,
-  deriveAuthKeys,
   generateDsk,
   storeDsk,
   wrapAndStoreDeviceKeys,
@@ -37,11 +38,9 @@ import {
   storeDeviceId,
   base64UrlDecode,
   base64UrlEncode,
-  generateSasEmojis,
+  buildRecoverySessionMessage,
 } from '@/shared/lib/crypto'
-import type { IdentityKeyPair, DeviceKeyPair } from '@/shared/lib/crypto'
-import { SasVerification } from '@/features/device/ui/SasVerification'
-import { authApi, deviceApi, ApiRequestError, sseUrls } from '@/shared/api'
+import { authApi, deviceApi, ApiRequestError } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
 import { setPopCredentials } from '@/shared/lib/pop-store'
 
@@ -49,7 +48,7 @@ export const Route = createFileRoute('/auth/recovery')({
   component: RecoveryPage,
 })
 
-type RecoveryStep = 'input' | 'recovering' | 'waiting-for-approval' | 'success' | 'error'
+type RecoveryStep = 'input' | 'recovering' | 'success' | 'error'
 
 function RecoveryPage() {
   const navigate = useNavigate()
@@ -57,123 +56,110 @@ function RecoveryPage() {
   const [step, setStep] = useState<RecoveryStep>('input')
   const [words, setWords] = useState<string[]>(Array(24).fill(''))
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
-  const eventSourceRef = useRef<EventSource | null>(null)
-
-  // State for waiting-for-approval step
-  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null)
-  const [sasEmojis, setSasEmojis] = useState<string | null>(null)
-  const [recoveredUmk, setRecoveredUmk] = useState<Uint8Array | null>(null)
-  const [recoveredIdentityKeys, setRecoveredIdentityKeys] = useState<IdentityKeyPair | null>(null)
-  const [deviceKeyPair, setDeviceKeyPair] = useState<DeviceKeyPair | null>(null)
-  const [pendingUserId, setPendingUserId] = useState<string | null>(null)
-  const [pendingEmail, setPendingEmail] = useState<string | null>(null)
-  const [pendingExpiresAt, setPendingExpiresAt] = useState<Date | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // Focus first input on mount
   useEffect(() => {
     inputRefs.current[0]?.focus()
   }, [])
 
-  // Handle approval callback for SSE
-  const handleApproval = useCallback(async (deviceId: string) => {
-    if (!deviceKeyPair || !recoveredUmk || !recoveredIdentityKeys || !pendingUserId || !pendingEmail || !pendingExpiresAt) {
-      setError('Missing recovery state')
-      setStep('error')
-      return
+  // Max file size (10KB should be more than enough for a recovery key file)
+  const MAX_FILE_SIZE = 10 * 1024
+
+  // Parse recovery key file content with strict validation
+  const parseRecoveryFile = (content: string): { words: string[] } | { error: string } => {
+    const lines = content.split('\n')
+
+    // Check for RefMD header to ensure correct file type
+    const hasHeader = lines.some(line => line.includes('RefMD Recovery Key'))
+    if (!hasHeader) {
+      return { error: 'File format not recognized. Please upload a RefMD recovery key file.' }
     }
 
-    try {
-      // Step 1: Set PoP credentials FIRST (synchronously) so API calls work
-      setPopCredentials(deviceId, deviceKeyPair.signingPrivateKey)
+    // Parse numbered lines strictly: require 1-24 in order
+    const words: (string | null)[] = Array(24).fill(null)
 
-      // Step 2: Generate and store DSK
-      const dsk = await generateDsk()
-      await storeDsk(dsk)
+    for (const line of lines) {
+      // Match lines like " 1. word" or "1. word" or "01. word"
+      const match = line.match(/^\s*(\d+)\.\s+([a-z]+)\s*$/i)
+      if (match) {
+        const num = parseInt(match[1], 10)
+        const word = match[2].toLowerCase()
 
-      // Step 3: Store device keys
-      await wrapAndStoreDeviceKeys(deviceKeyPair, dsk, pendingUserId)
-      await storeDeviceId(deviceId)
-
-      // Step 4: Store UMK (we already have it from recovery)
-      await wrapAndStoreUmk(recoveredUmk, dsk, pendingUserId)
-
-      // Step 5: Set full auth state
-      setAuthState({
-        userId: pendingUserId,
-        email: pendingEmail,
-        expiresAt: pendingExpiresAt,
-        umk: recoveredUmk,
-        identityKeys: recoveredIdentityKeys,
-      })
-
-      // Step 6: Set device state
-      setDeviceState({
-        deviceId,
-        deviceKeys: deviceKeyPair,
-      })
-
-      setStep('success')
-      setStatusMessage('Recovery complete!')
-
-      // Navigate to main app
-      setTimeout(() => {
-        navigate({ to: '/' })
-      }, 1500)
-    } catch (err) {
-      console.error('Failed to complete device approval:', err)
-      setError(err instanceof Error ? err.message : 'Failed to complete device setup')
-      setStep('error')
-    }
-  }, [deviceKeyPair, recoveredUmk, recoveredIdentityKeys, pendingUserId, pendingEmail, pendingExpiresAt, navigate, setAuthState, setDeviceState])
-
-  // SSE for approval status when waiting
-  useEffect(() => {
-    if (step !== 'waiting-for-approval' || !pendingDeviceId) {
-      return
-    }
-
-    // Connect to SSE endpoint for this pending device
-    const eventSource = new EventSource(
-      sseUrls.pendingDeviceEvents(pendingDeviceId),
-      { withCredentials: true }
-    )
-    eventSourceRef.current = eventSource
-
-    eventSource.onmessage = async (event) => {
-      try {
-        const data = JSON.parse(event.data)
-
-        if (data.type === 'pending_approved' && data.pending_id === pendingDeviceId) {
-          eventSource.close()
-          eventSourceRef.current = null
-
-          if (data.device_id) {
-            await handleApproval(data.device_id)
+        // Validate number is in range 1-24
+        if (num >= 1 && num <= 24) {
+          // Check for duplicates
+          if (words[num - 1] !== null) {
+            return { error: `Duplicate entry for word ${num}.` }
           }
-        } else if (data.type === 'pending_removed' && data.pending_id === pendingDeviceId) {
-          eventSource.close()
-          eventSourceRef.current = null
-          setError('Registration was rejected or expired. Please try again.')
-          setStep('error')
+          words[num - 1] = word
         }
-      } catch (err) {
-        console.error('Failed to parse SSE event:', err)
       }
     }
 
-    eventSource.onerror = (err) => {
-      console.error('SSE connection error:', err)
+    // Check all 24 words are present
+    const missingIndices = words
+      .map((w, i) => w === null ? i + 1 : null)
+      .filter((i): i is number => i !== null)
+
+    if (missingIndices.length > 0) {
+      if (missingIndices.length === 24) {
+        return { error: 'No recovery words found in file.' }
+      }
+      return { error: `Missing word(s) at position: ${missingIndices.join(', ')}.` }
     }
 
-    return () => {
-      eventSource.close()
-      eventSourceRef.current = null
+    return { words: words as string[] }
+  }
+
+  // Handle file upload
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Check file size to prevent memory issues
+    if (file.size > MAX_FILE_SIZE) {
+      setError('File is too large. Recovery key files should be less than 10KB.')
+      e.target.value = ''
+      return
     }
-  }, [step, pendingDeviceId, handleApproval])
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const content = event.target?.result as string
+      const result = parseRecoveryFile(content)
+
+      if ('error' in result) {
+        setError(result.error)
+        // Clear words on parse failure to avoid accidental submit with old data
+        setWords(Array(24).fill(''))
+        inputRefs.current[0]?.focus()
+      } else {
+        // Validate BIP39 mnemonic immediately
+        const mnemonic = result.words.join(' ')
+        if (!isValidMnemonic(mnemonic)) {
+          setError('Invalid recovery key file: contains invalid BIP39 words.')
+          setWords(Array(24).fill(''))
+          inputRefs.current[0]?.focus()
+        } else {
+          setWords(result.words)
+          setError(null)
+          inputRefs.current[23]?.focus()
+        }
+      }
+    }
+    reader.onerror = () => {
+      setError('Failed to read file.')
+      setWords(Array(24).fill(''))
+    }
+    reader.readAsText(file)
+
+    // Reset input so same file can be selected again
+    e.target.value = ''
+  }
 
   const handleWordChange = (index: number, value: string) => {
     const newWords = [...words]
@@ -226,11 +212,6 @@ function RecoveryPage() {
       return
     }
 
-    if (!password) {
-      setError('Please enter your password.')
-      return
-    }
-
     if (!isValidMnemonic(mnemonic)) {
       setError('Invalid recovery phrase. Please check all 24 words.')
       return
@@ -276,24 +257,27 @@ function RecoveryPage() {
         recoveryData.user_id
       )
 
-      // Step 5: Get salt and derive auth keys
-      setStatusMessage('Deriving password key…')
-      const saltData = await authApi.getSalt(email.trim())
-      const derivedKeys = await deriveAuthKeys(password, saltData.salt, {
-        memory_cost: saltData.kdf_params.memory_cost,
-        time_cost: saltData.kdf_params.time_cost,
-        parallelism: saltData.kdf_params.parallelism,
-      })
+      // Step 5: Get recovery challenge from server
+      setStatusMessage('Getting recovery challenge…')
+      const challengeResponse = await authApi.getRecoveryChallenge(email.trim())
+      const challenge = base64UrlDecode(challengeResponse.challenge)
 
-      // Step 6: Login
-      setStatusMessage('Logging in…')
-      const loginResponse = await authApi.login({
+      // Step 6: Sign challenge with recovered identity key
+      setStatusMessage('Signing challenge…')
+      const timestamp = Math.floor(Date.now() / 1000)
+      const signatureMessage = buildRecoverySessionMessage(challenge, email.trim(), timestamp)
+      const identitySignatureForSession = sign(signatureMessage, identityKeys.signingPrivate)
+
+      // Step 7: Create recovery session (no password required)
+      setStatusMessage('Creating session…')
+      const sessionResponse = await authApi.createRecoverySession({
         email: email.trim(),
-        auth_key: derivedKeys.authKeyBase64,
-        remember_me: false,
+        challenge: challengeResponse.challenge,
+        identity_signature: base64UrlEncode(identitySignatureForSession),
+        timestamp,
       })
 
-      // Step 7: Generate new device keys
+      // Step 8: Generate new device keys
       setStatusMessage('Setting up new device…')
       const newDeviceKeyPair = generateDeviceKeyPair()
 
@@ -307,7 +291,7 @@ function RecoveryPage() {
       // Sign device keys with recovered identity signing key
       const identitySignature = sign(message, identityKeys.signingPrivate)
 
-      // Step 8: Create pending device
+      // Step 9: Create pending device
       setStatusMessage('Registering device…')
       const deviceName = `Recovered Device - ${navigator.userAgent.split(' ')[0]}`
 
@@ -319,57 +303,33 @@ function RecoveryPage() {
         client_nonce: base64UrlEncode(clientNonce),
       })
 
-      // Step 9: Check if user has existing devices
-      if (loginResponse.has_devices) {
-        // User has existing devices - wait for approval from existing device
-        // This ensures KEK distribution happens via PendingDeviceDialog
-        setStatusMessage('Waiting for approval from existing device…')
-
-        // Calculate SAS emojis
-        const sasEmojisStr = generateSasEmojis(
-          identityKeys.signingPublic,
-          newDeviceKeyPair.signingPublicKey,
-          newDeviceKeyPair.ecdhPublicKey,
-          clientNonce
-        )
-
-        // Store state for SSE handler
-        setPendingDeviceId(pendingDevice.id)
-        setSasEmojis(sasEmojisStr)
-        setRecoveredUmk(umk)
-        setRecoveredIdentityKeys(identityKeys)
-        setDeviceKeyPair(newDeviceKeyPair)
-        setPendingUserId(loginResponse.user_id)
-        setPendingEmail(loginResponse.email)
-        setPendingExpiresAt(new Date(loginResponse.expires_at))
-
-        // Switch to waiting-for-approval step
-        setStep('waiting-for-approval')
-        return
-      }
-
-      // No existing devices - self-approve using recovered identity keys
+      // Step 10: Self-approve using recovered identity keys
+      // In recovery flow, we always self-approve because:
+      // 1. User typically doesn't have access to existing devices (that's why they're recovering)
+      // 2. Even if has_devices=true, waiting for existing device approval would leave user stuck
+      // 3. KEKs will need to be distributed separately when user regains access to existing devices
+      //    or when they are re-invited to workspaces
       setStatusMessage('Approving device…')
       const approvalResponse = await deviceApi.approveDevice(pendingDevice.id, {
         identity_signature: base64UrlEncode(identitySignature),
       })
 
-      // Step 10: Store device keys using DSK
+      // Step 11: Store device keys using DSK
       setStatusMessage('Saving device keys…')
       const dsk = await generateDsk()
       await storeDsk(dsk)
-      await wrapAndStoreDeviceKeys(newDeviceKeyPair, dsk, loginResponse.user_id)
+      await wrapAndStoreDeviceKeys(newDeviceKeyPair, dsk, sessionResponse.user_id)
       await storeDeviceId(approvalResponse.id)
-      await wrapAndStoreUmk(umk, dsk, loginResponse.user_id)
+      await wrapAndStoreUmk(umk, dsk, sessionResponse.user_id)
 
       // Set PoP credentials for future API calls
       setPopCredentials(approvalResponse.id, newDeviceKeyPair.signingPrivateKey)
 
-      // Step 11: Set auth state
+      // Step 12: Set auth state
       setAuthState({
-        userId: loginResponse.user_id,
-        email: loginResponse.email,
-        expiresAt: new Date(loginResponse.expires_at),
+        userId: sessionResponse.user_id,
+        email: sessionResponse.email,
+        expiresAt: new Date(sessionResponse.expires_at),
         umk,
         identityKeys,
       })
@@ -394,7 +354,7 @@ function RecoveryPage() {
         if (err.status === 404) {
           setError('Account not found. Please check your email address.')
         } else if (err.status === 401) {
-          setError('Invalid password. Please check your password and try again.')
+          setError('Invalid recovery phrase or challenge expired. Please try again.')
         } else {
           setError(err.message)
         }
@@ -404,12 +364,11 @@ function RecoveryPage() {
         setError('Recovery failed. Please try again.')
       }
     }
-  }, [words, email, password, navigate, setAuthState, setDeviceState])
+  }, [words, email, navigate, setAuthState, setDeviceState])
 
   const handleClear = () => {
     setWords(Array(24).fill(''))
     setEmail('')
-    setPassword('')
     setError(null)
     setStep('input')
     inputRefs.current[0]?.focus()
@@ -434,50 +393,6 @@ function RecoveryPage() {
             <div className="flex flex-col items-center justify-center py-12 space-y-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
               <p className="text-muted-foreground">{statusMessage}</p>
-            </div>
-          )}
-
-          {step === 'waiting-for-approval' && sasEmojis && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <p className="text-muted-foreground">
-                  You have existing devices on this account. Please approve this device from one of your existing devices.
-                </p>
-              </div>
-
-              <SasVerification emojis={sasEmojis} role="new" />
-
-              <div className="text-center text-sm text-muted-foreground">
-                <p>Open RefMD on your existing device and approve this device.</p>
-                <p className="mt-2">The emojis must match exactly.</p>
-              </div>
-
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  // Cancel pending device
-                  if (pendingDeviceId) {
-                    deviceApi.rejectPendingDevice(pendingDeviceId).catch(() => {})
-                  }
-                  if (eventSourceRef.current) {
-                    eventSourceRef.current.close()
-                    eventSourceRef.current = null
-                  }
-                  // Reset state
-                  setPendingDeviceId(null)
-                  setSasEmojis(null)
-                  setRecoveredUmk(null)
-                  setRecoveredIdentityKeys(null)
-                  setDeviceKeyPair(null)
-                  setPendingUserId(null)
-                  setPendingEmail(null)
-                  setPendingExpiresAt(null)
-                  setStep('input')
-                }}
-              >
-                Cancel
-              </Button>
             </div>
           )}
 
@@ -523,24 +438,26 @@ function RecoveryPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Your password"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Your password is still required to verify your identity.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Recovery Phrase</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Recovery Phrase</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Upload File
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </div>
                 <p className="text-xs text-muted-foreground mb-4">
-                  Enter each word in order. You can paste the full 24-word phrase into the first
-                  field.
+                  Upload your recovery key file or enter each word manually. You can also paste the full 24-word phrase into the first field.
                 </p>
 
                 <div className="grid grid-cols-4 gap-2">
