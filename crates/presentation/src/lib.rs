@@ -65,6 +65,7 @@ use utoipa::OpenApi;
         routes::encryption::get_workspace_key,
         routes::encryption::save_document_key,
         routes::encryption::get_document_key,
+        routes::encryption::complete_kek_rotation,
         routes::device::create_pending_device,
         routes::device::list_pending_devices,
         routes::device::get_sas,
@@ -115,6 +116,8 @@ use utoipa::OpenApi;
             routes::encryption::SaveDocumentKeyRequest,
             routes::encryption::DocumentKeyResponse,
             routes::encryption::EncryptionErrorResponse,
+            routes::encryption::CompleteKekRotationRequest,
+            routes::encryption::CompleteKekRotationResponse,
             routes::device::CreatePendingDeviceRequest,
             routes::device::CreatePendingDeviceResponse,
             routes::device::GetSasResponse,
@@ -129,6 +132,7 @@ use utoipa::OpenApi;
             routes::device::DistributeUmkResponse,
             routes::device::GetDeviceUmkResponse,
             routes::device::DeviceErrorResponse,
+            routes::device::RevokeDeviceResponse,
         )
     ),
     tags(

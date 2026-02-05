@@ -484,15 +484,18 @@ export const deviceApi = {
 
   /**
    * Revoke a device
+   * Returns list of workspace IDs that need KEK rotation
    */
   async revokeDevice(deviceId: string) {
-    const { error, response } = await api.DELETE('/api/devices/{id}', {
+    const { data, error, response } = await api.DELETE('/api/devices/{id}', {
       params: { path: { id: deviceId } },
     })
 
     if (error) {
       throw new ApiError(response.status, error)
     }
+
+    return data
   },
 
   /**
@@ -629,6 +632,25 @@ export const encryptionApi = {
       params: { path: { document_id: documentId } },
       body,
     })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Complete KEK rotation after distributing new KEKs to all devices
+   */
+  async completeKekRotation(workspaceId: string, newMinKekVersion: number) {
+    const { data, error, response } = await api.POST(
+      '/api/encryption/workspaces/{workspace_id}/kek-rotation/complete',
+      {
+        params: { path: { workspace_id: workspaceId } },
+        body: { new_min_kek_version: newMinKekVersion },
+      }
+    )
 
     if (error) {
       throw new ApiError(response.status, error)

@@ -67,6 +67,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/pop-challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a PoP challenge for device verification
+         * @description Returns a server-issued challenge that the client must sign with
+         *     the device's Ed25519 signing key. The challenge is single-use and
+         *     expires after 5 minutes.
+         *
+         *     Requires:
+         *     - Valid session cookie
+         *     - X-PoP-Device-Id header with the device UUID
+         */
+        post: operations["create_pop_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/recovery": {
         parameters: {
             query?: never;
@@ -401,6 +427,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete KEK rotation
+         * @description Clears the needs_kek_rotation flag and updates min_kek_version after
+         *     the client has distributed new KEKs to all active devices.
+         *     Requires workspace membership with Write permission.
+         */
+        post: operations["complete_kek_rotation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/workspaces/{workspace_id}/keys": {
         parameters: {
             query?: never;
@@ -516,6 +564,29 @@ export interface components {
              */
             error: string;
         };
+        /** @description Complete KEK rotation request */
+        CompleteKekRotationRequest: {
+            /**
+             * Format: int32
+             * @description New minimum KEK version (must be greater than current)
+             * @example 2
+             */
+            new_min_kek_version: number;
+        };
+        /** @description Complete KEK rotation response */
+        CompleteKekRotationResponse: {
+            /**
+             * Format: int32
+             * @description New minimum KEK version
+             * @example 2
+             */
+            new_min_kek_version: number;
+            /**
+             * @description Workspace ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            workspace_id: string;
+        };
         /** @description Create document request */
         CreateDocumentRequest: {
             encrypted_title?: string | null;
@@ -592,6 +663,8 @@ export interface components {
         DeviceResponse: {
             created_at: string;
             device_type: string;
+            /** @description ECDH public key (base64url, 32 bytes) - for KEK distribution */
+            ecdh_public_key: string;
             id: string;
             is_current: boolean;
             last_seen_at: string;
@@ -809,10 +882,10 @@ export interface components {
         GetWorkspaceKeyParams: {
             /**
              * Format: uuid
-             * @description Device ID (optional)
+             * @description Device ID (required)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            device_id?: string | null;
+            device_id: string;
         };
         /** @description KDF parameters response */
         KdfParamsResponse: {
@@ -1043,6 +1116,20 @@ export interface components {
             ip_address?: string | null;
             name: string;
         };
+        /** @description PoP challenge response */
+        PopChallengeResponse: {
+            /**
+             * @description Server-issued challenge (32 bytes, base64url encoded)
+             * @example base64url-encoded-challenge
+             */
+            challenge: string;
+            /**
+             * Format: int64
+             * @description Challenge expiration timestamp (Unix timestamp)
+             * @example 1738700000
+             */
+            expires_at: number;
+        };
         /** @description Register password user request */
         RegisterRequest: {
             /**
@@ -1177,6 +1264,8 @@ export interface components {
         /** @description Revoke device response */
         RevokeDeviceResponse: {
             message: string;
+            /** @description List of workspace IDs that now need KEK rotation for forward secrecy */
+            workspaces_needing_kek_rotation: string[];
         };
         /** @description Role response */
         RoleResponse: {
@@ -1224,10 +1313,10 @@ export interface components {
         SaveWorkspaceKeyRequest: {
             /**
              * Format: uuid
-             * @description Device ID (optional, for multi-device support)
+             * @description Device ID (required for multi-device support)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            device_id?: string | null;
+            device_id: string;
             /**
              * @description Encrypted KEK (base64url encoded)
              * @example base64url-encoded-encrypted-kek
@@ -1251,10 +1340,10 @@ export interface components {
             nonce: string;
             /**
              * Format: uuid
-             * @description Sender device ID (optional, for multi-device support)
+             * @description Sender device ID (required for multi-device support)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            sender_device_id?: string | null;
+            sender_device_id: string;
         };
         /** @description Update document request */
         UpdateDocumentRequest: {
@@ -1275,10 +1364,10 @@ export interface components {
         /** @description Workspace key response */
         WorkspaceKeyResponse: {
             /**
-             * @description Device ID (optional)
+             * @description Device ID
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            device_id?: string | null;
+            device_id: string;
             /**
              * @description Encrypted KEK (base64url encoded)
              * @example base64url-encoded-encrypted-kek
@@ -1301,10 +1390,10 @@ export interface components {
              */
             nonce: string;
             /**
-             * @description Sender device ID (optional)
+             * @description Sender device ID
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
-            sender_device_id?: string | null;
+            sender_device_id: string;
             /**
              * @description Sender device's ECDH public key (base64url encoded, for ECDH decryption)
              * @example base64url-encoded-ecdh-public-key
@@ -1464,6 +1553,53 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+        };
+    };
+    create_pop_challenge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Challenge created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PopChallengeResponse"];
+                };
+            };
+            /** @description Missing or invalid device ID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Device not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2612,6 +2748,69 @@ export interface operations {
                 };
             };
             /** @description Document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+        };
+    };
+    complete_kek_rotation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteKekRotationRequest"];
+            };
+        };
+        responses: {
+            /** @description KEK rotation completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompleteKekRotationResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Workspace not found */
             404: {
                 headers: {
                     [name: string]: unknown;

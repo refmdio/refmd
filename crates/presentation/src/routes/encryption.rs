@@ -17,9 +17,9 @@ use application::domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
 };
 use application::encryption::{
-    GetDocumentKeyHandler, GetDocumentKeyQuery, GetWorkspaceKeyHandler, GetWorkspaceKeyQuery,
-    SaveDocumentKeyCommand, SaveDocumentKeyHandler, SaveWorkspaceKeyCommand,
-    SaveWorkspaceKeyHandler,
+    CompleteKekRotationCommand, CompleteKekRotationHandler, GetDocumentKeyHandler,
+    GetDocumentKeyQuery, GetWorkspaceKeyHandler, GetWorkspaceKeyQuery, SaveDocumentKeyCommand,
+    SaveDocumentKeyHandler, SaveWorkspaceKeyCommand, SaveWorkspaceKeyHandler,
 };
 use application::identity::RegistrationService;
 use axum::{
@@ -86,6 +86,31 @@ where
             )
             .get(
                 get_workspace_key::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
+        )
+        // KEK rotation completion endpoint
+        .route(
+            "/workspaces/{workspace_id}/kek-rotation/complete",
+            post(
+                complete_kek_rotation::<
                     U,
                     S,
                     US,
@@ -264,6 +289,25 @@ pub struct EncryptionErrorResponse {
     /// Error message
     #[schema(example = "key not found")]
     pub error: String,
+}
+
+/// Complete KEK rotation request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CompleteKekRotationRequest {
+    /// New minimum KEK version (must be greater than current)
+    #[schema(example = 2)]
+    pub new_min_kek_version: i32,
+}
+
+/// Complete KEK rotation response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CompleteKekRotationResponse {
+    /// Workspace ID
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    pub workspace_id: String,
+    /// New minimum KEK version
+    #[schema(example = 2)]
+    pub new_min_kek_version: i32,
 }
 
 // ============ Handlers ============
@@ -856,6 +900,129 @@ where
                 (StatusCode::FORBIDDEN, e.to_string())
             } else {
                 tracing::error!("get_document_key internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
+            };
+            (status, Json(EncryptionErrorResponse { error: message })).into_response()
+        }
+    }
+}
+
+/// Complete KEK rotation
+///
+/// Clears the needs_kek_rotation flag and updates min_kek_version after
+/// the client has distributed new KEKs to all active devices.
+/// Requires workspace membership with Write permission.
+#[utoipa::path(
+    post,
+    path = "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete",
+    request_body = CompleteKekRotationRequest,
+    params(
+        ("workspace_id" = Uuid, Path, description = "Workspace ID")
+    ),
+    responses(
+        (status = 200, description = "KEK rotation completed", body = CompleteKekRotationResponse),
+        (status = 400, description = "Invalid request", body = EncryptionErrorResponse),
+        (status = 401, description = "Not authenticated", body = EncryptionErrorResponse),
+        (status = 403, description = "Permission denied", body = EncryptionErrorResponse),
+        (status = 404, description = "Workspace not found", body = EncryptionErrorResponse),
+    ),
+    tag = "encryption"
+)]
+pub async fn complete_kek_rotation<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    headers: axum::http::HeaderMap,
+    Path(workspace_id): Path<Uuid>,
+    Json(request): Json<CompleteKekRotationRequest>,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    // Authenticate
+    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
+        Ok(u) => u,
+        Err(e) => return e.into_response(),
+    };
+
+    // Verify PoP (Proof of Possession) - required for E2EE key operations
+    if let Err(e) = verify_pop(
+        &headers,
+        auth_user.user_id,
+        state.device_repo().as_ref(),
+        &state.challenge_store(),
+    )
+    .await
+    {
+        return e.into_response();
+    }
+
+    let handler = CompleteKekRotationHandler::new(
+        state.workspace_repo(),
+        state.workspace_member_repo(),
+        state.workspace_role_repo(),
+    );
+
+    let command = CompleteKekRotationCommand {
+        workspace_id: WorkspaceId::from_uuid(workspace_id),
+        user_id: auth_user.user_id,
+        new_min_kek_version: request.new_min_kek_version,
+    };
+
+    match handler.handle(command).await {
+        Ok(result) => {
+            let response = CompleteKekRotationResponse {
+                workspace_id: result.workspace_id.to_string(),
+                new_min_kek_version: result.new_min_kek_version,
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            let (status, message) = if e.is_bad_request() {
+                (StatusCode::BAD_REQUEST, e.to_string())
+            } else if e.is_not_found() {
+                (StatusCode::NOT_FOUND, e.to_string())
+            } else if e.is_forbidden() {
+                (StatusCode::FORBIDDEN, e.to_string())
+            } else {
+                tracing::error!("complete_kek_rotation internal error: {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal server error".to_string(),

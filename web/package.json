@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "api:generate": "openapi-typescript ${API_URL:-http://localhost:3001}/api/openapi.json -o src/shared/api/schema.d.ts"
+    "api:generate": "openapi-typescript ${API_URL:-http://localhost:8000}/api/openapi.json -o src/shared/api/schema.d.ts"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.0",

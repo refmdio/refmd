@@ -118,25 +118,16 @@ services-clean:
 dev-ha:
     docker compose --profile ha up -d
     @trap 'docker compose --profile ha down; kill 0' EXIT; \
-    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 cargo run -p server & \
-    sleep 2 && \
-    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 cargo run -p server & \
-    sleep 2 && \
-    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 cargo run -p server & \
-    sleep 2 && \
+    cargo watch -s 'cargo build -p server && (trap "kill 0" EXIT; CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 ./target/debug/refmd-server & sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 ./target/debug/refmd-server & sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 ./target/debug/refmd-server & wait)' & \
+    sleep 3 && \
     cd web && pnpm dev & \
     wait
 
-# Run HA mode API only: nginx LB (:8000) + 3 API instances (:8001-8003)
+# Run HA mode API only: nginx LB (:8000) + 3 API instances (:8001-8003) with hot reload
 dev-api-ha:
     docker compose --profile ha up -d
     @trap 'docker compose --profile ha down; kill 0' EXIT; \
-    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 cargo run -p server & \
-    sleep 2 && \
-    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 cargo run -p server & \
-    sleep 2 && \
-    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 cargo run -p server & \
-    wait
+    cargo watch -s 'cargo build -p server && (trap "kill 0" EXIT; CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 ./target/debug/refmd-server & sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 ./target/debug/refmd-server & sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 ./target/debug/refmd-server & wait)'
 
 # ============ Database ============
 

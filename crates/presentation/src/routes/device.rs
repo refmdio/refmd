@@ -1271,6 +1271,8 @@ pub struct DeviceResponse {
     pub id: String,
     pub name: String,
     pub device_type: String,
+    /// ECDH public key (base64url, 32 bytes) - for KEK distribution
+    pub ecdh_public_key: String,
     pub last_seen_at: String,
     pub created_at: String,
     pub is_current: bool,
@@ -1378,6 +1380,7 @@ where
                         id: d.id.to_string(),
                         name: d.name,
                         device_type: d.device_type.as_str().to_string(),
+                        ecdh_public_key: base64_url::encode(&d.ecdh_public_key),
                         last_seen_at: d.last_seen_at.to_rfc3339(),
                         created_at: d.created_at.to_rfc3339(),
                         is_current: current_device_id == Some(d.id),
