@@ -45,7 +45,12 @@ use tower_governor::GovernorLayer;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{AppState, AuthUserFull, auth::verify_pop, crypto_validation::{is_valid_x25519_public_key, is_valid_ed25519_public_key}, rate_limit::create_device_rate_limit_config};
+use crate::{
+    AppState, AuthUserFull, DeviceEvent,
+    auth::verify_pop,
+    crypto_validation::{is_valid_ed25519_public_key, is_valid_x25519_public_key},
+    rate_limit::create_device_rate_limit_config,
+};
 
 /// Extract client IP from request headers
 ///
@@ -124,9 +129,7 @@ fn is_private_ip(ip: &str) -> bool {
                     || ipv4.is_link_local()
                     || ipv4.is_unspecified()
             }
-            std::net::IpAddr::V6(ipv6) => {
-                ipv6.is_loopback() || ipv6.is_unspecified()
-            }
+            std::net::IpAddr::V6(ipv6) => ipv6.is_loopback() || ipv6.is_unspecified(),
         }
     } else {
         false
@@ -163,7 +166,27 @@ where
     let rate_limited_routes = Router::new()
         .route(
             "/pending",
-            post(create_pending_device::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                create_pending_device::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .layer(GovernorLayer {
             config: device_rate_limit,
@@ -173,40 +196,230 @@ where
     let other_routes = Router::new()
         .route(
             "/pending",
-            get(list_pending_devices::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(list_pending_devices::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >),
         )
         .route(
             "/pending/{id}/sas",
-            get(get_sas::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(get_sas::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >),
         )
         .route(
             "/pending/{id}/events",
-            get(pending_device_events::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(pending_device_events::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >),
         )
         .route(
             "/pending/{id}/approve",
-            post(approve_device::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                approve_device::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .route(
             "/pending/{id}",
-            delete(reject_pending_device::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            delete(
+                reject_pending_device::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .route(
             "/events",
-            get(device_events::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(device_events::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >),
         )
         .route(
             "/",
-            get(list_devices::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(list_devices::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >),
         )
         .route(
             "/{id}",
-            delete(revoke_device::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            delete(
+                revoke_device::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .route(
             "/{id}/keys/umk",
-            post(distribute_umk::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>)
-                .get(get_device_umk::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                distribute_umk::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            )
+            .get(
+                get_device_umk::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         );
 
     Router::new()
@@ -264,10 +477,48 @@ pub struct CreatePendingDeviceResponse {
     ),
     tag = "device"
 )]
-pub async fn create_pending_device<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn create_pending_device<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: HeaderMap,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
     Json(request): Json<CreatePendingDeviceRequest>,
 ) -> impl IntoResponse
 where
@@ -410,19 +661,24 @@ where
     match handler.handle(command).await {
         Ok(result) => {
             // Publish SSE event for existing devices
-            state.device_event_bus().pending_created(
-                result.pending_device.id,
-                auth_user.user.id,
-                result.pending_device.name.clone(),
-                result.pending_device.device_type.as_str().to_string(),
-                ip_address,
-                result.pending_device.expires_at,
-            );
+            state
+                .device_event_bus()
+                .pending_created(
+                    result.pending_device.id,
+                    auth_user.user.id,
+                    result.pending_device.name.clone(),
+                    result.pending_device.device_type.as_str().to_string(),
+                    ip_address,
+                    result.pending_device.expires_at,
+                )
+                .await;
 
             let response = CreatePendingDeviceResponse {
                 id: result.pending_device.id.to_string(),
                 expires_at: result.pending_device.expires_at.to_rfc3339(),
-                identity_signing_public_key: base64_url::encode(&result.identity_signing_public_key),
+                identity_signing_public_key: base64_url::encode(
+                    &result.identity_signing_public_key,
+                ),
             };
             (StatusCode::CREATED, Json(response)).into_response()
         }
@@ -434,7 +690,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DeviceErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DeviceErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -479,8 +741,28 @@ pub struct GetSasResponse {
     tag = "device"
 )]
 pub async fn get_sas<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse
 where
@@ -531,7 +813,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DeviceErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DeviceErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -574,9 +862,47 @@ pub struct ApproveDeviceResponse {
     ),
     tag = "device"
 )]
-pub async fn approve_device<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+pub async fn approve_device<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
     Path(id): Path<Uuid>,
     Json(request): Json<ApproveDeviceRequest>,
 ) -> impl IntoResponse
@@ -660,7 +986,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DeviceErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DeviceErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -692,9 +1024,47 @@ pub struct ListPendingDevicesResponse {
     ),
     tag = "device"
 )]
-pub async fn list_pending_devices<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+pub async fn list_pending_devices<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -769,9 +1139,47 @@ pub struct RejectPendingDeviceResponse {
     ),
     tag = "device"
 )]
-pub async fn reject_pending_device<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+pub async fn reject_pending_device<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse
 where
@@ -834,10 +1242,10 @@ where
     match pending_device_repo.delete(pending_device_id).await {
         Ok(()) => {
             // Publish SSE event for the new device waiting
-            state.device_event_bus().pending_removed(
-                pending_device_id,
-                auth_user.user.id,
-            );
+            state
+                .device_event_bus()
+                .pending_removed(pending_device_id, auth_user.user.id)
+                .await;
 
             (
                 StatusCode::OK,
@@ -884,10 +1292,48 @@ pub struct ListDevicesResponse {
     ),
     tag = "device"
 )]
-pub async fn list_devices<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn list_devices<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: HeaderMap,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -913,7 +1359,7 @@ where
         &headers,
         auth_user.user.id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {
@@ -973,10 +1419,48 @@ pub struct RevokeDeviceResponse {
     ),
     tag = "device"
 )]
-pub async fn revoke_device<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn revoke_device<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: HeaderMap,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse
 where
@@ -1003,7 +1487,7 @@ where
         &headers,
         auth_user.user.id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {
@@ -1076,15 +1560,22 @@ where
     let member_repo = state.workspace_member_repo();
     let workspace_repo = state.workspace_repo();
 
-    let workspace_ids_needing_rotation = match member_repo.find_by_user_id(auth_user.user.id).await {
+    let workspace_ids_needing_rotation = match member_repo.find_by_user_id(auth_user.user.id).await
+    {
         Ok(members) => {
             let mut workspace_ids = Vec::new();
             for member in members {
                 // Get workspace and mark for rotation
-                if let Ok(Some(mut workspace)) = workspace_repo.find_by_id(member.workspace_id).await {
+                if let Ok(Some(mut workspace)) =
+                    workspace_repo.find_by_id(member.workspace_id).await
+                {
                     workspace.mark_needs_kek_rotation();
                     if let Err(e) = workspace_repo.save(&workspace).await {
-                        tracing::error!("failed to mark workspace {} for KEK rotation: {}", workspace.id, e);
+                        tracing::error!(
+                            "failed to mark workspace {} for KEK rotation: {}",
+                            workspace.id,
+                            e
+                        );
                     } else {
                         workspace_ids.push(workspace.id.as_uuid());
                     }
@@ -1093,7 +1584,10 @@ where
             workspace_ids
         }
         Err(e) => {
-            tracing::error!("failed to find user workspaces for KEK rotation marking: {}", e);
+            tracing::error!(
+                "failed to find user workspaces for KEK rotation marking: {}",
+                e
+            );
             Vec::new()
         }
     };
@@ -1149,10 +1643,48 @@ pub struct DistributeUmkResponse {
     tag = "device"
 )]
 #[allow(clippy::too_many_arguments)]
-pub async fn distribute_umk<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn distribute_umk<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: HeaderMap,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
     Path(target_device_id): Path<Uuid>,
     Json(request): Json<DistributeUmkRequest>,
 ) -> impl IntoResponse
@@ -1180,7 +1712,7 @@ where
         &headers,
         auth_user.user.id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {
@@ -1266,11 +1798,14 @@ where
     match handler.handle(command).await {
         Ok(_) => {
             // Publish SSE event now that UMK is available for the new device
-            state.device_event_bus().pending_approved(
-                DeviceId::from_uuid(request.pending_device_id),
-                auth_user.user.id,
-                DeviceId::from_uuid(target_device_id),
-            );
+            state
+                .device_event_bus()
+                .pending_approved(
+                    DeviceId::from_uuid(request.pending_device_id),
+                    auth_user.user.id,
+                    DeviceId::from_uuid(target_device_id),
+                )
+                .await;
 
             (
                 StatusCode::OK,
@@ -1290,7 +1825,13 @@ where
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(DeviceErrorResponse { error: e.to_string() })).into_response()
+            (
+                status,
+                Json(DeviceErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }
@@ -1328,9 +1869,47 @@ pub struct GetDeviceUmkResponse {
     tag = "device"
 )]
 #[allow(clippy::too_many_arguments)]
-pub async fn get_device_umk<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+pub async fn get_device_umk<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
     Path(device_id): Path<Uuid>,
 ) -> impl IntoResponse
 where
@@ -1496,9 +2075,47 @@ where
         ("session_cookie" = [])
     )
 )]
-pub async fn device_events<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+pub async fn device_events<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>>
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -1522,15 +2139,13 @@ where
     let user_id = auth_user.user.id.to_string();
     let receiver = state.device_event_bus().subscribe();
 
-    let stream = BroadcastStream::new(receiver)
-        .filter_map(move |result| {
-            match result {
-                Ok(event) if event.user_id() == user_id => {
-                    let json = serde_json::to_string(&event).ok()?;
-                    Some(Ok(Event::default().data(json)))
-                }
-                _ => None,
+    let stream =
+        BroadcastStream::<DeviceEvent>::new(receiver).filter_map(move |result| match result {
+            Ok(event) if event.user_id() == user_id => {
+                let json = serde_json::to_string(&event).ok()?;
+                Some(Ok(Event::default().data(json)))
             }
+            _ => None,
         });
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
@@ -1557,9 +2172,47 @@ where
         ("session_cookie" = [])
     )
 )]
-pub async fn pending_device_events<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
-    auth_user: AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+pub async fn pending_device_events<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    auth_user: AuthUserFull<
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    >,
     Path(id): Path<Uuid>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>>
 where
@@ -1585,15 +2238,13 @@ where
     let user_id = auth_user.user.id.to_string();
     let receiver = state.device_event_bus().subscribe();
 
-    let stream = BroadcastStream::new(receiver)
-        .filter_map(move |result| {
-            match result {
-                Ok(ref event) if event.pending_id() == pending_id && event.user_id() == user_id => {
-                    let json = serde_json::to_string(&event).ok()?;
-                    Some(Ok(Event::default().data(json)))
-                }
-                _ => None,
+    let stream =
+        BroadcastStream::<DeviceEvent>::new(receiver).filter_map(move |result| match result {
+            Ok(ref event) if event.pending_id() == pending_id && event.user_id() == user_id => {
+                let json = serde_json::to_string(&event).ok()?;
+                Some(Ok(Event::default().data(json)))
             }
+            _ => None,
         });
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))

@@ -54,7 +54,10 @@ pub enum SaveDocumentKeyError<
     InvalidKeyVersion,
 
     #[error("key version too old: minimum required is {min_version}, got {provided_version}")]
-    KeyVersionTooOld { min_version: i32, provided_version: i32 },
+    KeyVersionTooOld {
+        min_version: i32,
+        provided_version: i32,
+    },
 
     #[error("document key repository error: {0}")]
     DocumentKeyRepository(DKR),

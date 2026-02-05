@@ -1,6 +1,6 @@
 //! Authentication routes
 
-use crate::crypto_validation::{is_valid_x25519_public_key, is_valid_ed25519_public_key};
+use crate::crypto_validation::{is_valid_ed25519_public_key, is_valid_x25519_public_key};
 
 /// XChaCha20-Poly1305 nonce size in bytes
 const XCHACHA20_NONCE_SIZE: usize = 24;
@@ -44,7 +44,11 @@ use serde::{Deserialize, Serialize};
 use tower_governor::GovernorLayer;
 use utoipa::ToSchema;
 
-use crate::{AppState, rate_limit::{create_auth_rate_limit_config, create_register_rate_limit_config}, middleware::{POP_DEVICE_ID_HEADER, CHALLENGE_TTL_SECS}};
+use crate::{
+    AppState,
+    middleware::{CHALLENGE_TTL_SECS, POP_DEVICE_ID_HEADER},
+    rate_limit::{create_auth_rate_limit_config, create_register_rate_limit_config},
+};
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::Rng;
 
@@ -79,43 +83,164 @@ where
     let register_routes = Router::new()
         .route(
             "/register",
-            post(register::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                register::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .layer(GovernorLayer {
             config: register_rate_limit,
         });
 
-    // Routes with standard auth rate limiting (login, salt, recovery, pop-challenge)
-    let auth_rate_limited_routes = Router::new()
-        .route(
-            "/salt",
-            get(get_salt::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
-        )
-        .route(
-            "/login",
-            post(login::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
-        )
-        .route(
-            "/recovery",
-            get(get_recovery::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
-        )
-        .route(
-            "/pop-challenge",
-            post(create_pop_challenge::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
-        )
-        .layer(GovernorLayer {
-            config: auth_rate_limit,
-        });
+    // Routes with standard auth rate limiting (login, salt, recovery)
+    let auth_rate_limited_routes =
+        Router::new()
+            .route(
+                "/salt",
+                get(get_salt::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >),
+            )
+            .route(
+                "/login",
+                post(
+                    login::<
+                        U,
+                        S,
+                        US,
+                        UIP,
+                        UEM,
+                        UEI,
+                        WR,
+                        WMR,
+                        WRR,
+                        DR,
+                        DUR,
+                        WKR,
+                        DKR,
+                        RS,
+                        DER,
+                        PDR,
+                        UMKR,
+                    >,
+                ),
+            )
+            .route(
+                "/recovery",
+                get(get_recovery::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >),
+            )
+            .layer(GovernorLayer {
+                config: auth_rate_limit,
+            });
 
     // Routes without rate limiting (authenticated endpoints)
+    // pop-challenge is not rate-limited because it already requires:
+    // 1. Valid session cookie (authentication)
+    // 2. Device ownership verification
+    // 3. Device revocation check
     let non_rate_limited_routes = Router::new()
         .route(
             "/logout",
-            post(logout::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                logout::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .route(
             "/me",
             get(me::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+        )
+        .route(
+            "/pop-challenge",
+            post(
+                create_pop_challenge::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         );
 
     Router::new()
@@ -195,8 +320,28 @@ pub struct AuthErrorResponse {
     ),
     tag = "auth"
 )]
-pub async fn get_salt<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn get_salt<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Query(params): Query<GetSaltQueryParams>,
 ) -> impl IntoResponse
 where
@@ -352,8 +497,28 @@ pub struct RegisterResponse {
     ),
     tag = "auth"
 )]
-pub async fn register<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn register<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Json(request): Json<RegisterRequest>,
 ) -> impl IntoResponse
 where
@@ -642,7 +807,8 @@ where
             return (
                 StatusCode::BAD_REQUEST,
                 Json(AuthErrorResponse {
-                    error: "invalid device_signing_public_key length: expected 32 bytes".to_string(),
+                    error: "invalid device_signing_public_key length: expected 32 bytes"
+                        .to_string(),
                 }),
             )
                 .into_response();
@@ -696,7 +862,8 @@ where
             return (
                 StatusCode::BAD_REQUEST,
                 Json(AuthErrorResponse {
-                    error: "invalid device_identity_signature length: expected 64 bytes".to_string(),
+                    error: "invalid device_identity_signature length: expected 64 bytes"
+                        .to_string(),
                 }),
             )
                 .into_response();
@@ -876,7 +1043,9 @@ pub const SESSION_COOKIE_NAME: &str = "refmd_session";
     tag = "auth"
 )]
 pub async fn login<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Json(request): Json<LoginRequest>,
 ) -> impl IntoResponse
 where
@@ -909,9 +1078,10 @@ where
     );
 
     // Parse device_id if provided
-    let device_id = request.device_id.as_ref().and_then(|id| {
-        uuid::Uuid::parse_str(id).ok().map(DeviceId::from_uuid)
-    });
+    let device_id = request
+        .device_id
+        .as_ref()
+        .and_then(|id| uuid::Uuid::parse_str(id).ok().map(DeviceId::from_uuid));
 
     let command = LoginPasswordUserCommand {
         email: request.email,
@@ -939,7 +1109,9 @@ where
                 encrypted_ecdh_private: base64_url::encode(&k.encrypted_ecdh_private),
                 encrypted_ecdh_private_nonce: base64_url::encode(&k.encrypted_ecdh_private_nonce),
                 encrypted_signing_private: base64_url::encode(&k.encrypted_signing_private),
-                encrypted_signing_private_nonce: base64_url::encode(&k.encrypted_signing_private_nonce),
+                encrypted_signing_private_nonce: base64_url::encode(
+                    &k.encrypted_signing_private_nonce,
+                ),
             });
 
             let response = LoginResponse {
@@ -1034,8 +1206,28 @@ pub struct GetRecoveryResponse {
     ),
     tag = "auth"
 )]
-pub async fn get_recovery<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn get_recovery<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Query(params): Query<GetRecoveryQueryParams>,
 ) -> impl IntoResponse
 where
@@ -1074,9 +1266,13 @@ where
                 recovery_encrypted_umk: base64_url::encode(&result.recovery_encrypted_umk),
                 recovery_nonce: base64_url::encode(&result.recovery_nonce),
                 encrypted_ecdh_private: base64_url::encode(&result.encrypted_ecdh_private),
-                encrypted_ecdh_private_nonce: base64_url::encode(&result.encrypted_ecdh_private_nonce),
+                encrypted_ecdh_private_nonce: base64_url::encode(
+                    &result.encrypted_ecdh_private_nonce,
+                ),
                 encrypted_signing_private: base64_url::encode(&result.encrypted_signing_private),
-                encrypted_signing_private_nonce: base64_url::encode(&result.encrypted_signing_private_nonce),
+                encrypted_signing_private_nonce: base64_url::encode(
+                    &result.encrypted_signing_private_nonce,
+                ),
             };
             (StatusCode::OK, Json(response)).into_response()
         }
@@ -1085,7 +1281,10 @@ where
                 (StatusCode::BAD_REQUEST, e.to_string())
             } else if e.is_not_found() {
                 // Don't reveal whether user exists or recovery data is missing
-                (StatusCode::NOT_FOUND, "recovery data not available".to_string())
+                (
+                    StatusCode::NOT_FOUND,
+                    "recovery data not available".to_string(),
+                )
             } else {
                 tracing::error!("get_recovery internal error: {}", e);
                 (
@@ -1161,7 +1360,9 @@ pub struct LogoutResponse {
     tag = "auth"
 )]
 pub async fn logout<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -1274,7 +1475,9 @@ pub struct MeResponse {
     tag = "auth"
 )]
 pub async fn me<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -1423,8 +1626,28 @@ pub struct PopChallengeResponse {
     ),
     tag = "auth"
 )]
-pub async fn create_pop_challenge<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn create_pop_challenge<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -1551,8 +1774,17 @@ where
     let expires_at = Utc::now() + ChronoDuration::seconds(CHALLENGE_TTL_SECS);
 
     // Store challenge in cache
-    let challenge_cache = state.challenge_cache();
-    challenge_cache.store(device_id, challenge, expires_at);
+    let challenge_store = state.challenge_store();
+    if let Err(e) = challenge_store.store(device_id, challenge, expires_at).await {
+        tracing::error!("Failed to store PoP challenge: {:?}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(AuthErrorResponse {
+                error: "failed to create challenge".to_string(),
+            }),
+        )
+            .into_response();
+    }
 
     let response = PopChallengeResponse {
         challenge: base64_url::encode(&challenge),

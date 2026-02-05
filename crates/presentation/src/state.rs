@@ -1,7 +1,6 @@
 //! Application state with generics for dependency injection
 
-use crate::events::DeviceEventBus;
-use crate::middleware::ChallengeCache;
+use crate::middleware::ChallengeStore;
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
     DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
@@ -15,9 +14,33 @@ use application::domain::workspace::{
 use application::identity::RegistrationService;
 use std::sync::Arc;
 
+/// Type alias for dynamic ChallengeStore
+pub type DynChallengeStore = Arc<dyn ChallengeStore>;
+
+/// Type alias for dynamic DeviceEventBus
+/// Note: We use the DeviceEventBus trait which combines DeviceEventPublisher + DeviceEventSubscriber
+pub type DynDeviceEventBus = Arc<dyn crate::events::DeviceEventBus>;
+
 /// Parameters for creating AppState
-pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
-{
+pub struct AppStateParams<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+> {
     pub user_repo: Arc<U>,
     pub session_repo: Arc<S>,
     pub user_settings_repo: Arc<US>,
@@ -35,14 +58,16 @@ pub struct AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, D
     pub device_repo: Arc<DER>,
     pub pending_device_repo: Arc<PDR>,
     pub device_encrypted_umk_repo: Arc<UMKR>,
-    /// Device event bus for SSE notifications
-    pub device_event_bus: DeviceEventBus,
-    /// Challenge cache for server-issued PoP challenges
-    pub challenge_cache: Arc<ChallengeCache>,
+    /// Device event bus for SSE notifications (dynamic dispatch)
+    pub device_event_bus: DynDeviceEventBus,
+    /// Challenge store for server-issued PoP challenges (dynamic dispatch)
+    pub challenge_store: DynChallengeStore,
     /// Server secret for dummy salt generation (prevents user enumeration)
     pub server_secret: [u8; 32],
     /// Whether to set Secure attribute on cookies (should be true in production)
     pub secure_cookies: bool,
+    /// Whether cluster mode is enabled
+    pub cluster_enabled: bool,
 }
 
 /// Application state holding repository implementations
@@ -84,14 +109,16 @@ where
     device_repo: Arc<DER>,
     pending_device_repo: Arc<PDR>,
     device_encrypted_umk_repo: Arc<UMKR>,
-    /// Device event bus for SSE notifications
-    device_event_bus: DeviceEventBus,
-    /// Challenge cache for server-issued PoP challenges
-    challenge_cache: Arc<ChallengeCache>,
+    /// Device event bus for SSE notifications (dynamic dispatch)
+    device_event_bus: DynDeviceEventBus,
+    /// Challenge store for server-issued PoP challenges (dynamic dispatch)
+    challenge_store: DynChallengeStore,
     /// Server secret for dummy salt generation (prevents user enumeration)
     server_secret: Arc<[u8; 32]>,
     /// Whether to set Secure attribute on cookies (should be true in production)
     secure_cookies: bool,
+    /// Whether cluster mode is enabled
+    cluster_enabled: bool,
 }
 
 impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
@@ -116,7 +143,25 @@ where
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + 'static,
 {
     pub fn new(
-        params: AppStateParams<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+        params: AppStateParams<
+            U,
+            S,
+            US,
+            UIP,
+            UEM,
+            UEI,
+            WR,
+            WMR,
+            WRR,
+            DR,
+            DUR,
+            WKR,
+            DKR,
+            RS,
+            DER,
+            PDR,
+            UMKR,
+        >,
     ) -> Self {
         Self {
             user_repo: params.user_repo,
@@ -137,9 +182,10 @@ where
             pending_device_repo: params.pending_device_repo,
             device_encrypted_umk_repo: params.device_encrypted_umk_repo,
             device_event_bus: params.device_event_bus,
-            challenge_cache: params.challenge_cache,
+            challenge_store: params.challenge_store,
             server_secret: Arc::new(params.server_secret),
             secure_cookies: params.secure_cookies,
+            cluster_enabled: params.cluster_enabled,
         }
     }
 
@@ -211,12 +257,12 @@ where
         Arc::clone(&self.device_encrypted_umk_repo)
     }
 
-    pub fn device_event_bus(&self) -> &DeviceEventBus {
+    pub fn device_event_bus(&self) -> &DynDeviceEventBus {
         &self.device_event_bus
     }
 
-    pub fn challenge_cache(&self) -> Arc<ChallengeCache> {
-        Arc::clone(&self.challenge_cache)
+    pub fn challenge_store(&self) -> DynChallengeStore {
+        Arc::clone(&self.challenge_store)
     }
 
     pub fn server_secret(&self) -> &[u8; 32] {
@@ -226,5 +272,10 @@ where
     /// Whether cookies should have the Secure attribute
     pub fn secure_cookies(&self) -> bool {
         self.secure_cookies
+    }
+
+    /// Whether cluster mode is enabled
+    pub fn cluster_enabled(&self) -> bool {
+        self.cluster_enabled
     }
 }

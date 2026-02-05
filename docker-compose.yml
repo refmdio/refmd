@@ -17,6 +17,21 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    profiles: ["ha"]
+    image: redis:7-alpine
+    container_name: refmd-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   garage:
     image: dxflrs/garage:v1.1.0
     container_name: refmd-garage
@@ -35,6 +50,15 @@ services:
       timeout: 5s
       retries: 5
 
+  # HA mode load balancer (use --profile ha to start)
+  nginx:
+    profiles: ["ha"]
+    image: nginx:alpine
+    container_name: refmd-nginx
+    network_mode: host
+    volumes:
+      - ./docker/nginx-lb.conf:/etc/nginx/nginx.conf:ro
+
   # Application services (use --profile app to start)
   api:
     profiles: ["app"]
@@ -50,10 +74,10 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       SERVER_HOST: 0.0.0.0
-      SERVER_PORT: 3001
+      SERVER_PORT: 8000
       RUST_LOG: ${RUST_LOG:-info}
     ports:
-      - "${SERVER_PORT:-3001}:3001"
+      - "${SERVER_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,7 +91,7 @@ services:
       dockerfile: Dockerfile
     container_name: refmd-web
     environment:
-      VITE_API_URL: http://api:3001
+      VITE_API_URL: http://api:8000
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:
@@ -77,3 +101,4 @@ volumes:
   postgres_data:
   garage_data:
   garage_meta:
+  redis_data:

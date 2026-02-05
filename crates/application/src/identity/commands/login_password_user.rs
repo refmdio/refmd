@@ -3,7 +3,8 @@
 //! Authenticates a password-based user and creates a session.
 
 use domain::encryption::{
-    DeviceId, DeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+    DeviceId, DeviceRepository, UserEncryptedIdentityKeyRepository,
+    UserEncryptedMasterKeyRepository,
 };
 use domain::identity::{Email, EmailError, Session, SessionRepository, User, UserRepository};
 use std::sync::Arc;
@@ -301,7 +302,10 @@ where
         let (device_verified, verified_device_id) = if let Some(device_id) = command.device_id {
             // Check if the device exists, is active, and belongs to this user
             let device_valid = devices.iter().any(|d| d.id == device_id);
-            (device_valid, if device_valid { Some(device_id) } else { None })
+            (
+                device_valid,
+                if device_valid { Some(device_id) } else { None },
+            )
         } else {
             (false, None)
         };
@@ -315,7 +319,8 @@ where
                 encrypted_ecdh_private: encrypted_identity_key.encrypted_ecdh_private,
                 encrypted_ecdh_private_nonce: encrypted_identity_key.encrypted_ecdh_private_nonce,
                 encrypted_signing_private: encrypted_identity_key.encrypted_signing_private,
-                encrypted_signing_private_nonce: encrypted_identity_key.encrypted_signing_private_nonce,
+                encrypted_signing_private_nonce: encrypted_identity_key
+                    .encrypted_signing_private_nonce,
             })
         } else {
             None

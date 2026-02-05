@@ -3,10 +3,13 @@
 //! Adds a new encrypted Yjs update to a document's CRDT log.
 
 use domain::document::{
-    DocumentId, DocumentRepository, DocumentUpdate, DocumentUpdateRepository, NewDocumentUpdateParams,
+    DocumentId, DocumentRepository, DocumentUpdate, DocumentUpdateRepository,
+    NewDocumentUpdateParams,
 };
 use domain::identity::UserId;
-use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform};
+use domain::workspace::{
+    WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
+};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -55,7 +58,10 @@ pub enum CreateDocumentUpdateError<
     InvalidNonceLength,
 
     #[error("key version too old: minimum required is {min_version}, got {provided_version}")]
-    KeyVersionTooOld { min_version: i32, provided_version: i32 },
+    KeyVersionTooOld {
+        min_version: i32,
+        provided_version: i32,
+    },
 
     #[error("document repository error: {0}")]
     DocumentRepository(DR),
@@ -70,12 +76,8 @@ pub enum CreateDocumentUpdateError<
     RoleRepository(RR),
 }
 
-impl<
-        DR: std::error::Error,
-        DUR: std::error::Error,
-        MR: std::error::Error,
-        RR: std::error::Error,
-    > CreateDocumentUpdateError<DR, DUR, MR, RR>
+impl<DR: std::error::Error, DUR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
+    CreateDocumentUpdateError<DR, DUR, MR, RR>
 {
     pub fn is_not_found(&self) -> bool {
         matches!(self, CreateDocumentUpdateError::DocumentNotFound)
@@ -93,7 +95,11 @@ impl<
     }
 
     pub fn is_bad_request(&self) -> bool {
-        matches!(self, CreateDocumentUpdateError::InvalidNonceLength | CreateDocumentUpdateError::KeyVersionTooOld { .. })
+        matches!(
+            self,
+            CreateDocumentUpdateError::InvalidNonceLength
+                | CreateDocumentUpdateError::KeyVersionTooOld { .. }
+        )
     }
 }
 
@@ -196,10 +202,10 @@ where
             update_data: command.update_data,
             nonce: command.nonce,
             key_version: command.key_version,
-            update_hash: None,       // Phase 2
-            prev_update_hash: None,  // Phase 2
-            signature: None,         // Phase 2
-            author_device_id: None,  // Phase 2
+            update_hash: None,      // Phase 2
+            prev_update_hash: None, // Phase 2
+            signature: None,        // Phase 2
+            author_device_id: None, // Phase 2
             timestamp: command.timestamp,
         });
 

@@ -9,7 +9,7 @@ import type { paths, components } from './schema'
 import { getPopCredentials } from '@/shared/lib/pop-store'
 import { getPopHeaders } from '@/shared/lib/crypto/pop'
 
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 /**
  * Paths that don't require PoP headers (auth endpoints)

@@ -2,10 +2,10 @@
 //!
 //! This is the Composition Root - where all dependencies are wired together.
 
-use axum::http::{Method, header, HeaderName, HeaderValue};
-use axum::{Router, routing::get};
-use tower::ServiceBuilder;
+use axum::http::{HeaderName, HeaderValue, Method, header};
+use axum::{Json, Router, extract::State, routing::get};
 use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository};
+use infrastructure::PgPool;
 use infrastructure::encryption::{
     PgDeviceEncryptedUMKRepository, PgDeviceRepository, PgDocumentEncryptedKeyRepository,
     PgPendingDeviceRepository, PgUserEncryptedIdentityKeyRepository,
@@ -17,10 +17,16 @@ use infrastructure::workspace::{
     PgWorkspaceMemberRepository, PgWorkspaceRepository, PgWorkspaceRoleRepository,
 };
 use infrastructure::{DatabaseConfig, PgRegistrationService, create_pool};
-use presentation::{ApiDoc, AppState, AppStateParams, DeviceEventBus, ChallengeCache, routes};
+use infrastructure::{RedisConfig, RedisPool, create_redis_pool};
+use infrastructure::{RedisChallengeStore, RedisDeviceEventBus};
+use presentation::{
+    ApiDoc, AppState, AppStateParams, InMemoryChallengeStore, InMemoryDeviceEventBus, routes,
+};
+use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
@@ -28,8 +34,75 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-async fn health_check() -> &'static str {
-    "OK"
+/// Health check state (separate from AppState for clean architecture)
+#[derive(Clone)]
+struct HealthState {
+    db_pool: PgPool,
+    cluster_enabled: bool,
+    redis_pool: Option<RedisPool>,
+}
+
+async fn health_check(State(state): State<HealthState>) -> Json<serde_json::Value> {
+    let mut overall_status = "healthy";
+
+    let mut status = json!({
+        "cluster_mode": state.cluster_enabled,
+    });
+
+    // Check database connectivity
+    match state.db_pool.acquire().await {
+        Ok(_) => {
+            status["database"] = json!("connected");
+        }
+        Err(_) => {
+            overall_status = "unhealthy"; // DB failure is critical
+            status["database"] = json!("disconnected");
+        }
+    }
+
+    // Check Redis connectivity (only in cluster mode)
+    if let Some(ref pool) = state.redis_pool {
+        match pool.health_check().await {
+            Ok(_) => {
+                status["redis"] = json!("connected");
+            }
+            Err(_) => {
+                // Redis failure is degraded, but don't override unhealthy
+                if overall_status == "healthy" {
+                    overall_status = "degraded";
+                }
+                status["redis"] = json!("disconnected");
+            }
+        }
+    }
+
+    status["status"] = json!(overall_status);
+    Json(status)
+}
+
+// =============================================================================
+// Newtype wrapper for RedisDeviceEventBus
+// (Composition Root bridges infrastructure and presentation layers)
+// =============================================================================
+
+use presentation::{DeviceEvent, DeviceEventPublisher, DeviceEventSubscriber};
+use tokio::sync::broadcast;
+
+/// Wrapper to implement presentation traits on infrastructure type
+#[derive(Clone)]
+struct RedisEventBusAdapter(Arc<RedisDeviceEventBus>);
+
+#[async_trait::async_trait]
+impl DeviceEventPublisher for RedisEventBusAdapter {
+    async fn publish(&self, event: DeviceEvent) {
+        self.0.publish(event).await
+    }
+}
+
+impl DeviceEventSubscriber for RedisEventBusAdapter {
+    fn subscribe(&self) -> broadcast::Receiver<DeviceEvent> {
+        self.0.subscribe()
+    }
 }
 
 /// Load server secret from environment variable
@@ -51,6 +124,13 @@ fn load_server_secret() -> anyhow::Result<[u8; 32]> {
     Ok(secret)
 }
 
+/// Check if cluster mode is enabled via environment variable
+fn is_cluster_enabled() -> bool {
+    std::env::var("CLUSTER_ENABLED")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load .env file
@@ -65,10 +145,30 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // Check cluster mode
+    let cluster_enabled = is_cluster_enabled();
+    if cluster_enabled {
+        tracing::info!("Cluster mode ENABLED - using Redis for shared state");
+    } else {
+        tracing::info!("Single-node mode - using in-memory state");
+    }
+
     // Connect to database
     let db_config = DatabaseConfig::from_env();
     let pool = create_pool(&db_config).await?;
     tracing::info!("Connected to database");
+
+    // Connect to Redis if cluster mode is enabled
+    let (redis_pool, redis_url): (Option<RedisPool>, Option<String>) = if cluster_enabled {
+        let redis_config = RedisConfig::from_env()
+            .ok_or_else(|| anyhow::anyhow!("REDIS_URL is required when CLUSTER_ENABLED=true"))?;
+        let url = redis_config.url.clone();
+        let pool = create_redis_pool(&redis_config).await?;
+        tracing::info!("Connected to Redis");
+        (Some(pool), Some(url))
+    } else {
+        (None, None)
+    };
 
     // Load server secret (32 bytes for HMAC operations)
     let server_secret = load_server_secret()?;
@@ -95,7 +195,8 @@ async fn main() -> anyhow::Result<()> {
     let registration_service = Arc::new(PgRegistrationService::new(pool_arc.clone()));
     let device_repo = Arc::new(PgDeviceRepository::new((*pool_arc).clone()));
     let pending_device_repo = Arc::new(PgPendingDeviceRepository::new((*pool_arc).clone()));
-    let device_encrypted_umk_repo = Arc::new(PgDeviceEncryptedUMKRepository::new((*pool_arc).clone()));
+    let device_encrypted_umk_repo =
+        Arc::new(PgDeviceEncryptedUMKRepository::new((*pool_arc).clone()));
 
     // Determine if cookies should have Secure attribute
     // Default to true for production, can be disabled for local development
@@ -107,11 +208,23 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("SECURE_COOKIES is disabled. This should only be used in development!");
     }
 
-    // Create device event bus for SSE
-    let device_event_bus = DeviceEventBus::new();
-
-    // Create challenge cache for server-issued PoP challenges
-    let challenge_cache = Arc::new(ChallengeCache::default());
+    // Create challenge store and device event bus based on cluster mode
+    let (challenge_store, device_event_bus): (
+        Arc<dyn presentation::ChallengeStore>,
+        Arc<dyn presentation::DeviceEventBus>,
+    ) = if let Some(ref redis) = redis_pool {
+        // Cluster mode: use Redis-backed implementations
+        let url = redis_url.clone().unwrap();
+        let challenge_store = Arc::new(RedisChallengeStore::new(redis.clone()));
+        let redis_bus = RedisDeviceEventBus::new(redis.clone(), url);
+        let device_event_bus = Arc::new(RedisEventBusAdapter(redis_bus));
+        (challenge_store, device_event_bus)
+    } else {
+        // Single-node mode: use in-memory implementations
+        let challenge_store = Arc::new(InMemoryChallengeStore::default());
+        let device_event_bus = Arc::new(InMemoryDeviceEventBus::new());
+        (challenge_store, device_event_bus)
+    };
 
     // Create application state
     let state = AppState::new(AppStateParams {
@@ -133,10 +246,18 @@ async fn main() -> anyhow::Result<()> {
         pending_device_repo,
         device_encrypted_umk_repo,
         device_event_bus,
-        challenge_cache,
+        challenge_store,
         server_secret,
         secure_cookies,
+        cluster_enabled,
     });
+
+    // Create health check state (keeps Redis pool in server layer)
+    let health_state = HealthState {
+        db_pool: (*pool_arc).clone(),
+        cluster_enabled,
+        redis_pool,
+    };
 
     // CORS configuration for development
     // In production, this should be restricted to specific origins
@@ -220,7 +341,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Build application
     let app = Router::new()
-        .route("/health", get(health_check))
+        .route("/health", get(health_check).with_state(health_state))
         .merge(routes::create_routes(state))
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(cors)
@@ -229,7 +350,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start server
     let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "3001".to_string());
+    let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "8000".to_string());
     let addr: SocketAddr = format!("{host}:{port}").parse()?;
 
     tracing::info!("Starting server on {}", addr);

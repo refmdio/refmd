@@ -112,6 +112,32 @@ services-down:
 services-clean:
     docker compose --profile app down -v
 
+# ============ HA Mode (Cluster) ============
+
+# Run HA mode: nginx LB (:8000) + 3 API instances (:8001-8003) + frontend
+dev-ha:
+    docker compose --profile ha up -d
+    @trap 'docker compose --profile ha down; kill 0' EXIT; \
+    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 cargo run -p server & \
+    sleep 2 && \
+    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 cargo run -p server & \
+    sleep 2 && \
+    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 cargo run -p server & \
+    sleep 2 && \
+    cd web && pnpm dev & \
+    wait
+
+# Run HA mode API only: nginx LB (:8000) + 3 API instances (:8001-8003)
+dev-api-ha:
+    docker compose --profile ha up -d
+    @trap 'docker compose --profile ha down; kill 0' EXIT; \
+    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 cargo run -p server & \
+    sleep 2 && \
+    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 cargo run -p server & \
+    sleep 2 && \
+    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 cargo run -p server & \
+    wait
+
 # ============ Database ============
 
 # Run database migrations

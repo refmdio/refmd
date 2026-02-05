@@ -35,8 +35,25 @@ use crate::auth::verify_pop;
 /// Create document routes under /api/workspaces/{workspace_id}/documents
 ///
 /// Only for listing and creating documents (require workspace context).
-pub fn workspace_routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>()
--> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>
+pub fn workspace_routes<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>() -> Router<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>
 where
     U: UserRepository + Send + Sync + Clone + 'static,
     S: SessionRepository + Send + Sync + Clone + 'static,
@@ -58,8 +75,46 @@ where
 {
     Router::new().route(
         "/",
-        get(list_documents::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>)
-            .post(create_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+        get(list_documents::<
+            U,
+            S,
+            US,
+            UIP,
+            UEM,
+            UEI,
+            WR,
+            WMR,
+            WRR,
+            DR,
+            DUR,
+            WKR,
+            DKR,
+            RS,
+            DER,
+            PDR,
+            UMKR,
+        >)
+        .post(
+            create_document::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >,
+        ),
     )
 }
 
@@ -91,22 +146,158 @@ where
     Router::new()
         .route(
             "/{document_id}",
-            get(get_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>)
-                .patch(update_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>)
-                .delete(delete_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(get_document::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >)
+            .patch(
+                update_document::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            )
+            .delete(
+                delete_document::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .route(
             "/{document_id}/archive",
-            post(archive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                archive_document::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .route(
             "/{document_id}/unarchive",
-            post(unarchive_document::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                unarchive_document::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .route(
             "/{document_id}/updates",
-            get(list_updates::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>)
-                .post(create_update::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(list_updates::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >)
+            .post(
+                create_update::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .with_state(state)
 }
@@ -259,8 +450,28 @@ fn document_to_response(doc: application::domain::document::Document) -> Documen
     ),
     tag = "document"
 )]
-pub async fn list_documents<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn list_documents<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(workspace_id): Path<Uuid>,
     Query(params): Query<ListDocumentsParams>,
     headers: axum::http::HeaderMap,
@@ -362,8 +573,28 @@ where
     ),
     tag = "document"
 )]
-pub async fn create_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn create_document<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(workspace_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     Json(request): Json<CreateDocumentRequest>,
@@ -497,8 +728,28 @@ where
     ),
     tag = "document"
 )]
-pub async fn get_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn get_document<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -583,8 +834,28 @@ where
     ),
     tag = "document"
 )]
-pub async fn update_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn update_document<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     Json(request): Json<UpdateDocumentRequest>,
@@ -714,8 +985,28 @@ where
     ),
     tag = "document"
 )]
-pub async fn delete_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn delete_document<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -801,8 +1092,28 @@ where
     ),
     tag = "document"
 )]
-pub async fn archive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn archive_document<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -888,8 +1199,28 @@ where
     ),
     tag = "document"
 )]
-pub async fn unarchive_document<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn unarchive_document<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
@@ -965,7 +1296,25 @@ struct AuthenticatedUser {
 }
 
 /// Authenticate user from session cookie
-async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+async fn authenticate_user<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
     state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthenticatedUser, axum::response::Response>
@@ -1044,7 +1393,7 @@ where
         headers,
         session.user_id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {
@@ -1076,8 +1425,28 @@ where
     ),
     tag = "document"
 )]
-pub async fn list_updates<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn list_updates<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(document_id): Path<Uuid>,
     Query(params): Query<ListDocumentUpdatesParams>,
     headers: axum::http::HeaderMap,
@@ -1133,7 +1502,11 @@ where
                     timestamp: u.timestamp,
                 })
                 .collect();
-            (StatusCode::OK, Json(ListDocumentUpdatesResponse { updates })).into_response()
+            (
+                StatusCode::OK,
+                Json(ListDocumentUpdatesResponse { updates }),
+            )
+                .into_response()
         }
         Err(e) => {
             let status = if e.is_not_found() {
@@ -1179,8 +1552,28 @@ where
     ),
     tag = "document"
 )]
-pub async fn create_update<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn create_update<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     Path(document_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
     Json(request): Json<CreateDocumentUpdateRequest>,

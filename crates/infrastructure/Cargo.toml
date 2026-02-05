@@ -12,9 +12,11 @@ application.workspace = true
 # Async
 tokio.workspace = true
 async-trait.workspace = true
+futures.workspace = true
 
 # Database
 sqlx.workspace = true
+redis.workspace = true
 
 # Serialization
 serde.workspace = true
@@ -28,6 +30,7 @@ anyhow.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
+base64-url.workspace = true
 
 # Configuration
 dotenvy.workspace = true

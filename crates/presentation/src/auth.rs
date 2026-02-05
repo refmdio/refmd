@@ -4,9 +4,10 @@
 
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    Device, DeviceEncryptedUMKRepository, DeviceId, DeviceRepository, DocumentEncryptedKeyRepository,
-    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
-    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
+    Device, DeviceEncryptedUMKRepository, DeviceId, DeviceRepository,
+    DocumentEncryptedKeyRepository, PendingDeviceRepository, UserEncryptedIdentityKeyRepository,
+    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
+    WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{
     Session, SessionRepository, User, UserId, UserRepository, UserSettingsRepository,
@@ -25,7 +26,14 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-use crate::{AppState, middleware::{ChallengeCache, ChallengeError, POP_CHALLENGE_HEADER, POP_SIGNATURE_HEADER, POP_DEVICE_ID_HEADER}, routes::auth::SESSION_COOKIE_NAME};
+use crate::{
+    AppState,
+    middleware::{
+        ChallengeError, ChallengeStore, POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER,
+        POP_SIGNATURE_HEADER,
+    },
+    routes::auth::SESSION_COOKIE_NAME,
+};
 
 /// Authenticated user information extracted from session
 #[derive(Debug, Clone)]
@@ -36,8 +44,25 @@ pub struct AuthUser {
 
 /// Authenticated user with full user data
 #[derive(Debug, Clone)]
-pub struct AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
-where
+pub struct AuthUserFull<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+> where
     U: UserRepository + Send + Sync + 'static,
     S: SessionRepository + Send + Sync + 'static,
     US: UserSettingsRepository + Send + Sync + 'static,
@@ -59,12 +84,31 @@ where
     pub user: User,
     pub session: Session,
     #[doc(hidden)]
-    _phantom: std::marker::PhantomData<(U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR)>,
+    _phantom: std::marker::PhantomData<(
+        U,
+        S,
+        US,
+        UIP,
+        UEM,
+        UEI,
+        WR,
+        WMR,
+        WRR,
+        DR,
+        DUR,
+        WKR,
+        DKR,
+        RS,
+        DER,
+        PDR,
+        UMKR,
+    )>,
 }
 
 impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
-    FromRequestParts<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>
-    for AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+    FromRequestParts<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    > for AuthUserFull<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
 where
     U: UserRepository + Send + Sync + Clone + 'static,
     S: SessionRepository + Send + Sync + Clone + 'static,
@@ -88,7 +132,25 @@ where
 
     async fn from_request_parts(
         parts: &mut Parts,
-        state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+        state: &AppState<
+            U,
+            S,
+            US,
+            UIP,
+            UEM,
+            UEI,
+            WR,
+            WMR,
+            WRR,
+            DR,
+            DUR,
+            WKR,
+            DKR,
+            RS,
+            DER,
+            PDR,
+            UMKR,
+        >,
     ) -> Result<Self, Self::Rejection> {
         let token = extract_session_token(&parts.headers)?;
         let token_hash = hash_session_token(token);
@@ -278,7 +340,6 @@ impl IntoResponse for PopError {
     }
 }
 
-
 /// Verified PoP result containing the device
 #[derive(Debug)]
 pub struct PopVerified {
@@ -300,7 +361,7 @@ pub async fn verify_pop<D: DeviceRepository>(
     headers: &HeaderMap,
     user_id: UserId,
     device_repo: &D,
-    challenge_cache: &Arc<ChallengeCache>,
+    challenge_store: &Arc<dyn ChallengeStore>,
 ) -> Result<PopVerified, PopError> {
     // Extract X-PoP-Challenge (server-issued)
     let challenge_header = headers
@@ -325,8 +386,8 @@ pub async fn verify_pop<D: DeviceRepository>(
     let sig_str = sig_header
         .to_str()
         .map_err(|_| PopError::invalid_header(POP_SIGNATURE_HEADER))?;
-    let signature = base64_url::decode(sig_str)
-        .map_err(|_| PopError::invalid_header(POP_SIGNATURE_HEADER))?;
+    let signature =
+        base64_url::decode(sig_str).map_err(|_| PopError::invalid_header(POP_SIGNATURE_HEADER))?;
     if signature.len() != 64 {
         return Err(PopError::new("signature must be 64 bytes"));
     }
@@ -342,15 +403,7 @@ pub async fn verify_pop<D: DeviceRepository>(
         .map_err(|_| PopError::invalid_header(POP_DEVICE_ID_HEADER))?;
     let device_id = DeviceId::from_uuid(device_uuid);
 
-    // Verify server-issued challenge exists and is valid (does NOT consume yet)
-    challenge_cache
-        .verify(device_id, &challenge_bytes)
-        .map_err(|e| match e {
-            ChallengeError::NotFound => PopError::challenge_not_found(),
-            ChallengeError::Expired => PopError::challenge_expired(),
-        })?;
-
-    // Fetch device
+    // Fetch device first (before consuming challenge)
     let device = device_repo
         .find_by_id(device_id)
         .await
@@ -386,11 +439,16 @@ pub async fn verify_pop<D: DeviceRepository>(
         .verify(&challenge_bytes, &sig)
         .map_err(|_| PopError::invalid_signature())?;
 
-    // Signature verified successfully - now consume the challenge (one-time use)
-    // This is atomic: if another request consumed it first, we fail here
-    challenge_cache
-        .consume(device_id, &challenge_bytes)
-        .map_err(|_| PopError::challenge_not_found())?;
+    // Signature verified successfully - atomically verify and consume the challenge
+    // GETDEL ensures no TOCTOU race condition for single-use challenges
+    challenge_store
+        .verify_and_remove(device_id, &challenge_bytes)
+        .await
+        .map_err(|e| match e {
+            ChallengeError::NotFound => PopError::challenge_not_found(),
+            ChallengeError::Expired => PopError::challenge_expired(),
+            ChallengeError::StoreError => PopError::internal_error(),
+        })?;
 
     Ok(PopVerified { device })
 }
@@ -404,7 +462,7 @@ pub async fn authenticate_with_pop<S: SessionRepository, D: DeviceRepository>(
     headers: &HeaderMap,
     session_repo: &S,
     device_repo: &D,
-    challenge_cache: &Arc<ChallengeCache>,
+    challenge_store: &Arc<dyn ChallengeStore>,
 ) -> Result<(AuthUser, PopVerified), Response> {
     // First, authenticate the session
     let auth_user = authenticate(headers, session_repo)
@@ -412,7 +470,7 @@ pub async fn authenticate_with_pop<S: SessionRepository, D: DeviceRepository>(
         .map_err(|e| e.into_response())?;
 
     // Then, verify PoP
-    let pop_verified = verify_pop(headers, auth_user.user_id, device_repo, challenge_cache)
+    let pop_verified = verify_pop(headers, auth_user.user_id, device_repo, challenge_store)
         .await
         .map_err(|e| e.into_response())?;
 

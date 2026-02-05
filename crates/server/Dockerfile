@@ -22,6 +22,6 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /app/target/release/refmd-server /app/refmd-server
 
-EXPOSE 3001
+EXPOSE 8000
 
 CMD ["/app/refmd-server"]

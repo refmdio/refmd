@@ -21,9 +21,15 @@ pub mod routes;
 pub mod sas;
 mod state;
 
-pub use auth::{AuthUser, AuthUserFull, PopError, PopVerified, verify_pop, authenticate_with_pop};
-pub use middleware::{ChallengeCache, ChallengeError, CHALLENGE_TTL_SECS, POP_CHALLENGE_HEADER, POP_SIGNATURE_HEADER, POP_DEVICE_ID_HEADER};
-pub use events::DeviceEventBus;
+pub use auth::{AuthUser, AuthUserFull, PopError, PopVerified, authenticate_with_pop, verify_pop};
+pub use events::{
+    DeviceEvent, DeviceEventBus, DeviceEventPublisher, DeviceEventSubscriber,
+    InMemoryDeviceEventBus,
+};
+pub use middleware::{
+    CHALLENGE_TTL_SECS, ChallengeCache, ChallengeError, ChallengeStore, InMemoryChallengeStore,
+    POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER, POP_SIGNATURE_HEADER,
+};
 pub use state::{AppState, AppStateParams};
 
 use utoipa::OpenApi;

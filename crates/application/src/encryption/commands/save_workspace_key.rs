@@ -40,8 +40,13 @@ pub struct SaveWorkspaceKeyResult {
 
 /// Save workspace key error
 #[derive(Debug, Error)]
-pub enum SaveWorkspaceKeyError<WKR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DR: std::error::Error, WR: std::error::Error>
-{
+pub enum SaveWorkspaceKeyError<
+    WKR: std::error::Error,
+    MR: std::error::Error,
+    RR: std::error::Error,
+    DR: std::error::Error,
+    WR: std::error::Error,
+> {
     #[error("user is not a member of this workspace")]
     NotMember,
 
@@ -52,7 +57,10 @@ pub enum SaveWorkspaceKeyError<WKR: std::error::Error, MR: std::error::Error, RR
     InvalidKeyVersion,
 
     #[error("key version too old: minimum required is {min_version}, got {provided_version}")]
-    KeyVersionTooOld { min_version: i32, provided_version: i32 },
+    KeyVersionTooOld {
+        min_version: i32,
+        provided_version: i32,
+    },
 
     #[error("workspace not found")]
     WorkspaceNotFound,
@@ -79,8 +87,13 @@ pub enum SaveWorkspaceKeyError<WKR: std::error::Error, MR: std::error::Error, RR
     WorkspaceRepository(WR),
 }
 
-impl<WKR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DR: std::error::Error, WR: std::error::Error>
-    SaveWorkspaceKeyError<WKR, MR, RR, DR, WR>
+impl<
+    WKR: std::error::Error,
+    MR: std::error::Error,
+    RR: std::error::Error,
+    DR: std::error::Error,
+    WR: std::error::Error,
+> SaveWorkspaceKeyError<WKR, MR, RR, DR, WR>
 {
     pub fn is_forbidden(&self) -> bool {
         matches!(
@@ -92,11 +105,18 @@ impl<WKR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DR: s
     }
 
     pub fn is_bad_request(&self) -> bool {
-        matches!(self, SaveWorkspaceKeyError::InvalidKeyVersion | SaveWorkspaceKeyError::KeyVersionTooOld { .. })
+        matches!(
+            self,
+            SaveWorkspaceKeyError::InvalidKeyVersion
+                | SaveWorkspaceKeyError::KeyVersionTooOld { .. }
+        )
     }
 
     pub fn is_not_found(&self) -> bool {
-        matches!(self, SaveWorkspaceKeyError::DeviceNotFound | SaveWorkspaceKeyError::WorkspaceNotFound)
+        matches!(
+            self,
+            SaveWorkspaceKeyError::DeviceNotFound | SaveWorkspaceKeyError::WorkspaceNotFound
+        )
     }
 }
 
@@ -136,8 +156,10 @@ where
     pub async fn handle(
         &self,
         command: SaveWorkspaceKeyCommand,
-    ) -> Result<SaveWorkspaceKeyResult, SaveWorkspaceKeyError<WKR::Error, MR::Error, RR::Error, DR::Error, WR::Error>>
-    {
+    ) -> Result<
+        SaveWorkspaceKeyResult,
+        SaveWorkspaceKeyError<WKR::Error, MR::Error, RR::Error, DR::Error, WR::Error>,
+    > {
         // 1. Get workspace to check min_kek_version
         let workspace = self
             .workspace_repo

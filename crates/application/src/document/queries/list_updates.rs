@@ -4,7 +4,9 @@
 
 use domain::document::{DocumentId, DocumentRepository, DocumentUpdate, DocumentUpdateRepository};
 use domain::identity::UserId;
-use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform};
+use domain::workspace::{
+    WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
+};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -53,12 +55,8 @@ pub enum ListDocumentUpdatesError<
     RoleRepository(RR),
 }
 
-impl<
-        DR: std::error::Error,
-        DUR: std::error::Error,
-        MR: std::error::Error,
-        RR: std::error::Error,
-    > ListDocumentUpdatesError<DR, DUR, MR, RR>
+impl<DR: std::error::Error, DUR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
+    ListDocumentUpdatesError<DR, DUR, MR, RR>
 {
     pub fn is_not_found(&self) -> bool {
         matches!(self, ListDocumentUpdatesError::DocumentNotFound)

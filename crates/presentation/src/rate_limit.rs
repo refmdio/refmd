@@ -8,11 +8,7 @@ use axum::{
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
 };
-use tower_governor::{
-    GovernorError,
-    governor::GovernorConfigBuilder,
-    key_extractor::KeyExtractor,
-};
+use tower_governor::{GovernorError, governor::GovernorConfigBuilder, key_extractor::KeyExtractor};
 
 /// Key extractor that uses client IP from X-Forwarded-For or X-Real-IP header
 #[derive(Clone)]
@@ -45,7 +41,10 @@ impl KeyExtractor for ClientIpKeyExtractor {
 }
 
 /// Type alias for the governor config with our custom key extractor
-pub type RateLimitConfig = tower_governor::governor::GovernorConfig<ClientIpKeyExtractor, governor::middleware::NoOpMiddleware>;
+pub type RateLimitConfig = tower_governor::governor::GovernorConfig<
+    ClientIpKeyExtractor,
+    governor::middleware::NoOpMiddleware,
+>;
 
 /// Create rate limiting configuration for auth endpoints
 ///
@@ -57,7 +56,7 @@ pub fn create_auth_rate_limit_config() -> Arc<RateLimitConfig> {
             .per_second(10)
             .burst_size(20)
             .finish()
-            .expect("failed to create rate limit config")
+            .expect("failed to create rate limit config"),
     )
 }
 
@@ -71,7 +70,7 @@ pub fn create_register_rate_limit_config() -> Arc<RateLimitConfig> {
             .period(Duration::from_secs(20))
             .burst_size(3)
             .finish()
-            .expect("failed to create rate limit config")
+            .expect("failed to create rate limit config"),
     )
 }
 
@@ -85,16 +84,14 @@ pub fn create_device_rate_limit_config() -> Arc<RateLimitConfig> {
             .period(Duration::from_secs(12))
             .burst_size(5)
             .finish()
-            .expect("failed to create rate limit config")
+            .expect("failed to create rate limit config"),
     )
 }
 
 /// Response when rate limit is exceeded
 pub fn rate_limit_error_response(error: GovernorError) -> Response {
     let retry_after = match &error {
-        GovernorError::TooManyRequests { wait_time, .. } => {
-            Some(*wait_time)
-        }
+        GovernorError::TooManyRequests { wait_time, .. } => Some(*wait_time),
         _ => None,
     };
 
@@ -103,14 +100,15 @@ pub fn rate_limit_error_response(error: GovernorError) -> Response {
         serde_json::json!({
             "error": "too many requests",
             "retry_after_secs": retry_after
-        }).to_string(),
-    ).into_response();
+        })
+        .to_string(),
+    )
+        .into_response();
 
     if let Some(secs) = retry_after {
-        response.headers_mut().insert(
-            "Retry-After",
-            secs.to_string().parse().unwrap(),
-        );
+        response
+            .headers_mut()
+            .insert("Retry-After", secs.to_string().parse().unwrap());
     }
 
     response

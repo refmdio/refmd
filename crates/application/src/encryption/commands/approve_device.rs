@@ -31,7 +31,8 @@ pub struct ApproveDeviceResult {
 
 /// Approve device error
 #[derive(Debug, Error)]
-pub enum ApproveDeviceError<DR: std::error::Error, PDR: std::error::Error, UIPK: std::error::Error> {
+pub enum ApproveDeviceError<DR: std::error::Error, PDR: std::error::Error, UIPK: std::error::Error>
+{
     #[error("pending device not found")]
     PendingDeviceNotFound,
 
@@ -63,11 +64,14 @@ pub enum ApproveDeviceError<DR: std::error::Error, PDR: std::error::Error, UIPK:
     IdentityPublicKeyRepository(UIPK),
 }
 
-impl<DR: std::error::Error, PDR: std::error::Error, UIPK: std::error::Error> ApproveDeviceError<DR, PDR, UIPK> {
+impl<DR: std::error::Error, PDR: std::error::Error, UIPK: std::error::Error>
+    ApproveDeviceError<DR, PDR, UIPK>
+{
     pub fn is_not_found(&self) -> bool {
         matches!(
             self,
-            ApproveDeviceError::PendingDeviceNotFound | ApproveDeviceError::IdentityPublicKeyNotFound
+            ApproveDeviceError::PendingDeviceNotFound
+                | ApproveDeviceError::IdentityPublicKeyNotFound
         )
     }
 

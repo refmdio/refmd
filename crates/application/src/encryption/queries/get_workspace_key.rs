@@ -3,7 +3,9 @@
 //! Retrieves the active KEK for a user's device in a workspace.
 //! Requires workspace membership (Read permission minimum).
 
-use domain::encryption::{DeviceId, DeviceRepository, WorkspaceEncryptedKey, WorkspaceEncryptedKeyRepository};
+use domain::encryption::{
+    DeviceId, DeviceRepository, WorkspaceEncryptedKey, WorkspaceEncryptedKeyRepository,
+};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
@@ -30,8 +32,12 @@ pub struct GetWorkspaceKeyResult {
 
 /// Get workspace key error
 #[derive(Debug, Error)]
-pub enum GetWorkspaceKeyError<WKR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DR: std::error::Error>
-{
+pub enum GetWorkspaceKeyError<
+    WKR: std::error::Error,
+    MR: std::error::Error,
+    RR: std::error::Error,
+    DR: std::error::Error,
+> {
     #[error("workspace key not found")]
     KeyNotFound,
 
@@ -84,7 +90,12 @@ where
     RR: WorkspaceRoleRepository,
     DR: DeviceRepository,
 {
-    pub fn new(workspace_key_repo: Arc<WKR>, member_repo: Arc<MR>, role_repo: Arc<RR>, device_repo: Arc<DR>) -> Self {
+    pub fn new(
+        workspace_key_repo: Arc<WKR>,
+        member_repo: Arc<MR>,
+        role_repo: Arc<RR>,
+        device_repo: Arc<DR>,
+    ) -> Self {
         Self {
             workspace_key_repo,
             member_repo,
@@ -96,7 +107,10 @@ where
     pub async fn handle(
         &self,
         query: GetWorkspaceKeyQuery,
-    ) -> Result<GetWorkspaceKeyResult, GetWorkspaceKeyError<WKR::Error, MR::Error, RR::Error, DR::Error>> {
+    ) -> Result<
+        GetWorkspaceKeyResult,
+        GetWorkspaceKeyError<WKR::Error, MR::Error, RR::Error, DR::Error>,
+    > {
         // 1. Check membership
         let member = self
             .member_repo
@@ -135,6 +149,9 @@ where
             sender_device.map(|d| d.ecdh_public_key)
         };
 
-        Ok(GetWorkspaceKeyResult { key, sender_ecdh_public_key })
+        Ok(GetWorkspaceKeyResult {
+            key,
+            sender_ecdh_public_key,
+        })
     }
 }

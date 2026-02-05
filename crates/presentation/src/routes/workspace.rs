@@ -54,15 +54,69 @@ where
     Router::new()
         .route(
             "/",
-            get(list_workspaces::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(list_workspaces::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >),
         )
         .route(
             "/{id}",
-            get(get_workspace::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            get(get_workspace::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >),
         )
         .nest(
             "/{workspace_id}/documents",
-            super::document::workspace_routes::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(),
+            super::document::workspace_routes::<
+                U,
+                S,
+                US,
+                UIP,
+                UEM,
+                UEI,
+                WR,
+                WMR,
+                WRR,
+                DR,
+                DUR,
+                WKR,
+                DKR,
+                RS,
+                DER,
+                PDR,
+                UMKR,
+            >(),
         )
         .with_state(state)
 }
@@ -148,8 +202,28 @@ pub struct WorkspaceErrorResponse {
     ),
     tag = "workspace"
 )]
-pub async fn list_workspaces<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn list_workspaces<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse
 where
@@ -243,8 +317,28 @@ where
     ),
     tag = "workspace"
 )]
-pub async fn get_workspace<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn get_workspace<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse
@@ -344,7 +438,25 @@ struct AuthenticatedUser {
 }
 
 /// Authenticate user from session cookie
-async fn authenticate_user<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
+async fn authenticate_user<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
     state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     headers: &axum::http::HeaderMap,
 ) -> Result<AuthenticatedUser, axum::response::Response>
@@ -423,7 +535,7 @@ where
         headers,
         session.user_id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {

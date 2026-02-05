@@ -5,11 +5,11 @@
 use std::sync::Arc;
 
 use axum::{
+    Json,
     extract::Request,
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Serialize;
 
@@ -24,11 +24,7 @@ pub struct AuthError {
 }
 
 /// Authentication middleware that validates session token from cookie
-pub async fn require_auth<S>(
-    session_repo: Arc<S>,
-    req: Request,
-    next: Next,
-) -> Response
+pub async fn require_auth<S>(session_repo: Arc<S>, req: Request, next: Next) -> Response
 where
     S: SessionRepository + Send + Sync + 'static,
 {
@@ -36,11 +32,7 @@ where
     let token = match extract_session_token(req.headers()) {
         Ok(t) => t,
         Err(e) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(AuthError { error: e.error }),
-            )
-                .into_response();
+            return (StatusCode::UNAUTHORIZED, Json(AuthError { error: e.error })).into_response();
         }
     };
 

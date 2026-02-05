@@ -16,6 +16,7 @@ application.workspace = true
 
 # Async
 tokio.workspace = true
+async-trait.workspace = true
 
 # Web framework
 axum.workspace = true
@@ -25,6 +26,9 @@ tower-http.workspace = true
 # OpenAPI
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
+
+# Serialization
+serde_json.workspace = true
 
 # Error handling
 anyhow.workspace = true

@@ -63,14 +63,94 @@ where
         // Workspace KEK endpoints
         .route(
             "/workspaces/{workspace_id}/keys",
-            post(save_workspace_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>)
-                .get(get_workspace_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                save_workspace_key::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            )
+            .get(
+                get_workspace_key::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         // Document DEK endpoints
         .route(
             "/documents/{document_id}/keys",
-            post(save_document_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>)
-                .get(get_document_key::<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>),
+            post(
+                save_document_key::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            )
+            .get(
+                get_document_key::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
         )
         .with_state(state)
 }
@@ -207,8 +287,28 @@ pub struct EncryptionErrorResponse {
     ),
     tag = "encryption"
 )]
-pub async fn save_workspace_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn save_workspace_key<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
     Path(workspace_id): Path<Uuid>,
     Json(request): Json<SaveWorkspaceKeyRequest>,
@@ -243,7 +343,7 @@ where
         &headers,
         auth_user.user_id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {
@@ -371,8 +471,28 @@ where
     ),
     tag = "encryption"
 )]
-pub async fn get_workspace_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn get_workspace_key<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
     Path(workspace_id): Path<Uuid>,
     axum::extract::Query(params): axum::extract::Query<GetWorkspaceKeyParams>,
@@ -407,7 +527,7 @@ where
         &headers,
         auth_user.user_id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {
@@ -434,7 +554,9 @@ where
                 user_id: result.key.user_id.to_string(),
                 device_id: result.key.device_id.to_string(),
                 sender_device_id: result.key.sender_device_id.to_string(),
-                sender_ecdh_public_key: result.sender_ecdh_public_key.map(|k| base64_url::encode(&k)),
+                sender_ecdh_public_key: result
+                    .sender_ecdh_public_key
+                    .map(|k| base64_url::encode(&k)),
                 key_version: result.key.key_version.as_i32(),
                 encrypted_kek: base64_url::encode(&result.key.encrypted_kek),
                 nonce: base64_url::encode(&result.key.nonce),
@@ -479,8 +601,28 @@ where
     ),
     tag = "encryption"
 )]
-pub async fn save_document_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn save_document_key<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
     Path(document_id): Path<Uuid>,
     Json(request): Json<SaveDocumentKeyRequest>,
@@ -515,7 +657,7 @@ where
         &headers,
         auth_user.user_id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {
@@ -622,8 +764,28 @@ where
     ),
     tag = "encryption"
 )]
-pub async fn get_document_key<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>>,
+pub async fn get_document_key<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
     headers: axum::http::HeaderMap,
     Path(document_id): Path<Uuid>,
 ) -> impl IntoResponse
@@ -657,7 +819,7 @@ where
         &headers,
         auth_user.user_id,
         state.device_repo().as_ref(),
-        &state.challenge_cache(),
+        &state.challenge_store(),
     )
     .await
     {

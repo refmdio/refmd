@@ -64,7 +64,14 @@ impl Session {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Self {
-        Self::with_device(user_id, None, token_hash, remember_me, ip_address, user_agent)
+        Self::with_device(
+            user_id,
+            None,
+            token_hash,
+            remember_me,
+            ip_address,
+            user_agent,
+        )
     }
 
     /// Create a new session with a device ID

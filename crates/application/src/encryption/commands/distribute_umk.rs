@@ -163,6 +163,8 @@ where
             .await
             .map_err(DistributeUmkError::EncryptedUmkRepository)?;
 
-        Ok(DistributeUmkResult { device_encrypted_umk })
+        Ok(DistributeUmkResult {
+            device_encrypted_umk,
+        })
     }
 }
