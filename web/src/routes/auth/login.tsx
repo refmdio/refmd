@@ -193,6 +193,12 @@ function LoginPage() {
                 Register
               </Link>
             </p>
+
+            <p className="text-center text-sm text-muted-foreground">
+              <Link to="/auth/recovery" className="text-primary hover:underline">
+                Lost access to your device?
+              </Link>
+            </p>
           </form>
         </CardContent>
       </Card>

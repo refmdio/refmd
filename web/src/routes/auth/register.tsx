@@ -103,8 +103,11 @@ function RegisterPage() {
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold">Recovery Key</CardTitle>
             <CardDescription>
-              Save this recovery key in a safe place. You will need it to recover your account if
-              you forget your password.
+              Save this recovery key in a safe place. You will need it for{' '}
+              <Link to="/auth/recovery" className="text-primary hover:underline">
+                account recovery
+              </Link>{' '}
+              if you lose access to all your devices.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
