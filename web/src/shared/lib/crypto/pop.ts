@@ -6,7 +6,8 @@
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { base64UrlDecode, base64UrlEncode } from './encoding'
+import { base64UrlEncode } from './encoding'
+import { buildSignatureMessage, SIGNATURE_ACTION } from './aad'
 
 /**
  * PoP header names (must match server constants)
@@ -65,6 +66,9 @@ export async function fetchPopChallenge(
 /**
  * Generate PoP headers by signing a server-issued challenge
  *
+ * Per spec: Uses signature protocol format with canonicalized JSON
+ * including protocol, version, action, and challenge fields.
+ *
  * @param challenge - Server-issued challenge (base64url encoded)
  * @param deviceId - Device UUID
  * @param signingPrivateKey - Device Ed25519 signing private key (32 bytes)
@@ -75,11 +79,14 @@ export function signPopChallenge(
   deviceId: string,
   signingPrivateKey: Uint8Array
 ): PopHeaders {
-  // Decode challenge
-  const challengeBytes = base64UrlDecode(challenge)
+  // Build signature message using protocol format
+  const signatureMessage = buildSignatureMessage(SIGNATURE_ACTION.POP_CHALLENGE, {
+    challenge,
+    device_id: deviceId,
+  })
 
-  // Sign challenge with device signing key
-  const signature = ed25519.sign(challengeBytes, signingPrivateKey)
+  // Sign with device signing key
+  const signature = ed25519.sign(signatureMessage, signingPrivateKey)
 
   return {
     [POP_CHALLENGE_HEADER]: challenge,

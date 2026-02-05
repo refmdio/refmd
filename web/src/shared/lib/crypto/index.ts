@@ -10,7 +10,7 @@
  */
 
 // KDF functions
-export { deriveAuthKeys, deriveRegistrationKeys, type DerivedKeys, type KdfParams } from './kdf'
+export { deriveAuthKeys, deriveRegistrationKeys, HKDF_ZERO_SALT, type DerivedKeys, type KdfParams } from './kdf'
 
 // UMK functions
 export { generateUmk, wrapUmk, unwrapUmk, encryptUmkForDevice, decryptUmkFromDevice } from './umk'
@@ -57,6 +57,7 @@ export {
 // AAD constants and helpers
 export {
   SIGNATURE_PROTOCOL,
+  SIGNATURE_ACTION,
   AAD_PURPOSE,
   buildAad,
   buildUmkWrapAad,
@@ -67,8 +68,11 @@ export {
   buildDeviceKekDistributionAad,
   buildDekWrapAad,
   buildDocumentContentAad,
+  canonicalizeBytes,
+  buildSignatureMessage,
   type AadPurpose,
   type AadCommonHeader,
+  type SignatureAction,
 } from './aad'
 
 // KEK (Key Encryption Key) functions
@@ -139,3 +143,32 @@ export {
   type PopHeaders,
   type PopChallengeResponse,
 } from './pop'
+
+// TOFU (Trust On First Use) functions
+export {
+  verifyTofu,
+  trustDevice,
+  updateDeviceLastSeen,
+  handleTofuResult,
+  type TofuStatus,
+  type TofuVerifyResult,
+} from './tofu'
+
+// Fingerprint functions
+export {
+  calculateFingerprint,
+  formatFingerprint,
+  parseFormattedFingerprint,
+  fingerprintsEqual,
+  verifyFingerprint,
+} from './fingerprint'
+
+// Trust Transfer functions
+export {
+  encryptTrustState,
+  decryptTrustState,
+  generateTransferNonce,
+  type TrustStateSnapshot,
+  type EncryptedTrustState,
+  type TrustTransferAadParams,
+} from './trust-transfer'

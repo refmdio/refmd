@@ -522,6 +522,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/trust-transfer/nonce": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a transfer nonce (new device) */
+        post: operations["request_nonce"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/trust-transfer/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Retrieve encrypted trust state (new device) */
+        get: operations["retrieve_state"];
+        put?: never;
+        /** Submit encrypted trust state (existing device) */
+        post: operations["submit_state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces": {
         parameters: {
             query?: never;
@@ -716,6 +751,8 @@ export interface components {
             is_current: boolean;
             last_seen_at: string;
             name: string;
+            /** @description Ed25519 signing public key (base64url, 32 bytes) - for TOFU verification */
+            signing_public_key: string;
         };
         /** @description Distribute UMK request */
         DistributeUmkRequest: {
@@ -832,6 +869,8 @@ export interface components {
             sender_device_id: string;
             /** @description Sender's ECDH public key for shared secret derivation (base64url, 32 bytes) */
             sender_ecdh_public_key: string;
+            /** @description Sender's signing public key for TOFU verification (base64url, 32 bytes) */
+            sender_signing_public_key: string;
         };
         /** @description Get recovery data query parameters (HTTP) */
         GetRecoveryQueryParams: {
@@ -1374,6 +1413,44 @@ export interface components {
         RejectPendingDeviceResponse: {
             message: string;
         };
+        /** @description Request nonce error response */
+        RequestNonceErrorResponse: {
+            error: string;
+        };
+        /** @description Request nonce request body */
+        RequestNonceRequest: {
+            /**
+             * Format: uuid
+             * @description Device ID of the new device requesting the transfer
+             */
+            device_id: string;
+        };
+        /** @description Request nonce response */
+        RequestNonceResponse: {
+            /** @description Expiration timestamp (ISO 8601) */
+            expires_at: string;
+            /** @description Transfer nonce (base64url encoded, 32 bytes) */
+            nonce: string;
+        };
+        /** @description Retrieve state error response */
+        RetrieveStateErrorResponse: {
+            code: string;
+            error: string;
+        };
+        /** @description Retrieve state response */
+        RetrieveStateResponse: {
+            /** @description Encrypted trust state ciphertext (base64url encoded) */
+            ciphertext: string;
+            /** @description XChaCha20-Poly1305 nonce (base64url encoded, 24 bytes) */
+            nonce: string;
+            /**
+             * Format: uuid
+             * @description Sender device ID
+             */
+            sender_device_id: string;
+            /** @description Ed25519 signature (base64url encoded, 64 bytes) */
+            signature: string;
+        };
         /** @description Revoke device response */
         RevokeDeviceResponse: {
             message: string;
@@ -1457,6 +1534,27 @@ export interface components {
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
             sender_device_id: string;
+        };
+        /** @description Submit state error response */
+        SubmitStateErrorResponse: {
+            code: string;
+            error: string;
+        };
+        /** @description Submit state request body */
+        SubmitStateRequest: {
+            /** @description Encrypted trust state ciphertext (base64url encoded) */
+            ciphertext: string;
+            /** @description XChaCha20-Poly1305 nonce (base64url encoded, 24 bytes) */
+            nonce: string;
+            /** @description Ed25519 signature (base64url encoded, 64 bytes) */
+            signature: string;
+            /**
+             * Format: uuid
+             * @description Target device ID (the new device)
+             */
+            target_device_id: string;
+            /** @description Transfer nonce (base64url encoded, 32 bytes) */
+            transfer_nonce: string;
         };
         /** @description Update document request */
         UpdateDocumentRequest: {
@@ -3121,6 +3219,159 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+        };
+    };
+    request_nonce: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestNonceRequest"];
+            };
+        };
+        responses: {
+            /** @description Nonce generated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestNonceResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestNonceErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestNonceErrorResponse"];
+                };
+            };
+        };
+    };
+    retrieve_state: {
+        parameters: {
+            query: {
+                /** @description Device ID of the new device */
+                device_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description State retrieved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrieveStateResponse"];
+                };
+            };
+            /** @description Missing device_id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrieveStateErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No state available */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrieveStateErrorResponse"];
+                };
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrieveStateErrorResponse"];
+                };
+            };
+        };
+    };
+    submit_state: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitStateRequest"];
+            };
+        };
+        responses: {
+            /** @description State submitted successfully */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitStateErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmitStateErrorResponse"];
                 };
             };
         };

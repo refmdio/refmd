@@ -118,7 +118,7 @@ const SALT_SIZE = 16
 const ARGON2_HEX_LENGTH = 64
 
 /** HKDF salt: 32 bytes of zeros (per spec) */
-const HKDF_ZERO_SALT = new Uint8Array(32)
+export const HKDF_ZERO_SALT = new Uint8Array(32)
 
 /** HKDF info constants (per spec) */
 const HKDF_INFO = {

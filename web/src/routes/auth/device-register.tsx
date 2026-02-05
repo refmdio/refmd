@@ -23,9 +23,15 @@ import {
   decryptUmkFromDevice,
   decryptIdentityPrivateKeys,
   base64UrlDecode,
+  verifyTofu,
+  handleTofuResult,
+  trustDevice,
+  decryptTrustState,
 } from '@/shared/lib/crypto'
+import { importTofuEntries } from '@/shared/lib/trust-store'
+import { KeyChangeWarningDialog } from '@/features/tofu'
 import { setPopCredentials } from '@/shared/lib/pop-store'
-import { deviceApi, authApi, sseUrls } from '@/shared/api'
+import { deviceApi, authApi, trustTransferApi, sseUrls } from '@/shared/api'
 import { detectDeviceType, detectDeviceName } from '@/shared/lib/device'
 
 interface DeviceEvent {
@@ -47,6 +53,48 @@ function DeviceRegisterPage() {
   const [sasEmojis, setSasEmojis] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [keyChangeWarning, setKeyChangeWarning] = useState<{
+    oldFingerprint: string
+    newFingerprint: string
+    tofuResult: Awaited<ReturnType<typeof verifyTofu>>
+    deviceId: string
+    senderDeviceId: string
+  } | null>(null)
+  // Trust Transfer specific key change warning (separate from UMK sender warning)
+  const [trustTransferKeyChangeWarning, setTrustTransferKeyChangeWarning] = useState<{
+    oldFingerprint: string
+    newFingerprint: string
+    tofuResult: Awaited<ReturnType<typeof verifyTofu>>
+    senderDeviceId: string
+    senderDeviceName: string
+    // Data needed to complete the import after user confirms
+    pendingImport: {
+      encryptedState: { encryptedState: Uint8Array; nonce: Uint8Array; signature: Uint8Array }
+      senderEcdhPk: Uint8Array
+      senderSigningPk: Uint8Array
+      transferNonce: Uint8Array
+      userId: string
+      deviceId: string
+      deviceKeyPair: { ecdhPrivateKey: Uint8Array }
+    }
+  } | null>(null)
+  // Queue of devices with identity_key_changed during Trust Transfer all-device verification
+  const [trustTransferDeviceKeyChangeQueue, setTrustTransferDeviceKeyChangeQueue] = useState<Array<{
+    deviceId: string
+    deviceName: string
+    oldFingerprint: string
+    newFingerprint: string
+    tofuResult: Awaited<ReturnType<typeof verifyTofu>>
+  }>>([])
+  // Pending Trust Transfer data while processing device key change queue
+  const [pendingTrustTransferData, setPendingTrustTransferData] = useState<{
+    devices: Array<{ id: string; name: string; signing_public_key: string; ecdh_public_key: string }>
+    stateResponse: { sender_device_id: string; ciphertext: string; nonce: string; signature: string }
+    transferNonce: Uint8Array
+    deviceId: string
+    deviceKeyPair: { ecdhPrivateKey: Uint8Array }
+    currentAuth: { userId: string }
+  } | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const hasStartedRef = useRef(false)
 
@@ -117,8 +165,38 @@ function DeviceRegisterPage() {
       // Step 4: Fetch the encrypted UMK from the server
       const umkData = await deviceApi.getDeviceUmk(deviceId)
 
-      // Step 5: Decrypt UMK using ECDH
+      // Step 4.5: TOFU verification - verify sender device before decrypting UMK
       const senderEcdhPublicKey = base64UrlDecode(umkData.sender_ecdh_public_key)
+      const senderSigningPublicKey = base64UrlDecode(umkData.sender_signing_public_key)
+
+      const tofuResult = await verifyTofu(
+        currentAuth.userId,
+        umkData.sender_device_id,
+        senderSigningPublicKey,
+        senderEcdhPublicKey
+      )
+
+      // Handle TOFU result
+      if (tofuResult.status === 'ecdh_key_mismatch') {
+        throw new Error('Sender device key mismatch. UMK decryption aborted for security.')
+      }
+
+      if (tofuResult.status === 'identity_key_changed') {
+        // Show warning dialog for identity key change
+        setKeyChangeWarning({
+          oldFingerprint: tofuResult.oldFingerprint!,
+          newFingerprint: tofuResult.newFingerprint!,
+          tofuResult,
+          deviceId,
+          senderDeviceId: umkData.sender_device_id,
+        })
+        return // Wait for user confirmation
+      }
+
+      // Trust the sender device (handles first_seen and updates last_seen for known_trusted)
+      await handleTofuResult(tofuResult)
+
+      // Step 5: Decrypt UMK using ECDH
       const encryptedUmk = base64UrlDecode(umkData.encrypted_umk)
       const nonce = base64UrlDecode(umkData.nonce)
 
@@ -166,7 +244,195 @@ function DeviceRegisterPage() {
         deviceKeys: currentState.deviceKeyPair,
       })
 
-      // Step 10: Navigate to dashboard
+      // Step 10: Request trust transfer nonce and retrieve trust state
+      // This is non-blocking - we continue even if it fails
+      try {
+        console.log('[Trust Transfer] Requesting nonce for device:', deviceId)
+        const nonceResponse = await trustTransferApi.requestNonce(deviceId)
+        if (!nonceResponse) {
+          console.warn('[Trust Transfer] No nonce response received')
+        } else {
+          console.log('[Trust Transfer] Nonce received, waiting for trust state...')
+
+          // Poll for trust state (existing device will submit after receiving the SSE event)
+          const transferNonce = base64UrlDecode(nonceResponse.nonce)
+          let trustStateReceived = false
+
+          for (let attempt = 0; attempt < 10 && !trustStateReceived; attempt++) {
+            try {
+              const stateResponse = await trustTransferApi.retrieveState(deviceId)
+              if (!stateResponse) {
+                await new Promise(r => setTimeout(r, 500))
+                continue
+              }
+              console.log('[Trust Transfer] Trust state received')
+
+              // Decrypt and import trust state
+              const encryptedState = {
+                encryptedState: base64UrlDecode(stateResponse.ciphertext),
+                nonce: base64UrlDecode(stateResponse.nonce),
+                signature: base64UrlDecode(stateResponse.signature),
+              }
+
+              // Get all devices and verify TOFU for each (design requirement)
+              const devices = await deviceApi.listDevices()
+
+              // Collect devices with identity_key_changed for sequential dialog confirmation
+              const devicesWithKeyChange: Array<{
+                deviceId: string
+                deviceName: string
+                oldFingerprint: string
+                newFingerprint: string
+                tofuResult: Awaited<ReturnType<typeof verifyTofu>>
+              }> = []
+
+              // Verify all devices per design spec
+              for (const device of devices.devices) {
+                if (device.signing_public_key && device.ecdh_public_key) {
+                  try {
+                    const signingPk = base64UrlDecode(device.signing_public_key)
+                    const ecdhPk = base64UrlDecode(device.ecdh_public_key)
+                    const deviceTofuResult = await verifyTofu(
+                      currentAuth.userId,
+                      device.id,
+                      signingPk,
+                      ecdhPk
+                    )
+
+                    if (deviceTofuResult.status === 'ecdh_key_mismatch') {
+                      console.error('[Trust Transfer] ECDH key mismatch for device:', device.id)
+                      setError(`Trust transfer aborted: Device "${device.name}" has a key mismatch. This may indicate a security issue.`)
+                      return
+                    }
+
+                    if (deviceTofuResult.status === 'identity_key_changed') {
+                      // Queue for warning dialog (design: 確認後に可)
+                      devicesWithKeyChange.push({
+                        deviceId: device.id,
+                        deviceName: device.name,
+                        oldFingerprint: deviceTofuResult.oldFingerprint!,
+                        newFingerprint: deviceTofuResult.newFingerprint!,
+                        tofuResult: deviceTofuResult,
+                      })
+                      continue
+                    }
+
+                    // Handle first_seen and known_trusted automatically
+                    if (deviceTofuResult.status === 'first_seen' || deviceTofuResult.status === 'known_trusted') {
+                      await handleTofuResult(deviceTofuResult)
+                    }
+                  } catch (err) {
+                    console.error('[Trust Transfer] TOFU verification failed for device:', device.id, err)
+                  }
+                }
+              }
+
+              // If any devices have identity_key_changed, show dialogs before proceeding
+              if (devicesWithKeyChange.length > 0) {
+                console.log('[Trust Transfer] Devices with key change require confirmation:', devicesWithKeyChange.length)
+                setTrustTransferDeviceKeyChangeQueue(devicesWithKeyChange)
+                setPendingTrustTransferData({
+                  devices: devices.devices.map(d => ({
+                    id: d.id,
+                    name: d.name,
+                    signing_public_key: d.signing_public_key,
+                    ecdh_public_key: d.ecdh_public_key,
+                  })),
+                  stateResponse,
+                  transferNonce,
+                  deviceId,
+                  deviceKeyPair: { ecdhPrivateKey: currentState.deviceKeyPair.ecdhPrivateKey },
+                  currentAuth: { userId: currentAuth.userId },
+                })
+                return // Wait for user to confirm each device
+              }
+
+              const senderDevice = devices.devices.find(d => d.id === stateResponse.sender_device_id)
+              if (!senderDevice) {
+                console.warn('[Trust Transfer] Sender device not found, skipping import')
+                break
+              }
+
+              const senderEcdhPk = base64UrlDecode(senderDevice.ecdh_public_key)
+              const senderSigningPk = base64UrlDecode(senderDevice.signing_public_key)
+
+              // TOFU verification for sender device (specifically for import decision)
+              const senderTofuResult = await verifyTofu(
+                currentAuth.userId,
+                stateResponse.sender_device_id,
+                senderSigningPk,
+                senderEcdhPk
+              )
+
+              if (senderTofuResult.status === 'ecdh_key_mismatch') {
+                console.error('[Trust Transfer] Sender ECDH key mismatch detected')
+                setError('Trust transfer aborted: Sender device key mismatch detected. This may indicate a security issue.')
+                return
+              }
+
+              if (senderTofuResult.status === 'identity_key_changed') {
+                // Show warning dialog and wait for user confirmation
+                console.warn('[Trust Transfer] Sender identity key changed, requesting user confirmation')
+                setTrustTransferKeyChangeWarning({
+                  oldFingerprint: senderTofuResult.oldFingerprint!,
+                  newFingerprint: senderTofuResult.newFingerprint!,
+                  tofuResult: senderTofuResult,
+                  senderDeviceId: stateResponse.sender_device_id,
+                  senderDeviceName: senderDevice.name,
+                  pendingImport: {
+                    encryptedState,
+                    senderEcdhPk,
+                    senderSigningPk,
+                    transferNonce,
+                    userId: currentAuth.userId,
+                    deviceId,
+                    deviceKeyPair: { ecdhPrivateKey: currentState.deviceKeyPair.ecdhPrivateKey },
+                  },
+                })
+                // Don't navigate yet - dialog will be shown and handle the rest
+                return
+              } else {
+                await handleTofuResult(senderTofuResult)
+              }
+
+              const snapshot = decryptTrustState(
+                encryptedState,
+                currentState.deviceKeyPair.ecdhPrivateKey,
+                senderEcdhPk,
+                senderSigningPk,
+                transferNonce,
+                {
+                  userId: currentAuth.userId,
+                  senderDeviceId: stateResponse.sender_device_id,
+                  targetDeviceId: deviceId,
+                }
+              )
+
+              // Import TOFU entries
+              await importTofuEntries(snapshot.tofuEntries)
+              console.log('[Trust Transfer] Imported', snapshot.tofuEntries.length, 'TOFU entries')
+              trustStateReceived = true
+            } catch (err) {
+              // 404 means trust state not yet available
+              if (err && typeof err === 'object' && 'status' in err && err.status === 404) {
+                await new Promise(r => setTimeout(r, 500))
+                continue
+              }
+              console.warn('[Trust Transfer] Error retrieving trust state:', err)
+              break
+            }
+          }
+
+          if (!trustStateReceived) {
+            console.log('[Trust Transfer] Timed out waiting for trust state, continuing without it')
+          }
+        }
+      } catch (err) {
+        console.warn('[Trust Transfer] Failed to request nonce:', err)
+        // Continue without trust transfer - not blocking
+      }
+
+      // Step 11: Navigate to dashboard
       navigate({ to: '/' })
     } catch (err) {
       console.error('Failed to complete device approval:', err)
@@ -298,6 +564,254 @@ function DeviceRegisterPage() {
     reset()
   }
 
+  // Key change warning handlers
+  const handleKeyChangeTrust = async () => {
+    if (!keyChangeWarning) return
+
+    // Trust the new key by saving the new entry
+    await trustDevice(keyChangeWarning.tofuResult.newEntry)
+    setKeyChangeWarning(null)
+
+    // Resume the approval process
+    await handleApproval(keyChangeWarning.deviceId)
+  }
+
+  const handleKeyChangeBlock = async () => {
+    // Block - just cancel the registration
+    setKeyChangeWarning(null)
+    setError('Device approval cancelled due to key change concerns.')
+  }
+
+  const handleKeyChangeCancel = () => {
+    setKeyChangeWarning(null)
+    setError('Device approval paused. Verify the sender device before continuing.')
+  }
+
+  // Trust Transfer key change warning handlers
+  const handleTrustTransferKeyChangeTrust = async () => {
+    if (!trustTransferKeyChangeWarning) return
+
+    const { tofuResult, pendingImport } = trustTransferKeyChangeWarning
+
+    // Trust the new key by saving the new entry
+    await trustDevice(tofuResult.newEntry)
+
+    // Complete the import
+    try {
+      const snapshot = decryptTrustState(
+        pendingImport.encryptedState,
+        pendingImport.deviceKeyPair.ecdhPrivateKey,
+        pendingImport.senderEcdhPk,
+        pendingImport.senderSigningPk,
+        pendingImport.transferNonce,
+        {
+          userId: pendingImport.userId,
+          senderDeviceId: trustTransferKeyChangeWarning.senderDeviceId,
+          targetDeviceId: pendingImport.deviceId,
+        }
+      )
+
+      await importTofuEntries(snapshot.tofuEntries)
+      console.log('[Trust Transfer] Imported', snapshot.tofuEntries.length, 'TOFU entries after user confirmation')
+    } catch (err) {
+      console.error('[Trust Transfer] Failed to import after confirmation:', err)
+    }
+
+    setTrustTransferKeyChangeWarning(null)
+    navigate({ to: '/' })
+  }
+
+  const handleTrustTransferKeyChangeBlock = () => {
+    // Skip trust transfer import and continue to dashboard
+    console.log('[Trust Transfer] User blocked trust transfer due to key change')
+    setTrustTransferKeyChangeWarning(null)
+    navigate({ to: '/' })
+  }
+
+  const handleTrustTransferKeyChangeCancel = () => {
+    // Same as block - skip import and continue
+    console.log('[Trust Transfer] User cancelled trust transfer dialog')
+    setTrustTransferKeyChangeWarning(null)
+    navigate({ to: '/' })
+  }
+
+  // Trust Transfer device key change queue handlers (for non-sender devices)
+  const currentDeviceKeyChange = trustTransferDeviceKeyChangeQueue[0]
+
+  const continueTrustTransferAfterKeyChanges = async () => {
+    if (!pendingTrustTransferData) return
+
+    const { devices, stateResponse, transferNonce, deviceId, deviceKeyPair, currentAuth } = pendingTrustTransferData
+
+    // Find sender device
+    const senderDevice = devices.find(d => d.id === stateResponse.sender_device_id)
+    if (!senderDevice) {
+      console.warn('[Trust Transfer] Sender device not found after key change confirmations')
+      setPendingTrustTransferData(null)
+      navigate({ to: '/' })
+      return
+    }
+
+    const senderEcdhPk = base64UrlDecode(senderDevice.ecdh_public_key)
+    const senderSigningPk = base64UrlDecode(senderDevice.signing_public_key)
+
+    // TOFU verification for sender device
+    const senderTofuResult = await verifyTofu(
+      currentAuth.userId,
+      stateResponse.sender_device_id,
+      senderSigningPk,
+      senderEcdhPk
+    )
+
+    if (senderTofuResult.status === 'ecdh_key_mismatch') {
+      console.error('[Trust Transfer] Sender ECDH key mismatch detected')
+      setError('Trust transfer aborted: Sender device key mismatch detected.')
+      setPendingTrustTransferData(null)
+      return
+    }
+
+    if (senderTofuResult.status === 'identity_key_changed') {
+      // Show sender-specific warning dialog
+      setTrustTransferKeyChangeWarning({
+        oldFingerprint: senderTofuResult.oldFingerprint!,
+        newFingerprint: senderTofuResult.newFingerprint!,
+        tofuResult: senderTofuResult,
+        senderDeviceId: stateResponse.sender_device_id,
+        senderDeviceName: senderDevice.name,
+        pendingImport: {
+          encryptedState: {
+            encryptedState: base64UrlDecode(stateResponse.ciphertext),
+            nonce: base64UrlDecode(stateResponse.nonce),
+            signature: base64UrlDecode(stateResponse.signature),
+          },
+          senderEcdhPk,
+          senderSigningPk,
+          transferNonce,
+          userId: currentAuth.userId,
+          deviceId,
+          deviceKeyPair,
+        },
+      })
+      setPendingTrustTransferData(null)
+      return
+    }
+
+    await handleTofuResult(senderTofuResult)
+
+    // Complete trust transfer
+    try {
+      const encryptedState = {
+        encryptedState: base64UrlDecode(stateResponse.ciphertext),
+        nonce: base64UrlDecode(stateResponse.nonce),
+        signature: base64UrlDecode(stateResponse.signature),
+      }
+
+      const snapshot = decryptTrustState(
+        encryptedState,
+        deviceKeyPair.ecdhPrivateKey,
+        senderEcdhPk,
+        senderSigningPk,
+        transferNonce,
+        {
+          userId: currentAuth.userId,
+          senderDeviceId: stateResponse.sender_device_id,
+          targetDeviceId: deviceId,
+        }
+      )
+
+      await importTofuEntries(snapshot.tofuEntries)
+      console.log('[Trust Transfer] Imported', snapshot.tofuEntries.length, 'TOFU entries after key change confirmations')
+    } catch (err) {
+      console.error('[Trust Transfer] Failed to import after key change confirmations:', err)
+    }
+
+    setPendingTrustTransferData(null)
+    navigate({ to: '/' })
+  }
+
+  const handleDeviceKeyChangeTrust = async () => {
+    if (!currentDeviceKeyChange) return
+
+    // Trust the new key
+    await trustDevice(currentDeviceKeyChange.tofuResult.newEntry)
+
+    // Remove from queue
+    const newQueue = trustTransferDeviceKeyChangeQueue.slice(1)
+    setTrustTransferDeviceKeyChangeQueue(newQueue)
+
+    // If queue is empty, continue trust transfer
+    if (newQueue.length === 0) {
+      await continueTrustTransferAfterKeyChanges()
+    }
+  }
+
+  const handleDeviceKeyChangeBlock = () => {
+    // User blocked this device - abort trust transfer
+    console.log('[Trust Transfer] User blocked device:', currentDeviceKeyChange?.deviceId)
+    setTrustTransferDeviceKeyChangeQueue([])
+    setPendingTrustTransferData(null)
+    navigate({ to: '/' })
+  }
+
+  const handleDeviceKeyChangeCancel = () => {
+    // Skip all remaining - abort trust transfer
+    console.log('[Trust Transfer] User cancelled device key change dialog')
+    setTrustTransferDeviceKeyChangeQueue([])
+    setPendingTrustTransferData(null)
+    navigate({ to: '/' })
+  }
+
+  // Show Trust Transfer device key change dialog (for non-sender devices)
+  if (currentDeviceKeyChange) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <KeyChangeWarningDialog
+          open={true}
+          deviceName={currentDeviceKeyChange.deviceName}
+          oldFingerprint={currentDeviceKeyChange.oldFingerprint}
+          newFingerprint={currentDeviceKeyChange.newFingerprint}
+          onTrust={handleDeviceKeyChangeTrust}
+          onBlock={handleDeviceKeyChangeBlock}
+          onCancel={handleDeviceKeyChangeCancel}
+        />
+      </main>
+    )
+  }
+
+  // Show Trust Transfer key change warning dialog if needed
+  if (trustTransferKeyChangeWarning) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <KeyChangeWarningDialog
+          open={true}
+          deviceName={trustTransferKeyChangeWarning.senderDeviceName}
+          oldFingerprint={trustTransferKeyChangeWarning.oldFingerprint}
+          newFingerprint={trustTransferKeyChangeWarning.newFingerprint}
+          onTrust={handleTrustTransferKeyChangeTrust}
+          onBlock={handleTrustTransferKeyChangeBlock}
+          onCancel={handleTrustTransferKeyChangeCancel}
+        />
+      </main>
+    )
+  }
+
+  // Show key change warning dialog if needed (UMK sender)
+  if (keyChangeWarning) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-4">
+        <KeyChangeWarningDialog
+          open={true}
+          deviceName={`Device ${keyChangeWarning.senderDeviceId.slice(0, 8)}...`}
+          oldFingerprint={keyChangeWarning.oldFingerprint}
+          newFingerprint={keyChangeWarning.newFingerprint}
+          onTrust={handleKeyChangeTrust}
+          onBlock={handleKeyChangeBlock}
+          onCancel={handleKeyChangeCancel}
+        />
+      </main>
+    )
+  }
+
   // Show loading/registering state
   if (state.step === 'idle' || state.step === 'generating-keys' || state.step === 'creating-pending' || loading) {
     return (
@@ -344,32 +858,50 @@ function DeviceRegisterPage() {
       <main className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold">Waiting for Approval</CardTitle>
+            <CardTitle className="text-2xl font-bold">
+              {error ? 'Registration Failed' : 'Waiting for Approval'}
+            </CardTitle>
             <CardDescription>
-              Verify the emojis on your existing device
+              {error ? 'A security issue was detected' : 'Verify the emojis on your existing device'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {sasEmojis ? (
-              <SasVerification emojis={sasEmojis} role="new" />
+            {error ? (
+              <>
+                <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/50 rounded">
+                  {error}
+                </div>
+                <Button className="w-full" onClick={handleRetry}>
+                  Try Again
+                </Button>
+                <Button variant="outline" className="w-full" onClick={handleCancel}>
+                  Back to Login
+                </Button>
+              </>
             ) : (
-              <div className="flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-              </div>
+              <>
+                {sasEmojis ? (
+                  <SasVerification emojis={sasEmojis} role="new" />
+                ) : (
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+                  </div>
+                )}
+
+                <div className="text-center text-sm text-muted-foreground">
+                  <p>Open RefMD on your existing device and approve this device.</p>
+                  <p className="mt-2">The emojis must match exactly.</p>
+                </div>
+
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleCancel}
+                >
+                  Cancel
+                </Button>
+              </>
             )}
-
-            <div className="text-center text-sm text-muted-foreground">
-              <p>Open RefMD on your existing device and approve this device.</p>
-              <p className="mt-2">The emojis must match exactly.</p>
-            </div>
-
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleCancel}
-            >
-              Cancel
-            </Button>
           </CardContent>
         </Card>
       </main>

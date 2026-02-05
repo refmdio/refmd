@@ -15,7 +15,7 @@ import {
 } from '@/shared/ui/dialog'
 import { Button } from '@/shared/ui/button'
 import { SasVerification } from './SasVerification'
-import { deviceApi, workspaceApi, encryptionApi, ApiError } from '@/shared/api'
+import { deviceApi, workspaceApi, encryptionApi, trustTransferApi, ApiError, sseUrls } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
 import {
   base64UrlDecode,
@@ -25,7 +25,15 @@ import {
   encryptUmkForDevice,
   decryptKekFromDevice,
   encryptKekForDevice,
+  verifyTofu,
+  handleTofuResult,
+  trustDevice,
+  buildSignatureMessage,
+  SIGNATURE_ACTION,
+  encryptTrustState,
 } from '@/shared/lib/crypto'
+import { getAllTofuEntriesForUser } from '@/shared/lib/trust-store'
+import { KeyChangeWarningDialog } from '@/features/tofu'
 
 interface PendingDevice {
   id: string
@@ -55,11 +63,18 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
     ecdhPk: Uint8Array
     clientNonce: Uint8Array
   } | null>(null)
+  const [keyChangeWarning, setKeyChangeWarning] = useState<{
+    oldFingerprint: string
+    newFingerprint: string
+    tofuResult: Awaited<ReturnType<typeof verifyTofu>>
+  } | null>(null)
+  // Track if user has approved a key change (trust will be persisted after approve success)
+  const [pendingKeyChangeTrust, setPendingKeyChangeTrust] = useState<Awaited<ReturnType<typeof verifyTofu>> | null>(null)
   const cancelledRef = useRef(false)
 
   // Load SAS function (reusable for retry)
   const loadSas = useCallback(async () => {
-    if (!auth?.identityKeys) {
+    if (!auth?.identityKeys || !auth?.userId) {
       setError('Identity keys not available')
       setStep('error')
       return
@@ -80,12 +95,42 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
       const deviceEcdhPk = base64UrlDecode(sasResponse.device_ecdh_public_key)
       const clientNonce = base64UrlDecode(sasResponse.client_nonce)
 
-      // Store for approval
-      setPendingDeviceKeys({
+      // TOFU verification: Check if we've seen this device before
+      // For new devices (first_seen), auto-trust after SAS verification
+      // For known devices with changed keys, this is an error (should not happen for pending devices)
+      const tofuResult = await verifyTofu(
+        auth.userId,
+        device.id,
+        deviceSigningPk,
+        deviceEcdhPk
+      )
+
+      if (tofuResult.status === 'ecdh_key_mismatch') {
+        setError('Device key mismatch detected. Registration aborted for security.')
+        setStep('error')
+        return
+      }
+
+      // Store keys for approval (needed before showing warning dialog)
+      const keys = {
         signingPk: deviceSigningPk,
         ecdhPk: deviceEcdhPk,
         clientNonce: clientNonce,
-      })
+      }
+      setPendingDeviceKeys(keys)
+
+      if (tofuResult.status === 'identity_key_changed') {
+        // Show warning dialog for identity key change
+        setKeyChangeWarning({
+          oldFingerprint: tofuResult.oldFingerprint!,
+          newFingerprint: tofuResult.newFingerprint!,
+          tofuResult,
+        })
+        return // Wait for user confirmation
+      }
+
+      // For first_seen, proceed with SAS verification
+      // The actual trust will be established after user confirms SAS emojis
 
       // Calculate SAS locally
       const emojis = generateSasEmojis(
@@ -101,7 +146,7 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
       setError(err instanceof Error ? err.message : 'Failed to load SAS')
       setStep('error')
     }
-  }, [device.id, auth?.identityKeys])
+  }, [device.id, auth?.identityKeys, auth?.userId])
 
   // Load SAS on mount with cancellation support
   useEffect(() => {
@@ -114,7 +159,7 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
   }, [loadSas])
 
   const handleApprove = async () => {
-    if (!auth?.identityKeys || !auth?.umk || !currentDevice || !pendingDeviceKeys) {
+    if (!auth?.identityKeys || !auth?.umk || !auth?.userId || !currentDevice || !pendingDeviceKeys) {
       setError('Missing required keys or device info')
       setStep('error')
       return
@@ -124,19 +169,55 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
       setStep('approving')
       setError(null)
 
-      // Build the message to sign: device_signing_pk || device_ecdh_pk || client_nonce
-      const message = new Uint8Array(32 + 32 + 16)
-      message.set(pendingDeviceKeys.signingPk, 0)
-      message.set(pendingDeviceKeys.ecdhPk, 32)
-      message.set(pendingDeviceKeys.clientNonce, 64)
+      // TOFU re-verification: Verify keys haven't changed since SAS verification
+      const tofuResult = await verifyTofu(
+        auth.userId,
+        device.id,
+        pendingDeviceKeys.signingPk,
+        pendingDeviceKeys.ecdhPk
+      )
+
+      if (tofuResult.status === 'ecdh_key_mismatch') {
+        setError('Device key mismatch detected. Approval aborted for security.')
+        setStep('error')
+        return
+      }
+
+      if (tofuResult.status === 'identity_key_changed') {
+        // Show warning dialog for identity key change during re-verification
+        setKeyChangeWarning({
+          oldFingerprint: tofuResult.oldFingerprint!,
+          newFingerprint: tofuResult.newFingerprint!,
+          tofuResult,
+        })
+        setStep('verify') // Return to verify step to wait for user decision
+        return
+      }
+
+      // Build signature message using signature protocol format
+      const signatureMessage = buildSignatureMessage(SIGNATURE_ACTION.DEVICE_APPROVAL, {
+        device_signing_public_key: base64UrlEncode(pendingDeviceKeys.signingPk),
+        device_ecdh_public_key: base64UrlEncode(pendingDeviceKeys.ecdhPk),
+        client_nonce: base64UrlEncode(pendingDeviceKeys.clientNonce),
+      })
 
       // Sign with identity signing key
-      const signature = sign(message, auth.identityKeys.signingPrivate)
+      const signature = sign(signatureMessage, auth.identityKeys.signingPrivate)
 
       // Send approval - returns the new device ID
       const approveResponse = await deviceApi.approveDevice(device.id, {
         identity_signature: base64UrlEncode(signature),
       })
+
+      // Trust the device after successful approval
+      // If user approved a key change warning, persist that trust now
+      if (pendingKeyChangeTrust) {
+        await trustDevice(pendingKeyChangeTrust.newEntry)
+        setPendingKeyChangeTrust(null)
+      } else {
+        // Handle first_seen and known_trusted cases
+        await handleTofuResult(tofuResult)
+      }
 
       // Distribute UMK to new device
       // Encrypt UMK using ECDH: existing device's ECDH private key + new device's ECDH public key
@@ -231,6 +312,87 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
         console.error('[KEK Distribution] Failed to distribute KEKs:', err)
       }
 
+      // Trust State Transfer: Wait for new device to request nonce, then submit trust state
+      // This is non-blocking - we continue even if it fails
+      try {
+        console.log('[Trust Transfer] Waiting for new device to request nonce...')
+
+        // Create a promise that resolves when we receive the TrustTransferNonceReady event
+        const waitForNonce = new Promise<{ nonce: string; newDeviceId: string }>((resolve, reject) => {
+          const eventSource = new EventSource(
+            sseUrls.deviceEvents(),
+            { withCredentials: true }
+          )
+
+          const timeoutId = setTimeout(() => {
+            eventSource.close()
+            reject(new Error('Timeout waiting for trust transfer nonce'))
+          }, 10000) // 10 second timeout
+
+          eventSource.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data)
+              if (data.type === 'trust_transfer_nonce_ready' && data.new_device_id === approveResponse.id) {
+                clearTimeout(timeoutId)
+                eventSource.close()
+                resolve({ nonce: data.nonce, newDeviceId: data.new_device_id })
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+
+          eventSource.onerror = () => {
+            clearTimeout(timeoutId)
+            eventSource.close()
+            reject(new Error('SSE connection error'))
+          }
+        })
+
+        const { nonce: nonceBase64, newDeviceId } = await waitForNonce
+        console.log('[Trust Transfer] Received nonce for device:', newDeviceId)
+
+        // Get all TOFU entries for this user
+        const tofuEntries = await getAllTofuEntriesForUser(auth.userId)
+        console.log('[Trust Transfer] TOFU entries to transfer:', tofuEntries.length)
+
+        if (tofuEntries.length > 0) {
+          // Encrypt trust state
+          const transferNonce = base64UrlDecode(nonceBase64)
+          const snapshot = {
+            tofuEntries,
+            transferNonce,
+          }
+
+          const encrypted = encryptTrustState(
+            snapshot,
+            currentDevice.deviceKeys.ecdhPrivateKey,
+            pendingDeviceKeys.ecdhPk,
+            currentDevice.deviceKeys.signingPrivateKey,
+            {
+              userId: auth.userId,
+              senderDeviceId: currentDevice.deviceId,
+              targetDeviceId: newDeviceId,
+            }
+          )
+
+          // Submit encrypted trust state
+          await trustTransferApi.submitState({
+            target_device_id: newDeviceId,
+            transfer_nonce: nonceBase64,
+            ciphertext: base64UrlEncode(encrypted.encryptedState),
+            nonce: base64UrlEncode(encrypted.nonce),
+            signature: base64UrlEncode(encrypted.signature),
+          })
+          console.log('[Trust Transfer] Successfully submitted trust state')
+        } else {
+          console.log('[Trust Transfer] No TOFU entries to transfer')
+        }
+      } catch (err) {
+        // Log but don't fail approval - trust transfer is optional
+        console.warn('[Trust Transfer] Failed:', err)
+      }
+
       onApproved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to approve device')
@@ -245,6 +407,56 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
       // Ignore errors - SSE will handle state update
     }
     onClose()
+  }
+
+  // Key change warning handlers
+  const handleKeyChangeTrust = async () => {
+    if (!keyChangeWarning || !pendingDeviceKeys || !auth?.userId) return
+
+    // Store the pending trust - will be persisted after approve success
+    setPendingKeyChangeTrust(keyChangeWarning.tofuResult)
+    setKeyChangeWarning(null)
+
+    // Continue to SAS verification
+    const emojis = generateSasEmojis(
+      auth.identityKeys!.signingPublic,
+      pendingDeviceKeys.signingPk,
+      pendingDeviceKeys.ecdhPk,
+      pendingDeviceKeys.clientNonce
+    )
+    setSasEmojis(emojis)
+    setStep('verify')
+  }
+
+  const handleKeyChangeBlock = async () => {
+    // Block/reject the device
+    try {
+      await deviceApi.rejectPendingDevice(device.id)
+    } catch {
+      // Ignore errors
+    }
+    setKeyChangeWarning(null)
+    onClose()
+  }
+
+  const handleKeyChangeCancel = () => {
+    setKeyChangeWarning(null)
+    onClose()
+  }
+
+  // Show key change warning dialog if needed
+  if (keyChangeWarning) {
+    return (
+      <KeyChangeWarningDialog
+        open={true}
+        deviceName={device.name}
+        oldFingerprint={keyChangeWarning.oldFingerprint}
+        newFingerprint={keyChangeWarning.newFingerprint}
+        onTrust={handleKeyChangeTrust}
+        onBlock={handleKeyChangeBlock}
+        onCancel={handleKeyChangeCancel}
+      />
+    )
   }
 
   return (

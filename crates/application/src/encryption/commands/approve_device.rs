@@ -7,7 +7,9 @@ use domain::encryption::{
     Device, DeviceId, DeviceRepository, PendingDeviceRepository, UserIdentityPublicKeyRepository,
 };
 use domain::identity::UserId;
+use domain::signature::{build_signature_message, SignatureAction};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use serde::Serialize;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -160,11 +162,21 @@ where
         let verifying_key = VerifyingKey::from_bytes(&signing_pk_bytes)
             .map_err(|_| ApproveDeviceError::InvalidIdentityPublicKey)?;
 
-        // Build the message that was signed: device_signing_pk || device_ecdh_pk || client_nonce
-        let mut message = Vec::new();
-        message.extend_from_slice(&pending_device.signing_public_key);
-        message.extend_from_slice(&pending_device.ecdh_public_key);
-        message.extend_from_slice(&pending_device.client_nonce);
+        // Build the signature message using signature protocol format
+        #[derive(Serialize)]
+        struct DeviceApprovalPayload {
+            client_nonce: String,
+            device_ecdh_public_key: String,
+            device_signing_public_key: String,
+        }
+
+        let payload = DeviceApprovalPayload {
+            device_signing_public_key: base64_url::encode(&pending_device.signing_public_key),
+            device_ecdh_public_key: base64_url::encode(&pending_device.ecdh_public_key),
+            client_nonce: base64_url::encode(&pending_device.client_nonce),
+        };
+
+        let message = build_signature_message(SignatureAction::DeviceApproval, &payload);
 
         // Parse and verify the signature
         let signature_bytes: [u8; 64] = command

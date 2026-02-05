@@ -11,4 +11,5 @@ pub use domain;
 pub mod document;
 pub mod encryption;
 pub mod identity;
+pub mod trust_transfer;
 pub mod workspace;

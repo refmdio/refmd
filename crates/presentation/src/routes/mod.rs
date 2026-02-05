@@ -4,6 +4,7 @@ pub mod auth;
 pub mod device;
 pub mod document;
 pub mod encryption;
+pub mod trust_transfer;
 pub mod workspace;
 
 use crate::AppState;
@@ -73,5 +74,6 @@ where
         .nest("/workspaces", workspace::routes(state.clone()))
         .nest("/documents", document::routes(state.clone()))
         .nest("/encryption", encryption::routes(state.clone()))
-        .nest("/devices", device::routes(state))
+        .nest("/devices", device::routes(state.clone()))
+        .nest("/trust-transfer", trust_transfer::routes(state))
 }

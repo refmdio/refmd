@@ -25,6 +25,9 @@ const POP_EXEMPT_PATHS = [
   '/api/auth/recovery/challenge', // Recovery challenge doesn't require PoP
   '/api/auth/recovery/session', // Recovery session creation doesn't require PoP
   '/api/devices/pending', // Pending device creation doesn't require PoP
+  '/api/trust-transfer/nonce', // Nonce request from new device
+  // Note: /api/trust-transfer/state is NOT exempt for POST (existing device submits with PoP)
+  // but IS exempt for GET (new device retrieves without PoP yet)
 ]
 
 /**
@@ -33,10 +36,12 @@ const POP_EXEMPT_PATHS = [
  * Most device endpoints require PoP. Only specific patterns for new device
  * setup are exempt:
  * - /api/devices/pending/* (creating/viewing pending devices)
- * - GET /api/devices/{uuid}/keys/umk (new device fetching their UMK)
+ * - GET /api/trust-transfer/state (new device retrieving trust state)
  *
  * Endpoints that require PoP:
+ * - GET /api/devices/{uuid}/keys/umk (new device sets PoP credentials before fetching)
  * - POST /api/devices/{uuid}/keys/umk (distributing UMK - requires sender PoP)
+ * - POST /api/trust-transfer/state (existing device submits trust state)
  * - DELETE /api/devices/{uuid} (revoking devices)
  * - GET /api/devices (listing devices)
  */
@@ -45,14 +50,10 @@ function isPopExempt(path: string, method?: string): boolean {
   if (POP_EXEMPT_PATHS.some(exempt => path.startsWith(exempt))) {
     return true
   }
-  // Exempt GET device UMK retrieval (new devices don't have PoP yet)
-  // POST to same endpoint (distribute) requires PoP
-  // Use case-insensitive regex to handle both uppercase and lowercase UUIDs
-  if (
-    /^\/api\/devices\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/keys\/umk$/i.test(
-      path
-    ) && method === 'GET'
-  ) {
+  // GET /api/devices/{id}/keys/umk requires PoP (new device sets PoP credentials before fetching)
+  // POST to same endpoint (distribute) also requires PoP
+  // Trust transfer state: GET is exempt (new device retrieves), POST requires PoP (existing device submits)
+  if (path === '/api/trust-transfer/state' && method === 'GET') {
     return true
   }
   return false
@@ -693,6 +694,62 @@ export const encryptionApi = {
 
     if (error) {
       throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+}
+
+/**
+ * Trust Transfer API wrapper for secure trust state transfer between devices
+ */
+export const trustTransferApi = {
+  /**
+   * Request a transfer nonce (new device)
+   * Returns a nonce for replay protection
+   */
+  async requestNonce(deviceId: string) {
+    const { data, error, response } = await api.POST('/api/trust-transfer/nonce', {
+      body: { device_id: deviceId },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error as { error: string })
+    }
+
+    return data
+  },
+
+  /**
+   * Submit encrypted trust state (existing device)
+   */
+  async submitState(body: {
+    target_device_id: string
+    transfer_nonce: string
+    ciphertext: string
+    nonce: string
+    signature: string
+  }) {
+    const { error, response } = await api.POST('/api/trust-transfer/state', {
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error as { error: string })
+    }
+  },
+
+  /**
+   * Retrieve encrypted trust state (new device)
+   * @param deviceId - The device ID requesting the trust state
+   */
+  async retrieveState(deviceId: string) {
+    const { data, error, response } = await api.GET('/api/trust-transfer/state', {
+      params: { query: { device_id: deviceId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error as { error: string })
     }
 
     return data

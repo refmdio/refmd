@@ -1,6 +1,7 @@
 //! Application state with generics for dependency injection
 
 use crate::middleware::{ChallengeStore, RecoveryChallengeStore};
+use application::domain::transfer_nonce::{TransferNonceStore, TransferStateStore};
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
     DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
@@ -23,6 +24,12 @@ pub type DynRecoveryChallengeStore = Arc<dyn RecoveryChallengeStore>;
 /// Type alias for dynamic DeviceEventBus
 /// Note: We use the DeviceEventBus trait which combines DeviceEventPublisher + DeviceEventSubscriber
 pub type DynDeviceEventBus = Arc<dyn crate::events::DeviceEventBus>;
+
+/// Type alias for dynamic TransferNonceStore
+pub type DynTransferNonceStore = Arc<dyn TransferNonceStore>;
+
+/// Type alias for dynamic TransferStateStore
+pub type DynTransferStateStore = Arc<dyn TransferStateStore>;
 
 /// Parameters for creating AppState
 pub struct AppStateParams<
@@ -67,6 +74,10 @@ pub struct AppStateParams<
     pub challenge_store: DynChallengeStore,
     /// Recovery challenge store for recovery session authentication (dynamic dispatch)
     pub recovery_challenge_store: DynRecoveryChallengeStore,
+    /// Transfer nonce store for trust state transfer (dynamic dispatch)
+    pub transfer_nonce_store: DynTransferNonceStore,
+    /// Transfer state store for trust state transfer (dynamic dispatch)
+    pub transfer_state_store: DynTransferStateStore,
     /// Server secret for dummy salt generation (prevents user enumeration)
     pub server_secret: [u8; 32],
     /// Whether to set Secure attribute on cookies (should be true in production)
@@ -120,6 +131,10 @@ where
     challenge_store: DynChallengeStore,
     /// Recovery challenge store for recovery session authentication (dynamic dispatch)
     recovery_challenge_store: DynRecoveryChallengeStore,
+    /// Transfer nonce store for trust state transfer (dynamic dispatch)
+    transfer_nonce_store: DynTransferNonceStore,
+    /// Transfer state store for trust state transfer (dynamic dispatch)
+    transfer_state_store: DynTransferStateStore,
     /// Server secret for dummy salt generation (prevents user enumeration)
     server_secret: Arc<[u8; 32]>,
     /// Whether to set Secure attribute on cookies (should be true in production)
@@ -191,6 +206,8 @@ where
             device_event_bus: params.device_event_bus,
             challenge_store: params.challenge_store,
             recovery_challenge_store: params.recovery_challenge_store,
+            transfer_nonce_store: params.transfer_nonce_store,
+            transfer_state_store: params.transfer_state_store,
             server_secret: Arc::new(params.server_secret),
             secure_cookies: params.secure_cookies,
             cluster_enabled: params.cluster_enabled,
@@ -275,6 +292,14 @@ where
 
     pub fn recovery_challenge_store(&self) -> DynRecoveryChallengeStore {
         Arc::clone(&self.recovery_challenge_store)
+    }
+
+    pub fn transfer_nonce_store(&self) -> DynTransferNonceStore {
+        Arc::clone(&self.transfer_nonce_store)
+    }
+
+    pub fn transfer_state_store(&self) -> DynTransferStateStore {
+        Arc::clone(&self.transfer_state_store)
     }
 
     pub fn server_secret(&self) -> &[u8; 32] {

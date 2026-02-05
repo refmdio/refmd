@@ -17,9 +17,16 @@ pub mod plugin;
 pub mod pop;
 pub mod recovery_challenge;
 pub mod sharing;
+pub mod signature;
+pub mod transfer_nonce;
 pub mod workspace;
 
 // Re-export commonly used types
 pub use device_events::DeviceEvent;
 pub use pop::{ChallengeError, ChallengeStore};
 pub use recovery_challenge::{RecoveryChallengeError, RecoveryChallengeStore};
+pub use signature::{build_pop_signature_message, build_signature_message, SignatureAction};
+pub use transfer_nonce::{
+    EncryptedTransferState, TransferNonceError, TransferNonceStore, TransferStateError,
+    TransferStateStore,
+};

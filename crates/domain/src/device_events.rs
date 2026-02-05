@@ -25,6 +25,14 @@ pub enum DeviceEvent {
     },
     /// A pending device expired or was removed
     PendingRemoved { pending_id: String, user_id: String },
+    /// New device requested trust transfer nonce
+    TrustTransferNonceReady {
+        user_id: String,
+        /// The new device that requested the nonce
+        new_device_id: String,
+        /// Transfer nonce (base64url encoded, 32 bytes)
+        nonce: String,
+    },
 }
 
 impl DeviceEvent {
@@ -34,15 +42,18 @@ impl DeviceEvent {
             DeviceEvent::PendingCreated { user_id, .. } => user_id,
             DeviceEvent::PendingApproved { user_id, .. } => user_id,
             DeviceEvent::PendingRemoved { user_id, .. } => user_id,
+            DeviceEvent::TrustTransferNonceReady { user_id, .. } => user_id,
         }
     }
 
     /// Get the pending device ID this event relates to
+    /// Returns empty string for events that don't have a pending_id
     pub fn pending_id(&self) -> &str {
         match self {
             DeviceEvent::PendingCreated { pending_id, .. } => pending_id,
             DeviceEvent::PendingApproved { pending_id, .. } => pending_id,
             DeviceEvent::PendingRemoved { pending_id, .. } => pending_id,
+            DeviceEvent::TrustTransferNonceReady { .. } => "",
         }
     }
 }

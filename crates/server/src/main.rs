@@ -19,6 +19,7 @@ use infrastructure::workspace::{
 use infrastructure::{DatabaseConfig, PgRegistrationService, create_pool};
 use infrastructure::{RedisChallengeStore, RedisDeviceEventBus, RedisRecoveryChallengeStore};
 use infrastructure::{RedisConfig, RedisPool, create_redis_pool};
+use infrastructure::{RedisTransferNonceStore, RedisTransferStateStore};
 use presentation::{
     ApiDoc, AppState, AppStateParams, InMemoryChallengeStore, InMemoryDeviceEventBus, routes,
 };
@@ -216,10 +217,18 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("SECURE_COOKIES is disabled. This should only be used in development!");
     }
 
-    // Create challenge store, recovery challenge store, and device event bus based on cluster mode
-    let (challenge_store, recovery_challenge_store, device_event_bus): (
+    // Create challenge store, recovery challenge store, transfer stores, and device event bus based on cluster mode
+    let (
+        challenge_store,
+        recovery_challenge_store,
+        transfer_nonce_store,
+        transfer_state_store,
+        device_event_bus,
+    ): (
         Arc<dyn presentation::ChallengeStore>,
         Arc<dyn presentation::RecoveryChallengeStore>,
+        Arc<dyn application::domain::TransferNonceStore>,
+        Arc<dyn application::domain::TransferStateStore>,
         Arc<dyn presentation::DeviceEventBus>,
     ) = if let Some(ref redis) = redis_pool {
         // Cluster mode: use Redis-backed implementations
@@ -227,16 +236,32 @@ async fn main() -> anyhow::Result<()> {
         let challenge_store = Arc::new(RedisChallengeStore::new(redis.clone()));
         let recovery_challenge_store =
             Arc::new(RedisRecoveryChallengeStore::new(redis.clone()));
+        let transfer_nonce_store = Arc::new(RedisTransferNonceStore::new(redis.clone()));
+        let transfer_state_store = Arc::new(RedisTransferStateStore::new(redis.clone()));
         let redis_bus = RedisDeviceEventBus::new(redis.clone(), url);
         let device_event_bus = Arc::new(RedisEventBusAdapter(redis_bus));
-        (challenge_store, recovery_challenge_store, device_event_bus)
+        (
+            challenge_store,
+            recovery_challenge_store,
+            transfer_nonce_store,
+            transfer_state_store,
+            device_event_bus,
+        )
     } else {
         // Single-node mode: use in-memory implementations
         let challenge_store = Arc::new(InMemoryChallengeStore::default());
         let recovery_challenge_store =
             Arc::new(presentation::InMemoryRecoveryChallengeStore::default());
+        let transfer_nonce_store = Arc::new(presentation::InMemoryTransferNonceStore::default());
+        let transfer_state_store = Arc::new(presentation::InMemoryTransferStateStore::default());
         let device_event_bus = Arc::new(InMemoryDeviceEventBus::new());
-        (challenge_store, recovery_challenge_store, device_event_bus)
+        (
+            challenge_store,
+            recovery_challenge_store,
+            transfer_nonce_store,
+            transfer_state_store,
+            device_event_bus,
+        )
     };
 
     // Create application state
@@ -261,6 +286,8 @@ async fn main() -> anyhow::Result<()> {
         device_event_bus,
         challenge_store,
         recovery_challenge_store,
+        transfer_nonce_store,
+        transfer_state_store,
         server_secret,
         secure_cookies,
         cluster_enabled,

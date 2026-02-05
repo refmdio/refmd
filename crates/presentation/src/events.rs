@@ -55,6 +55,21 @@ pub trait DeviceEventPublisher: Send + Sync {
         })
         .await;
     }
+
+    /// Publish a trust transfer nonce ready event
+    async fn trust_transfer_nonce_ready(
+        &self,
+        user_id: UserId,
+        new_device_id: DeviceId,
+        nonce: &[u8],
+    ) {
+        self.publish(DeviceEvent::TrustTransferNonceReady {
+            user_id: user_id.to_string(),
+            new_device_id: new_device_id.to_string(),
+            nonce: base64_url::encode(nonce),
+        })
+        .await;
+    }
 }
 
 /// Trait for subscribing to device events

@@ -32,5 +32,8 @@ blake3.workspace = true
 ed25519-dalek.workspace = true
 getrandom = "0.3"
 
+# Encoding
+base64-url.workspace = true
+
 [dev-dependencies]
 bcrypt.workspace = true

@@ -11,4 +11,5 @@ uuid.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 async-trait.workspace = true

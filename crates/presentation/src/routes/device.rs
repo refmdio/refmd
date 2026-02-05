@@ -1271,6 +1271,8 @@ pub struct DeviceResponse {
     pub id: String,
     pub name: String,
     pub device_type: String,
+    /// Ed25519 signing public key (base64url, 32 bytes) - for TOFU verification
+    pub signing_public_key: String,
     /// ECDH public key (base64url, 32 bytes) - for KEK distribution
     pub ecdh_public_key: String,
     pub last_seen_at: String,
@@ -1380,6 +1382,7 @@ where
                         id: d.id.to_string(),
                         name: d.name,
                         device_type: d.device_type.as_str().to_string(),
+                        signing_public_key: base64_url::encode(&d.signing_public_key),
                         ecdh_public_key: base64_url::encode(&d.ecdh_public_key),
                         last_seen_at: d.last_seen_at.to_rfc3339(),
                         created_at: d.created_at.to_rfc3339(),
@@ -1846,6 +1849,8 @@ pub struct GetDeviceUmkResponse {
     pub sender_device_id: String,
     /// Sender's ECDH public key for shared secret derivation (base64url, 32 bytes)
     pub sender_ecdh_public_key: String,
+    /// Sender's signing public key for TOFU verification (base64url, 32 bytes)
+    pub sender_signing_public_key: String,
     /// UMK encrypted with shared secret (base64url)
     pub encrypted_umk: String,
     /// Encryption nonce (base64url, 24 bytes)
@@ -1894,6 +1899,7 @@ pub async fn get_device_umk<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
+    headers: HeaderMap,
     auth_user: AuthUserFull<
         U,
         S,
@@ -1934,7 +1940,33 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
+    // Verify PoP (Proof of Possession) - the requesting device must prove it has its signing key
+    let pop_verified = match verify_pop(
+        &headers,
+        auth_user.user.id,
+        state.device_repo().as_ref(),
+        &state.challenge_store(),
+    )
+    .await
+    {
+        Ok(verified) => verified,
+        Err(e) => return e.into_response(),
+    };
+
     let device_id = DeviceId::from_uuid(device_id);
+
+    // Verify the requesting device (from PoP) matches the target device (from URL)
+    // This ensures a device can only fetch its own UMK
+    if pop_verified.device.id != device_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(DeviceErrorResponse {
+                error: "device mismatch: can only fetch own UMK".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
     let device_repo = state.device_repo();
 
     // Verify the target device exists and belongs to this user
@@ -2053,6 +2085,7 @@ where
     let response = GetDeviceUmkResponse {
         sender_device_id: device_umk.sender_device_id.to_string(),
         sender_ecdh_public_key: base64_url::encode(&sender_device.ecdh_public_key),
+        sender_signing_public_key: base64_url::encode(&sender_device.signing_public_key),
         encrypted_umk: base64_url::encode(&device_umk.encrypted_umk),
         nonce: base64_url::encode(&device_umk.nonce),
     };

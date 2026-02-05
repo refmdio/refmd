@@ -28,8 +28,9 @@ pub use events::{
 };
 pub use middleware::{
     CHALLENGE_TTL_SECS, ChallengeCache, ChallengeError, ChallengeStore, InMemoryChallengeStore,
-    InMemoryRecoveryChallengeStore, POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER,
-    POP_SIGNATURE_HEADER, RecoveryChallengeError, RecoveryChallengeStore,
+    InMemoryRecoveryChallengeStore, InMemoryTransferNonceStore, InMemoryTransferStateStore,
+    POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER, POP_SIGNATURE_HEADER, RecoveryChallengeError,
+    RecoveryChallengeStore,
 };
 pub use state::{AppState, AppStateParams};
 
@@ -80,6 +81,9 @@ use utoipa::OpenApi;
         routes::device::get_device_umk,
         routes::device::device_events,
         routes::device::pending_device_events,
+        routes::trust_transfer::request_nonce,
+        routes::trust_transfer::submit_state,
+        routes::trust_transfer::retrieve_state,
     ),
     components(
         schemas(
@@ -140,6 +144,13 @@ use utoipa::OpenApi;
             routes::device::GetDeviceUmkResponse,
             routes::device::DeviceErrorResponse,
             routes::device::RevokeDeviceResponse,
+            routes::trust_transfer::RequestNonceRequest,
+            routes::trust_transfer::RequestNonceResponse,
+            routes::trust_transfer::RequestNonceErrorResponse,
+            routes::trust_transfer::SubmitStateRequest,
+            routes::trust_transfer::SubmitStateErrorResponse,
+            routes::trust_transfer::RetrieveStateResponse,
+            routes::trust_transfer::RetrieveStateErrorResponse,
         )
     ),
     tags(
@@ -148,6 +159,7 @@ use utoipa::OpenApi;
         (name = "document", description = "Document management endpoints"),
         (name = "encryption", description = "Encryption key management endpoints"),
         (name = "device", description = "Device management endpoints"),
+        (name = "trust-transfer", description = "Trust state transfer endpoints"),
     )
 )]
 pub struct ApiDoc;

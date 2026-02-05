@@ -12,6 +12,7 @@ use application::domain::encryption::{
 use application::domain::identity::{
     Session, SessionRepository, User, UserId, UserRepository, UserSettingsRepository,
 };
+use application::domain::signature::build_pop_signature_message;
 use application::domain::workspace::{
     WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
 };
@@ -418,7 +419,11 @@ pub async fn verify_pop<D: DeviceRepository>(
         return Err(PopError::device_revoked());
     }
 
-    // Verify Ed25519 signature over the challenge
+    // Build signature message using protocol format
+    // The client signs: { protocol, version, action, challenge, device_id }
+    let signature_message = build_pop_signature_message(challenge_str, device_id_str);
+
+    // Verify Ed25519 signature over the signature message
     let pk_bytes: [u8; 32] = device
         .signing_public_key
         .as_slice()
@@ -434,7 +439,7 @@ pub async fn verify_pop<D: DeviceRepository>(
 
     use ed25519_dalek::Verifier;
     verifying_key
-        .verify(&challenge_bytes, &sig)
+        .verify(&signature_message, &sig)
         .map_err(|_| PopError::invalid_signature())?;
 
     // Signature verified successfully - atomically verify and consume the challenge

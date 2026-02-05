@@ -17,6 +17,8 @@ pub mod encryption;
 pub mod identity;
 pub mod recovery_challenge_store;
 pub mod redis;
+pub mod transfer_nonce_store;
+pub mod transfer_state_store;
 pub mod workspace;
 
 pub use challenge_store::RedisChallengeStore;
@@ -26,3 +28,5 @@ pub use identity::PgRegistrationService;
 pub use recovery_challenge_store::RedisRecoveryChallengeStore;
 pub use redis::{RedisConfig, RedisError, RedisPool, create_redis_pool};
 pub use sqlx::PgPool;
+pub use transfer_nonce_store::RedisTransferNonceStore;
+pub use transfer_state_store::RedisTransferStateStore;
