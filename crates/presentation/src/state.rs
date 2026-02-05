@@ -4,9 +4,10 @@ use crate::middleware::{ChallengeStore, RecoveryChallengeStore};
 use application::domain::transfer_nonce::{TransferNonceStore, TransferStateStore};
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
-    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
-    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
+    DeviceEncryptedUMKRepository, DeviceRepository, DeviceRevocationEventRepository,
+    DocumentEncryptedKeyRepository, PendingDeviceRepository, UserEncryptedIdentityKeyRepository,
+    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
+    WorkspaceEncryptedKeyRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -30,6 +31,27 @@ pub type DynTransferNonceStore = Arc<dyn TransferNonceStore>;
 
 /// Type alias for dynamic TransferStateStore
 pub type DynTransferStateStore = Arc<dyn TransferStateStore>;
+
+/// A concrete error type that wraps a boxed error for object safety
+/// This is needed because `Box<dyn Error>` doesn't implement `Error` (Sized requirement)
+#[derive(Debug)]
+pub struct BoxedError(pub Box<dyn std::error::Error + Send + Sync>);
+
+impl std::fmt::Display for BoxedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for BoxedError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.source()
+    }
+}
+
+/// Type alias for dynamic DeviceRevocationEventRepository
+pub type DynDeviceRevocationEventRepository =
+    Arc<dyn DeviceRevocationEventRepository<Error = BoxedError>>;
 
 /// Parameters for creating AppState
 pub struct AppStateParams<
@@ -68,6 +90,8 @@ pub struct AppStateParams<
     pub device_repo: Arc<DER>,
     pub pending_device_repo: Arc<PDR>,
     pub device_encrypted_umk_repo: Arc<UMKR>,
+    /// Device revocation event repository for storing revocation signatures (dynamic dispatch)
+    pub device_revocation_event_repo: DynDeviceRevocationEventRepository,
     /// Device event bus for SSE notifications (dynamic dispatch)
     pub device_event_bus: DynDeviceEventBus,
     /// Challenge store for server-issued PoP challenges (dynamic dispatch)
@@ -125,6 +149,8 @@ where
     device_repo: Arc<DER>,
     pending_device_repo: Arc<PDR>,
     device_encrypted_umk_repo: Arc<UMKR>,
+    /// Device revocation event repository for storing revocation signatures (dynamic dispatch)
+    device_revocation_event_repo: DynDeviceRevocationEventRepository,
     /// Device event bus for SSE notifications (dynamic dispatch)
     device_event_bus: DynDeviceEventBus,
     /// Challenge store for server-issued PoP challenges (dynamic dispatch)
@@ -203,6 +229,7 @@ where
             device_repo: params.device_repo,
             pending_device_repo: params.pending_device_repo,
             device_encrypted_umk_repo: params.device_encrypted_umk_repo,
+            device_revocation_event_repo: params.device_revocation_event_repo,
             device_event_bus: params.device_event_bus,
             challenge_store: params.challenge_store,
             recovery_challenge_store: params.recovery_challenge_store,
@@ -280,6 +307,10 @@ where
 
     pub fn device_encrypted_umk_repo(&self) -> Arc<UMKR> {
         Arc::clone(&self.device_encrypted_umk_repo)
+    }
+
+    pub fn device_revocation_event_repo(&self) -> DynDeviceRevocationEventRepository {
+        Arc::clone(&self.device_revocation_event_repo)
     }
 
     pub fn device_event_bus(&self) -> &DynDeviceEventBus {

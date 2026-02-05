@@ -7,10 +7,10 @@ use axum::{Json, Router, extract::State, routing::get};
 use infrastructure::PgPool;
 use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository};
 use infrastructure::encryption::{
-    PgDeviceEncryptedUMKRepository, PgDeviceRepository, PgDocumentEncryptedKeyRepository,
-    PgPendingDeviceRepository, PgUserEncryptedIdentityKeyRepository,
-    PgUserEncryptedMasterKeyRepository, PgUserIdentityPublicKeyRepository,
-    PgWorkspaceEncryptedKeyRepository,
+    PgDeviceEncryptedUMKRepository, PgDeviceRepository, PgDeviceRevocationEventRepository,
+    PgDocumentEncryptedKeyRepository, PgPendingDeviceRepository,
+    PgUserEncryptedIdentityKeyRepository, PgUserEncryptedMasterKeyRepository,
+    PgUserIdentityPublicKeyRepository, PgWorkspaceEncryptedKeyRepository,
 };
 use infrastructure::identity::{PgSessionRepository, PgUserRepository, PgUserSettingsRepository};
 use infrastructure::workspace::{
@@ -86,6 +86,8 @@ async fn health_check(State(state): State<HealthState>) -> Json<serde_json::Valu
 // (Composition Root bridges infrastructure and presentation layers)
 // =============================================================================
 
+use presentation::application::domain::encryption::{DeviceId, DeviceRevocationEvent, DeviceRevocationEventRepository};
+use presentation::application::domain::identity::UserId;
 use presentation::{DeviceEvent, DeviceEventPublisher, DeviceEventSubscriber};
 use tokio::sync::broadcast;
 
@@ -103,6 +105,40 @@ impl DeviceEventPublisher for RedisEventBusAdapter {
 impl DeviceEventSubscriber for RedisEventBusAdapter {
     fn subscribe(&self) -> broadcast::Receiver<DeviceEvent> {
         self.0.subscribe()
+    }
+}
+
+// =============================================================================
+// Wrapper for DeviceRevocationEventRepository with boxed errors
+// (Composition Root bridges infrastructure and presentation layers)
+// =============================================================================
+
+use presentation::BoxedError;
+
+/// Wrapper to implement DeviceRevocationEventRepository with boxed errors
+struct DeviceRevocationEventRepoAdapter(Arc<PgDeviceRevocationEventRepository>);
+
+#[async_trait::async_trait]
+impl DeviceRevocationEventRepository for DeviceRevocationEventRepoAdapter {
+    type Error = BoxedError;
+
+    async fn find_by_user_and_device(
+        &self,
+        user_id: UserId,
+        device_id: DeviceId,
+    ) -> Result<Option<DeviceRevocationEvent>, Self::Error> {
+        self.0.find_by_user_and_device(user_id, device_id).await.map_err(|e| BoxedError(Box::new(e)))
+    }
+
+    async fn find_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<DeviceRevocationEvent>, Self::Error> {
+        self.0.find_by_user_id(user_id).await.map_err(|e| BoxedError(Box::new(e)))
+    }
+
+    async fn save(&self, event: &DeviceRevocationEvent) -> Result<(), Self::Error> {
+        self.0.save(event).await.map_err(|e| BoxedError(Box::new(e)))
     }
 }
 
@@ -206,6 +242,8 @@ async fn main() -> anyhow::Result<()> {
     let pending_device_repo = Arc::new(PgPendingDeviceRepository::new((*pool_arc).clone()));
     let device_encrypted_umk_repo =
         Arc::new(PgDeviceEncryptedUMKRepository::new((*pool_arc).clone()));
+    let device_revocation_event_repo: Arc<dyn DeviceRevocationEventRepository<Error = BoxedError>> =
+        Arc::new(DeviceRevocationEventRepoAdapter(Arc::new(PgDeviceRevocationEventRepository::new((*pool_arc).clone()))));
 
     // Determine if cookies should have Secure attribute
     // Default to true for production, can be disabled for local development
@@ -283,6 +321,7 @@ async fn main() -> anyhow::Result<()> {
         device_repo,
         pending_device_repo,
         device_encrypted_umk_repo,
+        device_revocation_event_repo,
         device_event_bus,
         challenge_store,
         recovery_challenge_store,

@@ -22,20 +22,22 @@ pub struct DeviceRevocationEvent {
 }
 
 impl DeviceRevocationEvent {
+    /// Create a new revocation event with client-provided timestamp.
+    /// The `revoked_at` should match what was signed by the client.
     pub fn new(
         user_id: UserId,
         device_id: DeviceId,
         revoked_by_device_id: DeviceId,
+        revoked_at: i64,
         signature: Vec<u8>,
     ) -> Self {
-        let now = Utc::now();
         Self {
             user_id,
             device_id,
-            revoked_at: now.timestamp_millis(),
+            revoked_at,
             revoked_by_device_id,
             signature,
-            created_at: now,
+            created_at: Utc::now(),
         }
     }
 

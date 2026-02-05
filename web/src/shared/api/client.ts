@@ -524,11 +524,14 @@ export const deviceApi = {
 
   /**
    * Revoke a device
+   * @param deviceId - Device ID to revoke
+   * @param body - Revocation request containing identity signature
    * Returns list of workspace IDs that need KEK rotation
    */
-  async revokeDevice(deviceId: string) {
+  async revokeDevice(deviceId: string, body: components['schemas']['RevokeDeviceRequest']) {
     const { data, error, response } = await api.DELETE('/api/devices/{id}', {
       params: { path: { id: deviceId } },
+      body,
     })
 
     if (error) {

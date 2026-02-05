@@ -10,7 +10,7 @@
 
 use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
 use application::domain::encryption::{
-    DeviceEncryptedUMKRepository, DeviceId, DeviceRepository, DeviceType,
+    DeviceEncryptedUMKRepository, DeviceId, DeviceRepository, DeviceRevocationEvent, DeviceType,
     DocumentEncryptedKeyRepository, PendingDeviceRepository, UserEncryptedIdentityKeyRepository,
     UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
     WorkspaceEncryptedKeyRepository,
@@ -733,10 +733,11 @@ pub struct GetSasResponse {
     ),
     responses(
         (status = 200, description = "SAS data", body = GetSasResponse),
-        (status = 400, description = "Device expired", body = DeviceErrorResponse),
+        (status = 400, description = "Invalid request", body = DeviceErrorResponse),
         (status = 401, description = "Not authenticated", body = DeviceErrorResponse),
         (status = 403, description = "Not owner", body = DeviceErrorResponse),
         (status = 404, description = "Device not found", body = DeviceErrorResponse),
+        (status = 410, description = "Device expired (pending device deleted)", body = DeviceErrorResponse),
     ),
     tag = "device"
 )]
@@ -791,6 +792,8 @@ where
         user_id: auth_user.user.id,
     };
 
+    let pending_device_id = DeviceId::from_uuid(id);
+
     match handler.handle(query).await {
         Ok(result) => {
             let response = GetSasResponse {
@@ -804,6 +807,29 @@ where
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
+            // Handle expired pending device: delete and send SSE event
+            if e.is_gone() {
+                // Delete expired pending device
+                let pending_device_repo = state.pending_device_repo();
+                if let Err(delete_err) = pending_device_repo.delete(pending_device_id).await {
+                    tracing::error!("failed to delete expired pending device: {}", delete_err);
+                }
+
+                // Send SSE event
+                state
+                    .device_event_bus()
+                    .pending_expired(pending_device_id, auth_user.user.id)
+                    .await;
+
+                return (
+                    StatusCode::GONE,
+                    Json(DeviceErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+                    .into_response();
+            }
+
             let status = if e.is_not_found() {
                 StatusCode::NOT_FOUND
             } else if e.is_forbidden() {
@@ -855,10 +881,11 @@ pub struct ApproveDeviceResponse {
     request_body = ApproveDeviceRequest,
     responses(
         (status = 200, description = "Device approved", body = ApproveDeviceResponse),
-        (status = 400, description = "Device expired or invalid signature", body = DeviceErrorResponse),
+        (status = 400, description = "Invalid signature", body = DeviceErrorResponse),
         (status = 401, description = "Not authenticated", body = DeviceErrorResponse),
         (status = 403, description = "Not owner", body = DeviceErrorResponse),
         (status = 404, description = "Device not found", body = DeviceErrorResponse),
+        (status = 410, description = "Device expired (pending device deleted)", body = DeviceErrorResponse),
     ),
     tag = "device"
 )]
@@ -1402,12 +1429,26 @@ where
     }
 }
 
+/// Revoke device request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RevokeDeviceRequest {
+    /// Identity signature of the revocation event (base64url, 64 bytes)
+    /// Signs: user_id (16 bytes) || device_id (16 bytes) || revoked_at (8 bytes, big-endian) || revoked_by_device_id (16 bytes)
+    #[schema(example = "base64url-encoded-signature")]
+    pub identity_signature: String,
+    /// Timestamp when revocation was requested (Unix milliseconds)
+    #[schema(example = 1704067200000_i64)]
+    pub revoked_at: i64,
+}
+
 /// Revoke device response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RevokeDeviceResponse {
     pub message: String,
     /// List of workspace IDs that now need KEK rotation for forward secrecy
     pub workspaces_needing_kek_rotation: Vec<Uuid>,
+    /// List of document IDs that now need DEK rotation for forward secrecy
+    pub documents_needing_dek_rotation: Vec<Uuid>,
 }
 
 /// Revoke (deauthorize) a device
@@ -1417,8 +1458,10 @@ pub struct RevokeDeviceResponse {
     params(
         ("id" = Uuid, Path, description = "Device ID")
     ),
+    request_body = RevokeDeviceRequest,
     responses(
         (status = 200, description = "Device revoked", body = RevokeDeviceResponse),
+        (status = 400, description = "Invalid signature or timestamp", body = DeviceErrorResponse),
         (status = 401, description = "Not authenticated", body = DeviceErrorResponse),
         (status = 403, description = "Not owner", body = DeviceErrorResponse),
         (status = 404, description = "Device not found", body = DeviceErrorResponse),
@@ -1468,6 +1511,7 @@ pub async fn revoke_device<
         UMKR,
     >,
     Path(id): Path<Uuid>,
+    Json(request): Json<RevokeDeviceRequest>,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -1488,8 +1532,44 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
+    // Decode identity signature
+    let identity_signature = match base64_url::decode(&request.identity_signature) {
+        Ok(s) if s.len() == 64 => s,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DeviceErrorResponse {
+                    error: "invalid identity_signature: must be 64 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DeviceErrorResponse {
+                    error: "invalid identity_signature encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Validate timestamp is within reasonable range (5 minutes)
+    let now = chrono::Utc::now().timestamp_millis();
+    let five_minutes_ms = 5 * 60 * 1000;
+    if (request.revoked_at - now).abs() > five_minutes_ms {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeviceErrorResponse {
+                error: "revoked_at timestamp out of range (must be within 5 minutes)".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
     // Verify PoP (Proof of Possession) - required for device revocation
-    if let Err(e) = verify_pop(
+    let pop_verified = match verify_pop(
         &headers,
         auth_user.user.id,
         state.device_repo().as_ref(),
@@ -1497,8 +1577,9 @@ where
     )
     .await
     {
-        return e.into_response();
-    }
+        Ok(v) => v,
+        Err(e) => return e.into_response(),
+    };
 
     let device_repo = state.device_repo();
     let device_id = DeviceId::from_uuid(id);
@@ -1548,6 +1629,104 @@ where
             .into_response();
     }
 
+    // Build DeviceRevocationEvent first, then verify signature against its payload
+    // This ensures the stored event can be cryptographically verified later
+    let revocation_event = DeviceRevocationEvent::new(
+        auth_user.user.id,
+        device_id,
+        pop_verified.device.id,
+        request.revoked_at,
+        identity_signature.clone(),
+    );
+
+    // Get user's identity public key for verification
+    let identity_pk_repo = state.user_identity_public_key_repo();
+    let identity_pk = match identity_pk_repo.find_by_user_id(auth_user.user.id).await {
+        Ok(Some(pk)) => pk,
+        Ok(None) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(DeviceErrorResponse {
+                    error: "user identity public key not found".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(DeviceErrorResponse {
+                    error: format!("failed to get identity public key: {}", e),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Verify Ed25519 signature against the event's signature payload
+    // Format: user_id || device_id || revoked_at || revoked_by_device_id
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+    // Strictly validate public key length (must be exactly 32 bytes)
+    let pk_bytes: &[u8; 32] = match identity_pk.signing_public_key.as_slice().try_into() {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(DeviceErrorResponse {
+                    error: format!(
+                        "invalid identity public key length: expected 32 bytes, got {}",
+                        identity_pk.signing_public_key.len()
+                    ),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let verifying_key = match VerifyingKey::from_bytes(pk_bytes) {
+        Ok(k) => k,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(DeviceErrorResponse {
+                    error: "invalid identity public key format".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let signature = match Signature::from_slice(&identity_signature) {
+        Ok(s) => s,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DeviceErrorResponse {
+                    error: "invalid signature format".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Verify signature against the canonical event payload
+    let message = revocation_event.signature_payload();
+    if verifying_key.verify(&message, &signature).is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeviceErrorResponse {
+                error: "invalid identity signature".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = state.device_revocation_event_repo().save(&revocation_event).await {
+        tracing::error!("failed to save device revocation event: {}", e);
+        // Continue with revocation even if event save fails - this is for audit purposes
+    }
+
     // Revoke device
     device.revoke();
 
@@ -1565,13 +1744,17 @@ where
     // This ensures forward secrecy after device compromise
     let member_repo = state.workspace_member_repo();
     let workspace_repo = state.workspace_repo();
+    let document_repo = state.document_repo();
+    let document_key_repo = state.document_key_repo();
 
-    let workspace_ids_needing_rotation = match member_repo.find_by_user_id(auth_user.user.id).await
-    {
+    let mut workspace_ids_needing_rotation = Vec::new();
+    let mut document_ids_needing_rotation = Vec::new();
+
+    // Get all workspaces for this user
+    match member_repo.find_by_user_id(auth_user.user.id).await {
         Ok(members) => {
-            let mut workspace_ids = Vec::new();
             for member in members {
-                // Get workspace and mark for rotation
+                // Mark workspace for KEK rotation
                 if let Ok(Some(mut workspace)) =
                     workspace_repo.find_by_id(member.workspace_id).await
                 {
@@ -1583,18 +1766,53 @@ where
                             e
                         );
                     } else {
-                        workspace_ids.push(workspace.id.as_uuid());
+                        workspace_ids_needing_rotation.push(workspace.id.as_uuid());
+                    }
+
+                    // Mark all documents in this workspace for DEK rotation
+                    if let Ok(documents) = document_repo.find_by_workspace_id(member.workspace_id).await {
+                        for mut document in documents {
+                            // Mark document for DEK rotation
+                            document.mark_needs_dek_rotation();
+
+                            // Get max DEK version for this document and set min_dek_version
+                            // Only update min_dek_version if we can successfully read the keys
+                            // (min_dek_version is monotonic - it can only increase)
+                            match document_key_repo.find_by_document_id(document.id).await {
+                                Ok(keys) => {
+                                    let max_version = keys.iter().map(|k| k.key_version.as_i32()).max().unwrap_or(0);
+                                    document.set_min_dek_version(max_version + 1);
+                                }
+                                Err(e) => {
+                                    // On error, just log and keep the current min_dek_version
+                                    // The needs_dek_rotation flag is already set
+                                    tracing::warn!(
+                                        "failed to get DEK versions for document {}, min_dek_version unchanged: {}",
+                                        document.id,
+                                        e
+                                    );
+                                }
+                            }
+
+                            if let Err(e) = document_repo.save(&document).await {
+                                tracing::error!(
+                                    "failed to mark document {} for DEK rotation: {}",
+                                    document.id,
+                                    e
+                                );
+                            } else {
+                                document_ids_needing_rotation.push(document.id.as_uuid());
+                            }
+                        }
                     }
                 }
             }
-            workspace_ids
         }
         Err(e) => {
             tracing::error!(
-                "failed to find user workspaces for KEK rotation marking: {}",
+                "failed to find user workspaces for rotation marking: {}",
                 e
             );
-            Vec::new()
         }
     };
 
@@ -1603,6 +1821,7 @@ where
         Json(RevokeDeviceResponse {
             message: "device revoked".to_string(),
             workspaces_needing_kek_rotation: workspace_ids_needing_rotation,
+            documents_needing_dek_rotation: document_ids_needing_rotation,
         }),
     )
         .into_response()

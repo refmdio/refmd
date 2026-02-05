@@ -56,6 +56,15 @@ pub trait DeviceEventPublisher: Send + Sync {
         .await;
     }
 
+    /// Publish a pending device expired event
+    async fn pending_expired(&self, pending_id: DeviceId, user_id: UserId) {
+        self.publish(DeviceEvent::PendingExpired {
+            pending_id: pending_id.to_string(),
+            user_id: user_id.to_string(),
+        })
+        .await;
+    }
+
     /// Publish a trust transfer nonce ready event
     async fn trust_transfer_nonce_ready(
         &self,

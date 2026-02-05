@@ -505,7 +505,7 @@ where
     path = "/api/encryption/workspaces/{workspace_id}/keys",
     params(
         ("workspace_id" = Uuid, Path, description = "Workspace ID"),
-        ("device_id" = Option<Uuid>, Query, description = "Device ID (optional)")
+        ("device_id" = Uuid, Query, description = "Device ID (required for multi-device support)")
     ),
     responses(
         (status = 200, description = "Key found", body = WorkspaceKeyResponse),

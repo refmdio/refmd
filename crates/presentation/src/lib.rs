@@ -32,7 +32,7 @@ pub use middleware::{
     POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER, POP_SIGNATURE_HEADER, RecoveryChallengeError,
     RecoveryChallengeStore,
 };
-pub use state::{AppState, AppStateParams};
+pub use state::{AppState, AppStateParams, BoxedError};
 
 use utoipa::OpenApi;
 
@@ -143,6 +143,7 @@ use utoipa::OpenApi;
             routes::device::DistributeUmkResponse,
             routes::device::GetDeviceUmkResponse,
             routes::device::DeviceErrorResponse,
+            routes::device::RevokeDeviceRequest,
             routes::device::RevokeDeviceResponse,
             routes::trust_transfer::RequestNonceRequest,
             routes::trust_transfer::RequestNonceResponse,

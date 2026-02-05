@@ -1451,8 +1451,25 @@ export interface components {
             /** @description Ed25519 signature (base64url encoded, 64 bytes) */
             signature: string;
         };
+        /** @description Revoke device request */
+        RevokeDeviceRequest: {
+            /**
+             * @description Identity signature of the revocation event (base64url, 64 bytes)
+             *     Signs: user_id (16 bytes) || device_id (16 bytes) || revoked_at (8 bytes, big-endian) || revoked_by_device_id (16 bytes)
+             * @example base64url-encoded-signature
+             */
+            identity_signature: string;
+            /**
+             * Format: int64
+             * @description Timestamp when revocation was requested (Unix milliseconds)
+             * @example 1704067200000
+             */
+            revoked_at: number;
+        };
         /** @description Revoke device response */
         RevokeDeviceResponse: {
+            /** @description List of document IDs that now need DEK rotation for forward secrecy */
+            documents_needing_dek_rotation: string[];
             message: string;
             /** @description List of workspace IDs that now need KEK rotation for forward secrecy */
             workspaces_needing_kek_rotation: string[];
@@ -2230,7 +2247,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApproveDeviceResponse"];
                 };
             };
-            /** @description Device expired or invalid signature */
+            /** @description Invalid signature */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2259,6 +2276,15 @@ export interface operations {
             };
             /** @description Device not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
+            /** @description Device expired (pending device deleted) */
+            410: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2326,7 +2352,7 @@ export interface operations {
                     "application/json": components["schemas"]["GetSasResponse"];
                 };
             };
-            /** @description Device expired */
+            /** @description Invalid request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2362,6 +2388,15 @@ export interface operations {
                     "application/json": components["schemas"]["DeviceErrorResponse"];
                 };
             };
+            /** @description Device expired (pending device deleted) */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
+                };
+            };
         };
     };
     revoke_device: {
@@ -2374,7 +2409,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeDeviceRequest"];
+            };
+        };
         responses: {
             /** @description Device revoked */
             200: {
@@ -2383,6 +2422,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevokeDeviceResponse"];
+                };
+            };
+            /** @description Invalid signature or timestamp */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceErrorResponse"];
                 };
             };
             /** @description Not authenticated */
@@ -3118,9 +3166,9 @@ export interface operations {
     };
     get_workspace_key: {
         parameters: {
-            query?: {
-                /** @description Device ID (optional) */
-                device_id?: string;
+            query: {
+                /** @description Device ID (required for multi-device support) */
+                device_id: string;
             };
             header?: never;
             path: {

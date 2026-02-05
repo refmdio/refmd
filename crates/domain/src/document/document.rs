@@ -133,8 +133,11 @@ impl Document {
     }
 
     /// Update the minimum DEK version (used after key rotation)
+    /// This is monotonic - the value can only increase, never decrease.
     pub fn set_min_dek_version(&mut self, version: i32) {
-        self.min_dek_version = version;
-        self.updated_at = Utc::now();
+        if version > self.min_dek_version {
+            self.min_dek_version = version;
+            self.updated_at = Utc::now();
+        }
     }
 }

@@ -17,7 +17,6 @@ import {
   base64UrlEncode,
   base64UrlDecode,
   generateSasEmojis,
-  sign,
   type DeviceKeyPair,
 } from '@/shared/lib/crypto'
 
@@ -48,23 +47,11 @@ export interface UseDeviceReturn {
   /** Get SAS emojis for existing device verification (calculates locally) */
   getSas: (pendingDeviceId: string, identitySigningPublicKey: Uint8Array) => Promise<string>
 
-  /** Approve a pending device (from existing device) */
-  approveDevice: (
-    pendingDeviceId: string,
-    identitySigningPrivateKey: Uint8Array,
-    pendingDeviceSigningPk: Uint8Array,
-    pendingDeviceEcdhPk: Uint8Array,
-    clientNonce: Uint8Array
-  ) => Promise<void>
-
   /** List all user's devices */
   listDevices: () => Promise<Awaited<ReturnType<typeof deviceApi.listDevices>>>
 
   /** List pending devices awaiting approval */
   listPendingDevices: () => Promise<Awaited<ReturnType<typeof deviceApi.listPendingDevices>>>
-
-  /** Revoke a device */
-  revokeDevice: (deviceId: string) => Promise<void>
 
   /** Reset state */
   reset: () => void
@@ -171,36 +158,6 @@ export function useDevice(): UseDeviceReturn {
   )
 
   /**
-   * Approve a pending device (called from existing device)
-   *
-   * Signs the pending device's public keys with the identity signing key
-   */
-  const approveDevice = useCallback(
-    async (
-      pendingDeviceId: string,
-      identitySigningPrivateKey: Uint8Array,
-      pendingDeviceSigningPk: Uint8Array,
-      pendingDeviceEcdhPk: Uint8Array,
-      clientNonce: Uint8Array
-    ) => {
-      // Build the message to sign: device_signing_pk || device_ecdh_pk || client_nonce
-      const message = new Uint8Array(32 + 32 + 16)
-      message.set(pendingDeviceSigningPk, 0)
-      message.set(pendingDeviceEcdhPk, 32)
-      message.set(clientNonce, 64)
-
-      // Sign with identity signing key
-      const signature = sign(message, identitySigningPrivateKey)
-
-      // Send approval to server
-      await deviceApi.approveDevice(pendingDeviceId, {
-        identity_signature: base64UrlEncode(signature),
-      })
-    },
-    []
-  )
-
-  /**
    * List all devices for the current user
    */
   const listDevices = useCallback(async () => {
@@ -214,21 +171,13 @@ export function useDevice(): UseDeviceReturn {
     return await deviceApi.listPendingDevices()
   }, [])
 
-  /**
-   * Revoke a device
-   */
-  const revokeDevice = useCallback(async (deviceId: string) => {
-    await deviceApi.revokeDevice(deviceId)
-  }, [])
 
   return {
     state,
     startRegistration,
     getSas,
-    approveDevice,
     listDevices,
     listPendingDevices,
-    revokeDevice,
     reset,
   }
 }

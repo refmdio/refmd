@@ -60,6 +60,10 @@ impl<PDR: std::error::Error> GetSasError<PDR> {
     }
 
     pub fn is_bad_request(&self) -> bool {
+        false
+    }
+
+    pub fn is_gone(&self) -> bool {
         matches!(self, GetSasError::PendingDeviceExpired)
     }
 }

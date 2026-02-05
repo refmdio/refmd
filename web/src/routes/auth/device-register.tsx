@@ -35,7 +35,7 @@ import { deviceApi, authApi, trustTransferApi, sseUrls } from '@/shared/api'
 import { detectDeviceType, detectDeviceName } from '@/shared/lib/device'
 
 interface DeviceEvent {
-  type: 'pending_created' | 'pending_approved' | 'pending_removed'
+  type: 'pending_created' | 'pending_approved' | 'pending_removed' | 'pending_expired'
   pending_id: string
   user_id: string
   device_id?: string
@@ -475,7 +475,16 @@ function DeviceRegisterPage() {
           eventSource.close()
           eventSourceRef.current = null
           if (pollInterval) clearInterval(pollInterval)
-          setError('Registration was rejected or expired. Please try again.')
+          setError('Registration was rejected. Please try again.')
+          reset()
+          // Note: hasStartedRef.current stays true to prevent auto-restart
+          // User must manually click "Try Again" to retry
+        } else if (data.type === 'pending_expired' && data.pending_id === state.pendingDeviceId) {
+          isHandled = true
+          eventSource.close()
+          eventSourceRef.current = null
+          if (pollInterval) clearInterval(pollInterval)
+          setError('Registration expired. Please try again.')
           reset()
           // Note: hasStartedRef.current stays true to prevent auto-restart
           // User must manually click "Try Again" to retry
@@ -500,21 +509,35 @@ function DeviceRegisterPage() {
       try {
         await deviceApi.getSas(state.pendingDeviceId)
       } catch (err) {
-        // Check if pending device no longer exists (404)
-        if (err && typeof err === 'object' && 'status' in err && err.status === 404) {
-          // Pending device no longer exists
-          // Could be approved (device_id received via SSE) or rejected/expired
-          // Since we can't reliably determine which, show a generic message
-          // and let user retry if needed (manual click required)
-          isHandled = true
-          eventSource.close()
-          eventSourceRef.current = null
-          if (pollInterval) clearInterval(pollInterval)
+        // Check if pending device no longer exists (404) or expired (410)
+        if (err && typeof err === 'object' && 'status' in err) {
+          const status = (err as { status: number }).status
+          if (status === 410) {
+            // Pending device expired (410 Gone)
+            isHandled = true
+            eventSource.close()
+            eventSourceRef.current = null
+            if (pollInterval) clearInterval(pollInterval)
 
-          setError('Registration status changed. If approved on another device, please refresh. Otherwise, try again.')
-          reset()
-          // Note: hasStartedRef.current stays true to prevent auto-restart
-          // User must manually click "Try Again" to retry
+            setError('Registration expired. Please try again.')
+            reset()
+            // Note: hasStartedRef.current stays true to prevent auto-restart
+            // User must manually click "Try Again" to retry
+          } else if (status === 404) {
+            // Pending device no longer exists
+            // Could be approved (device_id received via SSE) or rejected
+            // Since we can't reliably determine which, show a generic message
+            // and let user retry if needed (manual click required)
+            isHandled = true
+            eventSource.close()
+            eventSourceRef.current = null
+            if (pollInterval) clearInterval(pollInterval)
+
+            setError('Registration status changed. If approved on another device, please refresh. Otherwise, try again.')
+            reset()
+            // Note: hasStartedRef.current stays true to prevent auto-restart
+            // User must manually click "Try Again" to retry
+          }
         }
         // Ignore other polling errors - SSE or next poll will handle it
       }

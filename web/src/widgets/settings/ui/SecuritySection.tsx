@@ -18,6 +18,7 @@ import {
   verifyTofu,
   handleTofuResult,
   trustDevice,
+  sign,
 } from '@/shared/lib/crypto'
 import { KeyChangeWarningDialog } from '@/features/tofu'
 import { Monitor, Smartphone, Globe, Trash2, AlertTriangle } from 'lucide-react'
@@ -302,9 +303,62 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
     }
 
     try {
-      // Revoke device and get workspaces needing KEK rotation
-      const response = await deviceApi.revokeDevice(deviceId)
+      // Create revocation signature
+      // Message format: user_id (16 bytes) || device_id (16 bytes) || revoked_at (8 bytes, big-endian) || revoked_by_device_id (16 bytes)
+      const revokedAt = Date.now()
+
+      // Helper to convert UUID string to bytes
+      const uuidToBytes = (uuid: string): Uint8Array => {
+        const bytes = new Uint8Array(16)
+        const hex = uuid.replace(/-/g, '')
+        for (let i = 0; i < 16; i++) {
+          bytes[i] = parseInt(hex.substr(i * 2, 2), 16)
+        }
+        return bytes
+      }
+
+      // Convert UUIDs to bytes
+      const userIdBytes = uuidToBytes(auth.userId)
+      const deviceIdBytes = uuidToBytes(deviceId)
+      const revokedByDeviceIdBytes = uuidToBytes(currentDevice.deviceId)
+
+      // Convert timestamp to big-endian bytes
+      const timestampBytes = new Uint8Array(8)
+      const dv = new DataView(timestampBytes.buffer)
+      dv.setBigInt64(0, BigInt(revokedAt), false) // big-endian
+
+      // Concatenate message: user_id || device_id || revoked_at || revoked_by_device_id
+      const message = new Uint8Array(56) // 16 + 16 + 8 + 16 = 56 bytes
+      message.set(userIdBytes, 0)
+      message.set(deviceIdBytes, 16)
+      message.set(timestampBytes, 32)
+      message.set(revokedByDeviceIdBytes, 40)
+
+      // Sign with identity key
+      if (!auth.identityKeys) {
+        throw new Error('Identity keys not available')
+      }
+      const signature = sign(message, auth.identityKeys.signingPrivate)
+
+      // Revoke device and get workspaces/documents needing key rotation
+      const response = await deviceApi.revokeDevice(deviceId, {
+        identity_signature: base64UrlEncode(signature),
+        revoked_at: revokedAt,
+      })
       const workspacesToRotate = response?.workspaces_needing_kek_rotation || []
+      const documentsNeedingDekRotation = response?.documents_needing_dek_rotation || []
+
+      // Log documents needing DEK rotation
+      // Note: Full DEK rotation requires API changes to support fetching DEKs by version.
+      // For now, the server enforces min_dek_version and documents will be rotated
+      // lazily when they are next opened and edited.
+      if (documentsNeedingDekRotation.length > 0) {
+        console.warn(
+          '[DEK Rotation] Documents needing DEK rotation after device revocation:',
+          documentsNeedingDekRotation.length,
+          'document(s). These will be rotated when next edited.'
+        )
+      }
 
       // Perform KEK rotation for each workspace
       if (workspacesToRotate.length > 0) {

@@ -23,8 +23,10 @@ pub enum DeviceEvent {
         user_id: String,
         device_id: String,
     },
-    /// A pending device expired or was removed
+    /// A pending device was removed (rejected)
     PendingRemoved { pending_id: String, user_id: String },
+    /// A pending device expired
+    PendingExpired { pending_id: String, user_id: String },
     /// New device requested trust transfer nonce
     TrustTransferNonceReady {
         user_id: String,
@@ -42,6 +44,7 @@ impl DeviceEvent {
             DeviceEvent::PendingCreated { user_id, .. } => user_id,
             DeviceEvent::PendingApproved { user_id, .. } => user_id,
             DeviceEvent::PendingRemoved { user_id, .. } => user_id,
+            DeviceEvent::PendingExpired { user_id, .. } => user_id,
             DeviceEvent::TrustTransferNonceReady { user_id, .. } => user_id,
         }
     }
@@ -53,6 +56,7 @@ impl DeviceEvent {
             DeviceEvent::PendingCreated { pending_id, .. } => pending_id,
             DeviceEvent::PendingApproved { pending_id, .. } => pending_id,
             DeviceEvent::PendingRemoved { pending_id, .. } => pending_id,
+            DeviceEvent::PendingExpired { pending_id, .. } => pending_id,
             DeviceEvent::TrustTransferNonceReady { .. } => "",
         }
     }
