@@ -39,6 +39,8 @@ import {
   base64UrlDecode,
   base64UrlEncode,
   buildRecoverySessionMessage,
+  buildSignatureMessage,
+  SIGNATURE_ACTION,
 } from '@/shared/lib/crypto'
 import { authApi, deviceApi, ApiRequestError } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
@@ -281,12 +283,13 @@ function RecoveryPage() {
       setStatusMessage('Setting up new device…')
       const newDeviceKeyPair = generateDeviceKeyPair()
 
-      // Build the message to sign: device_signing_pk || device_ecdh_pk || client_nonce
+      // Build the JCS signature message for device approval
       const clientNonce = crypto.getRandomValues(new Uint8Array(16))
-      const message = new Uint8Array(32 + 32 + 16)
-      message.set(newDeviceKeyPair.signingPublicKey, 0)
-      message.set(newDeviceKeyPair.ecdhPublicKey, 32)
-      message.set(clientNonce, 64)
+      const message = buildSignatureMessage(SIGNATURE_ACTION.DEVICE_APPROVAL, {
+        device_signing_public_key: base64UrlEncode(newDeviceKeyPair.signingPublicKey),
+        device_ecdh_public_key: base64UrlEncode(newDeviceKeyPair.ecdhPublicKey),
+        client_nonce: base64UrlEncode(clientNonce),
+      })
 
       // Sign device keys with recovered identity signing key
       const identitySignature = sign(message, identityKeys.signingPrivate)

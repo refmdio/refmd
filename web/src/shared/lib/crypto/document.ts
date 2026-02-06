@@ -13,7 +13,10 @@
 
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
-import { buildDekWrapAad, buildDocumentContentAad } from './aad'
+import { blake3 } from '@noble/hashes/blake3.js'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { buildDekWrapAad, buildDocumentContentAad, SIGNATURE_ACTION, buildSignatureMessage, canonicalizeBytes } from './aad'
+import { base64UrlEncode } from './encoding'
 
 /**
  * Generate a random Document Encryption Key (256 bits)
@@ -120,4 +123,60 @@ export function decryptContent(
 
   const cipher = xchacha20poly1305(dek, nonce, aad)
   return cipher.decrypt(encrypted)
+}
+
+/**
+ * Compute update hash using JCS-normalized BLAKE3
+ *
+ * Hash input is a JCS-canonicalized JSON object containing all update metadata
+ * fields that the client can compute. This binds the nonce to the hash,
+ * preventing nonce-manipulation attacks.
+ *
+ * @param params Update metadata fields
+ * @returns Base64url-encoded BLAKE3 hash
+ */
+export function computeUpdateHash(params: {
+  documentId: string
+  encryptedContent: string   // base64url-encoded ciphertext
+  nonce: string              // base64url-encoded nonce
+  keyVersion: number
+  prevUpdateHash: string | null
+  timestamp: number          // Unix ms
+  authorDeviceId: string     // UUID
+}): string {
+  const canonical = canonicalizeBytes({
+    created_by_device_id: params.authorDeviceId,
+    document_id: params.documentId,
+    encrypted_content: params.encryptedContent,
+    key_version: params.keyVersion,
+    nonce: params.nonce,
+    prev_update_hash: params.prevUpdateHash,
+    timestamp: params.timestamp,
+  })
+  const hash = blake3(canonical)
+  return base64UrlEncode(hash)
+}
+
+/**
+ * Sign document update metadata using Ed25519 with JCS signature protocol
+ *
+ * @param params Signing parameters
+ * @returns Ed25519 signature (64 bytes)
+ */
+export function signDocumentUpdate(params: {
+  signingPrivateKey: Uint8Array
+  documentId: string
+  updateHash: string
+  prevUpdateHash: string | null
+  keyVersion: number
+  timestamp: number
+}): Uint8Array {
+  const message = buildSignatureMessage(SIGNATURE_ACTION.DOCUMENT_UPDATE, {
+    document_id: params.documentId,
+    key_version: params.keyVersion,
+    prev_update_hash: params.prevUpdateHash,
+    timestamp: params.timestamp,
+    update_hash: params.updateHash,
+  })
+  return ed25519.sign(message, params.signingPrivateKey)
 }

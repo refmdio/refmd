@@ -37,7 +37,7 @@ use application::identity::{
 use axum::{
     Json, Router,
     extract::{Query, State},
-    http::{StatusCode, header},
+    http::{StatusCode, header, HeaderMap},
     response::{AppendHeaders, IntoResponse},
     routing::{get, post},
 };
@@ -1095,6 +1095,8 @@ pub async fn login<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS,
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
+    connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     Json(request): Json<LoginRequest>,
 ) -> impl IntoResponse
 where
@@ -1132,12 +1134,42 @@ where
         .as_ref()
         .and_then(|id| uuid::Uuid::parse_str(id).ok().map(DeviceId::from_uuid));
 
+    // Extract IP: prefer X-Forwarded-For (reverse proxy), fallback to ConnectInfo (direct socket)
+    // SECURITY: This assumes deployment behind a trusted reverse proxy (nginx, Cloudflare, etc.)
+    // that overwrites X-Forwarded-For. Direct internet exposure would allow header spoofing.
+    // IP is used for audit logging only, not for authentication or access control decisions.
+    // See: local/docs/v2/07-deployment/web-security.md
+    let socket_ip = connect_info.0.ip().to_string();
+    let forwarded_ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+        });
+    let ip_address = Some(
+        forwarded_ip
+            .unwrap_or(socket_ip)
+            .chars()
+            .take(45) // IPv6 max length
+            .collect::<String>(),
+    );
+
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.chars().take(512).collect::<String>());
+
     let command = LoginPasswordUserCommand {
         email: request.email,
         auth_key: request.auth_key,
         remember_me,
-        ip_address: None, // TODO: Extract from request headers
-        user_agent: None, // TODO: Extract from request headers
+        ip_address,
+        user_agent,
         device_id,
     };
 
@@ -1249,9 +1281,8 @@ pub struct GetRecoveryResponse {
         ("email" = String, Query, description = "User email address")
     ),
     responses(
-        (status = 200, description = "Recovery data", body = GetRecoveryResponse),
+        (status = 200, description = "Recovery data (returns plausible dummy data for non-existent users to prevent enumeration)", body = GetRecoveryResponse),
         (status = 400, description = "Invalid email", body = AuthErrorResponse),
-        (status = 404, description = "User not found or recovery data unavailable", body = AuthErrorResponse),
     ),
     tag = "auth"
 )]
@@ -1298,6 +1329,8 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
+    let start = tokio::time::Instant::now();
+
     let handler = GetRecoveryDataHandler::new(
         state.user_repo(),
         state.user_encrypted_master_key_repo(),
@@ -1308,7 +1341,17 @@ where
         email: params.email,
     };
 
-    match handler.handle(query).await {
+    let result = handler.handle(query).await;
+
+    // Timing attack mitigation: ensure minimum response time
+    // to prevent distinguishing existing vs non-existing users
+    const MIN_RESPONSE_TIME: std::time::Duration = std::time::Duration::from_millis(50);
+    let elapsed = start.elapsed();
+    if elapsed < MIN_RESPONSE_TIME {
+        tokio::time::sleep(MIN_RESPONSE_TIME - elapsed).await;
+    }
+
+    match result {
         Ok(result) => {
             let response = GetRecoveryResponse {
                 user_id: result.user_id.to_string(),
@@ -1326,22 +1369,48 @@ where
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
-            let (status, message) = if e.is_bad_request() {
-                (StatusCode::BAD_REQUEST, e.to_string())
+            if e.is_bad_request() {
+                let message = e.to_string();
+                (StatusCode::BAD_REQUEST, Json(AuthErrorResponse { error: message })).into_response()
             } else if e.is_not_found() {
-                // Don't reveal whether user exists or recovery data is missing
-                (
-                    StatusCode::NOT_FOUND,
-                    "recovery data not available".to_string(),
-                )
+                // Anti-enumeration: return dummy data indistinguishable from real data.
+                // Client will fail at decryption (wrong recovery key), not at HTTP level.
+                use rand::RngCore;
+                let mut rng = rand::rng();
+                let dummy_id = uuid::Uuid::now_v7();
+                let mut dummy_encrypted_umk = vec![0u8; 48]; // 32 bytes + 16 tag
+                let mut dummy_nonce = vec![0u8; 24];
+                let mut dummy_ecdh_private = vec![0u8; 48];
+                let mut dummy_ecdh_nonce = vec![0u8; 24];
+                let mut dummy_signing_private = vec![0u8; 48];
+                let mut dummy_signing_nonce = vec![0u8; 24];
+                rng.fill_bytes(&mut dummy_encrypted_umk);
+                rng.fill_bytes(&mut dummy_nonce);
+                rng.fill_bytes(&mut dummy_ecdh_private);
+                rng.fill_bytes(&mut dummy_ecdh_nonce);
+                rng.fill_bytes(&mut dummy_signing_private);
+                rng.fill_bytes(&mut dummy_signing_nonce);
+
+                let response = GetRecoveryResponse {
+                    user_id: dummy_id.to_string(),
+                    recovery_encrypted_umk: base64_url::encode(&dummy_encrypted_umk),
+                    recovery_nonce: base64_url::encode(&dummy_nonce),
+                    encrypted_ecdh_private: base64_url::encode(&dummy_ecdh_private),
+                    encrypted_ecdh_private_nonce: base64_url::encode(&dummy_ecdh_nonce),
+                    encrypted_signing_private: base64_url::encode(&dummy_signing_private),
+                    encrypted_signing_private_nonce: base64_url::encode(&dummy_signing_nonce),
+                };
+                (StatusCode::OK, Json(response)).into_response()
             } else {
                 tracing::error!("get_recovery internal error: {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "internal server error".to_string(),
+                    Json(AuthErrorResponse {
+                        error: "internal server error".to_string(),
+                    }),
                 )
-            };
-            (status, Json(AuthErrorResponse { error: message })).into_response()
+                    .into_response()
+            }
         }
     }
 }

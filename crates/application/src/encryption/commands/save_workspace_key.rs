@@ -220,7 +220,19 @@ where
             }
             KeyVersion::new(v as i32)
         } else {
-            KeyVersion::initial()
+            // Auto-determine: max(existing) + 1, at least min_kek_version
+            let existing_keys = self
+                .workspace_key_repo
+                .find_by_workspace_id(command.workspace_id)
+                .await
+                .map_err(SaveWorkspaceKeyError::WorkspaceKeyRepository)?;
+            let max_version = existing_keys
+                .iter()
+                .map(|k| k.key_version.as_i32())
+                .max()
+                .unwrap_or(0);
+            let next = std::cmp::max(max_version + 1, workspace.min_kek_version);
+            KeyVersion::new(next)
         };
 
         // 6. Check KEK version meets minimum requirement (after key rotation)

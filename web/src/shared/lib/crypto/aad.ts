@@ -24,6 +24,12 @@ export const SIGNATURE_ACTION = {
   POP_CHALLENGE: 'pop_challenge',
   /** Device approval signature */
   DEVICE_APPROVAL: 'device_approval',
+  /** Device registration (identity key signs device keys at registration) */
+  DEVICE_REGISTRATION: 'device_registration',
+  /** Device revocation (identity key signs revocation event) */
+  DEVICE_REVOCATION: 'device_revocation',
+  /** Document update (device signing key signs update metadata) */
+  DOCUMENT_UPDATE: 'document_update',
 } as const
 
 export type SignatureAction = (typeof SIGNATURE_ACTION)[keyof typeof SIGNATURE_ACTION]

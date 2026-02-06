@@ -413,6 +413,10 @@ export const documentApi = {
       update_data: string
       nonce: string
       key_version: number
+      update_hash: string
+      prev_update_hash: string | null
+      signature: string
+      author_device_id: string
       timestamp: number
     }
   ) {

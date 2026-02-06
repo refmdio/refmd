@@ -20,6 +20,12 @@ pub enum SignatureAction {
     PopChallenge,
     /// Device approval signature
     DeviceApproval,
+    /// Device registration (identity key signs device keys at registration)
+    DeviceRegistration,
+    /// Device revocation (identity key signs revocation event)
+    DeviceRevocation,
+    /// Document update (device signing key signs update metadata)
+    DocumentUpdate,
 }
 
 impl SignatureAction {
@@ -28,6 +34,9 @@ impl SignatureAction {
             SignatureAction::TrustStateTransfer => "transfer_trust_state",
             SignatureAction::PopChallenge => "pop_challenge",
             SignatureAction::DeviceApproval => "device_approval",
+            SignatureAction::DeviceRegistration => "device_registration",
+            SignatureAction::DeviceRevocation => "device_revocation",
+            SignatureAction::DocumentUpdate => "document_update",
         }
     }
 }
@@ -70,6 +79,11 @@ fn validate_jcs_number(n: &serde_json::Number) {
 ///
 /// # Panics
 /// Panics if the value contains JCS-invalid data
+/// Public alias for sort_value for use in update_hash computation
+pub fn sort_value_public(value: Value) -> Value {
+    sort_value(value)
+}
+
 fn sort_value(value: Value) -> Value {
     match value {
         Value::Object(map) => {
@@ -300,5 +314,115 @@ mod tests {
 
         let payload = FloatPayload { value: 1.0 };
         let _ = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+    }
+
+    // ===================================================================
+    // Cross-platform test vectors
+    //
+    // These tests use fixed inputs and verify exact byte output.
+    // The TypeScript implementation MUST produce identical results.
+    // ===================================================================
+
+    #[test]
+    fn test_cross_platform_device_registration_vector() {
+        #[derive(Serialize)]
+        struct RegistrationPayload {
+            client_nonce: String,
+            device_ecdh_public_key: String,
+            device_signing_public_key: String,
+        }
+
+        let message = build_signature_message(
+            SignatureAction::DeviceRegistration,
+            &RegistrationPayload {
+                device_signing_public_key: "dHNwaw".to_string(), // base64url("tspk")
+                device_ecdh_public_key: "ZGVwaw".to_string(),    // base64url("depk")
+                client_nonce: "bm9uY2U".to_string(),              // base64url("nonce")
+            },
+        );
+
+        let json_str = String::from_utf8(message).unwrap();
+        // Keys are sorted alphabetically: action, client_nonce, device_ecdh_public_key,
+        // device_signing_public_key, protocol, version
+        assert_eq!(
+            json_str,
+            r#"{"action":"device_registration","client_nonce":"bm9uY2U","device_ecdh_public_key":"ZGVwaw","device_signing_public_key":"dHNwaw","protocol":"doclock-v1","version":1}"#
+        );
+    }
+
+    #[test]
+    fn test_cross_platform_device_revocation_vector() {
+        #[derive(Serialize)]
+        struct RevocationPayload {
+            device_id: String,
+            reason: String,
+            revoked_at: i64,
+        }
+
+        let message = build_signature_message(
+            SignatureAction::DeviceRevocation,
+            &RevocationPayload {
+                device_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+                reason: "compromised".to_string(),
+                revoked_at: 1700000000000i64,
+            },
+        );
+
+        let json_str = String::from_utf8(message).unwrap();
+        // Keys sorted: action, device_id, protocol, reason, revoked_at, version
+        assert_eq!(
+            json_str,
+            r#"{"action":"device_revocation","device_id":"550e8400-e29b-41d4-a716-446655440000","protocol":"doclock-v1","reason":"compromised","revoked_at":1700000000000,"version":1}"#
+        );
+    }
+
+    #[test]
+    fn test_cross_platform_document_update_vector() {
+        // Test with prev_update_hash = null (first update in chain)
+        #[derive(Serialize)]
+        struct DocumentUpdatePayload {
+            document_id: String,
+            key_version: i64,
+            prev_update_hash: Option<String>,
+            timestamp: i64,
+            update_hash: String,
+        }
+
+        let message = build_signature_message(
+            SignatureAction::DocumentUpdate,
+            &DocumentUpdatePayload {
+                document_id: "660e8400-e29b-41d4-a716-446655440001".to_string(),
+                key_version: 1,
+                prev_update_hash: None, // null in JSON
+                timestamp: 1700000000000i64,
+                update_hash: "dXBkYXRlX2hhc2g".to_string(), // base64url("update_hash")
+            },
+        );
+
+        let json_str = String::from_utf8(message).unwrap();
+        // Keys sorted: action, document_id, key_version, prev_update_hash, protocol, timestamp, update_hash, version
+        // prev_update_hash serializes as null (not omitted)
+        assert_eq!(
+            json_str,
+            r#"{"action":"document_update","document_id":"660e8400-e29b-41d4-a716-446655440001","key_version":1,"prev_update_hash":null,"protocol":"doclock-v1","timestamp":1700000000000,"update_hash":"dXBkYXRlX2hhc2g","version":1}"#
+        );
+
+        // Test with prev_update_hash = Some (subsequent update)
+        let message2 = build_signature_message(
+            SignatureAction::DocumentUpdate,
+            &DocumentUpdatePayload {
+                document_id: "660e8400-e29b-41d4-a716-446655440001".to_string(),
+                key_version: 1,
+                prev_update_hash: Some("cHJldl9oYXNo".to_string()), // base64url("prev_hash")
+                timestamp: 1700000001000i64,
+                update_hash: "bmV3X2hhc2g".to_string(), // base64url("new_hash")
+            },
+        );
+
+        let json_str2 = String::from_utf8(message2).unwrap();
+        assert_eq!(
+            json_str2,
+            r#"{"action":"document_update","document_id":"660e8400-e29b-41d4-a716-446655440001","key_version":1,"prev_update_hash":"cHJldl9oYXNo","protocol":"doclock-v1","timestamp":1700000001000,"update_hash":"bmV3X2hhc2g","version":1}"#
+        );
     }
 }

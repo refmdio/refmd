@@ -680,6 +680,8 @@ export interface components {
         };
         /** @description Create document update request */
         CreateDocumentUpdateRequest: {
+            /** @description Device that authored this update */
+            author_device_id: string;
             /**
              * Format: int32
              * @description DEK version used for encryption
@@ -687,6 +689,10 @@ export interface components {
             key_version: number;
             /** @description Base64url-encoded 24-byte nonce */
             nonce: string;
+            /** @description Hash of the previous update for hash chain (base64url, nullable for first update) */
+            prev_update_hash?: string | null;
+            /** @description Ed25519 signature over the update (base64url) */
+            signature: string;
             /**
              * Format: int64
              * @description Client timestamp (milliseconds since epoch)
@@ -694,6 +700,8 @@ export interface components {
             timestamp: number;
             /** @description Base64url-encoded encrypted Yjs update binary */
             update_data: string;
+            /** @description Content-addressable hash for idempotency (base64url) */
+            update_hash: string;
         };
         /** @description Create document update response */
         CreateDocumentUpdateResponse: {
@@ -823,10 +831,13 @@ export interface components {
             created_by?: string | null;
             doc_type: string;
             encrypted_title?: string | null;
+            encrypted_title_nonce?: string | null;
             id: string;
             is_archived: boolean;
             is_encrypted: boolean;
+            needs_dek_rotation: boolean;
             parent_id?: string | null;
+            path: string;
             slug: string;
             title: string;
             updated_at: string;
@@ -834,6 +845,8 @@ export interface components {
         };
         /** @description Document update response (single update) */
         DocumentUpdateResponse: {
+            /** @description Device that authored this update */
+            author_device_id: string;
             /**
              * Format: int32
              * @description DEK version used for encryption
@@ -841,8 +854,12 @@ export interface components {
             key_version: number;
             /** @description Base64url-encoded 24-byte nonce */
             nonce: string;
+            /** @description Hash of the previous update (null for first update) */
+            prev_update_hash?: string | null;
             /** Format: int64 */
             seq: number;
+            /** @description Ed25519 signature (base64url) */
+            signature: string;
             /**
              * Format: int64
              * @description Client timestamp (milliseconds since epoch)
@@ -850,6 +867,8 @@ export interface components {
             timestamp: number;
             /** @description Base64url-encoded encrypted Yjs update binary */
             update_data: string;
+            /** @description Content-addressable hash for idempotency */
+            update_hash: string;
         };
         /** @description Error response */
         EncryptionErrorResponse: {
@@ -1468,8 +1487,8 @@ export interface components {
         };
         /** @description Revoke device response */
         RevokeDeviceResponse: {
-            /** @description List of document IDs that now need DEK rotation for forward secrecy */
-            documents_needing_dek_rotation: string[];
+            /** @description Documents grouped by workspace that need DEK rotation for forward secrecy */
+            documents_needing_dek_rotation: components["schemas"]["WorkspaceDocumentsForRotationResponse"][];
             message: string;
             /** @description List of workspace IDs that now need KEK rotation for forward secrecy */
             workspaces_needing_kek_rotation: string[];
@@ -1580,6 +1599,12 @@ export interface components {
             /** Format: uuid */
             parent_id?: string | null;
             title?: string | null;
+        };
+        /** @description Documents grouped by workspace that need DEK rotation */
+        WorkspaceDocumentsForRotationResponse: {
+            document_ids: string[];
+            /** Format: uuid */
+            workspace_id: string;
         };
         /** @description Workspace error response */
         WorkspaceErrorResponse: {
@@ -1849,7 +1874,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Recovery data */
+            /** @description Recovery data (returns plausible dummy data for non-existent users to prevent enumeration) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1860,15 +1885,6 @@ export interface operations {
             };
             /** @description Invalid email */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthErrorResponse"];
-                };
-            };
-            /** @description User not found or recovery data unavailable */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };

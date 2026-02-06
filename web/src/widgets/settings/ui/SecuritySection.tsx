@@ -13,17 +13,22 @@ import { useAuthContext } from '@/shared/context/AuthContext'
 import {
   base64UrlDecode,
   base64UrlEncode,
+  generateDek,
   generateKek,
   encryptKekForDevice,
+  wrapDek,
   verifyTofu,
   handleTofuResult,
   trustDevice,
   sign,
+  buildSignatureMessage,
+  SIGNATURE_ACTION,
 } from '@/shared/lib/crypto'
 import { KeyChangeWarningDialog } from '@/features/tofu'
 import { Monitor, Smartphone, Globe, Trash2, AlertTriangle } from 'lucide-react'
 
 type Device = components['schemas']['DeviceResponse']
+type WorkspaceDocumentsForRotation = components['schemas']['WorkspaceDocumentsForRotationResponse']
 
 interface PendingDevice {
   id: string
@@ -77,6 +82,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
       tofuResult: Awaited<ReturnType<typeof verifyTofu>>
     }>
     workspacesToRotate: string[]
+    documentsForRotation: WorkspaceDocumentsForRotation[]
   } | null>(null)
   // Current device being confirmed during KEK rotation
   const [kekRotationCurrentDevice, setKekRotationCurrentDevice] = useState<{
@@ -98,6 +104,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
       revokedDeviceId: string
       workspacesToRotate: string[]
       trustedDeviceIds: Set<string>
+      documentsForRotation: WorkspaceDocumentsForRotation[]
     }
   } | null>(null)
 
@@ -175,7 +182,8 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
   const performKekRotation = async (
     revokedDeviceId: string,
     workspacesToRotate: string[],
-    trustedDeviceIds: Set<string>
+    trustedDeviceIds: Set<string>,
+    documentsForRotation: WorkspaceDocumentsForRotation[]
   ) => {
     if (!auth || !currentDevice) return
 
@@ -227,6 +235,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
                       revokedDeviceId,
                       workspacesToRotate,
                       trustedDeviceIds: new Set([...trustedDeviceIds]),
+                      documentsForRotation,
                     },
                   })
                   return // Pause rotation, wait for user confirmation
@@ -265,6 +274,24 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
 
         await encryptionApi.completeKekRotation(workspaceId, newVersion)
         console.log('[KEK Rotation] Completed rotation for workspace:', workspaceId)
+
+        // DEK rotation: generate new DEK for each document in this workspace
+        const wsRotation = documentsForRotation.find(r => r.workspace_id === workspaceId)
+        if (wsRotation) {
+          for (const documentId of wsRotation.document_ids) {
+            try {
+              const newDek = generateDek()
+              const { encryptedDek, nonce: dekNonce } = wrapDek(newDek, newKek, documentId, workspaceId)
+              await encryptionApi.saveDocumentKey(documentId, {
+                encrypted_dek: base64UrlEncode(encryptedDek),
+                nonce: base64UrlEncode(dekNonce),
+                is_active: true,
+              })
+            } catch (err) {
+              console.error('[DEK Rotation] Failed for document:', documentId, err)
+            }
+          }
+        }
       } catch (err) {
         if (!(err instanceof ApiError && err.status === 404)) {
           console.error('[KEK Rotation] Failed for workspace:', workspaceId, err)
@@ -303,36 +330,16 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
     }
 
     try {
-      // Create revocation signature
-      // Message format: user_id (16 bytes) || device_id (16 bytes) || revoked_at (8 bytes, big-endian) || revoked_by_device_id (16 bytes)
+      // Create revocation signature using JCS (JSON Canonicalization Scheme)
       const revokedAt = Date.now()
 
-      // Helper to convert UUID string to bytes
-      const uuidToBytes = (uuid: string): Uint8Array => {
-        const bytes = new Uint8Array(16)
-        const hex = uuid.replace(/-/g, '')
-        for (let i = 0; i < 16; i++) {
-          bytes[i] = parseInt(hex.substr(i * 2, 2), 16)
-        }
-        return bytes
-      }
-
-      // Convert UUIDs to bytes
-      const userIdBytes = uuidToBytes(auth.userId)
-      const deviceIdBytes = uuidToBytes(deviceId)
-      const revokedByDeviceIdBytes = uuidToBytes(currentDevice.deviceId)
-
-      // Convert timestamp to big-endian bytes
-      const timestampBytes = new Uint8Array(8)
-      const dv = new DataView(timestampBytes.buffer)
-      dv.setBigInt64(0, BigInt(revokedAt), false) // big-endian
-
-      // Concatenate message: user_id || device_id || revoked_at || revoked_by_device_id
-      const message = new Uint8Array(56) // 16 + 16 + 8 + 16 = 56 bytes
-      message.set(userIdBytes, 0)
-      message.set(deviceIdBytes, 16)
-      message.set(timestampBytes, 32)
-      message.set(revokedByDeviceIdBytes, 40)
+      // Build JCS signature message for device revocation
+      const message = buildSignatureMessage(SIGNATURE_ACTION.DEVICE_REVOCATION, {
+        user_id: auth.userId,
+        device_id: deviceId,
+        revoked_at: revokedAt,
+        revoked_by_device_id: currentDevice.deviceId,
+      })
 
       // Sign with identity key
       if (!auth.identityKeys) {
@@ -346,19 +353,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
         revoked_at: revokedAt,
       })
       const workspacesToRotate = response?.workspaces_needing_kek_rotation || []
-      const documentsNeedingDekRotation = response?.documents_needing_dek_rotation || []
-
-      // Log documents needing DEK rotation
-      // Note: Full DEK rotation requires API changes to support fetching DEKs by version.
-      // For now, the server enforces min_dek_version and documents will be rotated
-      // lazily when they are next opened and edited.
-      if (documentsNeedingDekRotation.length > 0) {
-        console.warn(
-          '[DEK Rotation] Documents needing DEK rotation after device revocation:',
-          documentsNeedingDekRotation.length,
-          'document(s). These will be rotated when next edited.'
-        )
-      }
+      const documentsForRotation: WorkspaceDocumentsForRotation[] = response?.documents_needing_dek_rotation || []
 
       // Perform KEK rotation for each workspace
       if (workspacesToRotate.length > 0) {
@@ -409,6 +404,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
             deviceIdToRevoke: deviceId,
             devicesWithKeyChange: keyChangeDevices,
             workspacesToRotate,
+            documentsForRotation,
           })
           // Show first device dialog
           setKekRotationCurrentDevice(keyChangeDevices[0])
@@ -417,7 +413,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
         }
 
         // No key changes, proceed with rotation directly
-        await performKekRotation(deviceId, workspacesToRotate, new Set())
+        await performKekRotation(deviceId, workspacesToRotate, new Set(), documentsForRotation)
       }
 
       await loadDevices()
@@ -487,7 +483,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
       setKekRotationCurrentDevice(null)
       const pending = kekRotationPending
       setKekRotationPending(null)
-      await performKekRotation(pending.deviceIdToRevoke, pending.workspacesToRotate, trustedIds)
+      await performKekRotation(pending.deviceIdToRevoke, pending.workspacesToRotate, trustedIds, pending.documentsForRotation)
     }
   }
 
@@ -508,7 +504,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
       const pending = kekRotationPending
       const trustedIds = kekRotationTrustedDevices
       setKekRotationPending(null)
-      await performKekRotation(pending.deviceIdToRevoke, pending.workspacesToRotate, trustedIds)
+      await performKekRotation(pending.deviceIdToRevoke, pending.workspacesToRotate, trustedIds, pending.documentsForRotation)
     }
   }
 
@@ -520,7 +516,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
     const pending = kekRotationPending
     const trustedIds = kekRotationTrustedDevices
     setKekRotationPending(null)
-    await performKekRotation(pending.deviceIdToRevoke, pending.workspacesToRotate, trustedIds)
+    await performKekRotation(pending.deviceIdToRevoke, pending.workspacesToRotate, trustedIds, pending.documentsForRotation)
   }
 
   // KEK distribution key change handlers (for unexpected key changes during distribution)
@@ -534,7 +530,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
     const { pendingContext } = kekDistributionKeyChange
     const newTrustedIds = new Set([...pendingContext.trustedDeviceIds, kekDistributionKeyChange.device.id])
     setKekDistributionKeyChange(null)
-    await performKekRotation(pendingContext.revokedDeviceId, pendingContext.workspacesToRotate, newTrustedIds)
+    await performKekRotation(pendingContext.revokedDeviceId, pendingContext.workspacesToRotate, newTrustedIds, pendingContext.documentsForRotation)
   }
 
   const handleKekDistributionBlock = async () => {
@@ -543,7 +539,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
     // Don't trust - skip this device and resume rotation
     const { pendingContext } = kekDistributionKeyChange
     setKekDistributionKeyChange(null)
-    await performKekRotation(pendingContext.revokedDeviceId, pendingContext.workspacesToRotate, pendingContext.trustedDeviceIds)
+    await performKekRotation(pendingContext.revokedDeviceId, pendingContext.workspacesToRotate, pendingContext.trustedDeviceIds, pendingContext.documentsForRotation)
   }
 
   const handleKekDistributionCancel = async () => {
@@ -552,7 +548,7 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
     // Cancel = same as block, skip device and continue
     const { pendingContext } = kekDistributionKeyChange
     setKekDistributionKeyChange(null)
-    await performKekRotation(pendingContext.revokedDeviceId, pendingContext.workspacesToRotate, pendingContext.trustedDeviceIds)
+    await performKekRotation(pendingContext.revokedDeviceId, pendingContext.workspacesToRotate, pendingContext.trustedDeviceIds, pendingContext.documentsForRotation)
   }
 
   // Show KEK distribution key change dialog if needed (unexpected key change during distribution)

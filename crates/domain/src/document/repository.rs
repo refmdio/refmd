@@ -82,8 +82,21 @@ pub trait DocumentUpdateRepository: Send + Sync {
     /// Get latest sequence number for a document
     async fn get_latest_seq(&self, document_id: DocumentId) -> Result<Option<i64>, Self::Error>;
 
-    /// Save update
-    async fn save(&self, update: &DocumentUpdate) -> Result<i64, Self::Error>;
+    /// Get the hash of the latest update for a document (for hash chain validation)
+    async fn get_latest_update_hash(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Option<String>, Self::Error>;
+
+    /// Save update atomically (assigns seq, verifies chain)
+    /// Returns (id, seq) on success
+    async fn save(&self, update: &DocumentUpdate) -> Result<(i64, i64), Self::Error>;
+
+    /// Check if an error represents a duplicate update_hash violation
+    fn is_duplicate_hash(err: &Self::Error) -> bool;
+
+    /// Check if an error represents a chain mismatch (prev_update_hash didn't match latest)
+    fn is_chain_mismatch(err: &Self::Error) -> bool;
 
     /// Delete updates by document ID
     async fn delete_by_document_id(&self, document_id: DocumentId) -> Result<(), Self::Error>;

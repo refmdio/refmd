@@ -12,6 +12,7 @@ use domain::identity::{Email, EmailError, User, UserRepository, UserSettings};
 use domain::workspace::{
     Slug, SlugError, Workspace, WorkspaceMember, WorkspaceRepository, WorkspaceRole,
 };
+use domain::signature::{build_signature_message, SignatureAction};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use std::sync::Arc;
 use thiserror::Error;
@@ -103,6 +104,9 @@ pub enum RegisterPasswordUserAtomicError<UR: std::error::Error, WR: std::error::
 
     #[error("registration transaction error: {0}")]
     Transaction(String),
+
+    #[error("random number generation failed: {0}")]
+    Rng(#[from] getrandom::Error),
 }
 
 impl<UR: std::error::Error, WR: std::error::Error> RegisterPasswordUserAtomicError<UR, WR> {
@@ -310,7 +314,7 @@ where
 
         // Try with random suffixes
         for _ in 0..10 {
-            let suffix = generate_random_suffix();
+            let suffix = generate_random_suffix()?;
             let new_slug_str = format!("{}-{}", base_slug.as_str(), suffix);
             if let Ok(new_slug) = Slug::new(new_slug_str) {
                 let exists = self
@@ -350,19 +354,17 @@ fn generate_slug(name: &str) -> Result<Slug, SlugError> {
     Slug::new(slug_str)
 }
 
-/// Generate a random 4-character suffix
-fn generate_random_suffix() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    format!("{:04x}", nanos % 0xFFFF)
+/// Generate a random 4-character hex suffix using CSPRNG
+fn generate_random_suffix() -> Result<String, getrandom::Error> {
+    let mut buf = [0u8; 2];
+    getrandom::fill(&mut buf)?;
+    Ok(format!("{:04x}", u16::from_be_bytes(buf)))
 }
 
-/// Verify identity signature over device keys
+/// Verify identity signature over device keys using JCS (JSON Canonicalization Scheme)
 ///
-/// The signature payload is: device_signing_pk || device_ecdh_pk || client_nonce
+/// Per spec: All signatures use the signature protocol format with
+/// canonicalized JSON including protocol, version, and action fields.
 /// This proves the user's identity key approved this device's key material.
 fn verify_device_identity_signature(
     identity_signing_pk: &[u8],
@@ -371,17 +373,30 @@ fn verify_device_identity_signature(
     client_nonce: &[u8],
     signature: &[u8],
 ) -> Result<(), ed25519_dalek::SignatureError> {
+    use serde::Serialize;
+
     // Parse identity signing public key
     let pk_bytes: [u8; 32] = identity_signing_pk
         .try_into()
         .map_err(|_| ed25519_dalek::SignatureError::new())?;
     let verifying_key = VerifyingKey::from_bytes(&pk_bytes)?;
 
-    // Build signature payload: device_signing_pk || device_ecdh_pk || client_nonce
-    let mut payload = Vec::with_capacity(32 + 32 + 16);
-    payload.extend_from_slice(device_signing_pk);
-    payload.extend_from_slice(device_ecdh_pk);
-    payload.extend_from_slice(client_nonce);
+    // Build JCS signature payload
+    #[derive(Serialize)]
+    struct RegistrationPayload {
+        client_nonce: String,
+        device_ecdh_public_key: String,
+        device_signing_public_key: String,
+    }
+
+    let payload = build_signature_message(
+        SignatureAction::DeviceRegistration,
+        &RegistrationPayload {
+            device_signing_public_key: base64_url::encode(device_signing_pk),
+            device_ecdh_public_key: base64_url::encode(device_ecdh_pk),
+            client_nonce: base64_url::encode(client_nonce),
+        },
+    );
 
     // Parse signature
     let sig_bytes: [u8; 64] = signature

@@ -89,6 +89,8 @@ export {
   unwrapDek,
   encryptContent,
   decryptContent,
+  computeUpdateHash,
+  signDocumentUpdate,
 } from './document'
 
 // DSK (Device Storage Key) functions

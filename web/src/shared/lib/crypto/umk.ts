@@ -6,8 +6,11 @@
 
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
+import { hkdf } from '@noble/hashes/hkdf.js'
+import { sha256 } from '@noble/hashes/sha2.js'
 import { buildUmkWrapAad, buildDeviceUmkDistributionAad } from './aad'
 import { ecdhSharedSecret } from './identity'
+import { HKDF_ZERO_SALT } from './kdf'
 
 /**
  * Generate a random User Master Key (256 bits)
@@ -65,9 +68,21 @@ export function unwrapUmk(
 }
 
 /**
- * Encrypt UMK for distribution to another device using ECDH
+ * Derive UMK distribution key from ECDH shared secret using HKDF
  *
- * Uses X25519 ECDH to derive a shared secret, then encrypts UMK with XChaCha20-Poly1305.
+ * Per spec: Uses 32-byte zero salt (safe for high-entropy IKM like ECDH shared secret)
+ * Info string "device_umk_wrap" provides domain separation from other ECDH-derived keys.
+ */
+function deriveUmkDistributionKey(sharedSecret: Uint8Array): Uint8Array {
+  const info = new TextEncoder().encode('device_umk_wrap')
+  return hkdf(sha256, sharedSecret, HKDF_ZERO_SALT, info, 32)
+}
+
+/**
+ * Encrypt UMK for distribution to another device using ECDH + HKDF
+ *
+ * Uses X25519 ECDH to derive a shared secret, HKDF for key derivation,
+ * then encrypts UMK with XChaCha20-Poly1305.
  *
  * @param umk User Master Key (32 bytes)
  * @param senderEcdhPrivate Sender's X25519 private key (32 bytes)
@@ -85,8 +100,9 @@ export function encryptUmkForDevice(
   senderDeviceId: string,
   targetDeviceId: string
 ): { encryptedUmk: Uint8Array; nonce: Uint8Array } {
-  // Derive shared secret using ECDH
+  // Derive shared secret using ECDH, then derive encryption key via HKDF
   const sharedSecret = ecdhSharedSecret(senderEcdhPrivate, targetEcdhPublic)
+  const encryptionKey = deriveUmkDistributionKey(sharedSecret)
 
   // XChaCha20-Poly1305 uses 24-byte nonce
   const nonce = randomBytes(24)
@@ -94,7 +110,7 @@ export function encryptUmkForDevice(
   // Build AAD for context binding
   const aad = buildDeviceUmkDistributionAad(userId, senderDeviceId, targetDeviceId)
 
-  const cipher = xchacha20poly1305(sharedSecret, nonce, aad)
+  const cipher = xchacha20poly1305(encryptionKey, nonce, aad)
   const encryptedUmk = cipher.encrypt(umk)
 
   return { encryptedUmk, nonce }
@@ -124,12 +140,13 @@ export function decryptUmkFromDevice(
   senderDeviceId: string,
   targetDeviceId: string
 ): Uint8Array {
-  // Derive shared secret using ECDH (same secret as sender computed)
+  // Derive shared secret using ECDH, then derive encryption key via HKDF
   const sharedSecret = ecdhSharedSecret(receiverEcdhPrivate, senderEcdhPublic)
+  const encryptionKey = deriveUmkDistributionKey(sharedSecret)
 
   // Reconstruct AAD for verification
   const aad = buildDeviceUmkDistributionAad(userId, senderDeviceId, targetDeviceId)
 
-  const cipher = xchacha20poly1305(sharedSecret, nonce, aad)
+  const cipher = xchacha20poly1305(encryptionKey, nonce, aad)
   return cipher.decrypt(encryptedUmk)
 }

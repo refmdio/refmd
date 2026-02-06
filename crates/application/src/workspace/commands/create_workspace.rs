@@ -47,6 +47,9 @@ pub enum CreateWorkspaceError<WR: std::error::Error, WMR: std::error::Error, WRR
 
     #[error("workspace role repository error: {0}")]
     WorkspaceRoleRepository(WRR),
+
+    #[error("random number generation failed: {0}")]
+    Rng(#[from] getrandom::Error),
 }
 
 /// Create workspace handler
@@ -142,7 +145,7 @@ where
 
         // Try with random suffixes
         for _ in 0..10 {
-            let suffix = generate_random_suffix();
+            let suffix = generate_random_suffix()?;
             let new_slug_str = format!("{}-{}", base_slug.as_str(), suffix);
             if let Ok(new_slug) = Slug::new(new_slug_str) {
                 let exists = self
@@ -180,12 +183,9 @@ fn generate_slug(name: &str) -> Result<Slug, SlugError> {
     Slug::new(slug_str)
 }
 
-/// Generate a random 4-character suffix
-fn generate_random_suffix() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    format!("{:04x}", nanos % 0xFFFF)
+/// Generate a random 4-character hex suffix using CSPRNG
+fn generate_random_suffix() -> Result<String, getrandom::Error> {
+    let mut buf = [0u8; 2];
+    getrandom::fill(&mut buf)?;
+    Ok(format!("{:04x}", u16::from_be_bytes(buf)))
 }

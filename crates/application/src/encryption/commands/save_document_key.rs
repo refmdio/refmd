@@ -131,7 +131,7 @@ where
         SaveDocumentKeyError<DKR::Error, DR::Error, MR::Error, RR::Error>,
     > {
         // 1. Get document to find workspace
-        let document = self
+        let mut document = self
             .document_repo
             .find_by_id(command.document_id)
             .await
@@ -166,7 +166,19 @@ where
             }
             KeyVersion::new(v as i32)
         } else {
-            KeyVersion::initial()
+            // Auto-determine: max(existing) + 1, at least min_dek_version
+            let existing_keys = self
+                .document_key_repo
+                .find_by_document_id(command.document_id)
+                .await
+                .map_err(SaveDocumentKeyError::DocumentKeyRepository)?;
+            let max_version = existing_keys
+                .iter()
+                .map(|k| k.key_version.as_i32())
+                .max()
+                .unwrap_or(0);
+            let next = std::cmp::max(max_version + 1, document.min_dek_version);
+            KeyVersion::new(next)
         };
 
         // 5. Check min_dek_version constraint
@@ -191,6 +203,15 @@ where
             .save(&key)
             .await
             .map_err(SaveDocumentKeyError::DocumentKeyRepository)?;
+
+        // 7. Auto-clear needs_dek_rotation if the new key meets min_dek_version
+        if key_version_i32 >= document.min_dek_version && document.needs_dek_rotation {
+            document.clear_dek_rotation_flag();
+            self.document_repo
+                .save(&document)
+                .await
+                .map_err(SaveDocumentKeyError::DocumentRepository)?;
+        }
 
         Ok(SaveDocumentKeyResult { key })
     }

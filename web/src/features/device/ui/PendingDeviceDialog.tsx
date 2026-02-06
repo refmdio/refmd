@@ -219,28 +219,10 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
         await handleTofuResult(tofuResult)
       }
 
-      // Distribute UMK to new device
-      // Encrypt UMK using ECDH: existing device's ECDH private key + new device's ECDH public key
-      // Note: Must use device ECDH keys (not identity ECDH keys) because backend returns
-      // sender's device ECDH public key for the receiver to derive the shared secret
-      const { encryptedUmk, nonce } = encryptUmkForDevice(
-        auth.umk,
-        currentDevice.deviceKeys.ecdhPrivateKey,
-        pendingDeviceKeys.ecdhPk,
-        auth.userId,
-        currentDevice.deviceId,
-        approveResponse.id
-      )
-
-      await deviceApi.distributeUmk(approveResponse.id, {
-        sender_device_id: currentDevice.deviceId,
-        pending_device_id: device.id,
-        encrypted_umk: base64UrlEncode(encryptedUmk),
-        nonce: base64UrlEncode(nonce),
-      })
-
-      // Distribute KEKs for all workspaces the user has access to
-      // This is required because KEKs are wrapped per-device
+      // Distribute KEKs BEFORE UMK — the distribute_umk endpoint emits the
+      // SSE `pending_approved` event that tells the new device to proceed.
+      // KEKs must already be on the server so the new device can decrypt
+      // workspace keys immediately after receiving the event.
       try {
         console.log('[KEK Distribution] Starting KEK distribution for new device:', approveResponse.id)
         const workspacesResponse = await workspaceApi.list()
@@ -287,11 +269,12 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
               approveResponse.id
             )
 
-            // Save KEK for new device
+            // Save KEK for new device (same version as existing key)
             console.log('[KEK Distribution] Saving KEK for new device, workspace:', workspaceId)
             await encryptionApi.saveWorkspaceKey(workspaceId, {
               device_id: approveResponse.id,
               sender_device_id: currentDevice.deviceId,
+              key_version: existingKey.key_version,
               encrypted_kek: base64UrlEncode(newEncryptedKek),
               nonce: base64UrlEncode(newKekNonce),
               is_active: true,
@@ -311,6 +294,27 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
         // Log but don't fail approval - KEK can be distributed on-demand
         console.error('[KEK Distribution] Failed to distribute KEKs:', err)
       }
+
+      // Distribute UMK to new device — this triggers the SSE `pending_approved` event
+      // that tells the new device it can proceed. KEKs are already on the server.
+      // Encrypt UMK using ECDH: existing device's ECDH private key + new device's ECDH public key
+      // Note: Must use device ECDH keys (not identity ECDH keys) because backend returns
+      // sender's device ECDH public key for the receiver to derive the shared secret
+      const { encryptedUmk, nonce } = encryptUmkForDevice(
+        auth.umk,
+        currentDevice.deviceKeys.ecdhPrivateKey,
+        pendingDeviceKeys.ecdhPk,
+        auth.userId,
+        currentDevice.deviceId,
+        approveResponse.id
+      )
+
+      await deviceApi.distributeUmk(approveResponse.id, {
+        sender_device_id: currentDevice.deviceId,
+        pending_device_id: device.id,
+        encrypted_umk: base64UrlEncode(encryptedUmk),
+        nonce: base64UrlEncode(nonce),
+      })
 
       // Trust State Transfer: Wait for new device to request nonce, then submit trust state
       // This is non-blocking - we continue even if it fails

@@ -311,10 +311,14 @@ pub struct DocumentResponse {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_title_nonce: Option<String>,
     pub slug: String,
+    pub path: String,
     pub doc_type: String,
     pub is_encrypted: bool,
     pub is_archived: bool,
+    pub needs_dek_rotation: bool,
     pub created_by: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -375,6 +379,14 @@ pub struct DocumentUpdateResponse {
     pub nonce: String,
     /// DEK version used for encryption
     pub key_version: i32,
+    /// Content-addressable hash for idempotency
+    pub update_hash: String,
+    /// Hash of the previous update (null for first update)
+    pub prev_update_hash: Option<String>,
+    /// Ed25519 signature (base64url)
+    pub signature: String,
+    /// Device that authored this update
+    pub author_device_id: String,
     /// Client timestamp (milliseconds since epoch)
     pub timestamp: i64,
 }
@@ -401,6 +413,14 @@ pub struct CreateDocumentUpdateRequest {
     pub nonce: String,
     /// DEK version used for encryption
     pub key_version: i32,
+    /// Content-addressable hash for idempotency (base64url)
+    pub update_hash: String,
+    /// Hash of the previous update for hash chain (base64url, nullable for first update)
+    pub prev_update_hash: Option<String>,
+    /// Ed25519 signature over the update (base64url)
+    pub signature: String,
+    /// Device that authored this update
+    pub author_device_id: String,
     /// Client timestamp (milliseconds since epoch)
     pub timestamp: i64,
 }
@@ -415,6 +435,7 @@ pub struct CreateDocumentUpdateResponse {
 fn document_to_response(doc: application::domain::document::Document) -> DocumentResponse {
     // Compute is_archived before moving fields out of doc
     let is_archived = doc.is_archived();
+    let needs_dek_rotation = doc.needs_dek_rotation;
 
     DocumentResponse {
         id: doc.id.to_string(),
@@ -422,10 +443,13 @@ fn document_to_response(doc: application::domain::document::Document) -> Documen
         parent_id: doc.parent_id.map(|id| id.to_string()),
         title: doc.title,
         encrypted_title: doc.encrypted_title.map(|v| base64_url::encode(&v)),
+        encrypted_title_nonce: doc.encrypted_title_nonce.map(|v| base64_url::encode(&v)),
         slug: doc.slug,
+        path: doc.path.unwrap_or_default(),
         doc_type: doc.doc_type.as_str().to_string(),
         is_encrypted: doc.is_encrypted,
         is_archived,
+        needs_dek_rotation,
         created_by: doc.created_by.map(|id| id.to_string()),
         created_at: doc.created_at.to_rfc3339(),
         updated_at: doc.updated_at.to_rfc3339(),
@@ -1499,6 +1523,10 @@ where
                     update_data: base64_url::encode(&u.update_data),
                     nonce: base64_url::encode(&u.nonce),
                     key_version: u.key_version,
+                    update_hash: u.update_hash,
+                    prev_update_hash: u.prev_update_hash,
+                    signature: base64_url::encode(&u.signature),
+                    author_device_id: u.author_device_id.to_string(),
                     timestamp: u.timestamp,
                 })
                 .collect();
@@ -1636,7 +1664,45 @@ where
         state.document_update_repo(),
         state.workspace_member_repo(),
         state.workspace_role_repo(),
+        state.device_repo(),
     );
+
+    // Decode signature
+    let signature = match base64_url::decode(&request.signature) {
+        Ok(s) if s.len() == 64 => s,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DocumentErrorResponse {
+                    error: "invalid signature: must be 64 bytes (Ed25519)".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DocumentErrorResponse {
+                    error: "invalid signature encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Parse author_device_id
+    let author_device_id = match uuid::Uuid::parse_str(&request.author_device_id) {
+        Ok(id) => application::domain::encryption::DeviceId::from_uuid(id),
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DocumentErrorResponse {
+                    error: "invalid author_device_id".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
 
     let command = CreateDocumentUpdateCommand {
         document_id: DocumentId::from_uuid(document_id),
@@ -1644,6 +1710,10 @@ where
         update_data,
         nonce,
         key_version: request.key_version,
+        update_hash: request.update_hash,
+        prev_update_hash: request.prev_update_hash,
+        signature,
+        author_device_id,
         timestamp: request.timestamp,
     };
 

@@ -20,6 +20,8 @@ import {
   unwrapDek,
   encryptContent,
   decryptContent,
+  computeUpdateHash,
+  signDocumentUpdate,
 } from '@/shared/lib/crypto'
 import { useAuthContext } from '@/shared/context/AuthContext'
 import { useWorkspaceKek } from '@/features/workspace-crypto'
@@ -57,6 +59,7 @@ interface DocumentState {
   dek: Uint8Array
   keyVersion: number
   lastSavedState: Uint8Array | null
+  prevUpdateHash: string | null
   isDirty: boolean
   isSaving: boolean
   contentListeners: Set<(content: string) => void>
@@ -179,7 +182,17 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
             keyVersion = keyResponse.key_version
 
             // Decrypt DEK with KEK
-            dek = unwrapDek(encryptedDek, nonce, kek, documentId, document.workspace_id)
+            console.log('[DEK Unwrap] documentId:', documentId, 'workspaceId:', document.workspace_id)
+            console.log('[DEK Unwrap] encryptedDek length:', encryptedDek.length)
+            console.log('[DEK Unwrap] nonce length:', nonce.length)
+            console.log('[DEK Unwrap] kek length:', kek.length)
+            console.log('[DEK Unwrap] keyVersion:', keyVersion)
+            try {
+              dek = unwrapDek(encryptedDek, nonce, kek, documentId, document.workspace_id)
+            } catch (unwrapErr) {
+              console.error('[DEK Unwrap] FAILED', unwrapErr)
+              throw unwrapErr
+            }
           } catch (err) {
             // If no DEK exists, create one
             if (err instanceof ApiError && err.status === 404) {
@@ -208,15 +221,33 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
           const updatesResponse = await documentApi.listUpdates(documentId)
           const updates = updatesResponse.updates || []
 
-          for (const update of updates) {
+          let prevUpdateHash: string | null = null
+          for (const [index, update] of updates.entries()) {
             const encryptedData = base64UrlDecode(update.update_data)
             const nonce = base64UrlDecode(update.nonce)
 
             // Decrypt update with DEK
-            const decryptedUpdate = decryptContent(encryptedData, nonce, dek, documentId)
+            console.log(
+              '[Content Decrypt] update index:',
+              index,
+              'data length:',
+              encryptedData.length,
+              'nonce length:',
+              nonce.length
+            )
+            let decryptedUpdate: Uint8Array
+            try {
+              decryptedUpdate = decryptContent(encryptedData, nonce, dek, documentId)
+            } catch (decryptErr) {
+              console.error('[Content Decrypt] FAILED at update index:', index, decryptErr)
+              throw decryptErr
+            }
 
             // Apply to Y.Doc
             Y.applyUpdate(newYDoc, decryptedUpdate)
+
+            // Track the latest update hash for chain verification
+            prevUpdateHash = update.update_hash
           }
 
           // 4. Save initial state for dirty tracking
@@ -228,6 +259,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
             dek,
             keyVersion,
             lastSavedState,
+            prevUpdateHash,
             isDirty: false,
             isSaving: false,
             contentListeners: new Set(),
@@ -274,10 +306,12 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
       initializingPromises.set(documentId, initPromise)
 
       const state = await initPromise
-      if (!cancelled && state) {
-        setYDoc(state.yDoc)
-        const yText = state.yDoc.getText('content')
-        setContent(yText.toString())
+      if (!cancelled) {
+        if (state) {
+          setYDoc(state.yDoc)
+          const yText = state.yDoc.getText('content')
+          setContent(yText.toString())
+        }
         setIsLoading(false)
       }
     }
@@ -292,7 +326,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
   // Save function
   const save = useCallback(async () => {
     const state = documentCache.get(documentId)
-    if (!state || !auth || state.isSaving) {
+    if (!state || !auth || !device || state.isSaving) {
       return
     }
 
@@ -325,16 +359,106 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
       // Encrypt update with DEK
       const { encrypted, nonce } = encryptContent(updateToSave, state.dek, documentId)
 
-      // Send to server
-      await documentApi.createUpdate(documentId, {
-        update_data: base64UrlEncode(encrypted),
-        nonce: base64UrlEncode(nonce),
-        key_version: state.keyVersion,
-        timestamp: Date.now(),
+      const timestamp = Date.now()
+      const encryptedContentB64 = base64UrlEncode(encrypted)
+      const nonceB64 = base64UrlEncode(nonce)
+
+      // Compute update hash using JCS-normalized BLAKE3
+      const updateHash = computeUpdateHash({
+        documentId,
+        encryptedContent: encryptedContentB64,
+        nonce: nonceB64,
+        keyVersion: state.keyVersion,
+        prevUpdateHash: state.prevUpdateHash,
+        timestamp,
+        authorDeviceId: device.deviceId,
       })
 
-      // Update saved state
+      // Sign update metadata with device signing key
+      const signature = signDocumentUpdate({
+        signingPrivateKey: device.deviceKeys.signingPrivateKey,
+        documentId,
+        updateHash,
+        prevUpdateHash: state.prevUpdateHash,
+        keyVersion: state.keyVersion,
+        timestamp,
+      })
+
+      // Send to server
+      try {
+        await documentApi.createUpdate(documentId, {
+          update_data: encryptedContentB64,
+          nonce: nonceB64,
+          key_version: state.keyVersion,
+          update_hash: updateHash,
+          prev_update_hash: state.prevUpdateHash,
+          signature: base64UrlEncode(signature),
+          author_device_id: device.deviceId,
+          timestamp,
+        })
+      } catch (saveErr) {
+        // If key version is too old (DEK was rotated), refresh DEK and retry
+        if (saveErr instanceof ApiError && saveErr.status === 400 && kek) {
+          if (saveErr.body?.error?.includes('key version too old')) {
+            console.log('[Save] DEK version outdated, refreshing...')
+            const keyResponse = await encryptionApi.getDocumentKey(documentId)
+            const freshEncryptedDek = base64UrlDecode(keyResponse.encrypted_dek)
+            const freshNonce = base64UrlDecode(keyResponse.nonce)
+            const doc = document
+            if (!doc) throw saveErr
+            const freshDek = unwrapDek(freshEncryptedDek, freshNonce, kek, documentId, doc.workspace_id)
+            state.dek = freshDek
+            state.keyVersion = keyResponse.key_version
+
+            // Re-encrypt with new DEK
+            const { encrypted: reEncrypted, nonce: reNonce } = encryptContent(updateToSave, freshDek, documentId)
+            const reTimestamp = Date.now()
+            const reEncB64 = base64UrlEncode(reEncrypted)
+            const reNonceB64 = base64UrlEncode(reNonce)
+
+            const reHash = computeUpdateHash({
+              documentId,
+              encryptedContent: reEncB64,
+              nonce: reNonceB64,
+              keyVersion: state.keyVersion,
+              prevUpdateHash: state.prevUpdateHash,
+              timestamp: reTimestamp,
+              authorDeviceId: device.deviceId,
+            })
+
+            const reSig = signDocumentUpdate({
+              signingPrivateKey: device.deviceKeys.signingPrivateKey,
+              documentId,
+              updateHash: reHash,
+              prevUpdateHash: state.prevUpdateHash,
+              keyVersion: state.keyVersion,
+              timestamp: reTimestamp,
+            })
+
+            await documentApi.createUpdate(documentId, {
+              update_data: reEncB64,
+              nonce: reNonceB64,
+              key_version: state.keyVersion,
+              update_hash: reHash,
+              prev_update_hash: state.prevUpdateHash,
+              signature: base64UrlEncode(reSig),
+              author_device_id: device.deviceId,
+              timestamp: reTimestamp,
+            })
+
+            state.lastSavedState = currentState
+            state.prevUpdateHash = reHash
+            state.isDirty = false
+            setIsDirty(false)
+            return
+          }
+        }
+        throw saveErr
+      }
+
+      // Update saved state and chain hash
       state.lastSavedState = currentState
+      state.prevUpdateHash = updateHash
       state.isDirty = false
       setIsDirty(false)
     } catch (err) {
@@ -343,7 +467,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
       state.isSaving = false
       setIsSaving(false)
     }
-  }, [documentId, auth])
+  }, [documentId, auth, device, kek, document])
 
   // Handle KEK loading/error
   useEffect(() => {

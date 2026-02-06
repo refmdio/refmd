@@ -1,9 +1,11 @@
 //! Device-related key entities
 
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 
 use super::value_objects::DeviceId;
 use crate::identity::UserId;
+use crate::signature::{build_signature_message, SignatureAction};
 
 /// Device Revocation Event
 /// Signed by Identity key to prevent server tampering.
@@ -46,15 +48,28 @@ impl DeviceRevocationEvent {
         DateTime::from_timestamp_millis(self.revoked_at).unwrap_or(self.created_at)
     }
 
-    /// Get the data that should be signed
-    /// Format: user_id || device_id || revoked_at || revoked_by_device_id
+    /// Get the data that should be signed using JCS (JSON Canonicalization Scheme)
+    ///
+    /// Per spec: All signatures use the signature protocol format with
+    /// canonicalized JSON including protocol, version, and action fields.
     pub fn signature_payload(&self) -> Vec<u8> {
-        let mut payload = Vec::new();
-        payload.extend_from_slice(self.user_id.as_uuid().as_bytes());
-        payload.extend_from_slice(self.device_id.as_uuid().as_bytes());
-        payload.extend_from_slice(&self.revoked_at.to_be_bytes());
-        payload.extend_from_slice(self.revoked_by_device_id.as_uuid().as_bytes());
-        payload
+        #[derive(Serialize)]
+        struct RevocationPayload {
+            device_id: String,
+            revoked_at: i64,
+            revoked_by_device_id: String,
+            user_id: String,
+        }
+
+        build_signature_message(
+            SignatureAction::DeviceRevocation,
+            &RevocationPayload {
+                user_id: self.user_id.as_uuid().to_string(),
+                device_id: self.device_id.as_uuid().to_string(),
+                revoked_at: self.revoked_at,
+                revoked_by_device_id: self.revoked_by_device_id.as_uuid().to_string(),
+            },
+        )
     }
 }
 

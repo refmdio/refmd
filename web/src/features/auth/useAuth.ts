@@ -30,6 +30,8 @@ import {
   generateDeviceKeyPair,
   generateClientNonce,
   sign,
+  buildSignatureMessage,
+  SIGNATURE_ACTION,
   // Session storage (for rememberMe=false)
   storeSessionUmk,
   loadSessionUmk,
@@ -137,11 +139,12 @@ export async function register(
   const deviceKeys = generateDeviceKeyPair()
   const clientNonce = generateClientNonce()
 
-  // Build message to sign: device_signing_pk || device_ecdh_pk || client_nonce
-  const deviceSignMessage = new Uint8Array(32 + 32 + 16)
-  deviceSignMessage.set(deviceKeys.signingPublicKey, 0)
-  deviceSignMessage.set(deviceKeys.ecdhPublicKey, 32)
-  deviceSignMessage.set(clientNonce, 64)
+  // Build JCS signature message for device registration
+  const deviceSignMessage = buildSignatureMessage(SIGNATURE_ACTION.DEVICE_REGISTRATION, {
+    device_signing_public_key: base64UrlEncode(deviceKeys.signingPublicKey),
+    device_ecdh_public_key: base64UrlEncode(deviceKeys.ecdhPublicKey),
+    client_nonce: base64UrlEncode(clientNonce),
+  })
 
   // Sign with identity signing private key
   const deviceIdentitySignature = sign(deviceSignMessage, identityKeys.signingPrivate)
@@ -348,9 +351,9 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
     meResponse = await authApi.me()
   } catch (error) {
     if (error instanceof ApiRequestError && error.status === 401) {
-      // Session expired, clear all cached data
+      // Session expired/invalid. Keep DSK-backed data so device registration
+      // persists across tab close and user can re-authenticate without losing keys.
       clearSessionUmk()
-      await clearDskData()
       return null
     }
     throw error

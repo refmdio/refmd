@@ -76,6 +76,9 @@ pub enum RecoverySessionError<
 
     #[error("challenge store error")]
     ChallengeStoreError,
+
+    #[error("random number generator error: {0}")]
+    Rng(getrandom::Error),
 }
 
 impl<UR, SR, UIP, DR> RecoverySessionError<UR, SR, UIP, DR>
@@ -123,7 +126,8 @@ where
             | RecoverySessionError::SessionRepository(_)
             | RecoverySessionError::IdentityKeyRepository(_)
             | RecoverySessionError::DeviceRepository(_)
-            | RecoverySessionError::ChallengeStoreError => "internal server error",
+            | RecoverySessionError::ChallengeStoreError
+            | RecoverySessionError::Rng(_) => "internal server error",
         }
     }
 }
@@ -258,7 +262,8 @@ where
             })?;
 
         // Generate session token
-        let session_token = generate_session_token();
+        let session_token =
+            generate_session_token().map_err(RecoverySessionError::Rng)?;
         let token_hash = hash_session_token(&session_token);
 
         // Create session (no device binding for recovery)
@@ -288,15 +293,15 @@ where
 }
 
 /// Generate a cryptographically secure session token
-fn generate_session_token() -> String {
+fn generate_session_token() -> Result<String, getrandom::Error> {
     use std::fmt::Write;
     let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).expect("Failed to generate random bytes");
+    getrandom::fill(&mut bytes)?;
     let mut hex = String::with_capacity(64);
     for b in bytes {
         write!(&mut hex, "{:02x}", b).expect("Failed to write hex");
     }
-    hex
+    Ok(hex)
 }
 
 /// Hash session token for storage

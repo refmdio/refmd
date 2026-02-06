@@ -95,6 +95,9 @@ pub enum LoginPasswordUserError<
 
     #[error("device repository error: {0}")]
     DeviceRepository(DR),
+
+    #[error("random number generator error: {0}")]
+    Rng(getrandom::Error),
 }
 
 impl<UR, SR, UEM, UEI, DR> LoginPasswordUserError<UR, SR, UEM, UEI, DR>
@@ -138,7 +141,8 @@ where
             | LoginPasswordUserError::SessionRepository(_)
             | LoginPasswordUserError::EncryptedMasterKeyRepository(_)
             | LoginPasswordUserError::EncryptedIdentityKeyRepository(_)
-            | LoginPasswordUserError::DeviceRepository(_) => "internal server error",
+            | LoginPasswordUserError::DeviceRepository(_)
+            | LoginPasswordUserError::Rng(_) => "internal server error",
         }
     }
 
@@ -271,7 +275,8 @@ where
             .ok_or(LoginPasswordUserError::DataInconsistency)?;
 
         // Generate session token
-        let session_token = generate_session_token();
+        let session_token =
+            generate_session_token().map_err(LoginPasswordUserError::Rng)?;
         let token_hash = hash_session_token(&session_token);
 
         // Create session with device binding
@@ -340,15 +345,15 @@ where
 }
 
 /// Generate a cryptographically secure session token
-fn generate_session_token() -> String {
+fn generate_session_token() -> Result<String, getrandom::Error> {
     use std::fmt::Write;
     let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).expect("Failed to generate random bytes");
+    getrandom::fill(&mut bytes)?;
     let mut hex = String::with_capacity(64);
     for b in bytes {
         write!(&mut hex, "{:02x}", b).expect("Failed to write hex");
     }
-    hex
+    Ok(hex)
 }
 
 /// Hash session token for storage
