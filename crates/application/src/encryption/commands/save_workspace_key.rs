@@ -71,6 +71,9 @@ pub enum SaveWorkspaceKeyError<
     #[error("device does not belong to user")]
     DeviceNotOwned,
 
+    #[error("KEK already exists for this workspace: use backup restore or device distribution instead of creating a new key")]
+    KeyAlreadyExists,
+
     #[error("workspace key repository error: {0}")]
     WorkspaceKeyRepository(WKR),
 
@@ -102,6 +105,10 @@ impl<
                 | SaveWorkspaceKeyError::PermissionDenied
                 | SaveWorkspaceKeyError::DeviceNotOwned
         )
+    }
+
+    pub fn is_conflict(&self) -> bool {
+        matches!(self, SaveWorkspaceKeyError::KeyAlreadyExists)
     }
 
     pub fn is_bad_request(&self) -> bool {
@@ -226,6 +233,13 @@ where
                 .find_by_workspace_id(command.workspace_id)
                 .await
                 .map_err(SaveWorkspaceKeyError::WorkspaceKeyRepository)?;
+
+            // Guard: if keys already exist for this workspace, reject auto-version
+            // (prevents key fork — new KEK creation is only valid for brand-new workspaces)
+            if !existing_keys.is_empty() {
+                return Err(SaveWorkspaceKeyError::KeyAlreadyExists);
+            }
+
             let max_version = existing_keys
                 .iter()
                 .map(|k| k.key_version.as_i32())

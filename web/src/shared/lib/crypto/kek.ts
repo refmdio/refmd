@@ -10,7 +10,7 @@ import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { buildDeviceKekDistributionAad } from './aad'
+import { buildDeviceKekDistributionAad, buildUmkKekBackupAad } from './aad'
 import { ecdhSharedSecret } from './identity'
 import { HKDF_ZERO_SALT } from './kdf'
 
@@ -70,6 +70,55 @@ export function encryptKekForDevice(
   const encryptedKek = cipher.encrypt(kek)
 
   return { encryptedKek, nonce }
+}
+
+/**
+ * Wrap KEK with UMK for backup (direct XChaCha20-Poly1305, no HKDF)
+ *
+ * @param kek Key Encryption Key (32 bytes)
+ * @param umk User Master Key (32 bytes)
+ * @param workspaceId Workspace ID for AAD binding
+ * @param userId User ID for AAD binding
+ * @param keyVersion KEK version for AAD binding (prevents version mixup)
+ * @returns { encryptedKek, nonce } - encrypted KEK and nonce
+ */
+export function wrapKekWithUmk(
+  kek: Uint8Array,
+  umk: Uint8Array,
+  workspaceId: string,
+  userId: string,
+  keyVersion: number
+): { encryptedKek: Uint8Array; nonce: Uint8Array } {
+  const nonce = randomBytes(24)
+  const aad = buildUmkKekBackupAad(workspaceId, userId, keyVersion)
+  const cipher = xchacha20poly1305(umk, nonce, aad)
+  const encryptedKek = cipher.encrypt(kek)
+  return { encryptedKek, nonce }
+}
+
+/**
+ * Unwrap KEK from UMK backup (direct XChaCha20-Poly1305, no HKDF)
+ *
+ * @param encryptedKek Encrypted KEK
+ * @param nonce Nonce used for encryption
+ * @param umk User Master Key (32 bytes)
+ * @param workspaceId Workspace ID for AAD binding
+ * @param userId User ID for AAD binding
+ * @param keyVersion KEK version for AAD binding
+ * @returns Decrypted KEK (32 bytes)
+ * @throws Error if decryption fails
+ */
+export function unwrapKekWithUmk(
+  encryptedKek: Uint8Array,
+  nonce: Uint8Array,
+  umk: Uint8Array,
+  workspaceId: string,
+  userId: string,
+  keyVersion: number
+): Uint8Array {
+  const aad = buildUmkKekBackupAad(workspaceId, userId, keyVersion)
+  const cipher = xchacha20poly1305(umk, nonce, aad)
+  return cipher.decrypt(encryptedKek)
 }
 
 /**

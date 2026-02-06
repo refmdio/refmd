@@ -66,6 +66,7 @@ export {
   buildIdentitySigningAad,
   buildDeviceUmkDistributionAad,
   buildDeviceKekDistributionAad,
+  buildUmkKekBackupAad,
   buildDekWrapAad,
   buildDocumentContentAad,
   canonicalizeBytes,
@@ -80,6 +81,8 @@ export {
   generateKek,
   encryptKekForDevice,
   decryptKekFromDevice,
+  wrapKekWithUmk,
+  unwrapKekWithUmk,
 } from './kek'
 
 // Document encryption functions

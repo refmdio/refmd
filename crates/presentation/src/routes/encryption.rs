@@ -18,8 +18,10 @@ use application::domain::workspace::{
 };
 use application::encryption::{
     CompleteKekRotationCommand, CompleteKekRotationHandler, GetDocumentKeyHandler,
-    GetDocumentKeyQuery, GetWorkspaceKeyHandler, GetWorkspaceKeyQuery, SaveDocumentKeyCommand,
-    SaveDocumentKeyHandler, SaveWorkspaceKeyCommand, SaveWorkspaceKeyHandler,
+    GetDocumentKeyQuery, GetWorkspaceKekBackupHandler, GetWorkspaceKekBackupQuery,
+    GetWorkspaceKeyHandler, GetWorkspaceKeyQuery, SaveDocumentKeyCommand, SaveDocumentKeyHandler,
+    SaveWorkspaceKekBackupCommand, SaveWorkspaceKekBackupHandler, SaveWorkspaceKeyCommand,
+    SaveWorkspaceKeyHandler,
 };
 use application::identity::RegistrationService;
 use axum::{
@@ -86,6 +88,52 @@ where
             )
             .get(
                 get_workspace_key::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            ),
+        )
+        // Workspace KEK backup endpoints (UMK-wrapped)
+        .route(
+            "/workspaces/{workspace_id}/kek-backup",
+            post(
+                save_workspace_kek_backup::<
+                    U,
+                    S,
+                    US,
+                    UIP,
+                    UEM,
+                    UEI,
+                    WR,
+                    WMR,
+                    WRR,
+                    DR,
+                    DUR,
+                    WKR,
+                    DKR,
+                    RS,
+                    DER,
+                    PDR,
+                    UMKR,
+                >,
+            )
+            .get(
+                get_workspace_kek_backup::<
                     U,
                     S,
                     US,
@@ -310,6 +358,40 @@ pub struct CompleteKekRotationResponse {
     pub new_min_kek_version: i32,
 }
 
+/// Save workspace KEK backup request (UMK-wrapped)
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SaveWorkspaceKekBackupRequest {
+    /// Key version (required, must match active KEK version)
+    #[schema(example = 1)]
+    pub key_version: u32,
+    /// Encrypted KEK (base64url encoded, encrypted with UMK)
+    #[schema(example = "base64url-encoded-encrypted-kek")]
+    pub encrypted_kek: String,
+    /// Encryption nonce (base64url encoded, 24 bytes)
+    #[schema(example = "base64url-encoded-nonce")]
+    pub nonce: String,
+}
+
+/// Workspace KEK backup response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WorkspaceKekBackupResponse {
+    /// Workspace ID
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    pub workspace_id: String,
+    /// User ID
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    pub user_id: String,
+    /// Key version
+    #[schema(example = 1)]
+    pub key_version: i32,
+    /// Encrypted KEK (base64url encoded)
+    #[schema(example = "base64url-encoded-encrypted-kek")]
+    pub encrypted_kek: String,
+    /// Encryption nonce (base64url encoded)
+    #[schema(example = "base64url-encoded-nonce")]
+    pub nonce: String,
+}
+
 // ============ Handlers ============
 
 /// Save workspace key (KEK)
@@ -328,6 +410,7 @@ pub struct CompleteKekRotationResponse {
         (status = 400, description = "Invalid request", body = EncryptionErrorResponse),
         (status = 401, description = "Not authenticated", body = EncryptionErrorResponse),
         (status = 403, description = "Permission denied", body = EncryptionErrorResponse),
+        (status = 409, description = "Key already exists for this workspace (key fork prevention)", body = EncryptionErrorResponse),
     ),
     tag = "encryption"
 )]
@@ -478,7 +561,9 @@ where
             (StatusCode::CREATED, Json(response)).into_response()
         }
         Err(e) => {
-            let (status, message) = if e.is_bad_request() {
+            let (status, message) = if e.is_conflict() {
+                (StatusCode::CONFLICT, e.to_string())
+            } else if e.is_bad_request() {
                 (StatusCode::BAD_REQUEST, e.to_string())
             } else if e.is_not_found() {
                 (StatusCode::NOT_FOUND, e.to_string())
@@ -1023,6 +1108,286 @@ where
                 (StatusCode::FORBIDDEN, e.to_string())
             } else {
                 tracing::error!("complete_kek_rotation internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
+            };
+            (status, Json(EncryptionErrorResponse { error: message })).into_response()
+        }
+    }
+}
+
+/// Save workspace KEK backup (UMK-wrapped)
+///
+/// Saves an encrypted KEK backup for the authenticated user.
+/// Requires workspace membership with Read permission.
+#[utoipa::path(
+    post,
+    path = "/api/encryption/workspaces/{workspace_id}/kek-backup",
+    request_body = SaveWorkspaceKekBackupRequest,
+    params(
+        ("workspace_id" = Uuid, Path, description = "Workspace ID")
+    ),
+    responses(
+        (status = 201, description = "Backup saved successfully", body = WorkspaceKekBackupResponse),
+        (status = 400, description = "Invalid request", body = EncryptionErrorResponse),
+        (status = 401, description = "Not authenticated", body = EncryptionErrorResponse),
+        (status = 403, description = "Permission denied", body = EncryptionErrorResponse),
+    ),
+    tag = "encryption"
+)]
+pub async fn save_workspace_kek_backup<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    headers: axum::http::HeaderMap,
+    Path(workspace_id): Path<Uuid>,
+    Json(request): Json<SaveWorkspaceKekBackupRequest>,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    // Authenticate
+    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
+        Ok(u) => u,
+        Err(e) => return e.into_response(),
+    };
+
+    // Verify PoP
+    if let Err(e) = verify_pop(
+        &headers,
+        auth_user.user_id,
+        state.device_repo().as_ref(),
+        &state.challenge_store(),
+    )
+    .await
+    {
+        return e.into_response();
+    }
+
+    // Decode base64url fields
+    let encrypted_kek = match base64_url::decode(&request.encrypted_kek) {
+        Ok(k) => k,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(EncryptionErrorResponse {
+                    error: "invalid encrypted_kek encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let nonce = match base64_url::decode(&request.nonce) {
+        Ok(n) if n.len() == XCHACHA20_NONCE_SIZE => n,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(EncryptionErrorResponse {
+                    error: "invalid nonce length: expected 24 bytes".to_string(),
+                }),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(EncryptionErrorResponse {
+                    error: "invalid nonce encoding".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let handler = SaveWorkspaceKekBackupHandler::new(
+        state.workspace_kek_backup_repo(),
+        state.workspace_member_repo(),
+        state.workspace_role_repo(),
+        state.workspace_key_repo(),
+    );
+
+    let command = SaveWorkspaceKekBackupCommand {
+        workspace_id: WorkspaceId::from_uuid(workspace_id),
+        user_id: auth_user.user_id,
+        key_version: request.key_version,
+        encrypted_kek,
+        nonce,
+    };
+
+    match handler.handle(command).await {
+        Ok(result) => {
+            let response = WorkspaceKekBackupResponse {
+                workspace_id: result.backup.workspace_id.to_string(),
+                user_id: result.backup.user_id.to_string(),
+                key_version: result.backup.key_version.as_i32(),
+                encrypted_kek: base64_url::encode(&result.backup.encrypted_kek),
+                nonce: base64_url::encode(&result.backup.nonce),
+            };
+            (StatusCode::CREATED, Json(response)).into_response()
+        }
+        Err(e) => {
+            let (status, message) = if e.is_bad_request() {
+                (StatusCode::BAD_REQUEST, e.to_string())
+            } else if e.is_forbidden() {
+                (StatusCode::FORBIDDEN, e.to_string())
+            } else {
+                tracing::error!("save_workspace_kek_backup internal error: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
+            };
+            (status, Json(EncryptionErrorResponse { error: message })).into_response()
+        }
+    }
+}
+
+/// Get workspace KEK backup (UMK-wrapped)
+///
+/// Retrieves the active KEK backup for the authenticated user.
+/// Requires workspace membership with Read permission.
+#[utoipa::path(
+    get,
+    path = "/api/encryption/workspaces/{workspace_id}/kek-backup",
+    params(
+        ("workspace_id" = Uuid, Path, description = "Workspace ID")
+    ),
+    responses(
+        (status = 200, description = "Backup found", body = WorkspaceKekBackupResponse),
+        (status = 401, description = "Not authenticated", body = EncryptionErrorResponse),
+        (status = 403, description = "Permission denied", body = EncryptionErrorResponse),
+        (status = 404, description = "Backup not found", body = EncryptionErrorResponse),
+    ),
+    tag = "encryption"
+)]
+pub async fn get_workspace_kek_backup<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+>(
+    State(state): State<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    >,
+    headers: axum::http::HeaderMap,
+    Path(workspace_id): Path<Uuid>,
+) -> impl IntoResponse
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    // Authenticate
+    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
+        Ok(u) => u,
+        Err(e) => return e.into_response(),
+    };
+
+    // Verify PoP
+    if let Err(e) = verify_pop(
+        &headers,
+        auth_user.user_id,
+        state.device_repo().as_ref(),
+        &state.challenge_store(),
+    )
+    .await
+    {
+        return e.into_response();
+    }
+
+    let handler = GetWorkspaceKekBackupHandler::new(
+        state.workspace_kek_backup_repo(),
+        state.workspace_member_repo(),
+        state.workspace_role_repo(),
+    );
+
+    let query = GetWorkspaceKekBackupQuery {
+        workspace_id: WorkspaceId::from_uuid(workspace_id),
+        user_id: auth_user.user_id,
+    };
+
+    match handler.handle(query).await {
+        Ok(result) => {
+            let response = WorkspaceKekBackupResponse {
+                workspace_id: result.backup.workspace_id.to_string(),
+                user_id: result.backup.user_id.to_string(),
+                key_version: result.backup.key_version.as_i32(),
+                encrypted_kek: base64_url::encode(&result.backup.encrypted_kek),
+                nonce: base64_url::encode(&result.backup.nonce),
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            let (status, message) = if e.is_not_found() {
+                (StatusCode::NOT_FOUND, e.to_string())
+            } else if e.is_forbidden() {
+                (StatusCode::FORBIDDEN, e.to_string())
+            } else {
+                tracing::error!("get_workspace_kek_backup internal error: {}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal server error".to_string(),

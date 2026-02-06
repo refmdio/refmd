@@ -688,6 +688,44 @@ export const encryptionApi = {
   },
 
   /**
+   * Get workspace KEK backup (UMK-wrapped)
+   */
+  async getWorkspaceKekBackup(workspaceId: string) {
+    const { data, error, response } = await api.GET('/api/encryption/workspaces/{workspace_id}/kek-backup', {
+      params: { path: { workspace_id: workspaceId } },
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
+   * Save workspace KEK backup (UMK-wrapped)
+   */
+  async saveWorkspaceKekBackup(
+    workspaceId: string,
+    body: {
+      key_version: number
+      encrypted_kek: string
+      nonce: string
+    }
+  ) {
+    const { data, error, response } = await api.POST('/api/encryption/workspaces/{workspace_id}/kek-backup', {
+      params: { path: { workspace_id: workspaceId } },
+      body,
+    })
+
+    if (error) {
+      throw new ApiError(response.status, error)
+    }
+
+    return data
+  },
+
+  /**
    * Complete KEK rotation after distributing new KEKs to all devices
    */
   async completeKekRotation(workspaceId: string, newMinKekVersion: number) {

@@ -62,6 +62,9 @@ export const AAD_PURPOSE = {
   DOCUMENT_CONTENT: 'document_content',
   DOCUMENT_TAG_VALUE: 'document_tag_value',
 
+  // UMK KEK backup
+  UMK_KEK_BACKUP: 'umk_kek_backup',
+
   // Share related
   SHARE_DEK_WRAP: 'share_dek_wrap',
   SHARE_DEK_WRAP_PASSWORD: 'share_dek_wrap_password',
@@ -174,6 +177,24 @@ export function buildDeviceKekDistributionAad(
     user_id: userId,
     sender_device_id: senderDeviceId,
     target_device_id: targetDeviceId,
+  })
+}
+
+/**
+ * Build AAD for UMK KEK backup (KEK encrypted with UMK)
+ * Includes key_version to prevent version downgrade/mixup attacks.
+ */
+export function buildUmkKekBackupAad(
+  workspaceId: string,
+  userId: string,
+  keyVersion: number
+): Uint8Array {
+  return buildAad({
+    ...SIGNATURE_PROTOCOL,
+    purpose: AAD_PURPOSE.UMK_KEK_BACKUP,
+    workspace_id: workspaceId,
+    user_id: userId,
+    key_version: keyVersion,
   })
 }
 

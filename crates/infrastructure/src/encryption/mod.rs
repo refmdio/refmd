@@ -21,4 +21,5 @@ pub use user_key_repositories::{
 pub use workspace_key_repositories::{
     PgDocumentEncryptedKeyRepository, PgDocumentEncryptedKeyRepositoryError,
     PgWorkspaceEncryptedKeyRepository, PgWorkspaceEncryptedKeyRepositoryError,
+    PgWorkspaceKekBackupRepository, PgWorkspaceKekBackupRepositoryError,
 };

@@ -6,7 +6,7 @@ use super::device::{Device, PendingDevice};
 use super::device_keys::{DeviceEncryptedUMK, DeviceRevocationEvent};
 use super::user_keys::{UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey};
 use super::value_objects::DeviceId;
-use super::workspace_keys::{DocumentEncryptedKey, WorkspaceEncryptedKey};
+use super::workspace_keys::{DocumentEncryptedKey, WorkspaceEncryptedKey, WorkspaceKekBackup};
 use crate::document::DocumentId;
 use crate::identity::UserId;
 use crate::workspace::WorkspaceId;
@@ -189,6 +189,22 @@ pub trait DeviceRevocationEventRepository: Send + Sync {
 
     /// Save
     async fn save(&self, event: &DeviceRevocationEvent) -> Result<(), Self::Error>;
+}
+
+/// Workspace KEK Backup repository trait (KEK encrypted with UMK)
+#[async_trait]
+pub trait WorkspaceKekBackupRepository: Send + Sync {
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Find active backup for a workspace and user
+    async fn find_active_by_workspace_and_user(
+        &self,
+        workspace_id: WorkspaceId,
+        user_id: UserId,
+    ) -> Result<Option<WorkspaceKekBackup>, Self::Error>;
+
+    /// Save backup (deactivates existing active backup, then inserts)
+    async fn save(&self, backup: &WorkspaceKekBackup) -> Result<(), Self::Error>;
 }
 
 /// Device Encrypted UMK repository trait

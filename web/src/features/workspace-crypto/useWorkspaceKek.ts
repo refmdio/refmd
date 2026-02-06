@@ -16,6 +16,8 @@ import {
   generateKek,
   encryptKekForDevice,
   decryptKekFromDevice,
+  wrapKekWithUmk,
+  unwrapKekWithUmk,
 } from '@/shared/lib/crypto'
 import type { DeviceKeyPair } from '@/shared/lib/crypto'
 
@@ -33,14 +35,59 @@ const kekCache = new Map<string, Uint8Array>()
 const kekInitPromises = new Map<string, Promise<Uint8Array>>()
 
 /**
+ * Backfill UMK-wrapped KEK backup if one doesn't exist yet.
+ * Fire-and-forget: failures are logged but don't block KEK usage.
+ */
+async function backfillKekBackup(
+  workspaceId: string,
+  userId: string,
+  kek: Uint8Array,
+  umk: Uint8Array,
+  keyVersion: number
+): Promise<void> {
+  try {
+    await encryptionApi.getWorkspaceKekBackup(workspaceId)
+    // Backup already exists, nothing to do
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      try {
+        const { encryptedKek, nonce } = wrapKekWithUmk(kek, umk, workspaceId, userId, keyVersion)
+        await encryptionApi.saveWorkspaceKekBackup(workspaceId, {
+          key_version: keyVersion,
+          encrypted_kek: base64UrlEncode(encryptedKek),
+          nonce: base64UrlEncode(nonce),
+        })
+      } catch (backfillErr) {
+        // Distinguish crypto errors from API errors for debugging
+        if (backfillErr instanceof ApiError) {
+          console.warn('[KEK Backup] Backfill API error for workspace:', workspaceId, 'status:', backfillErr.status, backfillErr)
+        } else {
+          console.error('[KEK Backup] Backfill crypto error for workspace:', workspaceId, backfillErr)
+        }
+      }
+    } else {
+      // Non-404 error (API failure, auth issue, etc.) — log explicitly
+      const status = err instanceof ApiError ? err.status : 'unknown'
+      console.warn('[KEK Backup] Backfill check failed for workspace:', workspaceId, 'status:', status, err)
+    }
+  }
+}
+
+/**
  * Fetch or create KEK for a workspace (module-level, deduplicated).
  * Only one fetch/create will run per workspace at a time.
+ *
+ * Flow:
+ * 1. Try device ECDH key → success: backfill UMK backup if needed
+ * 2. 404 → Try UMK backup → success: re-wrap for device via ECDH
+ * 3. 404 → Generate new KEK + save device key + save UMK backup
  */
 async function fetchOrCreateKek(
   workspaceId: string,
   userId: string,
   deviceId: string,
-  deviceKeys: DeviceKeyPair
+  deviceKeys: DeviceKeyPair,
+  umk: Uint8Array | null | undefined
 ): Promise<Uint8Array> {
   // Check cache first
   const cached = kekCache.get(workspaceId)
@@ -56,7 +103,7 @@ async function fetchOrCreateKek(
 
   const promise = (async () => {
     try {
-      // Try to get existing KEK from server
+      // Try to get existing KEK from server (device ECDH wrapped)
       const response = await encryptionApi.getWorkspaceKey(workspaceId, deviceId)
       const encryptedKek = base64UrlDecode(response.encrypted_kek)
       const nonce = base64UrlDecode(response.nonce)
@@ -77,10 +124,75 @@ async function fetchOrCreateKek(
       )
 
       kekCache.set(workspaceId, decryptedKek)
+
+      // Fire-and-forget: backfill UMK backup for existing workspaces
+      if (umk) {
+        backfillKekBackup(workspaceId, userId, decryptedKek, umk, response.key_version)
+      }
+
       return decryptedKek
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
-        // No KEK exists — create one (workspace creator case)
+        // No device key exists — try UMK backup first
+        if (umk) {
+          try {
+            const backupResponse = await encryptionApi.getWorkspaceKekBackup(workspaceId)
+            const encryptedKek = base64UrlDecode(backupResponse.encrypted_kek)
+            const backupNonce = base64UrlDecode(backupResponse.nonce)
+
+            // Decrypt KEK from UMK backup
+            const restoredKek = unwrapKekWithUmk(
+              encryptedKek,
+              backupNonce,
+              umk,
+              workspaceId,
+              userId,
+              backupResponse.key_version
+            )
+
+            // Re-wrap for this device via ECDH and save
+            const { encryptedKek: deviceEncKek, nonce: deviceNonce } = encryptKekForDevice(
+              restoredKek,
+              deviceKeys.ecdhPrivateKey,
+              deviceKeys.ecdhPublicKey,
+              workspaceId,
+              userId,
+              deviceId,
+              deviceId
+            )
+
+            await encryptionApi.saveWorkspaceKey(workspaceId, {
+              device_id: deviceId,
+              sender_device_id: deviceId,
+              key_version: backupResponse.key_version,
+              encrypted_kek: base64UrlEncode(deviceEncKek),
+              nonce: base64UrlEncode(deviceNonce),
+              is_active: true,
+            })
+
+            kekCache.set(workspaceId, restoredKek)
+            return restoredKek
+          } catch (backupErr) {
+            if (backupErr instanceof ApiError && backupErr.status === 404) {
+              // No backup exists either — fall through to create new KEK
+            } else if (backupErr instanceof ApiError) {
+              // API error (auth, network, server) — do NOT fall through to create new KEK
+              throw new Error(
+                `Failed to fetch KEK backup for workspace ${workspaceId} (HTTP ${backupErr.status}). ` +
+                `Cannot determine if KEK exists. Retry later.`
+              )
+            } else {
+              // Crypto error (decryption failed) — backup exists but UMK mismatch
+              throw new Error(
+                `Failed to decrypt KEK backup for workspace ${workspaceId}. ` +
+                `This may indicate a UMK mismatch. Do not create a new KEK.`
+              )
+            }
+          }
+        }
+
+        // No KEK exists anywhere — try to create one (workspace creator case)
+        // Server rejects with 409 if keys already exist (prevents key fork)
         const newKek = generateKek()
 
         const { encryptedKek, nonce } = encryptKekForDevice(
@@ -93,16 +205,41 @@ async function fetchOrCreateKek(
           deviceId
         )
 
-        await encryptionApi.saveWorkspaceKey(workspaceId, {
-          device_id: deviceId,
-          sender_device_id: deviceId,
-          encrypted_kek: base64UrlEncode(encryptedKek),
-          nonce: base64UrlEncode(nonce),
-          is_active: true,
-        })
+        try {
+          const saveResponse = await encryptionApi.saveWorkspaceKey(workspaceId, {
+            device_id: deviceId,
+            sender_device_id: deviceId,
+            encrypted_kek: base64UrlEncode(encryptedKek),
+            nonce: base64UrlEncode(nonce),
+            is_active: true,
+          })
 
-        kekCache.set(workspaceId, newKek)
-        return newKek
+          // Save UMK backup for the new KEK
+          if (umk) {
+            const keyVersion = saveResponse.key_version
+            const { encryptedKek: bkpKek, nonce: bkpNonce } = wrapKekWithUmk(
+              newKek, umk, workspaceId, userId, keyVersion
+            )
+            await encryptionApi.saveWorkspaceKekBackup(workspaceId, {
+              key_version: keyVersion,
+              encrypted_kek: base64UrlEncode(bkpKek),
+              nonce: base64UrlEncode(bkpNonce),
+            })
+          }
+
+          kekCache.set(workspaceId, newKek)
+          return newKek
+        } catch (saveErr) {
+          if (saveErr instanceof ApiError && saveErr.status === 409) {
+            // KEK already exists but wasn't available via device key or backup.
+            // This device needs KEK distributed from an existing device.
+            throw new Error(
+              `Workspace ${workspaceId} already has encryption keys. ` +
+              `Please access from an existing device to distribute keys to this device.`
+            )
+          }
+          throw saveErr
+        }
       }
       throw err
     } finally {
@@ -121,12 +258,14 @@ async function fetchOrCreateKek(
  * @param userId User ID (from AuthContext)
  * @param deviceId Current device ID (from AuthContext)
  * @param deviceKeys Current device key pair (from AuthContext)
+ * @param umk User Master Key (for UMK backup restore/save)
  */
 export function useWorkspaceKek(
   workspaceId: string | null | undefined,
   userId: string | null | undefined,
   deviceId: string | null | undefined,
-  deviceKeys: DeviceKeyPair | null | undefined
+  deviceKeys: DeviceKeyPair | null | undefined,
+  umk: Uint8Array | null | undefined
 ): UseWorkspaceKekResult {
   const [kek, setKek] = useState<Uint8Array | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -149,14 +288,14 @@ export function useWorkspaceKek(
     setError(null)
 
     try {
-      const result = await fetchOrCreateKek(workspaceId, userId, deviceId, deviceKeys)
+      const result = await fetchOrCreateKek(workspaceId, userId, deviceId, deviceKeys, umk)
       setKek(result)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to fetch workspace key'))
     } finally {
       setIsLoading(false)
     }
-  }, [workspaceId, userId, deviceId, deviceKeys])
+  }, [workspaceId, userId, deviceId, deviceKeys, umk])
 
   // Fetch on mount and when dependencies change
   useEffect(() => {

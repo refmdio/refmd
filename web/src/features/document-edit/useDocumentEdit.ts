@@ -90,7 +90,8 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
     document?.workspace_id,
     auth?.userId,
     device?.deviceId,
-    device?.deviceKeys
+    device?.deviceKeys,
+    auth?.umk
   )
 
   // Load document metadata

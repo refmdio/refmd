@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::encryption::{
     DeviceId, DocumentEncryptedKey, DocumentEncryptedKeyRepository, DocumentId, KeyVersion,
-    WorkspaceEncryptedKey, WorkspaceEncryptedKeyRepository, WorkspaceId,
+    WorkspaceEncryptedKey, WorkspaceEncryptedKeyRepository, WorkspaceId, WorkspaceKekBackup,
+    WorkspaceKekBackupRepository,
 };
 use domain::identity::UserId;
 use sqlx::PgPool;
@@ -331,6 +332,122 @@ impl DocumentEncryptedKeyRepository for PgDocumentEncryptedKeyRepository {
             .execute(&self.pool)
             .await?;
 
+        Ok(())
+    }
+}
+
+// ============ WorkspaceKekBackup Repository ============
+
+/// PostgreSQL workspace KEK backup repository
+#[derive(Clone)]
+pub struct PgWorkspaceKekBackupRepository {
+    pool: PgPool,
+}
+
+impl PgWorkspaceKekBackupRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum PgWorkspaceKekBackupRepositoryError {
+    #[error("database error: {0}")]
+    Database(#[from] sqlx::Error),
+}
+
+#[derive(sqlx::FromRow)]
+struct WorkspaceKekBackupRow {
+    workspace_id: Uuid,
+    user_id: Uuid,
+    key_version: i32,
+    encrypted_kek: Vec<u8>,
+    nonce: Vec<u8>,
+    is_active: bool,
+    created_at: DateTime<Utc>,
+}
+
+impl From<WorkspaceKekBackupRow> for WorkspaceKekBackup {
+    fn from(row: WorkspaceKekBackupRow) -> Self {
+        Self {
+            workspace_id: WorkspaceId::from_uuid(row.workspace_id),
+            user_id: UserId::from_uuid(row.user_id),
+            key_version: KeyVersion::new(row.key_version),
+            encrypted_kek: row.encrypted_kek,
+            nonce: row.nonce,
+            is_active: row.is_active,
+            created_at: row.created_at,
+        }
+    }
+}
+
+#[async_trait]
+impl WorkspaceKekBackupRepository for PgWorkspaceKekBackupRepository {
+    type Error = PgWorkspaceKekBackupRepositoryError;
+
+    async fn find_active_by_workspace_and_user(
+        &self,
+        workspace_id: WorkspaceId,
+        user_id: UserId,
+    ) -> Result<Option<WorkspaceKekBackup>, Self::Error> {
+        let row = sqlx::query_as::<_, WorkspaceKekBackupRow>(
+            r#"
+            SELECT workspace_id, user_id, key_version, encrypted_kek, nonce, is_active, created_at
+            FROM workspace_kek_backups
+            WHERE workspace_id = $1 AND user_id = $2 AND is_active = TRUE
+            LIMIT 1
+            "#,
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(user_id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(WorkspaceKekBackup::from))
+    }
+
+    async fn save(&self, backup: &WorkspaceKekBackup) -> Result<(), Self::Error> {
+        let mut tx = self.pool.begin().await?;
+
+        // Deactivate existing active backup for this workspace+user
+        if backup.is_active {
+            sqlx::query(
+                r#"
+                UPDATE workspace_kek_backups
+                SET is_active = FALSE
+                WHERE workspace_id = $1 AND user_id = $2 AND is_active = TRUE
+                "#,
+            )
+            .bind(backup.workspace_id.as_uuid())
+            .bind(backup.user_id.as_uuid())
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // Insert new backup (ON CONFLICT updates ciphertext for idempotent retries)
+        sqlx::query(
+            r#"
+            INSERT INTO workspace_kek_backups (
+                workspace_id, user_id, key_version, encrypted_kek, nonce, is_active, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (workspace_id, user_id, key_version) DO UPDATE SET
+                encrypted_kek = EXCLUDED.encrypted_kek,
+                nonce = EXCLUDED.nonce,
+                is_active = EXCLUDED.is_active
+            "#,
+        )
+        .bind(backup.workspace_id.as_uuid())
+        .bind(backup.user_id.as_uuid())
+        .bind(backup.key_version.as_i32())
+        .bind(&backup.encrypted_kek)
+        .bind(&backup.nonce)
+        .bind(backup.is_active)
+        .bind(backup.created_at)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
         Ok(())
     }
 }

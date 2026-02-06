@@ -7,7 +7,7 @@ use application::domain::encryption::{
     DeviceEncryptedUMKRepository, DeviceRepository, DeviceRevocationEventRepository,
     DocumentEncryptedKeyRepository, PendingDeviceRepository, UserEncryptedIdentityKeyRepository,
     UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
-    WorkspaceEncryptedKeyRepository,
+    WorkspaceEncryptedKeyRepository, WorkspaceKekBackupRepository,
 };
 use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
 use application::domain::workspace::{
@@ -53,6 +53,10 @@ impl std::error::Error for BoxedError {
 pub type DynDeviceRevocationEventRepository =
     Arc<dyn DeviceRevocationEventRepository<Error = BoxedError>>;
 
+/// Type alias for dynamic WorkspaceKekBackupRepository
+pub type DynWorkspaceKekBackupRepository =
+    Arc<dyn WorkspaceKekBackupRepository<Error = BoxedError>>;
+
 /// Parameters for creating AppState
 pub struct AppStateParams<
     U,
@@ -92,6 +96,8 @@ pub struct AppStateParams<
     pub device_encrypted_umk_repo: Arc<UMKR>,
     /// Device revocation event repository for storing revocation signatures (dynamic dispatch)
     pub device_revocation_event_repo: DynDeviceRevocationEventRepository,
+    /// Workspace KEK backup repository (dynamic dispatch)
+    pub workspace_kek_backup_repo: DynWorkspaceKekBackupRepository,
     /// Device event bus for SSE notifications (dynamic dispatch)
     pub device_event_bus: DynDeviceEventBus,
     /// Challenge store for server-issued PoP challenges (dynamic dispatch)
@@ -151,6 +157,8 @@ where
     device_encrypted_umk_repo: Arc<UMKR>,
     /// Device revocation event repository for storing revocation signatures (dynamic dispatch)
     device_revocation_event_repo: DynDeviceRevocationEventRepository,
+    /// Workspace KEK backup repository (dynamic dispatch)
+    workspace_kek_backup_repo: DynWorkspaceKekBackupRepository,
     /// Device event bus for SSE notifications (dynamic dispatch)
     device_event_bus: DynDeviceEventBus,
     /// Challenge store for server-issued PoP challenges (dynamic dispatch)
@@ -230,6 +238,7 @@ where
             pending_device_repo: params.pending_device_repo,
             device_encrypted_umk_repo: params.device_encrypted_umk_repo,
             device_revocation_event_repo: params.device_revocation_event_repo,
+            workspace_kek_backup_repo: params.workspace_kek_backup_repo,
             device_event_bus: params.device_event_bus,
             challenge_store: params.challenge_store,
             recovery_challenge_store: params.recovery_challenge_store,
@@ -311,6 +320,10 @@ where
 
     pub fn device_revocation_event_repo(&self) -> DynDeviceRevocationEventRepository {
         Arc::clone(&self.device_revocation_event_repo)
+    }
+
+    pub fn workspace_kek_backup_repo(&self) -> DynWorkspaceKekBackupRepository {
+        Arc::clone(&self.workspace_kek_backup_repo)
     }
 
     pub fn device_event_bus(&self) -> &DynDeviceEventBus {

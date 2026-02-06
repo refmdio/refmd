@@ -474,6 +474,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/workspaces/{workspace_id}/kek-backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get workspace KEK backup (UMK-wrapped)
+         * @description Retrieves the active KEK backup for the authenticated user.
+         *     Requires workspace membership with Read permission.
+         */
+        get: operations["get_workspace_kek_backup"];
+        put?: never;
+        /**
+         * Save workspace KEK backup (UMK-wrapped)
+         * @description Saves an encrypted KEK backup for the authenticated user.
+         *     Requires workspace membership with Read permission.
+         */
+        post: operations["save_workspace_kek_backup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
         parameters: {
             query?: never;
@@ -1535,6 +1561,25 @@ export interface components {
              */
             nonce: string;
         };
+        /** @description Save workspace KEK backup request (UMK-wrapped) */
+        SaveWorkspaceKekBackupRequest: {
+            /**
+             * @description Encrypted KEK (base64url encoded, encrypted with UMK)
+             * @example base64url-encoded-encrypted-kek
+             */
+            encrypted_kek: string;
+            /**
+             * Format: int32
+             * @description Key version (required, must match active KEK version)
+             * @example 1
+             */
+            key_version: number;
+            /**
+             * @description Encryption nonce (base64url encoded, 24 bytes)
+             * @example base64url-encoded-nonce
+             */
+            nonce: string;
+        };
         /** @description Save workspace key request */
         SaveWorkspaceKeyRequest: {
             /**
@@ -1613,6 +1658,35 @@ export interface components {
              * @example workspace not found
              */
             error: string;
+        };
+        /** @description Workspace KEK backup response */
+        WorkspaceKekBackupResponse: {
+            /**
+             * @description Encrypted KEK (base64url encoded)
+             * @example base64url-encoded-encrypted-kek
+             */
+            encrypted_kek: string;
+            /**
+             * Format: int32
+             * @description Key version
+             * @example 1
+             */
+            key_version: number;
+            /**
+             * @description Encryption nonce (base64url encoded)
+             * @example base64url-encoded-nonce
+             */
+            nonce: string;
+            /**
+             * @description User ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            user_id: string;
+            /**
+             * @description Workspace ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            workspace_id: string;
         };
         /** @description Workspace key response */
         WorkspaceKeyResponse: {
@@ -3117,6 +3191,110 @@ export interface operations {
             };
         };
     };
+    get_workspace_kek_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backup found */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceKekBackupResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Backup not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+        };
+    };
+    save_workspace_kek_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveWorkspaceKekBackupRequest"];
+            };
+        };
+        responses: {
+            /** @description Backup saved successfully */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceKekBackupResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+        };
+    };
     complete_kek_rotation: {
         parameters: {
             query?: never;
@@ -3278,6 +3456,15 @@ export interface operations {
             };
             /** @description Permission denied */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EncryptionErrorResponse"];
+                };
+            };
+            /** @description Key already exists for this workspace (key fork prevention) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

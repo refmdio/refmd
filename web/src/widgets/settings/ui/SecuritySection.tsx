@@ -16,6 +16,7 @@ import {
   generateDek,
   generateKek,
   encryptKekForDevice,
+  wrapKekWithUmk,
   wrapDek,
   verifyTofu,
   handleTofuResult,
@@ -270,6 +271,20 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
           } catch (err) {
             console.error('[KEK Rotation] Failed to distribute KEK to device:', targetDevice.id, err)
           }
+        }
+
+        // Save UMK backup BEFORE completing rotation (mandatory step)
+        // If backup fails, abort rotation to prevent recovery-unreachable KEK
+        if (auth.umk) {
+          const { encryptedKek: bkpKek, nonce: bkpNonce } = wrapKekWithUmk(
+            newKek, auth.umk, workspaceId, auth.userId, newVersion
+          )
+          await encryptionApi.saveWorkspaceKekBackup(workspaceId, {
+            key_version: newVersion,
+            encrypted_kek: base64UrlEncode(bkpKek),
+            nonce: base64UrlEncode(bkpNonce),
+          })
+          console.log('[KEK Rotation] Saved UMK backup for workspace:', workspaceId)
         }
 
         await encryptionApi.completeKekRotation(workspaceId, newVersion)

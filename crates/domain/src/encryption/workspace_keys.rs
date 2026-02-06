@@ -72,6 +72,45 @@ impl WorkspaceEncryptedKey {
     }
 }
 
+/// Parameters for creating a new workspace KEK backup (encrypted with UMK)
+#[derive(Debug, Clone)]
+pub struct NewWorkspaceKekBackupParams {
+    pub workspace_id: WorkspaceId,
+    pub user_id: UserId,
+    pub key_version: KeyVersion,
+    pub encrypted_kek: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub is_active: bool,
+}
+
+/// Workspace KEK Backup
+/// KEK encrypted with UMK for recovery (device-independent).
+/// Unlike WorkspaceEncryptedKey which is per-device (ECDH), this is per-user (UMK).
+#[derive(Debug, Clone)]
+pub struct WorkspaceKekBackup {
+    pub workspace_id: WorkspaceId,
+    pub user_id: UserId,
+    pub key_version: KeyVersion,
+    pub encrypted_kek: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+impl WorkspaceKekBackup {
+    pub fn new(params: NewWorkspaceKekBackupParams) -> Self {
+        Self {
+            workspace_id: params.workspace_id,
+            user_id: params.user_id,
+            key_version: params.key_version,
+            encrypted_kek: params.encrypted_kek,
+            nonce: params.nonce,
+            is_active: params.is_active,
+            created_at: Utc::now(),
+        }
+    }
+}
+
 /// Document Encrypted Key (DEK)
 /// Encrypted with workspace's KEK.
 /// Supports key rotation with multiple versions.
