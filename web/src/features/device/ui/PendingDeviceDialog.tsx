@@ -33,6 +33,7 @@ import {
   encryptTrustState,
 } from '@/shared/lib/crypto'
 import { getAllTofuEntriesForUser } from '@/shared/lib/trust-store'
+import { checkKeyVersionRollback, pinKeyVersion, getKeyVersionPin } from '@/shared/lib/anti-rollback'
 import { KeyChangeWarningDialog } from '@/features/tofu'
 
 interface PendingDevice {
@@ -183,8 +184,8 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
         return
       }
 
-      if (tofuResult.status === 'identity_key_changed') {
-        // Show warning dialog for identity key change during re-verification
+      if (tofuResult.status === 'identity_key_changed' && !pendingKeyChangeTrust) {
+        // Show warning dialog only if user hasn't already confirmed the key change
         setKeyChangeWarning({
           oldFingerprint: tofuResult.oldFingerprint!,
           newFingerprint: tofuResult.newFingerprint!,
@@ -246,6 +247,38 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
               : currentDevice.deviceKeys.ecdhPublicKey
             const senderDeviceId = existingKey.sender_device_id || currentDevice.deviceId
 
+            // TOFU verification: verify KEK sender before decryption (fail-close)
+            if (senderDeviceId !== currentDevice.deviceId) {
+              if (!existingKey.sender_signing_public_key) {
+                console.error(`[KEK Distribution] Sender signing key missing for workspace ${workspaceId}, skipping`)
+                continue
+              }
+              const senderSigningPk = base64UrlDecode(existingKey.sender_signing_public_key)
+              const kekSenderTofuResult = await verifyTofu(
+                auth.userId,
+                senderDeviceId,
+                senderSigningPk,
+                senderEcdhPk
+              )
+
+              if (kekSenderTofuResult.status === 'ecdh_key_mismatch') {
+                console.error(`[KEK Distribution] Sender ECDH key mismatch for workspace ${workspaceId}`)
+                continue // Skip this workspace
+              }
+              if (kekSenderTofuResult.status === 'identity_key_changed') {
+                console.error(`[KEK Distribution] Sender identity key changed for workspace ${workspaceId}`)
+                continue // Skip this workspace
+              }
+              await handleTofuResult(kekSenderTofuResult)
+            }
+
+            // Anti-rollback: check KEK version before decrypting/distributing
+            const kekRollback = await checkKeyVersionRollback('kek', workspaceId, existingKey.key_version)
+            if (kekRollback.rolledBack) {
+              console.error(`[KEK Distribution] Rollback detected for workspace ${workspaceId}: v${existingKey.key_version} < pinned v${kekRollback.pinnedVersion}`)
+              continue // Skip this workspace
+            }
+
             // Decrypt KEK with current device's ECDH
             const decryptedKek = decryptKekFromDevice(
               existingEncryptedKek,
@@ -257,6 +290,13 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
               senderDeviceId,
               currentDevice.deviceId
             )
+
+            await pinKeyVersion({
+              type: 'kek',
+              id: workspaceId,
+              highestVersion: existingKey.key_version,
+              observedAt: Date.now(),
+            })
 
             // Re-encrypt KEK for new device using ECDH
             const { encryptedKek: newEncryptedKek, nonce: newKekNonce } = encryptKekForDevice(
@@ -282,10 +322,16 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
             console.log('[KEK Distribution] Successfully saved KEK for workspace:', workspaceId)
           } catch (err) {
             // Skip workspaces where we don't have KEK yet (might be new workspace)
-            if (!(err instanceof ApiError && err.status === 404)) {
-              console.error(`[KEK Distribution] Failed to distribute KEK for workspace ${workspaceId}:`, err)
+            if (err instanceof ApiError && err.status === 404) {
+              // Anti-rollback: if we previously observed a KEK version, 404 is suspicious
+              const existingKekPin = await getKeyVersionPin('kek', workspaceId)
+              if (existingKekPin) {
+                console.error(`[KEK Distribution] Rollback detected for workspace ${workspaceId}: server returned 404 but v${existingKekPin.highestVersion} was previously observed`)
+              } else {
+                console.log('[KEK Distribution] No existing KEK for workspace (404):', workspaceId)
+              }
             } else {
-              console.log('[KEK Distribution] No existing KEK for workspace (404):', workspaceId)
+              console.error(`[KEK Distribution] Failed to distribute KEK for workspace ${workspaceId}:`, err)
             }
           }
         }
@@ -311,7 +357,6 @@ export function PendingDeviceDialog({ device, onClose, onApproved }: PendingDevi
 
       await deviceApi.distributeUmk(approveResponse.id, {
         sender_device_id: currentDevice.deviceId,
-        pending_device_id: device.id,
         encrypted_umk: base64UrlEncode(encryptedUmk),
         nonce: base64UrlEncode(nonce),
       })

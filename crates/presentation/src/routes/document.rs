@@ -30,7 +30,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::auth::verify_pop;
+use crate::auth::PopVerifiedUser;
 
 /// Create document routes under /api/workspaces/{workspace_id}/documents
 ///
@@ -314,7 +314,8 @@ pub struct DocumentResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_title_nonce: Option<String>,
     pub slug: String,
-    pub path: String,
+    #[schema(nullable)]
+    pub path: Option<String>,
     pub doc_type: String,
     pub is_encrypted: bool,
     pub is_archived: bool,
@@ -445,7 +446,7 @@ fn document_to_response(doc: application::domain::document::Document) -> Documen
         encrypted_title: doc.encrypted_title.map(|v| base64_url::encode(&v)),
         encrypted_title_nonce: doc.encrypted_title_nonce.map(|v| base64_url::encode(&v)),
         slug: doc.slug,
-        path: doc.path.unwrap_or_default(),
+        path: doc.path,
         doc_type: doc.doc_type.as_str().to_string(),
         is_encrypted: doc.is_encrypted,
         is_archived,
@@ -498,7 +499,9 @@ pub async fn list_documents<
     >,
     Path(workspace_id): Path<Uuid>,
     Query(params): Query<ListDocumentsParams>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -519,12 +522,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     // Determine parent_id filter
     let parent_id = if params.root_only {
         Some(None) // Root documents only
@@ -540,7 +537,7 @@ where
 
     let query = ListDocumentsQuery {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
         parent_id,
         include_archived: params.include_archived,
     };
@@ -620,7 +617,9 @@ pub async fn create_document<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
     Path(workspace_id): Path<Uuid>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
     Json(request): Json<CreateDocumentRequest>,
 ) -> impl IntoResponse
 where
@@ -642,12 +641,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     // Decode encrypted title if provided
     let encrypted_title = request
         .encrypted_title
@@ -693,7 +686,7 @@ where
 
     let command = CreateDocumentCommand {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
         title: request.title,
         parent_id: request.parent_id.map(DocumentId::from_uuid),
         encrypted_title,
@@ -775,7 +768,9 @@ pub async fn get_document<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
     Path(document_id): Path<Uuid>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -796,12 +791,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     let handler = GetDocumentHandler::new(
         state.document_repo(),
         state.workspace_member_repo(),
@@ -810,7 +799,7 @@ where
 
     let query = GetDocumentQuery {
         document_id: DocumentId::from_uuid(document_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
     };
 
     match handler.handle(query).await {
@@ -881,7 +870,9 @@ pub async fn update_document<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
     Path(document_id): Path<Uuid>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
     Json(request): Json<UpdateDocumentRequest>,
 ) -> impl IntoResponse
 where
@@ -903,12 +894,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     // Decode encrypted title if provided
     let encrypted_title = request
         .encrypted_title
@@ -954,7 +939,7 @@ where
 
     let command = UpdateDocumentCommand {
         document_id: DocumentId::from_uuid(document_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
         title: request.title,
         encrypted_title,
         encrypted_title_nonce,
@@ -1032,7 +1017,9 @@ pub async fn delete_document<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
     Path(document_id): Path<Uuid>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -1053,12 +1040,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     let handler = DeleteDocumentHandler::new(
         state.document_repo(),
         state.workspace_member_repo(),
@@ -1067,7 +1048,7 @@ where
 
     let command = DeleteDocumentCommand {
         document_id: DocumentId::from_uuid(document_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
     };
 
     match handler.handle(command).await {
@@ -1139,7 +1120,9 @@ pub async fn archive_document<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
     Path(document_id): Path<Uuid>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -1160,12 +1143,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     let handler = ArchiveDocumentHandler::new(
         state.document_repo(),
         state.workspace_member_repo(),
@@ -1174,7 +1151,7 @@ where
 
     let command = ArchiveDocumentCommand {
         document_id: DocumentId::from_uuid(document_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
     };
 
     match handler.handle(command).await {
@@ -1246,7 +1223,9 @@ pub async fn unarchive_document<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
     Path(document_id): Path<Uuid>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -1267,12 +1246,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     let handler = UnarchiveDocumentHandler::new(
         state.document_repo(),
         state.workspace_member_repo(),
@@ -1281,7 +1254,7 @@ where
 
     let command = UnarchiveDocumentCommand {
         document_id: DocumentId::from_uuid(document_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
     };
 
     match handler.handle(command).await {
@@ -1312,125 +1285,6 @@ where
                 .into_response()
         }
     }
-}
-
-/// Authenticated user info (minimal)
-struct AuthenticatedUser {
-    id: application::domain::identity::UserId,
-}
-
-/// Authenticate user from session cookie
-async fn authenticate_user<
-    U,
-    S,
-    US,
-    UIP,
-    UEM,
-    UEI,
-    WR,
-    WMR,
-    WRR,
-    DR,
-    DUR,
-    WKR,
-    DKR,
-    RS,
-    DER,
-    PDR,
-    UMKR,
->(
-    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-    headers: &axum::http::HeaderMap,
-) -> Result<AuthenticatedUser, axum::response::Response>
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
-    // Extract session token from cookie
-    let token = match crate::auth::extract_session_token(headers) {
-        Ok(t) => t,
-        Err(e) => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(DocumentErrorResponse { error: e.error }),
-            )
-                .into_response());
-        }
-    };
-
-    // Hash the token
-    let token_hash = crate::auth::hash_session_token(token);
-
-    // Validate session
-    let session_repo = state.session_repo();
-    let session = match session_repo.find_by_token_hash(&token_hash).await {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(DocumentErrorResponse {
-                    error: "invalid session".to_string(),
-                }),
-            )
-                .into_response());
-        }
-        Err(e) => {
-            tracing::error!("Failed to find session: {}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(DocumentErrorResponse {
-                    error: "internal server error".to_string(),
-                }),
-            )
-                .into_response());
-        }
-    };
-
-    // Check if session is expired
-    if session.is_expired() {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(DocumentErrorResponse {
-                error: "session expired".to_string(),
-            }),
-        )
-            .into_response());
-    }
-
-    // Verify PoP (Proof of Possession) - required for E2EE key operations
-    if let Err(e) = verify_pop(
-        headers,
-        session.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(DocumentErrorResponse { error: e.error }),
-        )
-            .into_response());
-    }
-
-    Ok(AuthenticatedUser {
-        id: session.user_id,
-    })
 }
 
 /// List document updates (CRDT update log)
@@ -1473,7 +1327,9 @@ pub async fn list_updates<
     >,
     Path(document_id): Path<Uuid>,
     Query(params): Query<ListDocumentUpdatesParams>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -1494,12 +1350,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     let handler = ListDocumentUpdatesHandler::new(
         state.document_repo(),
         state.document_update_repo(),
@@ -1509,7 +1359,7 @@ where
 
     let query = ListDocumentUpdatesQuery {
         document_id: DocumentId::from_uuid(document_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
         after_seq: params.after_seq,
     };
 
@@ -1603,7 +1453,9 @@ pub async fn create_update<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
     Path(document_id): Path<Uuid>,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
     Json(request): Json<CreateDocumentUpdateRequest>,
 ) -> impl IntoResponse
 where
@@ -1625,12 +1477,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     // Decode update_data
     let update_data = match base64_url::decode(&request.update_data) {
         Ok(d) => d,
@@ -1706,7 +1552,7 @@ where
 
     let command = CreateDocumentUpdateCommand {
         document_id: DocumentId::from_uuid(document_id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
         update_data,
         nonce,
         key_version: request.key_version,

@@ -36,7 +36,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::auth::verify_pop;
+use crate::auth::PopVerifiedUser;
 
 /// Create encryption routes
 pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
@@ -272,6 +272,10 @@ pub struct WorkspaceKeyResponse {
     #[schema(example = "base64url-encoded-ecdh-public-key")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sender_ecdh_public_key: Option<String>,
+    /// Sender device's signing public key (base64url encoded, for TOFU verification)
+    #[schema(example = "base64url-encoded-signing-public-key")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_signing_public_key: Option<String>,
     /// Key version
     #[schema(example = 1)]
     pub key_version: i32,
@@ -436,7 +440,7 @@ pub async fn save_workspace_key<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     Path(workspace_id): Path<Uuid>,
     Json(request): Json<SaveWorkspaceKeyRequest>,
 ) -> impl IntoResponse
@@ -459,28 +463,9 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate
-    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
-        Ok(u) => u,
-        Err(e) => return e.into_response(),
-    };
-
-    // Verify PoP (Proof of Possession) - required for E2EE key operations
-    let pop_verified = match verify_pop(
-        &headers,
-        auth_user.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => return e.into_response(),
-    };
-
     // Verify sender_device_id matches the PoP-verified device
     // This ensures the sender cannot impersonate another device
-    if pop_verified.device.id.as_uuid() != request.sender_device_id {
+    if pop_user.device.id.as_uuid() != request.sender_device_id {
         return (
             StatusCode::FORBIDDEN,
             Json(EncryptionErrorResponse {
@@ -536,7 +521,7 @@ where
 
     let command = SaveWorkspaceKeyCommand {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
-        user_id: auth_user.user_id,
+        user_id: pop_user.user.id,
         device_id: DeviceId::from_uuid(request.device_id),
         sender_device_id: DeviceId::from_uuid(request.sender_device_id),
         key_version: request.key_version,
@@ -553,6 +538,7 @@ where
                 device_id: result.key.device_id.to_string(),
                 sender_device_id: result.key.sender_device_id.to_string(),
                 sender_ecdh_public_key: None, // Not needed for save response (caller knows sender key)
+                sender_signing_public_key: None, // Not needed for save response
                 key_version: result.key.key_version.as_i32(),
                 encrypted_kek: base64_url::encode(&result.key.encrypted_kek),
                 nonce: base64_url::encode(&result.key.nonce),
@@ -622,7 +608,7 @@ pub async fn get_workspace_key<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     Path(workspace_id): Path<Uuid>,
     axum::extract::Query(params): axum::extract::Query<GetWorkspaceKeyParams>,
 ) -> impl IntoResponse
@@ -645,22 +631,16 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate
-    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
-        Ok(u) => u,
-        Err(e) => return e.into_response(),
-    };
-
-    // Verify PoP (Proof of Possession) - required for E2EE key operations
-    if let Err(e) = verify_pop(
-        &headers,
-        auth_user.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return e.into_response();
+    // PoP device binding: ensure the requesting device matches the PoP-verified device
+    let requested_device_id = DeviceId::from_uuid(params.device_id);
+    if requested_device_id != pop_user.device.id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(EncryptionErrorResponse {
+                error: "device_id does not match PoP-verified device".to_string(),
+            }),
+        )
+            .into_response();
     }
 
     let handler = GetWorkspaceKeyHandler::new(
@@ -672,8 +652,8 @@ where
 
     let query = GetWorkspaceKeyQuery {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
-        user_id: auth_user.user_id,
-        device_id: DeviceId::from_uuid(params.device_id),
+        user_id: pop_user.user.id,
+        device_id: requested_device_id,
     };
 
     match handler.handle(query).await {
@@ -685,6 +665,9 @@ where
                 sender_device_id: result.key.sender_device_id.to_string(),
                 sender_ecdh_public_key: result
                     .sender_ecdh_public_key
+                    .map(|k| base64_url::encode(&k)),
+                sender_signing_public_key: result
+                    .sender_signing_public_key
                     .map(|k| base64_url::encode(&k)),
                 key_version: result.key.key_version.as_i32(),
                 encrypted_kek: base64_url::encode(&result.key.encrypted_kek),
@@ -752,7 +735,7 @@ pub async fn save_document_key<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     Path(document_id): Path<Uuid>,
     Json(request): Json<SaveDocumentKeyRequest>,
 ) -> impl IntoResponse
@@ -775,24 +758,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate
-    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
-        Ok(u) => u,
-        Err(e) => return e.into_response(),
-    };
-
-    // Verify PoP (Proof of Possession) - required for E2EE key operations
-    if let Err(e) = verify_pop(
-        &headers,
-        auth_user.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return e.into_response();
-    }
-
     // Decode base64url fields
     let encrypted_dek = match base64_url::decode(&request.encrypted_dek) {
         Ok(k) => k,
@@ -838,7 +803,7 @@ where
 
     let command = SaveDocumentKeyCommand {
         document_id: application::domain::document::DocumentId::from_uuid(document_id),
-        user_id: auth_user.user_id,
+        user_id: pop_user.user.id,
         key_version: request.key_version,
         encrypted_dek,
         nonce,
@@ -915,7 +880,7 @@ pub async fn get_document_key<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     Path(document_id): Path<Uuid>,
 ) -> impl IntoResponse
 where
@@ -937,24 +902,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate
-    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
-        Ok(u) => u,
-        Err(e) => return e.into_response(),
-    };
-
-    // Verify PoP (Proof of Possession) - required for E2EE key operations
-    if let Err(e) = verify_pop(
-        &headers,
-        auth_user.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return e.into_response();
-    }
-
     let handler = GetDocumentKeyHandler::new(
         state.document_key_repo(),
         state.document_repo(),
@@ -964,7 +911,7 @@ where
 
     let query = GetDocumentKeyQuery {
         document_id: application::domain::document::DocumentId::from_uuid(document_id),
-        user_id: auth_user.user_id,
+        user_id: pop_user.user.id,
     };
 
     match handler.handle(query).await {
@@ -1038,7 +985,7 @@ pub async fn complete_kek_rotation<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     Path(workspace_id): Path<Uuid>,
     Json(request): Json<CompleteKekRotationRequest>,
 ) -> impl IntoResponse
@@ -1061,24 +1008,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate
-    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
-        Ok(u) => u,
-        Err(e) => return e.into_response(),
-    };
-
-    // Verify PoP (Proof of Possession) - required for E2EE key operations
-    if let Err(e) = verify_pop(
-        &headers,
-        auth_user.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return e.into_response();
-    }
-
     let handler = CompleteKekRotationHandler::new(
         state.workspace_repo(),
         state.workspace_member_repo(),
@@ -1087,7 +1016,7 @@ where
 
     let command = CompleteKekRotationCommand {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
-        user_id: auth_user.user_id,
+        user_id: pop_user.user.id,
         new_min_kek_version: request.new_min_kek_version,
     };
 
@@ -1159,7 +1088,7 @@ pub async fn save_workspace_kek_backup<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     Path(workspace_id): Path<Uuid>,
     Json(request): Json<SaveWorkspaceKekBackupRequest>,
 ) -> impl IntoResponse
@@ -1182,24 +1111,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate
-    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
-        Ok(u) => u,
-        Err(e) => return e.into_response(),
-    };
-
-    // Verify PoP
-    if let Err(e) = verify_pop(
-        &headers,
-        auth_user.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return e.into_response();
-    }
-
     // Decode base64url fields
     let encrypted_kek = match base64_url::decode(&request.encrypted_kek) {
         Ok(k) => k,
@@ -1245,7 +1156,7 @@ where
 
     let command = SaveWorkspaceKekBackupCommand {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
-        user_id: auth_user.user_id,
+        user_id: pop_user.user.id,
         key_version: request.key_version,
         encrypted_kek,
         nonce,
@@ -1319,7 +1230,7 @@ pub async fn get_workspace_kek_backup<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     Path(workspace_id): Path<Uuid>,
 ) -> impl IntoResponse
 where
@@ -1341,24 +1252,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate
-    let auth_user = match crate::auth::authenticate(&headers, state.session_repo().as_ref()).await {
-        Ok(u) => u,
-        Err(e) => return e.into_response(),
-    };
-
-    // Verify PoP
-    if let Err(e) = verify_pop(
-        &headers,
-        auth_user.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return e.into_response();
-    }
-
     let handler = GetWorkspaceKekBackupHandler::new(
         state.workspace_kek_backup_repo(),
         state.workspace_member_repo(),
@@ -1367,7 +1260,7 @@ where
 
     let query = GetWorkspaceKekBackupQuery {
         workspace_id: WorkspaceId::from_uuid(workspace_id),
-        user_id: auth_user.user_id,
+        user_id: pop_user.user.id,
     };
 
     match handler.handle(query).await {

@@ -24,7 +24,7 @@ pub use user_keys::{
 };
 pub use value_objects::{
     AuthType, AuthTypeError, DeviceId, DeviceType, DeviceTypeError, EncryptedData, KdfParams,
-    KdfType, KdfTypeError, KeyVersion, PublicKeyPair,
+    KdfType, KdfTypeError, KeyVersion, InvalidKeyVersion, PublicKeyPair,
 };
 pub use workspace_keys::{
     DocumentEncryptedKey, NewWorkspaceKekBackupParams, NewWorkspaceKeyParams,

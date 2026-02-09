@@ -41,7 +41,7 @@ impl SignatureAction {
     }
 }
 
-/// Validate a JSON number for JCS compliance per signature-protocol.md:
+/// Validate a JSON number for JCS compliance:
 /// - Must be finite (no NaN, Infinity)
 /// - Must be safe integer (no floating point, within 53-bit signed range)
 /// - Must serialize as integer (not "1.0" but "1") for FE/BE consistency
@@ -75,7 +75,7 @@ fn validate_jcs_number(n: &serde_json::Number) {
 
 /// Recursively sort object keys and validate values for RFC 8785 JCS compliance.
 /// - Arrays maintain order, objects have keys sorted by Unicode code point
-/// - Numbers are validated per signature-protocol.md (safe integers only)
+/// - Numbers are validated for JCS compliance (safe integers only)
 ///
 /// # Panics
 /// Panics if the value contains JCS-invalid data

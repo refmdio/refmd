@@ -16,7 +16,7 @@ import { randomBytes } from '@noble/ciphers/utils.js'
 import { blake3 } from '@noble/hashes/blake3.js'
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { buildDekWrapAad, buildDocumentContentAad, SIGNATURE_ACTION, buildSignatureMessage, canonicalizeBytes } from './aad'
-import { base64UrlEncode } from './encoding'
+import { base64UrlEncode, base64UrlDecode } from './encoding'
 
 /**
  * Generate a random Document Encryption Key (256 bits)
@@ -83,18 +83,20 @@ export function unwrapDek(
  * @param content Plaintext content (Yjs update binary)
  * @param dek Document Encryption Key (32 bytes)
  * @param documentId Document ID for AAD binding
+ * @param keyVersion DEK version for AAD binding (prevents cross-version replay)
  * @returns { encrypted, nonce } - encrypted content and 24-byte nonce
  */
 export function encryptContent(
   content: Uint8Array,
   dek: Uint8Array,
-  documentId: string
+  documentId: string,
+  keyVersion: number
 ): { encrypted: Uint8Array; nonce: Uint8Array } {
   // XChaCha20-Poly1305 uses 24-byte nonce
   const nonce = randomBytes(24)
 
   // Build AAD for context binding (per spec)
-  const aad = buildDocumentContentAad(documentId)
+  const aad = buildDocumentContentAad(documentId, keyVersion)
 
   const cipher = xchacha20poly1305(dek, nonce, aad)
   const encrypted = cipher.encrypt(content)
@@ -109,6 +111,7 @@ export function encryptContent(
  * @param nonce Nonce used for encryption (24 bytes)
  * @param dek Document Encryption Key (32 bytes)
  * @param documentId Document ID for AAD binding
+ * @param keyVersion DEK version for AAD binding (prevents cross-version replay)
  * @returns Decrypted content (Yjs update binary)
  * @throws Error if decryption fails (wrong DEK or tampered data)
  */
@@ -116,10 +119,11 @@ export function decryptContent(
   encrypted: Uint8Array,
   nonce: Uint8Array,
   dek: Uint8Array,
-  documentId: string
+  documentId: string,
+  keyVersion: number
 ): Uint8Array {
   // Reconstruct AAD for verification (per spec)
-  const aad = buildDocumentContentAad(documentId)
+  const aad = buildDocumentContentAad(documentId, keyVersion)
 
   const cipher = xchacha20poly1305(dek, nonce, aad)
   return cipher.decrypt(encrypted)
@@ -179,4 +183,67 @@ export function signDocumentUpdate(params: {
     update_hash: params.updateHash,
   })
   return ed25519.sign(message, params.signingPrivateKey)
+}
+
+/**
+ * Verify a document update's signature and update_hash (read-time verification)
+ *
+ * The read path must:
+ * 1. Verify the Ed25519 signature against the author device's signing public key
+ * 2. Recompute the update_hash and verify it matches
+ *
+ * @param params Update data and author device's signing public key
+ * @returns true if both signature and hash are valid
+ * @throws Error with details on what failed
+ */
+export function verifyDocumentUpdate(params: {
+  signingPublicKey: Uint8Array
+  documentId: string
+  encryptedContent: string   // base64url-encoded ciphertext
+  nonce: string              // base64url-encoded nonce
+  keyVersion: number
+  updateHash: string
+  prevUpdateHash: string | null
+  signature: string          // base64url-encoded Ed25519 signature
+  authorDeviceId: string
+  timestamp: number
+}): void {
+  // 1. Recompute update_hash and verify
+  const recomputedHash = computeUpdateHash({
+    documentId: params.documentId,
+    encryptedContent: params.encryptedContent,
+    nonce: params.nonce,
+    keyVersion: params.keyVersion,
+    prevUpdateHash: params.prevUpdateHash,
+    timestamp: params.timestamp,
+    authorDeviceId: params.authorDeviceId,
+  })
+
+  if (recomputedHash !== params.updateHash) {
+    throw new Error(
+      `Update hash verification failed: expected ${params.updateHash}, computed ${recomputedHash}`
+    )
+  }
+
+  // 2. Verify Ed25519 signature
+  const message = buildSignatureMessage(SIGNATURE_ACTION.DOCUMENT_UPDATE, {
+    document_id: params.documentId,
+    key_version: params.keyVersion,
+    prev_update_hash: params.prevUpdateHash,
+    timestamp: params.timestamp,
+    update_hash: params.updateHash,
+  })
+
+  const signatureBytes = base64UrlDecode(params.signature)
+  try {
+    const valid = ed25519.verify(signatureBytes, message, params.signingPublicKey)
+    if (!valid) {
+      throw new Error('Document update signature verification failed')
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('signature verification failed')) {
+      throw e
+    }
+    throw new Error(`Document update signature verification error: ${e}`)
+  }
 }

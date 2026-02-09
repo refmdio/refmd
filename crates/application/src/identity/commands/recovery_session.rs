@@ -266,8 +266,8 @@ where
             generate_session_token().map_err(RecoverySessionError::Rng)?;
         let token_hash = hash_session_token(&session_token);
 
-        // Create session (no device binding for recovery)
-        let session = Session::new(user.id, token_hash, false, None, None);
+        // Create recovery session (no device binding, is_recovery = true)
+        let session = Session::new_recovery(user.id, token_hash, None, None);
 
         // Save session
         self.session_repo

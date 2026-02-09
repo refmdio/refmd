@@ -28,6 +28,8 @@ pub struct GetWorkspaceKeyResult {
     pub key: WorkspaceEncryptedKey,
     /// Sender device's ECDH public key (for ECDH decryption)
     pub sender_ecdh_public_key: Option<Vec<u8>>,
+    /// Sender device's signing public key (for TOFU verification)
+    pub sender_signing_public_key: Option<Vec<u8>>,
 }
 
 /// Get workspace key error
@@ -139,19 +141,23 @@ where
             .map_err(GetWorkspaceKeyError::WorkspaceKeyRepository)?
             .ok_or(GetWorkspaceKeyError::KeyNotFound)?;
 
-        // 4. Get sender device's ECDH public key
-        let sender_ecdh_public_key = {
+        // 4. Get sender device's public keys (ECDH for decryption, signing for TOFU)
+        let (sender_ecdh_public_key, sender_signing_public_key) = {
             let sender_device = self
                 .device_repo
                 .find_by_id(key.sender_device_id)
                 .await
                 .map_err(GetWorkspaceKeyError::DeviceRepository)?;
-            sender_device.map(|d| d.ecdh_public_key)
+            (
+                sender_device.as_ref().map(|d| d.ecdh_public_key.clone()),
+                sender_device.map(|d| d.signing_public_key),
+            )
         };
 
         Ok(GetWorkspaceKeyResult {
             key,
             sender_ecdh_public_key,
+            sender_signing_public_key,
         })
     }
 }

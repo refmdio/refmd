@@ -54,10 +54,17 @@ export {
   hexToBytes,
 } from './encoding'
 
-// AAD constants and helpers
+// Signature protocol (canonicalization, message building)
 export {
   SIGNATURE_PROTOCOL,
   SIGNATURE_ACTION,
+  canonicalizeBytes,
+  buildSignatureMessage,
+  type SignatureAction,
+} from './signature'
+
+// AAD constants and helpers
+export {
   AAD_PURPOSE,
   buildAad,
   buildUmkWrapAad,
@@ -69,11 +76,8 @@ export {
   buildUmkKekBackupAad,
   buildDekWrapAad,
   buildDocumentContentAad,
-  canonicalizeBytes,
-  buildSignatureMessage,
   type AadPurpose,
   type AadCommonHeader,
-  type SignatureAction,
 } from './aad'
 
 // KEK (Key Encryption Key) functions
@@ -94,10 +98,12 @@ export {
   decryptContent,
   computeUpdateHash,
   signDocumentUpdate,
+  verifyDocumentUpdate,
 } from './document'
 
 // DSK (Device Storage Key) functions
 export {
+  canPersistDsk,
   generateDsk,
   storeDsk,
   loadDsk,
@@ -118,6 +124,21 @@ export {
   clearSessionUmk,
   hasSessionUmk,
 } from './dsk'
+
+// PDK (Password Derived Key) functions - fallback when DSK unavailable
+export {
+  wrapAndStorePdkDeviceKeys,
+  unwrapPdkDeviceKeys,
+  hasPdkWrappedDeviceKeys,
+  clearPdkWrappedDeviceKeys,
+  wrapAndStorePdkUmk,
+  unwrapPdkUmk,
+  hasPdkWrappedUmk,
+  clearPdkWrappedUmk,
+  storePdkForDeviceRegistration,
+  loadAndClearPdkForDeviceRegistration,
+  clearPdkEphemeral,
+} from './pdk'
 
 // SAS (Short Authentication String) functions
 export {

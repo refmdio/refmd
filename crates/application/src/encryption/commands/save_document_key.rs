@@ -161,10 +161,11 @@ where
         // 4. Validate and create key version
         let key_version = if let Some(v) = command.key_version {
             // Validate key version is positive and within i32 range
-            if v == 0 || v > i32::MAX as u32 {
+            if v > i32::MAX as u32 {
                 return Err(SaveDocumentKeyError::InvalidKeyVersion);
             }
             KeyVersion::new(v as i32)
+                .map_err(|_| SaveDocumentKeyError::InvalidKeyVersion)?
         } else {
             // Auto-determine: max(existing) + 1, at least min_dek_version
             let existing_keys = self
@@ -178,7 +179,7 @@ where
                 .max()
                 .unwrap_or(0);
             let next = std::cmp::max(max_version + 1, document.min_dek_version);
-            KeyVersion::new(next)
+            KeyVersion::new(next).expect("computed key version must be >= 1")
         };
 
         // 5. Check min_dek_version constraint

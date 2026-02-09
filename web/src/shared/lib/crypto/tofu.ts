@@ -177,10 +177,16 @@ export async function updateDeviceLastSeen(
 }
 
 /**
- * Handle TOFU verification result
+ * Handle TOFU verification result for server-approved devices
  *
- * Convenience function that handles common cases:
- * - first_seen: Auto-trusts and saves the entry
+ * IMPORTANT: Only call this for devices already approved on the server
+ * (i.e., devices returned by the device list API, KEK sender devices,
+ * or document update author devices). NEVER call this for unapproved
+ * Pending devices — those must go through SAS verification first,
+ * then call trustDevice() explicitly after approval.
+ *
+ * Handles common cases:
+ * - first_seen: Auto-trusts and saves the entry (safe because device is server-approved)
  * - known_trusted: Updates last seen timestamp
  * - Others: Returns the result for caller to handle
  *
@@ -192,7 +198,7 @@ export async function handleTofuResult(
 ): Promise<TofuVerifyResult> {
   switch (result.status) {
     case 'first_seen':
-      // Auto-trust new devices
+      // Auto-trust server-approved devices on first local contact
       await trustDevice(result.newEntry)
       break
 

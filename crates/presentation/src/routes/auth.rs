@@ -1138,7 +1138,7 @@ where
     // SECURITY: This assumes deployment behind a trusted reverse proxy (nginx, Cloudflare, etc.)
     // that overwrites X-Forwarded-For. Direct internet exposure would allow header spoofing.
     // IP is used for audit logging only, not for authentication or access control decisions.
-    // See: local/docs/v2/07-deployment/web-security.md
+    // Assumes deployment behind a trusted reverse proxy that sets X-Forwarded-For.
     let socket_ip = connect_info.0.ip().to_string();
     let forwarded_ip = headers
         .get("x-forwarded-for")
@@ -1468,7 +1468,9 @@ pub struct LogoutResponse {
 
 /// Logout and clear session
 ///
-/// Clears the session cookie. Client should also clear DSK from IndexedDB.
+/// Clears the session cookie and server-side session.
+/// Normal logout preserves IndexedDB (DSK, device keys) for session restore.
+/// For full local data clearing, use secure logout on the client side.
 #[utoipa::path(
     post,
     path = "/api/auth/logout",
@@ -1556,11 +1558,29 @@ pub struct MeResponse {
     pub auth_type: String,
     /// Session expiration timestamp
     pub expires_at: String,
-    /// Encrypted UMK (base64url encoded, null for OAuth users)
+    /// Whether user has any registered devices (for PoP enforcement)
+    #[schema(example = true)]
+    pub has_devices: bool,
+    /// Whether the session device is verified (registered and active)
+    #[schema(example = true)]
+    pub device_verified: bool,
+    /// Device ID if verified
+    #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    /// Encrypted keys (only present for verified devices)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keys: Option<MeResponseKeys>,
+}
+
+/// Encrypted keys returned only for verified devices in /me response
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MeResponseKeys {
+    /// Encrypted UMK (base64url encoded, omitted for OAuth users)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "base64url-encoded-encrypted-umk")]
     pub encrypted_umk: Option<String>,
-    /// UMK nonce (base64url encoded, null for OAuth users)
+    /// UMK nonce (base64url encoded, omitted for OAuth users)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "base64url-encoded-nonce")]
     pub umk_nonce: Option<String>,
@@ -1638,6 +1658,7 @@ where
         state.session_repo(),
         state.user_encrypted_master_key_repo(),
         state.user_encrypted_identity_key_repo(),
+        state.device_repo(),
     );
 
     let query = GetCurrentUserQuery { token_hash };
@@ -1670,26 +1691,46 @@ where
         "oauth"
     };
 
-    // Build response with proper handling for OAuth vs password users
-    let (encrypted_umk, umk_nonce) = match (&umk.encrypted_umk, &umk.umk_nonce) {
-        (Some(enc), Some(nonce)) if !enc.is_empty() => (
-            Some(base64_url::encode(enc)),
-            Some(base64_url::encode(nonce)),
-        ),
-        _ => {
-            if is_password_user {
-                // Password user without encrypted_umk is a data inconsistency
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(AuthErrorResponse {
-                        error: "internal server error".to_string(),
-                    }),
-                )
-                    .into_response();
+    // Only include keys if device is verified (same pattern as login handler)
+    let keys = if result.device_verified {
+        // Build response with proper handling for OAuth vs password users
+        let (encrypted_umk, umk_nonce) = match (&umk.encrypted_umk, &umk.umk_nonce) {
+            (Some(enc), Some(nonce)) if !enc.is_empty() => (
+                Some(base64_url::encode(enc)),
+                Some(base64_url::encode(nonce)),
+            ),
+            _ => {
+                if is_password_user {
+                    // Password user without encrypted_umk is a data inconsistency
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(AuthErrorResponse {
+                            error: "internal server error".to_string(),
+                        }),
+                    )
+                        .into_response();
+                }
+                // OAuth users don't have encrypted_umk (they use DSK or recovery key)
+                (None, None)
             }
-            // OAuth users don't have encrypted_umk (they use DSK or recovery key)
-            (None, None)
-        }
+        };
+
+        Some(MeResponseKeys {
+            encrypted_umk,
+            umk_nonce,
+            encrypted_ecdh_private: base64_url::encode(&identity_keys.encrypted_ecdh_private),
+            encrypted_ecdh_private_nonce: base64_url::encode(
+                &identity_keys.encrypted_ecdh_private_nonce,
+            ),
+            encrypted_signing_private: base64_url::encode(
+                &identity_keys.encrypted_signing_private,
+            ),
+            encrypted_signing_private_nonce: base64_url::encode(
+                &identity_keys.encrypted_signing_private_nonce,
+            ),
+        })
+    } else {
+        None
     };
 
     let response = MeResponse {
@@ -1698,16 +1739,10 @@ where
         name: user.name,
         auth_type: auth_type.to_string(),
         expires_at: session.expires_at.to_rfc3339(),
-        encrypted_umk,
-        umk_nonce,
-        encrypted_ecdh_private: base64_url::encode(&identity_keys.encrypted_ecdh_private),
-        encrypted_ecdh_private_nonce: base64_url::encode(
-            &identity_keys.encrypted_ecdh_private_nonce,
-        ),
-        encrypted_signing_private: base64_url::encode(&identity_keys.encrypted_signing_private),
-        encrypted_signing_private_nonce: base64_url::encode(
-            &identity_keys.encrypted_signing_private_nonce,
-        ),
+        has_devices: result.has_devices,
+        device_verified: result.device_verified,
+        device_id: result.device_id.map(|d| d.to_string()),
+        keys,
     };
 
     (StatusCode::OK, Json(response)).into_response()

@@ -27,6 +27,9 @@ import {
   handleTofuResult,
   trustDevice,
   decryptTrustState,
+  wrapAndStorePdkDeviceKeys,
+  wrapAndStorePdkUmk,
+  loadAndClearPdkForDeviceRegistration,
 } from '@/shared/lib/crypto'
 import { importTofuEntries } from '@/shared/lib/trust-store'
 import { KeyChangeWarningDialog } from '@/features/tofu'
@@ -216,14 +219,33 @@ function DeviceRegisterPage() {
       await wrapAndStoreUmk(umk, dsk, currentAuth.userId)
       storeSessionUmk(umk, currentAuth.userId)
 
+      // Step 6.5: PDK fallback wrapping (if PDK was stored during login)
+      const pdk = loadAndClearPdkForDeviceRegistration()
+      if (pdk) {
+        wrapAndStorePdkDeviceKeys(
+          {
+            ecdhPrivateKey: currentState.deviceKeyPair.ecdhPrivateKey,
+            signingPrivateKey: currentState.deviceKeyPair.signingPrivateKey,
+          },
+          pdk,
+          currentAuth.userId,
+          deviceId
+        )
+        wrapAndStorePdkUmk(umk, pdk, currentAuth.userId)
+      }
+
       // Step 7: Fetch encrypted identity keys from server and decrypt with UMK
       const meResponse = await authApi.me()
+      if (!meResponse.keys) {
+        throw new Error('Device not verified: no keys returned from server')
+      }
+      const meKeys = meResponse.keys
       const identityKeys = decryptIdentityPrivateKeys(
         {
-          encryptedEcdhPrivate: base64UrlDecode(meResponse.encrypted_ecdh_private),
-          ecdhPrivateNonce: base64UrlDecode(meResponse.encrypted_ecdh_private_nonce),
-          encryptedSigningPrivate: base64UrlDecode(meResponse.encrypted_signing_private),
-          signingPrivateNonce: base64UrlDecode(meResponse.encrypted_signing_private_nonce),
+          encryptedEcdhPrivate: base64UrlDecode(meKeys.encrypted_ecdh_private),
+          ecdhPrivateNonce: base64UrlDecode(meKeys.encrypted_ecdh_private_nonce),
+          encryptedSigningPrivate: base64UrlDecode(meKeys.encrypted_signing_private),
+          signingPrivateNonce: base64UrlDecode(meKeys.encrypted_signing_private_nonce),
         },
         umk,
         currentAuth.userId
@@ -306,7 +328,7 @@ function DeviceRegisterPage() {
                     }
 
                     if (deviceTofuResult.status === 'identity_key_changed') {
-                      // Queue for warning dialog (design: 確認後に可)
+                      // Queue for warning dialog (user confirmation required)
                       devicesWithKeyChange.push({
                         deviceId: device.id,
                         deviceName: device.name,
@@ -524,10 +546,12 @@ function DeviceRegisterPage() {
             // Note: hasStartedRef.current stays true to prevent auto-restart
             // User must manually click "Try Again" to retry
           } else if (status === 404) {
-            // Pending device no longer exists
-            // Could be approved (device_id received via SSE) or rejected
-            // Since we can't reliably determine which, show a generic message
-            // and let user retry if needed (manual click required)
+            // Pending device no longer exists - could be approved or rejected.
+            // SSE may be delivering the approval event concurrently, so wait
+            // briefly before showing an error to avoid a race condition.
+            await new Promise(r => setTimeout(r, 2000))
+            if (isHandled) return // SSE caught up during the grace period
+
             isHandled = true
             eventSource.close()
             eventSourceRef.current = null
@@ -544,6 +568,7 @@ function DeviceRegisterPage() {
     }, 5000)
 
     return () => {
+      isHandled = true // prevent delayed polling callbacks after unmount
       eventSource.close()
       eventSourceRef.current = null
       if (pollInterval) clearInterval(pollInterval)

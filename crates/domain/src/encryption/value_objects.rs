@@ -142,9 +142,18 @@ pub enum KdfTypeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct KeyVersion(i32);
 
+/// Error for invalid key version
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("key version must be >= 1, got {0}")]
+pub struct InvalidKeyVersion(i32);
+
 impl KeyVersion {
-    pub fn new(version: i32) -> Self {
-        Self(version)
+    /// Create a new key version. Returns error if version < 1.
+    pub fn new(version: i32) -> Result<Self, InvalidKeyVersion> {
+        if version < 1 {
+            return Err(InvalidKeyVersion(version));
+        }
+        Ok(Self(version))
     }
 
     pub fn initial() -> Self {

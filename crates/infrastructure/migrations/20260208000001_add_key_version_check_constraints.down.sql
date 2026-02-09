@@ -1,0 +1,2 @@
+ALTER TABLE workspace_encrypted_keys DROP CONSTRAINT IF EXISTS chk_workspace_key_version_positive;
+ALTER TABLE document_encrypted_keys DROP CONSTRAINT IF EXISTS chk_document_key_version_positive;

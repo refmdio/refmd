@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Outlet, createFileRoute, useNavigate, useParams } from '@tanstack/react-router'
 import { workspaceApi, documentApi, ApiError } from '@/shared/api'
 import { useAuthContext } from '@/shared/context/AuthContext'
-import { restoreSession } from '@/features/auth'
+import { restoreSession, restoreSessionWithPdk } from '@/features/auth'
+import type { PdkFallbackRequired } from '@/features/auth'
 import { loadDeviceId, loadDsk, loadAndUnwrapDeviceKeys } from '@/shared/lib/crypto'
 import { setPopCredentials } from '@/shared/lib/pop-store'
 import { PendingDeviceProvider } from '@/features/device'
+import { PdkFallbackDialog } from '@/features/auth/PdkFallbackDialog'
 import { Sidebar } from '@/widgets/sidebar'
 import { CreateDocumentDialog } from '@/features/document-create'
 import {
@@ -28,6 +30,7 @@ function AuthenticatedLayout() {
   const { auth, setAuthState, setDeviceState, currentWorkspaceId, setCurrentWorkspaceId } = useAuthContext()
 
   const [isRestoring, setIsRestoring] = useState(!auth) // Need restoration if no auth
+  const [pdkFallback, setPdkFallback] = useState<PdkFallbackRequired | null>(null)
   const [workspaces, setWorkspaces] = useState<WorkspaceWithMembership[]>([])
   const [documents, setDocuments] = useState<DocumentResponse[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
@@ -61,7 +64,15 @@ function AuthenticatedLayout() {
     async function tryRestoreSession() {
       try {
         const result = await restoreSession()
-        if (result) {
+
+        // Handle PDK fallback required
+        if (result && 'type' in result && result.type === 'pdk_fallback_required') {
+          setPdkFallback(result)
+          setIsRestoring(false)
+          return
+        }
+
+        if (result && !('type' in result)) {
           // Also restore device keys for PoP authentication FIRST
           // This must happen before setAuthState to ensure PoP credentials
           // are available when child components make API calls
@@ -172,10 +183,48 @@ function AuthenticatedLayout() {
     setDocuments((prev) => [doc, ...prev])
   }, [])
 
+  // PDK fallback handler: user re-enters password to derive PDK and unwrap keys
+  const handlePdkFallback = useCallback(async (password: string) => {
+    if (!pdkFallback) return
+
+    const result = await restoreSessionWithPdk(pdkFallback.email, password)
+    if (!result) {
+      throw new Error('Failed to restore session. Please check your password.')
+    }
+
+    // Set PoP credentials from PDK-unwrapped device keys
+    // deviceId comes from server (meResponse.device_id), so it's always reliable
+    setPopCredentials(result.deviceId, result.deviceKeys.signingPrivateKey)
+    setDeviceState({
+      deviceId: result.deviceId,
+      deviceKeys: result.deviceKeys,
+    })
+
+    setPdkFallback(null)
+    setAuthState({
+      userId: result.userId,
+      email: result.email,
+      umk: result.umk,
+      identityKeys: result.identityKeys,
+      expiresAt: result.expiresAt,
+    })
+  }, [pdkFallback, setAuthState, setDeviceState])
+
   // Always wrap in DocumentWorkspaceProvider to ensure context is available
   // for child routes that may render during navigation
   return (
     <DocumentWorkspaceProvider>
+      {pdkFallback && (
+        <PdkFallbackDialog
+          open={true}
+          email={pdkFallback.email}
+          onSubmit={handlePdkFallback}
+          onCancel={() => {
+            setPdkFallback(null)
+            navigate({ to: '/auth/login' })
+          }}
+        />
+      )}
       {isRestoring ? (
         <div className="flex h-screen items-center justify-center">
           <div className="flex flex-col items-center gap-4">

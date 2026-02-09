@@ -35,10 +35,14 @@ const POP_EXEMPT_PATHS = [
  *
  * Most device endpoints require PoP. Only specific patterns for new device
  * setup are exempt:
- * - /api/devices/pending/* (creating/viewing pending devices)
+ * - /api/devices/pending (POST: create, GET: list)
+ * - /api/devices/pending/{id}/sas (GET: SAS data)
+ * - /api/devices/pending/{id}/events (GET: SSE)
+ * - /api/devices/pending/{id} (DELETE: reject)
  * - GET /api/trust-transfer/state (new device retrieving trust state)
  *
  * Endpoints that require PoP:
+ * - POST /api/devices/pending/{id}/approve (approving device - ADR-009)
  * - GET /api/devices/{uuid}/keys/umk (new device sets PoP credentials before fetching)
  * - POST /api/devices/{uuid}/keys/umk (distributing UMK - requires sender PoP)
  * - POST /api/trust-transfer/state (existing device submits trust state)
@@ -46,8 +50,12 @@ const POP_EXEMPT_PATHS = [
  * - GET /api/devices (listing devices)
  */
 function isPopExempt(path: string, method?: string): boolean {
-  // Check prefix matches (auth endpoints and pending device endpoints)
+  // Check exact/prefix matches for auth endpoints
   if (POP_EXEMPT_PATHS.some(exempt => path.startsWith(exempt))) {
+    // Exception: /api/devices/pending/{id}/approve requires PoP
+    if (path.endsWith('/approve')) {
+      return false
+    }
     return true
   }
   // GET /api/devices/{id}/keys/umk requires PoP (new device sets PoP credentials before fetching)

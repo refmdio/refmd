@@ -26,7 +26,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::auth::verify_pop;
+use crate::auth::PopVerifiedUser;
 
 /// Create workspace routes
 pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
@@ -224,7 +224,9 @@ pub async fn list_workspaces<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
 ) -> impl IntoResponse
 where
     U: UserRepository + Send + Sync + Clone + 'static,
@@ -245,19 +247,13 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     let handler = ListUserWorkspacesHandler::new(
         state.workspace_repo(),
         state.workspace_member_repo(),
         state.workspace_role_repo(),
     );
 
-    let query = ListUserWorkspacesQuery { user_id: user.id };
+    let query = ListUserWorkspacesQuery { user_id: pop_user.user.id };
 
     match handler.handle(query).await {
         Ok(result) => {
@@ -339,7 +335,9 @@ pub async fn get_workspace<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: axum::http::HeaderMap,
+    pop_user: PopVerifiedUser<
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    >,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse
 where
@@ -361,12 +359,6 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Authenticate user
-    let user = match authenticate_user(&state, &headers).await {
-        Ok(u) => u,
-        Err(response) => return response,
-    };
-
     let handler = GetWorkspaceHandler::new(
         state.workspace_repo(),
         state.workspace_member_repo(),
@@ -375,7 +367,7 @@ where
 
     let query = GetWorkspaceQuery {
         workspace_id: application::domain::workspace::WorkspaceId::from_uuid(id),
-        user_id: user.id,
+        user_id: pop_user.user.id,
     };
 
     match handler.handle(query).await {
@@ -432,121 +424,3 @@ where
     }
 }
 
-/// Authenticated user info (minimal)
-struct AuthenticatedUser {
-    id: application::domain::identity::UserId,
-}
-
-/// Authenticate user from session cookie
-async fn authenticate_user<
-    U,
-    S,
-    US,
-    UIP,
-    UEM,
-    UEI,
-    WR,
-    WMR,
-    WRR,
-    DR,
-    DUR,
-    WKR,
-    DKR,
-    RS,
-    DER,
-    PDR,
-    UMKR,
->(
-    state: &AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-    headers: &axum::http::HeaderMap,
-) -> Result<AuthenticatedUser, axum::response::Response>
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
-    // Extract session token from cookie
-    let token = match crate::auth::extract_session_token(headers) {
-        Ok(t) => t,
-        Err(e) => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(WorkspaceErrorResponse { error: e.error }),
-            )
-                .into_response());
-        }
-    };
-
-    // Hash the token
-    let token_hash = crate::auth::hash_session_token(token);
-
-    // Validate session
-    let session_repo = state.session_repo();
-    let session = match session_repo.find_by_token_hash(&token_hash).await {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(WorkspaceErrorResponse {
-                    error: "invalid session".to_string(),
-                }),
-            )
-                .into_response());
-        }
-        Err(e) => {
-            tracing::error!("Failed to find session: {}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(WorkspaceErrorResponse {
-                    error: "internal server error".to_string(),
-                }),
-            )
-                .into_response());
-        }
-    };
-
-    // Check if session is expired
-    if session.is_expired() {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(WorkspaceErrorResponse {
-                error: "session expired".to_string(),
-            }),
-        )
-            .into_response());
-    }
-
-    // Verify PoP (Proof of Possession) - required for E2EE key operations
-    if let Err(e) = verify_pop(
-        headers,
-        session.user_id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(WorkspaceErrorResponse { error: e.error }),
-        )
-            .into_response());
-    }
-
-    Ok(AuthenticatedUser {
-        id: session.user_id,
-    })
-}

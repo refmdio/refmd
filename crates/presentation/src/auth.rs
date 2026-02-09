@@ -480,6 +480,277 @@ pub async fn authenticate_with_pop<S: SessionRepository, D: DeviceRepository>(
     Ok((auth_user, pop_verified))
 }
 
+/// PoP-verified user - combines session authentication with PoP verification.
+///
+/// Use this extractor for routes that require both session auth and PoP.
+/// The verified device is available on the extracted struct.
+#[derive(Debug)]
+pub struct PopVerifiedUser<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+> where
+    U: UserRepository + Send + Sync + 'static,
+    S: SessionRepository + Send + Sync + 'static,
+    US: UserSettingsRepository + Send + Sync + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + 'static,
+    WR: WorkspaceRepository + Send + Sync + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + 'static,
+    DR: DocumentRepository + Send + Sync + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + 'static,
+    RS: RegistrationService + Send + Sync + 'static,
+    DER: DeviceRepository + Send + Sync + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + 'static,
+{
+    pub user: User,
+    pub session: Session,
+    pub device: Device,
+    #[doc(hidden)]
+    _phantom: std::marker::PhantomData<(
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    )>,
+}
+
+impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+    FromRequestParts<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    > for PopVerifiedUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState<
+            U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+        >,
+    ) -> Result<Self, Self::Rejection> {
+        // Step 1: Authenticate session
+        let token = extract_session_token(&parts.headers).map_err(|e| e.into_response())?;
+        let token_hash = hash_session_token(token);
+
+        let session = state
+            .session_repo()
+            .find_by_token_hash(&token_hash)
+            .await
+            .map_err(|_| AuthError::internal_error().into_response())?
+            .ok_or_else(|| AuthError::invalid_session().into_response())?;
+
+        if session.is_expired() {
+            return Err(AuthError::expired_session().into_response());
+        }
+
+        let user = state
+            .user_repo()
+            .find_by_id(session.user_id)
+            .await
+            .map_err(|_| AuthError::internal_error().into_response())?
+            .ok_or_else(|| AuthError::user_not_found().into_response())?;
+
+        // Step 2: Verify PoP
+        let pop_verified = verify_pop(
+            &parts.headers,
+            session.user_id,
+            state.device_repo().as_ref(),
+            &state.challenge_store(),
+        )
+        .await
+        .map_err(|e| e.into_response())?;
+
+        // Step 3: Auto-bind device_id to session if not yet set
+        // This handles the case where login creates a session with device_id=None
+        // and the device is approved later. The first PoP-verified request after
+        // approval will bind the device_id to the session.
+        let mut session = session;
+        if session.device_id.is_none() {
+            session.device_id = Some(pop_verified.device.id);
+            let _ = state.session_repo().save(&session).await; // best-effort
+        }
+
+        Ok(PopVerifiedUser {
+            user,
+            session,
+            device: pop_verified.device,
+            _phantom: std::marker::PhantomData,
+        })
+    }
+}
+
+/// Recovery-or-PoP verified user - combines session auth with conditional PoP verification.
+///
+/// For recovery sessions (is_recovery = true), PoP verification is skipped because
+/// recovery sessions lack a registered device to sign challenges with.
+/// For normal sessions, PoP verification is required.
+#[derive(Debug)]
+pub struct RecoveryOrPopUser<
+    U,
+    S,
+    US,
+    UIP,
+    UEM,
+    UEI,
+    WR,
+    WMR,
+    WRR,
+    DR,
+    DUR,
+    WKR,
+    DKR,
+    RS,
+    DER,
+    PDR,
+    UMKR,
+> where
+    U: UserRepository + Send + Sync + 'static,
+    S: SessionRepository + Send + Sync + 'static,
+    US: UserSettingsRepository + Send + Sync + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + 'static,
+    WR: WorkspaceRepository + Send + Sync + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + 'static,
+    DR: DocumentRepository + Send + Sync + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + 'static,
+    RS: RegistrationService + Send + Sync + 'static,
+    DER: DeviceRepository + Send + Sync + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + 'static,
+{
+    pub user: User,
+    pub session: Session,
+    /// The verified device. None if this is a recovery session.
+    pub device: Option<Device>,
+    #[doc(hidden)]
+    _phantom: std::marker::PhantomData<(
+        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+    )>,
+}
+
+impl<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+    FromRequestParts<
+        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
+    > for RecoveryOrPopUser<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>
+where
+    U: UserRepository + Send + Sync + Clone + 'static,
+    S: SessionRepository + Send + Sync + Clone + 'static,
+    US: UserSettingsRepository + Send + Sync + Clone + 'static,
+    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
+    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
+    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
+    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
+    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
+    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
+    DR: DocumentRepository + Send + Sync + Clone + 'static,
+    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
+    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
+    RS: RegistrationService + Send + Sync + Clone + 'static,
+    DER: DeviceRepository + Send + Sync + Clone + 'static,
+    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
+    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState<
+            U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
+        >,
+    ) -> Result<Self, Self::Rejection> {
+        // Step 1: Authenticate session
+        let token = extract_session_token(&parts.headers).map_err(|e| e.into_response())?;
+        let token_hash = hash_session_token(token);
+
+        let session = state
+            .session_repo()
+            .find_by_token_hash(&token_hash)
+            .await
+            .map_err(|_| AuthError::internal_error().into_response())?
+            .ok_or_else(|| AuthError::invalid_session().into_response())?;
+
+        if session.is_expired() {
+            return Err(AuthError::expired_session().into_response());
+        }
+
+        let user = state
+            .user_repo()
+            .find_by_id(session.user_id)
+            .await
+            .map_err(|_| AuthError::internal_error().into_response())?
+            .ok_or_else(|| AuthError::user_not_found().into_response())?;
+
+        // Step 2: Conditionally verify PoP (skip for recovery sessions)
+        let (session, device) = if session.is_recovery {
+            (session, None)
+        } else {
+            let pop_verified = verify_pop(
+                &parts.headers,
+                session.user_id,
+                state.device_repo().as_ref(),
+                &state.challenge_store(),
+            )
+            .await
+            .map_err(|e| e.into_response())?;
+
+            // Auto-bind device_id to session if not yet set
+            let mut session = session;
+            if session.device_id.is_none() {
+                session.device_id = Some(pop_verified.device.id);
+                let _ = state.session_repo().save(&session).await; // best-effort
+            }
+
+            (session, Some(pop_verified.device))
+        };
+
+        Ok(RecoveryOrPopUser {
+            user,
+            session,
+            device,
+            _phantom: std::marker::PhantomData,
+        })
+    }
+}
+
 /// Hash session token for storage/lookup
 pub fn hash_session_token(token: &str) -> String {
     let hash = Sha256::digest(token.as_bytes());

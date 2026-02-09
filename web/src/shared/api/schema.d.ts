@@ -37,7 +37,9 @@ export interface paths {
         put?: never;
         /**
          * Logout and clear session
-         * @description Clears the session cookie. Client should also clear DSK from IndexedDB.
+         * @description Clears the session cookie and server-side session.
+         *     Normal logout preserves IndexedDB (DSK, device keys) for session restore.
+         *     For full local data clearing, use secure logout on the client side.
          */
         post: operations["logout"];
         delete?: never;
@@ -802,12 +804,6 @@ export interface components {
             nonce: string;
             /**
              * Format: uuid
-             * @description Pending device ID (for SSE notification to the new device)
-             * @example 550e8400-e29b-41d4-a716-446655440000
-             */
-            pending_device_id: string;
-            /**
-             * Format: uuid
              * @description Sender device ID
              * @example 550e8400-e29b-41d4-a716-446655440000
              */
@@ -863,7 +859,7 @@ export interface components {
             is_encrypted: boolean;
             needs_dek_rotation: boolean;
             parent_id?: string | null;
-            path: string;
+            path?: string | null;
             slug: string;
             title: string;
             updated_at: string;
@@ -1184,10 +1180,41 @@ export interface components {
              */
             auth_type: string;
             /**
+             * @description Device ID if verified
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            device_id?: string | null;
+            /**
+             * @description Whether the session device is verified (registered and active)
+             * @example true
+             */
+            device_verified: boolean;
+            /**
              * @description User email
              * @example user@example.com
              */
             email: string;
+            /** @description Session expiration timestamp */
+            expires_at: string;
+            /**
+             * @description Whether user has any registered devices (for PoP enforcement)
+             * @example true
+             */
+            has_devices: boolean;
+            keys?: null | components["schemas"]["MeResponseKeys"];
+            /**
+             * @description User display name
+             * @example John Doe
+             */
+            name: string;
+            /**
+             * @description User ID
+             * @example 01234567-89ab-cdef-0123-456789abcdef
+             */
+            user_id: string;
+        };
+        /** @description Encrypted keys returned only for verified devices in /me response */
+        MeResponseKeys: {
             /**
              * @description Encrypted ECDH private key (base64url encoded)
              * @example base64url-encoded-encrypted-ecdh-private
@@ -1209,27 +1236,15 @@ export interface components {
              */
             encrypted_signing_private_nonce: string;
             /**
-             * @description Encrypted UMK (base64url encoded, null for OAuth users)
+             * @description Encrypted UMK (base64url encoded, omitted for OAuth users)
              * @example base64url-encoded-encrypted-umk
              */
             encrypted_umk?: string | null;
-            /** @description Session expiration timestamp */
-            expires_at: string;
             /**
-             * @description User display name
-             * @example John Doe
-             */
-            name: string;
-            /**
-             * @description UMK nonce (base64url encoded, null for OAuth users)
+             * @description UMK nonce (base64url encoded, omitted for OAuth users)
              * @example base64url-encoded-nonce
              */
             umk_nonce?: string | null;
-            /**
-             * @description User ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
-            user_id: string;
         };
         /** @description Workspace membership response */
         MembershipResponse: {
@@ -1500,7 +1515,7 @@ export interface components {
         RevokeDeviceRequest: {
             /**
              * @description Identity signature of the revocation event (base64url, 64 bytes)
-             *     Signs: user_id (16 bytes) || device_id (16 bytes) || revoked_at (8 bytes, big-endian) || revoked_by_device_id (16 bytes)
+             *     Signs JCS-canonicalized JSON: {"action":"device_revocation","device_id","revoked_at","revoked_by_device_id","user_id","protocol":"doclock-v1","version":1}
              * @example base64url-encoded-signature
              */
             identity_signature: string;
@@ -1726,6 +1741,11 @@ export interface components {
              * @example base64url-encoded-ecdh-public-key
              */
             sender_ecdh_public_key?: string | null;
+            /**
+             * @description Sender device's signing public key (base64url encoded, for TOFU verification)
+             * @example base64url-encoded-signing-public-key
+             */
+            sender_signing_public_key?: string | null;
             /**
              * @description User ID
              * @example 01234567-89ab-cdef-0123-456789abcdef

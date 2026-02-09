@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import * as Y from 'yjs'
-import { documentApi, encryptionApi, ApiError } from '@/shared/api'
+import { documentApi, encryptionApi, deviceApi, ApiError } from '@/shared/api'
 import {
   base64UrlEncode,
   base64UrlDecode,
@@ -22,9 +22,23 @@ import {
   decryptContent,
   computeUpdateHash,
   signDocumentUpdate,
+  verifyDocumentUpdate,
+  verifyTofu,
+  handleTofuResult,
+  trustDevice,
+  type TofuVerifyResult,
 } from '@/shared/lib/crypto'
 import { useAuthContext } from '@/shared/context/AuthContext'
 import { useWorkspaceKek } from '@/features/workspace-crypto'
+import {
+  checkKeyVersionRollback,
+  pinKeyVersion,
+  getKeyVersionPin,
+  checkDocumentStateRollback,
+  getDocumentStatePin,
+  pinDocumentState,
+  isRevocationRolledBack,
+} from '@/shared/lib/anti-rollback'
 
 export interface DocumentResponse {
   id: string
@@ -32,14 +46,24 @@ export interface DocumentResponse {
   parent_id: string | null
   title: string
   encrypted_title?: string
+  encrypted_title_nonce?: string
   slug: string
+  path?: string | null
   doc_type: string
   is_encrypted: boolean
   is_archived: boolean
+  needs_dek_rotation: boolean
   created_by: string | null
   created_at: string
   updated_at: string
   archived_at: string | null
+}
+
+export interface TofuKeyChangeWarning {
+  deviceId: string
+  oldFingerprint: string
+  newFingerprint: string
+  tofuResult: TofuVerifyResult
 }
 
 export interface UseDocumentEditResult {
@@ -51,6 +75,10 @@ export interface UseDocumentEditResult {
   isDirty: boolean
   isSaving: boolean
   save: () => Promise<void>
+  /** Non-null when an identity key change is detected and user confirmation is needed */
+  tofuKeyChangeWarning: TofuKeyChangeWarning | null
+  /** Call with true to trust the new key and continue, false to abort */
+  confirmTofuKeyChange: (trust: boolean) => void
 }
 
 // Shared document state cache
@@ -84,6 +112,8 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
   const [isSaving, setIsSaving] = useState(false)
   const [isDirty, setIsDirty] = useState(false)
   const [yDoc, setYDoc] = useState<Y.Doc | null>(null)
+  const [tofuKeyChangeWarning, setTofuKeyChangeWarning] = useState<TofuKeyChangeWarning | null>(null)
+  const [tofuRetryTrigger, setTofuRetryTrigger] = useState(0)
 
   // Get workspace KEK (using device ECDH for per-device key wrapping)
   const { kek, isLoading: kekLoading, error: kekError } = useWorkspaceKek(
@@ -194,9 +224,33 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
               console.error('[DEK Unwrap] FAILED', unwrapErr)
               throw unwrapErr
             }
+
+            // Anti-rollback: check DEK version
+            const dekRollback = await checkKeyVersionRollback('dek', documentId, keyVersion)
+            if (dekRollback.rolledBack) {
+              throw new Error(
+                `DEK rollback detected for document ${documentId}: ` +
+                `server returned v${keyVersion}, pinned v${dekRollback.pinnedVersion}`
+              )
+            }
+            await pinKeyVersion({
+              type: 'dek',
+              id: documentId,
+              highestVersion: keyVersion,
+              observedAt: Date.now(),
+            })
           } catch (err) {
             // If no DEK exists, create one
             if (err instanceof ApiError && err.status === 404) {
+              // Anti-rollback: if we previously observed a DEK version, 404 means server rollback
+              const existingDekPin = await getKeyVersionPin('dek', documentId)
+              if (existingDekPin) {
+                throw new Error(
+                  `DEK rollback detected for document ${documentId}: ` +
+                  `server returned 404 but v${existingDekPin.highestVersion} was previously observed`
+                )
+              }
+
               dek = generateDek()
 
               // Wrap DEK with KEK
@@ -210,6 +264,21 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
               })
 
               keyVersion = saveResponse.key_version
+
+              // Anti-rollback: check + pin initial DEK version
+              const newDekRollback = await checkKeyVersionRollback('dek', documentId, keyVersion)
+              if (newDekRollback.rolledBack) {
+                throw new Error(
+                  `DEK rollback detected for document ${documentId}: ` +
+                  `new DEK v${keyVersion}, pinned v${newDekRollback.pinnedVersion}`
+                )
+              }
+              await pinKeyVersion({
+                type: 'dek',
+                id: documentId,
+                highestVersion: keyVersion,
+                observedAt: Date.now(),
+              })
             } else {
               throw err
             }
@@ -222,23 +291,149 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
           const updatesResponse = await documentApi.listUpdates(documentId)
           const updates = updatesResponse.updates || []
 
+          // Anti-rollback: check document state before applying updates
+          if (updates.length === 0) {
+            // If server returns empty updates but we previously observed state, that's a rollback
+            const emptyPin = await getDocumentStatePin(documentId)
+            if (emptyPin) {
+              throw new Error(
+                `Document rollback detected for ${documentId}: ` +
+                `server returned 0 updates but seq ${emptyPin.latestSeq} was previously observed`
+              )
+            }
+          } else if (updates.length > 0) {
+            const latestUpdate = updates[updates.length - 1]
+            const latestSeq: number = (latestUpdate as Record<string, unknown>).seq as number
+            if (latestSeq != null) {
+              const seqRollback = await checkDocumentStateRollback(documentId, latestSeq)
+              if (seqRollback.rolledBack) {
+                throw new Error(
+                  `Document rollback detected for ${documentId}: ` +
+                  `server returned seq ${latestSeq}, pinned seq ${seqRollback.pinnedSeq}`
+                )
+              }
+              // Check for fork (same seq, different hash)
+              const pin = await getDocumentStatePin(documentId)
+              if (pin && latestSeq === pin.latestSeq && latestUpdate.update_hash !== pin.latestUpdateHash) {
+                throw new Error(
+                  `Document fork detected for ${documentId} at seq ${latestSeq}: ` +
+                  `server hash differs from pinned hash`
+                )
+              }
+            }
+          }
+
+          // Fetch device signing public keys for verification
+          const deviceKeyCache = new Map<string, Uint8Array>()
+          const deviceEcdhKeyCache = new Map<string, Uint8Array>()
+          if (updates.length > 0) {
+            const devicesResponse = await deviceApi.listDevices()
+            for (const dev of devicesResponse.devices) {
+              const signingPk = base64UrlDecode(dev.signing_public_key)
+              const ecdhPk = base64UrlDecode(dev.ecdh_public_key)
+              deviceKeyCache.set(dev.id, signingPk)
+              deviceEcdhKeyCache.set(dev.id, ecdhPk)
+
+              // Verify TOFU for all devices on list retrieval
+              if (auth) {
+                const tofuResult = await verifyTofu(auth.userId, dev.id, signingPk, ecdhPk)
+                if (tofuResult.status === 'ecdh_key_mismatch') {
+                  throw new Error(`TOFU violation: device ${dev.id} ECDH key mismatch`)
+                }
+                if (tofuResult.status === 'identity_key_changed') {
+                  if (!cancelled) {
+                    setTofuKeyChangeWarning({
+                      deviceId: dev.id,
+                      oldFingerprint: tofuResult.oldFingerprint!,
+                      newFingerprint: tofuResult.newFingerprint!,
+                      tofuResult,
+                    })
+                    setIsLoading(false)
+                  }
+                  return null
+                }
+                await handleTofuResult(tofuResult)
+              }
+            }
+          }
+
           let prevUpdateHash: string | null = null
           for (const [index, update] of updates.entries()) {
             const encryptedData = base64UrlDecode(update.update_data)
             const nonce = base64UrlDecode(update.nonce)
 
+            // --- Read-time verification pipeline ---
+            if (!auth) {
+              throw new Error('Cannot verify document updates: not authenticated')
+            }
+
+            const authorDeviceId = update.author_device_id
+            const signingPubKey = deviceKeyCache.get(authorDeviceId)
+            const ecdhPubKey = deviceEcdhKeyCache.get(authorDeviceId)
+
+            // Note: In Phase 3+ (multi-user), we'll need an API to fetch other users' device keys.
+            // For now (single-user), all updates are from the current user's devices.
+            if (!signingPubKey || !ecdhPubKey) {
+              throw new Error(
+                `Cannot verify update at index ${index}: unknown author device ${authorDeviceId}. ` +
+                `Device may belong to another user (multi-user verification not yet implemented).`
+              )
+            }
+
+            // 1. TOFU: verify author device identity key
+            const tofuResult = await verifyTofu(auth.userId, authorDeviceId, signingPubKey, ecdhPubKey)
+            if (tofuResult.status === 'identity_key_changed') {
+              // Per spec: show confirmation dialog, allow user to trust and continue
+              if (!cancelled) {
+                setTofuKeyChangeWarning({
+                  deviceId: authorDeviceId,
+                  oldFingerprint: tofuResult.oldFingerprint!,
+                  newFingerprint: tofuResult.newFingerprint!,
+                  tofuResult,
+                })
+                setIsLoading(false)
+              }
+              // Abort this init attempt; will retry after user confirms
+              return null
+            }
+            if (tofuResult.status === 'ecdh_key_mismatch') {
+              throw new Error(`TOFU violation: device ${authorDeviceId} ECDH key mismatch`)
+            }
+            // first_seen or known_trusted: auto-handle
+            await handleTofuResult(tofuResult)
+
+            // 2. Revocation check
+            const revoked = await isRevocationRolledBack(auth.userId, authorDeviceId)
+            if (revoked) {
+              throw new Error(`Revoked device ${authorDeviceId} authored update at seq ${(update as Record<string, unknown>).seq}`)
+            }
+
+            // 3. Signature verification + update_hash recomputation
+            verifyDocumentUpdate({
+              signingPublicKey: signingPubKey,
+              documentId,
+              encryptedContent: update.update_data,
+              nonce: update.nonce,
+              keyVersion: update.key_version,
+              updateHash: update.update_hash,
+              prevUpdateHash: update.prev_update_hash ?? null,
+              signature: update.signature,
+              authorDeviceId,
+              timestamp: update.timestamp,
+            })
+
+            // 4. Verify hash chain continuity
+            if (prevUpdateHash !== null && update.prev_update_hash !== prevUpdateHash) {
+              throw new Error(
+                `Hash chain broken at update index ${index}: ` +
+                `expected prev_update_hash=${prevUpdateHash}, got=${update.prev_update_hash}`
+              )
+            }
+
             // Decrypt update with DEK
-            console.log(
-              '[Content Decrypt] update index:',
-              index,
-              'data length:',
-              encryptedData.length,
-              'nonce length:',
-              nonce.length
-            )
             let decryptedUpdate: Uint8Array
             try {
-              decryptedUpdate = decryptContent(encryptedData, nonce, dek, documentId)
+              decryptedUpdate = decryptContent(encryptedData, nonce, dek, documentId, update.key_version)
             } catch (decryptErr) {
               console.error('[Content Decrypt] FAILED at update index:', index, decryptErr)
               throw decryptErr
@@ -249,6 +444,20 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
 
             // Track the latest update hash for chain verification
             prevUpdateHash = update.update_hash
+          }
+
+          // Anti-rollback: pin document state after loading updates
+          if (updates.length > 0) {
+            const lastUpdate = updates[updates.length - 1]
+            const lastSeq: number = (lastUpdate as Record<string, unknown>).seq as number
+            if (lastSeq != null) {
+              await pinDocumentState({
+                documentId,
+                latestSeq: lastSeq,
+                latestUpdateHash: lastUpdate.update_hash,
+                observedAt: Date.now(),
+              })
+            }
           }
 
           // 4. Save initial state for dirty tracking
@@ -322,7 +531,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
     return () => {
       cancelled = true
     }
-  }, [document, kek, auth, documentId])
+  }, [document, kek, auth, documentId, tofuRetryTrigger])
 
   // Save function
   const save = useCallback(async () => {
@@ -358,7 +567,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
       }
 
       // Encrypt update with DEK
-      const { encrypted, nonce } = encryptContent(updateToSave, state.dek, documentId)
+      const { encrypted, nonce } = encryptContent(updateToSave, state.dek, documentId, state.keyVersion)
 
       const timestamp = Date.now()
       const encryptedContentB64 = base64UrlEncode(encrypted)
@@ -386,8 +595,9 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
       })
 
       // Send to server
+      let saveResult: { seq: number } | undefined
       try {
-        await documentApi.createUpdate(documentId, {
+        saveResult = await documentApi.createUpdate(documentId, {
           update_data: encryptedContentB64,
           nonce: nonceB64,
           key_version: state.keyVersion,
@@ -408,11 +618,27 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
             const doc = document
             if (!doc) throw saveErr
             const freshDek = unwrapDek(freshEncryptedDek, freshNonce, kek, documentId, doc.workspace_id)
+
+            // Anti-rollback: check refreshed DEK version
+            const freshDekRollback = await checkKeyVersionRollback('dek', documentId, keyResponse.key_version)
+            if (freshDekRollback.rolledBack) {
+              throw new Error(
+                `DEK rollback detected for document ${documentId}: ` +
+                `refreshed v${keyResponse.key_version}, pinned v${freshDekRollback.pinnedVersion}`
+              )
+            }
+            await pinKeyVersion({
+              type: 'dek',
+              id: documentId,
+              highestVersion: keyResponse.key_version,
+              observedAt: Date.now(),
+            })
+
             state.dek = freshDek
             state.keyVersion = keyResponse.key_version
 
             // Re-encrypt with new DEK
-            const { encrypted: reEncrypted, nonce: reNonce } = encryptContent(updateToSave, freshDek, documentId)
+            const { encrypted: reEncrypted, nonce: reNonce } = encryptContent(updateToSave, freshDek, documentId, state.keyVersion)
             const reTimestamp = Date.now()
             const reEncB64 = base64UrlEncode(reEncrypted)
             const reNonceB64 = base64UrlEncode(reNonce)
@@ -436,7 +662,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
               timestamp: reTimestamp,
             })
 
-            await documentApi.createUpdate(documentId, {
+            const retryResult = await documentApi.createUpdate(documentId, {
               update_data: reEncB64,
               nonce: reNonceB64,
               key_version: state.keyVersion,
@@ -447,6 +673,16 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
               timestamp: reTimestamp,
             })
 
+            // Anti-rollback: pin document state after retry save
+            if (retryResult?.seq != null) {
+              await pinDocumentState({
+                documentId,
+                latestSeq: retryResult.seq,
+                latestUpdateHash: reHash,
+                observedAt: Date.now(),
+              })
+            }
+
             state.lastSavedState = currentState
             state.prevUpdateHash = reHash
             state.isDirty = false
@@ -455,6 +691,16 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
           }
         }
         throw saveErr
+      }
+
+      // Anti-rollback: pin document state after successful save
+      if (saveResult?.seq != null) {
+        await pinDocumentState({
+          documentId,
+          latestSeq: saveResult.seq,
+          latestUpdateHash: updateHash,
+          observedAt: Date.now(),
+        })
       }
 
       // Update saved state and chain hash
@@ -478,6 +724,33 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
     }
   }, [kekError])
 
+  // TOFU key change confirmation callback (per spec: identity_key_changed allows user to trust and continue)
+  const confirmTofuKeyChange = useCallback(
+    (trust: boolean) => {
+      if (!tofuKeyChangeWarning) return
+      if (trust) {
+        // Trust the new key and retry initialization
+        trustDevice(tofuKeyChangeWarning.tofuResult.newEntry).then(() => {
+          setTofuKeyChangeWarning(null)
+          setIsLoading(true)
+          // Clear cached state so init re-runs
+          documentCache.delete(documentId)
+          initializingPromises.delete(documentId)
+          setTofuRetryTrigger((n) => n + 1)
+        })
+      } else {
+        // User rejected — set error
+        setTofuKeyChangeWarning(null)
+        setError(
+          new Error(
+            `Identity key change rejected for device ${tofuKeyChangeWarning.deviceId}`
+          )
+        )
+      }
+    },
+    [tofuKeyChangeWarning, documentId]
+  )
+
   return {
     document,
     yDoc,
@@ -487,5 +760,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
     isDirty,
     isSaving,
     save,
+    tofuKeyChangeWarning,
+    confirmTofuKeyChange,
   }
 }

@@ -52,7 +52,7 @@ impl From<WorkspaceEncryptedKeyRow> for WorkspaceEncryptedKey {
             user_id: UserId::from_uuid(row.user_id),
             device_id: DeviceId::from_uuid(row.device_id),
             sender_device_id: DeviceId::from_uuid(row.sender_device_id),
-            key_version: KeyVersion::new(row.key_version),
+            key_version: KeyVersion::new(row.key_version).expect("invalid key_version in DB"),
             encrypted_kek: row.encrypted_kek,
             nonce: row.nonce,
             is_active: row.is_active,
@@ -232,7 +232,7 @@ impl From<DocumentEncryptedKeyRow> for DocumentEncryptedKey {
     fn from(row: DocumentEncryptedKeyRow) -> Self {
         Self {
             document_id: DocumentId::from_uuid(row.document_id),
-            key_version: KeyVersion::new(row.key_version),
+            key_version: KeyVersion::new(row.key_version).expect("invalid key_version in DB"),
             encrypted_dek: row.encrypted_dek,
             nonce: row.nonce,
             is_active: row.is_active,
@@ -372,7 +372,7 @@ impl From<WorkspaceKekBackupRow> for WorkspaceKekBackup {
         Self {
             workspace_id: WorkspaceId::from_uuid(row.workspace_id),
             user_id: UserId::from_uuid(row.user_id),
-            key_version: KeyVersion::new(row.key_version),
+            key_version: KeyVersion::new(row.key_version).expect("invalid key_version in DB"),
             encrypted_kek: row.encrypted_kek,
             nonce: row.nonce,
             is_active: row.is_active,

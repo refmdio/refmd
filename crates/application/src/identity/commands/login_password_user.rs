@@ -274,28 +274,11 @@ where
             .umk_nonce
             .ok_or(LoginPasswordUserError::DataInconsistency)?;
 
-        // Generate session token
-        let session_token =
-            generate_session_token().map_err(LoginPasswordUserError::Rng)?;
-        let token_hash = hash_session_token(&session_token);
-
-        // Create session with device binding
-        let session = Session::with_device(
-            user.id,
-            command.device_id,
-            token_hash,
-            command.remember_me,
-            command.ip_address,
-            command.user_agent,
-        );
-
-        // Save session
-        self.session_repo
-            .save(&session)
-            .await
-            .map_err(LoginPasswordUserError::SessionRepository)?;
-
-        // Check if user has any active devices
+        // Check if user has any active devices and validate device_id ownership
+        // IMPORTANT: Validate device_id BEFORE session creation to prevent:
+        // - Cross-user device binding (FK only checks existence, not ownership)
+        // - FK violation errors when device_id doesn't exist
+        // - Incorrect self-revocation guard behavior
         let devices = self
             .device_repo
             .find_active_by_user_id(user.id)
@@ -314,6 +297,28 @@ where
         } else {
             (false, None)
         };
+
+        // Generate session token
+        let session_token =
+            generate_session_token().map_err(LoginPasswordUserError::Rng)?;
+        let token_hash = hash_session_token(&session_token);
+
+        // Create session with validated device binding only
+        // Unverified device_id is stripped to None to prevent cross-user binding
+        let session = Session::with_device(
+            user.id,
+            verified_device_id,
+            token_hash,
+            command.remember_me,
+            command.ip_address,
+            command.user_agent,
+        );
+
+        // Save session
+        self.session_repo
+            .save(&session)
+            .await
+            .map_err(LoginPasswordUserError::SessionRepository)?;
 
         // Only return encrypted keys if the device is verified
         // This prevents unverified/new devices from receiving UMK

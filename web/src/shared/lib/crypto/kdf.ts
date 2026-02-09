@@ -97,6 +97,8 @@ export interface DerivedKeys {
   authKeyBase64: string
   /** Password Unlock Key (32 bytes) - used to wrap/unwrap UMK */
   puk: Uint8Array
+  /** Password Derived Key (32 bytes) - used as fallback to wrap device keys when DSK is unavailable */
+  pdk: Uint8Array
 }
 
 /**
@@ -124,6 +126,7 @@ export const HKDF_ZERO_SALT = new Uint8Array(32)
 const HKDF_INFO = {
   PASSWORD_AUTH: 'password_auth',
   PASSWORD_UNLOCK: 'password_unlock',
+  PASSWORD_DEVICE_KEY: 'password_device_key',
 } as const
 
 export async function deriveAuthKeys(
@@ -171,11 +174,16 @@ export async function deriveAuthKeys(
   const pukInfo = new TextEncoder().encode(HKDF_INFO.PASSWORD_UNLOCK)
   const puk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, pukInfo, 32)
 
+  // Step 4: HKDF → PDK (using 32-byte zero salt per spec)
+  const pdkInfo = new TextEncoder().encode(HKDF_INFO.PASSWORD_DEVICE_KEY)
+  const pdk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, pdkInfo, 32)
+
   return {
     masterKey,
     authKey,
     authKeyBase64: base64UrlEncode(authKey),
     puk,
+    pdk,
   }
 }
 

@@ -18,8 +18,11 @@ import {
   decryptKekFromDevice,
   wrapKekWithUmk,
   unwrapKekWithUmk,
+  verifyTofu,
+  handleTofuResult,
 } from '@/shared/lib/crypto'
 import type { DeviceKeyPair } from '@/shared/lib/crypto'
+import { checkKeyVersionRollback, pinKeyVersion, getKeyVersionPin } from '@/shared/lib/anti-rollback'
 
 export interface UseWorkspaceKekResult {
   kek: Uint8Array | null
@@ -112,6 +115,33 @@ async function fetchOrCreateKek(
         : deviceKeys.ecdhPublicKey
       const senderDeviceId = response.sender_device_id || deviceId
 
+      // TOFU verification: verify sender device before using its public key (fail-close)
+      if (senderDeviceId !== deviceId) {
+        if (!response.sender_signing_public_key) {
+          throw new Error(
+            'KEK sender signing public key missing. Cannot verify sender identity. Decryption aborted.'
+          )
+        }
+        const senderSigningPublicKey = base64UrlDecode(response.sender_signing_public_key)
+        const tofuResult = await verifyTofu(
+          userId,
+          senderDeviceId,
+          senderSigningPublicKey,
+          senderEcdhPublicKey
+        )
+
+        if (tofuResult.status === 'ecdh_key_mismatch') {
+          throw new Error('KEK sender ECDH key mismatch. Decryption aborted for security.')
+        }
+        if (tofuResult.status === 'identity_key_changed') {
+          throw new Error(
+            'KEK sender identity key changed unexpectedly. ' +
+            'Please verify your devices from a trusted device before continuing.'
+          )
+        }
+        await handleTofuResult(tofuResult)
+      }
+
       const decryptedKek = decryptKekFromDevice(
         encryptedKek,
         nonce,
@@ -122,6 +152,21 @@ async function fetchOrCreateKek(
         senderDeviceId,
         deviceId
       )
+
+      // Anti-rollback: check KEK version
+      const kekRollback = await checkKeyVersionRollback('kek', workspaceId, response.key_version)
+      if (kekRollback.rolledBack) {
+        throw new Error(
+          `KEK rollback detected for workspace ${workspaceId}: ` +
+          `server returned v${response.key_version}, pinned v${kekRollback.pinnedVersion}`
+        )
+      }
+      await pinKeyVersion({
+        type: 'kek',
+        id: workspaceId,
+        highestVersion: response.key_version,
+        observedAt: Date.now(),
+      })
 
       kekCache.set(workspaceId, decryptedKek)
 
@@ -150,6 +195,15 @@ async function fetchOrCreateKek(
               backupResponse.key_version
             )
 
+            // Anti-rollback: check KEK version BEFORE any side effects
+            const backupRollback = await checkKeyVersionRollback('kek', workspaceId, backupResponse.key_version)
+            if (backupRollback.rolledBack) {
+              throw new Error(
+                `KEK rollback detected for workspace ${workspaceId}: ` +
+                `backup returned v${backupResponse.key_version}, pinned v${backupRollback.pinnedVersion}`
+              )
+            }
+
             // Re-wrap for this device via ECDH and save
             const { encryptedKek: deviceEncKek, nonce: deviceNonce } = encryptKekForDevice(
               restoredKek,
@@ -168,6 +222,13 @@ async function fetchOrCreateKek(
               encrypted_kek: base64UrlEncode(deviceEncKek),
               nonce: base64UrlEncode(deviceNonce),
               is_active: true,
+            })
+
+            await pinKeyVersion({
+              type: 'kek',
+              id: workspaceId,
+              highestVersion: backupResponse.key_version,
+              observedAt: Date.now(),
             })
 
             kekCache.set(workspaceId, restoredKek)
@@ -193,6 +254,16 @@ async function fetchOrCreateKek(
 
         // No KEK exists anywhere — try to create one (workspace creator case)
         // Server rejects with 409 if keys already exist (prevents key fork)
+
+        // Anti-rollback: if we previously observed a version, 404 means server rollback
+        const existingKekPin = await getKeyVersionPin('kek', workspaceId)
+        if (existingKekPin) {
+          throw new Error(
+            `KEK rollback detected for workspace ${workspaceId}: ` +
+            `server returned 404 but v${existingKekPin.highestVersion} was previously observed`
+          )
+        }
+
         const newKek = generateKek()
 
         const { encryptedKek, nonce } = encryptKekForDevice(
@@ -212,6 +283,21 @@ async function fetchOrCreateKek(
             encrypted_kek: base64UrlEncode(encryptedKek),
             nonce: base64UrlEncode(nonce),
             is_active: true,
+          })
+
+          // Anti-rollback: check + pin BEFORE any further side effects
+          const newKekRollback = await checkKeyVersionRollback('kek', workspaceId, saveResponse.key_version)
+          if (newKekRollback.rolledBack) {
+            throw new Error(
+              `KEK rollback detected for workspace ${workspaceId}: ` +
+              `new KEK v${saveResponse.key_version}, pinned v${newKekRollback.pinnedVersion}`
+            )
+          }
+          await pinKeyVersion({
+            type: 'kek',
+            id: workspaceId,
+            highestVersion: saveResponse.key_version,
+            observedAt: Date.now(),
           })
 
           // Save UMK backup for the new KEK

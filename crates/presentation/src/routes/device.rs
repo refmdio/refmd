@@ -46,8 +46,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    AppState, AuthUserFull, DeviceEvent,
-    auth::verify_pop,
+    AppState, AuthUserFull, DeviceEvent, PopVerifiedUser, RecoveryOrPopUser,
     crypto_validation::{is_valid_ed25519_public_key, is_valid_x25519_public_key},
     rate_limit::create_device_rate_limit_config,
 };
@@ -911,7 +910,7 @@ pub async fn approve_device<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    auth_user: AuthUserFull<
+    pop_user: RecoveryOrPopUser<
         U,
         S,
         US,
@@ -985,7 +984,7 @@ where
 
     let command = ApproveDeviceCommand {
         pending_device_id,
-        user_id: auth_user.user.id,
+        user_id: pop_user.user.id,
         identity_signature,
     };
 
@@ -1345,8 +1344,7 @@ pub async fn list_devices<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: HeaderMap,
-    auth_user: AuthUserFull<
+    pop_user: PopVerifiedUser<
         U,
         S,
         US,
@@ -1385,22 +1383,10 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Verify PoP (Proof of Possession) - required for device management operations
-    if let Err(e) = verify_pop(
-        &headers,
-        auth_user.user.id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return e.into_response();
-    }
-
     let device_repo = state.device_repo();
-    let current_device_id = auth_user.session.device_id;
+    let current_device_id = pop_user.session.device_id;
 
-    match device_repo.find_active_by_user_id(auth_user.user.id).await {
+    match device_repo.find_active_by_user_id(pop_user.user.id).await {
         Ok(devices) => {
             let response = ListDevicesResponse {
                 devices: devices
@@ -1433,7 +1419,7 @@ where
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RevokeDeviceRequest {
     /// Identity signature of the revocation event (base64url, 64 bytes)
-    /// Signs: user_id (16 bytes) || device_id (16 bytes) || revoked_at (8 bytes, big-endian) || revoked_by_device_id (16 bytes)
+    /// Signs JCS-canonicalized JSON: {"action":"device_revocation","device_id","revoked_at","revoked_by_device_id","user_id","protocol":"doclock-v1","version":1}
     #[schema(example = "base64url-encoded-signature")]
     pub identity_signature: String,
     /// Timestamp when revocation was requested (Unix milliseconds)
@@ -1497,8 +1483,7 @@ pub async fn revoke_device<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: HeaderMap,
-    auth_user: AuthUserFull<
+    pop_user: PopVerifiedUser<
         U,
         S,
         US,
@@ -1562,19 +1547,6 @@ where
         }
     };
 
-    // Verify PoP (Proof of Possession) - required for device revocation
-    let pop_verified = match verify_pop(
-        &headers,
-        auth_user.user.id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => return e.into_response(),
-    };
-
     let device_id = DeviceId::from_uuid(id);
 
     // Delegate to application layer handler
@@ -1590,12 +1562,12 @@ where
     );
 
     let command = application::encryption::RevokeDeviceCommand {
-        user_id: auth_user.user.id,
+        user_id: pop_user.user.id,
         device_id,
-        revoking_device_id: pop_verified.device.id,
+        revoking_device_id: pop_user.device.id,
         revoked_at: request.revoked_at,
         identity_signature,
-        session_device_id: auth_user.session.device_id,
+        session_device_id: pop_user.session.device_id,
     };
 
     match handler.handle(command).await {
@@ -1639,9 +1611,6 @@ pub struct DistributeUmkRequest {
     /// Sender device ID
     #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
     pub sender_device_id: Uuid,
-    /// Pending device ID (for SSE notification to the new device)
-    #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
-    pub pending_device_id: Uuid,
     /// UMK encrypted with target device's public key (base64url)
     #[schema(example = "base64url-encoded-encrypted-umk")]
     pub encrypted_umk: String,
@@ -1696,8 +1665,7 @@ pub async fn distribute_umk<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: HeaderMap,
-    auth_user: AuthUserFull<
+    pop_user: PopVerifiedUser<
         U,
         S,
         US,
@@ -1738,39 +1706,9 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Verify PoP (Proof of Possession) - required for key distribution operations
-    if let Err(e) = verify_pop(
-        &headers,
-        auth_user.user.id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        return e.into_response();
-    }
-
-    // Validate sender_device_id matches the PoP device
+    // Validate sender_device_id matches the PoP-verified device
     // This prevents attackers from submitting UMK encrypted with a different device's key
-    let pop_device_id = match headers
-        .get(crate::POP_DEVICE_ID_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| Uuid::parse_str(s).ok())
-    {
-        Some(id) => DeviceId::from_uuid(id),
-        None => {
-            // This shouldn't happen since verify_pop already validated
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(DeviceErrorResponse {
-                    error: "missing or invalid PoP device ID".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    if pop_device_id != DeviceId::from_uuid(request.sender_device_id) {
+    if pop_user.device.id != DeviceId::from_uuid(request.sender_device_id) {
         return (
             StatusCode::FORBIDDEN,
             Json(DeviceErrorResponse {
@@ -1819,7 +1757,7 @@ where
     let handler = DistributeUmkHandler::new(state.device_repo(), state.device_encrypted_umk_repo());
 
     let command = DistributeUmkCommand {
-        user_id: auth_user.user.id,
+        user_id: pop_user.user.id,
         target_device_id: DeviceId::from_uuid(target_device_id),
         sender_device_id: DeviceId::from_uuid(request.sender_device_id),
         encrypted_umk,
@@ -1832,8 +1770,8 @@ where
             state
                 .device_event_bus()
                 .pending_approved(
-                    DeviceId::from_uuid(request.pending_device_id),
-                    auth_user.user.id,
+                    DeviceId::from_uuid(target_device_id),
+                    pop_user.user.id,
                     DeviceId::from_uuid(target_device_id),
                 )
                 .await;
@@ -1924,8 +1862,7 @@ pub async fn get_device_umk<
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: HeaderMap,
-    auth_user: AuthUserFull<
+    pop_user: PopVerifiedUser<
         U,
         S,
         US,
@@ -1965,24 +1902,11 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Verify PoP (Proof of Possession) - the requesting device must prove it has its signing key
-    let pop_verified = match verify_pop(
-        &headers,
-        auth_user.user.id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        Ok(verified) => verified,
-        Err(e) => return e.into_response(),
-    };
-
     let device_id = DeviceId::from_uuid(device_id);
 
     // Verify the requesting device (from PoP) matches the target device (from URL)
     // This ensures a device can only fetch its own UMK
-    if pop_verified.device.id != device_id {
+    if pop_user.device.id != device_id {
         return (
             StatusCode::FORBIDDEN,
             Json(DeviceErrorResponse {
@@ -2019,7 +1943,7 @@ where
 
     // Verify device belongs to the authenticated user
     // Use 404 instead of 403 to prevent device ID enumeration
-    if target_device.user_id != auth_user.user.id {
+    if target_device.user_id != pop_user.user.id {
         return (
             StatusCode::NOT_FOUND,
             Json(DeviceErrorResponse {
@@ -2044,7 +1968,7 @@ where
     // Find the encrypted UMK for this device
     let umk_repo = state.device_encrypted_umk_repo();
     let device_umk = match umk_repo
-        .find_by_user_and_device(auth_user.user.id, device_id)
+        .find_by_user_and_device(pop_user.user.id, device_id)
         .await
     {
         Ok(Some(umk)) => umk,
@@ -2092,7 +2016,7 @@ where
     };
 
     // Verify sender device belongs to the same user
-    if sender_device.user_id != auth_user.user.id {
+    if sender_device.user_id != pop_user.user.id {
         return (
             StatusCode::FORBIDDEN,
             Json(DeviceErrorResponse {

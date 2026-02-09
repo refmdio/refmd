@@ -189,7 +189,8 @@ where
         let backup = WorkspaceKekBackup::new(NewWorkspaceKekBackupParams {
             workspace_id: command.workspace_id,
             user_id: command.user_id,
-            key_version: KeyVersion::new(command.key_version as i32),
+            key_version: KeyVersion::new(command.key_version as i32)
+                .map_err(|_| SaveWorkspaceKekBackupError::InvalidKeyVersion)?,
             encrypted_kek: command.encrypted_kek,
             nonce: command.nonce,
             is_active: true,

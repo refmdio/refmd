@@ -21,7 +21,10 @@ pub mod routes;
 pub mod sas;
 mod state;
 
-pub use auth::{AuthUser, AuthUserFull, PopError, PopVerified, authenticate_with_pop, verify_pop};
+pub use auth::{
+    AuthUser, AuthUserFull, PopError, PopVerified, PopVerifiedUser, RecoveryOrPopUser,
+    authenticate_with_pop, verify_pop,
+};
 pub use events::{
     DeviceEvent, DeviceEventBus, DeviceEventPublisher, DeviceEventSubscriber,
     InMemoryDeviceEventBus,
@@ -101,6 +104,7 @@ use utoipa::OpenApi;
             routes::auth::LoginResponse,
             routes::auth::LogoutResponse,
             routes::auth::MeResponse,
+            routes::auth::MeResponseKeys,
             routes::auth::PopChallengeResponse,
             routes::auth::RecoveryChallengeRequest,
             routes::auth::RecoveryChallengeResponse,

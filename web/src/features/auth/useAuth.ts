@@ -16,6 +16,7 @@ import {
   wrapUmkWithRuk,
   base64UrlEncode,
   base64UrlDecode,
+  canPersistDsk,
   generateDsk,
   storeDsk,
   loadDsk,
@@ -25,6 +26,7 @@ import {
   clearDskData,
   hasCachedSession,
   wrapAndStoreDeviceKeys,
+  loadAndUnwrapDeviceKeys,
   storeDeviceId,
   loadDeviceId,
   generateDeviceKeyPair,
@@ -32,6 +34,17 @@ import {
   sign,
   buildSignatureMessage,
   SIGNATURE_ACTION,
+  deriveEcdhPublicKey,
+  deriveSigningPublicKey,
+  // PDK fallback
+  wrapAndStorePdkDeviceKeys,
+  unwrapPdkDeviceKeys,
+  hasPdkWrappedDeviceKeys,
+  clearPdkWrappedDeviceKeys,
+  wrapAndStorePdkUmk,
+  clearPdkWrappedUmk,
+  storePdkForDeviceRegistration,
+  clearPdkEphemeral,
   // Session storage (for rememberMe=false)
   storeSessionUmk,
   loadSessionUmk,
@@ -40,6 +53,13 @@ import {
   type IdentityKeyPair,
   type DeviceKeyPair,
 } from '@/shared/lib/crypto'
+import { clearAllTofuEntries } from '@/shared/lib/trust-store'
+import {
+  clearAllRevocationPins,
+  clearAllKeyVersionPins,
+  clearAllMembershipLogs,
+  clearAllDocumentStatePins,
+} from '@/shared/lib/anti-rollback'
 import { detectDeviceType, detectDeviceName } from '@/shared/lib/device'
 
 // Re-export for convenience
@@ -73,6 +93,8 @@ export interface LoginResult {
   identityKeys: IdentityKeyPair
   expiresAt: Date
   hasDevices: boolean
+  /** Device keys (loaded from DSK or PDK) — null if neither is available */
+  deviceKeys: DeviceKeyPair | null
 }
 
 /**
@@ -181,11 +203,26 @@ export async function register(
   // Step 8: Send to server
   const response = await authApi.register(request)
 
-  // Step 9: Store device keys in IndexedDB (encrypted by DSK)
-  const dsk = await generateDsk()
-  await storeDsk(dsk)
-  await wrapAndStoreDeviceKeys(deviceKeys, dsk, response.id)
+  // Step 9: Store device keys (DSK preferred, PDK fallback)
   await storeDeviceId(response.device_id)
+  const dskAvailable = await canPersistDsk()
+  if (dskAvailable) {
+    const dsk = await generateDsk()
+    await storeDsk(dsk)
+    await wrapAndStoreDeviceKeys(deviceKeys, dsk, response.id)
+  }
+
+  // Step 10: PDK backup - also wrap device keys with PDK for fallback
+  // This allows session restoration even if DSK (IndexedDB non-exportable key) is lost
+  wrapAndStorePdkDeviceKeys(
+    {
+      ecdhPrivateKey: deviceKeys.ecdhPrivateKey,
+      signingPrivateKey: deviceKeys.signingPrivateKey,
+    },
+    derivedKeys.pdk,
+    response.id,
+    response.device_id
+  )
 
   return {
     userId: response.id,
@@ -231,6 +268,8 @@ export async function login(
   // Step 5: Check if device is verified
   if (!loginResponse.device_verified || !loginResponse.keys) {
     // Device not verified - needs to go through PendingDevice flow
+    // Store PDK in sessionStorage so device-register can wrap keys after approval
+    storePdkForDeviceRegistration(derivedKeys.pdk)
     return {
       type: 'device_required',
       userId: loginResponse.user_id,
@@ -239,6 +278,14 @@ export async function login(
       hasDevices: loginResponse.has_devices,
     }
   }
+
+  // Verified device must have a device_id — server invariant
+  if (!loginResponse.device_id) {
+    throw new Error('Server returned verified device without device_id')
+  }
+
+  // After this point, device_id is guaranteed to be a string
+  const verifiedDeviceId = loginResponse.device_id
 
   // Step 6: Decrypt UMK (using user_id for AAD)
   const keys = loginResponse.keys
@@ -261,14 +308,16 @@ export async function login(
   // Step 8: Handle UMK caching based on KMSI preference
   if (rememberMe) {
     // rememberMe=true: Store UMK in IndexedDB (persists across browser restarts)
-    // Reuse existing DSK if available, otherwise generate new one
+    // Reuse existing DSK if available, otherwise generate new one if possible
     // This preserves device keys which are encrypted with DSK
     let dsk = await loadDsk()
-    if (!dsk) {
+    if (!dsk && (await canPersistDsk())) {
       dsk = await generateDsk()
       await storeDsk(dsk)
     }
-    await wrapAndStoreUmk(umk, dsk, loginResponse.user_id)
+    if (dsk) {
+      await wrapAndStoreUmk(umk, dsk, loginResponse.user_id)
+    }
     // Clear sessionStorage UMK if it exists (we're using IndexedDB now)
     clearSessionUmk()
   } else {
@@ -280,15 +329,70 @@ export async function login(
     await clearSessionCache()
   }
 
+  // Step 9: Load device keys and wrap with PDK for fallback
+  let resolvedDeviceKeys: DeviceKeyPair | null = null
+
+  // Try DSK first
+  const dskForPdk = await loadDsk()
+  if (dskForPdk) {
+    const deviceKeysData = await loadAndUnwrapDeviceKeys(dskForPdk)
+    if (deviceKeysData && deviceKeysData.userId === loginResponse.user_id) {
+      resolvedDeviceKeys = {
+        ecdhPrivateKey: deviceKeysData.ecdhPrivateKey,
+        ecdhPublicKey: deviceKeysData.ecdhPublicKey,
+        signingPrivateKey: deviceKeysData.signingPrivateKey,
+        signingPublicKey: deviceKeysData.signingPublicKey,
+      }
+    }
+  }
+
+  // If DSK failed, try PDK fallback
+  if (!resolvedDeviceKeys) {
+    const pdkKeys = unwrapPdkDeviceKeys(derivedKeys.pdk)
+    if (pdkKeys && pdkKeys.userId === loginResponse.user_id && pdkKeys.deviceId === verifiedDeviceId) {
+      resolvedDeviceKeys = {
+        ecdhPrivateKey: pdkKeys.ecdhPrivateKey,
+        ecdhPublicKey: deriveEcdhPublicKey(pdkKeys.ecdhPrivateKey),
+        signingPrivateKey: pdkKeys.signingPrivateKey,
+        signingPublicKey: deriveSigningPublicKey(pdkKeys.signingPrivateKey),
+      }
+      // Re-store device keys in DSK if possible (so next reload doesn't need PDK)
+      const dskForRestore = await loadDsk()
+      if (dskForRestore) {
+        await wrapAndStoreDeviceKeys(resolvedDeviceKeys, dskForRestore, loginResponse.user_id)
+      } else if (await canPersistDsk()) {
+        const newDsk = await generateDsk()
+        await storeDsk(newDsk)
+        await wrapAndStoreDeviceKeys(resolvedDeviceKeys, newDsk, loginResponse.user_id)
+      }
+    }
+  }
+
+  // Update PDK wraps with current password
+  if (resolvedDeviceKeys) {
+    wrapAndStorePdkDeviceKeys(
+      {
+        ecdhPrivateKey: resolvedDeviceKeys.ecdhPrivateKey,
+        signingPrivateKey: resolvedDeviceKeys.signingPrivateKey,
+      },
+      derivedKeys.pdk,
+      loginResponse.user_id,
+      verifiedDeviceId
+    )
+  }
+  // Always wrap UMK with PDK for fallback (works even without DSK)
+  wrapAndStorePdkUmk(umk, derivedKeys.pdk, loginResponse.user_id)
+
   return {
     type: 'verified',
     userId: loginResponse.user_id,
     email: loginResponse.email,
-    deviceId: loginResponse.device_id!,
+    deviceId: verifiedDeviceId,
     umk,
     identityKeys,
     expiresAt: new Date(loginResponse.expires_at),
     hasDevices: loginResponse.has_devices,
+    deviceKeys: resolvedDeviceKeys,
   }
 }
 
@@ -304,19 +408,41 @@ export interface SessionRestoreResult {
 }
 
 /**
+ * PDK session restoration result - includes device keys since DSK is unavailable
+ */
+export interface PdkSessionRestoreResult extends SessionRestoreResult {
+  deviceId: string
+  deviceKeys: {
+    ecdhPrivateKey: Uint8Array
+    ecdhPublicKey: Uint8Array
+    signingPrivateKey: Uint8Array
+    signingPublicKey: Uint8Array
+  }
+}
+
+/**
+ * Result when PDK fallback is needed (DSK failed but PDK-wrapped keys exist)
+ */
+export interface PdkFallbackRequired {
+  type: 'pdk_fallback_required'
+  email: string
+}
+
+/**
  * Restore session from cache
  *
  * Checks for UMK in order of preference:
  * 1. sessionStorage (for rememberMe=false, persists until tab close)
  * 2. IndexedDB wrapped with DSK (for rememberMe=true, persists across restarts)
+ * 3. If DSK fails but PDK-wrapped keys exist, signals that password re-entry is needed
  *
  * Then:
  * 1. Call /api/auth/me to validate session and get encrypted keys
  * 2. Decrypt identity keys using UMK
  *
- * @returns Session data if restoration successful, null otherwise
+ * @returns Session data if restoration successful, PdkFallbackRequired if password needed, null otherwise
  */
-export async function restoreSession(): Promise<SessionRestoreResult | null> {
+export async function restoreSession(): Promise<SessionRestoreResult | PdkFallbackRequired | null> {
   // Step 1: Try to get UMK from cache (sessionStorage first, then IndexedDB)
   let umk: Uint8Array | null = null
   let cachedUserId: string | null = null
@@ -340,8 +466,25 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
     }
   }
 
-  // No cached UMK found
+  // No cached UMK found - check if PDK fallback is available
   if (!umk || !cachedUserId) {
+    if (hasPdkWrappedDeviceKeys()) {
+      // PDK-wrapped keys exist but DSK failed. Need password re-entry.
+      // Validate session first to get the email and auth_type for the prompt
+      try {
+        const meResponse = await authApi.me()
+        // Only offer PDK fallback for password-auth users with verified devices
+        // (OAuth users can't derive PDK, unverified devices will fail restoreSessionWithPdk)
+        if (meResponse.auth_type === 'password' && meResponse.device_verified && meResponse.device_id) {
+          return { type: 'pdk_fallback_required', email: meResponse.email }
+        }
+      } catch (error) {
+        if (error instanceof ApiRequestError && error.status === 401) {
+          return null
+        }
+        throw error
+      }
+    }
     return null
   }
 
@@ -367,13 +510,48 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
     return null
   }
 
-  // Step 3: Decrypt identity keys
+  // Device must be verified and keys must be present for session restoration
+  if (!meResponse.device_verified || !meResponse.keys) {
+    // Device not verified - cannot restore session with keys
+    clearSessionUmk()
+    return null
+  }
+
+  // Step 3: Verify device keys are accessible (needed for PoP)
+  // Even if UMK was restored, if device keys can't be loaded from DSK,
+  // we need PDK fallback to get device keys for PoP authentication.
+  let deviceKeysAvailable = false
+  const deviceId = await loadDeviceId()
+  if (deviceId) {
+    const dsk = await loadDsk()
+    if (dsk) {
+      const deviceKeysData = await loadAndUnwrapDeviceKeys(dsk)
+      if (deviceKeysData && deviceKeysData.userId === meResponse.user_id) {
+        deviceKeysAvailable = true
+      }
+    }
+  }
+
+  if (!deviceKeysAvailable) {
+    if (hasPdkWrappedDeviceKeys() && meResponse.auth_type === 'password') {
+      // UMK is available but device keys aren't loadable from DSK.
+      // PDK-wrapped keys exist — need password re-entry to unlock them.
+      return { type: 'pdk_fallback_required', email: meResponse.email }
+    }
+    // Neither DSK nor PDK device keys available — PoP cannot be established.
+    // Force re-login so user can either recover device keys or re-register device.
+    clearSessionUmk()
+    return null
+  }
+
+  // Step 4: Decrypt identity keys
+  const keys = meResponse.keys
   const identityKeys = decryptIdentityPrivateKeys(
     {
-      encryptedEcdhPrivate: base64UrlDecode(meResponse.encrypted_ecdh_private),
-      ecdhPrivateNonce: base64UrlDecode(meResponse.encrypted_ecdh_private_nonce),
-      encryptedSigningPrivate: base64UrlDecode(meResponse.encrypted_signing_private),
-      signingPrivateNonce: base64UrlDecode(meResponse.encrypted_signing_private_nonce),
+      encryptedEcdhPrivate: base64UrlDecode(keys.encrypted_ecdh_private),
+      ecdhPrivateNonce: base64UrlDecode(keys.encrypted_ecdh_private_nonce),
+      encryptedSigningPrivate: base64UrlDecode(keys.encrypted_signing_private),
+      signingPrivateNonce: base64UrlDecode(keys.encrypted_signing_private_nonce),
     },
     umk,
     meResponse.user_id
@@ -385,6 +563,131 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
     umk,
     identityKeys,
     expiresAt: new Date(meResponse.expires_at),
+  }
+}
+
+/**
+ * Restore session using PDK fallback (password re-entry)
+ *
+ * Called when restoreSession() returns PdkFallbackRequired.
+ * The user must provide their password to derive PDK and unwrap device keys.
+ *
+ * @param email User email for salt retrieval
+ * @param password User password for PDK derivation
+ * @returns Session data if restoration successful, null otherwise
+ */
+export async function restoreSessionWithPdk(
+  email: string,
+  password: string
+): Promise<PdkSessionRestoreResult | null> {
+  // Step 1: Derive PDK from password
+  const saltResponse = await authApi.getSalt(email)
+  const derivedKeys = await deriveAuthKeys(password, saltResponse.salt, saltResponse.kdf_params)
+
+  // Step 2: Unwrap device keys with PDK
+  const pdkKeys = unwrapPdkDeviceKeys(derivedKeys.pdk)
+  if (!pdkKeys) {
+    return null
+  }
+
+  // Step 3: Validate session with server
+  let meResponse: MeResponse
+  try {
+    meResponse = await authApi.me()
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 401) {
+      return null
+    }
+    throw error
+  }
+
+  // Verify user ID matches
+  if (pdkKeys.userId !== meResponse.user_id) {
+    return null
+  }
+
+  // Device must be verified, have a device_id, and keys must be present
+  if (!meResponse.device_verified || !meResponse.device_id || !meResponse.keys) {
+    return null
+  }
+
+  // Verify device ID matches PDK-stored device
+  if (pdkKeys.deviceId !== meResponse.device_id) {
+    return null
+  }
+
+  // Step 4: Decrypt UMK using PUK (with null guards for OAuth users)
+  const keys = meResponse.keys
+  if (!keys.encrypted_umk || !keys.umk_nonce) {
+    // OAuth users don't have password-encrypted UMK
+    return null
+  }
+  const encryptedUmk = base64UrlDecode(keys.encrypted_umk)
+  const umkNonce = base64UrlDecode(keys.umk_nonce)
+  const umk = unwrapUmk(encryptedUmk, umkNonce, derivedKeys.puk, meResponse.user_id)
+
+  // Step 5: Decrypt identity keys
+  const identityKeys = decryptIdentityPrivateKeys(
+    {
+      encryptedEcdhPrivate: base64UrlDecode(keys.encrypted_ecdh_private),
+      ecdhPrivateNonce: base64UrlDecode(keys.encrypted_ecdh_private_nonce),
+      encryptedSigningPrivate: base64UrlDecode(keys.encrypted_signing_private),
+      signingPrivateNonce: base64UrlDecode(keys.encrypted_signing_private_nonce),
+    },
+    umk,
+    meResponse.user_id
+  )
+
+  // Step 6: Derive public keys from private keys (PDK only stores private keys)
+  const ecdhPublicKey = deriveEcdhPublicKey(pdkKeys.ecdhPrivateKey)
+  const signingPublicKey = deriveSigningPublicKey(pdkKeys.signingPrivateKey)
+
+  // Step 7: Persist device ID (may have been lost with IndexedDB)
+  await storeDeviceId(meResponse.device_id)
+
+  // Step 8: Re-establish DSK if possible, and update PDK wraps
+  const dskAvailable = await canPersistDsk()
+  if (dskAvailable) {
+    const dsk = await generateDsk()
+    await storeDsk(dsk)
+    await wrapAndStoreDeviceKeys(
+      {
+        ecdhPrivateKey: pdkKeys.ecdhPrivateKey,
+        ecdhPublicKey,
+        signingPrivateKey: pdkKeys.signingPrivateKey,
+        signingPublicKey,
+      },
+      dsk,
+      meResponse.user_id
+    )
+    await wrapAndStoreUmk(umk, dsk, meResponse.user_id)
+  }
+
+  // Update PDK wraps with current password
+  wrapAndStorePdkDeviceKeys(
+    {
+      ecdhPrivateKey: pdkKeys.ecdhPrivateKey,
+      signingPrivateKey: pdkKeys.signingPrivateKey,
+    },
+    derivedKeys.pdk,
+    meResponse.user_id,
+    meResponse.device_id
+  )
+  wrapAndStorePdkUmk(umk, derivedKeys.pdk, meResponse.user_id)
+
+  return {
+    userId: meResponse.user_id,
+    email: meResponse.email,
+    umk,
+    identityKeys,
+    expiresAt: new Date(meResponse.expires_at),
+    deviceId: meResponse.device_id,
+    deviceKeys: {
+      ecdhPrivateKey: pdkKeys.ecdhPrivateKey,
+      ecdhPublicKey,
+      signingPrivateKey: pdkKeys.signingPrivateKey,
+      signingPublicKey,
+    },
   }
 }
 
@@ -405,28 +708,48 @@ export async function getCurrentUser(): Promise<MeResponse | null> {
 /**
  * Logout (normal) - keeps IndexedDB cache for quick re-login
  *
- * Per deletion-semantics.md:
- * - Normal logout: IndexedDB preserved, session destroyed
- * - User can re-login without password if DSK cache exists
+ * Normal logout: IndexedDB preserved, session destroyed.
+ * User can re-login without password if DSK cache exists.
  *
  * Note: sessionStorage UMK is cleared since it's only for the current tab session
  */
 export async function logout(): Promise<void> {
   clearSessionUmk()
+  clearPdkEphemeral()
   await authApi.logout()
 }
 
 /**
  * Secure logout - clears all local data including IndexedDB
  *
- * Per deletion-semantics.md:
- * - Secure logout: IndexedDB cleared, session destroyed
- * - All local cryptographic material is erased
+ * Secure logout: IndexedDB cleared, session destroyed.
+ * All local cryptographic material is erased.
  */
 export async function secureLogout(): Promise<void> {
   clearSessionUmk()
+  // Clear PDK-wrapped keys from localStorage (synchronous)
+  clearPdkWrappedDeviceKeys()
+  clearPdkWrappedUmk()
+  clearPdkEphemeral()
+  clearBrowserFingerprint()
+
   await Promise.all([
     authApi.logout(),
-    clearDskData(),
+    clearDskData(),              // DSK, device keys, UMK cache in IndexedDB
+    clearAllTofuEntries(),       // TOFU trust store
+    clearAllRevocationPins(),    // Anti-rollback: revocation pins
+    clearAllKeyVersionPins(),    // Anti-rollback: key version pins
+    clearAllMembershipLogs(),    // Anti-rollback: membership logs
+    clearAllDocumentStatePins(), // Anti-rollback: document state pins
   ])
+}
+
+/**
+ * Clear browser fingerprint from localStorage
+ *
+ * Currently fingerprint storage is not implemented, but this ensures
+ * the known key is cleared on secure logout when it is added.
+ */
+function clearBrowserFingerprint(): void {
+  localStorage.removeItem('refmd-browser-fingerprint')
 }

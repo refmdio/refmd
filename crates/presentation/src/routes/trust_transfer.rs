@@ -24,7 +24,7 @@ use application::trust_transfer::{
 use axum::{
     Json, Router,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
 };
@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{AppState, AuthUserFull, auth::verify_pop};
+use crate::{AppState, AuthUserFull, PopVerifiedUser};
 
 /// Maximum size for encrypted state payload (1 MB)
 const MAX_ENCRYPTED_STATE_SIZE: usize = 1024 * 1024;
@@ -280,8 +280,7 @@ async fn submit_state<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, 
     State(state): State<
         AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
     >,
-    headers: HeaderMap,
-    auth: AuthUserFull<
+    pop_user: PopVerifiedUser<
         U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
     >,
     Json(req): Json<SubmitStateRequest>,
@@ -305,22 +304,8 @@ where
     PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
     UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
 {
-    // Verify PoP (Proof of Possession) - required for trust state transfer
-    // Use the device_id from PopVerified to ensure sender_device_id matches the PoP-authenticated device
-    let pop_verified = match verify_pop(
-        &headers,
-        auth.user.id,
-        state.device_repo().as_ref(),
-        &state.challenge_store(),
-    )
-    .await
-    {
-        Ok(verified) => verified,
-        Err(e) => return e.into_response(),
-    };
-
     // Use the device ID from PoP verification (not session) to ensure binding
-    let sender_device_id = pop_verified.device.id;
+    let sender_device_id = pop_user.device.id;
 
     // Verify target device exists and belongs to this user
     let target_device_id = DeviceId::from_uuid(req.target_device_id);
@@ -329,11 +314,11 @@ where
     // Check if target is a pending device or active device
     let pending_repo = state.pending_device_repo();
     let is_valid_target = match pending_repo.find_by_id(target_device_id).await {
-        Ok(Some(pending)) => pending.user_id == auth.user.id,
+        Ok(Some(pending)) => pending.user_id == pop_user.user.id,
         Ok(None) => {
             // Not a pending device, check active devices
             match device_repo.find_by_id(target_device_id).await {
-                Ok(Some(device)) => device.user_id == auth.user.id && !device.is_revoked(),
+                Ok(Some(device)) => device.user_id == pop_user.user.id && !device.is_revoked(),
                 Ok(None) => false,
                 Err(_) => false,
             }
@@ -420,7 +405,7 @@ where
     );
 
     let command = SubmitStateCommand {
-        user_id: auth.user.id,
+        user_id: pop_user.user.id,
         sender_device_id,
         target_device_id: DeviceId::from_uuid(req.target_device_id),
         transfer_nonce,

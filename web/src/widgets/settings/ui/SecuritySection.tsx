@@ -26,6 +26,7 @@ import {
   SIGNATURE_ACTION,
 } from '@/shared/lib/crypto'
 import { KeyChangeWarningDialog } from '@/features/tofu'
+import { pinRevocation, isRevocationRolledBack, checkKeyVersionRollback, pinKeyVersion, getKeyVersionPin } from '@/shared/lib/anti-rollback'
 import { Monitor, Smartphone, Globe, Trash2, AlertTriangle } from 'lucide-react'
 
 type Device = components['schemas']['DeviceResponse']
@@ -131,6 +132,12 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
       }> = []
 
       for (const device of response.devices) {
+        // Anti-rollback: check if this device was previously revoked
+        if (await isRevocationRolledBack(auth.userId, device.id)) {
+          console.error('[Anti-Rollback] Revoked device reappeared:', device.id)
+          detectedCompromised.add(device.id)
+        }
+
         if (device.signing_public_key && device.ecdh_public_key) {
           try {
             const signingPk = base64UrlDecode(device.signing_public_key)
@@ -200,6 +207,21 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
       try {
         const existingKey = await encryptionApi.getWorkspaceKey(workspaceId, currentDevice.deviceId)
         const currentVersion = existingKey.key_version
+
+        // Anti-rollback: verify current KEK version before rotation
+        const rotationRollback = await checkKeyVersionRollback('kek', workspaceId, currentVersion)
+        if (rotationRollback.rolledBack) {
+          console.error(`[KEK Rotation] Rollback detected for workspace ${workspaceId}: v${currentVersion} < pinned v${rotationRollback.pinnedVersion}`)
+          continue // Skip this workspace
+        }
+        // Pin observed current version immediately
+        await pinKeyVersion({
+          type: 'kek',
+          id: workspaceId,
+          highestVersion: currentVersion,
+          observedAt: Date.now(),
+        })
+
         const newVersion = currentVersion + 1
 
         const newKek = generateKek()
@@ -290,17 +312,49 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
         await encryptionApi.completeKekRotation(workspaceId, newVersion)
         console.log('[KEK Rotation] Completed rotation for workspace:', workspaceId)
 
+        // Anti-rollback: check + pin new KEK version after successful rotation
+        const newKekRotRollback = await checkKeyVersionRollback('kek', workspaceId, newVersion)
+        if (newKekRotRollback.rolledBack) {
+          console.error(`[KEK Rotation] New version rollback for workspace ${workspaceId}: v${newVersion} < pinned v${newKekRotRollback.pinnedVersion}`)
+          continue
+        }
+        await pinKeyVersion({
+          type: 'kek',
+          id: workspaceId,
+          highestVersion: newVersion,
+          observedAt: Date.now(),
+        })
+
         // DEK rotation: generate new DEK for each document in this workspace
         const wsRotation = documentsForRotation.find(r => r.workspace_id === workspaceId)
         if (wsRotation) {
           for (const documentId of wsRotation.document_ids) {
             try {
+              // Anti-rollback: pre-check existing DEK pin before rotation save
+              const existingDekPin = await getKeyVersionPin('dek', documentId)
+
               const newDek = generateDek()
               const { encryptedDek, nonce: dekNonce } = wrapDek(newDek, newKek, documentId, workspaceId)
-              await encryptionApi.saveDocumentKey(documentId, {
+              const dekSaveResponse = await encryptionApi.saveDocumentKey(documentId, {
                 encrypted_dek: base64UrlEncode(encryptedDek),
                 nonce: base64UrlEncode(dekNonce),
                 is_active: true,
+              })
+              // Anti-rollback: verify new version is not a downgrade
+              if (existingDekPin && dekSaveResponse.key_version < existingDekPin.highestVersion) {
+                console.error(`[DEK Rotation] Rollback: server assigned v${dekSaveResponse.key_version} but pinned v${existingDekPin.highestVersion} for document ${documentId}`)
+                continue
+              }
+              const dekRotRollback = await checkKeyVersionRollback('dek', documentId, dekSaveResponse.key_version)
+              if (dekRotRollback.rolledBack) {
+                console.error(`[DEK Rotation] Rollback detected for document ${documentId}: v${dekSaveResponse.key_version} < pinned v${dekRotRollback.pinnedVersion}`)
+                continue
+              }
+              await pinKeyVersion({
+                type: 'dek',
+                id: documentId,
+                highestVersion: dekSaveResponse.key_version,
+                observedAt: Date.now(),
               })
             } catch (err) {
               console.error('[DEK Rotation] Failed for document:', documentId, err)
@@ -308,7 +362,13 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
           }
         }
       } catch (err) {
-        if (!(err instanceof ApiError && err.status === 404)) {
+        if (err instanceof ApiError && err.status === 404) {
+          // Anti-rollback: if we previously observed a KEK version, 404 means server rollback
+          const existingKekPin = await getKeyVersionPin('kek', workspaceId)
+          if (existingKekPin) {
+            console.error(`[KEK Rotation] Rollback detected for workspace ${workspaceId}: server returned 404 but v${existingKekPin.highestVersion} was previously observed`)
+          }
+        } else {
           console.error('[KEK Rotation] Failed for workspace:', workspaceId, err)
         }
       }
@@ -367,6 +427,15 @@ export function SecuritySection({ onClose }: SecuritySectionProps) {
         identity_signature: base64UrlEncode(signature),
         revoked_at: revokedAt,
       })
+
+      // Anti-rollback: pin revocation locally
+      await pinRevocation({
+        userId: auth.userId,
+        deviceId,
+        revokedAt,
+        signature,
+      })
+
       const workspacesToRotate = response?.workspaces_needing_kek_rotation || []
       const documentsForRotation: WorkspaceDocumentsForRotation[] = response?.documents_needing_dek_rotation || []
 

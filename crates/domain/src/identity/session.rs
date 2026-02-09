@@ -15,6 +15,7 @@ pub struct Session {
     pub device_id: Option<DeviceId>,
     pub token_hash: String,
     pub remember_me: bool,
+    pub is_recovery: bool,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub expires_at: DateTime<Utc>,
@@ -74,6 +75,30 @@ impl Session {
         )
     }
 
+    /// Create a new recovery session (no device binding, is_recovery = true)
+    pub fn new_recovery(
+        user_id: UserId,
+        token_hash: String,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Self {
+        let now = Utc::now();
+        let expires_at = now + Duration::hours(SESSION_DURATION_HOURS);
+
+        Self {
+            id: SessionId::new(),
+            user_id,
+            device_id: None,
+            token_hash,
+            remember_me: false,
+            is_recovery: true,
+            ip_address,
+            user_agent,
+            expires_at,
+            created_at: now,
+        }
+    }
+
     /// Create a new session with a device ID
     pub fn with_device(
         user_id: UserId,
@@ -96,6 +121,7 @@ impl Session {
             device_id,
             token_hash,
             remember_me,
+            is_recovery: false,
             ip_address,
             user_agent,
             expires_at,

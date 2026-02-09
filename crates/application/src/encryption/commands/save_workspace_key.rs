@@ -222,10 +222,11 @@ where
         // 5. Validate and create key version
         let key_version = if let Some(v) = command.key_version {
             // Validate key version is positive and within i32 range
-            if v == 0 || v > i32::MAX as u32 {
+            if v > i32::MAX as u32 {
                 return Err(SaveWorkspaceKeyError::InvalidKeyVersion);
             }
             KeyVersion::new(v as i32)
+                .map_err(|_| SaveWorkspaceKeyError::InvalidKeyVersion)?
         } else {
             // Auto-determine: max(existing) + 1, at least min_kek_version
             let existing_keys = self
@@ -246,7 +247,7 @@ where
                 .max()
                 .unwrap_or(0);
             let next = std::cmp::max(max_version + 1, workspace.min_kek_version);
-            KeyVersion::new(next)
+            KeyVersion::new(next).expect("computed key version must be >= 1")
         };
 
         // 6. Check KEK version meets minimum requirement (after key rotation)
