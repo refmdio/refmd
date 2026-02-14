@@ -5,12 +5,8 @@ default:
 
 # ── Services ─────────────────────────────────────
 
-# Start infra (postgres, garage)
+# Start all infra (postgres, garage, redis, nginx)
 services-up:
-    docker compose up -d
-
-# Start infra + HA (postgres, garage, redis, nginx)
-services-up-ha:
     docker compose --profile ha up -d
 
 # Stop all services
@@ -38,17 +34,6 @@ dev-api:
 dev-web:
     cd web && pnpm dev
 
-# HA: nginx LB (:8000) + 3 API instances (:8001-8003) + Web
-dev-ha:
-    @trap 'kill 0' EXIT; \
-    cargo watch -s 'cargo build -p server && (trap "kill 0" EXIT; \
-    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 ./target/debug/refmd-server & \
-    sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 ./target/debug/refmd-server & \
-    sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 ./target/debug/refmd-server & \
-    wait)' & \
-    sleep 3 && cd web && pnpm dev & \
-    wait
-
 # HA: nginx LB (:8000) + 3 API instances (:8001-8003)
 dev-ha-api:
     @trap 'kill 0' EXIT; \
@@ -57,6 +42,13 @@ dev-ha-api:
     sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 ./target/debug/refmd-server & \
     sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 ./target/debug/refmd-server & \
     wait)'
+
+# HA + Web
+dev-ha:
+    @trap 'kill 0' EXIT; \
+    just dev-ha-api & \
+    sleep 3 && cd web && pnpm dev & \
+    wait
 
 # ── Test & Quality ───────────────────────────────
 
@@ -111,23 +103,23 @@ web-lint:
 web-gen:
     cd web && pnpm api:generate
 
-# ── Docker Deploy ────────────────────────────────
+# ── Production (container build/run) ─────────────
 
-docker-build *args:
+prod-build *args:
     docker compose --profile app build {{args}}
 
-docker-up *args:
+prod-up *args:
     docker compose --profile app up -d {{args}}
 
-docker-down:
+prod-down:
     docker compose --profile app down
 
-docker-logs *args:
+prod-logs *args:
     docker compose --profile app logs -f {{args}}
 
 # ── Setup & Misc ─────────────────────────────────
 
-# Initial project setup (run `just services-up` first)
+# Initial project setup (run services-up first)
 setup:
     @sleep 3
     @docker exec refmd-garage /garage node id -q | head -1 > /tmp/garage_node_id
