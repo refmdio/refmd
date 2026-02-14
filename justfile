@@ -1,221 +1,148 @@
-# RefMD Development Tasks
-
 set dotenv-load
 
-# Default task
 default:
     @just --list
 
-# ============ Build ============
+# ── Services ─────────────────────────────────────
 
-# Build all Rust crates
-build:
-    cargo build
-
-# Build for release
-build-release:
-    cargo build --release
-
-# ============ Development ============
-
-# Start all dev services (infra + API + Web)
-dev: services-up
-    @trap 'kill 0' EXIT; \
-    cargo watch -x 'run -p presentation' & \
-    cd web && pnpm dev & \
-    wait
-
-# Run API server with hot reload
-dev-api:
-    cargo watch -x 'run -p server'
-
-# Run Web server with hot reload
-dev-web:
-    cd web && pnpm dev
-
-# ============ Testing ============
-
-# Run all tests
-test:
-    cargo test --workspace
-
-# Run tests with output
-test-verbose:
-    cargo test --workspace -- --nocapture
-
-# Run integration tests only
-test-integration:
-    cargo test -p tests
-
-# ============ Code Quality ============
-
-# Run all checks (format, lint, test, architecture)
-check: fmt-check lint test arch-check
-
-# Format all code
-fmt:
-    cargo fmt --all
-
-# Check formatting
-fmt-check:
-    cargo fmt --all -- --check
-
-# Run clippy
-lint:
-    cargo clippy --workspace --all-targets -- -D warnings
-
-# Check architecture layer boundaries
-arch-check:
-    @echo "Checking architecture boundaries..."
-    @cargo metadata --format-version 1 --no-deps | python3 scripts/arch_check.py
-    @echo "All architecture checks passed!"
-
-# ============ Docker ============
-
-# Build Docker images
-docker-build:
-    docker compose --profile app build
-
-# Build Docker images (no cache)
-docker-build-clean:
-    docker compose --profile app build --no-cache
-
-# Start all services (infra + app)
-docker-up:
-    docker compose --profile app up -d
-
-# Start all services with rebuild
-docker-up-build:
-    docker compose --profile app up -d --build
-
-# Stop all services
-docker-down:
-    docker compose --profile app down
-
-# View logs
-docker-logs:
-    docker compose --profile app logs -f
-
-# View API logs
-docker-logs-api:
-    docker compose logs -f api
-
-# View web logs
-docker-logs-web:
-    docker compose logs -f web
-
-# ============ Infrastructure ============
-
-# Start infrastructure services (postgres, garage)
+# Start infra (postgres, garage)
 services-up:
     docker compose up -d
 
-# Stop infrastructure services
-services-down:
-    docker compose down
-
-# Stop and remove all data
-services-clean:
-    docker compose --profile app down -v
-
-# ============ HA Mode (Cluster) ============
-
-# Run HA mode: nginx LB (:8000) + 3 API instances (:8001-8003) + frontend
-dev-ha:
+# Start infra + HA (postgres, garage, redis, nginx)
+services-up-ha:
     docker compose --profile ha up -d
-    @trap 'docker compose --profile ha down; kill 0' EXIT; \
-    cargo watch -s 'cargo build -p server && (trap "kill 0" EXIT; CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 ./target/debug/refmd-server & sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 ./target/debug/refmd-server & sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 ./target/debug/refmd-server & wait)' & \
-    sleep 3 && \
+
+# Stop all services
+services-down:
+    docker compose --profile ha --profile app down
+
+# Stop all services and remove volumes
+services-clean:
+    docker compose --profile ha --profile app down -v
+
+# ── Development ──────────────────────────────────
+
+# API + Web (hot reload)
+dev:
+    @trap 'kill 0' EXIT; \
+    cargo watch -x 'run -p server' & \
     cd web && pnpm dev & \
     wait
 
-# Run HA mode API only: nginx LB (:8000) + 3 API instances (:8001-8003) with hot reload
-dev-api-ha:
-    docker compose --profile ha up -d
-    @trap 'docker compose --profile ha down; kill 0' EXIT; \
-    cargo watch -s 'cargo build -p server && (trap "kill 0" EXIT; CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 ./target/debug/refmd-server & sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 ./target/debug/refmd-server & sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 ./target/debug/refmd-server & wait)'
+# API only (hot reload)
+dev-api:
+    cargo watch -x 'run -p server'
 
-# ============ Database ============
+# Web only
+dev-web:
+    cd web && pnpm dev
 
-# Run database migrations
+# HA: nginx LB (:8000) + 3 API instances (:8001-8003) + Web
+dev-ha:
+    @trap 'kill 0' EXIT; \
+    cargo watch -s 'cargo build -p server && (trap "kill 0" EXIT; \
+    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 ./target/debug/refmd-server & \
+    sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 ./target/debug/refmd-server & \
+    sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 ./target/debug/refmd-server & \
+    wait)' & \
+    sleep 3 && cd web && pnpm dev & \
+    wait
+
+# HA: nginx LB (:8000) + 3 API instances (:8001-8003)
+dev-ha-api:
+    @trap 'kill 0' EXIT; \
+    cargo watch -s 'cargo build -p server && (trap "kill 0" EXIT; \
+    CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8001 ./target/debug/refmd-server & \
+    sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8002 ./target/debug/refmd-server & \
+    sleep 1 && CLUSTER_ENABLED=true REDIS_URL=redis://localhost:6379 SERVER_PORT=8003 ./target/debug/refmd-server & \
+    wait)'
+
+# ── Test & Quality ───────────────────────────────
+
+test:
+    cargo test --workspace
+
+test-verbose:
+    cargo test --workspace -- --nocapture
+
+test-e2e:
+    cargo test -p tests
+
+check: fmt-check lint test
+
+fmt:
+    cargo fmt --all
+
+fmt-check:
+    cargo fmt --all -- --check
+
+lint:
+    cargo clippy --workspace --all-targets -- -D warnings
+
+arch-check:
+    @cargo metadata --format-version 1 --no-deps | python3 scripts/arch_check.py
+
+# ── Database ─────────────────────────────────────
+
 migrate:
     sqlx migrate run --source crates/infrastructure/migrations
 
-# Create a new migration
 migrate-new name:
     sqlx migrate add -r --source crates/infrastructure/migrations {{name}}
 
-# Revert last migration
 migrate-revert:
     sqlx migrate revert --source crates/infrastructure/migrations
 
-# Reset database (drop, create, migrate)
 db-reset:
-    sqlx database drop -y
-    sqlx database create
-    sqlx migrate run --source crates/infrastructure/migrations
+    sqlx database drop -y && sqlx database create && sqlx migrate run --source crates/infrastructure/migrations
 
-# ============ Garage (S3) ============
+# ── Web ──────────────────────────────────────────
 
-# Initialize Garage cluster layout (run once after first start)
-garage-init:
-    @echo "Initializing Garage cluster..."
-    docker exec refmd-garage /garage status
-    @echo "Getting node ID..."
-    docker exec refmd-garage /garage node id -q | head -1 > /tmp/garage_node_id
-    @echo "Assigning node to zone..."
-    docker exec refmd-garage /garage layout assign -z dc1 -c 1G $(cat /tmp/garage_node_id)
-    docker exec refmd-garage /garage layout apply --version 1
-    @echo "Garage layout initialized!"
-
-# Create Garage access key
-garage-key-create:
-    docker exec refmd-garage /garage key create refmd-key
-    @echo "Add the key ID and secret to .env as S3_ACCESS_KEY and S3_SECRET_KEY"
-
-# Create S3 bucket
-garage-bucket-create:
-    docker exec refmd-garage /garage bucket create refmd-files
-    docker exec refmd-garage /garage bucket allow --read --write refmd-files --key refmd-key
-    @echo "Bucket 'refmd-files' created and linked to 'refmd-key'"
-
-# Show Garage status
-garage-status:
-    docker exec refmd-garage /garage status
-
-# ============ Frontend ============
-
-# Install frontend dependencies
 web-install:
     cd web && pnpm install
 
-# Build frontend
 web-build:
     cd web && pnpm build
 
-# Lint frontend
 web-lint:
     cd web && pnpm lint
 
-# Generate API types from OpenAPI schema (requires API server running)
-web-generate-api:
+web-gen:
     cd web && pnpm api:generate
 
-# ============ Development Setup ============
+# ── Docker Deploy ────────────────────────────────
 
-# Initial project setup
-setup: services-up
-    @echo "Waiting for services to be ready..."
-    @sleep 5
-    just garage-init
-    just garage-key-create
-    just garage-bucket-create
+docker-build *args:
+    docker compose --profile app build {{args}}
+
+docker-up *args:
+    docker compose --profile app up -d {{args}}
+
+docker-down:
+    docker compose --profile app down
+
+docker-logs *args:
+    docker compose --profile app logs -f {{args}}
+
+# ── Setup & Misc ─────────────────────────────────
+
+# Initial project setup (run `just services-up` first)
+setup:
+    @sleep 3
+    @docker exec refmd-garage /garage node id -q | head -1 > /tmp/garage_node_id
+    docker exec refmd-garage /garage layout assign -z dc1 -c 1G $(cat /tmp/garage_node_id)
+    docker exec refmd-garage /garage layout apply --version 1
+    docker exec refmd-garage /garage key create refmd-key
+    docker exec refmd-garage /garage bucket create refmd-files
+    docker exec refmd-garage /garage bucket allow --read --write refmd-files --key refmd-key
     just migrate
-    just web-install
-    @echo "Setup complete!"
-    @echo "Don't forget to copy S3_ACCESS_KEY and S3_SECRET_KEY from the output above to your .env file"
+    cd web && pnpm install
+    @echo "Done. Copy S3_ACCESS_KEY and S3_SECRET_KEY from above to .env"
 
-# Clean all build artifacts
+build:
+    cargo build
+
 clean:
     cargo clean
     rm -rf web/node_modules web/.vinxi web/.output
