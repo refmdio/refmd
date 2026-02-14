@@ -17,35 +17,8 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
-/// User ID value object
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct UserId(Uuid);
-
-impl UserId {
-    pub fn new() -> Self {
-        Self(Uuid::now_v7())
-    }
-
-    pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
-    }
-
-    pub fn as_uuid(&self) -> Uuid {
-        self.0
-    }
-}
-
-impl Default for UserId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for UserId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+define_id!(/// User ID value object
+pub UserId);
 
 impl User {
     /// Create a new user with server-generated ID

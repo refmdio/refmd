@@ -50,9 +50,6 @@ pub trait SessionRepository: Send + Sync {
 
     /// Delete all sessions for a user
     async fn delete_by_user_id(&self, user_id: UserId) -> Result<(), Self::Error>;
-
-    /// Delete expired sessions
-    async fn delete_expired(&self) -> Result<u64, Self::Error>;
 }
 
 /// UserSettings repository trait

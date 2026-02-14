@@ -363,12 +363,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get device's encrypted UMK
-         * @description Retrieves the encrypted UMK that was distributed to this device.
-         *     The device uses its ECDH private key and the sender's ECDH public key
-         *     to derive the shared secret and decrypt the UMK.
-         */
+        /** Get device's encrypted UMK */
         get: operations["get_device_umk"];
         put?: never;
         /** Distribute UMK to a device */
@@ -457,18 +452,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get document key (DEK)
-         * @description Retrieves the active DEK for a document.
-         *     Requires workspace membership with Read permission.
-         */
+        /** Get document key (DEK) */
         get: operations["get_document_key"];
         put?: never;
-        /**
-         * Save document key (DEK)
-         * @description Saves an encrypted DEK for a document.
-         *     Requires workspace membership with Write permission.
-         */
+        /** Save document key (DEK) */
         post: operations["save_document_key"];
         delete?: never;
         options?: never;
@@ -483,18 +470,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get workspace KEK backup (UMK-wrapped)
-         * @description Retrieves the active KEK backup for the authenticated user.
-         *     Requires workspace membership with Read permission.
-         */
+        /** Get workspace KEK backup (UMK-wrapped) */
         get: operations["get_workspace_kek_backup"];
         put?: never;
-        /**
-         * Save workspace KEK backup (UMK-wrapped)
-         * @description Saves an encrypted KEK backup for the authenticated user.
-         *     Requires workspace membership with Read permission.
-         */
+        /** Save workspace KEK backup (UMK-wrapped) */
         post: operations["save_workspace_kek_backup"];
         delete?: never;
         options?: never;
@@ -511,12 +490,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Complete KEK rotation
-         * @description Clears the needs_kek_rotation flag and updates min_kek_version after
-         *     the client has distributed new KEKs to all active devices.
-         *     Requires workspace membership with Write permission.
-         */
+        /** Complete KEK rotation */
         post: operations["complete_kek_rotation"];
         delete?: never;
         options?: never;
@@ -531,18 +505,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get workspace key (KEK)
-         * @description Retrieves the active KEK for the authenticated user's device.
-         *     Requires workspace membership with Read permission.
-         */
+        /** Get workspace key (KEK) */
         get: operations["get_workspace_key"];
         put?: never;
-        /**
-         * Save workspace key (KEK)
-         * @description Saves an encrypted KEK for the authenticated user's device.
-         *     Requires workspace membership with Read permission.
-         */
+        /** Save workspace key (KEK) */
         post: operations["save_workspace_key"];
         delete?: never;
         options?: never;
@@ -666,19 +632,14 @@ export interface components {
             /** @description Approved device ID */
             id: string;
         };
-        /** @description Error response */
         AuthErrorResponse: {
-            /**
-             * @description Error message
-             * @example invalid email
-             */
+            /** @example invalid email */
             error: string;
         };
         /** @description Complete KEK rotation request */
         CompleteKekRotationRequest: {
             /**
              * Format: int32
-             * @description New minimum KEK version (must be greater than current)
              * @example 2
              */
             new_min_kek_version: number;
@@ -687,14 +648,10 @@ export interface components {
         CompleteKekRotationResponse: {
             /**
              * Format: int32
-             * @description New minimum KEK version
              * @example 2
              */
             new_min_kek_version: number;
-            /**
-             * @description Workspace ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
+            /** @example 01234567-89ab-cdef-0123-456789abcdef */
             workspace_id: string;
         };
         /** @description Create document request */
@@ -773,7 +730,6 @@ export interface components {
             /** @description User's identity signing public key (base64url, 32 bytes) for SAS calculation */
             identity_signing_public_key: string;
         };
-        /** @description Error response */
         DeviceErrorResponse: {
             error: string;
         };
@@ -813,37 +769,20 @@ export interface components {
         DistributeUmkResponse: {
             message: string;
         };
-        /** @description Document error response */
         DocumentErrorResponse: {
             error: string;
         };
         /** @description Document key response */
         DocumentKeyResponse: {
-            /**
-             * @description Document ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
             document_id: string;
-            /**
-             * @description Encrypted DEK (base64url encoded)
-             * @example base64url-encoded-encrypted-dek
-             */
             encrypted_dek: string;
-            /**
-             * @description Whether this is the active key
-             * @example true
-             */
+            /** @example true */
             is_active: boolean;
             /**
              * Format: int32
-             * @description Key version
              * @example 1
              */
             key_version: number;
-            /**
-             * @description Encryption nonce (base64url encoded)
-             * @example base64url-encoded-nonce
-             */
             nonce: string;
         };
         /** @description Document response */
@@ -892,12 +831,8 @@ export interface components {
             /** @description Content-addressable hash for idempotency */
             update_hash: string;
         };
-        /** @description Error response */
         EncryptionErrorResponse: {
-            /**
-             * @description Error message
-             * @example key not found
-             */
+            /** @example key not found */
             error: string;
         };
         /** @description Get device UMK response */
@@ -1009,7 +944,6 @@ export interface components {
         GetWorkspaceKeyParams: {
             /**
              * Format: uuid
-             * @description Device ID (required)
              * @example 01234567-89ab-cdef-0123-456789abcdef
              */
             device_id: string;
@@ -1473,10 +1407,6 @@ export interface components {
         RejectPendingDeviceResponse: {
             message: string;
         };
-        /** @description Request nonce error response */
-        RequestNonceErrorResponse: {
-            error: string;
-        };
         /** @description Request nonce request body */
         RequestNonceRequest: {
             /**
@@ -1491,11 +1421,6 @@ export interface components {
             expires_at: string;
             /** @description Transfer nonce (base64url encoded, 32 bytes) */
             nonce: string;
-        };
-        /** @description Retrieve state error response */
-        RetrieveStateErrorResponse: {
-            code: string;
-            error: string;
         };
         /** @description Retrieve state response */
         RetrieveStateResponse: {
@@ -1515,7 +1440,6 @@ export interface components {
         RevokeDeviceRequest: {
             /**
              * @description Identity signature of the revocation event (base64url, 64 bytes)
-             *     Signs JCS-canonicalized JSON: {"action":"device_revocation","device_id","revoked_at","revoked_by_device_id","user_id","protocol":"doclock-v1","version":1}
              * @example base64url-encoded-signature
              */
             identity_signature: string;
@@ -1531,6 +1455,7 @@ export interface components {
             /** @description Documents grouped by workspace that need DEK rotation for forward secrecy */
             documents_needing_dek_rotation: components["schemas"]["WorkspaceDocumentsForRotationResponse"][];
             message: string;
+            rotation_marking_failures?: null | components["schemas"]["RotationMarkingFailuresResponse"];
             /** @description List of workspace IDs that now need KEK rotation for forward secrecy */
             workspaces_needing_kek_rotation: string[];
         };
@@ -1552,47 +1477,33 @@ export interface components {
              */
             name: string;
         };
+        /** @description Non-fatal failures during rotation marking after device revocation */
+        RotationMarkingFailuresResponse: {
+            /** @description Document IDs where DEK rotation marking failed */
+            failed_document_ids: string[];
+            /** @description Workspace IDs where KEK rotation marking failed */
+            failed_workspace_ids: string[];
+        };
         /** @description Save document key request */
         SaveDocumentKeyRequest: {
-            /**
-             * @description Encrypted DEK (base64url encoded)
-             * @example base64url-encoded-encrypted-dek
-             */
             encrypted_dek: string;
-            /**
-             * @description Whether this is the active key
-             * @example true
-             */
+            /** @example true */
             is_active: boolean;
             /**
              * Format: int32
-             * @description Key version (optional, default: 1)
              * @example 1
              */
             key_version?: number | null;
-            /**
-             * @description Encryption nonce (base64url encoded)
-             * @example base64url-encoded-nonce
-             */
             nonce: string;
         };
         /** @description Save workspace KEK backup request (UMK-wrapped) */
         SaveWorkspaceKekBackupRequest: {
-            /**
-             * @description Encrypted KEK (base64url encoded, encrypted with UMK)
-             * @example base64url-encoded-encrypted-kek
-             */
             encrypted_kek: string;
             /**
              * Format: int32
-             * @description Key version (required, must match active KEK version)
              * @example 1
              */
             key_version: number;
-            /**
-             * @description Encryption nonce (base64url encoded, 24 bytes)
-             * @example base64url-encoded-nonce
-             */
             nonce: string;
         };
         /** @description Save workspace key request */
@@ -1631,11 +1542,6 @@ export interface components {
              */
             sender_device_id: string;
         };
-        /** @description Submit state error response */
-        SubmitStateErrorResponse: {
-            code: string;
-            error: string;
-        };
         /** @description Submit state request body */
         SubmitStateRequest: {
             /** @description Encrypted trust state ciphertext (base64url encoded) */
@@ -1652,6 +1558,9 @@ export interface components {
             /** @description Transfer nonce (base64url encoded, 32 bytes) */
             transfer_nonce: string;
         };
+        TrustTransferErrorResponse: {
+            error: string;
+        };
         /** @description Update document request */
         UpdateDocumentRequest: {
             encrypted_title?: string | null;
@@ -1666,95 +1575,42 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
-        /** @description Workspace error response */
         WorkspaceErrorResponse: {
-            /**
-             * @description Error message
-             * @example workspace not found
-             */
+            /** @example workspace not found */
             error: string;
         };
         /** @description Workspace KEK backup response */
         WorkspaceKekBackupResponse: {
-            /**
-             * @description Encrypted KEK (base64url encoded)
-             * @example base64url-encoded-encrypted-kek
-             */
             encrypted_kek: string;
             /**
              * Format: int32
-             * @description Key version
              * @example 1
              */
             key_version: number;
-            /**
-             * @description Encryption nonce (base64url encoded)
-             * @example base64url-encoded-nonce
-             */
             nonce: string;
-            /**
-             * @description User ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
             user_id: string;
-            /**
-             * @description Workspace ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
             workspace_id: string;
         };
         /** @description Workspace key response */
         WorkspaceKeyResponse: {
-            /**
-             * @description Device ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
+            /** @example 01234567-89ab-cdef-0123-456789abcdef */
             device_id: string;
-            /**
-             * @description Encrypted KEK (base64url encoded)
-             * @example base64url-encoded-encrypted-kek
-             */
             encrypted_kek: string;
-            /**
-             * @description Whether this is the active key
-             * @example true
-             */
+            /** @example true */
             is_active: boolean;
             /**
              * Format: int32
-             * @description Key version
              * @example 1
              */
             key_version: number;
-            /**
-             * @description Encryption nonce (base64url encoded)
-             * @example base64url-encoded-nonce
-             */
             nonce: string;
-            /**
-             * @description Sender device ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
+            /** @example 01234567-89ab-cdef-0123-456789abcdef */
             sender_device_id: string;
-            /**
-             * @description Sender device's ECDH public key (base64url encoded, for ECDH decryption)
-             * @example base64url-encoded-ecdh-public-key
-             */
             sender_ecdh_public_key?: string | null;
-            /**
-             * @description Sender device's signing public key (base64url encoded, for TOFU verification)
-             * @example base64url-encoded-signing-public-key
-             */
             sender_signing_public_key?: string | null;
-            /**
-             * @description User ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
+            /** @example 01234567-89ab-cdef-0123-456789abcdef */
             user_id: string;
-            /**
-             * @description Workspace ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
+            /** @example 01234567-89ab-cdef-0123-456789abcdef */
             workspace_id: string;
         };
         /** @description Workspace response */
@@ -1869,6 +1725,15 @@ export interface operations {
                     "application/json": components["schemas"]["LogoutResponse"];
                 };
             };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
         };
     };
     me: {
@@ -1927,7 +1792,7 @@ export interface operations {
                     "application/json": components["schemas"]["PopChallengeResponse"];
                 };
             };
-            /** @description Missing or invalid device ID */
+            /** @description Missing or invalid device ID, or device revoked */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1947,6 +1812,15 @@ export interface operations {
             };
             /** @description Device not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1986,6 +1860,15 @@ export interface operations {
                     "application/json": components["schemas"]["AuthErrorResponse"];
                 };
             };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
         };
     };
     create_recovery_challenge: {
@@ -2012,6 +1895,15 @@ export interface operations {
             };
             /** @description Invalid email */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2146,6 +2038,15 @@ export interface operations {
             };
             /** @description Invalid email */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3381,7 +3282,7 @@ export interface operations {
     get_workspace_key: {
         parameters: {
             query: {
-                /** @description Device ID (required for multi-device support) */
+                /** @description Device ID */
                 device_id: string;
             };
             header?: never;
@@ -3483,7 +3384,7 @@ export interface operations {
                     "application/json": components["schemas"]["EncryptionErrorResponse"];
                 };
             };
-            /** @description Key already exists for this workspace (key fork prevention) */
+            /** @description Key already exists */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3529,7 +3430,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RequestNonceErrorResponse"];
+                    "application/json": components["schemas"]["TrustTransferErrorResponse"];
                 };
             };
             /** @description Server error */
@@ -3538,7 +3439,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RequestNonceErrorResponse"];
+                    "application/json": components["schemas"]["TrustTransferErrorResponse"];
                 };
             };
         };
@@ -3570,7 +3471,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RetrieveStateErrorResponse"];
+                    "application/json": components["schemas"]["TrustTransferErrorResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -3586,7 +3487,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RetrieveStateErrorResponse"];
+                    "application/json": components["schemas"]["TrustTransferErrorResponse"];
                 };
             };
             /** @description Server error */
@@ -3595,7 +3496,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RetrieveStateErrorResponse"];
+                    "application/json": components["schemas"]["TrustTransferErrorResponse"];
                 };
             };
         };
@@ -3626,7 +3527,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SubmitStateErrorResponse"];
+                    "application/json": components["schemas"]["TrustTransferErrorResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -3636,13 +3537,22 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Payload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrustTransferErrorResponse"];
+                };
+            };
             /** @description Server error */
             500: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SubmitStateErrorResponse"];
+                    "application/json": components["schemas"]["TrustTransferErrorResponse"];
                 };
             };
         };

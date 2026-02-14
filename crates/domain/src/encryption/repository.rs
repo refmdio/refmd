@@ -48,9 +48,6 @@ pub trait PendingDeviceRepository: Send + Sync {
 
     /// Delete pending device
     async fn delete(&self, id: DeviceId) -> Result<(), Self::Error>;
-
-    /// Delete all expired pending devices
-    async fn delete_expired(&self) -> Result<u64, Self::Error>;
 }
 
 /// User Identity public key repository trait

@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use super::value_objects::DeviceId;
 use crate::identity::UserId;
-use crate::signature::{build_signature_message, SignatureAction};
+use crate::signature::{SignatureAction, SignatureError, build_signature_message};
 
 /// Device Revocation Event
 /// Signed by Identity key to prevent server tampering.
@@ -52,7 +52,7 @@ impl DeviceRevocationEvent {
     ///
     /// Per spec: All signatures use the signature protocol format with
     /// canonicalized JSON including protocol, version, and action fields.
-    pub fn signature_payload(&self) -> Vec<u8> {
+    pub fn signature_payload(&self) -> Result<Vec<u8>, SignatureError> {
         #[derive(Serialize)]
         struct RevocationPayload {
             device_id: String,

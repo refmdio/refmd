@@ -3,6 +3,7 @@
 //! Returns device public keys for client-side SAS calculation.
 //! Both the existing device and the new device calculate SAS locally for MITM protection.
 
+use crate::events::DeviceEventPublisher;
 use domain::encryption::{DeviceId, PendingDeviceRepository};
 use domain::identity::UserId;
 use std::sync::Arc;
@@ -50,36 +51,31 @@ pub enum GetSasError<PDR: std::error::Error> {
     PendingDeviceRepository(PDR),
 }
 
-impl<PDR: std::error::Error> GetSasError<PDR> {
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, GetSasError::PendingDeviceNotFound)
-    }
-
-    pub fn is_forbidden(&self) -> bool {
-        matches!(self, GetSasError::NotOwner)
-    }
-
-    pub fn is_bad_request(&self) -> bool {
-        false
-    }
-
-    pub fn is_gone(&self) -> bool {
-        matches!(self, GetSasError::PendingDeviceExpired)
-    }
-}
+crate::types::impl_app_error!(
+    [PDR: std::error::Error]
+    GetSasError<PDR>,
+    not_found: [GetSasError::PendingDeviceNotFound],
+    access_denied: [GetSasError::NotOwner],
+    gone: [GetSasError::PendingDeviceExpired],
+);
 
 /// Get SAS handler
-pub struct GetSasHandler<PDR> {
+pub struct GetSasHandler<PDR: ?Sized> {
     pending_device_repo: Arc<PDR>,
+    event_publisher: Arc<dyn DeviceEventPublisher>,
 }
 
 impl<PDR> GetSasHandler<PDR>
 where
-    PDR: PendingDeviceRepository,
+    PDR: PendingDeviceRepository + ?Sized,
 {
-    pub fn new(pending_device_repo: Arc<PDR>) -> Self {
+    pub fn new(
+        pending_device_repo: Arc<PDR>,
+        event_publisher: Arc<dyn DeviceEventPublisher>,
+    ) -> Self {
         Self {
             pending_device_repo,
+            event_publisher,
         }
     }
 
@@ -100,8 +96,19 @@ where
             return Err(GetSasError::NotOwner);
         }
 
-        // Check expiration
+        // Check expiration — delete expired device before returning error
         if pending_device.is_expired() {
+            if let Err(e) = self
+                .pending_device_repo
+                .delete(query.pending_device_id)
+                .await
+            {
+                tracing::error!("failed to delete expired pending device: {}", e);
+            }
+            // Notify SSE listeners about the expiration
+            self.event_publisher
+                .pending_expired(query.pending_device_id, query.user_id)
+                .await;
             return Err(GetSasError::PendingDeviceExpired);
         }
 

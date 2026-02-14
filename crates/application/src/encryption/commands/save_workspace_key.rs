@@ -3,16 +3,20 @@
 //! Saves an encrypted KEK for a user's device in a workspace.
 //! Requires workspace membership (Read permission minimum).
 
+use crate::dto::WorkspaceEncryptedKeyDto;
 use domain::encryption::{
-    DeviceId, DeviceRepository, KeyVersion, NewWorkspaceKeyParams, WorkspaceEncryptedKey,
+    DeviceId, DeviceRepository, NewWorkspaceKeyParams, WorkspaceEncryptedKey,
     WorkspaceEncryptedKeyRepository,
 };
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRepository,
-    WorkspaceRoleRepository, can_perform,
+    WorkspaceRoleRepository,
 };
 use std::sync::Arc;
+
+use crate::util::device_ownership::verify_pop_sender_and_devices;
+use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
 use thiserror::Error;
 
 /// Save workspace key command
@@ -22,6 +26,8 @@ pub struct SaveWorkspaceKeyCommand {
     pub user_id: UserId,
     pub device_id: DeviceId,
     pub sender_device_id: DeviceId,
+    /// PoP-authenticated device ID — must match `sender_device_id`
+    pub authenticated_device_id: DeviceId,
     /// Key version (default: 1 for new keys)
     pub key_version: Option<u32>,
     /// Encrypted KEK
@@ -35,7 +41,7 @@ pub struct SaveWorkspaceKeyCommand {
 /// Save workspace key result
 #[derive(Debug)]
 pub struct SaveWorkspaceKeyResult {
-    pub key: WorkspaceEncryptedKey,
+    pub key: WorkspaceEncryptedKeyDto,
 }
 
 /// Save workspace key error
@@ -47,11 +53,11 @@ pub enum SaveWorkspaceKeyError<
     DR: std::error::Error,
     WR: std::error::Error,
 > {
-    #[error("user is not a member of this workspace")]
-    NotMember,
+    #[error("sender_device_id does not match authenticated device")]
+    SenderDeviceMismatch,
 
-    #[error("permission denied: cannot access this workspace")]
-    PermissionDenied,
+    #[error(transparent)]
+    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
 
     #[error("invalid key version: must be between 1 and {}", i32::MAX)]
     InvalidKeyVersion,
@@ -71,17 +77,14 @@ pub enum SaveWorkspaceKeyError<
     #[error("device does not belong to user")]
     DeviceNotOwned,
 
+    #[error("device has been revoked")]
+    DeviceRevoked,
+
     #[error("KEK already exists for this workspace: use backup restore or device distribution instead of creating a new key")]
     KeyAlreadyExists,
 
     #[error("workspace key repository error: {0}")]
     WorkspaceKeyRepository(WKR),
-
-    #[error("member repository error: {0}")]
-    MemberRepository(MR),
-
-    #[error("role repository error: {0}")]
-    RoleRepository(RR),
 
     #[error("device repository error: {0}")]
     DeviceRepository(DR),
@@ -90,45 +93,29 @@ pub enum SaveWorkspaceKeyError<
     WorkspaceRepository(WR),
 }
 
-impl<
-    WKR: std::error::Error,
-    MR: std::error::Error,
-    RR: std::error::Error,
-    DR: std::error::Error,
-    WR: std::error::Error,
-> SaveWorkspaceKeyError<WKR, MR, RR, DR, WR>
-{
-    pub fn is_forbidden(&self) -> bool {
-        matches!(
-            self,
-            SaveWorkspaceKeyError::NotMember
-                | SaveWorkspaceKeyError::PermissionDenied
-                | SaveWorkspaceKeyError::DeviceNotOwned
-        )
-    }
-
-    pub fn is_conflict(&self) -> bool {
-        matches!(self, SaveWorkspaceKeyError::KeyAlreadyExists)
-    }
-
-    pub fn is_bad_request(&self) -> bool {
-        matches!(
-            self,
-            SaveWorkspaceKeyError::InvalidKeyVersion
-                | SaveWorkspaceKeyError::KeyVersionTooOld { .. }
-        )
-    }
-
-    pub fn is_not_found(&self) -> bool {
-        matches!(
-            self,
-            SaveWorkspaceKeyError::DeviceNotFound | SaveWorkspaceKeyError::WorkspaceNotFound
-        )
-    }
-}
+crate::types::impl_app_error!(
+    [WKR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DR: std::error::Error, WR: std::error::Error]
+    SaveWorkspaceKeyError<WKR, MR, RR, DR, WR>,
+    not_found: [
+        SaveWorkspaceKeyError::DeviceNotFound,
+        SaveWorkspaceKeyError::WorkspaceNotFound,
+        SaveWorkspaceKeyError::WorkspaceAccess(WorkspaceAccessError::NotMember),
+    ],
+    access_denied: [
+        SaveWorkspaceKeyError::SenderDeviceMismatch,
+        SaveWorkspaceKeyError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied),
+        SaveWorkspaceKeyError::DeviceNotOwned,
+    ],
+    invalid_input: [
+        SaveWorkspaceKeyError::InvalidKeyVersion,
+        SaveWorkspaceKeyError::KeyVersionTooOld { .. },
+        SaveWorkspaceKeyError::DeviceRevoked,
+    ],
+    conflict: [SaveWorkspaceKeyError::KeyAlreadyExists],
+);
 
 /// Save workspace key handler
-pub struct SaveWorkspaceKeyHandler<WKR, MR, RR, DR, WR> {
+pub struct SaveWorkspaceKeyHandler<WKR: ?Sized, MR: ?Sized, RR: ?Sized, DR: ?Sized, WR: ?Sized> {
     workspace_key_repo: Arc<WKR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
@@ -138,11 +125,11 @@ pub struct SaveWorkspaceKeyHandler<WKR, MR, RR, DR, WR> {
 
 impl<WKR, MR, RR, DR, WR> SaveWorkspaceKeyHandler<WKR, MR, RR, DR, WR>
 where
-    WKR: WorkspaceEncryptedKeyRepository,
-    MR: WorkspaceMemberRepository,
-    RR: WorkspaceRoleRepository,
-    DR: DeviceRepository,
-    WR: WorkspaceRepository,
+    WKR: WorkspaceEncryptedKeyRepository + ?Sized,
+    MR: WorkspaceMemberRepository + ?Sized,
+    RR: WorkspaceRoleRepository + ?Sized,
+    DR: DeviceRepository + ?Sized,
+    WR: WorkspaceRepository + ?Sized,
 {
     pub fn new(
         workspace_key_repo: Arc<WKR>,
@@ -167,6 +154,27 @@ where
         SaveWorkspaceKeyResult,
         SaveWorkspaceKeyError<WKR::Error, MR::Error, RR::Error, DR::Error, WR::Error>,
     > {
+        // 0–4. Enforce PoP sender-device binding and device ownership
+        verify_pop_sender_and_devices(
+            &self.device_repo,
+            command.user_id,
+            command.device_id,
+            command.sender_device_id,
+            command.authenticated_device_id,
+        )
+        .await
+        .map_err(|e| {
+            e.map_to(
+                || SaveWorkspaceKeyError::SenderDeviceMismatch,
+                || SaveWorkspaceKeyError::DeviceNotFound,
+                || SaveWorkspaceKeyError::DeviceRevoked,
+                SaveWorkspaceKeyError::DeviceRepository,
+                || SaveWorkspaceKeyError::DeviceNotFound,
+                || SaveWorkspaceKeyError::DeviceRevoked,
+                SaveWorkspaceKeyError::DeviceRepository,
+            )
+        })?;
+
         // 1. Get workspace to check min_kek_version
         let workspace = self
             .workspace_repo
@@ -175,57 +183,20 @@ where
             .map_err(SaveWorkspaceKeyError::WorkspaceRepository)?
             .ok_or(SaveWorkspaceKeyError::WorkspaceNotFound)?;
 
-        // 2. Check membership
-        let member = self
-            .member_repo
-            .find_by_workspace_and_user(command.workspace_id, command.user_id)
-            .await
-            .map_err(SaveWorkspaceKeyError::MemberRepository)?
-            .ok_or(SaveWorkspaceKeyError::NotMember)?;
-
-        // 3. Get role and check Read permission (minimum required to access workspace keys)
-        let role = self
-            .role_repo
-            .find_by_id(member.role_id)
-            .await
-            .map_err(SaveWorkspaceKeyError::RoleRepository)?
-            .ok_or(SaveWorkspaceKeyError::NotMember)?;
-
-        if !can_perform(role.base_role, WorkspacePermission::Read) {
-            return Err(SaveWorkspaceKeyError::PermissionDenied);
-        }
-
-        // 4. Validate device ownership
-        let device = self
-            .device_repo
-            .find_by_id(command.device_id)
-            .await
-            .map_err(SaveWorkspaceKeyError::DeviceRepository)?
-            .ok_or(SaveWorkspaceKeyError::DeviceNotFound)?;
-
-        if device.user_id != command.user_id {
-            return Err(SaveWorkspaceKeyError::DeviceNotOwned);
-        }
-
-        // Validate sender_device_id ownership
-        let sender_device = self
-            .device_repo
-            .find_by_id(command.sender_device_id)
-            .await
-            .map_err(SaveWorkspaceKeyError::DeviceRepository)?
-            .ok_or(SaveWorkspaceKeyError::DeviceNotFound)?;
-
-        if sender_device.user_id != command.user_id {
-            return Err(SaveWorkspaceKeyError::DeviceNotOwned);
-        }
+        // 2. Check membership and Read permission (minimum required to access workspace keys)
+        check_workspace_permission(
+            &self.member_repo,
+            &self.role_repo,
+            command.workspace_id,
+            command.user_id,
+            WorkspacePermission::Read,
+        )
+        .await
+        .map_err(SaveWorkspaceKeyError::WorkspaceAccess)?;
 
         // 5. Validate and create key version
         let key_version = if let Some(v) = command.key_version {
-            // Validate key version is positive and within i32 range
-            if v > i32::MAX as u32 {
-                return Err(SaveWorkspaceKeyError::InvalidKeyVersion);
-            }
-            KeyVersion::new(v as i32)
+            crate::encryption::key_version_util::validate_explicit_key_version(v)
                 .map_err(|_| SaveWorkspaceKeyError::InvalidKeyVersion)?
         } else {
             // Auto-determine: max(existing) + 1, at least min_kek_version
@@ -241,13 +212,10 @@ where
                 return Err(SaveWorkspaceKeyError::KeyAlreadyExists);
             }
 
-            let max_version = existing_keys
-                .iter()
-                .map(|k| k.key_version.as_i32())
-                .max()
-                .unwrap_or(0);
-            let next = std::cmp::max(max_version + 1, workspace.min_kek_version);
-            KeyVersion::new(next).expect("computed key version must be >= 1")
+            crate::encryption::key_version_util::auto_resolve_key_version(
+                existing_keys.iter().map(|k| k.key_version.as_i32()),
+                workspace.min_kek_version,
+            )
         };
 
         // 6. Check KEK version meets minimum requirement (after key rotation)
@@ -276,6 +244,6 @@ where
             .await
             .map_err(SaveWorkspaceKeyError::WorkspaceKeyRepository)?;
 
-        Ok(SaveWorkspaceKeyResult { key })
+        Ok(SaveWorkspaceKeyResult { key: key.into() })
     }
 }

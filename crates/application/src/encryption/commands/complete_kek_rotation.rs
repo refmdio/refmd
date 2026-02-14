@@ -6,9 +6,11 @@
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRepository,
-    WorkspaceRoleRepository, can_perform,
+    WorkspaceRoleRepository,
 };
 use std::sync::Arc;
+
+use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
 use thiserror::Error;
 
 /// Complete KEK rotation command
@@ -31,14 +33,11 @@ pub struct CompleteKekRotationResult {
 #[derive(Debug, Error)]
 pub enum CompleteKekRotationError<WR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
 {
-    #[error("user is not a member of this workspace")]
-    NotMember,
-
-    #[error("permission denied: cannot manage workspace keys")]
-    PermissionDenied,
-
     #[error("workspace not found")]
     WorkspaceNotFound,
+
+    #[error(transparent)]
+    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
 
     #[error("invalid version: new version {new} must be greater than current {current}")]
     InvalidVersion { current: i32, new: i32 },
@@ -48,25 +47,19 @@ pub enum CompleteKekRotationError<WR: std::error::Error, MR: std::error::Error, 
 
     #[error("workspace repository error: {0}")]
     WorkspaceRepository(WR),
-
-    #[error("member repository error: {0}")]
-    MemberRepository(MR),
-
-    #[error("role repository error: {0}")]
-    RoleRepository(RR),
 }
 
 impl<WR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
-    CompleteKekRotationError<WR, MR, RR>
+    crate::types::AppError for CompleteKekRotationError<WR, MR, RR>
 {
-    pub fn is_forbidden(&self) -> bool {
+    fn is_access_denied(&self) -> bool {
         matches!(
             self,
-            CompleteKekRotationError::NotMember | CompleteKekRotationError::PermissionDenied
+            CompleteKekRotationError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied)
         )
     }
 
-    pub fn is_bad_request(&self) -> bool {
+    fn is_invalid_input(&self) -> bool {
         matches!(
             self,
             CompleteKekRotationError::InvalidVersion { .. }
@@ -74,13 +67,17 @@ impl<WR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
         )
     }
 
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, CompleteKekRotationError::WorkspaceNotFound)
+    fn is_not_found(&self) -> bool {
+        matches!(
+            self,
+            CompleteKekRotationError::WorkspaceNotFound
+                | CompleteKekRotationError::WorkspaceAccess(WorkspaceAccessError::NotMember)
+        )
     }
 }
 
 /// Complete KEK rotation handler
-pub struct CompleteKekRotationHandler<WR, MR, RR> {
+pub struct CompleteKekRotationHandler<WR: ?Sized, MR: ?Sized, RR: ?Sized> {
     workspace_repo: Arc<WR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
@@ -88,9 +85,9 @@ pub struct CompleteKekRotationHandler<WR, MR, RR> {
 
 impl<WR, MR, RR> CompleteKekRotationHandler<WR, MR, RR>
 where
-    WR: WorkspaceRepository,
-    MR: WorkspaceMemberRepository,
-    RR: WorkspaceRoleRepository,
+    WR: WorkspaceRepository + ?Sized,
+    MR: WorkspaceMemberRepository + ?Sized,
+    RR: WorkspaceRoleRepository + ?Sized,
 {
     pub fn new(workspace_repo: Arc<WR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
         Self {
@@ -113,25 +110,16 @@ where
             .map_err(CompleteKekRotationError::WorkspaceRepository)?
             .ok_or(CompleteKekRotationError::WorkspaceNotFound)?;
 
-        // 2. Check membership
-        let member = self
-            .member_repo
-            .find_by_workspace_and_user(command.workspace_id, command.user_id)
-            .await
-            .map_err(CompleteKekRotationError::MemberRepository)?
-            .ok_or(CompleteKekRotationError::NotMember)?;
-
-        // 3. Get role and check Write permission (required for key management)
-        let role = self
-            .role_repo
-            .find_by_id(member.role_id)
-            .await
-            .map_err(CompleteKekRotationError::RoleRepository)?
-            .ok_or(CompleteKekRotationError::NotMember)?;
-
-        if !can_perform(role.base_role, WorkspacePermission::Write) {
-            return Err(CompleteKekRotationError::PermissionDenied);
-        }
+        // 2. Check membership and Write permission (required for key management)
+        check_workspace_permission(
+            &self.member_repo,
+            &self.role_repo,
+            command.workspace_id,
+            command.user_id,
+            WorkspacePermission::Write,
+        )
+        .await
+        .map_err(CompleteKekRotationError::WorkspaceAccess)?;
 
         // 4. Check if workspace needs rotation
         if !workspace.needs_kek_rotation {

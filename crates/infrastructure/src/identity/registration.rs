@@ -1,6 +1,17 @@
 //! Transactional user registration
 //!
 //! Handles user registration with all related entities in a single transaction.
+//!
+//! ## Why SQL here duplicates individual repository INSERT statements
+//!
+//! The per-entity `insert_*` helpers intentionally use **plain INSERT** (no
+//! `ON CONFLICT`).  Registration must be the *first* write for every entity ---
+//! a unique-constraint violation means a conflicting registration attempt and
+//! should surface as an error, not silently merge.
+//!
+//! The corresponding repository implementations (e.g. `PgUserRepository::save`)
+//! use **UPSERT** (`ON CONFLICT ... DO UPDATE`) because they handle subsequent
+//! mutations where the row already exists.
 
 use application::identity::{RegistrationData, RegistrationService, RegistrationServiceError};
 use async_trait::async_trait;
@@ -32,9 +43,15 @@ impl RegistrationService for PgRegistrationService {
         &self,
         data: RegistrationData,
     ) -> Result<(), RegistrationServiceError> {
-        register_user_atomic(&self.pool, data)
-            .await
-            .map_err(|e| RegistrationServiceError::Database(e.to_string()))
+        register_user_atomic(&self.pool, data).await.map_err(|e| match &e {
+            // Detect PostgreSQL unique constraint violations (error code 23505)
+            RegistrationError::Database(sqlx::Error::Database(db_err))
+                if db_err.code().as_deref() == Some("23505") =>
+            {
+                RegistrationServiceError::Conflict(db_err.message().to_string())
+            }
+            _ => RegistrationServiceError::Database(e.to_string()),
+        })
     }
 }
 
@@ -45,54 +62,87 @@ pub async fn register_user_atomic(
 ) -> Result<(), RegistrationError> {
     let mut tx = pool.begin().await?;
 
-    // 1. Create user
-    sqlx::query(
+    insert_user(&mut tx, &data.user).await?;
+    insert_user_settings(&mut tx, &data.settings).await?;
+    insert_identity_public_key(&mut tx, &data.identity_public_key).await?;
+    insert_encrypted_master_key(&mut tx, &data.encrypted_master_key).await?;
+    insert_encrypted_identity_key(&mut tx, &data.encrypted_identity_key).await?;
+    insert_workspace(&mut tx, &data.workspace).await?;
+    for role in [&data.owner_role, &data.editor_role, &data.viewer_role] {
+        insert_workspace_role(&mut tx, role).await?;
+    }
+    insert_workspace_member(&mut tx, &data.member).await?;
+    insert_device(&mut tx, &data.device).await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+type PgTx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
+
+async fn insert_user(tx: &mut PgTx<'_>, user: &domain::identity::User) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO users (id, email, name, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5)
         "#,
+        user.id.as_uuid(),
+        user.email.as_str(),
+        &user.name,
+        user.created_at,
+        user.updated_at,
     )
-    .bind(data.user.id.as_uuid())
-    .bind(data.user.email.as_str())
-    .bind(&data.user.name)
-    .bind(data.user.created_at)
-    .bind(data.user.updated_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
 
-    // 2. Create user settings
-    sqlx::query(
+async fn insert_user_settings(
+    tx: &mut PgTx<'_>,
+    settings: &domain::identity::UserSettings,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO user_settings (user_id, theme, locale, editor_vim_mode, editor_font_size, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6)
         "#,
+        settings.user_id.as_uuid(),
+        settings.theme.as_str(),
+        settings.locale.as_str(),
+        settings.editor_vim_mode,
+        settings.editor_font_size,
+        settings.updated_at,
     )
-    .bind(data.settings.user_id.as_uuid())
-    .bind(data.settings.theme.as_str())
-    .bind(data.settings.locale.as_str())
-    .bind(data.settings.editor_vim_mode)
-    .bind(data.settings.editor_font_size)
-    .bind(data.settings.updated_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
 
-    // 3. Create identity public key
-    sqlx::query(
+async fn insert_identity_public_key(
+    tx: &mut PgTx<'_>,
+    key: &domain::encryption::UserIdentityPublicKey,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO user_identity_public_keys (user_id, ecdh_public_key, signing_public_key, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5)
         "#,
+        key.user_id.as_uuid(),
+        &key.ecdh_public_key,
+        &key.signing_public_key,
+        key.created_at,
+        key.updated_at,
     )
-    .bind(data.identity_public_key.user_id.as_uuid())
-    .bind(&data.identity_public_key.ecdh_public_key)
-    .bind(&data.identity_public_key.signing_public_key)
-    .bind(data.identity_public_key.created_at)
-    .bind(data.identity_public_key.updated_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
 
-    // 4. Create encrypted master key
-    sqlx::query(
+async fn insert_encrypted_master_key(
+    tx: &mut PgTx<'_>,
+    key: &domain::encryption::UserEncryptedMasterKey,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO user_encrypted_master_keys (
             user_id, auth_type, encrypted_umk, umk_nonce, salt, kdf_type, kdf_params, auth_key_hash,
@@ -100,29 +150,29 @@ pub async fn register_user_atomic(
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#,
+        key.user_id.as_uuid(),
+        key.auth_type.as_str(),
+        key.encrypted_umk.as_deref(),
+        key.umk_nonce.as_deref(),
+        key.salt.as_deref(),
+        key.kdf_type.map(|t| t.as_str().to_owned()) as Option<String>,
+        key.kdf_params.as_ref().map(sqlx::types::Json) as _,
+        key.auth_key_hash.as_deref(),
+        &key.recovery_encrypted_umk,
+        &key.recovery_nonce,
+        key.created_at,
+        key.updated_at,
     )
-    .bind(data.encrypted_master_key.user_id.as_uuid())
-    .bind(data.encrypted_master_key.auth_type.as_str())
-    .bind(&data.encrypted_master_key.encrypted_umk)
-    .bind(&data.encrypted_master_key.umk_nonce)
-    .bind(&data.encrypted_master_key.salt)
-    .bind(data.encrypted_master_key.kdf_type.map(|t| t.as_str()))
-    .bind(
-        data.encrypted_master_key
-            .kdf_params
-            .as_ref()
-            .map(sqlx::types::Json),
-    )
-    .bind(&data.encrypted_master_key.auth_key_hash)
-    .bind(&data.encrypted_master_key.recovery_encrypted_umk)
-    .bind(&data.encrypted_master_key.recovery_nonce)
-    .bind(data.encrypted_master_key.created_at)
-    .bind(data.encrypted_master_key.updated_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
 
-    // 5. Create encrypted identity key
-    sqlx::query(
+async fn insert_encrypted_identity_key(
+    tx: &mut PgTx<'_>,
+    key: &domain::encryption::UserEncryptedIdentityKey,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO user_encrypted_identity_keys (
             user_id, encrypted_ecdh_private, encrypted_ecdh_private_nonce,
@@ -130,92 +180,106 @@ pub async fn register_user_atomic(
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
+        key.user_id.as_uuid(),
+        &key.encrypted_ecdh_private,
+        &key.encrypted_ecdh_private_nonce,
+        &key.encrypted_signing_private,
+        &key.encrypted_signing_private_nonce,
+        key.created_at,
+        key.updated_at,
     )
-    .bind(data.encrypted_identity_key.user_id.as_uuid())
-    .bind(&data.encrypted_identity_key.encrypted_ecdh_private)
-    .bind(&data.encrypted_identity_key.encrypted_ecdh_private_nonce)
-    .bind(&data.encrypted_identity_key.encrypted_signing_private)
-    .bind(&data.encrypted_identity_key.encrypted_signing_private_nonce)
-    .bind(data.encrypted_identity_key.created_at)
-    .bind(data.encrypted_identity_key.updated_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
 
-    // 6. Create workspace
-    sqlx::query(
+async fn insert_workspace(
+    tx: &mut PgTx<'_>,
+    workspace: &domain::workspace::Workspace,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO workspaces (id, name, slug, description, icon, owner_id, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
+        workspace.id.as_uuid(),
+        &workspace.name,
+        workspace.slug.as_str(),
+        workspace.description.as_deref(),
+        workspace.icon.as_deref(),
+        workspace.owner_id.as_uuid(),
+        workspace.created_at,
+        workspace.updated_at,
     )
-    .bind(data.workspace.id.as_uuid())
-    .bind(&data.workspace.name)
-    .bind(data.workspace.slug.as_str())
-    .bind(&data.workspace.description)
-    .bind(&data.workspace.icon)
-    .bind(data.workspace.owner_id.as_uuid())
-    .bind(data.workspace.created_at)
-    .bind(data.workspace.updated_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
 
-    // 7. Create workspace roles
-    for role in [&data.owner_role, &data.editor_role, &data.viewer_role] {
-        sqlx::query(
-            r#"
-            INSERT INTO workspace_roles (id, workspace_id, name, base_role, is_default, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-        )
-        .bind(role.id.as_uuid())
-        .bind(role.workspace_id.as_uuid())
-        .bind(&role.name)
-        .bind(role.base_role.as_str())
-        .bind(role.is_default)
-        .bind(role.created_at)
-        .execute(&mut *tx)
-        .await?;
-    }
+async fn insert_workspace_role(
+    tx: &mut PgTx<'_>,
+    role: &domain::workspace::WorkspaceRole,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        INSERT INTO workspace_roles (id, workspace_id, name, base_role, is_default, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+        role.id.as_uuid(),
+        role.workspace_id.as_uuid(),
+        &role.name,
+        role.base_role.as_str(),
+        role.is_default,
+        role.created_at,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
 
-    // 8. Create workspace member
-    sqlx::query(
+async fn insert_workspace_member(
+    tx: &mut PgTx<'_>,
+    member: &domain::workspace::WorkspaceMember,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO workspace_members (workspace_id, user_id, role_id, is_default, joined_at)
         VALUES ($1, $2, $3, $4, $5)
         "#,
+        member.workspace_id.as_uuid(),
+        member.user_id.as_uuid(),
+        member.role_id.as_uuid(),
+        member.is_default,
+        member.joined_at,
     )
-    .bind(data.member.workspace_id.as_uuid())
-    .bind(data.member.user_id.as_uuid())
-    .bind(data.member.role_id.as_uuid())
-    .bind(data.member.is_default)
-    .bind(data.member.joined_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
 
-    // 9. Create first device for PoP authentication
-    sqlx::query(
+async fn insert_device(
+    tx: &mut PgTx<'_>,
+    device: &domain::encryption::Device,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO devices (id, user_id, name, device_type, ecdh_public_key, signing_public_key,
                             identity_signature, client_nonce, last_seen_at, created_at, revoked_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         "#,
+        device.id.as_uuid(),
+        device.user_id.as_uuid(),
+        &device.name,
+        device.device_type.as_str(),
+        &device.ecdh_public_key,
+        &device.signing_public_key,
+        &device.identity_signature,
+        &device.client_nonce,
+        device.last_seen_at,
+        device.created_at,
+        device.revoked_at,
     )
-    .bind(data.device.id.as_uuid())
-    .bind(data.device.user_id.as_uuid())
-    .bind(&data.device.name)
-    .bind(data.device.device_type.as_str())
-    .bind(&data.device.ecdh_public_key)
-    .bind(&data.device.signing_public_key)
-    .bind(&data.device.identity_signature)
-    .bind(&data.device.client_nonce)
-    .bind(data.device.last_seen_at)
-    .bind(data.device.created_at)
-    .bind(data.device.revoked_at)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-
-    // Commit transaction
-    tx.commit().await?;
-
     Ok(())
 }

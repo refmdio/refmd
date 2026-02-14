@@ -4,21 +4,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::encryption::{DeviceId, DeviceType, PendingDevice, PendingDeviceRepository};
 use domain::identity::UserId;
-use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
-/// PostgreSQL pending device repository
-#[derive(Clone)]
-pub struct PgPendingDeviceRepository {
-    pool: PgPool,
-}
-
-impl PgPendingDeviceRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
+pg_repo_struct!(PgPendingDeviceRepository);
 
 #[derive(Debug, Error)]
 pub enum PgPendingDeviceRepositoryError {
@@ -69,15 +58,16 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
     type Error = PgPendingDeviceRepositoryError;
 
     async fn find_by_id(&self, id: DeviceId) -> Result<Option<PendingDevice>, Self::Error> {
-        let row = sqlx::query_as::<_, PendingDeviceRow>(
+        let row = sqlx::query_as!(
+            PendingDeviceRow,
             r#"
             SELECT id, user_id, name, device_type, ecdh_public_key, signing_public_key,
                    client_nonce, ip_address, created_at, expires_at
             FROM pending_devices
             WHERE id = $1
             "#,
+            id.as_uuid()
         )
-        .bind(id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -85,7 +75,8 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
     }
 
     async fn find_by_user_id(&self, user_id: UserId) -> Result<Vec<PendingDevice>, Self::Error> {
-        let rows = sqlx::query_as::<_, PendingDeviceRow>(
+        let rows = sqlx::query_as!(
+            PendingDeviceRow,
             r#"
             SELECT id, user_id, name, device_type, ecdh_public_key, signing_public_key,
                    client_nonce, ip_address, created_at, expires_at
@@ -93,8 +84,8 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
             WHERE user_id = $1 AND expires_at > NOW()
             ORDER BY created_at DESC
             "#,
+            user_id.as_uuid()
         )
-        .bind(user_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
@@ -104,7 +95,7 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
     }
 
     async fn save(&self, device: &PendingDevice) -> Result<(), Self::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO pending_devices (id, user_id, name, device_type, ecdh_public_key,
                                         signing_public_key, client_nonce, ip_address, created_at, expires_at)
@@ -112,17 +103,17 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
             ON CONFLICT (id) DO UPDATE SET
                 expires_at = EXCLUDED.expires_at
             "#,
+            device.id.as_uuid(),
+            device.user_id.as_uuid(),
+            &device.name,
+            device.device_type.as_str(),
+            &device.ecdh_public_key,
+            &device.signing_public_key,
+            &device.client_nonce,
+            device.ip_address.as_deref(),
+            device.created_at,
+            device.expires_at
         )
-        .bind(device.id.as_uuid())
-        .bind(device.user_id.as_uuid())
-        .bind(&device.name)
-        .bind(device.device_type.as_str())
-        .bind(&device.ecdh_public_key)
-        .bind(&device.signing_public_key)
-        .bind(&device.client_nonce)
-        .bind(&device.ip_address)
-        .bind(device.created_at)
-        .bind(device.expires_at)
         .execute(&self.pool)
         .await?;
 
@@ -130,19 +121,13 @@ impl PendingDeviceRepository for PgPendingDeviceRepository {
     }
 
     async fn delete(&self, id: DeviceId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM pending_devices WHERE id = $1")
-            .bind(id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM pending_devices WHERE id = $1",
+            id.as_uuid()
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
-    }
-
-    async fn delete_expired(&self) -> Result<u64, Self::Error> {
-        let result = sqlx::query("DELETE FROM pending_devices WHERE expires_at <= NOW()")
-            .execute(&self.pool)
-            .await?;
-
-        Ok(result.rows_affected())
     }
 }

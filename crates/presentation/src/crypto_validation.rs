@@ -1,219 +1,202 @@
-//! Cryptographic key validation utilities
+//! Cryptographic key validation utilities (presentation layer)
 //!
-//! Validates public keys to prevent security issues with small-order/low-order points.
+//! Pure validation logic (constants, point checks) lives in `domain::crypto_validation`.
+//! This module re-exports that logic and adds HTTP-specific helpers for request decoding.
+//!
+//! ## Defense-in-depth validation
+//!
+//! Both the presentation and application layers validate cryptographic inputs.
+//! This is **intentional** defense-in-depth for E2EE security:
+//!
+//! - **Presentation layer** (here): decodes wire format (base64url), validates sizes,
+//!   and rejects low-order/small-order points. Returns typed HTTP error responses.
+//! - **Application layer**: re-validates byte lengths and cryptographic invariants
+//!   as business-rule preconditions, independent of the transport layer.
+//!
+//! This ensures the application layer remains self-contained and safe to invoke
+//! from non-HTTP contexts (e.g., tests, CLI, future gRPC) while the presentation
+//! layer provides fast-fail with descriptive HTTP error messages.
 
-/// X25519 public key size in bytes
-pub const X25519_PUBLIC_KEY_SIZE: usize = 32;
+// Re-export domain-layer crypto validation (via application facade)
+pub use application::types::crypto_validation::*;
 
-/// Ed25519 public key size in bytes
-pub const ED25519_PUBLIC_KEY_SIZE: usize = 32;
+/// Maximum encrypted key size (256 bytes).
+/// XChaCha20-Poly1305 wrapping a 32-byte key = 48 bytes; 256 is generous.
+pub const MAX_ENCRYPTED_KEY_BYTES: usize = 256;
 
-/// Known X25519 low-order points that must be rejected
-/// These can lead to all-zero shared secrets which are security vulnerabilities
-const X25519_LOW_ORDER_POINTS: &[[u8; 32]] = &[
-    // Point of order 1 (identity)
-    [
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0,
-    ],
-    // Point of order 2
-    [
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0,
-    ],
-    // Point of order 4 (two representations)
-    [
-        0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f, 0xc4,
-        0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16, 0x5f, 0x49,
-        0xb8, 0x00,
-    ],
-    [
-        0x5f, 0x9c, 0x95, 0xbc, 0xa3, 0x50, 0x8c, 0x24, 0xb1, 0xd0, 0xb1, 0x55, 0x9c, 0x83, 0xef,
-        0x5b, 0x04, 0x44, 0x5c, 0xc4, 0x58, 0x1c, 0x8e, 0x86, 0xd8, 0x22, 0x4e, 0xdd, 0xd0, 0x9f,
-        0x11, 0x57,
-    ],
-    // Point of order 8 (four representations)
-    [
-        0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    [
-        0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    [
-        0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    // p - 1 (2^255 - 20): produces low-order result on the twist
-    [
-        0xda, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff,
-    ],
-];
+// =============================================================================
+// Base64url decode helpers for request validation
+// =============================================================================
 
-/// Check if a 32-byte key is a valid X25519 public key (not a low-order point)
-pub fn is_valid_x25519_public_key(key: &[u8]) -> bool {
-    if key.len() != X25519_PUBLIC_KEY_SIZE {
-        return false;
-    }
-    let key_array: [u8; 32] = key.try_into().unwrap();
-    !X25519_LOW_ORDER_POINTS.contains(&key_array)
+use axum::http::StatusCode;
+
+/// Decode a base64url field, returning `(StatusCode, String)` on error.
+pub fn decode_b64(field: &str, val: &str) -> Result<Vec<u8>, (StatusCode, String)> {
+    base64_url::decode(val).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("invalid {field} encoding"),
+        )
+    })
 }
 
-/// Known Ed25519 small-order points that must be rejected (all 8 torsion points)
-/// These points have small order and can lead to signature forgery
-const ED25519_SMALL_ORDER_POINTS: &[[u8; 32]] = &[
-    // Order 1: Identity (0, 1)
-    [
-        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-    ],
-    // Order 4: (0, -1)
-    [
-        0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    // Order 8 points (both sign variants)
-    [
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-    ],
-    [
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x80,
-    ],
-    // Order 8 point and its negative
-    [
-        0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67,
-        0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac,
-        0x03, 0x7a,
-    ],
-    [
-        0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67,
-        0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac,
-        0x03, 0xfa,
-    ],
-    // Order 8 point and its negative
-    [
-        0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98,
-        0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53,
-        0xfc, 0x05,
-    ],
-    [
-        0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98,
-        0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53,
-        0xfc, 0x85,
-    ],
-    // Non-canonical encodings (y >= p)
-    [
-        0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x7f,
-    ],
-    [
-        0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff,
-    ],
-];
-
-/// Check if a 32-byte key is a valid Ed25519 public key (not a small-order point)
-pub fn is_valid_ed25519_public_key(key: &[u8]) -> bool {
-    if key.len() != ED25519_PUBLIC_KEY_SIZE {
-        return false;
+/// Decode a base64url field with a maximum decoded byte length.
+///
+/// Rejects payloads that exceed `max_bytes` after decoding to prevent DoS
+/// via oversized encrypted payloads.
+pub fn decode_b64_max(
+    field: &str,
+    val: &str,
+    max_bytes: usize,
+) -> Result<Vec<u8>, (StatusCode, String)> {
+    let bytes = decode_b64(field, val)?;
+    if bytes.len() > max_bytes {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("{field} too large: max {max_bytes} bytes"),
+        ));
     }
-    let key_array: [u8; 32] = key.try_into().unwrap();
-    !ED25519_SMALL_ORDER_POINTS.contains(&key_array)
+    Ok(bytes)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_valid_x25519_key() {
-        // A typical valid public key (not low-order)
-        let valid_key = [
-            0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ];
-        assert!(is_valid_x25519_public_key(&valid_key));
+/// Decode a base64url field and verify exact byte length.
+pub fn decode_b64_exact(
+    field: &str,
+    val: &str,
+    size: usize,
+) -> Result<Vec<u8>, (StatusCode, String)> {
+    let bytes = decode_b64(field, val)?;
+    if bytes.len() != size {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("invalid {field} length: expected {size} bytes"),
+        ));
     }
+    Ok(bytes)
+}
 
-    #[test]
-    fn test_invalid_x25519_low_order() {
-        // All-zero point (identity)
-        let zero = [0u8; 32];
-        assert!(!is_valid_x25519_public_key(&zero));
-
-        // Order-2 point
-        let mut order2 = [0u8; 32];
-        order2[0] = 1;
-        assert!(!is_valid_x25519_public_key(&order2));
-
-        // p - 1 point
-        let p_minus_1: [u8; 32] = [
-            0xda, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-            0xff, 0xff, 0xff, 0xff,
-        ];
-        assert!(!is_valid_x25519_public_key(&p_minus_1));
+/// Decode and validate an X25519 public key (32 bytes, no low-order points).
+pub fn decode_x25519_key(field: &str, val: &str) -> Result<Vec<u8>, (StatusCode, String)> {
+    let bytes = decode_b64_exact(field, val, X25519_PUBLIC_KEY_SIZE)?;
+    if !is_valid_x25519_public_key(&bytes) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("invalid {field}: low-order point rejected"),
+        ));
     }
+    Ok(bytes)
+}
 
-    #[test]
-    fn test_all_x25519_low_order_points_rejected() {
-        assert_eq!(X25519_LOW_ORDER_POINTS.len(), 8);
-        for point in X25519_LOW_ORDER_POINTS {
-            assert!(!is_valid_x25519_public_key(point));
+/// Decode and validate an Ed25519 public key (32 bytes, no small-order points).
+pub fn decode_ed25519_key(field: &str, val: &str) -> Result<Vec<u8>, (StatusCode, String)> {
+    let bytes = decode_b64_exact(field, val, ED25519_PUBLIC_KEY_SIZE)?;
+    if !is_valid_ed25519_public_key(&bytes) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("invalid {field}: small-order point rejected"),
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Decode a 24-byte XChaCha20-Poly1305 nonce.
+pub fn decode_nonce(field: &str, val: &str) -> Result<Vec<u8>, (StatusCode, String)> {
+    decode_b64_exact(field, val, 24)
+}
+
+/// Decode an encrypted key + nonce pair in one call.
+///
+/// Combines `decode_b64_max` (for the key) and `decode_nonce` (for the nonce)
+/// into a single helper to reduce boilerplate in route handlers.
+pub fn decode_encrypted_key_nonce(
+    key_field: &str,
+    key_val: &str,
+    max_key_bytes: usize,
+    nonce_field: &str,
+    nonce_val: &str,
+) -> Result<(Vec<u8>, Vec<u8>), (StatusCode, String)> {
+    let key = decode_b64_max(key_field, key_val, max_key_bytes)?;
+    let nonce = decode_nonce(nonce_field, nonce_val)?;
+    Ok((key, nonce))
+}
+
+/// Decode a 64-byte Ed25519 signature.
+pub fn decode_signature(field: &str, val: &str) -> Result<Vec<u8>, (StatusCode, String)> {
+    decode_b64_exact(field, val, 64)
+}
+
+/// Decode base64url and return a fixed-size byte array.
+pub fn decode_b64_array<const N: usize>(
+    field: &str,
+    val: &str,
+) -> Result<[u8; N], (StatusCode, String)> {
+    let bytes = decode_b64_exact(field, val, N)?;
+    bytes.try_into().map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("invalid {field} length: expected {N} bytes"),
+        )
+    })
+}
+
+/// Parse a device type string ("browser", "desktop", "mobile").
+pub fn parse_device_type(
+    val: &str,
+) -> Result<application::types::DeviceType, (StatusCode, String)> {
+    val.parse().map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "invalid device_type: must be 'browser', 'desktop', or 'mobile'".to_string(),
+        )
+    })
+}
+
+/// Parse a UUID string field, returning `(StatusCode, String)` on error.
+pub fn parse_uuid(field: &str, val: &str) -> Result<uuid::Uuid, (StatusCode, String)> {
+    uuid::Uuid::parse_str(val).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("invalid {field} format"),
+        )
+    })
+}
+
+/// Parse a UUID string field into a DeviceId.
+pub fn parse_device_id(
+    field: &str,
+    val: &str,
+) -> Result<application::types::DeviceId, (StatusCode, String)> {
+    let uuid = parse_uuid(field, val)?;
+    Ok(application::types::DeviceId::from_uuid(uuid))
+}
+
+/// Helper macro to decode a crypto field, returning an HTTP error response on failure.
+///
+/// Usage: `let val = try_decode!(decode_nonce("nonce", &req.nonce), ErrorResponseType);`
+#[macro_export]
+macro_rules! try_decode {
+    ($result:expr, $resp_type:ident) => {
+        match $result {
+            Ok(v) => v,
+            Err((status, msg)) => {
+                return (status, axum::Json($resp_type { error: msg })).into_response()
+            }
         }
-    }
+    };
+}
 
-    #[test]
-    fn test_invalid_x25519_wrong_length() {
-        let short = [0u8; 31];
-        let long = [0u8; 33];
-        assert!(!is_valid_x25519_public_key(&short));
-        assert!(!is_valid_x25519_public_key(&long));
-    }
-
-    #[test]
-    fn test_valid_ed25519_key() {
-        // A typical valid public key
-        let valid_key = [
-            0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ];
-        assert!(is_valid_ed25519_public_key(&valid_key));
-    }
-
-    #[test]
-    fn test_invalid_ed25519_small_order() {
-        // Identity point
-        let mut identity = [0u8; 32];
-        identity[0] = 1;
-        assert!(!is_valid_ed25519_public_key(&identity));
-
-        // All-zero point
-        let zero = [0u8; 32];
-        assert!(!is_valid_ed25519_public_key(&zero));
-    }
-
-    #[test]
-    fn test_invalid_ed25519_wrong_length() {
-        let short = [0u8; 31];
-        let long = [0u8; 33];
-        assert!(!is_valid_ed25519_public_key(&short));
-        assert!(!is_valid_ed25519_public_key(&long));
-    }
+/// Map a decode `(StatusCode, String)` error into an axum `Response`.
+///
+/// Unlike `try_decode!` (which does an early return), this maps the error
+/// for use in validation functions that return `Result<T, Response>`.
+///
+/// Usage: `decode_b64("field", val).map_err(map_decode_response!(ErrorResponseType))?;`
+#[macro_export]
+macro_rules! map_decode_response {
+    ($resp_type:ident) => {
+        |(status, msg): (axum::http::StatusCode, String)| -> axum::response::Response {
+            use axum::response::IntoResponse;
+            (status, axum::Json($resp_type { error: msg })).into_response()
+        }
+    };
 }

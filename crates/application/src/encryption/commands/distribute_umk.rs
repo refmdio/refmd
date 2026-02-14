@@ -3,6 +3,8 @@
 //! Distributes the User Master Key to a newly approved device.
 //! An existing device encrypts the UMK with the new device's public key.
 
+use crate::dto::DeviceEncryptedUmkDto;
+use crate::events::DeviceEventPublisher;
 use domain::encryption::{
     DeviceEncryptedUMK, DeviceEncryptedUMKRepository, DeviceId, DeviceRepository,
 };
@@ -19,6 +21,8 @@ pub struct DistributeUmkCommand {
     pub target_device_id: DeviceId,
     /// Sender device ID (providing the UMK)
     pub sender_device_id: DeviceId,
+    /// PoP-authenticated device ID — must match `sender_device_id`
+    pub authenticated_device_id: DeviceId,
     /// UMK encrypted with target device's public key
     pub encrypted_umk: Vec<u8>,
     /// Encryption nonce
@@ -28,23 +32,20 @@ pub struct DistributeUmkCommand {
 /// Distribute UMK result
 #[derive(Debug)]
 pub struct DistributeUmkResult {
-    pub device_encrypted_umk: DeviceEncryptedUMK,
+    pub device_encrypted_umk: DeviceEncryptedUmkDto,
 }
 
 /// Distribute UMK error
 #[derive(Debug, Error)]
 pub enum DistributeUmkError<DR: std::error::Error, UMKR: std::error::Error> {
+    #[error("sender_device_id does not match authenticated device")]
+    SenderDeviceMismatch,
+
     #[error("target device not found")]
     TargetDeviceNotFound,
 
     #[error("sender device not found")]
     SenderDeviceNotFound,
-
-    #[error("target device does not belong to this user")]
-    TargetNotOwned,
-
-    #[error("sender device does not belong to this user")]
-    SenderNotOwned,
 
     #[error("target device has been revoked")]
     TargetDeviceRevoked,
@@ -62,49 +63,41 @@ pub enum DistributeUmkError<DR: std::error::Error, UMKR: std::error::Error> {
     EncryptedUmkRepository(UMKR),
 }
 
-impl<DR: std::error::Error, UMKR: std::error::Error> DistributeUmkError<DR, UMKR> {
-    pub fn is_not_found(&self) -> bool {
-        matches!(
-            self,
-            DistributeUmkError::TargetDeviceNotFound | DistributeUmkError::SenderDeviceNotFound
-        )
-    }
-
-    pub fn is_forbidden(&self) -> bool {
-        matches!(
-            self,
-            DistributeUmkError::TargetNotOwned | DistributeUmkError::SenderNotOwned
-        )
-    }
-
-    pub fn is_bad_request(&self) -> bool {
-        matches!(
-            self,
-            DistributeUmkError::TargetDeviceRevoked
-                | DistributeUmkError::SenderDeviceRevoked
-                | DistributeUmkError::InvalidNonce
-        )
-    }
-}
+crate::types::impl_app_error!(
+    [DR: std::error::Error, UMKR: std::error::Error] DistributeUmkError<DR, UMKR>,
+    not_found: [DistributeUmkError::TargetDeviceNotFound, DistributeUmkError::SenderDeviceNotFound],
+    access_denied: [DistributeUmkError::SenderDeviceMismatch],
+    invalid_input: [
+        DistributeUmkError::TargetDeviceRevoked,
+        DistributeUmkError::SenderDeviceRevoked,
+        DistributeUmkError::InvalidNonce,
+    ],
+);
 
 /// XChaCha20-Poly1305 nonce size
 const XCHACHA20_NONCE_SIZE: usize = 24;
 
 /// Distribute UMK handler
-pub struct DistributeUmkHandler<DR, UMKR> {
+pub struct DistributeUmkHandler<DR: ?Sized, UMKR: ?Sized> {
     device_repo: Arc<DR>,
     encrypted_umk_repo: Arc<UMKR>,
+    event_publisher: Arc<dyn DeviceEventPublisher>,
 }
 
 impl<DR, UMKR> DistributeUmkHandler<DR, UMKR>
 where
-    DR: DeviceRepository,
-    UMKR: DeviceEncryptedUMKRepository,
+    DR: DeviceRepository + ?Sized,
+    UMKR: DeviceEncryptedUMKRepository + ?Sized,
 {
-    pub fn new(device_repo: Arc<DR>, encrypted_umk_repo: Arc<UMKR>) -> Self {
+    pub fn new(
+        device_repo: Arc<DR>,
+        encrypted_umk_repo: Arc<UMKR>,
+        event_publisher: Arc<dyn DeviceEventPublisher>,
+    ) -> Self {
         Self {
             device_repo,
             encrypted_umk_repo,
+            event_publisher,
         }
     }
 
@@ -117,37 +110,28 @@ where
             return Err(DistributeUmkError::InvalidNonce);
         }
 
-        // Verify target device exists and belongs to user
-        let target_device = self
-            .device_repo
-            .find_by_id(command.target_device_id)
-            .await
-            .map_err(DistributeUmkError::DeviceRepository)?
-            .ok_or(DistributeUmkError::TargetDeviceNotFound)?;
+        use crate::util::device_ownership::verify_pop_sender_and_devices;
 
-        if target_device.user_id != command.user_id {
-            return Err(DistributeUmkError::TargetNotOwned);
-        }
-
-        if target_device.is_revoked() {
-            return Err(DistributeUmkError::TargetDeviceRevoked);
-        }
-
-        // Verify sender device exists and belongs to user
-        let sender_device = self
-            .device_repo
-            .find_by_id(command.sender_device_id)
-            .await
-            .map_err(DistributeUmkError::DeviceRepository)?
-            .ok_or(DistributeUmkError::SenderDeviceNotFound)?;
-
-        if sender_device.user_id != command.user_id {
-            return Err(DistributeUmkError::SenderNotOwned);
-        }
-
-        if sender_device.is_revoked() {
-            return Err(DistributeUmkError::SenderDeviceRevoked);
-        }
+        // Enforce PoP sender-device binding and verify both devices
+        verify_pop_sender_and_devices(
+            &self.device_repo,
+            command.user_id,
+            command.target_device_id,
+            command.sender_device_id,
+            command.authenticated_device_id,
+        )
+        .await
+        .map_err(|e| {
+            e.map_to(
+                || DistributeUmkError::SenderDeviceMismatch,
+                || DistributeUmkError::TargetDeviceNotFound,
+                || DistributeUmkError::TargetDeviceRevoked,
+                DistributeUmkError::DeviceRepository,
+                || DistributeUmkError::SenderDeviceNotFound,
+                || DistributeUmkError::SenderDeviceRevoked,
+                DistributeUmkError::DeviceRepository,
+            )
+        })?;
 
         // Create and save encrypted UMK
         let device_encrypted_umk = DeviceEncryptedUMK::new(
@@ -163,8 +147,17 @@ where
             .await
             .map_err(DistributeUmkError::EncryptedUmkRepository)?;
 
+        // Notify the new device that UMK is available
+        self.event_publisher
+            .pending_approved(
+                command.target_device_id,
+                command.user_id,
+                command.target_device_id,
+            )
+            .await;
+
         Ok(DistributeUmkResult {
-            device_encrypted_umk,
+            device_encrypted_umk: device_encrypted_umk.into(),
         })
     }
 }

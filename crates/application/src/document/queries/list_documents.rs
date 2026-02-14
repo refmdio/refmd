@@ -2,12 +2,14 @@
 //!
 //! Lists documents in a workspace with RBAC permission check.
 
-use domain::document::{Document, DocumentId, DocumentRepository};
+use domain::document::{DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
-    can_perform,
 };
+
+use crate::dto::DocumentDto;
+use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -25,54 +27,49 @@ pub struct ListDocumentsQuery {
 /// List documents result
 #[derive(Debug)]
 pub struct ListDocumentsResult {
-    pub documents: Vec<Document>,
+    pub documents: Vec<DocumentDto>,
 }
 
 /// List documents error
 #[derive(Debug, Error)]
 pub enum ListDocumentsError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error> {
-    #[error("user is not a member of this workspace")]
-    NotMember,
-
-    #[error("permission denied: cannot read from this workspace")]
-    PermissionDenied,
+    #[error(transparent)]
+    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
 
     #[error("parent document not found in this workspace")]
     ParentNotFound,
 
     #[error("document repository error: {0}")]
     DocumentRepository(DR),
-
-    #[error("member repository error: {0}")]
-    MemberRepository(MR),
-
-    #[error("role repository error: {0}")]
-    RoleRepository(RR),
 }
 
 impl<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
-    ListDocumentsError<DR, MR, RR>
+    crate::types::AppError for ListDocumentsError<DR, MR, RR>
 {
-    pub fn is_forbidden(&self) -> bool {
+    fn is_access_denied(&self) -> bool {
         matches!(
             self,
-            ListDocumentsError::NotMember | ListDocumentsError::PermissionDenied
+            ListDocumentsError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied)
         )
     }
 
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, ListDocumentsError::ParentNotFound)
+    fn is_not_found(&self) -> bool {
+        matches!(
+            self,
+            ListDocumentsError::ParentNotFound
+                | ListDocumentsError::WorkspaceAccess(WorkspaceAccessError::NotMember)
+        )
     }
 }
 
 /// List documents handler
-pub struct ListDocumentsHandler<DR, MR, RR> {
+pub struct ListDocumentsHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
 }
 
-impl<DR, MR, RR> ListDocumentsHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> ListDocumentsHandler<DR, MR, RR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
@@ -90,25 +87,16 @@ where
         &self,
         query: ListDocumentsQuery,
     ) -> Result<ListDocumentsResult, ListDocumentsError<DR::Error, MR::Error, RR::Error>> {
-        // 1. Check membership
-        let member = self
-            .member_repo
-            .find_by_workspace_and_user(query.workspace_id, query.user_id)
-            .await
-            .map_err(ListDocumentsError::MemberRepository)?
-            .ok_or(ListDocumentsError::NotMember)?;
-
-        // 2. Get role and check Read permission
-        let role = self
-            .role_repo
-            .find_by_id(member.role_id)
-            .await
-            .map_err(ListDocumentsError::RoleRepository)?
-            .ok_or(ListDocumentsError::NotMember)?;
-
-        if !can_perform(role.base_role, WorkspacePermission::Read) {
-            return Err(ListDocumentsError::PermissionDenied);
-        }
+        // 1. Check membership and Read permission
+        check_workspace_permission(
+            &self.member_repo,
+            &self.role_repo,
+            query.workspace_id,
+            query.user_id,
+            WorkspacePermission::Read,
+        )
+        .await
+        .map_err(ListDocumentsError::WorkspaceAccess)?;
 
         // 3. Fetch documents based on filter
         let documents = match query.parent_id {
@@ -155,6 +143,6 @@ where
             documents.into_iter().filter(|d| !d.is_archived()).collect()
         };
 
-        Ok(ListDocumentsResult { documents })
+        Ok(ListDocumentsResult { documents: documents.into_iter().map(Into::into).collect() })
     }
 }

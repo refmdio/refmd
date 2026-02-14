@@ -2,6 +2,9 @@
 //!
 //! Implements cross-instance event delivery for cluster deployments.
 
+use application::dto::DeviceEventDto;
+use application::events::{DeviceEventPublisher, DeviceEventSubscriber};
+use async_trait::async_trait;
 use domain::DeviceEvent;
 use futures::StreamExt;
 use redis::AsyncCommands;
@@ -20,7 +23,7 @@ struct RedisEventMessage {
     /// Unique instance ID to identify the origin
     instance_id: String,
     /// The actual event payload
-    event: DeviceEvent,
+    event: DeviceEventDto,
 }
 
 /// Redis Pub/Sub event bus for cluster deployments
@@ -72,25 +75,18 @@ impl RedisDeviceEventBus {
         bus
     }
 
-    /// Get local sender for publishing events
-    pub fn local_sender(&self) -> &broadcast::Sender<DeviceEvent> {
-        &self.local_sender
-    }
-
-    /// Get instance ID
-    pub fn instance_id(&self) -> &str {
-        &self.instance_id
-    }
-
     /// Publish an event (local first, then Redis as best-effort)
     pub async fn publish(&self, event: DeviceEvent) {
         // Always deliver to local subscribers first (ensures delivery even if Redis is down)
         let _ = self.local_sender.send(event.clone());
 
+        // Convert to wire-format payload
+        let dto = DeviceEventDto::from(event);
+
         // Wrap event with instance_id for cross-instance deduplication
         let message = RedisEventMessage {
             instance_id: self.instance_id.clone(),
-            event,
+            event: dto,
         };
 
         // Then publish to Redis for cross-instance delivery (best-effort)
@@ -146,8 +142,15 @@ impl RedisDeviceEventBus {
                     if message.instance_id == self.instance_id {
                         continue;
                     }
-                    // Forward events from other instances to local subscribers
-                    let _ = self.local_sender.send(message.event);
+                    // Convert the Redis wire-format DTO back to a domain DeviceEvent
+                    match DeviceEvent::try_from(message.event) {
+                        Ok(event) => {
+                            let _ = self.local_sender.send(event);
+                        }
+                        Err(e) => {
+                            tracing::warn!("{}", e);
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("Failed to parse device event from Redis: {}", e);
@@ -156,5 +159,18 @@ impl RedisDeviceEventBus {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl DeviceEventPublisher for RedisDeviceEventBus {
+    async fn publish(&self, event: DeviceEvent) {
+        RedisDeviceEventBus::publish(self, event).await
+    }
+}
+
+impl DeviceEventSubscriber for RedisDeviceEventBus {
+    fn subscribe(&self) -> broadcast::Receiver<DeviceEvent> {
+        RedisDeviceEventBus::subscribe(self)
     }
 }

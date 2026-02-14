@@ -43,5 +43,3 @@ dotenvy.workspace = true
 # Cryptography
 hex.workspace = true
 
-# Rate limiting
-tower_governor.workspace = true

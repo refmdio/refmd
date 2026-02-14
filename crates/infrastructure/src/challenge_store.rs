@@ -8,12 +8,12 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use redis::AsyncCommands;
 
 use domain::encryption::DeviceId;
 use domain::pop::{ChallengeError, ChallengeStore};
 
 use crate::RedisPool;
+use crate::redis_nonce_ops::FromRedisNonceError;
 
 /// Redis-backed challenge store for cluster deployments
 ///
@@ -36,6 +36,8 @@ impl RedisChallengeStore {
     }
 }
 
+impl_from_redis_nonce_error!(ChallengeError);
+
 #[async_trait]
 impl ChallengeStore for RedisChallengeStore {
     async fn store(
@@ -45,18 +47,7 @@ impl ChallengeStore for RedisChallengeStore {
         expires_at: DateTime<Utc>,
     ) -> Result<(), ChallengeError> {
         let key = Self::key(device_id, &challenge);
-        let ttl_secs = (expires_at - Utc::now()).num_seconds().max(1) as u64;
-
-        let mut conn = self.redis.connection();
-        // Store timestamp as value, with TTL
-        let _: () = conn
-            .set_ex(&key, expires_at.timestamp(), ttl_secs)
-            .await
-            .map_err(|e| {
-                tracing::error!("Redis store error: {}", e);
-                ChallengeError::StoreError
-            })?;
-        Ok(())
+        redis_nonce_method!(store, &self.redis, &key, expires_at, ChallengeError)
     }
 
     async fn verify(
@@ -65,25 +56,7 @@ impl ChallengeStore for RedisChallengeStore {
         challenge: &[u8; 32],
     ) -> Result<(), ChallengeError> {
         let key = Self::key(device_id, challenge);
-        let mut conn = self.redis.connection();
-
-        let result: Option<i64> = conn
-            .get(&key)
-            .await
-            .map_err(|_| ChallengeError::StoreError)?;
-
-        match result {
-            Some(expires_timestamp) => {
-                let expires_at = DateTime::from_timestamp(expires_timestamp, 0)
-                    .ok_or(ChallengeError::StoreError)?;
-                if expires_at < Utc::now() {
-                    Err(ChallengeError::Expired)
-                } else {
-                    Ok(())
-                }
-            }
-            None => Err(ChallengeError::NotFound),
-        }
+        redis_nonce_method!(verify, &self.redis, &key, ChallengeError)
     }
 
     async fn consume(
@@ -92,19 +65,7 @@ impl ChallengeStore for RedisChallengeStore {
         challenge: &[u8; 32],
     ) -> Result<(), ChallengeError> {
         let key = Self::key(device_id, challenge);
-        let mut conn = self.redis.connection();
-
-        // DEL returns number of keys deleted
-        let deleted: i32 = conn
-            .del(&key)
-            .await
-            .map_err(|_| ChallengeError::StoreError)?;
-
-        if deleted > 0 {
-            Ok(())
-        } else {
-            Err(ChallengeError::NotFound)
-        }
+        redis_nonce_method!(consume, &self.redis, &key, ChallengeError)
     }
 
     async fn verify_and_remove(
@@ -113,29 +74,6 @@ impl ChallengeStore for RedisChallengeStore {
         challenge: &[u8; 32],
     ) -> Result<(), ChallengeError> {
         let key = Self::key(device_id, challenge);
-        let mut conn = self.redis.connection();
-
-        // Use GETDEL for atomic get-and-delete (Redis 6.2+)
-        let result: Option<i64> = redis::cmd("GETDEL")
-            .arg(&key)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| {
-                tracing::error!("Redis GETDEL error: {}", e);
-                ChallengeError::StoreError
-            })?;
-
-        match result {
-            Some(expires_timestamp) => {
-                let expires_at = DateTime::from_timestamp(expires_timestamp, 0)
-                    .ok_or(ChallengeError::StoreError)?;
-                if expires_at < Utc::now() {
-                    Err(ChallengeError::Expired)
-                } else {
-                    Ok(())
-                }
-            }
-            None => Err(ChallengeError::NotFound),
-        }
+        redis_nonce_method!(verify_and_consume, &self.redis, &key, ChallengeError)
     }
 }

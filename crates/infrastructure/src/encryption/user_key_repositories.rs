@@ -8,29 +8,13 @@ use domain::encryption::{
     UserIdentityPublicKeyRepository,
 };
 use domain::identity::UserId;
-use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
 // ============ UserIdentityPublicKey Repository ============
 
-/// PostgreSQL user identity public key repository
-#[derive(Clone)]
-pub struct PgUserIdentityPublicKeyRepository {
-    pool: PgPool,
-}
-
-impl PgUserIdentityPublicKeyRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgUserIdentityPublicKeyRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-}
+pg_repo_struct!(PgUserIdentityPublicKeyRepository);
+pg_repo_error!(PgUserIdentityPublicKeyRepositoryError);
 
 #[derive(sqlx::FromRow)]
 struct UserIdentityPublicKeyRow {
@@ -61,14 +45,15 @@ impl UserIdentityPublicKeyRepository for PgUserIdentityPublicKeyRepository {
         &self,
         user_id: UserId,
     ) -> Result<Option<UserIdentityPublicKey>, Self::Error> {
-        let row = sqlx::query_as::<_, UserIdentityPublicKeyRow>(
+        let row = sqlx::query_as!(
+            UserIdentityPublicKeyRow,
             r#"
             SELECT user_id, ecdh_public_key, signing_public_key, created_at, updated_at
             FROM user_identity_public_keys
             WHERE user_id = $1
             "#,
+            user_id.as_uuid(),
         )
-        .bind(user_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -76,7 +61,7 @@ impl UserIdentityPublicKeyRepository for PgUserIdentityPublicKeyRepository {
     }
 
     async fn save(&self, key: &UserIdentityPublicKey) -> Result<(), Self::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO user_identity_public_keys (user_id, ecdh_public_key, signing_public_key, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5)
@@ -85,12 +70,12 @@ impl UserIdentityPublicKeyRepository for PgUserIdentityPublicKeyRepository {
                 signing_public_key = EXCLUDED.signing_public_key,
                 updated_at = EXCLUDED.updated_at
             "#,
+            key.user_id.as_uuid(),
+            &key.ecdh_public_key,
+            &key.signing_public_key,
+            key.created_at,
+            key.updated_at,
         )
-        .bind(key.user_id.as_uuid())
-        .bind(&key.ecdh_public_key)
-        .bind(&key.signing_public_key)
-        .bind(key.created_at)
-        .bind(key.updated_at)
         .execute(&self.pool)
         .await?;
 
@@ -98,10 +83,12 @@ impl UserIdentityPublicKeyRepository for PgUserIdentityPublicKeyRepository {
     }
 
     async fn delete(&self, user_id: UserId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM user_identity_public_keys WHERE user_id = $1")
-            .bind(user_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM user_identity_public_keys WHERE user_id = $1",
+            user_id.as_uuid(),
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }
@@ -109,17 +96,7 @@ impl UserIdentityPublicKeyRepository for PgUserIdentityPublicKeyRepository {
 
 // ============ UserEncryptedMasterKey Repository ============
 
-/// PostgreSQL user encrypted master key repository
-#[derive(Clone)]
-pub struct PgUserEncryptedMasterKeyRepository {
-    pool: PgPool,
-}
-
-impl PgUserEncryptedMasterKeyRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
+pg_repo_struct!(PgUserEncryptedMasterKeyRepository);
 
 #[derive(Debug, Error)]
 pub enum PgUserEncryptedMasterKeyRepositoryError {
@@ -190,15 +167,17 @@ impl UserEncryptedMasterKeyRepository for PgUserEncryptedMasterKeyRepository {
         &self,
         user_id: UserId,
     ) -> Result<Option<UserEncryptedMasterKey>, Self::Error> {
-        let row = sqlx::query_as::<_, UserEncryptedMasterKeyRow>(
+        let row = sqlx::query_as!(
+            UserEncryptedMasterKeyRow,
             r#"
-            SELECT user_id, auth_type, encrypted_umk, umk_nonce, salt, kdf_type, kdf_params,
+            SELECT user_id, auth_type, encrypted_umk, umk_nonce, salt, kdf_type,
+                   kdf_params as "kdf_params: sqlx::types::Json<KdfParams>",
                    auth_key_hash, recovery_encrypted_umk, recovery_nonce, created_at, updated_at
             FROM user_encrypted_master_keys
             WHERE user_id = $1
             "#,
+            user_id.as_uuid(),
         )
-        .bind(user_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -206,7 +185,12 @@ impl UserEncryptedMasterKeyRepository for PgUserEncryptedMasterKeyRepository {
     }
 
     async fn save(&self, key: &UserEncryptedMasterKey) -> Result<(), Self::Error> {
-        sqlx::query(
+        let kdf_params_json = key
+            .kdf_params
+            .as_ref()
+            .map(|p| serde_json::to_value(p).unwrap());
+
+        sqlx::query!(
             r#"
             INSERT INTO user_encrypted_master_keys (
                 user_id, auth_type, encrypted_umk, umk_nonce, salt, kdf_type, kdf_params,
@@ -225,19 +209,19 @@ impl UserEncryptedMasterKeyRepository for PgUserEncryptedMasterKeyRepository {
                 recovery_nonce = EXCLUDED.recovery_nonce,
                 updated_at = EXCLUDED.updated_at
             "#,
+            key.user_id.as_uuid(),
+            key.auth_type.as_str(),
+            key.encrypted_umk.as_deref(),
+            key.umk_nonce.as_deref(),
+            key.salt.as_deref(),
+            key.kdf_type.map(|t| t.as_str()) as Option<&str>,
+            kdf_params_json as Option<serde_json::Value>,
+            key.auth_key_hash.as_deref(),
+            &key.recovery_encrypted_umk,
+            &key.recovery_nonce,
+            key.created_at,
+            key.updated_at,
         )
-        .bind(key.user_id.as_uuid())
-        .bind(key.auth_type.as_str())
-        .bind(&key.encrypted_umk)
-        .bind(&key.umk_nonce)
-        .bind(&key.salt)
-        .bind(key.kdf_type.map(|t| t.as_str()))
-        .bind(key.kdf_params.as_ref().map(sqlx::types::Json))
-        .bind(&key.auth_key_hash)
-        .bind(&key.recovery_encrypted_umk)
-        .bind(&key.recovery_nonce)
-        .bind(key.created_at)
-        .bind(key.updated_at)
         .execute(&self.pool)
         .await?;
 
@@ -245,10 +229,12 @@ impl UserEncryptedMasterKeyRepository for PgUserEncryptedMasterKeyRepository {
     }
 
     async fn delete(&self, user_id: UserId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM user_encrypted_master_keys WHERE user_id = $1")
-            .bind(user_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM user_encrypted_master_keys WHERE user_id = $1",
+            user_id.as_uuid(),
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }
@@ -256,23 +242,8 @@ impl UserEncryptedMasterKeyRepository for PgUserEncryptedMasterKeyRepository {
 
 // ============ UserEncryptedIdentityKey Repository ============
 
-/// PostgreSQL user encrypted identity key repository
-#[derive(Clone)]
-pub struct PgUserEncryptedIdentityKeyRepository {
-    pool: PgPool,
-}
-
-impl PgUserEncryptedIdentityKeyRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgUserEncryptedIdentityKeyRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-}
+pg_repo_struct!(PgUserEncryptedIdentityKeyRepository);
+pg_repo_error!(PgUserEncryptedIdentityKeyRepositoryError);
 
 #[derive(sqlx::FromRow)]
 struct UserEncryptedIdentityKeyRow {
@@ -307,15 +278,16 @@ impl UserEncryptedIdentityKeyRepository for PgUserEncryptedIdentityKeyRepository
         &self,
         user_id: UserId,
     ) -> Result<Option<UserEncryptedIdentityKey>, Self::Error> {
-        let row = sqlx::query_as::<_, UserEncryptedIdentityKeyRow>(
+        let row = sqlx::query_as!(
+            UserEncryptedIdentityKeyRow,
             r#"
             SELECT user_id, encrypted_ecdh_private, encrypted_ecdh_private_nonce,
                    encrypted_signing_private, encrypted_signing_private_nonce, created_at, updated_at
             FROM user_encrypted_identity_keys
             WHERE user_id = $1
             "#,
+            user_id.as_uuid(),
         )
-        .bind(user_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -323,7 +295,7 @@ impl UserEncryptedIdentityKeyRepository for PgUserEncryptedIdentityKeyRepository
     }
 
     async fn save(&self, key: &UserEncryptedIdentityKey) -> Result<(), Self::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO user_encrypted_identity_keys (
                 user_id, encrypted_ecdh_private, encrypted_ecdh_private_nonce,
@@ -337,14 +309,14 @@ impl UserEncryptedIdentityKeyRepository for PgUserEncryptedIdentityKeyRepository
                 encrypted_signing_private_nonce = EXCLUDED.encrypted_signing_private_nonce,
                 updated_at = EXCLUDED.updated_at
             "#,
+            key.user_id.as_uuid(),
+            &key.encrypted_ecdh_private,
+            &key.encrypted_ecdh_private_nonce,
+            &key.encrypted_signing_private,
+            &key.encrypted_signing_private_nonce,
+            key.created_at,
+            key.updated_at,
         )
-        .bind(key.user_id.as_uuid())
-        .bind(&key.encrypted_ecdh_private)
-        .bind(&key.encrypted_ecdh_private_nonce)
-        .bind(&key.encrypted_signing_private)
-        .bind(&key.encrypted_signing_private_nonce)
-        .bind(key.created_at)
-        .bind(key.updated_at)
         .execute(&self.pool)
         .await?;
 
@@ -352,10 +324,12 @@ impl UserEncryptedIdentityKeyRepository for PgUserEncryptedIdentityKeyRepository
     }
 
     async fn delete(&self, user_id: UserId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM user_encrypted_identity_keys WHERE user_id = $1")
-            .bind(user_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM user_encrypted_identity_keys WHERE user_id = $1",
+            user_id.as_uuid(),
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }

@@ -3,6 +3,8 @@
 //! Creates a new pending device awaiting SAS verification.
 //! Used when a user logs in from a new device.
 
+use crate::dto::PendingDeviceDto;
+use crate::events::DeviceEventPublisher;
 use domain::encryption::{
     DeviceType, PendingDevice, PendingDeviceRepository, PublicKeyPair,
     UserIdentityPublicKeyRepository,
@@ -30,7 +32,7 @@ pub struct CreatePendingDeviceCommand {
 /// Create pending device result
 #[derive(Debug)]
 pub struct CreatePendingDeviceResult {
-    pub pending_device: PendingDevice,
+    pub pending_device: PendingDeviceDto,
     /// User's identity signing public key for SAS calculation on new device
     pub identity_signing_public_key: Vec<u8>,
 }
@@ -60,37 +62,39 @@ pub enum CreatePendingDeviceError<PDR: std::error::Error, UIPR: std::error::Erro
     IdentityPublicKeyRepository(UIPR),
 }
 
-impl<PDR: std::error::Error, UIPR: std::error::Error> CreatePendingDeviceError<PDR, UIPR> {
-    pub fn is_bad_request(&self) -> bool {
-        matches!(
-            self,
-            CreatePendingDeviceError::InvalidDeviceName
-                | CreatePendingDeviceError::InvalidEcdhPublicKey
-                | CreatePendingDeviceError::InvalidSigningPublicKey
-                | CreatePendingDeviceError::InvalidClientNonce
-        )
-    }
-
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, CreatePendingDeviceError::IdentityPublicKeyNotFound)
-    }
-}
+crate::types::impl_app_error!(
+    [PDR: std::error::Error, UIPR: std::error::Error]
+    CreatePendingDeviceError<PDR, UIPR>,
+    not_found: [CreatePendingDeviceError::IdentityPublicKeyNotFound],
+    invalid_input: [
+        CreatePendingDeviceError::InvalidDeviceName,
+        CreatePendingDeviceError::InvalidEcdhPublicKey,
+        CreatePendingDeviceError::InvalidSigningPublicKey,
+        CreatePendingDeviceError::InvalidClientNonce,
+    ],
+);
 
 /// Create pending device handler
-pub struct CreatePendingDeviceHandler<PDR, UIPR> {
+pub struct CreatePendingDeviceHandler<PDR: ?Sized, UIPR: ?Sized> {
     pending_device_repo: Arc<PDR>,
     user_identity_public_key_repo: Arc<UIPR>,
+    event_publisher: Arc<dyn DeviceEventPublisher>,
 }
 
 impl<PDR, UIPR> CreatePendingDeviceHandler<PDR, UIPR>
 where
-    PDR: PendingDeviceRepository,
-    UIPR: UserIdentityPublicKeyRepository,
+    PDR: PendingDeviceRepository + ?Sized,
+    UIPR: UserIdentityPublicKeyRepository + ?Sized,
 {
-    pub fn new(pending_device_repo: Arc<PDR>, user_identity_public_key_repo: Arc<UIPR>) -> Self {
+    pub fn new(
+        pending_device_repo: Arc<PDR>,
+        user_identity_public_key_repo: Arc<UIPR>,
+        event_publisher: Arc<dyn DeviceEventPublisher>,
+    ) -> Self {
         Self {
             pending_device_repo,
             user_identity_public_key_repo,
+            event_publisher,
         }
     }
 
@@ -103,12 +107,19 @@ where
             return Err(CreatePendingDeviceError::InvalidDeviceName);
         }
 
-        // Validate public keys
-        if command.ecdh_public_key.len() != 32 {
+        // Validate public keys (length + low-order / small-order point rejection)
+        // NOTE: Presentation layer also validates (defense-in-depth).
+        // These checks remain as transport-independent business-rule preconditions.
+        use domain::crypto_validation::{is_valid_x25519_public_key, is_valid_ed25519_public_key};
+        if command.ecdh_public_key.len() != 32
+            || !is_valid_x25519_public_key(&command.ecdh_public_key)
+        {
             return Err(CreatePendingDeviceError::InvalidEcdhPublicKey);
         }
 
-        if command.signing_public_key.len() != 32 {
+        if command.signing_public_key.len() != 32
+            || !is_valid_ed25519_public_key(&command.signing_public_key)
+        {
             return Err(CreatePendingDeviceError::InvalidSigningPublicKey);
         }
 
@@ -143,9 +154,23 @@ where
             .await
             .map_err(CreatePendingDeviceError::PendingDeviceRepository)?;
 
-        Ok(CreatePendingDeviceResult {
-            pending_device,
+        let result: CreatePendingDeviceResult = CreatePendingDeviceResult {
+            pending_device: pending_device.into(),
             identity_signing_public_key: identity_public_key.signing_public_key,
-        })
+        };
+
+        // Publish SSE event for existing devices
+        self.event_publisher
+            .pending_created(
+                result.pending_device.id,
+                command.user_id,
+                result.pending_device.name.clone(),
+                command.device_type,
+                result.pending_device.ip_address.clone(),
+                result.pending_device.expires_at,
+            )
+            .await;
+
+        Ok(result)
     }
 }

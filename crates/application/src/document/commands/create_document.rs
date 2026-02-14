@@ -6,10 +6,14 @@ use domain::document::{Document, DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
     WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
-    can_perform,
 };
 use std::sync::Arc;
 use thiserror::Error;
+
+use crate::dto::DocumentDto;
+use crate::util::document_validation::{encrypted_title_fields_valid, validate_parent_document};
+use crate::util::slug::generate_slug;
+use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
 
 /// Create document command
 #[derive(Debug)]
@@ -28,17 +32,14 @@ pub struct CreateDocumentCommand {
 /// Create document result
 #[derive(Debug)]
 pub struct CreateDocumentResult {
-    pub document: Document,
+    pub document: DocumentDto,
 }
 
 /// Create document error
 #[derive(Debug, Error)]
 pub enum CreateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error> {
-    #[error("user is not a member of this workspace")]
-    NotMember,
-
-    #[error("permission denied: cannot write to this workspace")]
-    PermissionDenied,
+    #[error(transparent)]
+    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
 
     #[error("parent document not found")]
     ParentNotFound,
@@ -57,51 +58,40 @@ pub enum CreateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: s
 
     #[error("document repository error: {0}")]
     DocumentRepository(DR),
-
-    #[error("member repository error: {0}")]
-    MemberRepository(MR),
-
-    #[error("role repository error: {0}")]
-    RoleRepository(RR),
 }
 
-impl<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
-    CreateDocumentError<DR, MR, RR>
-{
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, CreateDocumentError::ParentNotFound)
-    }
+crate::types::impl_app_error!(
+    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
+    CreateDocumentError<DR, MR, RR>,
+    not_found: [
+        CreateDocumentError::ParentNotFound,
+        CreateDocumentError::WorkspaceAccess(WorkspaceAccessError::NotMember),
+    ],
+    access_denied: [
+        CreateDocumentError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied),
+    ],
+    invalid_input: [
+        CreateDocumentError::ParentNotFolder,
+        CreateDocumentError::InvalidEncryptedTitleFields,
+    ],
+    conflict: [
+        CreateDocumentError::SlugExists,
+        CreateDocumentError::ParentArchived,
+    ],
+);
 
-    pub fn is_forbidden(&self) -> bool {
-        matches!(
-            self,
-            CreateDocumentError::NotMember | CreateDocumentError::PermissionDenied
-        )
-    }
-
-    pub fn is_conflict(&self) -> bool {
-        matches!(
-            self,
-            CreateDocumentError::SlugExists | CreateDocumentError::ParentArchived
-        )
-    }
-
-    pub fn is_bad_request(&self) -> bool {
-        matches!(
-            self,
-            CreateDocumentError::ParentNotFolder | CreateDocumentError::InvalidEncryptedTitleFields
-        )
-    }
-}
+crate::util::document_validation::impl_from_parent_validation!(
+    [DR, MR, RR] CreateDocumentError<DR, MR, RR>
+);
 
 /// Create document handler
-pub struct CreateDocumentHandler<DR, MR, RR> {
+pub struct CreateDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
 }
 
-impl<DR, MR, RR> CreateDocumentHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> CreateDocumentHandler<DR, MR, RR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
@@ -119,56 +109,27 @@ where
         &self,
         command: CreateDocumentCommand,
     ) -> Result<CreateDocumentResult, CreateDocumentError<DR::Error, MR::Error, RR::Error>> {
-        // 1. Check membership and get role
-        let member = self
-            .member_repo
-            .find_by_workspace_and_user(command.workspace_id, command.user_id)
-            .await
-            .map_err(CreateDocumentError::MemberRepository)?
-            .ok_or(CreateDocumentError::NotMember)?;
-
-        // 2. Get role and check Write permission
-        let role = self
-            .role_repo
-            .find_by_id(member.role_id)
-            .await
-            .map_err(CreateDocumentError::RoleRepository)?
-            .ok_or(CreateDocumentError::NotMember)?;
-
-        if !can_perform(role.base_role, WorkspacePermission::Write) {
-            return Err(CreateDocumentError::PermissionDenied);
-        }
+        // 1. Check membership and Write permission
+        check_workspace_permission(
+            &self.member_repo,
+            &self.role_repo,
+            command.workspace_id,
+            command.user_id,
+            WorkspacePermission::Write,
+        )
+        .await
+        .map_err(CreateDocumentError::WorkspaceAccess)?;
 
         // 3. Validate encrypted title fields (must have both or neither)
-        match (&command.encrypted_title, &command.encrypted_title_nonce) {
-            (Some(_), None) | (None, Some(_)) => {
-                return Err(CreateDocumentError::InvalidEncryptedTitleFields);
-            }
-            _ => {}
+        if !encrypted_title_fields_valid(&command.encrypted_title, &command.encrypted_title_nonce) {
+            return Err(CreateDocumentError::InvalidEncryptedTitleFields);
         }
 
         // 4. Validate parent if provided
         if let Some(parent_id) = command.parent_id {
-            let parent = self
-                .document_repo
-                .find_by_id(parent_id)
+            validate_parent_document(&*self.document_repo, parent_id, command.workspace_id)
                 .await
-                .map_err(CreateDocumentError::DocumentRepository)?
-                .ok_or(CreateDocumentError::ParentNotFound)?;
-
-            if !parent.is_folder() {
-                return Err(CreateDocumentError::ParentNotFolder);
-            }
-
-            // Check if parent is archived (cannot create documents in archived folders)
-            if parent.is_archived() {
-                return Err(CreateDocumentError::ParentArchived);
-            }
-
-            // Verify parent is in same workspace
-            if parent.workspace_id != command.workspace_id {
-                return Err(CreateDocumentError::ParentNotFound);
-            }
+                .map_err(CreateDocumentError::from_parent_validation)?;
         }
 
         // 6. Generate slug from title
@@ -218,7 +179,7 @@ where
             .await
             .map_err(CreateDocumentError::DocumentRepository)?;
 
-        Ok(CreateDocumentResult { document })
+        Ok(CreateDocumentResult { document: document.into() })
     }
 
     async fn ensure_unique_slug(
@@ -256,23 +217,3 @@ where
     }
 }
 
-/// Generate a URL-safe slug from a title
-fn generate_slug(title: &str) -> String {
-    let slug: String = title
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-
-    if slug.is_empty() {
-        "untitled".to_string()
-    } else if slug.len() > 100 {
-        slug[..100].to_string()
-    } else {
-        slug
-    }
-}

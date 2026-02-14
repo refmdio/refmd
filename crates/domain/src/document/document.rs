@@ -92,12 +92,6 @@ impl Document {
         self
     }
 
-    /// Set path
-    pub fn with_path(mut self, path: String) -> Self {
-        self.path = Some(path);
-        self
-    }
-
     /// Check if document is a folder
     pub fn is_folder(&self) -> bool {
         self.doc_type == DocumentType::Folder
@@ -129,6 +123,26 @@ impl Document {
     /// Clear DEK rotation flag
     pub fn clear_dek_rotation_flag(&mut self) {
         self.needs_dek_rotation = false;
+        self.updated_at = Utc::now();
+    }
+
+    /// Update title
+    pub fn set_title(&mut self, title: String) {
+        self.title = title;
+        self.updated_at = Utc::now();
+    }
+
+    /// Update encrypted title
+    pub fn set_encrypted_title(&mut self, title: Vec<u8>, nonce: Vec<u8>) {
+        self.encrypted_title = Some(title);
+        self.encrypted_title_nonce = Some(nonce);
+        self.is_encrypted = true;
+        self.updated_at = Utc::now();
+    }
+
+    /// Update parent document
+    pub fn set_parent(&mut self, parent_id: Option<DocumentId>) {
+        self.parent_id = parent_id;
         self.updated_at = Utc::now();
     }
 

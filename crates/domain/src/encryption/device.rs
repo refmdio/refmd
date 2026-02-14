@@ -79,18 +79,6 @@ impl Device {
         self.revoked_at = Some(Utc::now());
     }
 
-    /// Update last seen timestamp
-    pub fn touch(&mut self) {
-        self.last_seen_at = Utc::now();
-    }
-
-    /// Get public key pair
-    pub fn public_keys(&self) -> PublicKeyPair {
-        PublicKeyPair::new(
-            self.ecdh_public_key.clone(),
-            self.signing_public_key.clone(),
-        )
-    }
 }
 
 /// Pending device awaiting SAS verification
@@ -143,13 +131,5 @@ impl PendingDevice {
     /// Check if the pending device has expired
     pub fn is_expired(&self) -> bool {
         Utc::now() > self.expires_at
-    }
-
-    /// Get public key pair
-    pub fn public_keys(&self) -> PublicKeyPair {
-        PublicKeyPair::new(
-            self.ecdh_public_key.clone(),
-            self.signing_public_key.clone(),
-        )
     }
 }

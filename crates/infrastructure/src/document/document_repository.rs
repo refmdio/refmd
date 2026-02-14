@@ -5,30 +5,14 @@ use chrono::{DateTime, Utc};
 use domain::document::{Document, DocumentId, DocumentRepository, DocumentType};
 use domain::identity::UserId;
 use domain::workspace::WorkspaceId;
-use sqlx::PgPool;
-use thiserror::Error;
 use uuid::Uuid;
 
-/// PostgreSQL document repository
-#[derive(Clone)]
-pub struct PgDocumentRepository {
-    pool: PgPool,
-}
+pg_repo_struct!(PgDocumentRepository);
+pg_repo_error!(PgDocumentRepositoryError, InvalidDocumentType(String));
 
-impl PgDocumentRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgDocumentRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("corrupted data: invalid document type: {0}")]
-    InvalidDocumentType(String),
-}
+/// Shared SELECT column list for document queries.
+/// Keep in sync with `DocumentRow` fields.
+const DOCUMENT_COLUMNS: &str = "id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce, slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version, created_by, created_at, updated_at, archived_at";
 
 #[derive(sqlx::FromRow)]
 struct DocumentRow {
@@ -83,40 +67,11 @@ impl DocumentRepository for PgDocumentRepository {
     type Error = PgDocumentRepositoryError;
 
     async fn find_by_id(&self, id: DocumentId) -> Result<Option<Document>, Self::Error> {
-        let row = sqlx::query_as::<_, DocumentRow>(
-            r#"
-            SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
-                   created_by, created_at, updated_at, archived_at
-            FROM documents
-            WHERE id = $1
-            "#,
-        )
-        .bind(id.as_uuid())
-        .fetch_optional(&self.pool)
-        .await?;
-
-        row.map(|r| r.try_into_document()).transpose()
-    }
-
-    async fn find_by_workspace_and_slug(
-        &self,
-        workspace_id: WorkspaceId,
-        slug: &str,
-    ) -> Result<Option<Document>, Self::Error> {
-        let row = sqlx::query_as::<_, DocumentRow>(
-            r#"
-            SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
-                   created_by, created_at, updated_at, archived_at
-            FROM documents
-            WHERE workspace_id = $1 AND slug = $2
-            "#,
-        )
-        .bind(workspace_id.as_uuid())
-        .bind(slug)
-        .fetch_optional(&self.pool)
-        .await?;
+        let sql = format!("SELECT {DOCUMENT_COLUMNS} FROM documents WHERE id = $1");
+        let row = sqlx::query_as::<_, DocumentRow>(&sql)
+            .bind(id.as_uuid())
+            .fetch_optional(&self.pool)
+            .await?;
 
         row.map(|r| r.try_into_document()).transpose()
     }
@@ -125,37 +80,25 @@ impl DocumentRepository for PgDocumentRepository {
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<Document>, Self::Error> {
-        let rows = sqlx::query_as::<_, DocumentRow>(
-            r#"
-            SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
-                   created_by, created_at, updated_at, archived_at
-            FROM documents
-            WHERE workspace_id = $1
-            ORDER BY created_at DESC
-            "#,
-        )
-        .bind(workspace_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
+        let sql = format!(
+            "SELECT {DOCUMENT_COLUMNS} FROM documents WHERE workspace_id = $1 ORDER BY created_at DESC"
+        );
+        let rows = sqlx::query_as::<_, DocumentRow>(&sql)
+            .bind(workspace_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await?;
 
         rows.into_iter().map(|r| r.try_into_document()).collect()
     }
 
     async fn find_by_parent_id(&self, parent_id: DocumentId) -> Result<Vec<Document>, Self::Error> {
-        let rows = sqlx::query_as::<_, DocumentRow>(
-            r#"
-            SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
-                   created_by, created_at, updated_at, archived_at
-            FROM documents
-            WHERE parent_id = $1
-            ORDER BY title
-            "#,
-        )
-        .bind(parent_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
+        let sql = format!(
+            "SELECT {DOCUMENT_COLUMNS} FROM documents WHERE parent_id = $1 ORDER BY title"
+        );
+        let rows = sqlx::query_as::<_, DocumentRow>(&sql)
+            .bind(parent_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await?;
 
         rows.into_iter().map(|r| r.try_into_document()).collect()
     }
@@ -164,19 +107,13 @@ impl DocumentRepository for PgDocumentRepository {
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<Document>, Self::Error> {
-        let rows = sqlx::query_as::<_, DocumentRow>(
-            r#"
-            SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
-                   created_by, created_at, updated_at, archived_at
-            FROM documents
-            WHERE workspace_id = $1 AND parent_id IS NULL
-            ORDER BY title
-            "#,
-        )
-        .bind(workspace_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
+        let sql = format!(
+            "SELECT {DOCUMENT_COLUMNS} FROM documents WHERE workspace_id = $1 AND parent_id IS NULL ORDER BY title"
+        );
+        let rows = sqlx::query_as::<_, DocumentRow>(&sql)
+            .bind(workspace_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await?;
 
         rows.into_iter().map(|r| r.try_into_document()).collect()
     }
@@ -185,18 +122,13 @@ impl DocumentRepository for PgDocumentRepository {
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<Document>, Self::Error> {
-        let rows = sqlx::query_as::<_, DocumentRow>(
-            r#"
-            SELECT id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                   slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
-                   created_by, created_at, updated_at, archived_at
-            FROM documents
-            WHERE workspace_id = $1 AND needs_dek_rotation = TRUE
-            "#,
-        )
-        .bind(workspace_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
+        let sql = format!(
+            "SELECT {DOCUMENT_COLUMNS} FROM documents WHERE workspace_id = $1 AND needs_dek_rotation = TRUE"
+        );
+        let rows = sqlx::query_as::<_, DocumentRow>(&sql)
+            .bind(workspace_id.as_uuid())
+            .fetch_all(&self.pool)
+            .await?;
 
         rows.into_iter().map(|r| r.try_into_document()).collect()
     }
@@ -206,13 +138,13 @@ impl DocumentRepository for PgDocumentRepository {
         workspace_id: WorkspaceId,
         slug: &str,
     ) -> Result<bool, Self::Error> {
-        let result = sqlx::query_scalar::<_, bool>(
+        let result = sqlx::query_scalar!(
             r#"
-            SELECT EXISTS(SELECT 1 FROM documents WHERE workspace_id = $1 AND slug = $2)
+            SELECT EXISTS(SELECT 1 FROM documents WHERE workspace_id = $1 AND slug = $2) as "exists!"
             "#,
+            workspace_id.as_uuid(),
+            slug
         )
-        .bind(workspace_id.as_uuid())
-        .bind(slug)
         .fetch_one(&self.pool)
         .await?;
 
@@ -220,7 +152,11 @@ impl DocumentRepository for PgDocumentRepository {
     }
 
     async fn save(&self, document: &Document) -> Result<(), Self::Error> {
-        sqlx::query(
+        let parent_id = document.parent_id.map(|id| id.as_uuid());
+        let created_by = document.created_by.map(|id| id.as_uuid());
+        let doc_type_str = document.doc_type.as_str();
+
+        sqlx::query!(
             r#"
             INSERT INTO documents (
                 id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
@@ -240,23 +176,23 @@ impl DocumentRepository for PgDocumentRepository {
                 updated_at = EXCLUDED.updated_at,
                 archived_at = EXCLUDED.archived_at
             "#,
+            document.id.as_uuid(),
+            document.workspace_id.as_uuid(),
+            parent_id as _,
+            &document.title,
+            document.encrypted_title.as_deref(),
+            document.encrypted_title_nonce.as_deref(),
+            &document.slug,
+            document.path.as_deref(),
+            doc_type_str,
+            document.is_encrypted,
+            document.needs_dek_rotation,
+            document.min_dek_version,
+            created_by as _,
+            document.created_at,
+            document.updated_at,
+            document.archived_at as _
         )
-        .bind(document.id.as_uuid())
-        .bind(document.workspace_id.as_uuid())
-        .bind(document.parent_id.map(|id| id.as_uuid()))
-        .bind(&document.title)
-        .bind(&document.encrypted_title)
-        .bind(&document.encrypted_title_nonce)
-        .bind(&document.slug)
-        .bind(&document.path)
-        .bind(document.doc_type.as_str())
-        .bind(document.is_encrypted)
-        .bind(document.needs_dek_rotation)
-        .bind(document.min_dek_version)
-        .bind(document.created_by.map(|id| id.as_uuid()))
-        .bind(document.created_at)
-        .bind(document.updated_at)
-        .bind(document.archived_at)
         .execute(&self.pool)
         .await?;
 
@@ -264,8 +200,7 @@ impl DocumentRepository for PgDocumentRepository {
     }
 
     async fn delete(&self, id: DocumentId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM documents WHERE id = $1")
-            .bind(id.as_uuid())
+        sqlx::query!("DELETE FROM documents WHERE id = $1", id.as_uuid())
             .execute(&self.pool)
             .await?;
 

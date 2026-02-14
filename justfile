@@ -49,8 +49,8 @@ test-integration:
 
 # ============ Code Quality ============
 
-# Run all checks (format, lint, test)
-check: fmt-check lint test
+# Run all checks (format, lint, test, architecture)
+check: fmt-check lint test arch-check
 
 # Format all code
 fmt:
@@ -63,6 +63,12 @@ fmt-check:
 # Run clippy
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
+
+# Check architecture layer boundaries
+arch-check:
+    @echo "Checking architecture boundaries..."
+    @cargo metadata --format-version 1 --no-deps | python3 scripts/arch_check.py
+    @echo "All architecture checks passed!"
 
 # ============ Docker ============
 

@@ -5,37 +5,30 @@
 //! - WebSocket: Real-time communication (Yjs sync)
 //! - Request/Response transformation: JSON to/from DTOs
 //! - Authentication middleware: Session validation, authorization
-
-// Allow type_complexity for AppState generics - this is by design for DI
-#![allow(clippy::type_complexity)]
-
-// Re-export application for convenience
-pub use application;
+//!
+//! # Architecture boundary
+//!
+//! This layer depends on `application` only (not `domain` directly).
+//! Domain types are accessed via `application::types` (IDs, traits)
+//! and `application::dto` (data transfer objects).
 
 pub mod auth;
+pub mod client_ip;
 pub mod crypto_validation;
 pub mod events;
-pub mod middleware;
 pub mod rate_limit;
 pub mod routes;
-pub mod sas;
 mod state;
 
-pub use auth::{
-    AuthUser, AuthUserFull, PopError, PopVerified, PopVerifiedUser, RecoveryOrPopUser,
-    authenticate_with_pop, verify_pop,
-};
+pub use auth::{AuthUser, AuthError, PopVerifiedUser, RecoveryOrPopUser};
 pub use events::{
     DeviceEvent, DeviceEventBus, DeviceEventPublisher, DeviceEventSubscriber,
-    InMemoryDeviceEventBus,
 };
-pub use middleware::{
-    CHALLENGE_TTL_SECS, ChallengeCache, ChallengeError, ChallengeStore, InMemoryChallengeStore,
-    InMemoryRecoveryChallengeStore, InMemoryTransferNonceStore, InMemoryTransferStateStore,
-    POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER, POP_SIGNATURE_HEADER, RecoveryChallengeError,
-    RecoveryChallengeStore,
+pub use auth::{POP_CHALLENGE_HEADER, POP_DEVICE_ID_HEADER, POP_SIGNATURE_HEADER};
+pub use state::{
+    AppState, AppStateParams, AuthSubState, DeviceSubState, DocumentSubState, EncryptionSubState,
+    TrustTransferSubState, WorkspaceSubState,
 };
-pub use state::{AppState, AppStateParams, BoxedError};
 
 use utoipa::OpenApi;
 
@@ -155,11 +148,9 @@ use utoipa::OpenApi;
             routes::device::RevokeDeviceResponse,
             routes::trust_transfer::RequestNonceRequest,
             routes::trust_transfer::RequestNonceResponse,
-            routes::trust_transfer::RequestNonceErrorResponse,
+            routes::trust_transfer::TrustTransferErrorResponse,
             routes::trust_transfer::SubmitStateRequest,
-            routes::trust_transfer::SubmitStateErrorResponse,
             routes::trust_transfer::RetrieveStateResponse,
-            routes::trust_transfer::RetrieveStateErrorResponse,
         )
     ),
     tags(

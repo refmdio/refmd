@@ -15,5 +15,12 @@ presentation.workspace = true
 tokio.workspace = true
 tokio-test.workspace = true
 
+# Web / HTTP (for integration tests)
+axum.workspace = true
+tower.workspace = true
+serde_json.workspace = true
+
+# Database
+sqlx.workspace = true
+
 # Testing utilities
-# TODO: Add testing dependencies as needed

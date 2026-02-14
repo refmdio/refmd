@@ -2,10 +2,10 @@
 //!
 //! Returns workspace details with membership info for the requesting user.
 
+use crate::dto::{WorkspaceDto, WorkspaceMemberDto, WorkspaceRoleDto};
 use domain::identity::UserId;
 use domain::workspace::{
-    Workspace, WorkspaceId, WorkspaceMember, WorkspaceMemberRepository, WorkspaceRepository,
-    WorkspaceRole, WorkspaceRoleRepository,
+    WorkspaceId, WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -20,9 +20,9 @@ pub struct GetWorkspaceQuery {
 /// Get workspace result
 #[derive(Debug)]
 pub struct GetWorkspaceResult {
-    pub workspace: Workspace,
-    pub membership: WorkspaceMember,
-    pub role: WorkspaceRole,
+    pub workspace: WorkspaceDto,
+    pub membership: WorkspaceMemberDto,
+    pub role: WorkspaceRoleDto,
 }
 
 /// Get workspace error
@@ -47,29 +47,29 @@ pub enum GetWorkspaceError<WR: std::error::Error, WMR: std::error::Error, WRR: s
     WorkspaceRoleRepository(WRR),
 }
 
-impl<WR, WMR, WRR> GetWorkspaceError<WR, WMR, WRR>
+impl<WR, WMR, WRR> crate::types::AppError for GetWorkspaceError<WR, WMR, WRR>
 where
     WR: std::error::Error,
     WMR: std::error::Error,
     WRR: std::error::Error,
 {
-    pub fn is_not_found(&self) -> bool {
+    fn is_not_found(&self) -> bool {
         matches!(self, GetWorkspaceError::WorkspaceNotFound)
     }
 
-    pub fn is_forbidden(&self) -> bool {
+    fn is_access_denied(&self) -> bool {
         matches!(self, GetWorkspaceError::NotAMember)
     }
 }
 
 /// Get workspace handler
-pub struct GetWorkspaceHandler<WR, WMR, WRR> {
+pub struct GetWorkspaceHandler<WR: ?Sized, WMR: ?Sized, WRR: ?Sized> {
     workspace_repo: Arc<WR>,
     member_repo: Arc<WMR>,
     role_repo: Arc<WRR>,
 }
 
-impl<WR, WMR, WRR> GetWorkspaceHandler<WR, WMR, WRR>
+impl<WR: ?Sized, WMR: ?Sized, WRR: ?Sized> GetWorkspaceHandler<WR, WMR, WRR>
 where
     WR: WorkspaceRepository,
     WMR: WorkspaceMemberRepository,
@@ -112,9 +112,9 @@ where
             .ok_or(GetWorkspaceError::RoleNotFound)?;
 
         Ok(GetWorkspaceResult {
-            workspace,
-            membership,
-            role,
+            workspace: workspace.into(),
+            membership: membership.into(),
+            role: role.into(),
         })
     }
 }

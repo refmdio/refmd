@@ -1,37 +1,9 @@
 //! Encryption domain value objects
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
-/// Device ID
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct DeviceId(Uuid);
-
-impl DeviceId {
-    pub fn new() -> Self {
-        Self(Uuid::now_v7())
-    }
-
-    pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
-    }
-
-    pub fn as_uuid(&self) -> Uuid {
-        self.0
-    }
-}
-
-impl Default for DeviceId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for DeviceId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+define_id!(/// Device ID
+pub DeviceId);
 
 /// Device type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,10 +132,6 @@ impl KeyVersion {
         Self(1)
     }
 
-    pub fn next(&self) -> Self {
-        Self(self.0 + 1)
-    }
-
     pub fn as_i32(&self) -> i32 {
         self.0
     }
@@ -194,19 +162,6 @@ impl Default for KdfParams {
             time_cost: 3,
             parallelism: 4,
         }
-    }
-}
-
-/// Encrypted data with nonce
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EncryptedData {
-    pub ciphertext: Vec<u8>,
-    pub nonce: Vec<u8>,
-}
-
-impl EncryptedData {
-    pub fn new(ciphertext: Vec<u8>, nonce: Vec<u8>) -> Self {
-        Self { ciphertext, nonce }
     }
 }
 

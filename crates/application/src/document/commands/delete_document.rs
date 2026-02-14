@@ -1,18 +1,17 @@
 //! Delete document command
 //!
 //! Permanently deletes a document from DB and storage.
-//! Related data (DocumentUpdate, DocumentSnapshot, DocumentSnapshotArchive,
-//! DocumentTag, DocumentLink, DocumentEncryptedKey) are automatically deleted
+//! Related data (DocumentUpdate, DocumentEncryptedKey) are automatically deleted
 //! via ON DELETE CASCADE constraints in the database schema.
 //!
 //! For read-only state, use ArchiveDocument instead.
 
 use domain::document::{DocumentId, DocumentRepository};
 use domain::identity::UserId;
-use domain::workspace::{
-    WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
-};
+use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository};
 use std::sync::Arc;
+
+use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
 use thiserror::Error;
 
 /// Delete document command
@@ -24,9 +23,7 @@ pub struct DeleteDocumentCommand {
 
 /// Delete document result
 #[derive(Debug)]
-pub struct DeleteDocumentResult {
-    pub deleted: bool,
-}
+pub struct DeleteDocumentResult;
 
 /// Delete document error
 #[derive(Debug, Error)]
@@ -34,52 +31,39 @@ pub enum DeleteDocumentError<DR: std::error::Error, MR: std::error::Error, RR: s
     #[error("document not found")]
     DocumentNotFound,
 
-    #[error("user is not a member of this workspace")]
-    NotMember,
-
-    #[error("permission denied: cannot delete from this workspace")]
-    PermissionDenied,
+    #[error(transparent)]
+    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
 
     #[error("cannot delete folder with children")]
     FolderNotEmpty,
 
     #[error("document repository error: {0}")]
     DocumentRepository(DR),
-
-    #[error("member repository error: {0}")]
-    MemberRepository(MR),
-
-    #[error("role repository error: {0}")]
-    RoleRepository(RR),
 }
 
-impl<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
-    DeleteDocumentError<DR, MR, RR>
-{
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, DeleteDocumentError::DocumentNotFound)
-    }
+crate::types::impl_app_error!(
+    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
+    DeleteDocumentError<DR, MR, RR>,
+    not_found: [
+        DeleteDocumentError::DocumentNotFound,
+        DeleteDocumentError::WorkspaceAccess(WorkspaceAccessError::NotMember),
+    ],
+    access_denied: [
+        DeleteDocumentError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied),
+    ],
+    invalid_input: [DeleteDocumentError::FolderNotEmpty],
+);
 
-    pub fn is_forbidden(&self) -> bool {
-        matches!(
-            self,
-            DeleteDocumentError::NotMember | DeleteDocumentError::PermissionDenied
-        )
-    }
-
-    pub fn is_bad_request(&self) -> bool {
-        matches!(self, DeleteDocumentError::FolderNotEmpty)
-    }
-}
+crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR] DeleteDocumentError<DR, MR, RR>);
 
 /// Delete document handler
-pub struct DeleteDocumentHandler<DR, MR, RR> {
+pub struct DeleteDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
 }
 
-impl<DR, MR, RR> DeleteDocumentHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> DeleteDocumentHandler<DR, MR, RR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
@@ -97,35 +81,18 @@ where
         &self,
         command: DeleteDocumentCommand,
     ) -> Result<DeleteDocumentResult, DeleteDocumentError<DR::Error, MR::Error, RR::Error>> {
-        // 1. Get document
-        let document = self
-            .document_repo
-            .find_by_id(command.document_id)
-            .await
-            .map_err(DeleteDocumentError::DocumentRepository)?
-            .ok_or(DeleteDocumentError::DocumentNotFound)?;
+        let document = load_document_with_permission(
+            &self.document_repo,
+            &self.member_repo,
+            &self.role_repo,
+            command.document_id,
+            command.user_id,
+            WorkspacePermission::Delete,
+        )
+        .await
+        .map_err(DeleteDocumentError::from_load)?;
 
-        // 2. Check membership and get role
-        let member = self
-            .member_repo
-            .find_by_workspace_and_user(document.workspace_id, command.user_id)
-            .await
-            .map_err(DeleteDocumentError::MemberRepository)?
-            .ok_or(DeleteDocumentError::NotMember)?;
-
-        // 3. Get role and check Delete permission
-        let role = self
-            .role_repo
-            .find_by_id(member.role_id)
-            .await
-            .map_err(DeleteDocumentError::RoleRepository)?
-            .ok_or(DeleteDocumentError::NotMember)?;
-
-        if !can_perform(role.base_role, WorkspacePermission::Delete) {
-            return Err(DeleteDocumentError::PermissionDenied);
-        }
-
-        // 4. Check if folder has children
+        // Check if folder has children
         if document.is_folder() {
             let children = self
                 .document_repo
@@ -146,6 +113,6 @@ where
             .await
             .map_err(DeleteDocumentError::DocumentRepository)?;
 
-        Ok(DeleteDocumentResult { deleted: true })
+        Ok(DeleteDocumentResult)
     }
 }

@@ -11,14 +11,15 @@ pub struct DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    pub fn from_env() -> Self {
-        Self {
-            url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+    pub fn from_env() -> Result<Self, anyhow::Error> {
+        Ok(Self {
+            url: std::env::var("DATABASE_URL")
+                .map_err(|_| anyhow::anyhow!("DATABASE_URL environment variable must be set"))?,
             max_connections: std::env::var("DATABASE_MAX_CONNECTIONS")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(10),
-        }
+        })
     }
 }
 

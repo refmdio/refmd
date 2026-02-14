@@ -1,97 +1,12 @@
 //! Workspace domain value objects
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
-/// Workspace ID
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct WorkspaceId(Uuid);
+define_id!(/// Workspace ID
+pub WorkspaceId);
 
-impl WorkspaceId {
-    pub fn new() -> Self {
-        Self(Uuid::now_v7())
-    }
-
-    pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
-    }
-
-    pub fn as_uuid(&self) -> Uuid {
-        self.0
-    }
-}
-
-impl Default for WorkspaceId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for WorkspaceId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Role ID
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct RoleId(Uuid);
-
-impl RoleId {
-    pub fn new() -> Self {
-        Self(Uuid::now_v7())
-    }
-
-    pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
-    }
-
-    pub fn as_uuid(&self) -> Uuid {
-        self.0
-    }
-}
-
-impl Default for RoleId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for RoleId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Invitation ID
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct InvitationId(Uuid);
-
-impl InvitationId {
-    pub fn new() -> Self {
-        Self(Uuid::now_v7())
-    }
-
-    pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
-    }
-
-    pub fn as_uuid(&self) -> Uuid {
-        self.0
-    }
-}
-
-impl Default for InvitationId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for InvitationId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+define_id!(/// Role ID
+pub RoleId);
 
 /// Base role type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,7 +2,7 @@
 //!
 //! Returns all pending devices awaiting approval for a user.
 
-use domain::encryption::{DeviceId, DeviceType, PendingDeviceRepository};
+use domain::encryption::{DeviceId, PendingDeviceRepository};
 use domain::identity::UserId;
 use std::sync::Arc;
 use thiserror::Error;
@@ -19,7 +19,7 @@ pub struct ListPendingDevicesQuery {
 pub struct PendingDeviceInfo {
     pub id: DeviceId,
     pub name: String,
-    pub device_type: DeviceType,
+    pub device_type: String,
     pub ip_address: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub expires_at: chrono::DateTime<chrono::Utc>,
@@ -33,13 +33,13 @@ pub enum ListPendingDevicesError<PDR: std::error::Error> {
 }
 
 /// List pending devices handler
-pub struct ListPendingDevicesHandler<PDR> {
+pub struct ListPendingDevicesHandler<PDR: ?Sized> {
     pending_device_repo: Arc<PDR>,
 }
 
 impl<PDR> ListPendingDevicesHandler<PDR>
 where
-    PDR: PendingDeviceRepository,
+    PDR: PendingDeviceRepository + ?Sized,
 {
     pub fn new(pending_device_repo: Arc<PDR>) -> Self {
         Self {
@@ -66,7 +66,7 @@ where
             .map(|d| PendingDeviceInfo {
                 id: d.id,
                 name: d.name,
-                device_type: d.device_type,
+                device_type: d.device_type.as_str().to_string(),
                 ip_address: d.ip_address,
                 created_at: d.created_at,
                 expires_at: d.expires_at,

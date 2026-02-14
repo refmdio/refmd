@@ -35,6 +35,9 @@ pub enum RegistrationServiceError {
 
     #[error("transaction failed: {0}")]
     TransactionFailed(String),
+
+    #[error("unique constraint violation: {0}")]
+    Conflict(String),
 }
 
 /// Registration service trait for transactional user registration

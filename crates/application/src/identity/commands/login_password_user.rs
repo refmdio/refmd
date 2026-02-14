@@ -6,16 +6,27 @@ use domain::encryption::{
     DeviceId, DeviceRepository, UserEncryptedIdentityKeyRepository,
     UserEncryptedMasterKeyRepository,
 };
-use domain::identity::{Email, EmailError, Session, SessionRepository, User, UserRepository};
+use domain::identity::{Email, EmailError, Session, SessionRepository, UserRepository};
 use std::sync::Arc;
 use thiserror::Error;
 
-/// Dummy bcrypt hash for timing attack mitigation.
-/// This hash is verified when user doesn't exist to equalize response time
-/// with valid user authentication attempts.
-/// Valid bcrypt hash format (cost 12) - the actual value doesn't matter,
-/// only that bcrypt::verify runs to consume similar CPU time as real verification.
-const DUMMY_BCRYPT_HASH: &str = "$2b$12$K4IvyNEH/3tAJhJ5zDvYNuGXYbN5L0e5vNPVZxXXXXXXXXXXXXXXX";
+use crate::dto::UserDto;
+
+/// Valid bcrypt hash generated once at startup for timing attack mitigation.
+/// `bcrypt::verify` is called against this hash on every authentication
+/// failure path so that response time is indistinguishable from the
+/// success path, preventing user-enumeration via timing.
+static DUMMY_BCRYPT_HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    bcrypt::hash("__timing_attack_mitigation__", 12)
+        .expect("failed to generate dummy bcrypt hash for timing mitigation")
+});
+
+/// Consume CPU time equivalent to a real bcrypt verify.
+/// Called on every authentication failure path to prevent
+/// user-enumeration via response timing.
+fn consume_dummy_bcrypt(auth_key: &str) {
+    let _ = bcrypt::verify(auth_key, &DUMMY_BCRYPT_HASH);
+}
 
 /// Login password user command
 #[derive(Debug)]
@@ -33,7 +44,7 @@ pub struct LoginPasswordUserCommand {
 /// Login password user result
 #[derive(Debug)]
 pub struct LoginPasswordUserResult {
-    pub user: User,
+    pub user: UserDto,
     pub session_token: String,
     pub expires_at: chrono::DateTime<chrono::Utc>,
     /// Whether user has any registered devices (for PoP enforcement)
@@ -100,7 +111,7 @@ pub enum LoginPasswordUserError<
     Rng(getrandom::Error),
 }
 
-impl<UR, SR, UEM, UEI, DR> LoginPasswordUserError<UR, SR, UEM, UEI, DR>
+impl<UR, SR, UEM, UEI, DR> crate::types::AppError for LoginPasswordUserError<UR, SR, UEM, UEI, DR>
 where
     UR: std::error::Error,
     SR: std::error::Error,
@@ -108,17 +119,26 @@ where
     UEI: std::error::Error,
     DR: std::error::Error,
 {
-    pub fn is_unauthorized(&self) -> bool {
+    fn is_unauthenticated(&self) -> bool {
         matches!(
             self,
             LoginPasswordUserError::InvalidCredentials | LoginPasswordUserError::NotPasswordUser
         )
     }
 
-    pub fn is_bad_request(&self) -> bool {
+    fn is_invalid_input(&self) -> bool {
         matches!(self, LoginPasswordUserError::InvalidEmail(_))
     }
+}
 
+impl<UR, SR, UEM, UEI, DR> crate::types::SafeMessage for LoginPasswordUserError<UR, SR, UEM, UEI, DR>
+where
+    UR: std::error::Error,
+    SR: std::error::Error,
+    UEM: std::error::Error,
+    UEI: std::error::Error,
+    DR: std::error::Error,
+{
     /// Convert to a safe error message that doesn't leak user information.
     /// This prevents user enumeration attacks.
     ///
@@ -128,7 +148,7 @@ where
     /// - `InvalidCredentials`/`NotPasswordUser`: HTTP 401 - Always "invalid credentials"
     ///   (unified message prevents user enumeration)
     /// - `DataInconsistency` and repo errors: HTTP 500 - "internal server error"
-    pub fn safe_message(&self) -> &'static str {
+    fn safe_message(&self) -> &'static str {
         match self {
             // Format error - safe to be specific (HTTP 400)
             LoginPasswordUserError::InvalidEmail(_) => "invalid email",
@@ -145,14 +165,10 @@ where
             | LoginPasswordUserError::Rng(_) => "internal server error",
         }
     }
-
-    pub fn is_internal_error(&self) -> bool {
-        matches!(self, LoginPasswordUserError::DataInconsistency)
-    }
 }
 
 /// Login password user handler
-pub struct LoginPasswordUserHandler<U, S, UEM, UEI, DR> {
+pub struct LoginPasswordUserHandler<U: ?Sized, S: ?Sized, UEM: ?Sized, UEI: ?Sized, DR: ?Sized> {
     user_repo: Arc<U>,
     session_repo: Arc<S>,
     encrypted_master_key_repo: Arc<UEM>,
@@ -160,7 +176,7 @@ pub struct LoginPasswordUserHandler<U, S, UEM, UEI, DR> {
     device_repo: Arc<DR>,
 }
 
-impl<U, S, UEM, UEI, DR> LoginPasswordUserHandler<U, S, UEM, UEI, DR>
+impl<U: ?Sized, S: ?Sized, UEM: ?Sized, UEI: ?Sized, DR: ?Sized> LoginPasswordUserHandler<U, S, UEM, UEI, DR>
 where
     U: UserRepository,
     S: SessionRepository,
@@ -191,82 +207,14 @@ where
         LoginPasswordUserResult,
         LoginPasswordUserError<U::Error, S::Error, UEM::Error, UEI::Error, DR::Error>,
     > {
-        // Validate and parse email
-        // Note: InvalidEmail is returned as HTTP 400 (Bad Request), not 401 (Unauthorized).
-        // This is intentional - email format validation is a syntactic check that happens
-        // BEFORE any database lookup. It doesn't reveal user existence, so no timing
-        // attack mitigation (dummy bcrypt) is needed here.
+        // Phase 1: Validate email format (HTTP 400, no timing concern)
         let email = Email::new(&command.email)?;
 
-        // Find user by email
-        let user_result = self
-            .user_repo
-            .find_by_email(&email)
-            .await
-            .map_err(LoginPasswordUserError::UserRepository)?;
+        // Phase 2: Authenticate credentials (constant-time via dummy bcrypt)
+        let (user, encrypted_master_key, encrypted_identity_key) =
+            self.authenticate(&email, &command.auth_key).await?;
 
-        // If user doesn't exist, run dummy bcrypt to prevent timing attacks
-        // then return InvalidCredentials
-        let user = match user_result {
-            Some(u) => u,
-            None => {
-                // Run dummy bcrypt verification to equalize timing
-                // This prevents attackers from detecting non-existent users via response time
-                let _ = bcrypt::verify(&command.auth_key, DUMMY_BCRYPT_HASH);
-                return Err(LoginPasswordUserError::InvalidCredentials);
-            }
-        };
-
-        // Get encrypted master key (contains auth_key_hash)
-        let encrypted_master_key = self
-            .encrypted_master_key_repo
-            .find_by_user_id(user.id)
-            .await
-            .map_err(LoginPasswordUserError::EncryptedMasterKeyRepository)?;
-
-        // If no encrypted master key, run dummy bcrypt and return error
-        let encrypted_master_key = match encrypted_master_key {
-            Some(emk) => emk,
-            None => {
-                let _ = bcrypt::verify(&command.auth_key, DUMMY_BCRYPT_HASH);
-                return Err(LoginPasswordUserError::InvalidCredentials);
-            }
-        };
-
-        // Ensure this is a password user
-        if !encrypted_master_key.is_password_user() {
-            // Run dummy bcrypt to equalize timing with valid password verification
-            let _ = bcrypt::verify(&command.auth_key, DUMMY_BCRYPT_HASH);
-            return Err(LoginPasswordUserError::NotPasswordUser);
-        }
-
-        // Get auth_key_hash (should exist for password users)
-        let auth_key_hash = match encrypted_master_key.auth_key_hash.as_ref() {
-            Some(hash) => hash,
-            None => {
-                let _ = bcrypt::verify(&command.auth_key, DUMMY_BCRYPT_HASH);
-                return Err(LoginPasswordUserError::InvalidCredentials);
-            }
-        };
-
-        // Verify authKey against bcrypt hash
-        let is_valid = bcrypt::verify(&command.auth_key, auth_key_hash)
-            .map_err(|_| LoginPasswordUserError::InvalidCredentials)?;
-
-        if !is_valid {
-            return Err(LoginPasswordUserError::InvalidCredentials);
-        }
-
-        // Get encrypted identity keys
-        let encrypted_identity_key = self
-            .encrypted_identity_key_repo
-            .find_by_user_id(user.id)
-            .await
-            .map_err(LoginPasswordUserError::EncryptedIdentityKeyRepository)?
-            .ok_or(LoginPasswordUserError::InvalidCredentials)?;
-
-        // Validate UMK data exists BEFORE creating session to prevent orphan sessions
-        // Password users must have encrypted_umk; missing is a data inconsistency
+        // Phase 3: Validate encryption keys exist
         let encrypted_umk = encrypted_master_key
             .encrypted_umk
             .ok_or(LoginPasswordUserError::DataInconsistency)?;
@@ -274,55 +222,33 @@ where
             .umk_nonce
             .ok_or(LoginPasswordUserError::DataInconsistency)?;
 
-        // Check if user has any active devices and validate device_id ownership
-        // IMPORTANT: Validate device_id BEFORE session creation to prevent:
-        // - Cross-user device binding (FK only checks existence, not ownership)
-        // - FK violation errors when device_id doesn't exist
-        // - Incorrect self-revocation guard behavior
-        let devices = self
-            .device_repo
-            .find_active_by_user_id(user.id)
-            .await
-            .map_err(LoginPasswordUserError::DeviceRepository)?;
-        let has_devices = !devices.is_empty();
+        // Phase 4: Create session with validated device binding
+        let device_check = crate::util::device_ownership::verify_session_device(
+            &self.device_repo,
+            user.id,
+            command.device_id,
+        )
+        .await
+        .map_err(LoginPasswordUserError::DeviceRepository)?;
 
-        // Verify if the provided device_id is valid and belongs to this user
-        let (device_verified, verified_device_id) = if let Some(device_id) = command.device_id {
-            // Check if the device exists, is active, and belongs to this user
-            let device_valid = devices.iter().any(|d| d.id == device_id);
-            (
-                device_valid,
-                if device_valid { Some(device_id) } else { None },
-            )
-        } else {
-            (false, None)
-        };
-
-        // Generate session token
         let session_token =
             generate_session_token().map_err(LoginPasswordUserError::Rng)?;
         let token_hash = hash_session_token(&session_token);
-
-        // Create session with validated device binding only
-        // Unverified device_id is stripped to None to prevent cross-user binding
         let session = Session::with_device(
             user.id,
-            verified_device_id,
+            device_check.verified_device_id,
             token_hash,
             command.remember_me,
             command.ip_address,
             command.user_agent,
         );
-
-        // Save session
         self.session_repo
             .save(&session)
             .await
             .map_err(LoginPasswordUserError::SessionRepository)?;
 
-        // Only return encrypted keys if the device is verified
-        // This prevents unverified/new devices from receiving UMK
-        let keys = if device_verified {
+        // Phase 5: Build result with keys only for verified devices
+        let keys = if device_check.device_verified {
             Some(LoginKeys {
                 encrypted_umk,
                 umk_nonce,
@@ -336,39 +262,87 @@ where
             None
         };
 
-        // Return result with encrypted keys only for verified devices
         Ok(LoginPasswordUserResult {
-            user,
+            user: user.into(),
             session_token,
             expires_at: session.expires_at,
-            has_devices,
-            device_verified,
-            device_id: verified_device_id,
+            has_devices: device_check.has_devices,
+            device_verified: device_check.device_verified,
+            device_id: device_check.verified_device_id,
             keys,
         })
     }
+
+    /// Authenticate user credentials with constant-time behaviour.
+    ///
+    /// On every failure path a dummy bcrypt verification runs to prevent
+    /// user enumeration via response timing.
+    async fn authenticate(
+        &self,
+        email: &Email,
+        auth_key: &str,
+    ) -> Result<
+        (
+            domain::identity::User,
+            domain::encryption::UserEncryptedMasterKey,
+            domain::encryption::UserEncryptedIdentityKey,
+        ),
+        LoginPasswordUserError<U::Error, S::Error, UEM::Error, UEI::Error, DR::Error>,
+    > {
+        let user = match self
+            .user_repo
+            .find_by_email(email)
+            .await
+            .map_err(LoginPasswordUserError::UserRepository)?
+        {
+            Some(u) => u,
+            None => {
+                consume_dummy_bcrypt(auth_key);
+                return Err(LoginPasswordUserError::InvalidCredentials);
+            }
+        };
+
+        let emk = match self
+            .encrypted_master_key_repo
+            .find_by_user_id(user.id)
+            .await
+            .map_err(LoginPasswordUserError::EncryptedMasterKeyRepository)?
+        {
+            Some(emk) => emk,
+            None => {
+                consume_dummy_bcrypt(auth_key);
+                return Err(LoginPasswordUserError::InvalidCredentials);
+            }
+        };
+
+        if !emk.is_password_user() {
+            consume_dummy_bcrypt(auth_key);
+            return Err(LoginPasswordUserError::NotPasswordUser);
+        }
+
+        let hash = match emk.auth_key_hash.as_ref() {
+            Some(h) => h,
+            None => {
+                consume_dummy_bcrypt(auth_key);
+                return Err(LoginPasswordUserError::InvalidCredentials);
+            }
+        };
+
+        let is_valid = bcrypt::verify(auth_key, hash)
+            .map_err(|_| LoginPasswordUserError::InvalidCredentials)?;
+        if !is_valid {
+            return Err(LoginPasswordUserError::InvalidCredentials);
+        }
+
+        let eik = self
+            .encrypted_identity_key_repo
+            .find_by_user_id(user.id)
+            .await
+            .map_err(LoginPasswordUserError::EncryptedIdentityKeyRepository)?
+            .ok_or(LoginPasswordUserError::InvalidCredentials)?;
+
+        Ok((user, emk, eik))
+    }
 }
 
-/// Generate a cryptographically secure session token
-fn generate_session_token() -> Result<String, getrandom::Error> {
-    use std::fmt::Write;
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes)?;
-    let mut hex = String::with_capacity(64);
-    for b in bytes {
-        write!(&mut hex, "{:02x}", b).expect("Failed to write hex");
-    }
-    Ok(hex)
-}
-
-/// Hash session token for storage
-fn hash_session_token(token: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let hash = Sha256::digest(token.as_bytes());
-    let mut hex = String::with_capacity(64);
-    for b in hash {
-        std::fmt::Write::write_fmt(&mut hex, format_args!("{:02x}", b))
-            .expect("Failed to write hex");
-    }
-    hex
-}
+use crate::identity::session_token::{generate_session_token, hash_session_token};

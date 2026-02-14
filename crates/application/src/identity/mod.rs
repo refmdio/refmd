@@ -5,6 +5,7 @@
 pub mod commands;
 pub mod queries;
 pub mod services;
+pub mod session_token;
 
 pub use commands::*;
 pub use queries::*;

@@ -1,18 +1,14 @@
 //! Redis-backed recovery challenge store for HA mode
 //!
 //! Implements the RecoveryChallengeStore trait for cluster deployments.
-//!
-//! # Requirements
-//!
-//! - **Redis 6.2+** required for atomic `GETDEL` command in `verify_and_remove()`
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use redis::AsyncCommands;
 
 use domain::recovery_challenge::{RecoveryChallengeError, RecoveryChallengeStore};
 
 use crate::RedisPool;
+use crate::redis_nonce_ops::FromRedisNonceError;
 
 /// Redis-backed recovery challenge store for cluster deployments
 ///
@@ -42,6 +38,8 @@ impl RedisRecoveryChallengeStore {
     }
 }
 
+impl_from_redis_nonce_error!(RecoveryChallengeError);
+
 #[async_trait]
 impl RecoveryChallengeStore for RedisRecoveryChallengeStore {
     async fn store(
@@ -51,18 +49,7 @@ impl RecoveryChallengeStore for RedisRecoveryChallengeStore {
         expires_at: DateTime<Utc>,
     ) -> Result<(), RecoveryChallengeError> {
         let key = Self::key(email, &challenge);
-        let ttl_secs = (expires_at - Utc::now()).num_seconds().max(1) as u64;
-
-        let mut conn = self.redis.connection();
-        // Store timestamp as value, with TTL
-        let _: () = conn
-            .set_ex(&key, expires_at.timestamp(), ttl_secs)
-            .await
-            .map_err(|e| {
-                tracing::error!("Redis store error: {}", e);
-                RecoveryChallengeError::StoreError
-            })?;
-        Ok(())
+        redis_nonce_method!(store, &self.redis, &key, expires_at, RecoveryChallengeError)
     }
 
     async fn verify(
@@ -71,25 +58,7 @@ impl RecoveryChallengeStore for RedisRecoveryChallengeStore {
         challenge: &[u8; 32],
     ) -> Result<(), RecoveryChallengeError> {
         let key = Self::key(email, challenge);
-        let mut conn = self.redis.connection();
-
-        let result: Option<i64> = conn
-            .get(&key)
-            .await
-            .map_err(|_| RecoveryChallengeError::StoreError)?;
-
-        match result {
-            Some(expires_timestamp) => {
-                let expires_at = DateTime::from_timestamp(expires_timestamp, 0)
-                    .ok_or(RecoveryChallengeError::StoreError)?;
-                if expires_at < Utc::now() {
-                    Err(RecoveryChallengeError::Expired)
-                } else {
-                    Ok(())
-                }
-            }
-            None => Err(RecoveryChallengeError::NotFound),
-        }
+        redis_nonce_method!(verify, &self.redis, &key, RecoveryChallengeError)
     }
 
     async fn consume(
@@ -98,50 +67,6 @@ impl RecoveryChallengeStore for RedisRecoveryChallengeStore {
         challenge: &[u8; 32],
     ) -> Result<(), RecoveryChallengeError> {
         let key = Self::key(email, challenge);
-        let mut conn = self.redis.connection();
-
-        // DEL returns number of keys deleted
-        let deleted: i32 = conn
-            .del(&key)
-            .await
-            .map_err(|_| RecoveryChallengeError::StoreError)?;
-
-        if deleted > 0 {
-            Ok(())
-        } else {
-            Err(RecoveryChallengeError::NotFound)
-        }
-    }
-
-    async fn verify_and_remove(
-        &self,
-        email: &str,
-        challenge: &[u8; 32],
-    ) -> Result<(), RecoveryChallengeError> {
-        let key = Self::key(email, challenge);
-        let mut conn = self.redis.connection();
-
-        // Use GETDEL for atomic get-and-delete (Redis 6.2+)
-        let result: Option<i64> = redis::cmd("GETDEL")
-            .arg(&key)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| {
-                tracing::error!("Redis GETDEL error: {}", e);
-                RecoveryChallengeError::StoreError
-            })?;
-
-        match result {
-            Some(expires_timestamp) => {
-                let expires_at = DateTime::from_timestamp(expires_timestamp, 0)
-                    .ok_or(RecoveryChallengeError::StoreError)?;
-                if expires_at < Utc::now() {
-                    Err(RecoveryChallengeError::Expired)
-                } else {
-                    Ok(())
-                }
-            }
-            None => Err(RecoveryChallengeError::NotFound),
-        }
+        redis_nonce_method!(consume, &self.redis, &key, RecoveryChallengeError)
     }
 }

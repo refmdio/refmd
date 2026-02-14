@@ -13,11 +13,12 @@ use domain::workspace::{
     Slug, SlugError, Workspace, WorkspaceMember, WorkspaceRepository, WorkspaceRole,
 };
 use domain::signature::{build_signature_message, SignatureAction};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use std::sync::Arc;
 use thiserror::Error;
 
+use crate::dto::{DeviceDto, UserDto, WorkspaceDto};
 use crate::identity::services::{RegistrationData, RegistrationService};
+use crate::util::slug::{ensure_unique_workspace_slug, generate_workspace_slug};
 
 /// Register password user command (atomic version)
 #[derive(Debug)]
@@ -67,9 +68,9 @@ pub struct RegisterPasswordUserAtomicCommand {
 /// Register password user result
 #[derive(Debug)]
 pub struct RegisterPasswordUserAtomicResult {
-    pub user: User,
-    pub workspace: Workspace,
-    pub device: Device,
+    pub user: UserDto,
+    pub workspace: WorkspaceDto,
+    pub device: DeviceDto,
 }
 
 /// Register password user error
@@ -80,9 +81,6 @@ pub enum RegisterPasswordUserAtomicError<UR: std::error::Error, WR: std::error::
 
     #[error("email already exists")]
     EmailAlreadyExists,
-
-    #[error("invalid auth key")]
-    InvalidAuthKey,
 
     #[error("bcrypt error")]
     BcryptError,
@@ -104,21 +102,17 @@ pub enum RegisterPasswordUserAtomicError<UR: std::error::Error, WR: std::error::
 
     #[error("registration transaction error: {0}")]
     Transaction(String),
-
-    #[error("random number generation failed: {0}")]
-    Rng(#[from] getrandom::Error),
 }
 
-impl<UR: std::error::Error, WR: std::error::Error> RegisterPasswordUserAtomicError<UR, WR> {
-    pub fn is_conflict(&self) -> bool {
+impl<UR: std::error::Error, WR: std::error::Error> crate::types::AppError for RegisterPasswordUserAtomicError<UR, WR> {
+    fn is_conflict(&self) -> bool {
         matches!(self, RegisterPasswordUserAtomicError::EmailAlreadyExists)
     }
 
-    pub fn is_bad_request(&self) -> bool {
+    fn is_invalid_input(&self) -> bool {
         matches!(
             self,
             RegisterPasswordUserAtomicError::InvalidEmail(_)
-                | RegisterPasswordUserAtomicError::InvalidAuthKey
                 | RegisterPasswordUserAtomicError::InvalidKeyLength
                 | RegisterPasswordUserAtomicError::InvalidIdentitySignature
         )
@@ -128,13 +122,13 @@ impl<UR: std::error::Error, WR: std::error::Error> RegisterPasswordUserAtomicErr
 /// Atomic register password user handler
 ///
 /// Uses RegistrationService for transactional persistence.
-pub struct RegisterPasswordUserAtomicHandler<U, WR, RS> {
+pub struct RegisterPasswordUserAtomicHandler<U: ?Sized, WR: ?Sized, RS: ?Sized> {
     user_repo: Arc<U>,
     workspace_repo: Arc<WR>,
     registration_service: Arc<RS>,
 }
 
-impl<U, WR, RS> RegisterPasswordUserAtomicHandler<U, WR, RS>
+impl<U: ?Sized, WR: ?Sized, RS: ?Sized> RegisterPasswordUserAtomicHandler<U, WR, RS>
 where
     U: UserRepository,
     WR: WorkspaceRepository,
@@ -155,108 +149,24 @@ where
         RegisterPasswordUserAtomicResult,
         RegisterPasswordUserAtomicError<U::Error, WR::Error>,
     > {
-        // Validate email
-        let email = Email::new(&command.email)?;
+        // 1. Validate input
+        let email = self.validate_input(&command).await?;
 
-        // Check if email already exists
-        if self
-            .user_repo
-            .email_exists(&email)
-            .await
-            .map_err(RegisterPasswordUserAtomicError::UserRepository)?
-        {
-            return Err(RegisterPasswordUserAtomicError::EmailAlreadyExists);
-        }
-
-        // Validate key lengths
-        if command.ecdh_public_key.len() != 32 || command.signing_public_key.len() != 32 {
-            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
-        }
-        // Salt is 16 bytes per spec
-        if command.salt.len() != 16 {
-            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
-        }
-        // Validate device key lengths
-        if command.device_ecdh_public_key.len() != 32
-            || command.device_signing_public_key.len() != 32
-        {
-            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
-        }
-        // Validate device client nonce (16 bytes) and identity signature (64 bytes for Ed25519)
-        if command.device_client_nonce.len() != 16 || command.device_identity_signature.len() != 64
-        {
-            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
-        }
-
-        // Verify identity signature over device keys
-        // Signature is over: device_signing_pk || device_ecdh_pk || client_nonce
-        verify_device_identity_signature(
-            &command.signing_public_key,
-            &command.device_signing_public_key,
-            &command.device_ecdh_public_key,
-            &command.device_client_nonce,
-            &command.device_identity_signature,
-        )
-        .map_err(|_| RegisterPasswordUserAtomicError::InvalidIdentitySignature)?;
-
-        // Hash the authKey with bcrypt
+        // 2. Hash the authKey with bcrypt
         let auth_key_hash = bcrypt::hash(&command.auth_key, bcrypt::DEFAULT_COST)
             .map_err(|_| RegisterPasswordUserAtomicError::BcryptError)?;
 
-        // Create user with client-provided ID (for AAD binding)
-        let user = User::with_id(command.user_id, email, command.name.clone());
+        // 3. Build user-related aggregates
+        let (user, settings, identity_public_key, encrypted_master_key, encrypted_identity_key) =
+            Self::build_user_data(&command, email, &auth_key_hash);
 
-        // Create settings
-        let settings = UserSettings::new(user.id);
-
-        // Create identity public key
-        let public_keys = PublicKeyPair::new(
-            command.ecdh_public_key.clone(),
-            command.signing_public_key.clone(),
-        );
-        let identity_public_key = UserIdentityPublicKey::new(user.id, public_keys);
-
-        // Create encrypted master key
-        let encrypted_master_key =
-            UserEncryptedMasterKey::new_password_user(PasswordUserMasterKeyParams {
-                user_id: user.id,
-                encrypted_umk: command.encrypted_umk,
-                umk_nonce: command.umk_nonce,
-                salt: command.salt,
-                kdf_params: KdfParams::default(),
-                auth_key_hash,
-                recovery_encrypted_umk: command.recovery_encrypted_umk,
-                recovery_nonce: command.recovery_nonce,
-            });
-
-        // Create encrypted identity key
-        let encrypted_identity_key = UserEncryptedIdentityKey::new(
-            user.id,
-            command.encrypted_ecdh_private,
-            command.encrypted_ecdh_private_nonce,
-            command.encrypted_signing_private,
-            command.encrypted_signing_private_nonce,
-        );
-
-        // Generate slug from user name
-        let slug = generate_slug(&command.name)?;
-
-        // Check if slug exists, if so, append a random suffix
+        // 4. Build workspace-related aggregates
+        let slug = generate_workspace_slug(&command.name)?;
         let final_slug = self.ensure_unique_slug(slug).await?;
+        let (workspace, owner_role, editor_role, viewer_role, member) =
+            Self::build_workspace_data(user.id, &command.name, final_slug);
 
-        // Create workspace
-        let workspace_name = format!("{}'s Workspace", command.name);
-        let workspace = Workspace::new(workspace_name, final_slug, user.id);
-
-        // Create roles
-        let owner_role = WorkspaceRole::owner(workspace.id);
-        let editor_role = WorkspaceRole::editor(workspace.id);
-        let viewer_role = WorkspaceRole::viewer(workspace.id);
-
-        // Create member
-        let member = WorkspaceMember::new_owner(workspace.id, user.id, owner_role.id);
-
-        // Create first device for PoP authentication
+        // 5. Build device
         let device_public_keys = PublicKeyPair::new(
             command.device_ecdh_public_key.clone(),
             command.device_signing_public_key.clone(),
@@ -270,7 +180,7 @@ where
             command.device_client_nonce,
         );
 
-        // Prepare registration data
+        // 6. Execute atomic registration
         let registration_data = RegistrationData {
             user: user.clone(),
             settings,
@@ -285,80 +195,158 @@ where
             device: device.clone(),
         };
 
-        // Execute atomic registration
         self.registration_service
             .register_atomic(registration_data)
             .await
-            .map_err(|e| RegisterPasswordUserAtomicError::Transaction(e.to_string()))?;
+            .map_err(|e| match e {
+                crate::identity::services::RegistrationServiceError::Conflict(_) => {
+                    RegisterPasswordUserAtomicError::EmailAlreadyExists
+                }
+                other => RegisterPasswordUserAtomicError::Transaction(other.to_string()),
+            })?;
 
         Ok(RegisterPasswordUserAtomicResult {
-            user,
-            workspace,
-            device,
+            user: user.into(),
+            workspace: workspace.into(),
+            device: device.into(),
         })
+    }
+
+    /// Validate email, key lengths, and identity signature.
+    ///
+    /// NOTE: Presentation layer also validates wire format and key sizes
+    /// (defense-in-depth). These checks remain as transport-independent
+    /// business-rule preconditions.
+    async fn validate_input(
+        &self,
+        command: &RegisterPasswordUserAtomicCommand,
+    ) -> Result<Email, RegisterPasswordUserAtomicError<U::Error, WR::Error>> {
+        let email = Email::new(&command.email)?;
+
+        if self
+            .user_repo
+            .email_exists(&email)
+            .await
+            .map_err(RegisterPasswordUserAtomicError::UserRepository)?
+        {
+            return Err(RegisterPasswordUserAtomicError::EmailAlreadyExists);
+        }
+
+        // Identity key lengths (32 bytes each for X25519/Ed25519)
+        if command.ecdh_public_key.len() != 32 || command.signing_public_key.len() != 32 {
+            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
+        }
+        if command.salt.len() != 16 {
+            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
+        }
+        // Device key lengths
+        if command.device_ecdh_public_key.len() != 32
+            || command.device_signing_public_key.len() != 32
+        {
+            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
+        }
+        if command.device_client_nonce.len() != 16 || command.device_identity_signature.len() != 64
+        {
+            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
+        }
+
+        // Reject low-order / small-order public keys (domain cryptographic invariant)
+        use domain::crypto_validation::{is_valid_x25519_public_key, is_valid_ed25519_public_key};
+        if !is_valid_x25519_public_key(&command.ecdh_public_key)
+            || !is_valid_x25519_public_key(&command.device_ecdh_public_key)
+        {
+            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
+        }
+        if !is_valid_ed25519_public_key(&command.signing_public_key)
+            || !is_valid_ed25519_public_key(&command.device_signing_public_key)
+        {
+            return Err(RegisterPasswordUserAtomicError::InvalidKeyLength);
+        }
+
+        verify_device_identity_signature(
+            &command.signing_public_key,
+            &command.device_signing_public_key,
+            &command.device_ecdh_public_key,
+            &command.device_client_nonce,
+            &command.device_identity_signature,
+        )
+        .map_err(|_| RegisterPasswordUserAtomicError::InvalidIdentitySignature)?;
+
+        Ok(email)
+    }
+
+    /// Build user, settings, identity public key, encrypted master key, and encrypted identity key.
+    fn build_user_data(
+        command: &RegisterPasswordUserAtomicCommand,
+        email: Email,
+        auth_key_hash: &str,
+    ) -> (User, UserSettings, UserIdentityPublicKey, UserEncryptedMasterKey, UserEncryptedIdentityKey) {
+        let user = User::with_id(command.user_id, email, command.name.clone());
+        let settings = UserSettings::new(user.id);
+
+        let public_keys = PublicKeyPair::new(
+            command.ecdh_public_key.clone(),
+            command.signing_public_key.clone(),
+        );
+        let identity_public_key = UserIdentityPublicKey::new(user.id, public_keys);
+
+        let encrypted_master_key =
+            UserEncryptedMasterKey::new_password_user(PasswordUserMasterKeyParams {
+                user_id: user.id,
+                encrypted_umk: command.encrypted_umk.clone(),
+                umk_nonce: command.umk_nonce.clone(),
+                salt: command.salt.clone(),
+                kdf_params: KdfParams::default(),
+                auth_key_hash: auth_key_hash.to_string(),
+                recovery_encrypted_umk: command.recovery_encrypted_umk.clone(),
+                recovery_nonce: command.recovery_nonce.clone(),
+            });
+
+        let encrypted_identity_key = UserEncryptedIdentityKey::new(
+            user.id,
+            command.encrypted_ecdh_private.clone(),
+            command.encrypted_ecdh_private_nonce.clone(),
+            command.encrypted_signing_private.clone(),
+            command.encrypted_signing_private_nonce.clone(),
+        );
+
+        (user, settings, identity_public_key, encrypted_master_key, encrypted_identity_key)
+    }
+
+    /// Build workspace, roles, and member for the new user.
+    fn build_workspace_data(
+        user_id: domain::identity::UserId,
+        name: &str,
+        slug: Slug,
+    ) -> (Workspace, WorkspaceRole, WorkspaceRole, WorkspaceRole, WorkspaceMember) {
+        let workspace_name = format!("{}'s Workspace", name);
+        let workspace = Workspace::new(workspace_name, slug, user_id);
+
+        let owner_role = WorkspaceRole::owner(workspace.id);
+        let editor_role = WorkspaceRole::editor(workspace.id);
+        let viewer_role = WorkspaceRole::viewer(workspace.id);
+
+        let member = WorkspaceMember::new_owner(workspace.id, user_id, owner_role.id);
+
+        (workspace, owner_role, editor_role, viewer_role, member)
     }
 
     async fn ensure_unique_slug(
         &self,
         base_slug: Slug,
     ) -> Result<Slug, RegisterPasswordUserAtomicError<U::Error, WR::Error>> {
-        let exists = self
-            .workspace_repo
-            .slug_exists(&base_slug)
+        match ensure_unique_workspace_slug(&self.workspace_repo, base_slug)
             .await
-            .map_err(RegisterPasswordUserAtomicError::WorkspaceRepository)?;
-
-        if !exists {
-            return Ok(base_slug);
-        }
-
-        // Try with random suffixes
-        for _ in 0..10 {
-            let suffix = generate_random_suffix()?;
-            let new_slug_str = format!("{}-{}", base_slug.as_str(), suffix);
-            if let Ok(new_slug) = Slug::new(new_slug_str) {
-                let exists = self
-                    .workspace_repo
-                    .slug_exists(&new_slug)
-                    .await
-                    .map_err(RegisterPasswordUserAtomicError::WorkspaceRepository)?;
-
-                if !exists {
-                    return Ok(new_slug);
-                }
+            .map_err(RegisterPasswordUserAtomicError::WorkspaceRepository)?
+        {
+            Some(slug) => Ok(slug),
+            None => {
+                // Fallback: use UUID-based slug
+                let uuid_slug = Slug::new(format!("workspace-{}", uuid::Uuid::now_v7()))?;
+                Ok(uuid_slug)
             }
         }
-
-        // Fallback: use UUID-based slug
-        let uuid_slug = Slug::new(format!("workspace-{}", uuid::Uuid::now_v7()))?;
-        Ok(uuid_slug)
     }
-}
-
-/// Generate a URL-safe slug from a name
-fn generate_slug(name: &str) -> Result<Slug, SlugError> {
-    let slug_str: String = name
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-
-    if slug_str.is_empty() {
-        return Slug::new("workspace");
-    }
-
-    Slug::new(slug_str)
-}
-
-/// Generate a random 4-character hex suffix using CSPRNG
-fn generate_random_suffix() -> Result<String, getrandom::Error> {
-    let mut buf = [0u8; 2];
-    getrandom::fill(&mut buf)?;
-    Ok(format!("{:04x}", u16::from_be_bytes(buf)))
 }
 
 /// Verify identity signature over device keys using JCS (JSON Canonicalization Scheme)
@@ -372,14 +360,8 @@ fn verify_device_identity_signature(
     device_ecdh_pk: &[u8],
     client_nonce: &[u8],
     signature: &[u8],
-) -> Result<(), ed25519_dalek::SignatureError> {
+) -> Result<(), crate::util::signature_verification::SignatureVerificationError> {
     use serde::Serialize;
-
-    // Parse identity signing public key
-    let pk_bytes: [u8; 32] = identity_signing_pk
-        .try_into()
-        .map_err(|_| ed25519_dalek::SignatureError::new())?;
-    let verifying_key = VerifyingKey::from_bytes(&pk_bytes)?;
 
     // Build JCS signature payload
     #[derive(Serialize)]
@@ -389,21 +371,19 @@ fn verify_device_identity_signature(
         device_signing_public_key: String,
     }
 
-    let payload = build_signature_message(
+    let message = build_signature_message(
         SignatureAction::DeviceRegistration,
         &RegistrationPayload {
             device_signing_public_key: base64_url::encode(device_signing_pk),
             device_ecdh_public_key: base64_url::encode(device_ecdh_pk),
             client_nonce: base64_url::encode(client_nonce),
         },
-    );
+    )
+    .map_err(|_| crate::util::signature_verification::SignatureVerificationError::VerificationFailed)?;
 
-    // Parse signature
-    let sig_bytes: [u8; 64] = signature
-        .try_into()
-        .map_err(|_| ed25519_dalek::SignatureError::new())?;
-    let sig = Signature::from_bytes(&sig_bytes);
-
-    // Verify signature
-    verifying_key.verify(&payload, &sig)
+    crate::util::signature_verification::verify_ed25519_signature(
+        identity_signing_pk,
+        signature,
+        &message,
+    )
 }

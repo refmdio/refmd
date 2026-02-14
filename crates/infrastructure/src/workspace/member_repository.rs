@@ -4,27 +4,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::identity::UserId;
 use domain::workspace::{RoleId, WorkspaceId, WorkspaceMember, WorkspaceMemberRepository};
-use sqlx::PgPool;
-use thiserror::Error;
 use uuid::Uuid;
 
-/// PostgreSQL workspace member repository
-#[derive(Clone)]
-pub struct PgWorkspaceMemberRepository {
-    pool: PgPool,
-}
-
-impl PgWorkspaceMemberRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgWorkspaceMemberRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-}
+pg_repo_struct!(PgWorkspaceMemberRepository);
+pg_repo_error!(PgWorkspaceMemberRepositoryError);
 
 #[derive(sqlx::FromRow)]
 struct WorkspaceMemberRow {
@@ -56,15 +39,16 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
         workspace_id: WorkspaceId,
         user_id: UserId,
     ) -> Result<Option<WorkspaceMember>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceMemberRow>(
+        let row = sqlx::query_as!(
+            WorkspaceMemberRow,
             r#"
             SELECT workspace_id, user_id, role_id, is_default, joined_at
             FROM workspace_members
             WHERE workspace_id = $1 AND user_id = $2
             "#,
+            workspace_id.as_uuid(),
+            user_id.as_uuid()
         )
-        .bind(workspace_id.as_uuid())
-        .bind(user_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -75,15 +59,16 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<WorkspaceMember>, Self::Error> {
-        let rows = sqlx::query_as::<_, WorkspaceMemberRow>(
+        let rows = sqlx::query_as!(
+            WorkspaceMemberRow,
             r#"
             SELECT workspace_id, user_id, role_id, is_default, joined_at
             FROM workspace_members
             WHERE workspace_id = $1
             ORDER BY joined_at
             "#,
+            workspace_id.as_uuid()
         )
-        .bind(workspace_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
@@ -91,15 +76,16 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
     }
 
     async fn find_by_user_id(&self, user_id: UserId) -> Result<Vec<WorkspaceMember>, Self::Error> {
-        let rows = sqlx::query_as::<_, WorkspaceMemberRow>(
+        let rows = sqlx::query_as!(
+            WorkspaceMemberRow,
             r#"
             SELECT workspace_id, user_id, role_id, is_default, joined_at
             FROM workspace_members
             WHERE user_id = $1
             ORDER BY joined_at
             "#,
+            user_id.as_uuid()
         )
-        .bind(user_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
@@ -110,14 +96,15 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
         &self,
         user_id: UserId,
     ) -> Result<Option<WorkspaceMember>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceMemberRow>(
+        let row = sqlx::query_as!(
+            WorkspaceMemberRow,
             r#"
             SELECT workspace_id, user_id, role_id, is_default, joined_at
             FROM workspace_members
             WHERE user_id = $1 AND is_default = TRUE
             "#,
+            user_id.as_uuid()
         )
-        .bind(user_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -125,7 +112,7 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
     }
 
     async fn save(&self, member: &WorkspaceMember) -> Result<(), Self::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO workspace_members (workspace_id, user_id, role_id, is_default, joined_at)
             VALUES ($1, $2, $3, $4, $5)
@@ -133,12 +120,12 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
                 role_id = EXCLUDED.role_id,
                 is_default = EXCLUDED.is_default
             "#,
+            member.workspace_id.as_uuid(),
+            member.user_id.as_uuid(),
+            member.role_id.as_uuid(),
+            member.is_default,
+            member.joined_at
         )
-        .bind(member.workspace_id.as_uuid())
-        .bind(member.user_id.as_uuid())
-        .bind(member.role_id.as_uuid())
-        .bind(member.is_default)
-        .bind(member.joined_at)
         .execute(&self.pool)
         .await?;
 
@@ -146,29 +133,35 @@ impl WorkspaceMemberRepository for PgWorkspaceMemberRepository {
     }
 
     async fn delete(&self, workspace_id: WorkspaceId, user_id: UserId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2")
-            .bind(workspace_id.as_uuid())
-            .bind(user_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+            workspace_id.as_uuid(),
+            user_id.as_uuid()
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }
 
     async fn delete_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM workspace_members WHERE workspace_id = $1")
-            .bind(workspace_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM workspace_members WHERE workspace_id = $1",
+            workspace_id.as_uuid()
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }
 
     async fn clear_default_for_user(&self, user_id: UserId) -> Result<(), Self::Error> {
-        sqlx::query("UPDATE workspace_members SET is_default = FALSE WHERE user_id = $1")
-            .bind(user_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "UPDATE workspace_members SET is_default = FALSE WHERE user_id = $1",
+            user_id.as_uuid()
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }

@@ -18,14 +18,19 @@ pub enum EmailError {
 impl Email {
     /// Create a new email with validation
     pub fn new(email: impl Into<String>) -> Result<Self, EmailError> {
-        let email = email.into();
+        let email = email.into().trim().to_string();
 
         if email.is_empty() {
             return Err(EmailError::Empty);
         }
 
-        // Basic email validation
-        if !email.contains('@') || !email.contains('.') {
+        // Basic email validation: must have @ with text before/after, and a dot after @
+        let at_pos = email.find('@').ok_or(EmailError::InvalidFormat)?;
+        if at_pos == 0 || at_pos == email.len() - 1 {
+            return Err(EmailError::InvalidFormat);
+        }
+        let domain = &email[at_pos + 1..];
+        if !domain.contains('.') || domain.starts_with('.') || domain.ends_with('.') {
             return Err(EmailError::InvalidFormat);
         }
 

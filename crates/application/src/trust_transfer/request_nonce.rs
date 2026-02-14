@@ -3,6 +3,7 @@
 //! New device requests a nonce for trust state transfer.
 //! The nonce is used for replay protection.
 
+use crate::events::DeviceEventPublisher;
 use chrono::{Duration, Utc};
 use domain::encryption::{DeviceId, DeviceRepository, PendingDeviceRepository};
 use domain::identity::UserId;
@@ -35,31 +36,41 @@ pub enum RequestNonceError {
     DeviceNotFound,
     #[error("nonce store error")]
     StoreError,
+    #[error("device repository error")]
+    DeviceRepository,
+    #[error("pending device repository error")]
+    PendingDeviceRepository,
 }
 
-impl RequestNonceError {
-    pub fn is_not_found(&self) -> bool {
+impl crate::types::AppError for RequestNonceError {
+    fn is_not_found(&self) -> bool {
         matches!(self, RequestNonceError::DeviceNotFound)
     }
 }
 
+/// All `TransferNonceError` variants collapse to `StoreError` because
+/// nonce generation should never encounter NotFound/Expired — those are
+/// internal store errors at this stage. Keeping a single variant simplifies
+/// the handler's error surface.
 impl From<TransferNonceError> for RequestNonceError {
     fn from(e: TransferNonceError) -> Self {
         match e {
-            TransferNonceError::StoreError => RequestNonceError::StoreError,
-            _ => RequestNonceError::StoreError,
+            TransferNonceError::NotFound
+            | TransferNonceError::Expired
+            | TransferNonceError::StoreError => RequestNonceError::StoreError,
         }
     }
 }
 
 /// Request nonce handler
-pub struct RequestNonceHandler<DR, PDR> {
+pub struct RequestNonceHandler<DR: ?Sized, PDR: ?Sized> {
     nonce_store: Arc<dyn TransferNonceStore>,
     device_repo: Arc<DR>,
     pending_device_repo: Arc<PDR>,
+    event_publisher: Arc<dyn DeviceEventPublisher>,
 }
 
-impl<DR, PDR> RequestNonceHandler<DR, PDR>
+impl<DR: ?Sized, PDR: ?Sized> RequestNonceHandler<DR, PDR>
 where
     DR: DeviceRepository,
     PDR: PendingDeviceRepository,
@@ -68,11 +79,13 @@ where
         nonce_store: Arc<dyn TransferNonceStore>,
         device_repo: Arc<DR>,
         pending_device_repo: Arc<PDR>,
+        event_publisher: Arc<dyn DeviceEventPublisher>,
     ) -> Self {
         Self {
             nonce_store,
             device_repo,
             pending_device_repo,
+            event_publisher,
         }
     }
 
@@ -81,19 +94,21 @@ where
         command: RequestNonceCommand,
     ) -> Result<RequestNonceResult, RequestNonceError> {
         // Verify device exists and belongs to the user (pending or active)
-        let is_pending = match self.pending_device_repo.find_by_id(command.new_device_id).await {
-            Ok(Some(pending)) => pending.user_id == command.user_id,
-            _ => false,
-        };
-
-        let is_active = match self.device_repo.find_by_id(command.new_device_id).await {
-            Ok(Some(device)) => device.user_id == command.user_id && !device.is_revoked(),
-            _ => false,
-        };
-
-        if !is_pending && !is_active {
-            return Err(RequestNonceError::DeviceNotFound);
-        }
+        use crate::util::device_ownership::{DeviceOwnershipError, check_device_ownership};
+        check_device_ownership(
+            &self.device_repo,
+            &self.pending_device_repo,
+            command.new_device_id,
+            command.user_id,
+        )
+        .await
+        .map_err(|e| match e {
+            DeviceOwnershipError::NotFound => RequestNonceError::DeviceNotFound,
+            DeviceOwnershipError::PendingDeviceRepository(_) => {
+                RequestNonceError::PendingDeviceRepository
+            }
+            DeviceOwnershipError::DeviceRepository(_) => RequestNonceError::DeviceRepository,
+        })?;
 
         // Generate random nonce
         let mut nonce = [0u8; 32];
@@ -106,6 +121,11 @@ where
         self.nonce_store
             .store(command.user_id, command.new_device_id, nonce, expires_at)
             .await?;
+
+        // Notify existing devices about the transfer nonce
+        self.event_publisher
+            .trust_transfer_nonce_ready(command.user_id, command.new_device_id, &nonce)
+            .await;
 
         Ok(RequestNonceResult { nonce, expires_at })
     }

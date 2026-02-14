@@ -8,13 +8,13 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use redis::AsyncCommands;
 
 use domain::encryption::DeviceId;
 use domain::identity::UserId;
 use domain::transfer_nonce::{TransferNonceError, TransferNonceStore};
 
 use crate::RedisPool;
+use crate::redis_nonce_ops::FromRedisNonceError;
 
 /// Redis-backed transfer nonce store for cluster deployments
 ///
@@ -42,6 +42,8 @@ impl RedisTransferNonceStore {
     }
 }
 
+impl_from_redis_nonce_error!(TransferNonceError);
+
 #[async_trait]
 impl TransferNonceStore for RedisTransferNonceStore {
     async fn store(
@@ -52,18 +54,7 @@ impl TransferNonceStore for RedisTransferNonceStore {
         expires_at: DateTime<Utc>,
     ) -> Result<(), TransferNonceError> {
         let key = Self::key(user_id, new_device_id, &nonce);
-        let ttl_secs = (expires_at - Utc::now()).num_seconds().max(1) as u64;
-
-        let mut conn = self.redis.connection();
-        // Store timestamp as value, with TTL
-        let _: () = conn
-            .set_ex(&key, expires_at.timestamp(), ttl_secs)
-            .await
-            .map_err(|e| {
-                tracing::error!("Redis transfer nonce store error: {}", e);
-                TransferNonceError::StoreError
-            })?;
-        Ok(())
+        redis_nonce_method!(store, &self.redis, &key, expires_at, TransferNonceError)
     }
 
     async fn verify_and_consume(
@@ -73,29 +64,6 @@ impl TransferNonceStore for RedisTransferNonceStore {
         nonce: &[u8; 32],
     ) -> Result<(), TransferNonceError> {
         let key = Self::key(user_id, new_device_id, nonce);
-        let mut conn = self.redis.connection();
-
-        // Use GETDEL for atomic get-and-delete (Redis 6.2+)
-        let result: Option<i64> = redis::cmd("GETDEL")
-            .arg(&key)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| {
-                tracing::error!("Redis transfer nonce GETDEL error: {}", e);
-                TransferNonceError::StoreError
-            })?;
-
-        match result {
-            Some(expires_timestamp) => {
-                let expires_at = DateTime::from_timestamp(expires_timestamp, 0)
-                    .ok_or(TransferNonceError::StoreError)?;
-                if expires_at < Utc::now() {
-                    Err(TransferNonceError::Expired)
-                } else {
-                    Ok(())
-                }
-            }
-            None => Err(TransferNonceError::NotFound),
-        }
+        redis_nonce_method!(verify_and_consume, &self.redis, &key, TransferNonceError)
     }
 }

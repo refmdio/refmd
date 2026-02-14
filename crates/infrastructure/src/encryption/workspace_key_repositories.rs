@@ -3,34 +3,31 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::encryption::{
-    DeviceId, DocumentEncryptedKey, DocumentEncryptedKeyRepository, DocumentId, KeyVersion,
-    WorkspaceEncryptedKey, WorkspaceEncryptedKeyRepository, WorkspaceId, WorkspaceKekBackup,
-    WorkspaceKekBackupRepository,
+    DeviceId, DocumentEncryptedKey, DocumentEncryptedKeyRepository, DocumentId, InvalidKeyVersion,
+    KeyVersion, WorkspaceEncryptedKey, WorkspaceEncryptedKeyRepository, WorkspaceId,
+    WorkspaceKekBackup, WorkspaceKekBackupRepository,
 };
 use domain::identity::UserId;
-use sqlx::PgPool;
-use thiserror::Error;
 use uuid::Uuid;
+
+/// Shared transaction pattern: optionally deactivate existing active rows,
+/// then upsert the new row, all within a single transaction.
+macro_rules! save_with_active_tx {
+    ($pool:expr, $is_active:expr, $deactivate:expr, $upsert:expr) => {{
+        let mut tx = $pool.begin().await?;
+        if $is_active {
+            $deactivate.execute(&mut *tx).await?;
+        }
+        $upsert.execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }};
+}
 
 // ============ WorkspaceEncryptedKey Repository ============
 
-/// PostgreSQL workspace encrypted key repository
-#[derive(Clone)]
-pub struct PgWorkspaceEncryptedKeyRepository {
-    pool: PgPool,
-}
-
-impl PgWorkspaceEncryptedKeyRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgWorkspaceEncryptedKeyRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-}
+pg_repo_struct!(PgWorkspaceEncryptedKeyRepository);
+pg_repo_error!(PgWorkspaceEncryptedKeyRepositoryError, InvalidKeyVersion(#[from] InvalidKeyVersion));
 
 #[derive(sqlx::FromRow)]
 struct WorkspaceEncryptedKeyRow {
@@ -45,19 +42,21 @@ struct WorkspaceEncryptedKeyRow {
     created_at: DateTime<Utc>,
 }
 
-impl From<WorkspaceEncryptedKeyRow> for WorkspaceEncryptedKey {
-    fn from(row: WorkspaceEncryptedKeyRow) -> Self {
-        Self {
+impl TryFrom<WorkspaceEncryptedKeyRow> for WorkspaceEncryptedKey {
+    type Error = InvalidKeyVersion;
+
+    fn try_from(row: WorkspaceEncryptedKeyRow) -> Result<Self, Self::Error> {
+        Ok(Self {
             workspace_id: WorkspaceId::from_uuid(row.workspace_id),
             user_id: UserId::from_uuid(row.user_id),
             device_id: DeviceId::from_uuid(row.device_id),
             sender_device_id: DeviceId::from_uuid(row.sender_device_id),
-            key_version: KeyVersion::new(row.key_version).expect("invalid key_version in DB"),
+            key_version: KeyVersion::new(row.key_version)?,
             encrypted_kek: row.encrypted_kek,
             nonce: row.nonce,
             is_active: row.is_active,
             created_at: row.created_at,
-        }
+        })
     }
 }
 
@@ -69,7 +68,8 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<WorkspaceEncryptedKey>, Self::Error> {
-        let rows = sqlx::query_as::<_, WorkspaceEncryptedKeyRow>(
+        let rows = sqlx::query_as!(
+            WorkspaceEncryptedKeyRow,
             r#"
             SELECT workspace_id, user_id, device_id, sender_device_id, key_version,
                    encrypted_kek, nonce, is_active, created_at
@@ -77,12 +77,15 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
             WHERE workspace_id = $1
             ORDER BY key_version DESC
             "#,
+            workspace_id.as_uuid() as _,
         )
-        .bind(workspace_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(WorkspaceEncryptedKey::from).collect())
+        Ok(rows
+            .into_iter()
+            .map(WorkspaceEncryptedKey::try_from)
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     async fn find_by_workspace_and_device(
@@ -91,7 +94,8 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
         user_id: UserId,
         device_id: DeviceId,
     ) -> Result<Vec<WorkspaceEncryptedKey>, Self::Error> {
-        let rows = sqlx::query_as::<_, WorkspaceEncryptedKeyRow>(
+        let rows = sqlx::query_as!(
+            WorkspaceEncryptedKeyRow,
             r#"
             SELECT workspace_id, user_id, device_id, sender_device_id, key_version,
                    encrypted_kek, nonce, is_active, created_at
@@ -99,14 +103,17 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
             WHERE workspace_id = $1 AND user_id = $2 AND device_id = $3
             ORDER BY key_version DESC
             "#,
+            workspace_id.as_uuid() as _,
+            user_id.as_uuid() as _,
+            device_id.as_uuid() as _,
         )
-        .bind(workspace_id.as_uuid())
-        .bind(user_id.as_uuid())
-        .bind(device_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(WorkspaceEncryptedKey::from).collect())
+        Ok(rows
+            .into_iter()
+            .map(WorkspaceEncryptedKey::try_from)
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     async fn find_active_by_device(
@@ -115,7 +122,8 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
         user_id: UserId,
         device_id: DeviceId,
     ) -> Result<Option<WorkspaceEncryptedKey>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceEncryptedKeyRow>(
+        let row = sqlx::query_as!(
+            WorkspaceEncryptedKeyRow,
             r#"
             SELECT workspace_id, user_id, device_id, sender_device_id, key_version,
                    encrypted_kek, nonce, is_active, created_at
@@ -124,61 +132,54 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
             ORDER BY key_version DESC
             LIMIT 1
             "#,
+            workspace_id.as_uuid() as _,
+            user_id.as_uuid() as _,
+            device_id.as_uuid() as _,
         )
-        .bind(workspace_id.as_uuid())
-        .bind(user_id.as_uuid())
-        .bind(device_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(WorkspaceEncryptedKey::from))
+        Ok(row.map(WorkspaceEncryptedKey::try_from).transpose()?)
     }
 
     async fn save(&self, key: &WorkspaceEncryptedKey) -> Result<(), Self::Error> {
-        // Use transaction to ensure atomicity of deactivation + insert
-        let mut tx = self.pool.begin().await?;
-
-        // If saving as active, first deactivate any existing active keys for this workspace/user/device
-        if key.is_active {
-            sqlx::query(
+        save_with_active_tx!(
+            self.pool,
+            key.is_active,
+            sqlx::query!(
                 r#"
                 UPDATE workspace_encrypted_keys
                 SET is_active = FALSE
                 WHERE workspace_id = $1 AND user_id = $2 AND device_id = $3 AND is_active = TRUE
                 "#,
+                key.workspace_id.as_uuid() as _,
+                key.user_id.as_uuid() as _,
+                key.device_id.as_uuid() as _,
+            ),
+            sqlx::query!(
+                r#"
+                INSERT INTO workspace_encrypted_keys (
+                    workspace_id, user_id, device_id, sender_device_id, key_version,
+                    encrypted_kek, nonce, is_active, created_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (workspace_id, user_id, device_id, key_version) DO UPDATE SET
+                    encrypted_kek = EXCLUDED.encrypted_kek,
+                    nonce = EXCLUDED.nonce,
+                    sender_device_id = EXCLUDED.sender_device_id,
+                    is_active = EXCLUDED.is_active
+                "#,
+                key.workspace_id.as_uuid() as _,
+                key.user_id.as_uuid() as _,
+                key.device_id.as_uuid() as _,
+                key.sender_device_id.as_uuid() as _,
+                key.key_version.as_i32() as _,
+                &key.encrypted_kek,
+                &key.nonce,
+                key.is_active,
+                key.created_at,
             )
-            .bind(key.workspace_id.as_uuid())
-            .bind(key.user_id.as_uuid())
-            .bind(key.device_id.as_uuid())
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        sqlx::query(
-            r#"
-            INSERT INTO workspace_encrypted_keys (
-                workspace_id, user_id, device_id, sender_device_id, key_version,
-                encrypted_kek, nonce, is_active, created_at
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (workspace_id, user_id, device_id, key_version) DO UPDATE SET
-                is_active = EXCLUDED.is_active
-            "#,
         )
-        .bind(key.workspace_id.as_uuid())
-        .bind(key.user_id.as_uuid())
-        .bind(key.device_id.as_uuid())
-        .bind(key.sender_device_id.as_uuid())
-        .bind(key.key_version.as_i32())
-        .bind(&key.encrypted_kek)
-        .bind(&key.nonce)
-        .bind(key.is_active)
-        .bind(key.created_at)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-        Ok(())
     }
 
     async fn delete_by_workspace_and_user(
@@ -186,11 +187,11 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
         workspace_id: WorkspaceId,
         user_id: UserId,
     ) -> Result<(), Self::Error> {
-        sqlx::query(
+        sqlx::query!(
             "DELETE FROM workspace_encrypted_keys WHERE workspace_id = $1 AND user_id = $2",
+            workspace_id.as_uuid() as _,
+            user_id.as_uuid() as _,
         )
-        .bind(workspace_id.as_uuid())
-        .bind(user_id.as_uuid())
         .execute(&self.pool)
         .await?;
 
@@ -200,23 +201,8 @@ impl WorkspaceEncryptedKeyRepository for PgWorkspaceEncryptedKeyRepository {
 
 // ============ DocumentEncryptedKey Repository ============
 
-/// PostgreSQL document encrypted key repository
-#[derive(Clone)]
-pub struct PgDocumentEncryptedKeyRepository {
-    pool: PgPool,
-}
-
-impl PgDocumentEncryptedKeyRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgDocumentEncryptedKeyRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-}
+pg_repo_struct!(PgDocumentEncryptedKeyRepository);
+pg_repo_error!(PgDocumentEncryptedKeyRepositoryError, InvalidKeyVersion(#[from] InvalidKeyVersion));
 
 #[derive(sqlx::FromRow)]
 struct DocumentEncryptedKeyRow {
@@ -228,16 +214,18 @@ struct DocumentEncryptedKeyRow {
     created_at: DateTime<Utc>,
 }
 
-impl From<DocumentEncryptedKeyRow> for DocumentEncryptedKey {
-    fn from(row: DocumentEncryptedKeyRow) -> Self {
-        Self {
+impl TryFrom<DocumentEncryptedKeyRow> for DocumentEncryptedKey {
+    type Error = InvalidKeyVersion;
+
+    fn try_from(row: DocumentEncryptedKeyRow) -> Result<Self, Self::Error> {
+        Ok(Self {
             document_id: DocumentId::from_uuid(row.document_id),
-            key_version: KeyVersion::new(row.key_version).expect("invalid key_version in DB"),
+            key_version: KeyVersion::new(row.key_version)?,
             encrypted_dek: row.encrypted_dek,
             nonce: row.nonce,
             is_active: row.is_active,
             created_at: row.created_at,
-        }
+        })
     }
 }
 
@@ -249,26 +237,31 @@ impl DocumentEncryptedKeyRepository for PgDocumentEncryptedKeyRepository {
         &self,
         document_id: DocumentId,
     ) -> Result<Vec<DocumentEncryptedKey>, Self::Error> {
-        let rows = sqlx::query_as::<_, DocumentEncryptedKeyRow>(
+        let rows = sqlx::query_as!(
+            DocumentEncryptedKeyRow,
             r#"
             SELECT document_id, key_version, encrypted_dek, nonce, is_active, created_at
             FROM document_encrypted_keys
             WHERE document_id = $1
             ORDER BY key_version DESC
             "#,
+            document_id.as_uuid() as _,
         )
-        .bind(document_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(DocumentEncryptedKey::from).collect())
+        Ok(rows
+            .into_iter()
+            .map(DocumentEncryptedKey::try_from)
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     async fn find_active_by_document_id(
         &self,
         document_id: DocumentId,
     ) -> Result<Option<DocumentEncryptedKey>, Self::Error> {
-        let row = sqlx::query_as::<_, DocumentEncryptedKeyRow>(
+        let row = sqlx::query_as!(
+            DocumentEncryptedKeyRow,
             r#"
             SELECT document_id, key_version, encrypted_dek, nonce, is_active, created_at
             FROM document_encrypted_keys
@@ -276,61 +269,54 @@ impl DocumentEncryptedKeyRepository for PgDocumentEncryptedKeyRepository {
             ORDER BY key_version DESC
             LIMIT 1
             "#,
+            document_id.as_uuid() as _,
         )
-        .bind(document_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(DocumentEncryptedKey::from))
+        Ok(row.map(DocumentEncryptedKey::try_from).transpose()?)
     }
 
     async fn save(&self, key: &DocumentEncryptedKey) -> Result<(), Self::Error> {
-        // Use transaction to ensure atomicity of deactivation + insert
-        let mut tx = self.pool.begin().await?;
-
-        // If saving as active, first deactivate any existing active keys for this document
-        // to avoid unique constraint violation on idx_document_keys_single_active
-        if key.is_active {
-            sqlx::query(
+        save_with_active_tx!(
+            self.pool,
+            key.is_active,
+            sqlx::query!(
                 r#"
                 UPDATE document_encrypted_keys
                 SET is_active = FALSE
                 WHERE document_id = $1 AND is_active = TRUE
                 "#,
+                key.document_id.as_uuid() as _,
+            ),
+            sqlx::query!(
+                r#"
+                INSERT INTO document_encrypted_keys (
+                    document_id, key_version, encrypted_dek, nonce, is_active, created_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (document_id, key_version) DO UPDATE SET
+                    encrypted_dek = EXCLUDED.encrypted_dek,
+                    nonce = EXCLUDED.nonce,
+                    is_active = EXCLUDED.is_active
+                "#,
+                key.document_id.as_uuid() as _,
+                key.key_version.as_i32() as _,
+                &key.encrypted_dek,
+                &key.nonce,
+                key.is_active,
+                key.created_at,
             )
-            .bind(key.document_id.as_uuid())
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        sqlx::query(
-            r#"
-            INSERT INTO document_encrypted_keys (
-                document_id, key_version, encrypted_dek, nonce, is_active, created_at
-            )
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (document_id, key_version) DO UPDATE SET
-                is_active = EXCLUDED.is_active
-            "#,
         )
-        .bind(key.document_id.as_uuid())
-        .bind(key.key_version.as_i32())
-        .bind(&key.encrypted_dek)
-        .bind(&key.nonce)
-        .bind(key.is_active)
-        .bind(key.created_at)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-        Ok(())
     }
 
     async fn delete_by_document_id(&self, document_id: DocumentId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM document_encrypted_keys WHERE document_id = $1")
-            .bind(document_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM document_encrypted_keys WHERE document_id = $1",
+            document_id.as_uuid() as _,
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }
@@ -338,23 +324,8 @@ impl DocumentEncryptedKeyRepository for PgDocumentEncryptedKeyRepository {
 
 // ============ WorkspaceKekBackup Repository ============
 
-/// PostgreSQL workspace KEK backup repository
-#[derive(Clone)]
-pub struct PgWorkspaceKekBackupRepository {
-    pool: PgPool,
-}
-
-impl PgWorkspaceKekBackupRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgWorkspaceKekBackupRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-}
+pg_repo_struct!(PgWorkspaceKekBackupRepository);
+pg_repo_error!(PgWorkspaceKekBackupRepositoryError, InvalidKeyVersion(#[from] InvalidKeyVersion));
 
 #[derive(sqlx::FromRow)]
 struct WorkspaceKekBackupRow {
@@ -367,17 +338,19 @@ struct WorkspaceKekBackupRow {
     created_at: DateTime<Utc>,
 }
 
-impl From<WorkspaceKekBackupRow> for WorkspaceKekBackup {
-    fn from(row: WorkspaceKekBackupRow) -> Self {
-        Self {
+impl TryFrom<WorkspaceKekBackupRow> for WorkspaceKekBackup {
+    type Error = InvalidKeyVersion;
+
+    fn try_from(row: WorkspaceKekBackupRow) -> Result<Self, Self::Error> {
+        Ok(Self {
             workspace_id: WorkspaceId::from_uuid(row.workspace_id),
             user_id: UserId::from_uuid(row.user_id),
-            key_version: KeyVersion::new(row.key_version).expect("invalid key_version in DB"),
+            key_version: KeyVersion::new(row.key_version)?,
             encrypted_kek: row.encrypted_kek,
             nonce: row.nonce,
             is_active: row.is_active,
             created_at: row.created_at,
-        }
+        })
     }
 }
 
@@ -390,64 +363,55 @@ impl WorkspaceKekBackupRepository for PgWorkspaceKekBackupRepository {
         workspace_id: WorkspaceId,
         user_id: UserId,
     ) -> Result<Option<WorkspaceKekBackup>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceKekBackupRow>(
+        let row = sqlx::query_as!(
+            WorkspaceKekBackupRow,
             r#"
             SELECT workspace_id, user_id, key_version, encrypted_kek, nonce, is_active, created_at
             FROM workspace_kek_backups
             WHERE workspace_id = $1 AND user_id = $2 AND is_active = TRUE
             LIMIT 1
             "#,
+            workspace_id.as_uuid() as _,
+            user_id.as_uuid() as _,
         )
-        .bind(workspace_id.as_uuid())
-        .bind(user_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(WorkspaceKekBackup::from))
+        Ok(row.map(WorkspaceKekBackup::try_from).transpose()?)
     }
 
     async fn save(&self, backup: &WorkspaceKekBackup) -> Result<(), Self::Error> {
-        let mut tx = self.pool.begin().await?;
-
-        // Deactivate existing active backup for this workspace+user
-        if backup.is_active {
-            sqlx::query(
+        save_with_active_tx!(
+            self.pool,
+            backup.is_active,
+            sqlx::query!(
                 r#"
                 UPDATE workspace_kek_backups
                 SET is_active = FALSE
                 WHERE workspace_id = $1 AND user_id = $2 AND is_active = TRUE
                 "#,
+                backup.workspace_id.as_uuid() as _,
+                backup.user_id.as_uuid() as _,
+            ),
+            sqlx::query!(
+                r#"
+                INSERT INTO workspace_kek_backups (
+                    workspace_id, user_id, key_version, encrypted_kek, nonce, is_active, created_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (workspace_id, user_id, key_version) DO UPDATE SET
+                    encrypted_kek = EXCLUDED.encrypted_kek,
+                    nonce = EXCLUDED.nonce,
+                    is_active = EXCLUDED.is_active
+                "#,
+                backup.workspace_id.as_uuid() as _,
+                backup.user_id.as_uuid() as _,
+                backup.key_version.as_i32() as _,
+                &backup.encrypted_kek,
+                &backup.nonce,
+                backup.is_active,
+                backup.created_at,
             )
-            .bind(backup.workspace_id.as_uuid())
-            .bind(backup.user_id.as_uuid())
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        // Insert new backup (ON CONFLICT updates ciphertext for idempotent retries)
-        sqlx::query(
-            r#"
-            INSERT INTO workspace_kek_backups (
-                workspace_id, user_id, key_version, encrypted_kek, nonce, is_active, created_at
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (workspace_id, user_id, key_version) DO UPDATE SET
-                encrypted_kek = EXCLUDED.encrypted_kek,
-                nonce = EXCLUDED.nonce,
-                is_active = EXCLUDED.is_active
-            "#,
         )
-        .bind(backup.workspace_id.as_uuid())
-        .bind(backup.user_id.as_uuid())
-        .bind(backup.key_version.as_i32())
-        .bind(&backup.encrypted_kek)
-        .bind(&backup.nonce)
-        .bind(backup.is_active)
-        .bind(backup.created_at)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-        Ok(())
     }
 }

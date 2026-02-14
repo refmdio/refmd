@@ -3,12 +3,12 @@
 //! Promotes a pending device to a full device after SAS verification.
 //! Requires the existing device to sign the pending device's public keys.
 
+use crate::dto::DeviceDto;
 use domain::encryption::{
     Device, DeviceId, DeviceRepository, PendingDeviceRepository, UserIdentityPublicKeyRepository,
 };
 use domain::identity::UserId;
 use domain::signature::{build_signature_message, SignatureAction};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::Serialize;
 use std::sync::Arc;
 use thiserror::Error;
@@ -28,7 +28,7 @@ pub struct ApproveDeviceCommand {
 /// Approve device result
 #[derive(Debug)]
 pub struct ApproveDeviceResult {
-    pub device: Device,
+    pub device: DeviceDto,
 }
 
 /// Approve device error
@@ -67,9 +67,9 @@ pub enum ApproveDeviceError<DR: std::error::Error, PDR: std::error::Error, UIPK:
 }
 
 impl<DR: std::error::Error, PDR: std::error::Error, UIPK: std::error::Error>
-    ApproveDeviceError<DR, PDR, UIPK>
+    crate::types::AppError for ApproveDeviceError<DR, PDR, UIPK>
 {
-    pub fn is_not_found(&self) -> bool {
+    fn is_not_found(&self) -> bool {
         matches!(
             self,
             ApproveDeviceError::PendingDeviceNotFound
@@ -77,23 +77,26 @@ impl<DR: std::error::Error, PDR: std::error::Error, UIPK: std::error::Error>
         )
     }
 
-    pub fn is_bad_request(&self) -> bool {
+    fn is_invalid_input(&self) -> bool {
         matches!(
             self,
-            ApproveDeviceError::PendingDeviceExpired
-                | ApproveDeviceError::InvalidSignatureLength
+            ApproveDeviceError::InvalidSignatureLength
                 | ApproveDeviceError::SignatureVerificationFailed
                 | ApproveDeviceError::InvalidIdentityPublicKey
         )
     }
 
-    pub fn is_forbidden(&self) -> bool {
+    fn is_gone(&self) -> bool {
+        matches!(self, ApproveDeviceError::PendingDeviceExpired)
+    }
+
+    fn is_access_denied(&self) -> bool {
         matches!(self, ApproveDeviceError::NotOwner)
     }
 }
 
 /// Approve device handler
-pub struct ApproveDeviceHandler<DR, PDR, UIPK> {
+pub struct ApproveDeviceHandler<DR: ?Sized, PDR: ?Sized, UIPK: ?Sized> {
     device_repo: Arc<DR>,
     pending_device_repo: Arc<PDR>,
     identity_public_key_repo: Arc<UIPK>,
@@ -101,9 +104,9 @@ pub struct ApproveDeviceHandler<DR, PDR, UIPK> {
 
 impl<DR, PDR, UIPK> ApproveDeviceHandler<DR, PDR, UIPK>
 where
-    DR: DeviceRepository,
-    PDR: PendingDeviceRepository,
-    UIPK: UserIdentityPublicKeyRepository,
+    DR: DeviceRepository + ?Sized,
+    PDR: PendingDeviceRepository + ?Sized,
+    UIPK: UserIdentityPublicKeyRepository + ?Sized,
 {
     pub fn new(
         device_repo: Arc<DR>,
@@ -152,16 +155,6 @@ where
             .map_err(ApproveDeviceError::IdentityPublicKeyRepository)?
             .ok_or(ApproveDeviceError::IdentityPublicKeyNotFound)?;
 
-        // Parse the identity signing public key (Ed25519, 32 bytes)
-        let signing_pk_bytes: [u8; 32] = identity_key
-            .signing_public_key
-            .as_slice()
-            .try_into()
-            .map_err(|_| ApproveDeviceError::InvalidIdentityPublicKey)?;
-
-        let verifying_key = VerifyingKey::from_bytes(&signing_pk_bytes)
-            .map_err(|_| ApproveDeviceError::InvalidIdentityPublicKey)?;
-
         // Build the signature message using signature protocol format
         #[derive(Serialize)]
         struct DeviceApprovalPayload {
@@ -176,20 +169,22 @@ where
             client_nonce: base64_url::encode(&pending_device.client_nonce),
         };
 
-        let message = build_signature_message(SignatureAction::DeviceApproval, &payload);
-
-        // Parse and verify the signature
-        let signature_bytes: [u8; 64] = command
-            .identity_signature
-            .as_slice()
-            .try_into()
-            .map_err(|_| ApproveDeviceError::InvalidSignatureLength)?;
-
-        let signature = Signature::from_bytes(&signature_bytes);
-
-        verifying_key
-            .verify(&message, &signature)
+        let message = build_signature_message(SignatureAction::DeviceApproval, &payload)
             .map_err(|_| ApproveDeviceError::SignatureVerificationFailed)?;
+
+        // Verify identity signature over the approval message
+        use crate::util::signature_verification::{verify_ed25519_signature, map_sig_error};
+        verify_ed25519_signature(
+            &identity_key.signing_public_key,
+            &command.identity_signature,
+            &message,
+        )
+        .map_err(|e| map_sig_error(
+            e,
+            || ApproveDeviceError::InvalidIdentityPublicKey,
+            || ApproveDeviceError::InvalidSignatureLength,
+            || ApproveDeviceError::SignatureVerificationFailed,
+        ))?;
 
         // Create device from pending device
         let device = Device::from_pending(pending_device.clone(), command.identity_signature);
@@ -200,12 +195,19 @@ where
             .await
             .map_err(ApproveDeviceError::DeviceRepository)?;
 
-        // Delete pending device
-        self.pending_device_repo
+        // Delete pending device (best-effort: approval already succeeded)
+        if let Err(e) = self
+            .pending_device_repo
             .delete(command.pending_device_id)
             .await
-            .map_err(ApproveDeviceError::PendingDeviceRepository)?;
+        {
+            tracing::warn!(
+                pending_device_id = %command.pending_device_id,
+                "device approved but failed to delete pending record: {}",
+                e
+            );
+        }
 
-        Ok(ApproveDeviceResult { device })
+        Ok(ApproveDeviceResult { device: device.into() })
     }
 }

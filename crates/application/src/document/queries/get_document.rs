@@ -2,11 +2,14 @@
 //!
 //! Retrieves a single document with RBAC permission check.
 
-use domain::document::{Document, DocumentId, DocumentRepository};
+use domain::document::{DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
-    WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
+    WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
 };
+
+use crate::dto::DocumentDto;
+use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -20,7 +23,7 @@ pub struct GetDocumentQuery {
 /// Get document result
 #[derive(Debug)]
 pub struct GetDocumentResult {
-    pub document: Document,
+    pub document: DocumentDto,
 }
 
 /// Get document error
@@ -29,45 +32,35 @@ pub enum GetDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std:
     #[error("document not found")]
     DocumentNotFound,
 
-    #[error("user is not a member of this workspace")]
-    NotMember,
-
-    #[error("permission denied: cannot read from this workspace")]
-    PermissionDenied,
+    #[error(transparent)]
+    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
 
     #[error("document repository error: {0}")]
     DocumentRepository(DR),
-
-    #[error("member repository error: {0}")]
-    MemberRepository(MR),
-
-    #[error("role repository error: {0}")]
-    RoleRepository(RR),
 }
 
-impl<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
-    GetDocumentError<DR, MR, RR>
-{
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, GetDocumentError::DocumentNotFound)
-    }
+crate::types::impl_app_error!(
+    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
+    GetDocumentError<DR, MR, RR>,
+    not_found: [
+        GetDocumentError::DocumentNotFound,
+        GetDocumentError::WorkspaceAccess(WorkspaceAccessError::NotMember),
+    ],
+    access_denied: [
+        GetDocumentError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied),
+    ],
+);
 
-    pub fn is_forbidden(&self) -> bool {
-        matches!(
-            self,
-            GetDocumentError::NotMember | GetDocumentError::PermissionDenied
-        )
-    }
-}
+crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR] GetDocumentError<DR, MR, RR>);
 
 /// Get document handler
-pub struct GetDocumentHandler<DR, MR, RR> {
+pub struct GetDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
 }
 
-impl<DR, MR, RR> GetDocumentHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> GetDocumentHandler<DR, MR, RR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
@@ -85,34 +78,17 @@ where
         &self,
         query: GetDocumentQuery,
     ) -> Result<GetDocumentResult, GetDocumentError<DR::Error, MR::Error, RR::Error>> {
-        // 1. Get document
-        let document = self
-            .document_repo
-            .find_by_id(query.document_id)
-            .await
-            .map_err(GetDocumentError::DocumentRepository)?
-            .ok_or(GetDocumentError::DocumentNotFound)?;
+        let document = load_document_with_permission(
+            &self.document_repo,
+            &self.member_repo,
+            &self.role_repo,
+            query.document_id,
+            query.user_id,
+            WorkspacePermission::Read,
+        )
+        .await
+        .map_err(GetDocumentError::from_load)?;
 
-        // 2. Check membership
-        let member = self
-            .member_repo
-            .find_by_workspace_and_user(document.workspace_id, query.user_id)
-            .await
-            .map_err(GetDocumentError::MemberRepository)?
-            .ok_or(GetDocumentError::NotMember)?;
-
-        // 3. Get role and check Read permission
-        let role = self
-            .role_repo
-            .find_by_id(member.role_id)
-            .await
-            .map_err(GetDocumentError::RoleRepository)?
-            .ok_or(GetDocumentError::NotMember)?;
-
-        if !can_perform(role.base_role, WorkspacePermission::Read) {
-            return Err(GetDocumentError::PermissionDenied);
-        }
-
-        Ok(GetDocumentResult { document })
+        Ok(GetDocumentResult { document: document.into() })
     }
 }

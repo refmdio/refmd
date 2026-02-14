@@ -42,9 +42,12 @@ impl Workspace {
     }
 
     /// Update the minimum KEK version (used after key rotation)
+    /// Only increases — monotonic guard prevents accidental downgrade.
     pub fn set_min_kek_version(&mut self, version: i32) {
-        self.min_kek_version = version;
-        self.updated_at = Utc::now();
+        if version > self.min_kek_version {
+            self.min_kek_version = version;
+            self.updated_at = Utc::now();
+        }
     }
 
     /// Mark workspace as needing KEK rotation (e.g., after device revocation)

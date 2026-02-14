@@ -4,30 +4,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::identity::UserId;
 use domain::workspace::{Slug, Workspace, WorkspaceId, WorkspaceRepository};
-use sqlx::PgPool;
-use thiserror::Error;
 use uuid::Uuid;
 
-/// PostgreSQL workspace repository
-#[derive(Clone)]
-pub struct PgWorkspaceRepository {
-    pool: PgPool,
-}
-
-impl PgWorkspaceRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgWorkspaceRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("corrupted data: invalid slug: {0}")]
-    InvalidSlug(String),
-}
+pg_repo_struct!(PgWorkspaceRepository);
+pg_repo_error!(PgWorkspaceRepositoryError, InvalidSlug(String));
 
 #[derive(sqlx::FromRow)]
 struct WorkspaceRow {
@@ -68,14 +48,11 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     type Error = PgWorkspaceRepositoryError;
 
     async fn find_by_id(&self, id: WorkspaceId) -> Result<Option<Workspace>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceRow>(
-            r#"
-            SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at
-            FROM workspaces
-            WHERE id = $1
-            "#,
+        let row = sqlx::query_as!(
+            WorkspaceRow,
+            "SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at FROM workspaces WHERE id = $1",
+            id.as_uuid()
         )
-        .bind(id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -83,30 +60,27 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     }
 
     async fn find_by_slug(&self, slug: &Slug) -> Result<Option<Workspace>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceRow>(
-            r#"
-            SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at
-            FROM workspaces
-            WHERE slug = $1
-            "#,
+        let row = sqlx::query_as!(
+            WorkspaceRow,
+            "SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at FROM workspaces WHERE slug = $1",
+            slug.as_str()
         )
-        .bind(slug.as_str())
         .fetch_optional(&self.pool)
         .await?;
 
         row.map(|r| r.try_into_workspace()).transpose()
     }
 
-    async fn find_by_owner_id(&self, owner_id: UserId) -> Result<Vec<Workspace>, Self::Error> {
-        let rows = sqlx::query_as::<_, WorkspaceRow>(
-            r#"
-            SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at
-            FROM workspaces
-            WHERE owner_id = $1
-            ORDER BY created_at DESC
-            "#,
+    async fn find_by_ids(&self, ids: &[WorkspaceId]) -> Result<Vec<Workspace>, Self::Error> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let uuids: Vec<Uuid> = ids.iter().map(|id| id.as_uuid()).collect();
+        let rows = sqlx::query_as!(
+            WorkspaceRow,
+            "SELECT id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at FROM workspaces WHERE id = ANY($1)",
+            &uuids as _
         )
-        .bind(owner_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
@@ -114,12 +88,12 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     }
 
     async fn slug_exists(&self, slug: &Slug) -> Result<bool, Self::Error> {
-        let result = sqlx::query_scalar::<_, bool>(
+        let result = sqlx::query_scalar!(
             r#"
-            SELECT EXISTS(SELECT 1 FROM workspaces WHERE slug = $1)
+            SELECT EXISTS(SELECT 1 FROM workspaces WHERE slug = $1) as "exists!"
             "#,
+            slug.as_str()
         )
-        .bind(slug.as_str())
         .fetch_one(&self.pool)
         .await?;
 
@@ -127,7 +101,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     }
 
     async fn save(&self, workspace: &Workspace) -> Result<(), Self::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO workspaces (id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -139,17 +113,17 @@ impl WorkspaceRepository for PgWorkspaceRepository {
                 needs_kek_rotation = EXCLUDED.needs_kek_rotation,
                 updated_at = EXCLUDED.updated_at
             "#,
+            workspace.id.as_uuid(),
+            &workspace.name,
+            workspace.slug.as_str(),
+            workspace.description.as_deref(),
+            workspace.icon.as_deref(),
+            workspace.owner_id.as_uuid(),
+            workspace.min_kek_version,
+            workspace.needs_kek_rotation,
+            workspace.created_at,
+            workspace.updated_at
         )
-        .bind(workspace.id.as_uuid())
-        .bind(&workspace.name)
-        .bind(workspace.slug.as_str())
-        .bind(&workspace.description)
-        .bind(&workspace.icon)
-        .bind(workspace.owner_id.as_uuid())
-        .bind(workspace.min_kek_version)
-        .bind(workspace.needs_kek_rotation)
-        .bind(workspace.created_at)
-        .bind(workspace.updated_at)
         .execute(&self.pool)
         .await?;
 
@@ -157,8 +131,7 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     }
 
     async fn delete(&self, id: WorkspaceId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM workspaces WHERE id = $1")
-            .bind(id.as_uuid())
+        sqlx::query!("DELETE FROM workspaces WHERE id = $1", id.as_uuid())
             .execute(&self.pool)
             .await?;
 

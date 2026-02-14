@@ -2,7 +2,6 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use super::user::UserId;
 use crate::encryption::DeviceId;
@@ -22,59 +21,14 @@ pub struct Session {
     pub created_at: DateTime<Utc>,
 }
 
-/// Session ID value object
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SessionId(Uuid);
-
-impl SessionId {
-    pub fn new() -> Self {
-        Self(Uuid::now_v7())
-    }
-
-    pub fn from_uuid(uuid: Uuid) -> Self {
-        Self(uuid)
-    }
-
-    pub fn as_uuid(&self) -> Uuid {
-        self.0
-    }
-}
-
-impl Default for SessionId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for SessionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+define_id!(/// Session ID value object
+pub SessionId);
 
 /// Session duration constants
 const SESSION_DURATION_HOURS: i64 = 24;
 const REMEMBER_ME_DURATION_DAYS: i64 = 30;
 
 impl Session {
-    /// Create a new session
-    pub fn new(
-        user_id: UserId,
-        token_hash: String,
-        remember_me: bool,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-    ) -> Self {
-        Self::with_device(
-            user_id,
-            None,
-            token_hash,
-            remember_me,
-            ip_address,
-            user_agent,
-        )
-    }
-
     /// Create a new recovery session (no device binding, is_recovery = true)
     pub fn new_recovery(
         user_id: UserId,
@@ -134,18 +88,8 @@ impl Session {
         Utc::now() > self.expires_at
     }
 
-    /// Check if the session is valid
-    pub fn is_valid(&self) -> bool {
-        !self.is_expired()
-    }
-
-    /// Extend session expiration
-    pub fn extend(&mut self) {
-        let duration = if self.remember_me {
-            Duration::days(REMEMBER_ME_DURATION_DAYS)
-        } else {
-            Duration::hours(SESSION_DURATION_HOURS)
-        };
-        self.expires_at = Utc::now() + duration;
+    /// Bind a device to this session
+    pub fn bind_device(&mut self, device_id: DeviceId) {
+        self.device_id = Some(device_id);
     }
 }

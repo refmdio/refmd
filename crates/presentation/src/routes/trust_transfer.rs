@@ -5,18 +5,8 @@
 //! - POST /api/trust-transfer/state - Submit encrypted state (existing device)
 //! - GET /api/trust-transfer/state - Retrieve encrypted state (new device)
 
-use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
-use application::domain::encryption::{
-    DeviceEncryptedUMKRepository, DeviceId, DeviceRepository, DocumentEncryptedKeyRepository,
-    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
-    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
-};
-use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
-use application::domain::transfer_nonce::EncryptedTransferState;
-use application::domain::workspace::{
-    WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
-};
-use application::identity::RegistrationService;
+use crate::map_decode_response;
+use application::types::{DeviceId, EncryptedTransferStateDto};
 use application::trust_transfer::{
     RequestNonceCommand, RequestNonceHandler, RetrieveStateCommand, RetrieveStateHandler,
     SubmitStateCommand, SubmitStateHandler,
@@ -25,60 +15,29 @@ use axum::{
     Json, Router,
     extract::{Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{AppState, AuthUserFull, PopVerifiedUser};
+use crate::{AppState, AuthUser, PopVerifiedUser, TrustTransferSubState};
+use crate::crypto_validation::{decode_b64_array, decode_b64_max};
+use super::{app_error_response, error_response_struct};
 
-/// Maximum size for encrypted state payload (1 MB)
-const MAX_ENCRYPTED_STATE_SIZE: usize = 1024 * 1024;
+/// Maximum encrypted trust state payload (1 MB, matches application layer limit).
+const MAX_ENCRYPTED_STATE_BYTES: usize = 1024 * 1024;
+
+// Shared error response type for all trust-transfer endpoints
+error_response_struct!(TrustTransferErrorResponse);
 
 /// Create trust transfer routes
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-) -> Router
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
+pub fn routes(state: AppState) -> Router {
     Router::new()
-        .route(
-            "/nonce",
-            post(request_nonce::<
-                U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
-            >),
-        )
-        .route(
-            "/state",
-            post(submit_state::<
-                U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
-            >),
-        )
-        .route(
-            "/state",
-            get(retrieve_state::<
-                U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
-            >),
-        )
+        .route("/nonce", post(request_nonce))
+        .route("/state", post(submit_state))
+        .route("/state", get(retrieve_state))
         .with_state(state)
 }
 
@@ -102,12 +61,6 @@ pub struct RequestNonceResponse {
     pub expires_at: String,
 }
 
-/// Request nonce error response
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RequestNonceErrorResponse {
-    pub error: String,
-}
-
 /// Request a transfer nonce (new device)
 #[utoipa::path(
     post,
@@ -117,85 +70,37 @@ pub struct RequestNonceErrorResponse {
     responses(
         (status = 200, description = "Nonce generated", body = RequestNonceResponse),
         (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Device not found", body = RequestNonceErrorResponse),
-        (status = 500, description = "Server error", body = RequestNonceErrorResponse),
+        (status = 404, description = "Device not found", body = TrustTransferErrorResponse),
+        (status = 500, description = "Server error", body = TrustTransferErrorResponse),
     ),
     security(("session_cookie" = []))
 )]
-async fn request_nonce<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<
-        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-    >,
-    auth: AuthUserFull<
-        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
-    >,
+async fn request_nonce(
+    State(state): State<TrustTransferSubState>,
+    auth: AuthUser,
     Json(req): Json<RequestNonceRequest>,
-) -> impl IntoResponse
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
+) -> impl IntoResponse {
     let handler = RequestNonceHandler::new(
-        state.transfer_nonce_store(),
-        state.device_repo(),
-        state.pending_device_repo(),
+        state.transfer_nonce_store.clone(),
+        state.device_repo.clone(),
+        state.pending_device_repo.clone(),
+        state.device_event_bus.clone(),
     );
 
     let command = RequestNonceCommand {
-        user_id: auth.user.id,
+        user_id: auth.user_id,
         new_device_id: DeviceId::from_uuid(req.device_id),
     };
 
     match handler.handle(command).await {
         Ok(result) => {
-            // Emit SSE event to notify existing devices
-            state
-                .device_event_bus()
-                .trust_transfer_nonce_ready(
-                    auth.user.id,
-                    DeviceId::from_uuid(req.device_id),
-                    &result.nonce,
-                )
-                .await;
-
             let response = RequestNonceResponse {
                 nonce: base64_url::encode(&result.nonce),
                 expires_at: result.expires_at.to_rfc3339(),
             };
             (StatusCode::OK, Json(response)).into_response()
         }
-        Err(e) if e.is_not_found() => (
-            StatusCode::NOT_FOUND,
-            Json(RequestNonceErrorResponse {
-                error: "Device not found".to_string(),
-            }),
-        )
-            .into_response(),
-        Err(e) => {
-            tracing::error!("Failed to generate transfer nonce: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(RequestNonceErrorResponse {
-                    error: "Failed to generate nonce".to_string(),
-                }),
-            )
-                .into_response()
-        }
+        Err(e) => app_error_response!(e, TrustTransferErrorResponse, not_found),
     }
 }
 
@@ -218,48 +123,26 @@ pub struct SubmitStateRequest {
     pub signature: String,
 }
 
-/// Submit state error response
-#[derive(Debug, Serialize, ToSchema)]
-pub struct SubmitStateErrorResponse {
-    pub error: String,
-    pub code: String,
+/// Decoded binary fields from a submit-state request.
+struct DecodedSubmitFields {
+    transfer_nonce: [u8; 32],
+    ciphertext: Vec<u8>,
+    nonce: [u8; 24],
+    signature: [u8; 64],
 }
 
-impl SubmitStateErrorResponse {
-    fn invalid_nonce() -> Self {
-        Self {
-            error: "Invalid or expired transfer nonce".to_string(),
-            code: "invalid_nonce".to_string(),
-        }
-    }
+/// Decode and validate all base64url-encoded fields from a submit-state request.
+#[allow(clippy::result_large_err)]
+fn decode_submit_fields(
+    req: &SubmitStateRequest,
+) -> Result<DecodedSubmitFields, Response> {
+    let transfer_nonce: [u8; 32] =
+        decode_b64_array("transfer_nonce", &req.transfer_nonce).map_err(map_decode_response!(TrustTransferErrorResponse))?;
+    let ciphertext = decode_b64_max("ciphertext", &req.ciphertext, MAX_ENCRYPTED_STATE_BYTES).map_err(map_decode_response!(TrustTransferErrorResponse))?;
+    let nonce: [u8; 24] = decode_b64_array("nonce", &req.nonce).map_err(map_decode_response!(TrustTransferErrorResponse))?;
+    let signature: [u8; 64] = decode_b64_array("signature", &req.signature).map_err(map_decode_response!(TrustTransferErrorResponse))?;
 
-    fn invalid_format(msg: &str) -> Self {
-        Self {
-            error: msg.to_string(),
-            code: "invalid_format".to_string(),
-        }
-    }
-
-    fn payload_too_large() -> Self {
-        Self {
-            error: "Encrypted state payload too large".to_string(),
-            code: "payload_too_large".to_string(),
-        }
-    }
-
-    fn target_device_not_found() -> Self {
-        Self {
-            error: "Target device not found".to_string(),
-            code: "target_device_not_found".to_string(),
-        }
-    }
-
-    fn server_error() -> Self {
-        Self {
-            error: "Server error".to_string(),
-            code: "server_error".to_string(),
-        }
-    }
+    Ok(DecodedSubmitFields { transfer_nonce, ciphertext, nonce, signature })
 }
 
 /// Submit encrypted trust state (existing device)
@@ -270,168 +153,57 @@ impl SubmitStateErrorResponse {
     request_body = SubmitStateRequest,
     responses(
         (status = 204, description = "State submitted successfully"),
-        (status = 400, description = "Invalid request", body = SubmitStateErrorResponse),
+        (status = 400, description = "Invalid request", body = TrustTransferErrorResponse),
         (status = 401, description = "Unauthorized"),
-        (status = 500, description = "Server error", body = SubmitStateErrorResponse),
+        (status = 413, description = "Payload too large", body = TrustTransferErrorResponse),
+        (status = 500, description = "Server error", body = TrustTransferErrorResponse),
     ),
     security(("session_cookie" = []))
 )]
-async fn submit_state<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<
-        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-    >,
-    pop_user: PopVerifiedUser<
-        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
-    >,
+async fn submit_state(
+    State(state): State<TrustTransferSubState>,
+    pop_user: PopVerifiedUser,
     Json(req): Json<SubmitStateRequest>,
-) -> impl IntoResponse
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
+) -> impl IntoResponse {
     // Use the device ID from PoP verification (not session) to ensure binding
     let sender_device_id = pop_user.device.id;
 
-    // Verify target device exists and belongs to this user
-    let target_device_id = DeviceId::from_uuid(req.target_device_id);
-    let device_repo = state.device_repo();
-
-    // Check if target is a pending device or active device
-    let pending_repo = state.pending_device_repo();
-    let is_valid_target = match pending_repo.find_by_id(target_device_id).await {
-        Ok(Some(pending)) => pending.user_id == pop_user.user.id,
-        Ok(None) => {
-            // Not a pending device, check active devices
-            match device_repo.find_by_id(target_device_id).await {
-                Ok(Some(device)) => device.user_id == pop_user.user.id && !device.is_revoked(),
-                Ok(None) => false,
-                Err(_) => false,
-            }
-        }
-        Err(_) => false,
-    };
-
-    if !is_valid_target {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(SubmitStateErrorResponse::target_device_not_found()),
-        )
-            .into_response();
-    }
-
-    // Decode transfer nonce
-    let transfer_nonce: [u8; 32] = match base64_url::decode(&req.transfer_nonce) {
-        Ok(bytes) if bytes.len() == 32 => bytes.try_into().unwrap(),
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(SubmitStateErrorResponse::invalid_format(
-                    "transfer_nonce must be 32 bytes base64url",
-                )),
-            )
-                .into_response();
-        }
-    };
-
-    // Decode ciphertext
-    let ciphertext = match base64_url::decode(&req.ciphertext) {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(SubmitStateErrorResponse::invalid_format(
-                    "Invalid ciphertext encoding",
-                )),
-            )
-                .into_response();
-        }
-    };
-
-    // Check payload size limit (on decoded bytes, not base64 string)
-    if ciphertext.len() > MAX_ENCRYPTED_STATE_SIZE {
-        return (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(SubmitStateErrorResponse::payload_too_large()),
-        )
-            .into_response();
-    }
-
-    // Decode nonce
-    let nonce: [u8; 24] = match base64_url::decode(&req.nonce) {
-        Ok(bytes) if bytes.len() == 24 => bytes.try_into().unwrap(),
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(SubmitStateErrorResponse::invalid_format(
-                    "nonce must be 24 bytes base64url",
-                )),
-            )
-                .into_response();
-        }
-    };
-
-    // Decode signature
-    let signature: [u8; 64] = match base64_url::decode(&req.signature) {
-        Ok(bytes) if bytes.len() == 64 => bytes.try_into().unwrap(),
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(SubmitStateErrorResponse::invalid_format(
-                    "signature must be 64 bytes base64url",
-                )),
-            )
-                .into_response();
-        }
+    // Decode and validate all binary fields
+    let fields = match decode_submit_fields(&req) {
+        Ok(fields) => fields,
+        Err(resp) => return resp,
     };
 
     let handler = SubmitStateHandler::new(
-        state.transfer_nonce_store(),
-        state.transfer_state_store(),
+        state.transfer_nonce_store.clone(),
+        state.transfer_state_store.clone(),
+        state.device_repo.clone(),
+        state.pending_device_repo.clone(),
     );
 
     let command = SubmitStateCommand {
-        user_id: pop_user.user.id,
+        user_id: pop_user.user_id,
         sender_device_id,
         target_device_id: DeviceId::from_uuid(req.target_device_id),
-        transfer_nonce,
-        encrypted_state: EncryptedTransferState {
-            ciphertext,
-            nonce,
-            signature,
+        transfer_nonce: fields.transfer_nonce,
+        encrypted_state: EncryptedTransferStateDto {
+            ciphertext: fields.ciphertext,
+            nonce: fields.nonce,
+            signature: fields.signature,
             sender_device_id,
         },
     };
 
     match handler.handle(command).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) if e.is_bad_request() => (
-            StatusCode::BAD_REQUEST,
-            Json(SubmitStateErrorResponse::invalid_nonce()),
+        Err(application::trust_transfer::SubmitStateError::PayloadTooLarge) => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(TrustTransferErrorResponse {
+                error: "encrypted state payload too large".to_string(),
+            }),
         )
             .into_response(),
-        Err(e) => {
-            tracing::error!("Failed to submit transfer state: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(SubmitStateErrorResponse::server_error()),
-            )
-                .into_response()
-        }
+        Err(e) => app_error_response!(e, TrustTransferErrorResponse, bad_request),
     }
 }
 
@@ -452,29 +224,6 @@ pub struct RetrieveStateResponse {
     pub signature: String,
 }
 
-/// Retrieve state error response
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RetrieveStateErrorResponse {
-    pub error: String,
-    pub code: String,
-}
-
-impl RetrieveStateErrorResponse {
-    fn not_found() -> Self {
-        Self {
-            error: "No transfer state available".to_string(),
-            code: "not_found".to_string(),
-        }
-    }
-
-    fn server_error() -> Self {
-        Self {
-            error: "Server error".to_string(),
-            code: "server_error".to_string(),
-        }
-    }
-}
-
 /// Query parameters for retrieve state
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct RetrieveStateQuery {
@@ -493,48 +242,25 @@ pub struct RetrieveStateQuery {
     ),
     responses(
         (status = 200, description = "State retrieved", body = RetrieveStateResponse),
-        (status = 400, description = "Missing device_id", body = RetrieveStateErrorResponse),
+        (status = 400, description = "Missing device_id", body = TrustTransferErrorResponse),
         (status = 401, description = "Unauthorized"),
-        (status = 404, description = "No state available", body = RetrieveStateErrorResponse),
-        (status = 500, description = "Server error", body = RetrieveStateErrorResponse),
+        (status = 404, description = "No state available", body = TrustTransferErrorResponse),
+        (status = 500, description = "Server error", body = TrustTransferErrorResponse),
     ),
     security(("session_cookie" = []))
 )]
-async fn retrieve_state<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    State(state): State<
-        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-    >,
-    auth: AuthUserFull<
-        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
-    >,
+async fn retrieve_state(
+    State(state): State<TrustTransferSubState>,
+    auth: AuthUser,
     Query(query): Query<RetrieveStateQuery>,
-) -> impl IntoResponse
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
+) -> impl IntoResponse {
     // Get device ID from query parameter (new device retrieving the state)
     let device_id = DeviceId::from_uuid(query.device_id);
 
-    let handler = RetrieveStateHandler::new(state.transfer_state_store());
+    let handler = RetrieveStateHandler::new(state.transfer_state_store.clone());
 
     let command = RetrieveStateCommand {
-        user_id: auth.user.id,
+        user_id: auth.user_id,
         device_id,
     };
 
@@ -548,18 +274,6 @@ where
             };
             (StatusCode::OK, Json(response)).into_response()
         }
-        Err(e) if e.is_not_found() => (
-            StatusCode::NOT_FOUND,
-            Json(RetrieveStateErrorResponse::not_found()),
-        )
-            .into_response(),
-        Err(e) => {
-            tracing::error!("Failed to retrieve transfer state: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(RetrieveStateErrorResponse::server_error()),
-            )
-                .into_response()
-        }
+        Err(e) => app_error_response!(e, TrustTransferErrorResponse, not_found),
     }
 }

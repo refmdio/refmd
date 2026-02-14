@@ -3,12 +3,14 @@
 //! Returns user info and encrypted keys for session restoration.
 
 use domain::encryption::{
-    DeviceId, DeviceRepository, UserEncryptedIdentityKey, UserEncryptedIdentityKeyRepository,
-    UserEncryptedMasterKey, UserEncryptedMasterKeyRepository,
+    DeviceId, DeviceRepository, UserEncryptedIdentityKeyRepository,
+    UserEncryptedMasterKeyRepository,
 };
-use domain::identity::{Session, SessionRepository, User, UserRepository};
+use domain::identity::{SessionRepository, UserRepository};
 use std::sync::Arc;
 use thiserror::Error;
+
+use crate::dto::{SessionDto, UserDto};
 
 /// Get current user query
 #[derive(Debug)]
@@ -20,16 +22,32 @@ pub struct GetCurrentUserQuery {
 /// Get current user result
 #[derive(Debug)]
 pub struct GetCurrentUserResult {
-    pub user: User,
-    pub session: Session,
-    pub encrypted_master_key: UserEncryptedMasterKey,
-    pub encrypted_identity_key: UserEncryptedIdentityKey,
+    pub user: UserDto,
+    pub session: SessionDto,
+    /// "password" or "oauth"
+    pub auth_type: String,
     /// Whether the session's device is verified (exists, active, belongs to user)
     pub device_verified: bool,
     /// The verified device ID (if device_verified is true)
     pub device_id: Option<DeviceId>,
     /// Whether the user has any active devices
     pub has_devices: bool,
+    /// Encrypted keys — only present when device is verified.
+    /// Application layer resolves password vs OAuth key invariants.
+    pub keys: Option<MeKeys>,
+}
+
+/// Encrypted keys for the /me response, pre-resolved by application layer.
+#[derive(Debug)]
+pub struct MeKeys {
+    /// Encrypted UMK (None for OAuth users who use DSK/recovery key)
+    pub encrypted_umk: Option<Vec<u8>>,
+    /// UMK nonce (None for OAuth users)
+    pub umk_nonce: Option<Vec<u8>>,
+    pub encrypted_ecdh_private: Vec<u8>,
+    pub encrypted_ecdh_private_nonce: Vec<u8>,
+    pub encrypted_signing_private: Vec<u8>,
+    pub encrypted_signing_private_nonce: Vec<u8>,
 }
 
 /// Get current user error
@@ -53,6 +71,9 @@ pub enum GetCurrentUserError<
     #[error("encryption keys not found")]
     EncryptionKeysNotFound,
 
+    #[error("data inconsistency: password user missing encryption keys")]
+    DataInconsistency,
+
     #[error("user repository error: {0}")]
     UserRepository(UR),
 
@@ -69,7 +90,7 @@ pub enum GetCurrentUserError<
     DeviceRepository(DER),
 }
 
-impl<UR, SR, UEM, UEI, DER> GetCurrentUserError<UR, SR, UEM, UEI, DER>
+impl<UR, SR, UEM, UEI, DER> crate::types::AppError for GetCurrentUserError<UR, SR, UEM, UEI, DER>
 where
     UR: std::error::Error,
     SR: std::error::Error,
@@ -77,7 +98,7 @@ where
     UEI: std::error::Error,
     DER: std::error::Error,
 {
-    pub fn is_unauthorized(&self) -> bool {
+    fn is_unauthenticated(&self) -> bool {
         matches!(
             self,
             GetCurrentUserError::SessionNotFound
@@ -88,7 +109,7 @@ where
 }
 
 /// Get current user handler
-pub struct GetCurrentUserHandler<U, S, UEM, UEI, DER> {
+pub struct GetCurrentUserHandler<U: ?Sized, S: ?Sized, UEM: ?Sized, UEI: ?Sized, DER: ?Sized> {
     user_repo: Arc<U>,
     session_repo: Arc<S>,
     encrypted_master_key_repo: Arc<UEM>,
@@ -96,7 +117,7 @@ pub struct GetCurrentUserHandler<U, S, UEM, UEI, DER> {
     device_repo: Arc<DER>,
 }
 
-impl<U, S, UEM, UEI, DER> GetCurrentUserHandler<U, S, UEM, UEI, DER>
+impl<U: ?Sized, S: ?Sized, UEM: ?Sized, UEI: ?Sized, DER: ?Sized> GetCurrentUserHandler<U, S, UEM, UEI, DER>
 where
     U: UserRepository,
     S: SessionRepository,
@@ -162,36 +183,55 @@ where
             .map_err(GetCurrentUserError::EncryptedIdentityKeyRepository)?
             .ok_or(GetCurrentUserError::EncryptionKeysNotFound)?;
 
-        // Check device verification (same pattern as login handler)
-        let devices = self
-            .device_repo
-            .find_active_by_user_id(session.user_id)
-            .await
-            .map_err(GetCurrentUserError::DeviceRepository)?;
-        let has_devices = !devices.is_empty();
+        // Check device verification (shared utility with login handler)
+        let device_check = crate::util::device_ownership::verify_session_device(
+            &self.device_repo,
+            session.user_id,
+            session.device_id,
+        )
+        .await
+        .map_err(GetCurrentUserError::DeviceRepository)?;
+        let has_devices = device_check.has_devices;
+        let device_verified = device_check.device_verified;
+        let device_id = device_check.verified_device_id;
 
-        let (device_verified, device_id) = if let Some(session_device_id) = session.device_id {
-            let device_valid = devices.iter().any(|d| d.id == session_device_id);
-            (
-                device_valid,
-                if device_valid {
-                    Some(session_device_id)
-                } else {
-                    None
-                },
-            )
+        // Determine auth type
+        let is_password_user = encrypted_master_key.is_password_user();
+        let auth_type = if is_password_user { "password" } else { "oauth" }.to_string();
+
+        // Resolve keys only for verified devices
+        let keys = if device_verified {
+            // Resolve UMK: present for password users, None for OAuth
+            let (encrypted_umk, umk_nonce) = match (&encrypted_master_key.encrypted_umk, &encrypted_master_key.umk_nonce) {
+                (Some(enc), Some(nonce)) if !enc.is_empty() => (Some(enc.clone()), Some(nonce.clone())),
+                _ => {
+                    if is_password_user {
+                        return Err(GetCurrentUserError::DataInconsistency);
+                    }
+                    (None, None)
+                }
+            };
+
+            Some(MeKeys {
+                encrypted_umk,
+                umk_nonce,
+                encrypted_ecdh_private: encrypted_identity_key.encrypted_ecdh_private,
+                encrypted_ecdh_private_nonce: encrypted_identity_key.encrypted_ecdh_private_nonce,
+                encrypted_signing_private: encrypted_identity_key.encrypted_signing_private,
+                encrypted_signing_private_nonce: encrypted_identity_key.encrypted_signing_private_nonce,
+            })
         } else {
-            (false, None)
+            None
         };
 
         Ok(GetCurrentUserResult {
-            user,
-            session,
-            encrypted_master_key,
-            encrypted_identity_key,
+            user: user.into(),
+            session: session.into(),
+            auth_type,
             device_verified,
             device_id,
             has_devices,
+            keys,
         })
     }
 }

@@ -4,30 +4,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::encryption::{Device, DeviceId, DeviceRepository, DeviceType};
 use domain::identity::UserId;
-use sqlx::PgPool;
-use thiserror::Error;
 use uuid::Uuid;
 
-/// PostgreSQL device repository
-#[derive(Clone)]
-pub struct PgDeviceRepository {
-    pool: PgPool,
-}
-
-impl PgDeviceRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgDeviceRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("corrupted data: invalid device type: {0}")]
-    InvalidDeviceType(String),
-}
+pg_repo_struct!(PgDeviceRepository);
+pg_repo_error!(PgDeviceRepositoryError, InvalidDeviceType(String));
 
 #[derive(sqlx::FromRow)]
 struct DeviceRow {
@@ -72,15 +52,16 @@ impl DeviceRepository for PgDeviceRepository {
     type Error = PgDeviceRepositoryError;
 
     async fn find_by_id(&self, id: DeviceId) -> Result<Option<Device>, Self::Error> {
-        let row = sqlx::query_as::<_, DeviceRow>(
+        let row = sqlx::query_as!(
+            DeviceRow,
             r#"
             SELECT id, user_id, name, device_type, ecdh_public_key, signing_public_key,
                    identity_signature, client_nonce, last_seen_at, created_at, revoked_at
             FROM devices
             WHERE id = $1
             "#,
+            id.as_uuid()
         )
-        .bind(id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -88,7 +69,8 @@ impl DeviceRepository for PgDeviceRepository {
     }
 
     async fn find_by_user_id(&self, user_id: UserId) -> Result<Vec<Device>, Self::Error> {
-        let rows = sqlx::query_as::<_, DeviceRow>(
+        let rows = sqlx::query_as!(
+            DeviceRow,
             r#"
             SELECT id, user_id, name, device_type, ecdh_public_key, signing_public_key,
                    identity_signature, client_nonce, last_seen_at, created_at, revoked_at
@@ -96,8 +78,8 @@ impl DeviceRepository for PgDeviceRepository {
             WHERE user_id = $1
             ORDER BY created_at DESC
             "#,
+            user_id.as_uuid()
         )
-        .bind(user_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
@@ -105,7 +87,8 @@ impl DeviceRepository for PgDeviceRepository {
     }
 
     async fn find_active_by_user_id(&self, user_id: UserId) -> Result<Vec<Device>, Self::Error> {
-        let rows = sqlx::query_as::<_, DeviceRow>(
+        let rows = sqlx::query_as!(
+            DeviceRow,
             r#"
             SELECT id, user_id, name, device_type, ecdh_public_key, signing_public_key,
                    identity_signature, client_nonce, last_seen_at, created_at, revoked_at
@@ -113,8 +96,8 @@ impl DeviceRepository for PgDeviceRepository {
             WHERE user_id = $1 AND revoked_at IS NULL
             ORDER BY last_seen_at DESC
             "#,
+            user_id.as_uuid()
         )
-        .bind(user_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
@@ -122,7 +105,7 @@ impl DeviceRepository for PgDeviceRepository {
     }
 
     async fn save(&self, device: &Device) -> Result<(), Self::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO devices (id, user_id, name, device_type, ecdh_public_key, signing_public_key,
                                 identity_signature, client_nonce, last_seen_at, created_at, revoked_at)
@@ -132,18 +115,18 @@ impl DeviceRepository for PgDeviceRepository {
                 last_seen_at = EXCLUDED.last_seen_at,
                 revoked_at = EXCLUDED.revoked_at
             "#,
+            device.id.as_uuid(),
+            device.user_id.as_uuid(),
+            &device.name,
+            device.device_type.as_str(),
+            &device.ecdh_public_key,
+            &device.signing_public_key,
+            &device.identity_signature,
+            &device.client_nonce,
+            device.last_seen_at,
+            device.created_at,
+            device.revoked_at as Option<DateTime<Utc>>
         )
-        .bind(device.id.as_uuid())
-        .bind(device.user_id.as_uuid())
-        .bind(&device.name)
-        .bind(device.device_type.as_str())
-        .bind(&device.ecdh_public_key)
-        .bind(&device.signing_public_key)
-        .bind(&device.identity_signature)
-        .bind(&device.client_nonce)
-        .bind(device.last_seen_at)
-        .bind(device.created_at)
-        .bind(device.revoked_at)
         .execute(&self.pool)
         .await?;
 
@@ -151,10 +134,12 @@ impl DeviceRepository for PgDeviceRepository {
     }
 
     async fn delete(&self, id: DeviceId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM devices WHERE id = $1")
-            .bind(id.as_uuid())
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM devices WHERE id = $1",
+            id.as_uuid()
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }

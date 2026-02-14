@@ -70,18 +70,4 @@ pub trait RecoveryChallengeStore: Send + Sync {
         email: &str,
         challenge: &[u8; 32],
     ) -> Result<(), RecoveryChallengeError>;
-
-    /// Verify and consume a challenge atomically
-    ///
-    /// Returns Ok(()) if the challenge is valid and was successfully consumed.
-    /// Returns Err(NotFound) if the challenge doesn't exist or was already used.
-    /// Returns Err(Expired) if the challenge has expired.
-    ///
-    /// Note: For DoS protection, prefer using `verify` + `consume` separately
-    /// to avoid consuming challenges before signature verification.
-    async fn verify_and_remove(
-        &self,
-        email: &str,
-        challenge: &[u8; 32],
-    ) -> Result<(), RecoveryChallengeError>;
 }

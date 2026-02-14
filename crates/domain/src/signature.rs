@@ -6,6 +6,18 @@
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use thiserror::Error;
+
+/// Errors from JCS canonicalization and signature message building
+#[derive(Debug, Error)]
+pub enum SignatureError {
+    #[error("JCS error: number {0} outside safe integer range (53-bit)")]
+    NumberOutOfRange(String),
+    #[error("JCS error: floating point numbers not allowed (use integer types). Value: {0}")]
+    FloatNotAllowed(String),
+    #[error("JCS error: payload serialization failed: {0}")]
+    SerializationFailed(#[from] serde_json::Error),
+}
 
 /// Signature protocol constants
 pub const SIGNATURE_PROTOCOL: &str = "doclock-v1";
@@ -45,64 +57,61 @@ impl SignatureAction {
 /// - Must be finite (no NaN, Infinity)
 /// - Must be safe integer (no floating point, within 53-bit signed range)
 /// - Must serialize as integer (not "1.0" but "1") for FE/BE consistency
-///
-/// # Panics
-/// Panics if the number is not JCS compliant
-fn validate_jcs_number(n: &serde_json::Number) {
+fn validate_jcs_number(n: &serde_json::Number) -> Result<(), SignatureError> {
     const MAX_SAFE_INTEGER: i64 = 9007199254740991; // 2^53 - 1
     const MIN_SAFE_INTEGER: i64 = -9007199254740991; // -(2^53 - 1)
 
     if let Some(i) = n.as_i64() {
         // Check if i64 is within safe integer range
-        if i > MAX_SAFE_INTEGER || i < MIN_SAFE_INTEGER {
-            panic!("JCS error: number {} outside safe integer range (53-bit)", i);
+        if !(MIN_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&i) {
+            return Err(SignatureError::NumberOutOfRange(i.to_string()));
         }
     } else if let Some(u) = n.as_u64() {
         // Check if u64 exceeds safe integer range (2^53 - 1)
         if u > MAX_SAFE_INTEGER as u64 {
-            panic!("JCS error: number {} outside safe integer range (53-bit)", u);
+            return Err(SignatureError::NumberOutOfRange(u.to_string()));
         }
     } else {
         // If it's not representable as i64 or u64, it's a float.
         // Reject ALL floats to ensure FE/BE serialization consistency.
         // (e.g., Rust serializes 1.0 as "1.0" but JS serializes as "1")
-        panic!(
-            "JCS error: floating point numbers not allowed (use integer types). Value: {}",
-            n
-        );
+        return Err(SignatureError::FloatNotAllowed(n.to_string()));
     }
+    Ok(())
 }
 
 /// Recursively sort object keys and validate values for RFC 8785 JCS compliance.
 /// - Arrays maintain order, objects have keys sorted by Unicode code point
 /// - Numbers are validated for JCS compliance (safe integers only)
 ///
-/// # Panics
-/// Panics if the value contains JCS-invalid data
 /// Public alias for sort_value for use in update_hash computation
-pub fn sort_value_public(value: Value) -> Value {
+pub fn sort_value_public(value: Value) -> Result<Value, SignatureError> {
     sort_value(value)
 }
 
-fn sort_value(value: Value) -> Value {
+fn sort_value(value: Value) -> Result<Value, SignatureError> {
     match value {
         Value::Object(map) => {
             // BTreeMap sorts by Rust's Ord for String, which is lexicographic
             // byte order (UTF-8), matching Unicode code point order for valid UTF-8
             let sorted: BTreeMap<String, Value> = map
                 .into_iter()
-                .map(|(k, v)| (k, sort_value(v)))
-                .collect();
-            Value::Object(serde_json::Map::from_iter(sorted))
+                .map(|(k, v)| sort_value(v).map(|sv| (k, sv)))
+                .collect::<Result<_, _>>()?;
+            Ok(Value::Object(serde_json::Map::from_iter(sorted)))
         }
         Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(sort_value).collect())
+            let sorted: Vec<Value> = arr
+                .into_iter()
+                .map(sort_value)
+                .collect::<Result<_, _>>()?;
+            Ok(Value::Array(sorted))
         }
         Value::Number(n) => {
-            validate_jcs_number(&n);
-            Value::Number(n)
+            validate_jcs_number(&n)?;
+            Ok(Value::Number(n))
         }
-        other => other,
+        other => Ok(other),
     }
 }
 
@@ -117,13 +126,11 @@ fn sort_value(value: Value) -> Value {
 ///
 /// # Returns
 /// Canonicalized JSON bytes ready for signing
-///
-/// # Panics
-/// Panics if payload serialization fails (JCS compliance guard)
-pub fn build_signature_message<T: Serialize>(action: SignatureAction, payload: &T) -> Vec<u8> {
-    // Serialize payload to JSON Value - panic on failure for JCS compliance
-    let payload_value = serde_json::to_value(payload)
-        .expect("JCS error: payload serialization failed");
+pub fn build_signature_message<T: Serialize>(
+    action: SignatureAction,
+    payload: &T,
+) -> Result<Vec<u8>, SignatureError> {
+    let payload_value = serde_json::to_value(payload)?;
 
     // Build base message with protocol fields
     let mut message: BTreeMap<String, Value> = BTreeMap::new();
@@ -134,13 +141,11 @@ pub fn build_signature_message<T: Serialize>(action: SignatureAction, payload: &
     // Merge payload fields with recursive sorting (BTreeMap ensures sorted keys)
     if let Value::Object(obj) = payload_value {
         for (key, value) in obj {
-            message.insert(key, sort_value(value));
+            message.insert(key, sort_value(value)?);
         }
     }
 
-    // Serialize to canonical JSON - panic on failure for JCS compliance
-    serde_json::to_vec(&message)
-        .expect("JCS error: message serialization failed")
+    Ok(serde_json::to_vec(&message)?)
 }
 
 /// Build a PoP challenge signature message.
@@ -151,7 +156,10 @@ pub fn build_signature_message<T: Serialize>(action: SignatureAction, payload: &
 ///
 /// # Returns
 /// Canonicalized JSON bytes ready for signing
-pub fn build_pop_signature_message(challenge: &str, device_id: &str) -> Vec<u8> {
+pub fn build_pop_signature_message(
+    challenge: &str,
+    device_id: &str,
+) -> Result<Vec<u8>, SignatureError> {
     #[derive(Serialize)]
     struct PopPayload<'a> {
         challenge: &'a str,
@@ -170,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_build_pop_signature_message() {
-        let message = build_pop_signature_message("test-challenge", "device-123");
+        let message = build_pop_signature_message("test-challenge", "device-123").unwrap();
         let json: Value = serde_json::from_slice(&message).unwrap();
 
         assert_eq!(json["protocol"], "doclock-v1");
@@ -182,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_message_is_canonicalized() {
-        let message = build_pop_signature_message("a", "b");
+        let message = build_pop_signature_message("a", "b").unwrap();
         let json_str = String::from_utf8_lossy(&message);
 
         // Keys should be sorted alphabetically
@@ -215,7 +223,7 @@ mod tests {
             },
         };
 
-        let message = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        let message = build_signature_message(SignatureAction::TrustStateTransfer, &payload).unwrap();
         let json_str = String::from_utf8_lossy(&message);
 
         // Verify top-level keys are sorted: a_field before nested before z_field
@@ -245,7 +253,7 @@ mod tests {
             ],
         };
 
-        let message = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        let message = build_signature_message(SignatureAction::TrustStateTransfer, &payload).unwrap();
         let json_str = String::from_utf8_lossy(&message);
 
         // Array order should be preserved, but object keys within array elements should be sorted
@@ -270,14 +278,13 @@ mod tests {
             max_safe: 9007199254740991, // 2^53 - 1
         };
 
-        // Should not panic
-        let message = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        let message = build_signature_message(SignatureAction::TrustStateTransfer, &payload).unwrap();
         let json_str = String::from_utf8_lossy(&message);
         assert!(json_str.contains(r#""small":42"#));
     }
 
     #[test]
-    #[should_panic(expected = "JCS error: floating point numbers not allowed (use integer types)")]
+    #[allow(clippy::approx_constant)]
     fn test_jcs_rejects_floats() {
         #[derive(Serialize)]
         struct FloatPayload {
@@ -285,11 +292,11 @@ mod tests {
         }
 
         let payload = FloatPayload { value: 3.14 };
-        let _ = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        let result = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        assert!(matches!(result, Err(SignatureError::FloatNotAllowed(_))));
     }
 
     #[test]
-    #[should_panic(expected = "JCS error: number")]
     fn test_jcs_rejects_large_integers() {
         #[derive(Serialize)]
         struct LargePayload {
@@ -299,11 +306,11 @@ mod tests {
         let payload = LargePayload {
             value: 9007199254740992, // 2^53, exceeds safe integer
         };
-        let _ = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        let result = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        assert!(matches!(result, Err(SignatureError::NumberOutOfRange(_))));
     }
 
     #[test]
-    #[should_panic(expected = "JCS error: floating point numbers not allowed (use integer types)")]
     fn test_jcs_rejects_integer_like_floats() {
         // Even 1.0 must be rejected because Rust serializes it as "1.0"
         // but JS would serialize it as "1", causing signature mismatch
@@ -313,7 +320,8 @@ mod tests {
         }
 
         let payload = FloatPayload { value: 1.0 };
-        let _ = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        let result = build_signature_message(SignatureAction::TrustStateTransfer, &payload);
+        assert!(matches!(result, Err(SignatureError::FloatNotAllowed(_))));
     }
 
     // ===================================================================
@@ -339,7 +347,8 @@ mod tests {
                 device_ecdh_public_key: "ZGVwaw".to_string(),    // base64url("depk")
                 client_nonce: "bm9uY2U".to_string(),              // base64url("nonce")
             },
-        );
+        )
+        .unwrap();
 
         let json_str = String::from_utf8(message).unwrap();
         // Keys are sorted alphabetically: action, client_nonce, device_ecdh_public_key,
@@ -366,7 +375,8 @@ mod tests {
                 reason: "compromised".to_string(),
                 revoked_at: 1700000000000i64,
             },
-        );
+        )
+        .unwrap();
 
         let json_str = String::from_utf8(message).unwrap();
         // Keys sorted: action, device_id, protocol, reason, revoked_at, version
@@ -397,7 +407,8 @@ mod tests {
                 timestamp: 1700000000000i64,
                 update_hash: "dXBkYXRlX2hhc2g".to_string(), // base64url("update_hash")
             },
-        );
+        )
+        .unwrap();
 
         let json_str = String::from_utf8(message).unwrap();
         // Keys sorted: action, document_id, key_version, prev_update_hash, protocol, timestamp, update_hash, version
@@ -417,7 +428,8 @@ mod tests {
                 timestamp: 1700000001000i64,
                 update_hash: "bmV3X2hhc2g".to_string(), // base64url("new_hash")
             },
-        );
+        )
+        .unwrap();
 
         let json_str2 = String::from_utf8(message2).unwrap();
         assert_eq!(

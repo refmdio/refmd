@@ -51,25 +51,6 @@ impl WorkspaceEncryptedKey {
         }
     }
 
-    /// Create initial KEK for workspace creator
-    pub fn new_initial(
-        workspace_id: WorkspaceId,
-        user_id: UserId,
-        device_id: DeviceId,
-        encrypted_kek: Vec<u8>,
-        nonce: Vec<u8>,
-    ) -> Self {
-        Self::new(NewWorkspaceKeyParams {
-            workspace_id,
-            user_id,
-            device_id,
-            sender_device_id: device_id, // sender is same device for initial
-            key_version: KeyVersion::initial(),
-            encrypted_kek,
-            nonce,
-            is_active: true,
-        })
-    }
 }
 
 /// Parameters for creating a new workspace KEK backup (encrypted with UMK)
@@ -144,14 +125,4 @@ impl DocumentEncryptedKey {
         }
     }
 
-    /// Create initial DEK for new document
-    pub fn new_initial(document_id: DocumentId, encrypted_dek: Vec<u8>, nonce: Vec<u8>) -> Self {
-        Self::new(
-            document_id,
-            KeyVersion::initial(),
-            encrypted_dek,
-            nonce,
-            true,
-        )
-    }
 }

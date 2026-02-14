@@ -7,16 +7,16 @@
 //! - Repository Traits: Interfaces for data access (implemented in infrastructure)
 //! - Domain Services: Business logic that doesn't belong to a single entity
 
+#[macro_use]
+mod id_macro;
+
+pub mod crypto_validation;
 pub mod device_events;
 pub mod document;
 pub mod encryption;
-pub mod file;
-pub mod git;
 pub mod identity;
-pub mod plugin;
 pub mod pop;
 pub mod recovery_challenge;
-pub mod sharing;
 pub mod signature;
 pub mod transfer_nonce;
 pub mod workspace;
@@ -25,7 +25,9 @@ pub mod workspace;
 pub use device_events::DeviceEvent;
 pub use pop::{ChallengeError, ChallengeStore};
 pub use recovery_challenge::{RecoveryChallengeError, RecoveryChallengeStore};
-pub use signature::{build_pop_signature_message, build_signature_message, SignatureAction};
+pub use signature::{
+    SignatureAction, SignatureError, build_pop_signature_message, build_signature_message,
+};
 pub use transfer_nonce::{
     EncryptedTransferState, TransferNonceError, TransferNonceStore, TransferStateError,
     TransferStateStore,

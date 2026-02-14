@@ -4,9 +4,11 @@
 
 use domain::encryption::DeviceId;
 use domain::identity::UserId;
-use domain::transfer_nonce::{EncryptedTransferState, TransferStateError, TransferStateStore};
+use domain::transfer_nonce::{TransferStateError, TransferStateStore};
 use std::sync::Arc;
 use thiserror::Error;
+
+use crate::dto::EncryptedTransferStateDto;
 
 /// Retrieve state command
 #[derive(Debug)]
@@ -21,7 +23,7 @@ pub struct RetrieveStateCommand {
 #[derive(Debug)]
 pub struct RetrieveStateResult {
     /// Encrypted trust state
-    pub encrypted_state: EncryptedTransferState,
+    pub encrypted_state: EncryptedTransferStateDto,
 }
 
 /// Retrieve state error
@@ -34,8 +36,8 @@ pub enum RetrieveStateError {
     StoreError,
 }
 
-impl RetrieveStateError {
-    pub fn is_not_found(&self) -> bool {
+impl crate::types::AppError for RetrieveStateError {
+    fn is_not_found(&self) -> bool {
         matches!(self, RetrieveStateError::NotFound)
     }
 }
@@ -63,12 +65,14 @@ impl RetrieveStateHandler {
         &self,
         command: RetrieveStateCommand,
     ) -> Result<RetrieveStateResult, RetrieveStateError> {
-        // Retrieve and consume the state (single-use)
-        let encrypted_state = self
+        // Retrieve and consume the state (single-use), convert domain → DTO
+        let domain_state = self
             .state_store
             .retrieve_and_consume(command.user_id, command.device_id)
             .await?;
 
-        Ok(RetrieveStateResult { encrypted_state })
+        Ok(RetrieveStateResult {
+            encrypted_state: domain_state.into(),
+        })
     }
 }

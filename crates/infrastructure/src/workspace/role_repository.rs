@@ -2,34 +2,11 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::workspace::{
-    BaseRole, Permission, RoleId, WorkspaceId, WorkspaceRole, WorkspaceRolePermission,
-    WorkspaceRolePermissionRepository, WorkspaceRoleRepository,
-};
-use sqlx::PgPool;
-use thiserror::Error;
+use domain::workspace::{BaseRole, RoleId, WorkspaceId, WorkspaceRole, WorkspaceRoleRepository};
 use uuid::Uuid;
 
-/// PostgreSQL workspace role repository
-#[derive(Clone)]
-pub struct PgWorkspaceRoleRepository {
-    pool: PgPool,
-}
-
-impl PgWorkspaceRoleRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgWorkspaceRoleRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("corrupted data: invalid base role: {0}")]
-    InvalidBaseRole(String),
-}
+pg_repo_struct!(PgWorkspaceRoleRepository);
+pg_repo_error!(PgWorkspaceRoleRepositoryError, InvalidBaseRole(String));
 
 #[derive(sqlx::FromRow)]
 struct WorkspaceRoleRow {
@@ -64,59 +41,50 @@ impl WorkspaceRoleRepository for PgWorkspaceRoleRepository {
     type Error = PgWorkspaceRoleRepositoryError;
 
     async fn find_by_id(&self, id: RoleId) -> Result<Option<WorkspaceRole>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceRoleRow>(
-            r#"
-            SELECT id, workspace_id, name, base_role, is_default, created_at
-            FROM workspace_roles
-            WHERE id = $1
-            "#,
+        let row = sqlx::query_as!(
+            WorkspaceRoleRow,
+            "SELECT id, workspace_id, name, base_role, is_default, created_at FROM workspace_roles WHERE id = $1",
+            id.as_uuid()
         )
-        .bind(id.as_uuid())
         .fetch_optional(&self.pool)
         .await?;
 
         row.map(|r| r.try_into_role()).transpose()
     }
 
-    async fn find_by_workspace_id(
-        &self,
-        workspace_id: WorkspaceId,
-    ) -> Result<Vec<WorkspaceRole>, Self::Error> {
-        let rows = sqlx::query_as::<_, WorkspaceRoleRow>(
-            r#"
-            SELECT id, workspace_id, name, base_role, is_default, created_at
-            FROM workspace_roles
-            WHERE workspace_id = $1
-            ORDER BY created_at
-            "#,
+    async fn find_by_ids(&self, ids: &[RoleId]) -> Result<Vec<WorkspaceRole>, Self::Error> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let uuids: Vec<Uuid> = ids.iter().map(|id| id.as_uuid()).collect();
+        let rows = sqlx::query_as!(
+            WorkspaceRoleRow,
+            "SELECT id, workspace_id, name, base_role, is_default, created_at FROM workspace_roles WHERE id = ANY($1)",
+            &uuids as _
         )
-        .bind(workspace_id.as_uuid())
         .fetch_all(&self.pool)
         .await?;
 
         rows.into_iter().map(|r| r.try_into_role()).collect()
     }
 
-    async fn find_default_by_workspace_id(
+    async fn find_by_workspace_id(
         &self,
         workspace_id: WorkspaceId,
-    ) -> Result<Option<WorkspaceRole>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceRoleRow>(
-            r#"
-            SELECT id, workspace_id, name, base_role, is_default, created_at
-            FROM workspace_roles
-            WHERE workspace_id = $1 AND is_default = TRUE
-            "#,
+    ) -> Result<Vec<WorkspaceRole>, Self::Error> {
+        let rows = sqlx::query_as!(
+            WorkspaceRoleRow,
+            "SELECT id, workspace_id, name, base_role, is_default, created_at FROM workspace_roles WHERE workspace_id = $1 ORDER BY created_at",
+            workspace_id.as_uuid()
         )
-        .bind(workspace_id.as_uuid())
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
-        row.map(|r| r.try_into_role()).transpose()
+        rows.into_iter().map(|r| r.try_into_role()).collect()
     }
 
     async fn save(&self, role: &WorkspaceRole) -> Result<(), Self::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO workspace_roles (id, workspace_id, name, base_role, is_default, created_at)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -124,13 +92,13 @@ impl WorkspaceRoleRepository for PgWorkspaceRoleRepository {
                 name = EXCLUDED.name,
                 is_default = EXCLUDED.is_default
             "#,
+            role.id.as_uuid(),
+            role.workspace_id.as_uuid(),
+            &role.name,
+            role.base_role.as_str(),
+            role.is_default,
+            role.created_at
         )
-        .bind(role.id.as_uuid())
-        .bind(role.workspace_id.as_uuid())
-        .bind(&role.name)
-        .bind(role.base_role.as_str())
-        .bind(role.is_default)
-        .bind(role.created_at)
         .execute(&self.pool)
         .await?;
 
@@ -138,8 +106,7 @@ impl WorkspaceRoleRepository for PgWorkspaceRoleRepository {
     }
 
     async fn delete(&self, id: RoleId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM workspace_roles WHERE id = $1")
-            .bind(id.as_uuid())
+        sqlx::query!("DELETE FROM workspace_roles WHERE id = $1", id.as_uuid())
             .execute(&self.pool)
             .await?;
 
@@ -147,130 +114,12 @@ impl WorkspaceRoleRepository for PgWorkspaceRoleRepository {
     }
 
     async fn delete_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM workspace_roles WHERE workspace_id = $1")
-            .bind(workspace_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
-
-        Ok(())
-    }
-}
-
-/// PostgreSQL workspace role permission repository
-#[derive(Clone)]
-pub struct PgWorkspaceRolePermissionRepository {
-    pool: PgPool,
-}
-
-impl PgWorkspaceRolePermissionRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PgWorkspaceRolePermissionRepositoryError {
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-}
-
-#[derive(sqlx::FromRow)]
-struct WorkspaceRolePermissionRow {
-    role_id: Uuid,
-    permission: String,
-    granted: bool,
-}
-
-impl From<WorkspaceRolePermissionRow> for WorkspaceRolePermission {
-    fn from(row: WorkspaceRolePermissionRow) -> Self {
-        Self {
-            role_id: RoleId::from_uuid(row.role_id),
-            permission: Permission::new(row.permission),
-            granted: row.granted,
-        }
-    }
-}
-
-#[async_trait]
-impl WorkspaceRolePermissionRepository for PgWorkspaceRolePermissionRepository {
-    type Error = PgWorkspaceRolePermissionRepositoryError;
-
-    async fn find_by_role_id(
-        &self,
-        role_id: RoleId,
-    ) -> Result<Vec<WorkspaceRolePermission>, Self::Error> {
-        let rows = sqlx::query_as::<_, WorkspaceRolePermissionRow>(
-            r#"
-            SELECT role_id, permission, granted
-            FROM workspace_role_permissions
-            WHERE role_id = $1
-            "#,
+        sqlx::query!(
+            "DELETE FROM workspace_roles WHERE workspace_id = $1",
+            workspace_id.as_uuid()
         )
-        .bind(role_id.as_uuid())
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(WorkspaceRolePermission::from)
-            .collect())
-    }
-
-    async fn find_by_role_and_permission(
-        &self,
-        role_id: RoleId,
-        permission: &Permission,
-    ) -> Result<Option<WorkspaceRolePermission>, Self::Error> {
-        let row = sqlx::query_as::<_, WorkspaceRolePermissionRow>(
-            r#"
-            SELECT role_id, permission, granted
-            FROM workspace_role_permissions
-            WHERE role_id = $1 AND permission = $2
-            "#,
-        )
-        .bind(role_id.as_uuid())
-        .bind(permission.as_str())
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(row.map(WorkspaceRolePermission::from))
-    }
-
-    async fn save(&self, permission: &WorkspaceRolePermission) -> Result<(), Self::Error> {
-        sqlx::query(
-            r#"
-            INSERT INTO workspace_role_permissions (role_id, permission, granted)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (role_id, permission) DO UPDATE SET
-                granted = EXCLUDED.granted
-            "#,
-        )
-        .bind(permission.role_id.as_uuid())
-        .bind(permission.permission.as_str())
-        .bind(permission.granted)
         .execute(&self.pool)
         .await?;
-
-        Ok(())
-    }
-
-    async fn delete(&self, role_id: RoleId, permission: &Permission) -> Result<(), Self::Error> {
-        sqlx::query(
-            "DELETE FROM workspace_role_permissions WHERE role_id = $1 AND permission = $2",
-        )
-        .bind(role_id.as_uuid())
-        .bind(permission.as_str())
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn delete_by_role_id(&self, role_id: RoleId) -> Result<(), Self::Error> {
-        sqlx::query("DELETE FROM workspace_role_permissions WHERE role_id = $1")
-            .bind(role_id.as_uuid())
-            .execute(&self.pool)
-            .await?;
 
         Ok(())
     }

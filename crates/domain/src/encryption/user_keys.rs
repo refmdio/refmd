@@ -29,13 +29,6 @@ impl UserIdentityPublicKey {
             updated_at: now,
         }
     }
-
-    pub fn public_keys(&self) -> PublicKeyPair {
-        PublicKeyPair::new(
-            self.ecdh_public_key.clone(),
-            self.signing_public_key.clone(),
-        )
-    }
 }
 
 /// User Encrypted Master Key (UMK)
@@ -128,10 +121,6 @@ impl UserEncryptedMasterKey {
     pub fn is_password_user(&self) -> bool {
         self.auth_type == AuthType::Password
     }
-
-    pub fn touch(&mut self) {
-        self.updated_at = Utc::now();
-    }
 }
 
 /// User Encrypted Identity Key
@@ -169,9 +158,5 @@ impl UserEncryptedIdentityKey {
             created_at: now,
             updated_at: now,
         }
-    }
-
-    pub fn touch(&mut self) {
-        self.updated_at = Utc::now();
     }
 }

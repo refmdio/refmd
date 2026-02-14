@@ -23,7 +23,7 @@ pub use user_keys::{
     UserIdentityPublicKey,
 };
 pub use value_objects::{
-    AuthType, AuthTypeError, DeviceId, DeviceType, DeviceTypeError, EncryptedData, KdfParams,
+    AuthType, AuthTypeError, DeviceId, DeviceType, DeviceTypeError, KdfParams,
     KdfType, KdfTypeError, KeyVersion, InvalidKeyVersion, PublicKeyPair,
 };
 pub use workspace_keys::{

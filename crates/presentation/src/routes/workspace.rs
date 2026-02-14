@@ -1,18 +1,7 @@
 //! Workspace routes
 
-use application::domain::document::{DocumentRepository, DocumentUpdateRepository};
-use application::domain::encryption::{
-    DeviceEncryptedUMKRepository, DeviceRepository, DocumentEncryptedKeyRepository,
-    PendingDeviceRepository, UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
-    UserIdentityPublicKeyRepository, WorkspaceEncryptedKeyRepository,
-};
-use application::domain::identity::{SessionRepository, UserRepository, UserSettingsRepository};
-use application::domain::workspace::{
-    WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
-};
-use application::identity::RegistrationService;
 use application::workspace::{
-    GetWorkspaceHandler, GetWorkspaceQuery, ListUserWorkspacesHandler, ListUserWorkspacesQuery,
+    GetWorkspaceQuery, ListUserWorkspacesQuery,
 };
 use axum::{
     Json, Router,
@@ -25,98 +14,18 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::AppState;
+use crate::{AppState, WorkspaceSubState};
 use crate::auth::PopVerifiedUser;
+use super::app_error_response;
 
 /// Create workspace routes
-pub fn routes<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>(
-    state: AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-) -> Router
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
+pub fn routes(state: AppState) -> Router {
     Router::new()
-        .route(
-            "/",
-            get(list_workspaces::<
-                U,
-                S,
-                US,
-                UIP,
-                UEM,
-                UEI,
-                WR,
-                WMR,
-                WRR,
-                DR,
-                DUR,
-                WKR,
-                DKR,
-                RS,
-                DER,
-                PDR,
-                UMKR,
-            >),
-        )
-        .route(
-            "/{id}",
-            get(get_workspace::<
-                U,
-                S,
-                US,
-                UIP,
-                UEM,
-                UEI,
-                WR,
-                WMR,
-                WRR,
-                DR,
-                DUR,
-                WKR,
-                DKR,
-                RS,
-                DER,
-                PDR,
-                UMKR,
-            >),
-        )
+        .route("/", get(list_workspaces))
+        .route("/{id}", get(get_workspace))
         .nest(
             "/{workspace_id}/documents",
-            super::document::workspace_routes::<
-                U,
-                S,
-                US,
-                UIP,
-                UEM,
-                UEI,
-                WR,
-                WMR,
-                WRR,
-                DR,
-                DUR,
-                WKR,
-                DKR,
-                RS,
-                DER,
-                PDR,
-                UMKR,
-            >(),
+            super::document::workspace_routes(),
         )
         .with_state(state)
 }
@@ -174,6 +83,33 @@ pub struct WorkspaceWithMembershipResponse {
     pub membership: MembershipResponse,
 }
 
+impl WorkspaceWithMembershipResponse {
+    fn from_dtos(
+        workspace: application::dto::WorkspaceDto,
+        membership: application::dto::WorkspaceMemberDto,
+        role: application::dto::WorkspaceRoleDto,
+    ) -> Self {
+        Self {
+            workspace: WorkspaceResponse {
+                id: workspace.id.to_string(),
+                name: workspace.name,
+                slug: workspace.slug,
+                owner_id: workspace.owner_id.to_string(),
+                created_at: workspace.created_at.to_rfc3339(),
+                updated_at: workspace.updated_at.to_rfc3339(),
+            },
+            membership: MembershipResponse {
+                is_default: membership.is_default,
+                role: RoleResponse {
+                    id: role.id.to_string(),
+                    name: role.name,
+                    base_role: role.base_role,
+                },
+            },
+        }
+    }
+}
+
 /// List workspaces response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ListWorkspacesResponse {
@@ -181,13 +117,7 @@ pub struct ListWorkspacesResponse {
     pub workspaces: Vec<WorkspaceWithMembershipResponse>,
 }
 
-/// Workspace error response
-#[derive(Debug, Serialize, ToSchema)]
-pub struct WorkspaceErrorResponse {
-    /// Error message
-    #[schema(example = "workspace not found")]
-    pub error: String,
-}
+super::error_response_struct!(WorkspaceErrorResponse, "workspace not found");
 
 /// List user's workspaces
 ///
@@ -202,96 +132,25 @@ pub struct WorkspaceErrorResponse {
     ),
     tag = "workspace"
 )]
-pub async fn list_workspaces<
-    U,
-    S,
-    US,
-    UIP,
-    UEM,
-    UEI,
-    WR,
-    WMR,
-    WRR,
-    DR,
-    DUR,
-    WKR,
-    DKR,
-    RS,
-    DER,
-    PDR,
-    UMKR,
->(
-    State(state): State<
-        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-    >,
-    pop_user: PopVerifiedUser<
-        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
-    >,
-) -> impl IntoResponse
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
-    let handler = ListUserWorkspacesHandler::new(
-        state.workspace_repo(),
-        state.workspace_member_repo(),
-        state.workspace_role_repo(),
-    );
+pub async fn list_workspaces(
+    State(state): State<WorkspaceSubState>,
+    pop_user: PopVerifiedUser,
+) -> impl IntoResponse {
+    let handler = state.list_workspaces_handler();
 
-    let query = ListUserWorkspacesQuery { user_id: pop_user.user.id };
+    let query = ListUserWorkspacesQuery { user_id: pop_user.user_id };
 
     match handler.handle(query).await {
         Ok(result) => {
             let workspaces = result
                 .workspaces
                 .into_iter()
-                .map(|w| WorkspaceWithMembershipResponse {
-                    workspace: WorkspaceResponse {
-                        id: w.workspace.id.to_string(),
-                        name: w.workspace.name.clone(),
-                        slug: w.workspace.slug.to_string(),
-                        owner_id: w.workspace.owner_id.to_string(),
-                        created_at: w.workspace.created_at.to_rfc3339(),
-                        updated_at: w.workspace.updated_at.to_rfc3339(),
-                    },
-                    membership: MembershipResponse {
-                        is_default: w.membership.is_default,
-                        role: RoleResponse {
-                            id: w.role.id.to_string(),
-                            name: w.role.name.clone(),
-                            base_role: w.role.base_role.to_string(),
-                        },
-                    },
-                })
+                .map(|w| WorkspaceWithMembershipResponse::from_dtos(w.workspace, w.membership, w.role))
                 .collect();
 
             (StatusCode::OK, Json(ListWorkspacesResponse { workspaces })).into_response()
         }
-        Err(e) => {
-            tracing::error!("Failed to list workspaces: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(WorkspaceErrorResponse {
-                    error: "internal server error".to_string(),
-                }),
-            )
-                .into_response()
-        }
+        Err(e) => app_error_response!(e, WorkspaceErrorResponse)
     }
 }
 
@@ -313,114 +172,28 @@ where
     ),
     tag = "workspace"
 )]
-pub async fn get_workspace<
-    U,
-    S,
-    US,
-    UIP,
-    UEM,
-    UEI,
-    WR,
-    WMR,
-    WRR,
-    DR,
-    DUR,
-    WKR,
-    DKR,
-    RS,
-    DER,
-    PDR,
-    UMKR,
->(
-    State(state): State<
-        AppState<U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR>,
-    >,
-    pop_user: PopVerifiedUser<
-        U, S, US, UIP, UEM, UEI, WR, WMR, WRR, DR, DUR, WKR, DKR, RS, DER, PDR, UMKR,
-    >,
+pub async fn get_workspace(
+    State(state): State<WorkspaceSubState>,
+    pop_user: PopVerifiedUser,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse
-where
-    U: UserRepository + Send + Sync + Clone + 'static,
-    S: SessionRepository + Send + Sync + Clone + 'static,
-    US: UserSettingsRepository + Send + Sync + Clone + 'static,
-    UIP: UserIdentityPublicKeyRepository + Send + Sync + Clone + 'static,
-    UEM: UserEncryptedMasterKeyRepository + Send + Sync + Clone + 'static,
-    UEI: UserEncryptedIdentityKeyRepository + Send + Sync + Clone + 'static,
-    WR: WorkspaceRepository + Send + Sync + Clone + 'static,
-    WMR: WorkspaceMemberRepository + Send + Sync + Clone + 'static,
-    WRR: WorkspaceRoleRepository + Send + Sync + Clone + 'static,
-    DR: DocumentRepository + Send + Sync + Clone + 'static,
-    DUR: DocumentUpdateRepository + Send + Sync + Clone + 'static,
-    WKR: WorkspaceEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    DKR: DocumentEncryptedKeyRepository + Send + Sync + Clone + 'static,
-    RS: RegistrationService + Send + Sync + Clone + 'static,
-    DER: DeviceRepository + Send + Sync + Clone + 'static,
-    PDR: PendingDeviceRepository + Send + Sync + Clone + 'static,
-    UMKR: DeviceEncryptedUMKRepository + Send + Sync + Clone + 'static,
-{
-    let handler = GetWorkspaceHandler::new(
-        state.workspace_repo(),
-        state.workspace_member_repo(),
-        state.workspace_role_repo(),
-    );
+) -> impl IntoResponse {
+    let handler = state.get_workspace_handler();
 
     let query = GetWorkspaceQuery {
-        workspace_id: application::domain::workspace::WorkspaceId::from_uuid(id),
-        user_id: pop_user.user.id,
+        workspace_id: application::types::WorkspaceId::from_uuid(id),
+        user_id: pop_user.user_id,
     };
 
     match handler.handle(query).await {
         Ok(result) => {
-            let response = WorkspaceWithMembershipResponse {
-                workspace: WorkspaceResponse {
-                    id: result.workspace.id.to_string(),
-                    name: result.workspace.name.clone(),
-                    slug: result.workspace.slug.to_string(),
-                    owner_id: result.workspace.owner_id.to_string(),
-                    created_at: result.workspace.created_at.to_rfc3339(),
-                    updated_at: result.workspace.updated_at.to_rfc3339(),
-                },
-                membership: MembershipResponse {
-                    is_default: result.membership.is_default,
-                    role: RoleResponse {
-                        id: result.role.id.to_string(),
-                        name: result.role.name.clone(),
-                        base_role: result.role.base_role.to_string(),
-                    },
-                },
-            };
-
+            let response = WorkspaceWithMembershipResponse::from_dtos(
+                result.workspace,
+                result.membership,
+                result.role,
+            );
             (StatusCode::OK, Json(response)).into_response()
         }
-        Err(e) => {
-            if e.is_not_found() {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(WorkspaceErrorResponse {
-                        error: "workspace not found".to_string(),
-                    }),
-                )
-                    .into_response()
-            } else if e.is_forbidden() {
-                (
-                    StatusCode::FORBIDDEN,
-                    Json(WorkspaceErrorResponse {
-                        error: "not a member of this workspace".to_string(),
-                    }),
-                )
-                    .into_response()
-            } else {
-                tracing::error!("Failed to get workspace: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(WorkspaceErrorResponse {
-                        error: "internal server error".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-        }
+        Err(e) => app_error_response!(e, WorkspaceErrorResponse, not_found, forbidden),
     }
 }
 

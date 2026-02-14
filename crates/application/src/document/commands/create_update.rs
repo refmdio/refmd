@@ -3,6 +3,9 @@
 //! Adds a new encrypted Yjs update to a document's CRDT log.
 //! Performs server-side validation: hash verification, chain verification,
 //! device ownership, and Ed25519 signature verification.
+//!
+//! The handler has 5 type parameters (document, update, member, role, device
+//! repositories) which is inherent to this cross-cutting operation.
 
 use domain::document::{
     DocumentId, DocumentRepository, DocumentUpdate, DocumentUpdateRepository,
@@ -10,14 +13,15 @@ use domain::document::{
 };
 use domain::encryption::{DeviceId, DeviceRepository};
 use domain::identity::UserId;
-use domain::signature::{SignatureAction, build_signature_message};
-use domain::workspace::{
-    WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository, can_perform,
-};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use serde::Serialize;
+use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository};
+
+use crate::util::document_update_verification;
+use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
 use std::sync::Arc;
 use thiserror::Error;
+
+/// Alias for the verbose `CreateDocumentUpdateError` with concrete associated error types.
+type CduError<DR, DUR, MR, RR, DevR> = CreateDocumentUpdateError<DR, DUR, MR, RR, DevR>;
 
 /// Create document update command
 #[derive(Debug)]
@@ -60,11 +64,8 @@ pub enum CreateDocumentUpdateError<
     #[error("document not found")]
     DocumentNotFound,
 
-    #[error("user is not a member of this workspace")]
-    NotMember,
-
-    #[error("permission denied: cannot write to this document")]
-    PermissionDenied,
+    #[error(transparent)]
+    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
 
     #[error("document is archived")]
     DocumentArchived,
@@ -108,62 +109,41 @@ pub enum CreateDocumentUpdateError<
     #[error("update repository error: {0}")]
     UpdateRepository(DUR),
 
-    #[error("member repository error: {0}")]
-    MemberRepository(MR),
-
-    #[error("role repository error: {0}")]
-    RoleRepository(RR),
-
     #[error("device repository error: {0}")]
     DeviceRepository(DevR),
 }
 
-impl<
-        DR: std::error::Error,
-        DUR: std::error::Error,
-        MR: std::error::Error,
-        RR: std::error::Error,
-        DevR: std::error::Error,
-    > CreateDocumentUpdateError<DR, DUR, MR, RR, DevR>
-{
-    pub fn is_not_found(&self) -> bool {
-        matches!(self, CreateDocumentUpdateError::DocumentNotFound)
-    }
+crate::types::impl_app_error!(
+    [DR: std::error::Error, DUR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DevR: std::error::Error]
+    CreateDocumentUpdateError<DR, DUR, MR, RR, DevR>,
+    not_found: [
+        CreateDocumentUpdateError::DocumentNotFound,
+        CreateDocumentUpdateError::WorkspaceAccess(WorkspaceAccessError::NotMember),
+    ],
+    access_denied: [
+        CreateDocumentUpdateError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied),
+        CreateDocumentUpdateError::AuthorDeviceNotOwned,
+    ],
+    invalid_input: [
+        CreateDocumentUpdateError::InvalidNonceLength,
+        CreateDocumentUpdateError::InvalidTimestamp,
+        CreateDocumentUpdateError::KeyVersionTooOld { .. },
+        CreateDocumentUpdateError::InvalidUpdateHash,
+        CreateDocumentUpdateError::InvalidPrevUpdateHash,
+        CreateDocumentUpdateError::InvalidSignature,
+        CreateDocumentUpdateError::AuthorDeviceNotFound,
+        CreateDocumentUpdateError::AuthorDeviceRevoked,
+    ],
+    conflict: [
+        CreateDocumentUpdateError::DocumentArchived,
+        CreateDocumentUpdateError::DuplicateUpdate,
+    ],
+);
 
-    pub fn is_forbidden(&self) -> bool {
-        matches!(
-            self,
-            CreateDocumentUpdateError::NotMember
-                | CreateDocumentUpdateError::PermissionDenied
-                | CreateDocumentUpdateError::AuthorDeviceNotOwned
-        )
-    }
-
-    pub fn is_conflict(&self) -> bool {
-        matches!(
-            self,
-            CreateDocumentUpdateError::DocumentArchived
-                | CreateDocumentUpdateError::DuplicateUpdate
-        )
-    }
-
-    pub fn is_bad_request(&self) -> bool {
-        matches!(
-            self,
-            CreateDocumentUpdateError::InvalidNonceLength
-                | CreateDocumentUpdateError::InvalidTimestamp
-                | CreateDocumentUpdateError::KeyVersionTooOld { .. }
-                | CreateDocumentUpdateError::InvalidUpdateHash
-                | CreateDocumentUpdateError::InvalidPrevUpdateHash
-                | CreateDocumentUpdateError::InvalidSignature
-                | CreateDocumentUpdateError::AuthorDeviceNotFound
-                | CreateDocumentUpdateError::AuthorDeviceRevoked
-        )
-    }
-}
+crate::util::workspace_access::impl_from_load_doc_perm!([DR, DUR, MR, RR, DevR] CreateDocumentUpdateError<DR, DUR, MR, RR, DevR>, DR, MR, RR);
 
 /// Create document update handler
-pub struct CreateDocumentUpdateHandler<DR, DUR, MR, RR, DevR: ?Sized> {
+pub struct CreateDocumentUpdateHandler<DR: ?Sized, DUR: ?Sized, MR: ?Sized, RR: ?Sized, DevR: ?Sized> {
     document_repo: Arc<DR>,
     update_repo: Arc<DUR>,
     member_repo: Arc<MR>,
@@ -171,7 +151,7 @@ pub struct CreateDocumentUpdateHandler<DR, DUR, MR, RR, DevR: ?Sized> {
     device_repo: Arc<DevR>,
 }
 
-impl<DR, DUR, MR, RR, DevR: ?Sized> CreateDocumentUpdateHandler<DR, DUR, MR, RR, DevR>
+impl<DR: ?Sized, DUR: ?Sized, MR: ?Sized, RR: ?Sized, DevR: ?Sized> CreateDocumentUpdateHandler<DR, DUR, MR, RR, DevR>
 where
     DR: DocumentRepository,
     DUR: DocumentUpdateRepository,
@@ -200,33 +180,54 @@ where
         command: CreateDocumentUpdateCommand,
     ) -> Result<
         CreateDocumentUpdateResult,
-        CreateDocumentUpdateError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>,
+        CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>,
     > {
-        // 1. Validate nonce length (24 bytes for XChaCha20-Poly1305)
+        self.validate_input(&command)?;
+
+        let _document = self.authorize(&command).await?;
+
+        self.verify_integrity(&command).await?;
+
+        self.verify_author_device(&command).await?;
+
+        self.persist(command).await
+    }
+
+    /// Phase 1: Validate nonce length and timestamp range.
+    #[allow(clippy::type_complexity)]
+    fn validate_input(
+        &self,
+        command: &CreateDocumentUpdateCommand,
+    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
         if command.nonce.len() != 24 {
             return Err(CreateDocumentUpdateError::InvalidNonceLength);
         }
-
-        // 1.5. Validate timestamp is within JS safe integer range (prevents JCS panic)
         const MAX_SAFE_INTEGER: i64 = 9007199254740991; // 2^53 - 1
         if command.timestamp < 0 || command.timestamp > MAX_SAFE_INTEGER {
             return Err(CreateDocumentUpdateError::InvalidTimestamp);
         }
+        Ok(())
+    }
 
-        // 2. Get document to verify it exists and get workspace_id
-        let document = self
-            .document_repo
-            .find_by_id(command.document_id)
-            .await
-            .map_err(CreateDocumentUpdateError::DocumentRepository)?
-            .ok_or(CreateDocumentUpdateError::DocumentNotFound)?;
+    /// Phase 2: Document existence, archive check, DEK version, workspace permission.
+    async fn authorize(
+        &self,
+        command: &CreateDocumentUpdateCommand,
+    ) -> Result<domain::document::Document, CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
+        let document = load_document_with_permission(
+            &self.document_repo,
+            &self.member_repo,
+            &self.role_repo,
+            command.document_id,
+            command.user_id,
+            WorkspacePermission::Write,
+        )
+        .await
+        .map_err(CreateDocumentUpdateError::from_load)?;
 
-        // 3. Check if document is archived
         if document.is_archived() {
             return Err(CreateDocumentUpdateError::DocumentArchived);
         }
-
-        // 3.5. Check DEK version meets minimum requirement (after key rotation)
         if command.key_version < document.min_dek_version {
             return Err(CreateDocumentUpdateError::KeyVersionTooOld {
                 min_version: document.min_dek_version,
@@ -234,27 +235,14 @@ where
             });
         }
 
-        // 4. Check membership and get role
-        let member = self
-            .member_repo
-            .find_by_workspace_and_user(document.workspace_id, command.user_id)
-            .await
-            .map_err(CreateDocumentUpdateError::MemberRepository)?
-            .ok_or(CreateDocumentUpdateError::NotMember)?;
+        Ok(document)
+    }
 
-        // 5. Get role and check Write permission
-        let role = self
-            .role_repo
-            .find_by_id(member.role_id)
-            .await
-            .map_err(CreateDocumentUpdateError::RoleRepository)?
-            .ok_or(CreateDocumentUpdateError::NotMember)?;
-
-        if !can_perform(role.base_role, WorkspacePermission::Write) {
-            return Err(CreateDocumentUpdateError::PermissionDenied);
-        }
-
-        // 6. Idempotency check: reject duplicate update_hash
+    /// Phase 3: Idempotency check and hash verification.
+    async fn verify_integrity(
+        &self,
+        command: &CreateDocumentUpdateCommand,
+    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
         if self
             .update_repo
             .find_by_hash(&command.update_hash)
@@ -264,51 +252,15 @@ where
         {
             return Err(CreateDocumentUpdateError::DuplicateUpdate);
         }
+        verify_update_hash(command).map_err(|()| CreateDocumentUpdateError::InvalidUpdateHash)?;
+        Ok(())
+    }
 
-        // 7. Hash verification: BLAKE3(JCS({fields})) must match update_hash
-        {
-            #[derive(Serialize)]
-            struct UpdateHashInput<'a> {
-                created_by_device_id: &'a str,
-                document_id: &'a str,
-                encrypted_content: &'a str,
-                key_version: i64,
-                nonce: &'a str,
-                prev_update_hash: Option<&'a str>,
-                timestamp: i64,
-            }
-
-            let encrypted_content_b64 = base64_url::encode(&command.update_data);
-            let nonce_b64 = base64_url::encode(&command.nonce);
-
-            let input = UpdateHashInput {
-                created_by_device_id: &command.author_device_id.to_string(),
-                document_id: &command.document_id.to_string(),
-                encrypted_content: &encrypted_content_b64,
-                key_version: command.key_version as i64,
-                nonce: &nonce_b64,
-                prev_update_hash: command.prev_update_hash.as_deref(),
-                timestamp: command.timestamp,
-            };
-
-            // JCS canonicalize (BTreeMap sort) then BLAKE3
-            let canonical = {
-                let value = serde_json::to_value(&input)
-                    .expect("UpdateHashInput serialization should not fail");
-                let sorted = domain::signature::sort_value_public(value);
-                serde_json::to_vec(&sorted)
-                    .expect("sorted value serialization should not fail")
-            };
-            let computed_hash = blake3::hash(&canonical);
-            let computed_hash_b64 = base64_url::encode(computed_hash.as_bytes());
-            if computed_hash_b64 != command.update_hash {
-                return Err(CreateDocumentUpdateError::InvalidUpdateHash);
-            }
-        }
-
-        // 8. Chain verification is done atomically in the DB save (F2)
-
-        // 9. Device ownership verification
+    /// Phase 4: Device ownership check and Ed25519 signature verification.
+    async fn verify_author_device(
+        &self,
+        command: &CreateDocumentUpdateCommand,
+    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
         let device = self
             .device_repo
             .find_by_id(command.author_device_id)
@@ -319,13 +271,11 @@ where
         if device.is_revoked() {
             return Err(CreateDocumentUpdateError::AuthorDeviceRevoked);
         }
-
         if device.user_id != command.user_id {
             return Err(CreateDocumentUpdateError::AuthorDeviceNotOwned);
         }
 
-        // 10. Ed25519 signature verification
-        verify_document_update_signature(
+        document_update_verification::verify_document_update_signature(
             &device.signing_public_key,
             &command.signature,
             &command.document_id.to_string(),
@@ -336,10 +286,17 @@ where
         )
         .map_err(|_| CreateDocumentUpdateError::InvalidSignature)?;
 
-        // 11. Create and save update atomically (seq assigned by DB, chain verified by DB)
+        Ok(())
+    }
+
+    /// Phase 5: Create and save update atomically (seq assigned by DB, chain verified by DB).
+    async fn persist(
+        &self,
+        command: CreateDocumentUpdateCommand,
+    ) -> Result<CreateDocumentUpdateResult, CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
         let update = DocumentUpdate::new(NewDocumentUpdateParams {
             document_id: command.document_id,
-            seq: 0, // Will be assigned by DB
+            seq: 0,
             update_data: command.update_data,
             nonce: command.nonce,
             key_version: command.key_version,
@@ -355,9 +312,9 @@ where
             .save(&update)
             .await
             .map_err(|e| {
-                if DUR::is_duplicate_hash(&e) {
+                if self.update_repo.is_duplicate_hash(&e) {
                     CreateDocumentUpdateError::DuplicateUpdate
-                } else if DUR::is_chain_mismatch(&e) {
+                } else if self.update_repo.is_chain_mismatch(&e) {
                     CreateDocumentUpdateError::InvalidPrevUpdateHash
                 } else {
                     CreateDocumentUpdateError::UpdateRepository(e)
@@ -366,51 +323,22 @@ where
 
         Ok(CreateDocumentUpdateResult { seq })
     }
+
 }
 
-/// Verify Ed25519 signature over document update metadata using JCS
-fn verify_document_update_signature(
-    signing_public_key: &[u8],
-    signature: &[u8],
-    document_id: &str,
-    update_hash: &str,
-    prev_update_hash: Option<&str>,
-    key_version: i64,
-    timestamp: i64,
-) -> Result<(), ed25519_dalek::SignatureError> {
-    // Parse signing public key
-    let pk_bytes: [u8; 32] = signing_public_key
-        .try_into()
-        .map_err(|_| ed25519_dalek::SignatureError::new())?;
-    let verifying_key = VerifyingKey::from_bytes(&pk_bytes)?;
-
-    // Build JCS signature payload
-    #[derive(Serialize)]
-    struct DocumentUpdatePayload<'a> {
-        document_id: &'a str,
-        key_version: i64,
-        prev_update_hash: Option<&'a str>,
-        timestamp: i64,
-        update_hash: &'a str,
-    }
-
-    let message = build_signature_message(
-        SignatureAction::DocumentUpdate,
-        &DocumentUpdatePayload {
-            document_id,
-            key_version,
-            prev_update_hash,
-            timestamp,
-            update_hash,
-        },
-    );
-
-    // Parse signature
-    let sig_bytes: [u8; 64] = signature
-        .try_into()
-        .map_err(|_| ed25519_dalek::SignatureError::new())?;
-    let sig = Signature::from_bytes(&sig_bytes);
-
-    // Verify
-    verifying_key.verify(&message, &sig)
+/// Verify that `BLAKE3(JCS({fields}))` matches the claimed `update_hash`.
+///
+/// Extracted as a module-level function because it does not need `&self`.
+fn verify_update_hash(command: &CreateDocumentUpdateCommand) -> Result<(), ()> {
+    document_update_verification::verify_update_hash(
+        command.document_id,
+        &command.update_data,
+        &command.nonce,
+        command.key_version,
+        &command.update_hash,
+        command.prev_update_hash.as_deref(),
+        command.author_device_id,
+        command.timestamp,
+    )
+    .map_err(|_| ())
 }
