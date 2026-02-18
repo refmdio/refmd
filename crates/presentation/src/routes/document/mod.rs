@@ -16,21 +16,13 @@ use utoipa::ToSchema;
 
 use crate::AppState;
 
-/// Create document routes under /api/workspaces/{workspace_id}/documents
-///
-/// Only for listing and creating documents (require workspace context).
-pub fn workspace_routes() -> Router<AppState> {
-    Router::new().route(
-        "/",
-        get(list_documents).post(create_document),
-    )
-}
-
 /// Create document routes under /api/documents
-///
-/// For single document access by document ID only.
 pub fn routes(state: AppState) -> Router {
     Router::new()
+        .route(
+            "/",
+            get(list_documents).post(create_document),
+        )
         .route(
             "/{document_id}",
             get(get_document)

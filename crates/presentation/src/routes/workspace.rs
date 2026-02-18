@@ -23,10 +23,6 @@ pub fn routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_workspaces))
         .route("/{id}", get(get_workspace))
-        .nest(
-            "/{workspace_id}/documents",
-            super::document::workspace_routes(),
-        )
         .with_state(state)
 }
 

@@ -25,6 +25,7 @@ use super::{DocumentErrorResponse, DocumentResponse, decode_encrypted_title_fiel
 /// Create document request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateDocumentRequest {
+    pub workspace_id: Uuid,
     pub title: String,
     pub parent_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,6 +48,7 @@ pub struct UpdateDocumentRequest {
 /// List documents query params
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ListDocumentsParams {
+    pub workspace_id: Uuid,
     pub parent_id: Option<Uuid>,
     #[serde(default)]
     pub root_only: bool,
@@ -63,9 +65,9 @@ pub struct ListDocumentsResponse {
 /// List documents in a workspace
 #[utoipa::path(
     get,
-    path = "/api/workspaces/{workspace_id}/documents",
+    path = "/api/documents",
     params(
-        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
+        ("workspace_id" = Uuid, Query, description = "Workspace ID"),
         ("parent_id" = Option<Uuid>, Query, description = "Filter by parent ID"),
         ("root_only" = bool, Query, description = "Only return root documents"),
         ("include_archived" = bool, Query, description = "Include archived documents"),
@@ -79,7 +81,6 @@ pub struct ListDocumentsResponse {
 )]
 pub async fn list_documents(
     State(state): State<DocumentSubState>,
-    Path(workspace_id): Path<Uuid>,
     Query(params): Query<ListDocumentsParams>,
     pop_user: PopVerifiedUser,
 ) -> impl IntoResponse {
@@ -94,7 +95,7 @@ pub async fn list_documents(
     let handler = ListDocumentsHandler::new(doc_repo, member_repo, role_repo);
 
     let query = ListDocumentsQuery {
-        workspace_id: WorkspaceId::from_uuid(workspace_id),
+        workspace_id: WorkspaceId::from_uuid(params.workspace_id),
         user_id: pop_user.user_id,
         parent_id,
         include_archived: params.include_archived,
@@ -116,10 +117,7 @@ pub async fn list_documents(
 /// Create a new document
 #[utoipa::path(
     post,
-    path = "/api/workspaces/{workspace_id}/documents",
-    params(
-        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
-    ),
+    path = "/api/documents",
     request_body = CreateDocumentRequest,
     responses(
         (status = 201, description = "Document created", body = DocumentResponse),
@@ -132,7 +130,6 @@ pub async fn list_documents(
 )]
 pub async fn create_document(
     State(state): State<DocumentSubState>,
-    Path(workspace_id): Path<Uuid>,
     pop_user: PopVerifiedUser,
     Json(request): Json<CreateDocumentRequest>,
 ) -> impl IntoResponse {
@@ -148,7 +145,7 @@ pub async fn create_document(
     let handler = CreateDocumentHandler::new(doc_repo, member_repo, role_repo);
 
     let command = CreateDocumentCommand {
-        workspace_id: WorkspaceId::from_uuid(workspace_id),
+        workspace_id: WorkspaceId::from_uuid(request.workspace_id),
         user_id: pop_user.user_id,
         title: request.title,
         parent_id: request.parent_id.map(DocumentId::from_uuid),
