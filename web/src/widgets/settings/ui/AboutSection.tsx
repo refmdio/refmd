@@ -17,7 +17,7 @@ export function AboutSection() {
       <div className="space-y-4">
         <div>
           <h4 className="text-sm font-medium mb-1">Version</h4>
-          <p className="text-sm text-muted-foreground font-mono">0.1.0</p>
+          <p className="text-sm text-muted-foreground font-mono">{__APP_VERSION__}</p>
         </div>
 
         <div>

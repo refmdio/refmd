@@ -1,8 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/shared/ui/card'
-import type { components } from '@/shared/api'
-
-type WorkspaceWithMembership = components['schemas']['WorkspaceWithMembershipResponse']
+import type { WorkspaceWithMembership } from '@/shared/api'
 
 interface WorkspaceCardProps {
   data: WorkspaceWithMembership

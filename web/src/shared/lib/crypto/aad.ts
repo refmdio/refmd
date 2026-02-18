@@ -7,15 +7,6 @@
  * Signature protocol (canonicalization, buildSignatureMessage) is in ./signature.ts
  */
 
-// Re-export signature protocol for backward compatibility
-export {
-  SIGNATURE_PROTOCOL,
-  SIGNATURE_ACTION,
-  canonicalizeBytes,
-  buildSignatureMessage,
-  type SignatureAction,
-} from './signature'
-
 import { SIGNATURE_PROTOCOL } from './signature'
 import { canonicalizeBytes } from './signature'
 

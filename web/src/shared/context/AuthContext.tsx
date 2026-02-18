@@ -1,31 +1,16 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
-import type { IdentityKeyPair, DeviceKeyPair } from '@/shared/lib/crypto'
+import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { setPopCredentials, clearPopCredentials } from '@/shared/lib/pop-store'
-
-export interface AuthState {
-  userId: string
-  email: string
-  expiresAt: Date
-  /** UMK - may be null for device_required state (new device pending approval) */
-  umk: Uint8Array | null
-  /** Identity keys - may be null for device_required state (new device pending approval) */
-  identityKeys: IdentityKeyPair | null
-}
-
-export interface DeviceState {
-  deviceId: string
-  deviceKeys: DeviceKeyPair
-}
+import type { AuthState, DeviceState } from '@/shared/model/auth-types'
+export type { AuthState, DeviceState } from '@/shared/model/auth-types'
 
 interface AuthContextValue {
   auth: AuthState | null
   device: DeviceState | null
   isAuthenticated: boolean
   setAuthState: (state: AuthState) => void
-  setDeviceState: (state: DeviceState) => void
+  /** Set both auth and device state atomically (full session establishment). */
+  setFullSession: (auth: AuthState, device: DeviceState) => void
   clearAuthState: () => void
-  currentWorkspaceId: string | null
-  setCurrentWorkspaceId: (id: string | null) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -33,34 +18,25 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [auth, setAuth] = useState<AuthState | null>(null)
   const [device, setDevice] = useState<DeviceState | null>(null)
-  const [currentWorkspaceId, setCurrentWorkspaceIdState] = useState<string | null>(null)
-
-  // Sync device state to pop-store for API client access
-  useEffect(() => {
-    if (device) {
-      setPopCredentials(device.deviceId, device.deviceKeys.signingPrivateKey)
-    } else {
-      clearPopCredentials()
-    }
-  }, [device])
 
   const setAuthState = useCallback((state: AuthState) => {
     setAuth(state)
+    // Clear stale device state and PoP credentials when setting partial auth
+    // (e.g. device_required transition) to prevent using credentials from a previous session
+    setDevice(null)
+    clearPopCredentials()
   }, [])
 
-  const setDeviceState = useCallback((state: DeviceState) => {
-    setDevice(state)
+  const setFullSession = useCallback((authState: AuthState, deviceState: DeviceState) => {
+    setAuth(authState)
+    setPopCredentials(deviceState.deviceId, deviceState.deviceKeys.signingPrivateKey)
+    setDevice(deviceState)
   }, [])
 
   const clearAuthState = useCallback(() => {
     setAuth(null)
     setDevice(null)
     clearPopCredentials()
-    setCurrentWorkspaceIdState(null)
-  }, [])
-
-  const setCurrentWorkspaceId = useCallback((id: string | null) => {
-    setCurrentWorkspaceIdState(id)
   }, [])
 
   // isAuthenticated is true only when user has full auth state (with UMK and identity keys)
@@ -72,10 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     device,
     isAuthenticated,
     setAuthState,
-    setDeviceState,
+    setFullSession,
     clearAuthState,
-    currentWorkspaceId,
-    setCurrentWorkspaceId,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -12,9 +12,7 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
 import { buildRecoveryUmkWrapAad } from './aad'
-
-/** HKDF salt: 32 bytes of zeros (per spec) */
-const HKDF_ZERO_SALT = new Uint8Array(32)
+import { HKDF_ZERO_SALT } from './kdf'
 
 /** HKDF info constant (per spec) */
 const HKDF_INFO_RUK = 'ruk'

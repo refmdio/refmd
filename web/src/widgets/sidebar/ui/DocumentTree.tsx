@@ -1,5 +1,5 @@
-import { useParams } from '@tanstack/react-router'
-import { FileText, Folder, Archive, MoreHorizontal, PanelRight } from 'lucide-react'
+import { MoreHorizontal, PanelRight } from 'lucide-react'
+import { DocumentIcon } from '@/entities/document'
 import { ScrollArea } from '@/shared/ui/scroll-area'
 import {
   DropdownMenu,
@@ -7,13 +7,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/shared/ui/dropdown-menu'
-import type { components } from '@/shared/api'
-
-type DocumentResponse = components['schemas']['DocumentResponse']
+import type { DocumentResponse } from '@/shared/api'
 
 interface DocumentTreeProps {
   documents: DocumentResponse[]
   loading?: boolean
+  currentDocumentId?: string
   onSelectDocument: (doc: DocumentResponse) => void
   onOpenInNewTile?: (doc: DocumentResponse) => void
 }
@@ -21,11 +20,10 @@ interface DocumentTreeProps {
 export function DocumentTree({
   documents,
   loading,
+  currentDocumentId,
   onSelectDocument,
   onOpenInNewTile,
 }: DocumentTreeProps) {
-  const params = useParams({ strict: false })
-  const currentDocumentId = params.documentId as string | undefined
 
   if (loading) {
     return (
@@ -69,8 +67,6 @@ function DocumentTreeItem({
   onSelect,
   onOpenInNewTile,
 }: DocumentTreeItemProps) {
-  const isFolder = document.doc_type === 'folder'
-
   return (
     <div
       className={`group flex items-center mx-3 px-3 py-1.5 text-xs rounded-md hover:bg-sidebar-accent transition-colors ${
@@ -83,13 +79,7 @@ function DocumentTreeItem({
         className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
       >
         <span className="shrink-0">
-          {document.is_archived ? (
-            <Archive className="h-4 w-4" />
-          ) : isFolder ? (
-            <Folder className="h-4 w-4" />
-          ) : (
-            <FileText className="h-4 w-4" />
-          )}
+          <DocumentIcon docType={document.doc_type} isArchived={document.is_archived} className="h-4 w-4" />
         </span>
         <span className="truncate">{document.title}</span>
       </button>

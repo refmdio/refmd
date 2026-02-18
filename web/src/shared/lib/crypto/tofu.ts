@@ -16,6 +16,7 @@ import {
   updateLastSeen,
 } from '../trust-store'
 import { calculateFingerprint, formatFingerprint } from './fingerprint'
+import { constantTimeEqual } from './encoding'
 
 /**
  * TOFU verification status
@@ -40,19 +41,6 @@ export interface TofuVerifyResult {
   oldFingerprint?: string
   /** New fingerprint (for identity_key_changed) */
   newFingerprint?: string
-}
-
-/**
- * Compare two Uint8Arrays for equality
- */
-function uint8ArrayEquals(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  // Constant-time comparison
-  let diff = 0
-  for (let i = 0; i < a.length; i++) {
-    diff |= a[i] ^ b[i]
-  }
-  return diff === 0
 }
 
 /**
@@ -103,13 +91,13 @@ export async function verifyTofu(
   }
 
   // Compare signing keys
-  const signingKeyMatches = uint8ArrayEquals(
+  const signingKeyMatches = constantTimeEqual(
     storedEntry.signingPublicKey,
     signingPublicKey
   )
 
   // Compare ECDH keys
-  const ecdhKeyMatches = uint8ArrayEquals(storedEntry.ecdhPublicKey, ecdhPublicKey)
+  const ecdhKeyMatches = constantTimeEqual(storedEntry.ecdhPublicKey, ecdhPublicKey)
 
   if (signingKeyMatches && ecdhKeyMatches) {
     // Both keys match - known trusted device

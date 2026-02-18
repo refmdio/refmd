@@ -45,10 +45,3 @@ export function getPopCredentials(): { deviceId: string; signingPrivateKey: Uint
   }
   return { deviceId, signingPrivateKey }
 }
-
-/**
- * Check if PoP credentials are available
- */
-export function hasPopCredentials(): boolean {
-  return deviceId !== null && signingPrivateKey !== null
-}

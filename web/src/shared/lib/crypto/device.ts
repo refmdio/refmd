@@ -1,5 +1,5 @@
 /**
- * Device Key Generation
+ * Device Key Generation & Approval Signatures
  *
  * Generates X25519 ECDH and Ed25519 signing key pairs for new devices.
  * Used during multi-device registration.
@@ -7,6 +7,7 @@
 
 import { x25519, ed25519 } from '@noble/curves/ed25519.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
+import { buildSignatureMessage, SIGNATURE_ACTION } from './signature'
 
 /**
  * Device key pair for E2EE
@@ -58,32 +59,35 @@ export function generateClientNonce(): Uint8Array {
 }
 
 /**
- * Sign a message with device signing key
- *
- * @param message - Message to sign
- * @param privateKey - Ed25519 private key seed
- * @returns Ed25519 signature (64 bytes)
+ * Device approval signature payload (base64url-encoded strings).
+ * Shared between interactive approval (useDeviceApprovalFlow)
+ * and self-approval (selfApproveDevice) to prevent field-set drift.
  */
-export function signWithDeviceKey(message: Uint8Array, privateKey: Uint8Array): Uint8Array {
-  return ed25519.sign(message, privateKey)
+export interface DeviceApprovalPayload {
+  device_signing_public_key: string
+  device_ecdh_public_key: string
+  client_nonce: string
 }
 
 /**
- * Verify a signature with device signing public key
+ * Sign a DEVICE_APPROVAL message with the given signing private key.
  *
- * @param message - Original message
- * @param signature - Ed25519 signature
- * @param publicKey - Ed25519 public key
- * @returns true if signature is valid
+ * Builds a canonical signature message (JCS) for the approval payload
+ * and signs it with Ed25519.
+ *
+ * @param payload Device approval payload with base64url-encoded keys
+ * @param signingPrivateKey Ed25519 private key seed (32 bytes)
+ * @returns Ed25519 signature (64 bytes)
  */
-export function verifyDeviceSignature(
-  message: Uint8Array,
-  signature: Uint8Array,
-  publicKey: Uint8Array
-): boolean {
-  try {
-    return ed25519.verify(signature, message, publicKey)
-  } catch {
-    return false
-  }
+export function signDeviceApproval(
+  payload: DeviceApprovalPayload,
+  signingPrivateKey: Uint8Array,
+): Uint8Array {
+  const message = buildSignatureMessage(SIGNATURE_ACTION.DEVICE_APPROVAL, {
+    device_signing_public_key: payload.device_signing_public_key,
+    device_ecdh_public_key: payload.device_ecdh_public_key,
+    client_nonce: payload.client_nonce,
+  })
+  return ed25519.sign(message, signingPrivateKey)
 }
+

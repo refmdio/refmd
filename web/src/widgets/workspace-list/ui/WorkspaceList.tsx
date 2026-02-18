@@ -1,47 +1,12 @@
-import { useState, useEffect } from 'react'
-import { workspaceApi, ApiError } from '@/shared/api'
-import { WorkspaceCard } from '@/entities/workspace/ui/WorkspaceCard'
-import type { components } from '@/shared/api'
-
-type WorkspaceWithMembership = components['schemas']['WorkspaceWithMembershipResponse']
+import { WorkspaceCard, useWorkspacesData } from '@/entities/workspace'
+import { LoadingPlaceholder } from '@/shared/ui/loading-placeholder'
 
 export function WorkspaceList() {
-  const [workspaces, setWorkspaces] = useState<WorkspaceWithMembership[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const workspaces = useWorkspacesData()
 
-  useEffect(() => {
-    async function fetchWorkspaces() {
-      try {
-        const response = await workspaceApi.list()
-        setWorkspaces(response.workspaces)
-      } catch (err) {
-        if (err instanceof ApiError) {
-          setError(err.message)
-        } else {
-          setError('Failed to load workspaces')
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchWorkspaces()
-  }, [])
-
-  if (loading) {
+  if (!workspaces) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-muted-foreground">Loading workspaces...</div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/50 rounded">
-        {error}
-      </div>
+      <LoadingPlaceholder>Loading workspaces...</LoadingPlaceholder>
     )
   }
 

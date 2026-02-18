@@ -7,7 +7,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
   --glass-shadow-outline: var(--glass-shadow-outline);
@@ -66,16 +67,16 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --color-glass-tint-subtle: var(----glass-tint-subtle);
-  --color-glass-tint-strong: var(----glass-tint-strong);
-  --color-glass-tint-heavy: var(----glass-tint-heavy);
-  --color-glass-tint-base: var(----glass-tint-base);
-  --color-glass-highlight-strong: var(----glass-highlight-strong);
-  --color-glass-highlight-bright: var(----glass-highlight-bright);
-  --color-glass-toast-warning: var(----glass-toast-warning);
-  --color-glass-radiant-warning: var(----glass-radiant-warning);
-  --color-glass-highlight-subtle: var(----glass-highlight-subtle);
-  --color-glass-highlight-soft: var(----glass-highlight-soft);
+  --color-glass-tint-subtle: var(--glass-tint-subtle);
+  --color-glass-tint-strong: var(--glass-tint-strong);
+  --color-glass-tint-heavy: var(--glass-tint-heavy);
+  --color-glass-tint-base: var(--glass-tint-base);
+  --color-glass-highlight-strong: var(--glass-highlight-strong);
+  --color-glass-highlight-bright: var(--glass-highlight-bright);
+  --color-glass-toast-warning: var(--glass-toast-warning);
+  --color-glass-radiant-warning: var(--glass-radiant-warning);
+  --color-glass-highlight-subtle: var(--glass-highlight-subtle);
+  --color-glass-highlight-soft: var(--glass-highlight-soft);
 }
 
 :root {

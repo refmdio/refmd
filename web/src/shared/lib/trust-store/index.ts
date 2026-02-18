@@ -10,6 +10,8 @@
  * - Used to detect key changes (potential MITM attacks)
  */
 
+import { openIdb, idbGet, idbPut, idbClear, toArrayBuffer } from '@/shared/lib/idb'
+
 const DB_NAME = 'refmd-trust'
 const DB_VERSION = 1
 const STORE_NAME = 'tofu-entries'
@@ -45,27 +47,13 @@ interface SerializedTofuEntry {
   lastSeenAt: number
 }
 
-/**
- * Open IndexedDB connection
- */
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve(request.result)
-
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result
-
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        // Composite key: [userId, deviceId]
-        const store = db.createObjectStore(STORE_NAME, {
-          keyPath: ['userId', 'deviceId'],
-        })
-        // Index for querying all entries for a user
-        store.createIndex('by-user', 'userId', { unique: false })
-      }
+  return openIdb(DB_NAME, DB_VERSION, (db) => {
+    if (!db.objectStoreNames.contains(STORE_NAME)) {
+      const store = db.createObjectStore(STORE_NAME, {
+        keyPath: ['userId', 'deviceId'],
+      })
+      store.createIndex('by-user', 'userId', { unique: false })
     }
   })
 }
@@ -84,14 +72,8 @@ function serialize(entry: TofuEntry): SerializedTofuEntry {
   return {
     userId: entry.userId,
     deviceId: entry.deviceId,
-    signingPublicKey: entry.signingPublicKey.buffer.slice(
-      entry.signingPublicKey.byteOffset,
-      entry.signingPublicKey.byteOffset + entry.signingPublicKey.byteLength
-    ) as ArrayBuffer,
-    ecdhPublicKey: entry.ecdhPublicKey.buffer.slice(
-      entry.ecdhPublicKey.byteOffset,
-      entry.ecdhPublicKey.byteOffset + entry.ecdhPublicKey.byteLength
-    ) as ArrayBuffer,
+    signingPublicKey: toArrayBuffer(entry.signingPublicKey),
+    ecdhPublicKey: toArrayBuffer(entry.ecdhPublicKey),
     firstSeenAt: entry.firstSeenAt,
     lastSeenAt: entry.lastSeenAt,
   }
@@ -119,16 +101,7 @@ function deserialize(serialized: SerializedTofuEntry): TofuEntry {
  */
 export async function saveTofuEntry(entry: TofuEntry): Promise<void> {
   const db = await openDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.put(serialize(entry))
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve()
-
-    tx.oncomplete = () => db.close()
-  })
+  await idbPut(db, STORE_NAME, serialize(entry))
 }
 
 /**
@@ -141,19 +114,8 @@ export async function getTofuEntry(
   deviceId: string
 ): Promise<TofuEntry | null> {
   const db = await openDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly')
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.get(compositeKey(userId, deviceId))
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => {
-      const result = request.result as SerializedTofuEntry | undefined
-      resolve(result ? deserialize(result) : null)
-    }
-
-    tx.oncomplete = () => db.close()
-  })
+  const result = await idbGet<SerializedTofuEntry>(db, STORE_NAME, compositeKey(userId, deviceId))
+  return result ? deserialize(result) : null
 }
 
 /**
@@ -165,6 +127,7 @@ export async function updateLastSeen(
   userId: string,
   deviceId: string
 ): Promise<boolean> {
+  // Uses raw transaction for atomic get-then-put within single tx
   const db = await openDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -197,6 +160,7 @@ export async function updateLastSeen(
 export async function getAllTofuEntriesForUser(
   userId: string
 ): Promise<TofuEntry[]> {
+  // Uses raw transaction for index-based query
   const db = await openDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly')
@@ -215,115 +179,26 @@ export async function getAllTofuEntriesForUser(
 }
 
 /**
- * Get all TOFU entries from the trust store
- *
- * Useful for trust state transfer to a new device.
- */
-export async function getAllTofuEntries(): Promise<TofuEntry[]> {
-  const db = await openDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly')
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.getAll()
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => {
-      const results = request.result as SerializedTofuEntry[]
-      resolve(results.map(deserialize))
-    }
-
-    tx.oncomplete = () => db.close()
-  })
-}
-
-/**
- * Delete a TOFU entry from the trust store
- *
- * Use when a device is revoked or explicitly untrusted.
- */
-export async function deleteTofuEntry(
-  userId: string,
-  deviceId: string
-): Promise<void> {
-  const db = await openDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.delete(compositeKey(userId, deviceId))
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve()
-
-    tx.oncomplete = () => db.close()
-  })
-}
-
-/**
- * Delete all TOFU entries for a user
- *
- * Use when the user logs out or wants to reset trust state.
- */
-export async function deleteAllTofuEntriesForUser(userId: string): Promise<void> {
-  const entries = await getAllTofuEntriesForUser(userId)
-  const db = await openDb()
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
-    const store = tx.objectStore(STORE_NAME)
-
-    let completed = 0
-    const total = entries.length
-
-    if (total === 0) {
-      resolve()
-      db.close()
-      return
-    }
-
-    for (const entry of entries) {
-      const request = store.delete(compositeKey(entry.userId, entry.deviceId))
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        completed++
-        if (completed === total) {
-          resolve()
-        }
-      }
-    }
-
-    tx.oncomplete = () => db.close()
-  })
-}
-
-/**
  * Clear all TOFU entries from the trust store
  *
  * Use when performing a complete reset (e.g., secure logout).
  */
 export async function clearAllTofuEntries(): Promise<void> {
   const db = await openDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite')
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.clear()
-
-    request.onerror = () => reject(request.error)
-    request.onsuccess = () => resolve()
-
-    tx.oncomplete = () => db.close()
-  })
+  await idbClear(db, STORE_NAME)
 }
 
 /**
  * Import multiple TOFU entries (used for trust state transfer)
  *
- * Performs a bulk insert/update operation.
+ * Performs a bulk insert/update operation within a single transaction.
  */
 export async function importTofuEntries(entries: TofuEntry[]): Promise<void> {
   if (entries.length === 0) {
     return
   }
 
+  // Uses raw transaction for batch operation within single tx
   const db = await openDb()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')

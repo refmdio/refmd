@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import {
   Dialog,
   DialogContent,
@@ -10,10 +9,8 @@ import {
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
-import { documentApi, ApiError } from '@/shared/api'
-import type { components } from '@/shared/api'
-
-type DocumentResponse = components['schemas']['DocumentResponse']
+import type { DocumentResponse } from '@/shared/api'
+import { useCreateDocument } from '../model/useCreateDocument'
 
 interface CreateDocumentDialogProps {
   open: boolean
@@ -29,34 +26,10 @@ export function CreateDocumentDialog({
   onCreated,
 }: CreateDocumentDialogProps) {
   const [title, setTitle] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const navigate = useNavigate()
+  const { loading, error, create } = useCreateDocument({ workspaceId, onCreated, onOpenChange })
 
-  const handleCreate = async () => {
-    if (!title.trim()) {
-      setError('Title is required')
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      const doc = await documentApi.create(workspaceId, { title: title.trim() })
-      setTitle('')
-      onOpenChange(false)
-      onCreated?.(doc)
-      navigate({ to: '/document/$documentId', params: { documentId: doc.id } })
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else {
-        setError('Failed to create document')
-      }
-    } finally {
-      setLoading(false)
-    }
+  const handleCreate = () => {
+    create(title).then((ok) => { if (ok) setTitle('') })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

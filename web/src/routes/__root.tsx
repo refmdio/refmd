@@ -1,9 +1,9 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { HeadContent, Scripts, createRootRouteWithContext } from '@tanstack/react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-import { AuthProvider } from '@/shared/context/AuthContext'
-import { ThemeProvider } from '@/shared/context/ThemeContext'
-import type { RouterContext } from '@/router'
+import { AuthProvider, ThemeProvider } from '@/shared/context'
+import type { RouterContext } from '@/shared/router-context'
 
 import appCss from '../styles.css?url'
 
@@ -60,22 +60,33 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 30_000,
+        retry: 1,
+      },
+    },
+  }))
+
   return (
     <html lang="en">
       <head>
         <HeadContent />
       </head>
       <body>
-        <ThemeProvider>
-          <AuthProvider>
-            {children}
-            {import.meta.env.DEV && Devtools ? (
-              <Suspense fallback={null}>
-                <Devtools />
-              </Suspense>
-            ) : null}
-          </AuthProvider>
-        </ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <AuthProvider>
+              {children}
+              {import.meta.env.DEV && Devtools ? (
+                <Suspense fallback={null}>
+                  <Devtools />
+                </Suspense>
+              ) : null}
+            </AuthProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
         <Scripts />
       </body>
     </html>

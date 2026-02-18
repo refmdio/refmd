@@ -7,7 +7,7 @@
 
 import { ed25519 } from '@noble/curves/ed25519.js'
 import { base64UrlEncode } from './encoding'
-import { buildSignatureMessage, SIGNATURE_ACTION } from './aad'
+import { buildSignatureMessage, SIGNATURE_ACTION } from './signature'
 
 /**
  * PoP header names (must match server constants)

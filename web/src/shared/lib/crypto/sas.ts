@@ -136,13 +136,3 @@ export function generateSasEmojis(
   return indicesToEmojis(indices)
 }
 
-/**
- * Convert server-provided SAS indices to emoji string
- * Used when the server returns pre-computed indices
- *
- * @param indices - Array of 7 indices from server
- * @returns String of 7 emojis
- */
-export function sasIndicesToEmojis(indices: number[]): string {
-  return indicesToEmojis(indices)
-}

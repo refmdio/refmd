@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/shared/ui/dialog'
-import { useAuthContext } from '@/shared/context/AuthContext'
+import { useAuthContext } from '@/shared/context'
 import { logout, secureLogout } from '@/features/auth'
 import { LogOut } from 'lucide-react'
 

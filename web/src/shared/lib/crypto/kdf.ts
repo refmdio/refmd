@@ -46,7 +46,7 @@ function isSafePositiveInteger(value: unknown): value is number {
  * Validate KDF parameters are within safe bounds
  * @throws Error if parameters are outside acceptable range or invalid type
  */
-export function validateKdfParams(params: KdfParams): void {
+function validateKdfParams(params: KdfParams): void {
   // Validate types first (protects against NaN, Infinity, non-integers)
   if (!isSafePositiveInteger(params.memory_cost)) {
     throw new Error(`Invalid memory_cost: must be a positive integer`)
@@ -89,10 +89,6 @@ export function validateKdfParams(params: KdfParams): void {
  * Derived keys from password
  */
 export interface DerivedKeys {
-  /** Master key (32 bytes) - never sent to server */
-  masterKey: Uint8Array
-  /** Auth key (32 bytes) - sent to server as base64url for bcrypt verification */
-  authKey: Uint8Array
   /** Auth key as base64url string for API */
   authKeyBase64: string
   /** Password Unlock Key (32 bytes) - used to wrap/unwrap UMK */
@@ -163,7 +159,7 @@ export async function deriveAuthKeys(
   // Convert hex to bytes
   const masterKey = new Uint8Array(32)
   for (let i = 0; i < 32; i++) {
-    masterKey[i] = parseInt(masterKeyHex.substr(i * 2, 2), 16)
+    masterKey[i] = parseInt(masterKeyHex.substring(i * 2, i * 2 + 2), 16)
   }
 
   // Step 2: HKDF → authKey (using 32-byte zero salt per spec)
@@ -179,33 +175,9 @@ export async function deriveAuthKeys(
   const pdk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, pdkInfo, 32)
 
   return {
-    masterKey,
-    authKey,
     authKeyBase64: base64UrlEncode(authKey),
     puk,
     pdk,
   }
 }
 
-/**
- * Derive keys for registration (also generates UMK and identity keys)
- * This is a convenience function that combines key derivation with key generation
- */
-export async function deriveRegistrationKeys(
-  password: string,
-  params: KdfParams
-): Promise<{
-  salt: Uint8Array
-  derivedKeys: DerivedKeys
-}> {
-  // Generate random salt (16 bytes per spec)
-  const salt = new Uint8Array(SALT_SIZE)
-  crypto.getRandomValues(salt)
-
-  const derivedKeys = await deriveAuthKeys(password, base64UrlEncode(salt), params)
-
-  return {
-    salt,
-    derivedKeys,
-  }
-}

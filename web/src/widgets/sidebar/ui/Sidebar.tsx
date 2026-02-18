@@ -1,35 +1,37 @@
-import { FilePlus, FolderPlus } from 'lucide-react'
+import { FilePlus } from 'lucide-react'
 import { DocumentTree } from './DocumentTree'
 import { UserMenu } from './UserMenu'
 import { Button } from '@/shared/ui/button'
-import type { components } from '@/shared/api'
-
-type WorkspaceWithMembership = components['schemas']['WorkspaceWithMembershipResponse']
-type DocumentResponse = components['schemas']['DocumentResponse']
+import { useWorkspacesData } from '@/entities/workspace'
+import { useDocumentsData } from '@/entities/document'
+import type { DocumentResponse } from '@/shared/api'
 
 interface SidebarProps {
-  workspaces: WorkspaceWithMembership[]
   currentWorkspaceId: string | undefined
-  documents: DocumentResponse[]
-  documentsLoading?: boolean
+  currentDocumentId?: string
   onSelectWorkspace: (workspaceId: string) => void
   onSelectDocument: (doc: DocumentResponse) => void
   onOpenInNewTile?: (doc: DocumentResponse) => void
   onCreateDocument: () => void
-  onCreateFolder?: () => void
+  notificationSlot?: React.ReactNode
+  onSettingsClick: () => void
 }
 
 export function Sidebar({
-  workspaces,
   currentWorkspaceId,
-  documents,
-  documentsLoading,
+  currentDocumentId,
   onSelectWorkspace,
   onSelectDocument,
   onOpenInNewTile,
   onCreateDocument,
-  onCreateFolder,
+  notificationSlot,
+  onSettingsClick,
 }: SidebarProps) {
+  const workspaces = useWorkspacesData() ?? []
+  const documentsData = useDocumentsData()
+  const documents = documentsData?.documents ?? []
+  const documentsLoading = documentsData?.documentsLoading ?? false
+
   return (
     <aside className="w-64 border-r border-border h-full flex flex-col bg-sidebar">
       {/* Header */}
@@ -43,14 +45,6 @@ export function Sidebar({
           >
             <FilePlus className="h-4 w-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={onCreateFolder}
-          >
-            <FolderPlus className="h-4 w-4" />
-          </Button>
         </div>
       )}
 
@@ -59,6 +53,7 @@ export function Sidebar({
         <DocumentTree
           documents={documents}
           loading={documentsLoading}
+          currentDocumentId={currentDocumentId}
           onSelectDocument={onSelectDocument}
           onOpenInNewTile={onOpenInNewTile}
         />
@@ -69,6 +64,8 @@ export function Sidebar({
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
         onSelectWorkspace={onSelectWorkspace}
+        notificationSlot={notificationSlot}
+        onSettingsClick={onSettingsClick}
       />
     </aside>
   )

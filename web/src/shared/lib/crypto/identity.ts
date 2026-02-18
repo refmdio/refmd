@@ -176,40 +176,6 @@ export function encryptIdentityKeys(
 }
 
 /**
- * Decrypt identity private keys with UMK (public keys provided)
- *
- * @param encrypted Encrypted identity keys from server
- * @param umk User Master Key (32 bytes)
- * @param userId User ID for AAD binding
- * @returns Decrypted identity key pair
- * @throws Error if decryption fails
- */
-export function decryptIdentityKeys(
-  encrypted: EncryptedIdentityKeys,
-  umk: Uint8Array,
-  userId: string
-): IdentityKeyPair {
-  // Reconstruct AAD for verification (per spec)
-  const ecdhAad = buildIdentityEcdhAad(userId)
-  const signingAad = buildIdentitySigningAad(userId)
-
-  // Decrypt ECDH private key with AAD
-  const ecdhCipher = xchacha20poly1305(umk, encrypted.ecdhPrivateNonce, ecdhAad)
-  const ecdhPrivate = ecdhCipher.decrypt(encrypted.encryptedEcdhPrivate)
-
-  // Decrypt Signing private key with AAD
-  const signingCipher = xchacha20poly1305(umk, encrypted.signingPrivateNonce, signingAad)
-  const signingPrivate = signingCipher.decrypt(encrypted.encryptedSigningPrivate)
-
-  return {
-    ecdhPrivate,
-    ecdhPublic: encrypted.ecdhPublic,
-    signingPrivate,
-    signingPublic: encrypted.signingPublic,
-  }
-}
-
-/**
  * Decrypt identity private keys with UMK and derive public keys
  * Used when only encrypted private keys are available (e.g., login response)
  *

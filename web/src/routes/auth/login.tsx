@@ -1,41 +1,34 @@
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Button } from '@/shared/ui/button'
-import { Input } from '@/shared/ui/input'
+import { Checkbox } from '@/shared/ui/checkbox'
 import { Label } from '@/shared/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card'
+import { AuthLayout } from './-components/AuthLayout'
+import { EmailField, PasswordField } from './-components/AuthFields'
 import { login } from '@/features/auth'
-import { ApiRequestError } from '@/shared/api'
-import { useAuthContext } from '@/shared/context/AuthContext'
-
-type LoginSearch = {
-  deviceApproved?: boolean
-}
+import { getApiErrorMessage } from '@/shared/api'
+import { ErrorAlert } from '@/shared/ui/error-alert'
+import { useAuthContext } from '@/shared/context'
+import { useAsyncAction } from '@/shared/hooks'
+import { buildAuthState, buildDeviceState } from '@/shared/model/session-hydration'
 
 export const Route = createFileRoute('/auth/login')({
   component: LoginPage,
-  validateSearch: (search: Record<string, unknown>): LoginSearch => ({
-    deviceApproved: search.deviceApproved === true || search.deviceApproved === 'true',
-  }),
 })
 
 function LoginPage() {
   const navigate = useNavigate()
   const router = useRouter()
-  const { deviceApproved } = Route.useSearch()
-  const { setAuthState, setDeviceState, clearAuthState } = useAuthContext()
+  const { setAuthState, setFullSession, clearAuthState } = useAuthContext()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const { error, setError, loading, execute } = useAsyncAction(getApiErrorMessage)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError(null)
-    setLoading(true)
 
-    try {
+    await execute(async () => {
       const result = await login(email, password, rememberMe)
       await router.invalidate()
 
@@ -62,116 +55,55 @@ function LoginPage() {
         return
       }
 
-      // Set auth state with UMK and identity keys
-      setAuthState({
-        userId: result.userId,
-        email: result.email,
-        expiresAt: result.expiresAt,
-        umk: result.umk,
-        identityKeys: result.identityKeys,
-      })
-
-      // Set device state for PoP authentication
-      setDeviceState({
-        deviceId: result.deviceId,
-        deviceKeys: result.deviceKeys,
-      })
+      // Set full session (auth + device) atomically
+      setFullSession(
+        buildAuthState(result),
+        buildDeviceState({ deviceId: result.deviceId, deviceKeys: result.deviceKeys }),
+      )
 
       navigate({ to: '/dashboard' })
-    } catch (err) {
-      if (err instanceof ApiRequestError) {
-        setError(err.message)
-      } else {
-        setError('An unexpected error occurred')
-      }
-    } finally {
-      setLoading(false)
-    }
+    })
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">Login</CardTitle>
-          <CardDescription>
-            Enter your credentials to access your account
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {deviceApproved && (
-              <div className="p-3 text-sm text-green-700 bg-green-100 border border-green-200 rounded dark:text-green-400 dark:bg-green-900/30 dark:border-green-800">
-                Device approved successfully. Please log in to complete setup.
-              </div>
-            )}
-            {error && (
-              <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/50 rounded">
-                {error}
-              </div>
-            )}
+    <AuthLayout title="Login" description="Enter your credentials to access your account">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && (
+          <ErrorAlert>{error}</ErrorAlert>
+        )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={loading}
-                autoComplete="email"
-              />
-            </div>
+        <EmailField value={email} onChange={setEmail} disabled={loading} />
+        <PasswordField value={password} onChange={setPassword} disabled={loading} />
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={loading}
-                autoComplete="current-password"
-              />
-            </div>
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="remember"
+            checked={rememberMe}
+            onCheckedChange={(checked) => setRememberMe(checked === true)}
+            disabled={loading}
+          />
+          <Label htmlFor="remember" className="text-xs font-sans normal-case tracking-normal">
+            Keep me signed in
+          </Label>
+        </div>
 
-            <div className="flex items-center space-x-2">
-              <input
-                id="remember"
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                disabled={loading}
-                className="h-4 w-4 rounded border-input bg-background"
-              />
-              <Label htmlFor="remember" className="text-xs font-sans normal-case tracking-normal">
-                Keep me signed in
-              </Label>
-            </div>
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading ? 'Signing in...' : 'Sign In'}
+        </Button>
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
+        <p className="text-center text-sm text-muted-foreground">
+          Don't have an account?{' '}
+          <Link to="/auth/register" className="text-primary hover:underline">
+            Register
+          </Link>
+        </p>
 
-            <p className="text-center text-sm text-muted-foreground">
-              Don't have an account?{' '}
-              <Link to="/auth/register" className="text-primary hover:underline">
-                Register
-              </Link>
-            </p>
-
-            <p className="text-center text-sm text-muted-foreground">
-              <Link to="/auth/recovery" className="text-primary hover:underline">
-                Lost access to your device?
-              </Link>
-            </p>
-          </form>
-        </CardContent>
-      </Card>
-    </main>
+        <p className="text-center text-sm text-muted-foreground">
+          <Link to="/auth/recovery" className="text-primary hover:underline">
+            Lost access to your device?
+          </Link>
+        </p>
+      </form>
+    </AuthLayout>
   )
 }

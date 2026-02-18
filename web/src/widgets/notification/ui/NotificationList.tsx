@@ -6,30 +6,12 @@
  * Extensible for future notification types.
  */
 
-import { Bell, Smartphone, Monitor, Globe } from 'lucide-react'
+import { Bell } from 'lucide-react'
 import { Button } from '@/shared/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/ui/popover'
 import { usePendingDevices } from '@/features/device'
-
-interface PendingDevice {
-  id: string
-  name: string
-  device_type: string
-  ip_address?: string | null
-  created_at: string
-  expires_at: string
-}
-
-function DeviceIcon({ type }: { type: string }) {
-  switch (type) {
-    case 'mobile':
-      return <Smartphone className="h-4 w-4" aria-hidden="true" />
-    case 'desktop':
-      return <Monitor className="h-4 w-4" aria-hidden="true" />
-    default:
-      return <Globe className="h-4 w-4" aria-hidden="true" />
-  }
-}
+import { PendingDeviceInfo } from '@/shared/ui/PendingDeviceInfo'
+import type { PendingDevice } from '@/shared/api'
 
 function formatTimeAgo(dateString: string): string {
   const date = new Date(dateString)
@@ -92,23 +74,15 @@ export function NotificationList() {
                   className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 p-1.5 rounded bg-yellow-500/10 text-yellow-600">
-                      <DeviceIcon type={device.device_type} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        New device request
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {device.name}
-                      </p>
-                      {device.ip_address && (
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {device.ip_address}
+                    <PendingDeviceInfo
+                      device={device}
+                      subtitle={
+                        <p className="text-xs text-muted-foreground truncate">
+                          New device request
                         </p>
-                      )}
-                    </div>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      }
+                    />
+                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-auto flex-shrink-0">
                       {formatTimeAgo(device.created_at)}
                     </span>
                   </div>

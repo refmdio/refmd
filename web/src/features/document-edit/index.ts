@@ -1,1 +1,1 @@
-export { useDocumentEdit, type UseDocumentEditResult, type DocumentResponse } from './useDocumentEdit'
+export { useDocumentEdit, type UseDocumentEditResult } from './model/useDocumentEdit'

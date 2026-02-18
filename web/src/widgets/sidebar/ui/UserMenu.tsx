@@ -1,7 +1,4 @@
-import { useState } from 'react'
 import { Settings, ChevronsUpDown, Check } from 'lucide-react'
-import { NotificationList } from '@/widgets/notification'
-import { SettingsDialog } from '@/widgets/settings'
 import { Button } from '@/shared/ui/button'
 import {
   DropdownMenu,
@@ -9,19 +6,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/shared/ui/dropdown-menu'
-import type { components } from '@/shared/api'
-
-type WorkspaceWithMembership = components['schemas']['WorkspaceWithMembershipResponse']
+import type { WorkspaceWithMembership } from '@/shared/api'
 
 interface UserMenuProps {
   workspaces: WorkspaceWithMembership[]
   currentWorkspaceId: string | undefined
   onSelectWorkspace: (workspaceId: string) => void
+  notificationSlot?: React.ReactNode
+  onSettingsClick: () => void
 }
 
-export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace }: UserMenuProps) {
-  const [settingsOpen, setSettingsOpen] = useState(false)
-
+export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace, notificationSlot, onSettingsClick }: UserMenuProps) {
   const currentWorkspace = workspaces.find((w) => w.workspace.id === currentWorkspaceId)
 
   const formatWorkspaceName = (name: string) => name.replace(/'s workspace$/i, '')
@@ -61,21 +56,19 @@ export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace }: 
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Notification List */}
-        <NotificationList />
+        {/* Notification Slot (composed from page level) */}
+        {notificationSlot}
 
         {/* Settings Button */}
         <Button
           variant="ghost"
           size="icon"
           className="h-9 w-9"
-          onClick={() => setSettingsOpen(true)}
+          onClick={onSettingsClick}
         >
           <Settings className="h-4 w-4" />
         </Button>
       </div>
-
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }

@@ -15,7 +15,8 @@ import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
 import { blake3 } from '@noble/hashes/blake3.js'
 import { ed25519 } from '@noble/curves/ed25519.js'
-import { buildDekWrapAad, buildDocumentContentAad, SIGNATURE_ACTION, buildSignatureMessage, canonicalizeBytes } from './aad'
+import { buildDekWrapAad, buildDocumentContentAad } from './aad'
+import { SIGNATURE_ACTION, buildSignatureMessage, canonicalizeBytes } from './signature'
 import { base64UrlEncode, base64UrlDecode } from './encoding'
 
 /**

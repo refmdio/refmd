@@ -1,62 +1,28 @@
-import { useState, useEffect } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
-import { workspaceApi, documentApi, ApiError } from '@/shared/api'
-import { DocumentItem } from '@/entities/document/ui/DocumentItem'
+import { useWorkspacesData } from '@/entities/workspace'
+import { DocumentItem, useDocumentsData } from '@/entities/document'
 import { Button } from '@/shared/ui/button'
-import type { components } from '@/shared/api'
-
-type DocumentResponse = components['schemas']['DocumentResponse']
-type WorkspaceResponse = components['schemas']['WorkspaceResponse']
+import { LoadingPlaceholder } from '@/shared/ui/loading-placeholder'
 
 interface DocumentListProps {
   workspaceId: string
 }
 
 export function DocumentList({ workspaceId }: DocumentListProps) {
-  const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null)
-  const [documents, setDocuments] = useState<DocumentResponse[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const workspaces = useWorkspacesData()
+  const documentsData = useDocumentsData()
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const [workspaceRes, docsRes] = await Promise.all([
-          workspaceApi.get(workspaceId),
-          documentApi.list(workspaceId),
-        ])
-        setWorkspace(workspaceRes.workspace)
-        setDocuments(docsRes.documents)
-      } catch (err) {
-        if (err instanceof ApiError) {
-          setError(err.message)
-        } else {
-          setError('Failed to load documents')
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [workspaceId])
-
-  if (loading) {
+  if (!workspaces || !documentsData || documentsData.documentsLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-muted-foreground">Loading documents...</div>
-      </div>
+      <LoadingPlaceholder>Loading documents...</LoadingPlaceholder>
     )
   }
 
-  if (error) {
-    return (
-      <div className="p-4 text-sm text-destructive bg-destructive/10 border border-destructive/50 rounded">
-        {error}
-      </div>
-    )
-  }
+  const { documents } = documentsData
+  const workspace = workspaces.find((ws) => ws.workspace.id === workspaceId)?.workspace
+  const workspaceDocuments = documents.filter((doc) => doc.workspace_id === workspaceId)
 
   return (
     <div>
@@ -70,14 +36,18 @@ export function DocumentList({ workspaceId }: DocumentListProps) {
         <h1 className="text-2xl font-bold">{workspace?.name}</h1>
       </div>
 
-      {documents.length === 0 ? (
+      {workspaceDocuments.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           No documents yet
         </div>
       ) : (
         <div className="space-y-2">
-          {documents.map((doc) => (
-            <DocumentItem key={doc.id} document={doc} />
+          {workspaceDocuments.map((doc) => (
+            <DocumentItem
+              key={doc.id}
+              document={doc}
+              onClick={() => navigate({ to: '/document/$documentId', params: { documentId: doc.id } })}
+            />
           ))}
         </div>
       )}

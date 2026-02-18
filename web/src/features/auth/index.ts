@@ -1,20 +1,7 @@
-export {
-  register,
-  login,
-  restoreSession,
-  restoreSessionWithPdk,
-  getCurrentUser,
-  logout,
-  secureLogout,
-  ApiRequestError,
-  type RegistrationResult,
-  type LoginResult,
-  type LoginDeviceRequired,
-  type LoginResponse,
-  type SessionRestoreResult,
-  type PdkSessionRestoreResult,
-  type PdkFallbackRequired,
-} from './useAuth'
-
-// Re-export MeResponse from generated schema
-export type { components } from '@/shared/api'
+export { register } from './lib/register'
+export { login } from './lib/login'
+export { hasResumableSession } from './lib/session'
+export { logout, secureLogout } from './lib/logout'
+export { useSessionRestore } from './model/useSessionRestore'
+export { PdkFallbackDialog } from './ui/PdkFallbackDialog'
+export { useRecoveryFlow, type RecoveryStep } from './model/useRecoveryFlow'

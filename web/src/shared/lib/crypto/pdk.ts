@@ -14,7 +14,8 @@
 
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
-import { buildAad, SIGNATURE_PROTOCOL, AAD_PURPOSE } from './aad'
+import { buildAad, AAD_PURPOSE } from './aad'
+import { SIGNATURE_PROTOCOL } from './signature'
 import { base64UrlEncode, base64UrlDecode } from './encoding'
 
 // localStorage keys
@@ -209,6 +210,25 @@ export function clearPdkWrappedDeviceKeys(): void {
 }
 
 // =============================================================================
+// Combined PDK wrap (device keys + UMK)
+// =============================================================================
+
+/**
+ * Wrap both device keys and UMK with PDK and store in localStorage.
+ * Convenience function for keeping PDK-wrapped material in sync after authentication.
+ */
+export function updatePdkWraps(
+  deviceKeys: { ecdhPrivateKey: Uint8Array; signingPrivateKey: Uint8Array },
+  pdk: Uint8Array,
+  umk: Uint8Array,
+  userId: string,
+  deviceId: string
+): void {
+  wrapAndStorePdkDeviceKeys(deviceKeys, pdk, userId, deviceId)
+  wrapAndStorePdkUmk(umk, pdk, userId)
+}
+
+// =============================================================================
 // UMK wrap/unwrap
 // =============================================================================
 
@@ -232,7 +252,7 @@ export function wrapAndStorePdkUmk(
 /**
  * Unwrap UMK from localStorage using PDK
  *
- * @returns UMK and userId, or null if not found or decryption fails
+ * @returns UMK bytes with userId, or null if not found or decryption fails
  */
 export function unwrapPdkUmk(
   pdk: Uint8Array
@@ -252,13 +272,6 @@ export function unwrapPdkUmk(
   } catch {
     return null
   }
-}
-
-/**
- * Check if PDK-wrapped UMK exists in localStorage
- */
-export function hasPdkWrappedUmk(): boolean {
-  return localStorage.getItem(LS_UMK_KEY) !== null
 }
 
 /**

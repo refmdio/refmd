@@ -8,11 +8,8 @@
 
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
-import { hkdf } from '@noble/hashes/hkdf.js'
-import { sha256 } from '@noble/hashes/sha2.js'
 import { buildDeviceKekDistributionAad, buildUmkKekBackupAad } from './aad'
-import { ecdhSharedSecret } from './identity'
-import { HKDF_ZERO_SALT } from './kdf'
+import { ecdhEncrypt, ecdhDecrypt } from './ecdh-cipher'
 
 /**
  * Generate a random KEK (256 bits)
@@ -21,31 +18,11 @@ export function generateKek(): Uint8Array {
   return randomBytes(32)
 }
 
-/**
- * Derive KEK distribution key from ECDH shared secret using HKDF
- *
- * Per spec: Uses 32-byte zero salt (safe for high-entropy IKM like ECDH shared secret)
- * Info string "kek_wrap" provides domain separation from other ECDH-derived keys.
- */
-function deriveKekDistributionKey(sharedSecret: Uint8Array): Uint8Array {
-  const info = new TextEncoder().encode('kek_wrap')
-  return hkdf(sha256, sharedSecret, HKDF_ZERO_SALT, info, 32)
-}
+/** HKDF info string for KEK distribution domain separation */
+const KEK_HKDF_INFO = 'kek_wrap'
 
 /**
  * Encrypt KEK for distribution to a device using ECDH + HKDF
- *
- * Uses X25519 ECDH to derive a shared secret, HKDF for key derivation,
- * then encrypts KEK with XChaCha20-Poly1305.
- *
- * @param kek Key Encryption Key (32 bytes)
- * @param senderEcdhPrivate Sender's X25519 private key (32 bytes)
- * @param targetEcdhPublic Target device's X25519 public key (32 bytes)
- * @param workspaceId Workspace ID for AAD binding
- * @param userId User ID for AAD binding
- * @param senderDeviceId Sender device ID for AAD binding
- * @param targetDeviceId Target device ID for AAD binding
- * @returns { encryptedKek, nonce } - encrypted KEK and nonce for decryption
  */
 export function encryptKekForDevice(
   kek: Uint8Array,
@@ -56,20 +33,9 @@ export function encryptKekForDevice(
   senderDeviceId: string,
   targetDeviceId: string
 ): { encryptedKek: Uint8Array; nonce: Uint8Array } {
-  // Derive shared secret using ECDH, then derive encryption key via HKDF
-  const sharedSecret = ecdhSharedSecret(senderEcdhPrivate, targetEcdhPublic)
-  const encryptionKey = deriveKekDistributionKey(sharedSecret)
-
-  // XChaCha20-Poly1305 uses 24-byte nonce
-  const nonce = randomBytes(24)
-
-  // Build AAD for context binding
   const aad = buildDeviceKekDistributionAad(workspaceId, userId, senderDeviceId, targetDeviceId)
-
-  const cipher = xchacha20poly1305(encryptionKey, nonce, aad)
-  const encryptedKek = cipher.encrypt(kek)
-
-  return { encryptedKek, nonce }
+  const { ciphertext, nonce } = ecdhEncrypt(kek, senderEcdhPrivate, targetEcdhPublic, KEK_HKDF_INFO, aad)
+  return { encryptedKek: ciphertext, nonce }
 }
 
 /**
@@ -123,19 +89,6 @@ export function unwrapKekWithUmk(
 
 /**
  * Decrypt KEK received from another device using ECDH
- *
- * Uses X25519 ECDH to derive a shared secret, then decrypts KEK with XChaCha20-Poly1305.
- *
- * @param encryptedKek Encrypted KEK
- * @param nonce Nonce used for encryption
- * @param receiverEcdhPrivate Receiver's X25519 private key (32 bytes)
- * @param senderEcdhPublic Sender's X25519 public key (32 bytes)
- * @param workspaceId Workspace ID for AAD binding
- * @param userId User ID for AAD binding
- * @param senderDeviceId Sender device ID for AAD binding
- * @param targetDeviceId Target (receiver) device ID for AAD binding
- * @returns Decrypted KEK (32 bytes)
- * @throws Error if decryption fails
  */
 export function decryptKekFromDevice(
   encryptedKek: Uint8Array,
@@ -147,13 +100,6 @@ export function decryptKekFromDevice(
   senderDeviceId: string,
   targetDeviceId: string
 ): Uint8Array {
-  // Derive shared secret using ECDH, then derive encryption key via HKDF
-  const sharedSecret = ecdhSharedSecret(receiverEcdhPrivate, senderEcdhPublic)
-  const encryptionKey = deriveKekDistributionKey(sharedSecret)
-
-  // Reconstruct AAD for verification
   const aad = buildDeviceKekDistributionAad(workspaceId, userId, senderDeviceId, targetDeviceId)
-
-  const cipher = xchacha20poly1305(encryptionKey, nonce, aad)
-  return cipher.decrypt(encryptedKek)
+  return ecdhDecrypt(encryptedKek, nonce, receiverEcdhPrivate, senderEcdhPublic, KEK_HKDF_INFO, aad)
 }

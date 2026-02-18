@@ -1,5 +1,5 @@
 /**
- * RefMD Crypto Module
+ * RefMD Crypto Module — Shared layer barrel (intentional FSD design)
  *
  * Implements E2EE cryptographic operations:
  * - Argon2id for password → master key derivation
@@ -7,10 +7,13 @@
  * - XChaCha20-Poly1305 for symmetric encryption
  * - X25519 for ECDH key exchange
  * - Ed25519 for signatures
+ *
+ * Consumers SHOULD import from this barrel for consistency.
+ * Submodule imports are reserved for internal (intra-crypto) use only.
  */
 
 // KDF functions
-export { deriveAuthKeys, deriveRegistrationKeys, HKDF_ZERO_SALT, type DerivedKeys, type KdfParams } from './kdf'
+export { deriveAuthKeys, HKDF_ZERO_SALT, type DerivedKeys, type KdfParams } from './kdf'
 
 // UMK functions
 export { generateUmk, wrapUmk, unwrapUmk, encryptUmkForDevice, decryptUmkFromDevice } from './umk'
@@ -19,7 +22,6 @@ export { generateUmk, wrapUmk, unwrapUmk, encryptUmkForDevice, decryptUmkFromDev
 export {
   generateIdentityKeyPair,
   encryptIdentityKeys,
-  decryptIdentityKeys,
   decryptIdentityPrivateKeys,
   deriveEcdhPublicKey,
   deriveSigningPublicKey,
@@ -48,10 +50,7 @@ export {
 export {
   base64UrlEncode,
   base64UrlDecode,
-  base64Encode,
-  base64Decode,
-  bytesToHex,
-  hexToBytes,
+  constantTimeEqual,
 } from './encoding'
 
 // Signature protocol (canonicalization, message building)
@@ -107,6 +106,7 @@ export {
   generateDsk,
   storeDsk,
   loadDsk,
+  ensureDsk,
   wrapAndStoreUmk,
   loadAndUnwrapUmk,
   clearSessionCache,
@@ -116,13 +116,10 @@ export {
   loadDeviceId,
   wrapAndStoreDeviceKeys,
   loadAndUnwrapDeviceKeys,
-  hasDeviceKeys,
-  hasDeviceKeysForUser,
   // Session storage (for rememberMe=false)
   storeSessionUmk,
   loadSessionUmk,
   clearSessionUmk,
-  hasSessionUmk,
 } from './dsk'
 
 // PDK (Password Derived Key) functions - fallback when DSK unavailable
@@ -131,9 +128,9 @@ export {
   unwrapPdkDeviceKeys,
   hasPdkWrappedDeviceKeys,
   clearPdkWrappedDeviceKeys,
+  updatePdkWraps,
   wrapAndStorePdkUmk,
   unwrapPdkUmk,
-  hasPdkWrappedUmk,
   clearPdkWrappedUmk,
   storePdkForDeviceRegistration,
   loadAndClearPdkForDeviceRegistration,
@@ -146,16 +143,15 @@ export {
   indicesToEmojis,
   generateSasIndices,
   generateSasEmojis,
-  sasIndicesToEmojis,
 } from './sas'
 
 // Device key functions
 export {
   generateDeviceKeyPair,
   generateClientNonce,
-  signWithDeviceKey,
-  verifyDeviceSignature,
+  signDeviceApproval,
   type DeviceKeyPair,
+  type DeviceApprovalPayload,
 } from './device'
 
 // PoP (Proof of Possession) functions
@@ -180,20 +176,39 @@ export {
   type TofuVerifyResult,
 } from './tofu'
 
+// TOFU Policy (centralized decision logic)
+export {
+  evaluateTofu,
+  evaluateTofuWithoutPersist,
+  evaluateDeviceTofu,
+  dispatchTofuDecision,
+  verifyDeviceListTofu,
+  toKeyChangeItem,
+  assertTofuTrustedOrThrow,
+  type TofuDecision,
+  type TofuCategoryHandlers,
+  type DeviceWithKeys,
+  type DeviceListTofuResult,
+  processDeviceListTofu,
+  type CategorizedTofuResult,
+} from './tofu-policy'
+
 // Fingerprint functions
 export {
   calculateFingerprint,
   formatFingerprint,
-  parseFormattedFingerprint,
-  fingerprintsEqual,
-  verifyFingerprint,
 } from './fingerprint'
+
+// Identity key helpers (API response decryption)
+export {
+  decryptIdentityKeysFromResponse,
+  type EncryptedIdentityKeysResponse,
+} from './identity-helpers'
 
 // Trust Transfer functions
 export {
   encryptTrustState,
   decryptTrustState,
-  generateTransferNonce,
   type TrustStateSnapshot,
   type EncryptedTrustState,
   type TrustTransferAadParams,

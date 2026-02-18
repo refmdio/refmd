@@ -1,7 +1,5 @@
-import { FileText, Folder, Archive } from 'lucide-react'
-import type { components } from '@/shared/api'
-
-type DocumentResponse = components['schemas']['DocumentResponse']
+import type { DocumentResponse } from '@/shared/api'
+import { DocumentIcon } from './DocumentIcon'
 
 interface DocumentItemProps {
   document: DocumentResponse
@@ -9,21 +7,13 @@ interface DocumentItemProps {
 }
 
 export function DocumentItem({ document, onClick }: DocumentItemProps) {
-  const isFolder = document.doc_type === 'folder'
-
   return (
     <div
       className="flex items-center gap-3 p-3 rounded-lg hover:bg-accent/50 transition-colors cursor-pointer border"
       onClick={onClick}
     >
       <div className="text-muted-foreground">
-        {document.is_archived ? (
-          <Archive className="h-5 w-5" />
-        ) : isFolder ? (
-          <Folder className="h-5 w-5" />
-        ) : (
-          <FileText className="h-5 w-5" />
-        )}
+        <DocumentIcon docType={document.doc_type} isArchived={document.is_archived} />
       </div>
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate">

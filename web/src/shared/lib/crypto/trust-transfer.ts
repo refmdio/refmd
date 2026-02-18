@@ -16,10 +16,11 @@ import { randomBytes } from '@noble/ciphers/utils.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import type { TofuEntry } from '../trust-store'
-import { buildAad, SIGNATURE_PROTOCOL, AAD_PURPOSE, SIGNATURE_ACTION, buildSignatureMessage } from './aad'
+import { buildAad, AAD_PURPOSE } from './aad'
+import { SIGNATURE_PROTOCOL, SIGNATURE_ACTION, buildSignatureMessage } from './signature'
 import { ecdhSharedSecret, sign, verify } from './identity'
 import { HKDF_ZERO_SALT } from './kdf'
-import { base64UrlEncode, base64UrlDecode } from './encoding'
+import { base64UrlEncode, base64UrlDecode, constantTimeEqual } from './encoding'
 
 /**
  * Trust state snapshot for transfer
@@ -240,22 +241,4 @@ export function decryptTrustState(
   }
 }
 
-/**
- * Generate a random transfer nonce
- */
-export function generateTransferNonce(): Uint8Array {
-  return randomBytes(32)
-}
-
-/**
- * Constant-time comparison of two byte arrays
- */
-function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  let diff = 0
-  for (let i = 0; i < a.length; i++) {
-    diff |= a[i] ^ b[i]
-  }
-  return diff === 0
-}
 
