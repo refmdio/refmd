@@ -24,8 +24,27 @@ use tower_governor::GovernorLayer;
 
 use crate::{AppState, rate_limit::create_device_rate_limit_config};
 
-/// Create device routes
-pub fn routes(state: AppState) -> Result<Router, anyhow::Error> {
+/// Device routes requiring PoP verification (behind PopLayer)
+pub fn pop_routes(state: AppState) -> Router {
+    Router::new()
+        .route(
+            "/",
+            get(list_devices),
+        )
+        .route(
+            "/{id}",
+            delete(revoke_device),
+        )
+        .route(
+            "/{id}/keys/umk",
+            post(distribute_umk)
+            .get(get_device_umk),
+        )
+        .with_state(state)
+}
+
+/// Device routes requiring session auth only (no PoP)
+pub fn session_routes(state: AppState) -> Result<Router, anyhow::Error> {
     // Rate limiting config for device registration
     let device_rate_limit = create_device_rate_limit_config()?;
 
@@ -39,7 +58,7 @@ pub fn routes(state: AppState) -> Result<Router, anyhow::Error> {
             config: device_rate_limit,
         });
 
-    // Non-rate-limited routes (authenticated endpoints)
+    // Non-rate-limited session-only routes
     let other_routes = Router::new()
         .route(
             "/pending",
@@ -64,19 +83,6 @@ pub fn routes(state: AppState) -> Result<Router, anyhow::Error> {
         .route(
             "/events",
             get(device_events),
-        )
-        .route(
-            "/",
-            get(list_devices),
-        )
-        .route(
-            "/{id}",
-            delete(revoke_device),
-        )
-        .route(
-            "/{id}/keys/umk",
-            post(distribute_umk)
-            .get(get_device_umk),
         );
 
     Ok(Router::new()

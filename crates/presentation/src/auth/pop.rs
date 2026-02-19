@@ -18,9 +18,10 @@ pub const POP_CHALLENGE_HEADER: &str = "X-PoP-Challenge";
 pub const POP_SIGNATURE_HEADER: &str = "X-PoP-Signature";
 pub const POP_DEVICE_ID_HEADER: &str = "X-PoP-Device-Id";
 use super::session::{AuthError, authenticate};
+use super::pop_layer::PopVerifiedDevice;
 
 /// Parsed PoP headers: (challenge_str, challenge_bytes, signature_bytes, device_id, device_id_str)
-type PopHeaders = (String, [u8; 32], [u8; 64], DeviceId, String);
+pub(crate) type PopHeaders = (String, [u8; 32], [u8; 64], DeviceId, String);
 
 /// Convert a `(StatusCode, String)` validation error into an `AuthError`.
 fn pop_validation_err((_status, msg): (StatusCode, String)) -> AuthError {
@@ -37,7 +38,7 @@ pub(crate) fn require_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&
 }
 
 /// Extract PoP headers from the request and parse them into domain types.
-fn extract_pop_headers(headers: &HeaderMap) -> Result<PopHeaders, AuthError> {
+pub(crate) fn extract_pop_headers(headers: &HeaderMap) -> Result<PopHeaders, AuthError> {
     use crate::crypto_validation::{decode_b64_array, parse_device_id};
 
     let challenge_str = require_header(headers, POP_CHALLENGE_HEADER)?;
@@ -70,7 +71,7 @@ fn map_verify_pop_error<E: std::error::Error>(e: VerifyPopError<E>) -> AuthError
 }
 
 /// Map application-layer VerifyPopAndBindError to presentation-layer AuthError.
-fn map_verify_pop_and_bind_error<DR: std::error::Error>(
+pub(crate) fn map_verify_pop_and_bind_error<DR: std::error::Error>(
     e: VerifyPopAndBindError<DR>,
 ) -> AuthError {
     match e {
@@ -81,8 +82,8 @@ fn map_verify_pop_and_bind_error<DR: std::error::Error>(
 
 /// Verify PoP and auto-bind device_id to session if not yet set.
 ///
-/// Shared by `PopVerifiedUser` and `RecoveryOrPopUser` extractors.
-/// Delegates to the application-layer `VerifyPopAndBindHandler`.
+/// Used by `RecoveryOrPopUser` for inline PoP verification on routes
+/// not protected by the `PopLayer` middleware.
 async fn verify_pop_and_bind_session(
     headers: &HeaderMap,
     session: SessionDto,
@@ -114,10 +115,9 @@ async fn verify_pop_and_bind_session(
     Ok((result.session, result.device))
 }
 
-/// PoP-verified user - combines session authentication with PoP verification.
+/// PoP-verified user - reads the result from request extensions (set by `PopLayer`).
 ///
-/// Use this extractor for routes that require both session auth and PoP.
-/// The verified device is available on the extracted struct.
+/// Use this extractor for routes behind the `PopLayer` middleware.
 #[derive(Debug)]
 pub struct PopVerifiedUser {
     pub user_id: UserId,
@@ -130,19 +130,17 @@ impl FromRequestParts<AppState> for PopVerifiedUser {
 
     async fn from_request_parts(
         parts: &mut Parts,
-        state: &AppState,
+        _state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let auth = authenticate(&parts.headers, state)
-            .await
-            .map_err(|e| e.into_response())?;
-
-        let (session, device) =
-            verify_pop_and_bind_session(&parts.headers, auth.session, state).await?;
+        let pop = parts
+            .extensions
+            .get::<PopVerifiedDevice>()
+            .ok_or_else(|| AuthError::new("PoP verification required").into_response())?;
 
         Ok(PopVerifiedUser {
-            user_id: auth.user_id,
-            session,
-            device,
+            user_id: pop.user_id,
+            session: pop.session.clone(),
+            device: pop.device.clone(),
         })
     }
 }
@@ -151,7 +149,9 @@ impl FromRequestParts<AppState> for PopVerifiedUser {
 ///
 /// For recovery sessions (is_recovery = true), PoP verification is skipped because
 /// recovery sessions lack a registered device to sign challenges with.
-/// For normal sessions, PoP verification is required.
+/// For normal sessions, PoP verification is required (done inline, not via PopLayer).
+///
+/// This extractor is intended for routes NOT behind `PopLayer`.
 #[derive(Debug)]
 pub struct RecoveryOrPopUser {
     pub user_id: UserId,
@@ -167,7 +167,7 @@ impl FromRequestParts<AppState> for RecoveryOrPopUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let auth = authenticate(&parts.headers, state)
+        let auth = authenticate(&parts.headers, &state.session_repo())
             .await
             .map_err(|e| e.into_response())?;
 

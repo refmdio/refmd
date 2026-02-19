@@ -12,8 +12,11 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
+use std::sync::Arc;
 
-use crate::{AppState, routes::auth::SESSION_COOKIE_NAME};
+use crate::AppState;
+use crate::routes::auth::SESSION_COOKIE_NAME;
+use crate::state::type_aliases::DynSessionRepository;
 
 /// Authenticated user information extracted from session
 #[derive(Debug, Clone)]
@@ -29,7 +32,7 @@ impl FromRequestParts<AppState> for AuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        authenticate(&parts.headers, state).await
+        authenticate(&parts.headers, &state.session_repo()).await
     }
 }
 
@@ -140,10 +143,10 @@ fn extract_auth_query(headers: &HeaderMap) -> Result<AuthenticateSessionQuery, A
 /// Authenticate request and return minimal user info (user_id + session).
 pub async fn authenticate(
     headers: &HeaderMap,
-    state: &AppState,
+    session_repo: &DynSessionRepository,
 ) -> Result<AuthUser, AuthError> {
     let query = extract_auth_query(headers)?;
-    let handler = AuthenticateSessionHandler::new(state.session_repo());
+    let handler = AuthenticateSessionHandler::new(Arc::clone(session_repo));
     let result = handler.authenticate(&query).await.map_err(map_auth_error)?;
 
     Ok(AuthUser {

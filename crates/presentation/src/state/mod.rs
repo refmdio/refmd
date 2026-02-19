@@ -1,7 +1,7 @@
 //! Application state with dynamic dispatch for dependency injection
 
 mod sub_states;
-mod type_aliases;
+pub(crate) mod type_aliases;
 
 pub use sub_states::{
     AuthSubState, DeviceSubState, DocumentSubState, EncryptionSubState, TrustTransferSubState,

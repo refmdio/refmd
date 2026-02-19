@@ -23,6 +23,7 @@ pub mod trust_transfer;
 pub mod workspace;
 
 use crate::AppState;
+use crate::auth::PopLayer;
 use axum::Router;
 
 /// Generate an error response struct with `error: String` field.
@@ -118,11 +119,28 @@ pub fn create_routes(state: AppState) -> Result<Router, anyhow::Error> {
 }
 
 fn api_routes(state: AppState) -> Result<Router, anyhow::Error> {
-    Ok(Router::new()
-        .nest("/auth", auth::routes(state.clone())?)
-        .nest("/workspaces", workspace::routes(state.clone()))
+    let pop_layer = PopLayer::new(
+        state.device_repo(),
+        state.session_repo(),
+        state.challenge_store(),
+    );
+
+    // Routes requiring PoP verification (session auth + PoP checked by middleware)
+    let pop_protected = Router::new()
+        .nest("/workspaces", workspace::pop_routes(state.clone()))
         .nest("/documents", document::routes(state.clone()))
         .nest("/encryption", encryption::routes(state.clone()))
-        .nest("/devices", device::routes(state.clone())?)
-        .nest("/trust-transfer", trust_transfer::routes(state)))
+        .nest("/devices", device::pop_routes(state.clone()))
+        .nest("/trust-transfer", trust_transfer::pop_routes(state.clone()))
+        .layer(pop_layer);
+
+    // Routes requiring session auth only (no PoP)
+    let session_only = Router::new()
+        .nest("/auth", auth::routes(state.clone())?)
+        .nest("/devices", device::session_routes(state.clone())?)
+        .nest("/trust-transfer", trust_transfer::session_routes(state));
+
+    Ok(Router::new()
+        .merge(pop_protected)
+        .merge(session_only))
 }

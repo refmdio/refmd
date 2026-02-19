@@ -32,11 +32,17 @@ const MAX_ENCRYPTED_STATE_BYTES: usize = 1024 * 1024;
 // Shared error response type for all trust-transfer endpoints
 error_response_struct!(TrustTransferErrorResponse);
 
-/// Create trust transfer routes
-pub fn routes(state: AppState) -> Router {
+/// Trust transfer routes requiring PoP verification (behind PopLayer)
+pub fn pop_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/state", post(submit_state))
+        .with_state(state)
+}
+
+/// Trust transfer routes requiring session auth only (no PoP)
+pub fn session_routes(state: AppState) -> Router {
     Router::new()
         .route("/nonce", post(request_nonce))
-        .route("/state", post(submit_state))
         .route("/state", get(retrieve_state))
         .with_state(state)
 }

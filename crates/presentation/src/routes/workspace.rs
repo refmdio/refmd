@@ -18,8 +18,8 @@ use crate::{AppState, WorkspaceSubState};
 use crate::auth::PopVerifiedUser;
 use super::app_error_response;
 
-/// Create workspace routes
-pub fn routes(state: AppState) -> Router {
+/// Workspace routes requiring PoP verification (behind PopLayer)
+pub fn pop_routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_workspaces))
         .route("/{id}", get(get_workspace))
