@@ -21,7 +21,7 @@ pub struct GetSaltQuery {
 /// Get salt result
 #[derive(Debug)]
 pub struct GetSaltResult {
-    /// Salt for KDF (16 bytes per spec)
+    /// Salt for KDF (16 bytes)
     pub salt: Vec<u8>,
     /// KDF type (always "argon2id")
     pub kdf_type: String,
@@ -131,7 +131,7 @@ where
 
     /// Generate a deterministic dummy salt for unknown users
     /// Uses HMAC-SHA256(server_secret, email) truncated to 16 bytes
-    /// to match Argon2id salt length per spec
+    /// to match Argon2id salt length
     fn generate_dummy_salt(server_secret: &[u8; 32], email: &str) -> Vec<u8> {
         type HmacSha256 = Hmac<Sha256>;
 
@@ -140,7 +140,7 @@ where
         mac.update(b"dummy_salt:");
         mac.update(email.as_bytes());
 
-        // Truncate to 16 bytes per spec (Argon2id salt length)
+        // Truncate to 16 bytes (Argon2id salt length)
         mac.finalize().into_bytes()[..16].to_vec()
     }
 }

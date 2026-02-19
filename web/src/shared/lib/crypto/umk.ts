@@ -32,7 +32,7 @@ export function wrapUmk(
   // XChaCha20-Poly1305 uses 24-byte nonce
   const nonce = randomBytes(24)
 
-  // Build AAD for context binding (per spec)
+  // Build AAD for context binding
   const aad = buildUmkWrapAad(userId)
 
   const cipher = xchacha20poly1305(puk, nonce, aad)
@@ -57,7 +57,7 @@ export function unwrapUmk(
   puk: Uint8Array,
   userId: string
 ): Uint8Array {
-  // Reconstruct AAD for verification (per spec)
+  // Reconstruct AAD for verification
   const aad = buildUmkWrapAad(userId)
 
   const cipher = xchacha20poly1305(puk, nonce, aad)

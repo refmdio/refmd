@@ -1,7 +1,7 @@
 /**
  * SAS (Short Authentication String) Generation
  *
- * ADR-008 compliant: BLAKE3 hash → 7 emojis (56 bits)
+ * BLAKE3 hash → 7 emojis (56 bits)
  * Used for device verification during multi-device registration.
  */
 
@@ -71,7 +71,7 @@ export function indicesToEmojis(indices: readonly number[]): string {
 /**
  * Generate SAS from device public keys and nonce
  *
- * ADR-008 algorithm:
+ * Algorithm:
  * 1. Concatenate: identity_signing_pk || device_signing_pk || device_ecdh_pk || client_nonce
  * 2. BLAKE3 hash
  * 3. Take first 7 bytes (56 bits)

@@ -9,7 +9,7 @@ use crate::map_decode_response;
 /// XChaCha20-Poly1305 nonce size in bytes
 const XCHACHA20_NONCE_SIZE: usize = 24;
 
-/// Argon2id salt size in bytes (per spec)
+/// Argon2id salt size in bytes
 const ARGON2_SALT_SIZE: usize = 16;
 
 /// Client nonce size in bytes (for SAS verification)
@@ -50,7 +50,7 @@ pub struct RegisterRequest {
     /// authKey for login (base64url encoded)
     #[schema(example = "base64url-encoded-auth-key")]
     pub auth_key: String,
-    /// Salt for KDF (base64url encoded, 16 bytes per spec)
+    /// Salt for KDF (base64url encoded, 16 bytes)
     #[schema(example = "base64url-encoded-salt")]
     pub salt: String,
     /// Encrypted UMK (base64url encoded)

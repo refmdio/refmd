@@ -14,7 +14,7 @@ import { randomBytes } from '@noble/ciphers/utils.js'
 import { buildRecoveryUmkWrapAad } from './aad'
 import { HKDF_ZERO_SALT } from './kdf'
 
-/** HKDF info constant (per spec) */
+/** HKDF info constant */
 const HKDF_INFO_RUK = 'ruk'
 
 /**
@@ -69,10 +69,10 @@ export async function deriveRukFromMnemonic(mnemonic: string): Promise<Uint8Arra
     throw new Error('Invalid mnemonic')
   }
 
-  // BIP39: mnemonic → seed (with empty passphrase per ADR-005)
+  // BIP39: mnemonic → seed (with empty passphrase)
   const seed = await mnemonicToSeed(mnemonic, '')
 
-  // HKDF: seed → RUK (using 32-byte zero salt per spec)
+  // HKDF: seed → RUK (using 32-byte zero salt)
   const rukInfo = new TextEncoder().encode(HKDF_INFO_RUK)
   const ruk = hkdf(sha256, seed, HKDF_ZERO_SALT, rukInfo, 32)
 
@@ -88,7 +88,7 @@ export async function deriveRukFromMnemonic(mnemonic: string): Promise<Uint8Arra
  * @returns Encrypted UMK and nonce
  */
 export function wrapUmkWithRuk(umk: Uint8Array, ruk: Uint8Array, userId: string): RecoveryWrappedUmk {
-  // Build AAD for context binding (per spec)
+  // Build AAD for context binding
   const aad = buildRecoveryUmkWrapAad(userId)
 
   const nonce = randomBytes(24)
@@ -111,7 +111,7 @@ export function wrapUmkWithRuk(umk: Uint8Array, ruk: Uint8Array, userId: string)
  * @throws Error if decryption fails (wrong mnemonic)
  */
 export function unwrapUmkWithRuk(wrapped: RecoveryWrappedUmk, ruk: Uint8Array, userId: string): Uint8Array {
-  // Reconstruct AAD for verification (per spec)
+  // Reconstruct AAD for verification
   const aad = buildRecoveryUmkWrapAad(userId)
 
   const cipher = xchacha20poly1305(ruk, wrapped.nonce, aad)

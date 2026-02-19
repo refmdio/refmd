@@ -26,7 +26,7 @@ export function base64UrlEncode(bytes: Uint8Array): string {
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]*$/
 
 /**
- * Decode base64url string to bytes (strict mode per spec)
+ * Decode base64url string to bytes (strict mode)
  *
  * Rejects:
  * - Padding characters (=)

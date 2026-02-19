@@ -42,17 +42,19 @@ const POP_EXEMPT_PATHS = [
  * - GET /api/trust-transfer/state (new device retrieving trust state)
  *
  * Endpoints that require PoP:
- * - POST /api/devices/pending/{id}/approve (approving device - ADR-009)
  * - GET /api/devices/{uuid}/keys/umk (new device sets PoP credentials before fetching)
  * - POST /api/devices/{uuid}/keys/umk (distributing UMK - requires sender PoP)
  * - POST /api/trust-transfer/state (existing device submits trust state)
  * - DELETE /api/devices/{uuid} (revoking devices)
  * - GET /api/devices (listing devices)
+ *
+ * PoP-optional (sent if available, skipped for recovery sessions):
+ * - POST /api/devices/pending/{id}/approve (PoP or Recovery)
  */
 function isPopExempt(path: string, method?: string): boolean {
   // Check exact/prefix matches for auth endpoints
   if (POP_EXEMPT_PATHS.some(exempt => path.startsWith(exempt))) {
-    // Exception: /api/devices/pending/{id}/approve requires PoP
+    // Exception: /api/devices/pending/{id}/approve is PoP-optional (not exempt)
     if (path.endsWith('/approve')) {
       return false
     }
@@ -65,6 +67,14 @@ function isPopExempt(path: string, method?: string): boolean {
     return true
   }
   return false
+}
+
+/**
+ * Check if a path has optional PoP (send if credentials available, skip otherwise).
+ * Used for endpoints that accept both PoP-verified and recovery sessions.
+ */
+function isPopOptional(path: string): boolean {
+  return path.endsWith('/approve') && path.includes('/api/devices/pending/')
 }
 
 /**
@@ -89,6 +99,10 @@ const popMiddleware: Middleware = {
     // Fail-close: reject requests to protected paths when PoP credentials are missing
     const credentials = getPopCredentials()
     if (!credentials) {
+      // PoP-optional paths (e.g. approve_device): proceed without PoP for recovery sessions
+      if (isPopOptional(path)) {
+        return request
+      }
       throw new Error(`[PoP] Missing credentials for protected path: ${method} ${path}. Ensure device is registered and PoP is established before calling protected endpoints.`)
     }
 

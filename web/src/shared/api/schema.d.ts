@@ -914,7 +914,7 @@ export interface components {
              */
             kdf_type: string;
             /**
-             * @description Salt for KDF (base64 encoded, 16 bytes per spec)
+             * @description Salt for KDF (base64 encoded, 16 bytes)
              * @example base64-encoded-salt
              */
             salt: string;
@@ -1368,7 +1368,7 @@ export interface components {
              */
             recovery_nonce: string;
             /**
-             * @description Salt for KDF (base64url encoded, 16 bytes per spec)
+             * @description Salt for KDF (base64url encoded, 16 bytes)
              * @example base64url-encoded-salt
              */
             salt: string;

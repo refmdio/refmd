@@ -25,7 +25,7 @@ pub struct GetSaltQueryParams {
 /// Get salt response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GetSaltResponse {
-    /// Salt for KDF (base64 encoded, 16 bytes per spec)
+    /// Salt for KDF (base64 encoded, 16 bytes)
     #[schema(example = "base64-encoded-salt")]
     pub salt: String,
     /// KDF type (always "argon2id")

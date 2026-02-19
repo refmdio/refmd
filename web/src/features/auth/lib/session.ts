@@ -68,6 +68,8 @@ export interface PdkFallbackRequired {
  * Mirrors the checks in restoreSession() without performing full restoration.
  */
 export async function hasResumableSession(): Promise<boolean> {
+  // SSR: browser storage APIs are not available on the server
+  if (typeof window === 'undefined') return false
   return (
     loadSessionUmk() !== null ||
     (await hasCachedSession()) ||

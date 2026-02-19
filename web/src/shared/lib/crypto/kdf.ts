@@ -21,7 +21,7 @@ export interface KdfParams {
 
 /**
  * Minimum/maximum bounds for Argon2id parameters
- * Per design spec: memory 16-256MiB, iterations 2-10, parallelism 1-8
+ * Allowed ranges: memory 16-256MiB, iterations 2-10, parallelism 1-8
  * These protect against downgrade attacks or DoS via extreme parameters
  */
 const KDF_BOUNDS = {
@@ -106,19 +106,19 @@ export interface DerivedKeys {
  * 3. HKDF(masterKey, "refmd-puk") → PUK (32 bytes)
  *
  * @param password User password
- * @param salt Salt from server (16 bytes as base64url per spec)
+ * @param salt Salt from server (16 bytes as base64url)
  * @param params KDF parameters from server
  */
-/** Expected Argon2id salt size in bytes (per spec) */
+/** Expected Argon2id salt size in bytes */
 const SALT_SIZE = 16
 
 /** Expected Argon2 output hex string length (32 bytes = 64 hex chars) */
 const ARGON2_HEX_LENGTH = 64
 
-/** HKDF salt: 32 bytes of zeros (per spec) */
+/** HKDF salt: 32 bytes of zeros */
 export const HKDF_ZERO_SALT = new Uint8Array(32)
 
-/** HKDF info constants (per spec) */
+/** HKDF info constants */
 const HKDF_INFO = {
   PASSWORD_AUTH: 'password_auth',
   PASSWORD_UNLOCK: 'password_unlock',
@@ -135,7 +135,7 @@ export async function deriveAuthKeys(
 
   const salt = base64UrlDecode(saltBase64)
 
-  // Validate salt length (16 bytes per spec)
+  // Validate salt length (16 bytes)
   if (salt.length !== SALT_SIZE) {
     throw new Error(`Invalid salt length: ${salt.length}. Expected ${SALT_SIZE} bytes (16 bytes)`)
   }
@@ -162,15 +162,15 @@ export async function deriveAuthKeys(
     masterKey[i] = parseInt(masterKeyHex.substring(i * 2, i * 2 + 2), 16)
   }
 
-  // Step 2: HKDF → authKey (using 32-byte zero salt per spec)
+  // Step 2: HKDF → authKey (using 32-byte zero salt)
   const authKeyInfo = new TextEncoder().encode(HKDF_INFO.PASSWORD_AUTH)
   const authKey = hkdf(sha256, masterKey, HKDF_ZERO_SALT, authKeyInfo, 32)
 
-  // Step 3: HKDF → PUK (using 32-byte zero salt per spec)
+  // Step 3: HKDF → PUK (using 32-byte zero salt)
   const pukInfo = new TextEncoder().encode(HKDF_INFO.PASSWORD_UNLOCK)
   const puk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, pukInfo, 32)
 
-  // Step 4: HKDF → PDK (using 32-byte zero salt per spec)
+  // Step 4: HKDF → PDK (using 32-byte zero salt)
   const pdkInfo = new TextEncoder().encode(HKDF_INFO.PASSWORD_DEVICE_KEY)
   const pdk = hkdf(sha256, masterKey, HKDF_ZERO_SALT, pdkInfo, 32)
 

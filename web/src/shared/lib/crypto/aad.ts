@@ -1,7 +1,7 @@
 /**
  * AAD (Additional Authenticated Data) constants and helpers
  *
- * Per spec: All AEAD operations must include AAD with protocol/version/purpose
+ * All AEAD operations must include AAD with protocol/version/purpose
  * AAD is always reconstructed, never stored with ciphertext
  *
  * Signature protocol (canonicalization, buildSignatureMessage) is in ./signature.ts
@@ -11,7 +11,7 @@ import { SIGNATURE_PROTOCOL } from './signature'
 import { canonicalizeBytes } from './signature'
 
 /**
- * AAD purpose constants (per spec)
+ * AAD purpose constants
  */
 export const AAD_PURPOSE = {
   // UMK related
@@ -188,7 +188,7 @@ export function buildDekWrapAad(documentId: string, workspaceId: string): Uint8A
 
 /**
  * Build AAD for document content encryption (Yjs updates encrypted with DEK)
- * Includes key_version to prevent cross-version mixup/replay attacks (per spec).
+ * Includes key_version to prevent cross-version mixup/replay attacks.
  */
 export function buildDocumentContentAad(documentId: string, keyVersion: number): Uint8Array {
   return buildAad({

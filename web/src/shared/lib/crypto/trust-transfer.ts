@@ -89,11 +89,11 @@ function buildTrustTransferAad(params: TrustTransferAadParams): Uint8Array {
 /**
  * Derive encryption key from ECDH shared secret using HKDF
  *
- * Per spec: Uses 32-byte zero salt (safe for high-entropy IKM like ECDH shared secret)
+ * Uses 32-byte zero salt (safe for high-entropy IKM like ECDH shared secret)
  * The transfer nonce is bound via AAD, not the HKDF salt.
  */
 function deriveTransferKey(sharedSecret: Uint8Array): Uint8Array {
-  // HKDF with zero salt per spec (safe for high-entropy IKM)
+  // HKDF with zero salt (safe for high-entropy IKM)
   // info: "trust_state_transfer" to differentiate from other key derivations
   const info = new TextEncoder().encode('trust_state_transfer')
   return hkdf(sha256, sharedSecret, HKDF_ZERO_SALT, info, 32)
@@ -130,7 +130,7 @@ function deserializeEntry(serialized: SerializedTofuEntry): TofuEntry {
 /**
  * Build message for trust state transfer signature
  *
- * Per spec: Uses signature protocol format with canonicalized JSON
+ * Uses signature protocol format with canonicalized JSON
  */
 function buildTransferSignatureMessage(
   ciphertext: Uint8Array,

@@ -1,7 +1,7 @@
 //! Signature Protocol Module
 //!
 //! Defines the signature protocol format for all cryptographic signatures.
-//! Per spec: All signatures use canonicalized JSON with protocol, version, and action fields.
+//! All signatures use canonicalized JSON with protocol, version, and action fields.
 
 use serde::Serialize;
 use serde_json::Value;

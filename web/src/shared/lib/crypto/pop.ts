@@ -2,7 +2,7 @@
  * Proof of Possession (PoP) utilities
  *
  * Generates PoP headers for API requests to prove device ownership.
- * Per ADR-009, PoP uses server-issued challenges to prevent replay attacks.
+ * PoP uses server-issued challenges to prevent replay attacks.
  */
 
 import { ed25519 } from '@noble/curves/ed25519.js'
@@ -66,7 +66,7 @@ export async function fetchPopChallenge(
 /**
  * Generate PoP headers by signing a server-issued challenge
  *
- * Per spec: Uses signature protocol format with canonicalized JSON
+ * Uses signature protocol format with canonicalized JSON
  * including protocol, version, action, and challenge fields.
  *
  * @param challenge - Server-issued challenge (base64url encoded)

@@ -1,7 +1,7 @@
 //! Encryption key routes (KEK/DEK)
 //!
 //! These routes handle E2EE key material and require PoP (Proof of Possession)
-//! verification per ADR-009.
+//! verification.
 
 mod document_keys;
 mod workspace_keys;

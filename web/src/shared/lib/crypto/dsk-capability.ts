@@ -19,6 +19,7 @@ let dskCapabilityCache: boolean | null = null
  */
 export async function canPersistDsk(): Promise<boolean> {
   if (dskCapabilityCache !== null) return dskCapabilityCache
+  if (typeof indexedDB === 'undefined') return false
 
   const testDbName = 'refmd-dsk-probe'
   const testStoreName = 'probe'

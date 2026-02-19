@@ -22,7 +22,7 @@ export const SIGNATURE_PROTOCOL = {
 } as const
 
 /**
- * Signature action constants (per spec)
+ * Signature action constants
  * Used in signature protocol for context binding
  */
 export const SIGNATURE_ACTION = {
@@ -140,7 +140,7 @@ export function canonicalizeBytes(obj: Record<string, unknown>): Uint8Array {
 /**
  * Build signature message with signature protocol format
  *
- * Per spec: All signatures should use the signature protocol format with
+ * All signatures use the signature protocol format with
  * canonicalized JSON including protocol, version, and action fields.
  *
  * @param action Signature action (from SIGNATURE_ACTION)

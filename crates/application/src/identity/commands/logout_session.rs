@@ -1,7 +1,7 @@
 //! Logout session command
 //!
 //! Finds a session by token hash and deletes it.
-//! Per design doc: "サーバー: セッションを削除" — session deletion must be reliable.
+//! Session deletion must be reliable.
 
 use domain::identity::SessionRepository;
 use std::sync::Arc;

@@ -151,7 +151,7 @@ export function encryptIdentityKeys(
   umk: Uint8Array,
   userId: string
 ): EncryptedIdentityKeys {
-  // Build AAD for context binding (per spec)
+  // Build AAD for context binding
   const ecdhAad = buildIdentityEcdhAad(userId)
   const signingAad = buildIdentitySigningAad(userId)
 
@@ -190,7 +190,7 @@ export function decryptIdentityPrivateKeys(
   umk: Uint8Array,
   userId: string
 ): IdentityKeyPair {
-  // Reconstruct AAD for verification (per spec)
+  // Reconstruct AAD for verification
   const ecdhAad = buildIdentityEcdhAad(userId)
   const signingAad = buildIdentitySigningAad(userId)
 

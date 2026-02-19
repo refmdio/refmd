@@ -40,7 +40,7 @@ function buildCsp(nonce: string): string {
     ].join('; ')
   }
 
-  // Production: Strict CSP per design doc (web-security.md)
+  // Production: Strict CSP
   return [
     "default-src 'self'",
     "script-src 'self'",

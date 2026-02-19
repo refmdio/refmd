@@ -50,7 +50,7 @@ impl DeviceRevocationEvent {
 
     /// Get the data that should be signed using JCS (JSON Canonicalization Scheme)
     ///
-    /// Per spec: All signatures use the signature protocol format with
+    /// All signatures use the signature protocol format with
     /// canonicalized JSON including protocol, version, and action fields.
     pub fn signature_payload(&self) -> Result<Vec<u8>, SignatureError> {
         #[derive(Serialize)]

@@ -33,7 +33,7 @@ pub struct RegisterPasswordUserAtomicCommand {
     // authKey for login (will be bcrypt hashed on server)
     pub auth_key: String,
 
-    // Salt for KDF (client-generated, 16 bytes per spec)
+    // Salt for KDF (client-generated, 16 bytes)
     pub salt: Vec<u8>,
 
     // Encrypted UMK (encrypted with PUK derived from password)
@@ -351,7 +351,7 @@ where
 
 /// Verify identity signature over device keys using JCS (JSON Canonicalization Scheme)
 ///
-/// Per spec: All signatures use the signature protocol format with
+/// All signatures use the signature protocol format with
 /// canonicalized JSON including protocol, version, and action fields.
 /// This proves the user's identity key approved this device's key material.
 fn verify_device_identity_signature(

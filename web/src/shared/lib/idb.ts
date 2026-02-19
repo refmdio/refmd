@@ -25,6 +25,9 @@ export function openIdb(
   version: number,
   onUpgrade: (db: IDBDatabase) => void
 ): Promise<IDBDatabase> {
+  if (typeof indexedDB === 'undefined') {
+    return Promise.reject(new Error('IndexedDB is not available in this environment'))
+  }
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name, version)
 

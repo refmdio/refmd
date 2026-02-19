@@ -6,9 +6,8 @@
  * - DEK wrapping with KEK using XChaCha20-Poly1305
  * - Content (Yjs updates) encryption with DEK using XChaCha20-Poly1305
  *
- * Per spec:
- * - Key hierarchy: KEK → DEK
- * - All AEAD operations use AAD with protocol/version/purpose/context
+ * Key hierarchy: KEK → DEK
+ * All AEAD operations use AAD with protocol/version/purpose/context
  */
 
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
@@ -44,7 +43,7 @@ export function wrapDek(
   // XChaCha20-Poly1305 uses 24-byte nonce
   const nonce = randomBytes(24)
 
-  // Build AAD for context binding (per spec)
+  // Build AAD for context binding
   const aad = buildDekWrapAad(documentId, workspaceId)
 
   const cipher = xchacha20poly1305(kek, nonce, aad)
@@ -71,7 +70,7 @@ export function unwrapDek(
   documentId: string,
   workspaceId: string
 ): Uint8Array {
-  // Reconstruct AAD for verification (per spec)
+  // Reconstruct AAD for verification
   const aad = buildDekWrapAad(documentId, workspaceId)
 
   const cipher = xchacha20poly1305(kek, nonce, aad)
@@ -96,7 +95,7 @@ export function encryptContent(
   // XChaCha20-Poly1305 uses 24-byte nonce
   const nonce = randomBytes(24)
 
-  // Build AAD for context binding (per spec)
+  // Build AAD for context binding
   const aad = buildDocumentContentAad(documentId, keyVersion)
 
   const cipher = xchacha20poly1305(dek, nonce, aad)
@@ -123,7 +122,7 @@ export function decryptContent(
   documentId: string,
   keyVersion: number
 ): Uint8Array {
-  // Reconstruct AAD for verification (per spec)
+  // Reconstruct AAD for verification
   const aad = buildDocumentContentAad(documentId, keyVersion)
 
   const cipher = xchacha20poly1305(dek, nonce, aad)
