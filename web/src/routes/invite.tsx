@@ -132,7 +132,7 @@ function InviteAcceptPage() {
 
     tryRestore()
     return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- intentionally run once
+  }, []) // intentionally run once
 
   // Phase 2: Accept invitation (runs when authenticated)
   useEffect(() => {
@@ -266,7 +266,7 @@ function InviteAcceptPage() {
 
     acceptInvitation()
     return () => { cancelled = true; acceptInFlight = false }
-  }, [isAuthenticated, auth, device, retryCount]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, auth, device, retryCount])
 
   // Landing page for unauthenticated users
   if (state.step === 'need_auth') {
