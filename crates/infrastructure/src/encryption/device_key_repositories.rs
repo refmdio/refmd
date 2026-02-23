@@ -20,17 +20,27 @@ struct DeviceRevocationEventRow {
     device_id: Uuid,
     revoked_at: i64,
     revoked_by_device_id: Uuid,
+    revocation_mode: String,
     signature: Vec<u8>,
     created_at: DateTime<Utc>,
 }
 
 impl From<DeviceRevocationEventRow> for DeviceRevocationEvent {
     fn from(row: DeviceRevocationEventRow) -> Self {
+        let revocation_mode = row.revocation_mode.parse().unwrap_or_else(|_| {
+            tracing::error!(
+                device_id = %row.device_id,
+                raw_value = %row.revocation_mode,
+                "corrupted revocation_mode in database, defaulting to security"
+            );
+            domain::encryption::RevocationMode::Security
+        });
         Self {
             user_id: UserId::from_uuid(row.user_id),
             device_id: DeviceId::from_uuid(row.device_id),
             revoked_at: row.revoked_at,
             revoked_by_device_id: DeviceId::from_uuid(row.revoked_by_device_id),
+            revocation_mode,
             signature: row.signature,
             created_at: row.created_at,
         }
@@ -49,7 +59,7 @@ impl DeviceRevocationEventRepository for PgDeviceRevocationEventRepository {
         let row = sqlx::query_as!(
             DeviceRevocationEventRow,
             r#"
-            SELECT user_id, device_id, revoked_at, revoked_by_device_id, signature, created_at
+            SELECT user_id, device_id, revoked_at, revoked_by_device_id, revocation_mode, signature, created_at
             FROM device_revocation_events
             WHERE user_id = $1 AND device_id = $2
             "#,
@@ -69,7 +79,7 @@ impl DeviceRevocationEventRepository for PgDeviceRevocationEventRepository {
         let rows = sqlx::query_as!(
             DeviceRevocationEventRow,
             r#"
-            SELECT user_id, device_id, revoked_at, revoked_by_device_id, signature, created_at
+            SELECT user_id, device_id, revoked_at, revoked_by_device_id, revocation_mode, signature, created_at
             FROM device_revocation_events
             WHERE user_id = $1
             ORDER BY created_at DESC
@@ -86,15 +96,16 @@ impl DeviceRevocationEventRepository for PgDeviceRevocationEventRepository {
         sqlx::query!(
             r#"
             INSERT INTO device_revocation_events (
-                user_id, device_id, revoked_at, revoked_by_device_id, signature, created_at
+                user_id, device_id, revoked_at, revoked_by_device_id, revocation_mode, signature, created_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (user_id, device_id) DO NOTHING
             "#,
             event.user_id.as_uuid(),
             event.device_id.as_uuid(),
             event.revoked_at,
             event.revoked_by_device_id.as_uuid(),
+            event.revocation_mode.as_str(),
             &event.signature,
             event.created_at,
         )

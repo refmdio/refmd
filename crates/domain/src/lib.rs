@@ -20,9 +20,11 @@ pub mod recovery_challenge;
 pub mod signature;
 pub mod transfer_nonce;
 pub mod workspace;
+pub mod workspace_events;
 
 // Re-export commonly used types
 pub use device_events::DeviceEvent;
+pub use workspace_events::WorkspaceEvent;
 pub use pop::{ChallengeError, ChallengeStore};
 pub use recovery_challenge::{RecoveryChallengeError, RecoveryChallengeStore};
 pub use signature::{

@@ -163,7 +163,7 @@ where
         // 4. Build workspace-related aggregates
         let slug = generate_workspace_slug(&command.name)?;
         let final_slug = self.ensure_unique_slug(slug).await?;
-        let (workspace, owner_role, editor_role, viewer_role, member) =
+        let (workspace, owner_role, admin_role, editor_role, viewer_role, member) =
             Self::build_workspace_data(user.id, &command.name, final_slug);
 
         // 5. Build device
@@ -189,6 +189,7 @@ where
             encrypted_identity_key,
             workspace: workspace.clone(),
             owner_role,
+            admin_role,
             editor_role,
             viewer_role,
             member,
@@ -318,17 +319,18 @@ where
         user_id: domain::identity::UserId,
         name: &str,
         slug: Slug,
-    ) -> (Workspace, WorkspaceRole, WorkspaceRole, WorkspaceRole, WorkspaceMember) {
+    ) -> (Workspace, WorkspaceRole, WorkspaceRole, WorkspaceRole, WorkspaceRole, WorkspaceMember) {
         let workspace_name = format!("{}'s Workspace", name);
-        let workspace = Workspace::new(workspace_name, slug, user_id);
+        let workspace = Workspace::new(workspace_name, slug, user_id, None);
 
         let owner_role = WorkspaceRole::owner(workspace.id);
+        let admin_role = WorkspaceRole::admin(workspace.id);
         let editor_role = WorkspaceRole::editor(workspace.id);
         let viewer_role = WorkspaceRole::viewer(workspace.id);
 
         let member = WorkspaceMember::new_owner(workspace.id, user_id, owner_role.id);
 
-        (workspace, owner_role, editor_role, viewer_role, member)
+        (workspace, owner_role, admin_role, editor_role, viewer_role, member)
     }
 
     async fn ensure_unique_slug(

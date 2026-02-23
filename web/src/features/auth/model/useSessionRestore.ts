@@ -47,15 +47,19 @@ export function useSessionRestore(): UseSessionRestoreResult {
         }
 
         if (result && !('type' in result)) {
-          setFullSession(
-            buildAuthState(result),
-            buildDeviceState(result.deviceData!),
-          )
+          if (!result.deviceData) {
+            console.warn('[session-restore] Session restored but device data missing')
+          } else {
+            setFullSession(
+              buildAuthState(result),
+              buildDeviceState(result.deviceData),
+            )
+          }
+        } else {
+          console.warn('[session-restore] restoreSession returned null — will redirect to login')
         }
-        // If no result, isRestoring will become false and the
-        // authenticated layout's safety-net redirect handles navigation.
-      } catch {
-        // Same: let the layout handle the redirect.
+      } catch (e) {
+        console.warn('[session-restore] restoreSession threw:', e)
       } finally {
         setIsRestoring(false)
       }

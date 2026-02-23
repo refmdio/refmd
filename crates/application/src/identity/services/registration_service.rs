@@ -20,6 +20,7 @@ pub struct RegistrationData {
     pub encrypted_identity_key: UserEncryptedIdentityKey,
     pub workspace: Workspace,
     pub owner_role: WorkspaceRole,
+    pub admin_role: WorkspaceRole,
     pub editor_role: WorkspaceRole,
     pub viewer_role: WorkspaceRole,
     pub member: WorkspaceMember,

@@ -11,14 +11,20 @@ import { ErrorAlert } from '@/shared/ui/error-alert'
 import { useAuthContext } from '@/shared/context'
 import { useAsyncAction } from '@/shared/hooks'
 import { buildAuthState, buildDeviceState } from '@/shared/model/session-hydration'
+import { WORKSPACE_STORAGE_KEY } from '@/entities/workspace'
+import { sanitizeRedirect } from '@/shared/lib/redirect'
 
 export const Route = createFileRoute('/auth/login')({
   component: LoginPage,
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: sanitizeRedirect(search.redirect),
+  }),
 })
 
 function LoginPage() {
   const navigate = useNavigate()
   const router = useRouter()
+  const { redirect } = Route.useSearch()
   const { setAuthState, setFullSession, clearAuthState } = useAuthContext()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -44,7 +50,7 @@ function LoginPage() {
           umk: null,
           identityKeys: null,
         })
-        navigate({ to: '/auth/device-register' })
+        navigate({ to: '/auth/device-register', search: { redirect } })
         return
       }
 
@@ -61,7 +67,22 @@ function LoginPage() {
         buildDeviceState({ deviceId: result.deviceId, deviceKeys: result.deviceKeys }),
       )
 
-      navigate({ to: '/dashboard' })
+      // Navigate to the redirect target, or the persisted workspace, or root.
+      // Going to '/' is safe because index.tsx will redirect authenticated users
+      // to a workspace or /auth/login (for the no-persisted-workspace edge case,
+      // the _authenticated layout picks the first workspace).
+      if (redirect) {
+        navigate({ to: redirect })
+      } else {
+        const workspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY)
+        if (workspaceId) {
+          navigate({ to: '/workspace/$workspaceId', params: { workspaceId } })
+        } else {
+          // No persisted workspace — go to workspace resolver (inside _authenticated layout)
+          // which uses useWorkspaces to set the default and redirect.
+          navigate({ to: '/workspace' })
+        }
+      }
     })
   }
 
@@ -93,7 +114,7 @@ function LoginPage() {
 
         <p className="text-center text-sm text-muted-foreground">
           Don't have an account?{' '}
-          <Link to="/auth/register" className="text-primary hover:underline">
+          <Link to="/auth/register" search={{ redirect }} className="text-primary hover:underline">
             Register
           </Link>
         </p>

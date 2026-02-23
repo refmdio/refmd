@@ -5,7 +5,8 @@
 use domain::document::{DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
-    WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
+    WorkspaceId, WorkspaceMemberRepository, WorkspaceRolePermissionRepository,
+    WorkspaceRoleRepository, permission,
 };
 
 use crate::dto::DocumentDto;
@@ -32,9 +33,9 @@ pub struct ListDocumentsResult {
 
 /// List documents error
 #[derive(Debug, Error)]
-pub enum ListDocumentsError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error> {
+pub enum ListDocumentsError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error> {
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("parent document not found in this workspace")]
     ParentNotFound,
@@ -43,8 +44,8 @@ pub enum ListDocumentsError<DR: std::error::Error, MR: std::error::Error, RR: st
     DocumentRepository(DR),
 }
 
-impl<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
-    crate::types::AppError for ListDocumentsError<DR, MR, RR>
+impl<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error>
+    crate::types::AppError for ListDocumentsError<DR, MR, RR, RPR>
 {
     fn is_access_denied(&self) -> bool {
         matches!(
@@ -63,37 +64,41 @@ impl<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
 }
 
 /// List documents handler
-pub struct ListDocumentsHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
+pub struct ListDocumentsHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
 }
 
-impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> ListDocumentsHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> ListDocumentsHandler<DR, MR, RR, RPR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
+    RPR: WorkspaceRolePermissionRepository,
 {
-    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
+    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>, role_perm_repo: Arc<RPR>) -> Self {
         Self {
             document_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
         }
     }
 
     pub async fn handle(
         &self,
         query: ListDocumentsQuery,
-    ) -> Result<ListDocumentsResult, ListDocumentsError<DR::Error, MR::Error, RR::Error>> {
+    ) -> Result<ListDocumentsResult, ListDocumentsError<DR::Error, MR::Error, RR::Error, RPR::Error>> {
         // 1. Check membership and Read permission
         check_workspace_permission(
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             query.workspace_id,
             query.user_id,
-            WorkspacePermission::Read,
+            permission::DOCUMENT_READ,
         )
         .await
         .map_err(ListDocumentsError::WorkspaceAccess)?;

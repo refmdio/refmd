@@ -14,12 +14,17 @@ import {
   RegistrationErrorState,
 } from './-components/RegistrationStates'
 import { useDeviceRegistration } from './-hooks/useDeviceRegistration'
+import { sanitizeRedirect } from '@/shared/lib/redirect'
 
 export const Route = createFileRoute('/auth/device-register')({
   component: DeviceRegisterPage,
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: sanitizeRedirect(search.redirect),
+  }),
 })
 
 function DeviceRegisterPage() {
+  const { redirect } = Route.useSearch()
   const {
     state,
     deviceName,
@@ -29,7 +34,7 @@ function DeviceRegisterPage() {
     keyChangeProps,
     handleRetry,
     handleCancel,
-  } = useDeviceRegistration()
+  } = useDeviceRegistration(redirect)
 
   if (keyChangeProps) {
     return <KeyChangeWarningPage {...keyChangeProps} />

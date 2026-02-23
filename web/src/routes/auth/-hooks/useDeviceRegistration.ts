@@ -13,6 +13,7 @@ import { useCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useDevice, useDeviceApprovalSSE, useTrustTransfer, useDeviceRegistrationApproval, findApprovedDeviceBySigningKey } from '@/features/device'
 import { useAuthContext } from '@/shared/context'
+import { WORKSPACE_STORAGE_KEY } from '@/entities/workspace'
 import { detectDeviceType, detectDeviceName } from '@/shared/lib/device'
 import type { KeyChangeWarningDialogProps } from '@/shared/model/key-change-types'
 import { useRegistrationControl } from './useRegistrationControl'
@@ -26,7 +27,7 @@ function resolveKeyChangeDialogProps(
   return null
 }
 
-export function useDeviceRegistration() {
+export function useDeviceRegistration(redirect?: string) {
   const navigate = useNavigate()
   const { auth, setFullSession, clearAuthState } = useAuthContext()
   const { state, startRegistration, reset } = useDevice()
@@ -45,11 +46,20 @@ export function useDeviceRegistration() {
     deviceType,
   })
 
-  // Trust transfer
-  const navigateToDashboard = useCallback(() => {
-    navigate({ to: '/' })
-  }, [navigate])
-  const trustTransfer = useTrustTransfer(navigateToDashboard, control.setError)
+  // Trust transfer — navigate to the redirect target, persisted workspace, or root
+  const navigateToWorkspace = useCallback(() => {
+    if (redirect) {
+      navigate({ to: redirect })
+    } else {
+      const workspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY)
+      if (workspaceId) {
+        navigate({ to: '/workspace/$workspaceId', params: { workspaceId } })
+      } else {
+        navigate({ to: '/workspace' })
+      }
+    }
+  }, [navigate, redirect])
+  const trustTransfer = useTrustTransfer(navigateToWorkspace, control.setError)
 
   // Post-approval crypto flow
   const approval = useDeviceRegistrationApproval({
@@ -57,7 +67,7 @@ export function useDeviceRegistration() {
     deviceState: state,
     setFullSession,
     executeTrustTransfer: trustTransfer.executeTrustTransfer,
-    onNavigate: navigateToDashboard,
+    onNavigate: navigateToWorkspace,
     onError: control.setError,
   })
 

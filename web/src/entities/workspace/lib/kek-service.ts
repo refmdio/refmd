@@ -5,7 +5,7 @@
  * Stateless reusable operations are in kek-ops.ts. Cache and deduplication are in kek-cache.ts.
  *
  * Flow:
- * 1. Try device ECDH key -> success: backfill UMK backup if needed
+ * 1. Try device ECDH key -> success: ensure UMK backup is current
  * 2. 404 -> Try UMK backup -> success: re-wrap for device via ECDH
  * 3. 404 -> Generate new KEK + save device key + save UMK backup
  */
@@ -27,10 +27,16 @@ export { clearKekCache } from './kek-cache'
 export { encryptAndSaveKekForDevice, fetchAndDecryptKek, wrapAndSaveKekBackup, type DecryptedWorkspaceKek } from './kek-ops'
 
 /**
- * Backfill UMK-wrapped KEK backup if one doesn't exist yet.
- * Fire-and-forget: failures are logged but don't block KEK usage.
+ * Ensure UMK-wrapped KEK backup exists and is up-to-date.
+ *
+ * - 404: create a new backup (backfill).
+ * - 200 but stale `key_version`: overwrite with current version.
+ * - 200 and version matches: no-op.
+ *
+ * Awaited so the backup is guaranteed to be current before subsequent calls
+ * (e.g., invitation creation that reads the backup's key_version).
  */
-async function backfillKekBackup(
+async function ensureKekBackupCurrent(
   workspaceId: string,
   userId: string,
   kek: Uint8Array,
@@ -38,8 +44,16 @@ async function backfillKekBackup(
   keyVersion: number
 ): Promise<void> {
   try {
-    await encryptionApi.getWorkspaceKekBackup(workspaceId)
-    // Backup already exists, nothing to do
+    const backup = await encryptionApi.getWorkspaceKekBackup(workspaceId)
+    if (backup.key_version < keyVersion) {
+      // Backup exists but is stale — overwrite with current version
+      try {
+        await wrapAndSaveKekBackup(kek, umk, workspaceId, userId, keyVersion)
+      } catch {
+        // Best-effort update
+      }
+    }
+    // Otherwise backup is current — nothing to do
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
       try {
@@ -47,15 +61,16 @@ async function backfillKekBackup(
       } catch {
         // Backfill is fire-and-forget
       }
-    } else {
-      // Non-404 error — skip backfill
+      return
     }
+    // Non-404 error — log and skip
+    console.warn('[kek] ensureKekBackupCurrent failed:', err)
   }
 }
 
 /**
  * Decrypt KEK from device ECDH key, with TOFU verification and anti-rollback.
- * Caches result and backfills UMK backup if one doesn't exist yet.
+ * Caches result and ensures UMK backup is current.
  */
 async function decryptKekViaDevice(
   workspaceId: string,
@@ -68,9 +83,13 @@ async function decryptKekViaDevice(
 
   kekCache.setValue(workspaceId, kek)
 
-  // Fire-and-forget: backfill UMK backup for existing workspaces
+  // Ensure UMK backup is current (create if missing, update if stale)
   if (umk) {
-    backfillKekBackup(workspaceId, userId, kek, umk, keyVersion)
+    try {
+      await ensureKekBackupCurrent(workspaceId, userId, kek, umk, keyVersion)
+    } catch {
+      // Backup sync failure is non-fatal for the KEK fetch itself
+    }
   }
 
   return kek
@@ -219,7 +238,7 @@ async function tryRestoreFromBackup(
  * Only one fetch/create will run per workspace at a time.
  *
  * Flow:
- * 1. Try device ECDH key -> success: backfill UMK backup if needed
+ * 1. Try device ECDH key -> success: ensure UMK backup is current
  * 2. 404 -> Try UMK backup -> success: re-wrap for device via ECDH
  * 3. 404 -> Generate new KEK + save device key + save UMK backup
  */

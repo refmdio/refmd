@@ -6,7 +6,8 @@
 use domain::document::{DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
-    WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
+    WorkspaceMemberRepository, WorkspaceRolePermissionRepository, WorkspaceRoleRepository,
+    permission,
 };
 use std::sync::Arc;
 
@@ -29,7 +30,7 @@ pub struct ArchiveDocumentResult {
 
 /// Archive document error
 #[derive(Debug, Error)]
-pub enum ArchiveDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error> {
+pub enum ArchiveDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error> {
     #[error("document not found")]
     DocumentNotFound,
 
@@ -37,15 +38,15 @@ pub enum ArchiveDocumentError<DR: std::error::Error, MR: std::error::Error, RR: 
     AlreadyArchived,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("document repository error: {0}")]
     DocumentRepository(DR),
 }
 
 crate::types::impl_app_error!(
-    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
-    ArchiveDocumentError<DR, MR, RR>,
+    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error]
+    ArchiveDocumentError<DR, MR, RR, RPR>,
     not_found: [
         ArchiveDocumentError::DocumentNotFound,
         ArchiveDocumentError::WorkspaceAccess(WorkspaceAccessError::NotMember),
@@ -56,40 +57,44 @@ crate::types::impl_app_error!(
     conflict: [ArchiveDocumentError::AlreadyArchived],
 );
 
-crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR] ArchiveDocumentError<DR, MR, RR>);
+crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR, RPR] ArchiveDocumentError<DR, MR, RR, RPR>);
 
 /// Archive document handler
-pub struct ArchiveDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
+pub struct ArchiveDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
 }
 
-impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> ArchiveDocumentHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> ArchiveDocumentHandler<DR, MR, RR, RPR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
+    RPR: WorkspaceRolePermissionRepository,
 {
-    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
+    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>, role_perm_repo: Arc<RPR>) -> Self {
         Self {
             document_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
         }
     }
 
     pub async fn handle(
         &self,
         command: ArchiveDocumentCommand,
-    ) -> Result<ArchiveDocumentResult, ArchiveDocumentError<DR::Error, MR::Error, RR::Error>> {
+    ) -> Result<ArchiveDocumentResult, ArchiveDocumentError<DR::Error, MR::Error, RR::Error, RPR::Error>> {
         let mut document = load_document_with_permission(
             &self.document_repo,
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             command.document_id,
             command.user_id,
-            WorkspacePermission::Write,
+            permission::DOCUMENT_ARCHIVE,
         )
         .await
         .map_err(ArchiveDocumentError::from_load)?;
@@ -163,7 +168,7 @@ pub struct UnarchiveDocumentResult {
 
 /// Unarchive document error
 #[derive(Debug, Error)]
-pub enum UnarchiveDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
+pub enum UnarchiveDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error>
 {
     #[error("document not found")]
     DocumentNotFound,
@@ -172,15 +177,15 @@ pub enum UnarchiveDocumentError<DR: std::error::Error, MR: std::error::Error, RR
     NotArchived,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("document repository error: {0}")]
     DocumentRepository(DR),
 }
 
 crate::types::impl_app_error!(
-    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
-    UnarchiveDocumentError<DR, MR, RR>,
+    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error]
+    UnarchiveDocumentError<DR, MR, RR, RPR>,
     not_found: [
         UnarchiveDocumentError::DocumentNotFound,
         UnarchiveDocumentError::WorkspaceAccess(WorkspaceAccessError::NotMember),
@@ -191,41 +196,45 @@ crate::types::impl_app_error!(
     invalid_input: [UnarchiveDocumentError::NotArchived],
 );
 
-crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR] UnarchiveDocumentError<DR, MR, RR>);
+crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR, RPR] UnarchiveDocumentError<DR, MR, RR, RPR>);
 
 /// Unarchive document handler
-pub struct UnarchiveDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
+pub struct UnarchiveDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
 }
 
-impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> UnarchiveDocumentHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> UnarchiveDocumentHandler<DR, MR, RR, RPR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
+    RPR: WorkspaceRolePermissionRepository,
 {
-    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
+    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>, role_perm_repo: Arc<RPR>) -> Self {
         Self {
             document_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
         }
     }
 
     pub async fn handle(
         &self,
         command: UnarchiveDocumentCommand,
-    ) -> Result<UnarchiveDocumentResult, UnarchiveDocumentError<DR::Error, MR::Error, RR::Error>>
+    ) -> Result<UnarchiveDocumentResult, UnarchiveDocumentError<DR::Error, MR::Error, RR::Error, RPR::Error>>
     {
         let mut document = load_document_with_permission(
             &self.document_repo,
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             command.document_id,
             command.user_id,
-            WorkspacePermission::Write,
+            permission::DOCUMENT_ARCHIVE,
         )
         .await
         .map_err(UnarchiveDocumentError::from_load)?;

@@ -72,4 +72,8 @@ export const sseUrls = {
   pendingDeviceEvents(pendingDeviceId: string): string {
     return `${API_BASE}/api/devices/pending/${pendingDeviceId}/events`
   },
+
+  workspaceEvents(): string {
+    return `${API_BASE}/api/workspaces/events`
+  },
 }

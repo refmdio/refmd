@@ -2,15 +2,17 @@
 //!
 //! Clears the needs_kek_rotation flag and updates min_kek_version after
 //! the client has distributed new KEKs to all active devices.
+//!
+//! Delegates to KekRotationCompletionService for atomic check+update
+//! with a FOR UPDATE lock on the workspace row.
 
 use domain::identity::UserId;
-use domain::workspace::{
-    WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRepository,
-    WorkspaceRoleRepository,
-};
+use domain::workspace::{WorkspaceId, WorkspaceMemberRepository};
 use std::sync::Arc;
 
-use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
+use crate::encryption::KekRotationCompletionError;
+use crate::encryption::KekRotationCompletionService;
+use crate::util::workspace_access::{check_workspace_membership, MembershipError};
 use thiserror::Error;
 
 /// Complete KEK rotation command
@@ -31,118 +33,81 @@ pub struct CompleteKekRotationResult {
 
 /// Complete KEK rotation error
 #[derive(Debug, Error)]
-pub enum CompleteKekRotationError<WR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
-{
-    #[error("workspace not found")]
-    WorkspaceNotFound,
+pub enum CompleteKekRotationError<MR: std::error::Error> {
+    #[error(transparent)]
+    Membership(MembershipError<MR>),
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
-
-    #[error("invalid version: new version {new} must be greater than current {current}")]
-    InvalidVersion { current: i32, new: i32 },
-
-    #[error("workspace does not need KEK rotation")]
-    NotNeedsRotation,
-
-    #[error("workspace repository error: {0}")]
-    WorkspaceRepository(WR),
+    Completion(KekRotationCompletionError),
 }
 
-impl<WR: std::error::Error, MR: std::error::Error, RR: std::error::Error>
-    crate::types::AppError for CompleteKekRotationError<WR, MR, RR>
-{
+impl<MR: std::error::Error> crate::types::AppError for CompleteKekRotationError<MR> {
     fn is_access_denied(&self) -> bool {
-        matches!(
-            self,
-            CompleteKekRotationError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied)
-        )
+        false
     }
 
     fn is_invalid_input(&self) -> bool {
         matches!(
             self,
-            CompleteKekRotationError::InvalidVersion { .. }
-                | CompleteKekRotationError::NotNeedsRotation
+            CompleteKekRotationError::Completion(KekRotationCompletionError::InvalidVersion { .. })
+                | CompleteKekRotationError::Completion(
+                    KekRotationCompletionError::NotNeedsRotation
+                )
+                | CompleteKekRotationError::Completion(
+                    KekRotationCompletionError::DistributionIncomplete
+                )
         )
     }
 
     fn is_not_found(&self) -> bool {
         matches!(
             self,
-            CompleteKekRotationError::WorkspaceNotFound
-                | CompleteKekRotationError::WorkspaceAccess(WorkspaceAccessError::NotMember)
+            CompleteKekRotationError::Completion(KekRotationCompletionError::WorkspaceNotFound)
+                | CompleteKekRotationError::Membership(MembershipError::NotMember)
         )
     }
 }
 
 /// Complete KEK rotation handler
-pub struct CompleteKekRotationHandler<WR: ?Sized, MR: ?Sized, RR: ?Sized> {
-    workspace_repo: Arc<WR>,
+pub struct CompleteKekRotationHandler<MR: ?Sized> {
     member_repo: Arc<MR>,
-    role_repo: Arc<RR>,
+    rotation_service: Arc<dyn KekRotationCompletionService>,
 }
 
-impl<WR, MR, RR> CompleteKekRotationHandler<WR, MR, RR>
+impl<MR> CompleteKekRotationHandler<MR>
 where
-    WR: WorkspaceRepository + ?Sized,
     MR: WorkspaceMemberRepository + ?Sized,
-    RR: WorkspaceRoleRepository + ?Sized,
 {
-    pub fn new(workspace_repo: Arc<WR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
+    pub fn new(
+        member_repo: Arc<MR>,
+        rotation_service: Arc<dyn KekRotationCompletionService>,
+    ) -> Self {
         Self {
-            workspace_repo,
             member_repo,
-            role_repo,
+            rotation_service,
         }
     }
 
     pub async fn handle(
         &self,
         command: CompleteKekRotationCommand,
-    ) -> Result<CompleteKekRotationResult, CompleteKekRotationError<WR::Error, MR::Error, RR::Error>>
-    {
-        // 1. Get workspace
-        let mut workspace = self
-            .workspace_repo
-            .find_by_id(command.workspace_id)
-            .await
-            .map_err(CompleteKekRotationError::WorkspaceRepository)?
-            .ok_or(CompleteKekRotationError::WorkspaceNotFound)?;
-
-        // 2. Check membership and Write permission (required for key management)
-        check_workspace_permission(
+    ) -> Result<CompleteKekRotationResult, CompleteKekRotationError<MR::Error>> {
+        // 1. Check membership (KEK endpoints require PoP + membership, not RBAC)
+        check_workspace_membership(
             &self.member_repo,
-            &self.role_repo,
             command.workspace_id,
             command.user_id,
-            WorkspacePermission::Write,
         )
         .await
-        .map_err(CompleteKekRotationError::WorkspaceAccess)?;
+        .map_err(CompleteKekRotationError::Membership)?;
 
-        // 4. Check if workspace needs rotation
-        if !workspace.needs_kek_rotation {
-            return Err(CompleteKekRotationError::NotNeedsRotation);
-        }
-
-        // 5. Validate new version is greater than current
-        if command.new_min_kek_version <= workspace.min_kek_version {
-            return Err(CompleteKekRotationError::InvalidVersion {
-                current: workspace.min_kek_version,
-                new: command.new_min_kek_version,
-            });
-        }
-
-        // 6. Update workspace
-        workspace.set_min_kek_version(command.new_min_kek_version);
-        workspace.clear_kek_rotation_flag();
-
-        // 7. Save workspace
-        self.workspace_repo
-            .save(&workspace)
+        // 2. Atomic check + update in a single transaction with FOR UPDATE lock
+        //    Distribution check is scoped to the requesting user's devices
+        //    (each user can only distribute KEK to their own devices via ECDH).
+        self.rotation_service
+            .complete_atomic(command.workspace_id, command.user_id, command.new_min_kek_version)
             .await
-            .map_err(CompleteKekRotationError::WorkspaceRepository)?;
+            .map_err(CompleteKekRotationError::Completion)?;
 
         Ok(CompleteKekRotationResult {
             workspace_id: command.workspace_id,

@@ -44,9 +44,15 @@ impl RegistrationService for PgRegistrationService {
         data: RegistrationData,
     ) -> Result<(), RegistrationServiceError> {
         register_user_atomic(&self.pool, data).await.map_err(|e| match &e {
-            // Detect PostgreSQL unique constraint violations (error code 23505)
+            // Detect PostgreSQL unique constraint violations (error code 23505).
+            // Only map to Conflict if the constraint is on the users table (email).
+            // Other 23505 errors (e.g. workspace slug, device PK) are unexpected
+            // during registration and should surface as Database errors.
             RegistrationError::Database(sqlx::Error::Database(db_err))
-                if db_err.code().as_deref() == Some("23505") =>
+                if db_err.code().as_deref() == Some("23505")
+                    && db_err
+                        .constraint()
+                        .map_or(false, |c| c.contains("email") || c == "users_pkey") =>
             {
                 RegistrationServiceError::Conflict(db_err.message().to_string())
             }
@@ -68,7 +74,7 @@ pub async fn register_user_atomic(
     insert_encrypted_master_key(&mut tx, &data.encrypted_master_key).await?;
     insert_encrypted_identity_key(&mut tx, &data.encrypted_identity_key).await?;
     insert_workspace(&mut tx, &data.workspace).await?;
-    for role in [&data.owner_role, &data.editor_role, &data.viewer_role] {
+    for role in [&data.owner_role, &data.admin_role, &data.editor_role, &data.viewer_role] {
         insert_workspace_role(&mut tx, role).await?;
     }
     insert_workspace_member(&mut tx, &data.member).await?;

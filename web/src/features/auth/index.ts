@@ -1,7 +1,7 @@
 export { register } from './lib/register'
 export { login } from './lib/login'
-export { hasResumableSession } from './lib/session'
 export { logout, secureLogout } from './lib/logout'
+export { restoreSession } from './lib/session'
 export { useSessionRestore } from './model/useSessionRestore'
 export { PdkFallbackDialog } from './ui/PdkFallbackDialog'
 export { useRecoveryFlow, type RecoveryStep } from './model/useRecoveryFlow'

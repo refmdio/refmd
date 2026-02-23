@@ -71,10 +71,42 @@ function isPopExempt(path: string, method?: string): boolean {
 
 /**
  * Check if a path has optional PoP (send if credentials available, skip otherwise).
- * Used for endpoints that accept both PoP-verified and recovery sessions.
+ * Used for endpoints that accept both PoP-verified and recovery sessions,
+ * and for session-only workspace management endpoints.
+ *
+ * Session-only workspace paths (PoP-optional):
+ * - POST /api/workspaces (create)
+ * - PATCH/DELETE /api/workspaces/{workspace_id} (update/delete)
+ * - All /api/workspaces/{workspace_id}/roles/... (role management)
+ * - All /api/workspaces/{workspace_id}/members/... (member management)
+ *
+ * NOT optional (PoP required):
+ * - GET /api/workspaces (list)
+ * - GET /api/workspaces/{workspace_id} (get)
+ * - All /api/workspaces/{workspace_id}/invitations/... (invitation endpoints)
  */
-function isPopOptional(path: string): boolean {
-  return path.endsWith('/approve') && path.includes('/api/devices/pending/')
+function isPopOptional(path: string, method?: string): boolean {
+  if (path.endsWith('/approve') && path.includes('/api/devices/pending/')) {
+    return true
+  }
+
+  // Workspace management: session-only endpoints are PoP-optional
+  const workspacesRoot = '/api/workspaces'
+  if (path.startsWith(workspacesRoot)) {
+    const rest = path.slice(workspacesRoot.length)
+
+    // POST /api/workspaces (create) — PoP-optional
+    if (rest === '' && method === 'POST') return true
+
+    // /api/workspaces/{workspace_id}/roles or /api/workspaces/{workspace_id}/members — PoP-optional
+    if (/^\/[^/]+\/roles(\/|$)/.test(rest)) return true
+    if (/^\/[^/]+\/members(\/|$)/.test(rest)) return true
+
+    // PATCH/DELETE /api/workspaces/{workspace_id} — PoP-optional
+    if (/^\/[^/]+$/.test(rest) && (method === 'PATCH' || method === 'DELETE')) return true
+  }
+
+  return false
 }
 
 /**
@@ -99,11 +131,28 @@ const popMiddleware: Middleware = {
     // Fail-close: reject requests to protected paths when PoP credentials are missing
     const credentials = getPopCredentials()
     if (!credentials) {
-      // PoP-optional paths (e.g. approve_device): proceed without PoP for recovery sessions
-      if (isPopOptional(path)) {
+      // PoP-optional paths (e.g. approve_device, workspace management): proceed without PoP
+      if (isPopOptional(path, method)) {
         return request
       }
       throw new Error(`[PoP] Missing credentials for protected path: ${method} ${path}. Ensure device is registered and PoP is established before calling protected endpoints.`)
+    }
+
+    // For PoP-optional paths, try to add PoP headers but proceed without them on failure
+    if (isPopOptional(path, method)) {
+      try {
+        const popHeaders = await getPopHeaders(
+          API_BASE,
+          credentials.deviceId,
+          credentials.signingPrivateKey
+        )
+        for (const [key, value] of Object.entries(popHeaders)) {
+          request.headers.set(key, value)
+        }
+      } catch {
+        // PoP is optional for this path — proceed without it
+      }
+      return request
     }
 
     // Fetch server-issued challenge and sign it

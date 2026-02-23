@@ -48,6 +48,9 @@ export const AAD_PURPOSE = {
   // Trust state transfer
   TRUST_STATE_TRANSFER: 'trust_state_transfer',
 
+  // Invitation KEK wrap
+  INVITATION_KEK_WRAP: 'invitation_kek_wrap',
+
   // Server internal
   SERVER_AUTH_KEY_WRAP: 'server_auth_key_wrap',
 } as const
@@ -195,6 +198,24 @@ export function buildDocumentContentAad(documentId: string, keyVersion: number):
     ...SIGNATURE_PROTOCOL,
     purpose: AAD_PURPOSE.DOCUMENT_CONTENT,
     document_id: documentId,
+    key_version: keyVersion,
+  })
+}
+
+/**
+ * Build AAD for invitation KEK wrap (KEK encrypted with token-derived key)
+ * Includes invitation_id and key_version for context binding.
+ */
+export function buildInvitationKekWrapAad(
+  workspaceId: string,
+  invitationId: string,
+  keyVersion: number
+): Uint8Array {
+  return buildAad({
+    ...SIGNATURE_PROTOCOL,
+    purpose: AAD_PURPOSE.INVITATION_KEK_WRAP,
+    workspace_id: workspaceId,
+    invitation_id: invitationId,
     key_version: keyVersion,
   })
 }

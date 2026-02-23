@@ -1,12 +1,15 @@
-import { Settings, ChevronsUpDown, Check } from 'lucide-react'
+import { useState } from 'react'
+import { Settings, ChevronsUpDown, Check, Plus } from 'lucide-react'
 import { Button } from '@/shared/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/shared/ui/dropdown-menu'
 import type { WorkspaceWithMembership } from '@/shared/api'
+import { CreateWorkspaceDialog } from '@/features/workspace-create'
 
 interface UserMenuProps {
   workspaces: WorkspaceWithMembership[]
@@ -17,6 +20,7 @@ interface UserMenuProps {
 }
 
 export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace, notificationSlot, onSettingsClick }: UserMenuProps) {
+  const [createOpen, setCreateOpen] = useState(false)
   const currentWorkspace = workspaces.find((w) => w.workspace.id === currentWorkspaceId)
 
   const formatWorkspaceName = (name: string) => name.replace(/'s workspace$/i, '')
@@ -53,6 +57,14 @@ export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace, no
                 )}
               </DropdownMenuItem>
             ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setCreateOpen(true)}
+              className="font-sans text-sm normal-case tracking-normal"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New workspace
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -65,10 +77,13 @@ export function UserMenu({ workspaces, currentWorkspaceId, onSelectWorkspace, no
           size="icon"
           className="h-9 w-9"
           onClick={onSettingsClick}
+          aria-label="Settings"
         >
           <Settings className="h-4 w-4" />
         </Button>
       </div>
+
+      <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   )
 }

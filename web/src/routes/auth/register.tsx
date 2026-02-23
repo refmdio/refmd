@@ -1,21 +1,31 @@
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useState } from 'react'
 import { Button } from '@/shared/ui/button'
 import { FormField } from '@/shared/ui/form-field'
 import { AuthLayout } from './-components/AuthLayout'
 import { EmailField, PasswordField } from './-components/AuthFields'
-import { register } from '@/features/auth'
+import { register, login } from '@/features/auth'
 import { getApiErrorMessage } from '@/shared/api'
 import { ErrorAlert } from '@/shared/ui/error-alert'
 import { useAsyncAction } from '@/shared/hooks'
 import { formatRecoveryKeyFile } from '@/shared/lib/recovery-key-format'
+import { sanitizeRedirect } from '@/shared/lib/redirect'
+import { useAuthContext } from '@/shared/context'
+import { buildAuthState, buildDeviceState } from '@/shared/model/session-hydration'
+import { WORKSPACE_STORAGE_KEY } from '@/entities/workspace'
 
 export const Route = createFileRoute('/auth/register')({
   component: RegisterPage,
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: sanitizeRedirect(search.redirect),
+  }),
 })
 
 function RegisterPage() {
   const navigate = useNavigate()
+  const router = useRouter()
+  const { redirect } = Route.useSearch()
+  const { setFullSession, clearAuthState } = useAuthContext()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -24,6 +34,7 @@ function RegisterPage() {
   const [recoveryMnemonic, setRecoveryMnemonic] = useState<string | null>(null)
   const [mnemonicConfirmed, setMnemonicConfirmed] = useState(false)
   const [showMnemonic, setShowMnemonic] = useState(false)
+  const [loggingIn, setLoggingIn] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,8 +57,13 @@ function RegisterPage() {
 
   const handleCopyRecoveryKey = async () => {
     if (!recoveryMnemonic) return
-    await navigator.clipboard.writeText(recoveryMnemonic)
-    setMnemonicConfirmed(true)
+    try {
+      await navigator.clipboard.writeText(recoveryMnemonic)
+      setMnemonicConfirmed(true)
+    } catch {
+      // Clipboard write may fail (permissions, insecure context).
+      // User can use the Download button as fallback.
+    }
   }
 
   const handleDownloadRecoveryKey = () => {
@@ -68,8 +84,51 @@ function RegisterPage() {
     setMnemonicConfirmed(true)
   }
 
-  const handleConfirmMnemonic = () => {
-    navigate({ to: '/auth/login' })
+  const handleConfirmMnemonic = async () => {
+    setLoggingIn(true)
+    setError(null)
+
+    // Capture credentials and clear from state to reduce exposure window
+    const loginEmail = email
+    const loginPassword = password
+    setPassword('')
+    setConfirmPassword('')
+
+    try {
+      const result = await login(loginEmail, loginPassword, false)
+      await router.invalidate()
+
+      if (result.type === 'device_required') {
+        // Should not happen for fresh registration, but handle gracefully
+        navigate({ to: '/auth/login', search: { redirect } })
+        return
+      }
+
+      if (!result.deviceKeys) {
+        clearAuthState()
+        navigate({ to: '/auth/login', search: { redirect } })
+        return
+      }
+
+      setFullSession(
+        buildAuthState(result),
+        buildDeviceState({ deviceId: result.deviceId, deviceKeys: result.deviceKeys }),
+      )
+
+      if (redirect) {
+        navigate({ to: redirect })
+      } else {
+        const workspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY)
+        if (workspaceId) {
+          navigate({ to: '/workspace/$workspaceId', params: { workspaceId } })
+        } else {
+          navigate({ to: '/workspace' })
+        }
+      }
+    } catch {
+      // Auto-login failed — fall back to manual login
+      navigate({ to: '/auth/login', search: { redirect } })
+    }
   }
 
   // Show recovery mnemonic after successful registration
@@ -135,9 +194,9 @@ function RegisterPage() {
           <Button
             onClick={handleConfirmMnemonic}
             className="w-full"
-            disabled={!mnemonicConfirmed}
+            disabled={!mnemonicConfirmed || loggingIn}
           >
-            Continue to Login
+            {loggingIn ? 'Signing in...' : 'Continue'}
           </Button>
         </div>
       </AuthLayout>
@@ -172,7 +231,7 @@ function RegisterPage() {
 
         <p className="text-center text-sm text-muted-foreground">
           Already have an account?{' '}
-          <Link to="/auth/login" className="text-primary hover:underline">
+          <Link to="/auth/login" search={{ redirect }} className="text-primary hover:underline">
             Sign in
           </Link>
         </p>

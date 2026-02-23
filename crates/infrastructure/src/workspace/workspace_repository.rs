@@ -3,11 +3,19 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::identity::UserId;
-use domain::workspace::{Slug, Workspace, WorkspaceId, WorkspaceRepository};
+use domain::workspace::{
+    Slug, Workspace, WorkspaceId, WorkspaceRepository, WorkspaceRepositoryErrorClassifier,
+};
 use uuid::Uuid;
 
 pg_repo_struct!(PgWorkspaceRepository);
-pg_repo_error!(PgWorkspaceRepositoryError, InvalidSlug(String));
+pg_repo_error!(PgWorkspaceRepositoryError, InvalidSlug(String), SlugConflict(String));
+
+impl WorkspaceRepositoryErrorClassifier for PgWorkspaceRepositoryError {
+    fn is_slug_conflict(&self) -> bool {
+        matches!(self, Self::SlugConflict(_))
+    }
+}
 
 #[derive(sqlx::FromRow)]
 struct WorkspaceRow {
@@ -101,12 +109,13 @@ impl WorkspaceRepository for PgWorkspaceRepository {
     }
 
     async fn save(&self, workspace: &Workspace) -> Result<(), Self::Error> {
-        sqlx::query!(
+        match sqlx::query!(
             r#"
             INSERT INTO workspaces (id, name, slug, description, icon, owner_id, min_kek_version, needs_kek_rotation, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
+                slug = EXCLUDED.slug,
                 description = EXCLUDED.description,
                 icon = EXCLUDED.icon,
                 min_kek_version = EXCLUDED.min_kek_version,
@@ -125,9 +134,63 @@ impl WorkspaceRepository for PgWorkspaceRepository {
             workspace.updated_at
         )
         .execute(&self.pool)
-        .await?;
+        .await
+        {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(ref db_err))
+                if db_err.code().as_deref() == Some("23505")
+                    && db_err
+                        .constraint()
+                        .map_or(false, |c| c.contains("slug")) =>
+            {
+                Err(PgWorkspaceRepositoryError::SlugConflict(
+                    workspace.slug.as_str().to_string(),
+                ))
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
 
-        Ok(())
+    async fn update(&self, workspace: &Workspace) -> Result<bool, Self::Error> {
+        let result = match sqlx::query!(
+            r#"
+            UPDATE workspaces SET
+                name = $2,
+                slug = $3,
+                description = $4,
+                icon = $5,
+                min_kek_version = $6,
+                needs_kek_rotation = $7,
+                updated_at = $8
+            WHERE id = $1
+            "#,
+            workspace.id.as_uuid(),
+            &workspace.name,
+            workspace.slug.as_str(),
+            workspace.description.as_deref(),
+            workspace.icon.as_deref(),
+            workspace.min_kek_version,
+            workspace.needs_kek_rotation,
+            workspace.updated_at
+        )
+        .execute(&self.pool)
+        .await
+        {
+            Ok(r) => r,
+            Err(sqlx::Error::Database(ref db_err))
+                if db_err.code().as_deref() == Some("23505")
+                    && db_err
+                        .constraint()
+                        .map_or(false, |c| c.contains("slug")) =>
+            {
+                return Err(PgWorkspaceRepositoryError::SlugConflict(
+                    workspace.slug.as_str().to_string(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        Ok(result.rows_affected() > 0)
     }
 
     async fn delete(&self, id: WorkspaceId) -> Result<(), Self::Error> {

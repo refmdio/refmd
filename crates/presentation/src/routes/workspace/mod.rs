@@ -1,4 +1,13 @@
 //! Workspace routes
+//!
+//! - `pop_routes`: Read operations behind PoP middleware (list, get)
+//! - `session_routes`: Management operations with session auth (create, update, delete, roles)
+
+pub mod crud;
+pub mod events;
+pub mod invitations;
+pub mod members;
+pub mod roles;
 
 use application::workspace::{
     GetWorkspaceQuery, ListUserWorkspacesQuery,
@@ -22,65 +31,92 @@ use super::app_error_response;
 pub fn pop_routes(state: AppState) -> Router {
     Router::new()
         .route("/", get(list_workspaces))
-        .route("/{id}", get(get_workspace))
+        .route("/{workspace_id}", get(get_workspace))
+        .with_state(state)
+}
+
+/// Invitation routes requiring PoP verification (behind PopLayer)
+pub fn invitation_routes(state: AppState) -> Router {
+    use axum::routing::{post, delete};
+
+    Router::new()
+        .route("/{workspace_id}/invitations", get(invitations::list_invitations))
+        .route("/{workspace_id}/invitations", post(invitations::create_invitation))
+        .route(
+            "/{workspace_id}/invitations/{invitation_id}",
+            delete(invitations::revoke_invitation),
+        )
+        .with_state(state)
+}
+
+/// Workspace routes requiring session auth only (no PoP)
+pub fn session_routes(state: AppState) -> Router {
+    use axum::routing::{post, patch, delete};
+
+    Router::new()
+        // Workspace CRUD
+        .route("/", post(crud::create_workspace))
+        .route("/{workspace_id}", patch(crud::update_workspace))
+        .route("/{workspace_id}", delete(crud::delete_workspace))
+        // Role CRUD
+        .route("/{workspace_id}/roles", get(roles::list_roles))
+        .route("/{workspace_id}/roles", post(roles::create_role))
+        .route("/{workspace_id}/roles/{role_id}", patch(roles::update_role))
+        .route("/{workspace_id}/roles/{role_id}", delete(roles::delete_role))
+        // Member management
+        .route("/{workspace_id}/members", get(members::list_members))
+        .route("/{workspace_id}/members/{user_id}", patch(members::change_member_role))
+        .route("/{workspace_id}/members/{user_id}", delete(members::remove_member))
+        // SSE events
+        .route("/events", get(events::workspace_events))
         .with_state(state)
 }
 
 /// Workspace response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceResponse {
-    /// Workspace ID (UUID)
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
     pub id: String,
-    /// Workspace name
     #[schema(example = "My Workspace")]
     pub name: String,
-    /// Workspace slug
     #[schema(example = "my-workspace")]
     pub slug: String,
-    /// Owner user ID
+    pub description: Option<String>,
+    pub icon: Option<String>,
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
     pub owner_id: String,
-    /// Creation timestamp
     pub created_at: String,
-    /// Last update timestamp
     pub updated_at: String,
 }
 
 /// Workspace membership response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MembershipResponse {
-    /// Whether this is the user's default workspace
     pub is_default: bool,
-    /// User's role in the workspace
     pub role: RoleResponse,
 }
 
 /// Role response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RoleResponse {
-    /// Role ID
     #[schema(example = "01234567-89ab-cdef-0123-456789abcdef")]
     pub id: String,
-    /// Role name
     #[schema(example = "owner")]
     pub name: String,
-    /// Base role type
     #[schema(example = "owner")]
     pub base_role: String,
+    pub is_default: bool,
 }
 
 /// Workspace with membership response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceWithMembershipResponse {
-    /// Workspace details
     pub workspace: WorkspaceResponse,
-    /// User's membership in the workspace
     pub membership: MembershipResponse,
 }
 
 impl WorkspaceWithMembershipResponse {
-    fn from_dtos(
+    pub(crate) fn from_dtos(
         workspace: application::dto::WorkspaceDto,
         membership: application::dto::WorkspaceMemberDto,
         role: application::dto::WorkspaceRoleDto,
@@ -90,6 +126,8 @@ impl WorkspaceWithMembershipResponse {
                 id: workspace.id.to_string(),
                 name: workspace.name,
                 slug: workspace.slug,
+                description: workspace.description,
+                icon: workspace.icon,
                 owner_id: workspace.owner_id.to_string(),
                 created_at: workspace.created_at.to_rfc3339(),
                 updated_at: workspace.updated_at.to_rfc3339(),
@@ -100,6 +138,7 @@ impl WorkspaceWithMembershipResponse {
                     id: role.id.to_string(),
                     name: role.name,
                     base_role: role.base_role,
+                    is_default: role.is_default,
                 },
             },
         }
@@ -109,15 +148,12 @@ impl WorkspaceWithMembershipResponse {
 /// List workspaces response
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ListWorkspacesResponse {
-    /// List of workspaces with membership info
     pub workspaces: Vec<WorkspaceWithMembershipResponse>,
 }
 
 super::error_response_struct!(WorkspaceErrorResponse, "workspace not found");
 
 /// List user's workspaces
-///
-/// Returns all workspaces the authenticated user is a member of.
 #[utoipa::path(
     get,
     path = "/api/workspaces",
@@ -151,32 +187,29 @@ pub async fn list_workspaces(
 }
 
 /// Get workspace details
-///
-/// Returns workspace details with membership info for the authenticated user.
 #[utoipa::path(
     get,
-    path = "/api/workspaces/{id}",
+    path = "/api/workspaces/{workspace_id}",
     params(
-        ("id" = Uuid, Path, description = "Workspace ID")
+        ("workspace_id" = Uuid, Path, description = "Workspace ID")
     ),
     responses(
         (status = 200, description = "Workspace details", body = WorkspaceWithMembershipResponse),
         (status = 401, description = "Not authenticated", body = WorkspaceErrorResponse),
         (status = 403, description = "Not a member of this workspace", body = WorkspaceErrorResponse),
         (status = 404, description = "Workspace not found", body = WorkspaceErrorResponse),
-        (status = 500, description = "Internal server error", body = WorkspaceErrorResponse),
     ),
     tag = "workspace"
 )]
 pub async fn get_workspace(
     State(state): State<WorkspaceSubState>,
     pop_user: PopVerifiedUser,
-    Path(id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
 ) -> impl IntoResponse {
     let handler = state.get_workspace_handler();
 
     let query = GetWorkspaceQuery {
-        workspace_id: application::types::WorkspaceId::from_uuid(id),
+        workspace_id: application::types::WorkspaceId::from_uuid(workspace_id),
         user_id: pop_user.user_id,
     };
 
@@ -192,4 +225,3 @@ pub async fn get_workspace(
         Err(e) => app_error_response!(e, WorkspaceErrorResponse, not_found, forbidden),
     }
 }
-

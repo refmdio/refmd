@@ -9,16 +9,22 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as InviteRouteImport } from './routes/invite'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthRecoveryRouteImport } from './routes/auth/recovery'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthDeviceRegisterRouteImport } from './routes/auth/device-register'
-import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedWorkspaceIndexRouteImport } from './routes/_authenticated/workspace/index'
 import { Route as AuthenticatedWorkspaceWorkspaceIdRouteImport } from './routes/_authenticated/workspace/$workspaceId'
 import { Route as AuthenticatedDocumentDocumentIdRouteImport } from './routes/_authenticated/document/$documentId'
 
+const InviteRoute = InviteRouteImport.update({
+  id: '/invite',
+  path: '/invite',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -48,11 +54,12 @@ const AuthDeviceRegisterRoute = AuthDeviceRegisterRouteImport.update({
   path: '/auth/device-register',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
+const AuthenticatedWorkspaceIndexRoute =
+  AuthenticatedWorkspaceIndexRouteImport.update({
+    id: '/workspace/',
+    path: '/workspace/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedWorkspaceWorkspaceIdRoute =
   AuthenticatedWorkspaceWorkspaceIdRouteImport.update({
     id: '/workspace/$workspaceId',
@@ -68,73 +75,80 @@ const AuthenticatedDocumentDocumentIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/invite': typeof InviteRoute
   '/auth/device-register': typeof AuthDeviceRegisterRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/recovery': typeof AuthRecoveryRoute
   '/auth/register': typeof AuthRegisterRoute
   '/document/$documentId': typeof AuthenticatedDocumentDocumentIdRoute
   '/workspace/$workspaceId': typeof AuthenticatedWorkspaceWorkspaceIdRoute
+  '/workspace/': typeof AuthenticatedWorkspaceIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/invite': typeof InviteRoute
   '/auth/device-register': typeof AuthDeviceRegisterRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/recovery': typeof AuthRecoveryRoute
   '/auth/register': typeof AuthRegisterRoute
   '/document/$documentId': typeof AuthenticatedDocumentDocumentIdRoute
   '/workspace/$workspaceId': typeof AuthenticatedWorkspaceWorkspaceIdRoute
+  '/workspace': typeof AuthenticatedWorkspaceIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
-  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/invite': typeof InviteRoute
   '/auth/device-register': typeof AuthDeviceRegisterRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/recovery': typeof AuthRecoveryRoute
   '/auth/register': typeof AuthRegisterRoute
   '/_authenticated/document/$documentId': typeof AuthenticatedDocumentDocumentIdRoute
   '/_authenticated/workspace/$workspaceId': typeof AuthenticatedWorkspaceWorkspaceIdRoute
+  '/_authenticated/workspace/': typeof AuthenticatedWorkspaceIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/dashboard'
+    | '/invite'
     | '/auth/device-register'
     | '/auth/login'
     | '/auth/recovery'
     | '/auth/register'
     | '/document/$documentId'
     | '/workspace/$workspaceId'
+    | '/workspace/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/dashboard'
+    | '/invite'
     | '/auth/device-register'
     | '/auth/login'
     | '/auth/recovery'
     | '/auth/register'
     | '/document/$documentId'
     | '/workspace/$workspaceId'
+    | '/workspace'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
-    | '/_authenticated/dashboard'
+    | '/invite'
     | '/auth/device-register'
     | '/auth/login'
     | '/auth/recovery'
     | '/auth/register'
     | '/_authenticated/document/$documentId'
     | '/_authenticated/workspace/$workspaceId'
+    | '/_authenticated/workspace/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  InviteRoute: typeof InviteRoute
   AuthDeviceRegisterRoute: typeof AuthDeviceRegisterRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRecoveryRoute: typeof AuthRecoveryRoute
@@ -143,6 +157,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/invite': {
+      id: '/invite'
+      path: '/invite'
+      fullPath: '/invite'
+      preLoaderRoute: typeof InviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -185,11 +206,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthDeviceRegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/dashboard': {
-      id: '/_authenticated/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+    '/_authenticated/workspace/': {
+      id: '/_authenticated/workspace/'
+      path: '/workspace'
+      fullPath: '/workspace/'
+      preLoaderRoute: typeof AuthenticatedWorkspaceIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/workspace/$workspaceId': {
@@ -210,16 +231,16 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
-  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedDocumentDocumentIdRoute: typeof AuthenticatedDocumentDocumentIdRoute
   AuthenticatedWorkspaceWorkspaceIdRoute: typeof AuthenticatedWorkspaceWorkspaceIdRoute
+  AuthenticatedWorkspaceIndexRoute: typeof AuthenticatedWorkspaceIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
-  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedDocumentDocumentIdRoute: AuthenticatedDocumentDocumentIdRoute,
   AuthenticatedWorkspaceWorkspaceIdRoute:
     AuthenticatedWorkspaceWorkspaceIdRoute,
+  AuthenticatedWorkspaceIndexRoute: AuthenticatedWorkspaceIndexRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -229,6 +250,7 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  InviteRoute: InviteRoute,
   AuthDeviceRegisterRoute: AuthDeviceRegisterRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRecoveryRoute: AuthRecoveryRoute,

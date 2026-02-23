@@ -11,11 +11,11 @@ export const documentApi = {
     params?: { parentId?: string; rootOnly?: boolean; includeArchived?: boolean }
   ) {
     return unwrap(await api.GET(
-      '/api/documents',
+      '/api/workspaces/{workspace_id}/documents',
       {
         params: {
+          path: { workspace_id: workspaceId },
           query: {
-            workspace_id: workspaceId,
             parent_id: params?.parentId,
             root_only: params?.rootOnly ?? true,
             include_archived: params?.includeArchived ?? false,
@@ -33,9 +33,10 @@ export const documentApi = {
 
   async create(workspaceId: string, body: components['schemas']['CreateDocumentRequest']) {
     return unwrap(await api.POST(
-      '/api/documents',
+      '/api/workspaces/{workspace_id}/documents',
       {
-        body: { ...body, workspace_id: workspaceId },
+        params: { path: { workspace_id: workspaceId } },
+        body,
       }
     ))
   },

@@ -8,6 +8,9 @@ pub WorkspaceId);
 define_id!(/// Role ID
 pub RoleId);
 
+define_id!(/// Invitation ID
+pub InvitationId);
+
 /// Base role type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -98,6 +98,9 @@ pub struct RevokeDeviceRequest {
     /// Timestamp when revocation was requested (Unix milliseconds)
     #[schema(example = 1704067200000_i64)]
     pub revoked_at: i64,
+    /// Revocation mode: "security" (lost/compromised, triggers key rotation) or "retire" (safe disposal, no rotation).
+    /// Defaults to "security" if not specified.
+    pub revocation_mode: Option<String>,
 }
 
 /// Documents grouped by workspace that need DEK rotation
@@ -120,10 +123,14 @@ pub struct RotationMarkingFailuresResponse {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RevokeDeviceResponse {
     pub message: String,
+    /// Revocation mode that was applied
+    pub revocation_mode: String,
     /// List of workspace IDs that now need KEK rotation for forward secrecy
     pub workspaces_needing_kek_rotation: Vec<Uuid>,
     /// Documents grouped by workspace that need DEK rotation for forward secrecy
     pub documents_needing_dek_rotation: Vec<WorkspaceDocumentsForRotationResponse>,
+    /// Number of active invitations revoked across all workspaces (stale KEKs)
+    pub revoked_invitation_count: i64,
     /// Non-fatal failures during rotation marking (None if all succeeded)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rotation_marking_failures: Option<RotationMarkingFailuresResponse>,
@@ -169,10 +176,28 @@ pub async fn revoke_device(
         state.user_identity_public_key_repo.clone(),
         state.device_revocation_event_repo.clone(),
         state.workspace_member_repo.clone(),
-        state.workspace_repo.clone(),
         state.document_repo.clone(),
         state.document_key_repo.clone(),
+        state.rotation_marking_service.clone(),
     );
+
+    let revocation_mode: application::types::RevocationMode = match request
+        .revocation_mode
+        .as_deref()
+        .unwrap_or("security")
+        .parse()
+    {
+        Ok(m) => m,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DeviceErrorResponse {
+                    error: "invalid_revocation_mode".to_string(),
+                }),
+            )
+                .into_response()
+        }
+    };
 
     let command = application::encryption::RevokeDeviceCommand {
         user_id: pop_user.user_id,
@@ -181,6 +206,7 @@ pub async fn revoke_device(
         revoked_at: request.revoked_at,
         identity_signature,
         session_device_id: pop_user.session.device_id,
+        revocation_mode,
     };
 
     match handler.handle(command).await {
@@ -197,6 +223,7 @@ pub async fn revoke_device(
                 StatusCode::OK,
                 Json(RevokeDeviceResponse {
                     message: "device revoked".to_string(),
+                    revocation_mode: revocation_mode.as_str().to_string(),
                     workspaces_needing_kek_rotation: result.workspaces_needing_kek_rotation,
                     documents_needing_dek_rotation: result
                         .documents_needing_dek_rotation
@@ -206,6 +233,7 @@ pub async fn revoke_device(
                             document_ids: w.document_ids,
                         })
                         .collect(),
+                    revoked_invitation_count: result.revoked_invitation_count,
                     rotation_marking_failures: result.rotation_marking_failures.map(|f| {
                         RotationMarkingFailuresResponse {
                             failed_workspace_ids: f.failed_workspace_ids,

@@ -19,6 +19,7 @@ pub mod auth;
 pub mod device;
 pub mod document;
 pub mod encryption;
+pub mod invitation;
 pub mod trust_transfer;
 pub mod workspace;
 
@@ -102,6 +103,7 @@ macro_rules! app_error_response {
     (@check $e:ident, conflict) => { application::types::AppError::is_conflict(&$e) };
     (@check $e:ident, unauthorized) => { application::types::AppError::is_unauthenticated(&$e) };
     (@check $e:ident, gone) => { application::types::AppError::is_gone(&$e) };
+    (@check $e:ident, unprocessable) => { application::types::AppError::is_unprocessable(&$e) };
     // Map check name to status code
     (@status bad_request) => { axum::http::StatusCode::BAD_REQUEST };
     (@status not_found) => { axum::http::StatusCode::NOT_FOUND };
@@ -109,6 +111,7 @@ macro_rules! app_error_response {
     (@status conflict) => { axum::http::StatusCode::CONFLICT };
     (@status unauthorized) => { axum::http::StatusCode::UNAUTHORIZED };
     (@status gone) => { axum::http::StatusCode::GONE };
+    (@status unprocessable) => { axum::http::StatusCode::UNPROCESSABLE_ENTITY };
 }
 
 pub(crate) use app_error_response;
@@ -126,8 +129,17 @@ fn api_routes(state: AppState) -> Result<Router, anyhow::Error> {
     );
 
     // Routes requiring PoP verification (session auth + PoP checked by middleware)
+    //
+    // Merge all workspace-scoped routers into a single router before nesting
+    // under "/workspaces". Multiple `.nest()` calls with the same prefix can
+    // cause the first nested scope to 404 without falling through to the others.
+    let workspace_pop_routes = workspace::pop_routes(state.clone())
+        .merge(workspace::invitation_routes(state.clone()))
+        .merge(document::workspace_document_routes(state.clone()));
+
     let pop_protected = Router::new()
-        .nest("/workspaces", workspace::pop_routes(state.clone()))
+        .nest("/workspaces", workspace_pop_routes)
+        .nest("/invitations", invitation::pop_routes(state.clone()))
         .nest("/documents", document::routes(state.clone()))
         .nest("/encryption", encryption::routes(state.clone()))
         .nest("/devices", device::pop_routes(state.clone()))
@@ -138,6 +150,7 @@ fn api_routes(state: AppState) -> Result<Router, anyhow::Error> {
     let session_only = Router::new()
         .nest("/auth", auth::routes(state.clone())?)
         .nest("/devices", device::session_routes(state.clone())?)
+        .nest("/workspaces", workspace::session_routes(state.clone()))
         .nest("/trust-transfer", trust_transfer::session_routes(state));
 
     Ok(Router::new()

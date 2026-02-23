@@ -364,25 +364,29 @@ mod tests {
         #[derive(Serialize)]
         struct RevocationPayload {
             device_id: String,
-            reason: String,
+            revocation_mode: String,
             revoked_at: i64,
+            revoked_by_device_id: String,
+            user_id: String,
         }
 
         let message = build_signature_message(
             SignatureAction::DeviceRevocation,
             &RevocationPayload {
+                user_id: "00000000-0000-0000-0000-000000000001".to_string(),
                 device_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                reason: "compromised".to_string(),
+                revocation_mode: "security".to_string(),
                 revoked_at: 1700000000000i64,
+                revoked_by_device_id: "00000000-0000-0000-0000-000000000002".to_string(),
             },
         )
         .unwrap();
 
         let json_str = String::from_utf8(message).unwrap();
-        // Keys sorted: action, device_id, protocol, reason, revoked_at, version
+        // Keys sorted: action, device_id, protocol, revocation_mode, revoked_at, revoked_by_device_id, user_id, version
         assert_eq!(
             json_str,
-            r#"{"action":"device_revocation","device_id":"550e8400-e29b-41d4-a716-446655440000","protocol":"doclock-v1","reason":"compromised","revoked_at":1700000000000,"version":1}"#
+            r#"{"action":"device_revocation","device_id":"550e8400-e29b-41d4-a716-446655440000","protocol":"doclock-v1","revocation_mode":"security","revoked_at":1700000000000,"revoked_by_device_id":"00000000-0000-0000-0000-000000000002","user_id":"00000000-0000-0000-0000-000000000001","version":1}"#
         );
     }
 

@@ -15,10 +15,12 @@ ALTER TABLE workspace_encrypted_keys
 -- Step 4: Delete any records with NULL device_id (invalid data)
 DELETE FROM workspace_encrypted_keys WHERE device_id IS NULL;
 
--- Step 5: Make device_id NOT NULLALTER TABLE workspace_encrypted_keys
+-- Step 5: Make device_id NOT NULL
+ALTER TABLE workspace_encrypted_keys
     ALTER COLUMN device_id SET NOT NULL;
 
--- Step 6: Make sender_device_id NOT NULLALTER TABLE workspace_encrypted_keys
+-- Step 6: Make sender_device_id NOT NULL
+ALTER TABLE workspace_encrypted_keys
     ALTER COLUMN sender_device_id SET NOT NULL;
 
 -- Step 7: Re-add foreign key constraint on device_id

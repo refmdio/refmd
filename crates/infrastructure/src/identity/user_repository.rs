@@ -51,6 +51,19 @@ impl UserRepository for PgUserRepository {
         row.map(|r| r.try_into_user()).transpose()
     }
 
+    async fn find_by_ids(&self, ids: &[UserId]) -> Result<Vec<User>, Self::Error> {
+        let uuids: Vec<Uuid> = ids.iter().map(|id| id.as_uuid()).collect();
+        let rows = sqlx::query_as!(
+            UserRow,
+            "SELECT id, email, name, encryption_setup_at, created_at, updated_at FROM users WHERE id = ANY($1)",
+            &uuids
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(|r| r.try_into_user()).collect()
+    }
+
     async fn find_by_email(&self, email: &Email) -> Result<Option<User>, Self::Error> {
         let row = sqlx::query_as!(
             UserRow,

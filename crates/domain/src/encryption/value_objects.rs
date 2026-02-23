@@ -110,6 +110,43 @@ pub enum KdfTypeError {
     InvalidType(String),
 }
 
+/// Revocation mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RevocationMode {
+    /// Lost/stolen/compromised device — triggers KEK/DEK rotation + invitation revocation
+    Security,
+    /// Safe disposal — no rotation needed
+    Retire,
+}
+
+impl RevocationMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RevocationMode::Security => "security",
+            RevocationMode::Retire => "retire",
+        }
+    }
+}
+
+impl std::str::FromStr for RevocationMode {
+    type Err = RevocationModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "security" => Ok(RevocationMode::Security),
+            "retire" => Ok(RevocationMode::Retire),
+            _ => Err(RevocationModeError::InvalidMode(s.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RevocationModeError {
+    #[error("invalid revocation mode: {0}")]
+    InvalidMode(String),
+}
+
 /// Key version (for KEK/DEK rotation)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct KeyVersion(i32);

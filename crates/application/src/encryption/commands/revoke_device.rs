@@ -5,22 +5,23 @@
 //! - Device revocation
 //! - KEK/DEK rotation marking
 //!
-//! The handler has 7 type parameters because device revocation is a cross-cutting
-//! operation that must atomically verify identity signatures, revoke devices,
-//! record audit events, and mark KEK/DEK rotation across all affected workspaces
-//! and documents.
+//! The handler has 6 type parameters because device revocation is a cross-cutting
+//! operation that must verify identity signatures, revoke devices,
+//! record audit events, and best-effort mark KEK/DEK rotation across all
+//! affected workspaces and documents.
 
 use domain::document::DocumentRepository;
 use domain::encryption::{
     DeviceId, DeviceRepository, DeviceRevocationEvent, DeviceRevocationEventRepository,
-    DocumentEncryptedKeyRepository, UserIdentityPublicKeyRepository,
+    DocumentEncryptedKeyRepository, RevocationMode, UserIdentityPublicKeyRepository,
 };
 use domain::identity::UserId;
-use domain::workspace::{WorkspaceMemberRepository, WorkspaceRepository};
+use domain::workspace::WorkspaceMemberRepository;
 use std::sync::Arc;
 use thiserror::Error;
 
 use crate::encryption::services::mark_rotation::{MarkRotationResult, MarkRotationService};
+use crate::encryption::services::rotation_marking_service::RotationMarkingService;
 
 /// Revoke device command
 #[derive(Debug)]
@@ -37,6 +38,8 @@ pub struct RevokeDeviceCommand {
     pub identity_signature: Vec<u8>,
     /// Current device's session device_id (to prevent self-revocation)
     pub session_device_id: Option<DeviceId>,
+    /// Revocation mode: security (lost/compromised) or retire (safe disposal)
+    pub revocation_mode: RevocationMode,
 }
 
 /// Revoke device result — delegates rotation data to [`MarkRotationResult`].
@@ -49,7 +52,6 @@ pub enum RevokeDeviceError<
     UIPK: std::error::Error,
     DRER: std::error::Error,
     WMR: std::error::Error,
-    WR: std::error::Error,
     DocR: std::error::Error,
     DKR: std::error::Error,
 > {
@@ -92,9 +94,6 @@ pub enum RevokeDeviceError<
     #[error("workspace member repository error: {0}")]
     WorkspaceMemberRepository(WMR),
 
-    #[error("workspace repository error: {0}")]
-    WorkspaceRepository(WR),
-
     #[error("document repository error: {0}")]
     DocumentRepository(DocR),
 
@@ -106,12 +105,16 @@ pub enum RevokeDeviceError<
 }
 
 crate::types::impl_app_error!(
-    [DR: std::error::Error, UIPK: std::error::Error, DRER: std::error::Error, WMR: std::error::Error, WR: std::error::Error, DocR: std::error::Error, DKR: std::error::Error]
-    RevokeDeviceError<DR, UIPK, DRER, WMR, WR, DocR, DKR>,
-    not_found: [RevokeDeviceError::DeviceNotFound],
+    [DR: std::error::Error, UIPK: std::error::Error, DRER: std::error::Error, WMR: std::error::Error, DocR: std::error::Error, DKR: std::error::Error]
+    RevokeDeviceError<DR, UIPK, DRER, WMR, DocR, DKR>,
+    not_found: [
+        RevokeDeviceError::DeviceNotFound,
+        RevokeDeviceError::IdentityPublicKeyNotFound,
+    ],
     access_denied: [RevokeDeviceError::NotOwner],
     invalid_input: [
         RevokeDeviceError::TimestampOutOfRange,
+        RevokeDeviceError::InvalidIdentityPublicKey,
         RevokeDeviceError::InvalidSignatureFormat,
         RevokeDeviceError::SignatureVerificationFailed,
         RevokeDeviceError::CannotRevokeSelf,
@@ -119,34 +122,37 @@ crate::types::impl_app_error!(
     ],
 );
 
+// Note: The RevokeDeviceError type parameter count stays at 6 (no WR, no WIR) because
+// workspace rotation marking and invitation revocation are handled internally by
+// RotationMarkingService (best-effort, non-atomic) via targeted UPDATEs.
+
 /// Handler for the device revocation command.
 ///
-/// This handler has 7 repository dependencies, which is expected in a CQRS architecture
-/// because device revocation is a cross-cutting operation that must atomically:
+/// This handler has 6 repository dependencies + 1 service, which is expected in a
+/// CQRS architecture because device revocation is a cross-cutting operation that must:
 /// - Verify the revoking user's identity signature (`identity_pk_repo`)
 /// - Revoke the target device itself (`device_repo`)
 /// - Record the revocation event for audit purposes (`revocation_event_repo`)
 /// - Look up all workspaces the user belongs to (`workspace_member_repo`)
-/// - Mark each workspace for KEK rotation (`workspace_repo`)
 /// - Find all documents in affected workspaces (`document_repo`)
 /// - Determine current DEK versions for rotation (`document_key_repo`)
-pub struct RevokeDeviceHandler<DR: ?Sized, UIPK: ?Sized, DRER: ?Sized, WMR: ?Sized, WR: ?Sized, DocR: ?Sized, DKR: ?Sized> {
+/// - Best-effort mark workspace rotation + revoke invitations (`rotation_marking_service`)
+pub struct RevokeDeviceHandler<DR: ?Sized, UIPK: ?Sized, DRER: ?Sized, WMR: ?Sized, DocR: ?Sized, DKR: ?Sized> {
     device_repo: Arc<DR>,
     identity_pk_repo: Arc<UIPK>,
     revocation_event_repo: Arc<DRER>,
     workspace_member_repo: Arc<WMR>,
-    workspace_repo: Arc<WR>,
     document_repo: Arc<DocR>,
     document_key_repo: Arc<DKR>,
+    rotation_marking_service: Arc<dyn RotationMarkingService>,
 }
 
-impl<DR, UIPK, DRER, WMR, WR, DocR, DKR> RevokeDeviceHandler<DR, UIPK, DRER, WMR, WR, DocR, DKR>
+impl<DR, UIPK, DRER, WMR, DocR, DKR> RevokeDeviceHandler<DR, UIPK, DRER, WMR, DocR, DKR>
 where
     DR: DeviceRepository + ?Sized,
     UIPK: UserIdentityPublicKeyRepository + ?Sized,
     DRER: DeviceRevocationEventRepository + ?Sized,
     WMR: WorkspaceMemberRepository + ?Sized,
-    WR: WorkspaceRepository + ?Sized,
     DocR: DocumentRepository + ?Sized,
     DKR: DocumentEncryptedKeyRepository + ?Sized,
 {
@@ -155,18 +161,18 @@ where
         identity_pk_repo: Arc<UIPK>,
         revocation_event_repo: Arc<DRER>,
         workspace_member_repo: Arc<WMR>,
-        workspace_repo: Arc<WR>,
         document_repo: Arc<DocR>,
         document_key_repo: Arc<DKR>,
+        rotation_marking_service: Arc<dyn RotationMarkingService>,
     ) -> Self {
         Self {
             device_repo,
             identity_pk_repo,
             revocation_event_repo,
             workspace_member_repo,
-            workspace_repo,
             document_repo,
             document_key_repo,
+            rotation_marking_service,
         }
     }
 
@@ -180,7 +186,7 @@ where
         command: RevokeDeviceCommand,
     ) -> Result<
         RevokeDeviceResult,
-        RevokeDeviceError<DR::Error, UIPK::Error, DRER::Error, WMR::Error, WR::Error, DocR::Error, DKR::Error>,
+        RevokeDeviceError<DR::Error, UIPK::Error, DRER::Error, WMR::Error, DocR::Error, DKR::Error>,
     > {
         // Phase 1: Validate and verify
         let (mut device, revocation_event) = self.validate_and_verify(&command).await?;
@@ -188,8 +194,80 @@ where
         // Phase 2: Execute revocation
         self.execute_revocation(&mut device, &revocation_event).await?;
 
-        // Phase 3: Mark rotation (best-effort)
-        self.mark_rotation(command.user_id).await
+        // Phase 3: Best-effort rotation marking.
+        // Uses match for exhaustive coverage — adding a new RevocationMode variant
+        // forces explicit handling of rotation behavior.
+        match command.revocation_mode {
+            RevocationMode::Security => {
+                Ok(self.mark_rotation_best_effort(command.user_id).await)
+            }
+            RevocationMode::Retire => {
+                // retire mode skips rotation — the device's private key is not compromised.
+                Ok(MarkRotationResult {
+                    workspaces_needing_kek_rotation: Vec::new(),
+                    documents_needing_dek_rotation: Vec::new(),
+                    revoked_invitation_count: 0,
+                    rotation_marking_failures: None,
+                })
+            }
+        }
+    }
+
+    /// Phase 3 wrapper: best-effort KEK/DEK rotation marking.
+    ///
+    /// **Design decision**: rotation marking is intentionally non-atomic with device
+    /// revocation. The device is already revoked and its access is already denied.
+    /// If rotation marking fails, the device is still revoked (primary security goal
+    /// achieved). A background reconciliation job can detect and retry missed markers.
+    ///
+    /// This mirrors the member removal pattern (see `remove_member.rs`).
+    /// Making this atomic would mean a transient rotation failure causes the handler
+    /// to return an error. Because the device is already revoked, retrying would hit
+    /// `AlreadyRevoked`, leaving rotation permanently un-marked — a worse outcome.
+    async fn mark_rotation_best_effort(
+        &self,
+        user_id: UserId,
+    ) -> RevokeDeviceResult {
+        let service = MarkRotationService::new(
+            self.workspace_member_repo.clone(),
+            self.document_repo.clone(),
+            self.document_key_repo.clone(),
+            self.rotation_marking_service.clone(),
+        );
+
+        match service.mark_for_user(user_id).await {
+            Ok(result) => {
+                if let Some(ref failures) = result.rotation_marking_failures {
+                    tracing::warn!(
+                        user_id = %user_id,
+                        failed_workspaces = ?failures.failed_workspace_ids,
+                        failed_documents = ?failures.failed_document_ids,
+                        "partial rotation marking failures after device revocation"
+                    );
+                } else {
+                    tracing::info!(
+                        user_id = %user_id,
+                        revoked_invitations = result.revoked_invitation_count,
+                        "KEK/DEK rotation marked after device revocation"
+                    );
+                }
+                result
+            }
+            Err(e) => {
+                tracing::error!(
+                    user_id = %user_id,
+                    error = %e,
+                    "failed to mark KEK/DEK rotation after device revocation — \
+                     background reconciliation will retry"
+                );
+                MarkRotationResult {
+                    workspaces_needing_kek_rotation: Vec::new(),
+                    documents_needing_dek_rotation: Vec::new(),
+                    revoked_invitation_count: 0,
+                    rotation_marking_failures: None,
+                }
+            }
+        }
     }
 
     /// Phase 1: Timestamp validation, ownership check, signature verification.
@@ -200,7 +278,7 @@ where
         command: &RevokeDeviceCommand,
     ) -> Result<
         (domain::encryption::Device, DeviceRevocationEvent),
-        RevokeDeviceError<DR::Error, UIPK::Error, DRER::Error, WMR::Error, WR::Error, DocR::Error, DKR::Error>,
+        RevokeDeviceError<DR::Error, UIPK::Error, DRER::Error, WMR::Error, DocR::Error, DKR::Error>,
     > {
         // Validate timestamp (within 5 minutes)
         let now = chrono::Utc::now().timestamp_millis();
@@ -240,6 +318,7 @@ where
             command.device_id,
             command.revoking_device_id,
             command.revoked_at,
+            command.revocation_mode,
             command.identity_signature.clone(),
         );
 
@@ -279,7 +358,7 @@ where
         revocation_event: &DeviceRevocationEvent,
     ) -> Result<
         (),
-        RevokeDeviceError<DR::Error, UIPK::Error, DRER::Error, WMR::Error, WR::Error, DocR::Error, DKR::Error>,
+        RevokeDeviceError<DR::Error, UIPK::Error, DRER::Error, WMR::Error, DocR::Error, DKR::Error>,
     > {
         // Save revocation event (audit trail - must succeed before proceeding)
         self.revocation_event_repo
@@ -300,32 +379,4 @@ where
         Ok(())
     }
 
-    /// Phase 3: Best-effort KEK/DEK rotation marking.
-    ///
-    /// The device is already revoked at this point. Delegates to
-    /// [`MarkRotationService`] so the same logic can be reused by other
-    /// rotation triggers (e.g., scheduled rotation, member removal).
-    async fn mark_rotation(
-        &self,
-        user_id: UserId,
-    ) -> Result<
-        RevokeDeviceResult,
-        RevokeDeviceError<DR::Error, UIPK::Error, DRER::Error, WMR::Error, WR::Error, DocR::Error, DKR::Error>,
-    > {
-        let service = MarkRotationService::new(
-            self.workspace_member_repo.clone(),
-            self.workspace_repo.clone(),
-            self.document_repo.clone(),
-            self.document_key_repo.clone(),
-        );
-
-        service
-            .mark_for_user(user_id)
-            .await
-            .map_err(|e| match e {
-                crate::encryption::services::mark_rotation::MarkRotationError::WorkspaceMemberRepository(inner) => {
-                    RevokeDeviceError::WorkspaceMemberRepository(inner)
-                }
-            })
-    }
 }

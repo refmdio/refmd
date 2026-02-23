@@ -39,6 +39,31 @@ export interface DeviceSSEEventHandlers {
   onTrustTransferNonceReady?: (event: TrustTransferNonceReadyEvent) => void
 }
 
+/** SSE event types for workspace events */
+export type WorkspaceSSEEvent = InvitationAcceptedEvent
+
+export interface InvitationAcceptedEvent {
+  type: 'invitation_accepted'
+  workspace_id: string
+  invitation_id: string
+  accepted_by_email: string
+}
+
+export interface WorkspaceSSEEventHandlers {
+  onInvitationAccepted?: (event: InvitationAcceptedEvent) => void
+}
+
+// NOTE: Add `default: { const _exhaustive: never = event; void _exhaustive }` when a
+// second event type is added to WorkspaceSSEEvent. TypeScript cannot narrow a single-type
+// alias in a switch default branch, so the exhaustive check is deferred.
+export function routeWorkspaceSSEEvent(event: WorkspaceSSEEvent, handlers: WorkspaceSSEEventHandlers): void {
+  switch (event.type) {
+    case 'invitation_accepted':
+      handlers.onInvitationAccepted?.(event)
+      break
+  }
+}
+
 export function routeDeviceSSEEvent(event: DeviceSSEEvent, handlers: DeviceSSEEventHandlers): void {
   switch (event.type) {
     case 'pending_created':

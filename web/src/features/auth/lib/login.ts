@@ -13,6 +13,7 @@ import {
   wrapAndStoreUmk,
   clearSessionCache,
   loadDeviceId,
+  storeDeviceId,
   wrapAndStorePdkUmk,
   storePdkForDeviceRegistration,
   storeSessionUmk,
@@ -83,6 +84,10 @@ export async function login(
   }
 
   const verifiedDeviceId = loginResponse.device_id
+
+  // Re-persist device ID on every successful login to guard against
+  // IndexedDB eviction between sessions (KMSI session restore reads it back).
+  await storeDeviceId(verifiedDeviceId)
 
   // Decrypt UMK
   const keys = loginResponse.keys

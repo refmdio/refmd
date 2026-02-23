@@ -25,7 +25,6 @@ use super::{DocumentErrorResponse, DocumentResponse, decode_encrypted_title_fiel
 /// Create document request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateDocumentRequest {
-    pub workspace_id: Uuid,
     pub title: String,
     pub parent_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,7 +47,6 @@ pub struct UpdateDocumentRequest {
 /// List documents query params
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ListDocumentsParams {
-    pub workspace_id: Uuid,
     pub parent_id: Option<Uuid>,
     #[serde(default)]
     pub root_only: bool,
@@ -65,9 +63,9 @@ pub struct ListDocumentsResponse {
 /// List documents in a workspace
 #[utoipa::path(
     get,
-    path = "/api/documents",
+    path = "/api/workspaces/{workspace_id}/documents",
     params(
-        ("workspace_id" = Uuid, Query, description = "Workspace ID"),
+        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
         ("parent_id" = Option<Uuid>, Query, description = "Filter by parent ID"),
         ("root_only" = bool, Query, description = "Only return root documents"),
         ("include_archived" = bool, Query, description = "Include archived documents"),
@@ -81,6 +79,7 @@ pub struct ListDocumentsResponse {
 )]
 pub async fn list_documents(
     State(state): State<DocumentSubState>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<ListDocumentsParams>,
     pop_user: PopVerifiedUser,
 ) -> impl IntoResponse {
@@ -91,11 +90,11 @@ pub async fn list_documents(
         params.parent_id.map(|id| Some(DocumentId::from_uuid(id)))
     };
 
-    let (doc_repo, member_repo, role_repo) = state.doc_member_role_repos();
-    let handler = ListDocumentsHandler::new(doc_repo, member_repo, role_repo);
+    let (doc_repo, member_repo, role_repo, role_perm_repo) = state.doc_member_role_repos();
+    let handler = ListDocumentsHandler::new(doc_repo, member_repo, role_repo, role_perm_repo);
 
     let query = ListDocumentsQuery {
-        workspace_id: WorkspaceId::from_uuid(params.workspace_id),
+        workspace_id: WorkspaceId::from_uuid(workspace_id),
         user_id: pop_user.user_id,
         parent_id,
         include_archived: params.include_archived,
@@ -117,7 +116,10 @@ pub async fn list_documents(
 /// Create a new document
 #[utoipa::path(
     post,
-    path = "/api/documents",
+    path = "/api/workspaces/{workspace_id}/documents",
+    params(
+        ("workspace_id" = Uuid, Path, description = "Workspace ID"),
+    ),
     request_body = CreateDocumentRequest,
     responses(
         (status = 201, description = "Document created", body = DocumentResponse),
@@ -130,6 +132,7 @@ pub async fn list_documents(
 )]
 pub async fn create_document(
     State(state): State<DocumentSubState>,
+    Path(workspace_id): Path<Uuid>,
     pop_user: PopVerifiedUser,
     Json(request): Json<CreateDocumentRequest>,
 ) -> impl IntoResponse {
@@ -141,11 +144,11 @@ pub async fn create_document(
             Err(response) => return response.into_response(),
         };
 
-    let (doc_repo, member_repo, role_repo) = state.doc_member_role_repos();
-    let handler = CreateDocumentHandler::new(doc_repo, member_repo, role_repo);
+    let (doc_repo, member_repo, role_repo, role_perm_repo) = state.doc_member_role_repos();
+    let handler = CreateDocumentHandler::new(doc_repo, member_repo, role_repo, role_perm_repo);
 
     let command = CreateDocumentCommand {
-        workspace_id: WorkspaceId::from_uuid(request.workspace_id),
+        workspace_id: WorkspaceId::from_uuid(workspace_id),
         user_id: pop_user.user_id,
         title: request.title,
         parent_id: request.parent_id.map(DocumentId::from_uuid),
@@ -184,8 +187,8 @@ pub async fn get_document(
     Path(document_id): Path<Uuid>,
     pop_user: PopVerifiedUser,
 ) -> impl IntoResponse {
-    let (doc_repo, member_repo, role_repo) = state.doc_member_role_repos();
-    let handler = GetDocumentHandler::new(doc_repo, member_repo, role_repo);
+    let (doc_repo, member_repo, role_repo, role_perm_repo) = state.doc_member_role_repos();
+    let handler = GetDocumentHandler::new(doc_repo, member_repo, role_repo, role_perm_repo);
 
     let query = GetDocumentQuery {
         document_id: DocumentId::from_uuid(document_id),
@@ -229,8 +232,8 @@ pub async fn update_document(
             Err(response) => return response.into_response(),
         };
 
-    let (doc_repo, member_repo, role_repo) = state.doc_member_role_repos();
-    let handler = UpdateDocumentHandler::new(doc_repo, member_repo, role_repo);
+    let (doc_repo, member_repo, role_repo, role_perm_repo) = state.doc_member_role_repos();
+    let handler = UpdateDocumentHandler::new(doc_repo, member_repo, role_repo, role_perm_repo);
 
     let command = UpdateDocumentCommand {
         document_id: DocumentId::from_uuid(document_id),
@@ -268,8 +271,8 @@ pub async fn delete_document(
     Path(document_id): Path<Uuid>,
     pop_user: PopVerifiedUser,
 ) -> impl IntoResponse {
-    let (doc_repo, member_repo, role_repo) = state.doc_member_role_repos();
-    let handler = DeleteDocumentHandler::new(doc_repo, member_repo, role_repo);
+    let (doc_repo, member_repo, role_repo, role_perm_repo) = state.doc_member_role_repos();
+    let handler = DeleteDocumentHandler::new(doc_repo, member_repo, role_repo, role_perm_repo);
 
     let command = DeleteDocumentCommand {
         document_id: DocumentId::from_uuid(document_id),
@@ -303,8 +306,8 @@ pub async fn archive_document(
     Path(document_id): Path<Uuid>,
     pop_user: PopVerifiedUser,
 ) -> impl IntoResponse {
-    let (doc_repo, member_repo, role_repo) = state.doc_member_role_repos();
-    let handler = ArchiveDocumentHandler::new(doc_repo, member_repo, role_repo);
+    let (doc_repo, member_repo, role_repo, role_perm_repo) = state.doc_member_role_repos();
+    let handler = ArchiveDocumentHandler::new(doc_repo, member_repo, role_repo, role_perm_repo);
 
     let command = ArchiveDocumentCommand {
         document_id: DocumentId::from_uuid(document_id),
@@ -338,8 +341,8 @@ pub async fn unarchive_document(
     Path(document_id): Path<Uuid>,
     pop_user: PopVerifiedUser,
 ) -> impl IntoResponse {
-    let (doc_repo, member_repo, role_repo) = state.doc_member_role_repos();
-    let handler = UnarchiveDocumentHandler::new(doc_repo, member_repo, role_repo);
+    let (doc_repo, member_repo, role_repo, role_perm_repo) = state.doc_member_role_repos();
+    let handler = UnarchiveDocumentHandler::new(doc_repo, member_repo, role_repo, role_perm_repo);
 
     let command = UnarchiveDocumentCommand {
         document_id: DocumentId::from_uuid(document_id),

@@ -18,3 +18,4 @@ pub mod trust_transfer;
 pub mod types;
 pub(crate) mod util;
 pub mod workspace;
+pub mod workspace_events;

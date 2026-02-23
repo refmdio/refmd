@@ -202,6 +202,12 @@ pub trait WorkspaceKekBackupRepository: Send + Sync {
 
     /// Save backup (deactivates existing active backup, then inserts)
     async fn save(&self, backup: &WorkspaceKekBackup) -> Result<(), Self::Error>;
+
+    /// Find max key_version for a workspace (for kek_version validation)
+    async fn find_max_key_version(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Option<i32>, Self::Error>;
 }
 
 /// Device Encrypted UMK repository trait

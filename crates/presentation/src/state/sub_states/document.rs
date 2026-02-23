@@ -1,6 +1,6 @@
 use application::types::{
     BoxedError, DeviceRepository, DocumentRepository, DocumentUpdateRepository,
-    WorkspaceMemberRepository, WorkspaceRoleRepository,
+    WorkspaceMemberRepository, WorkspaceRolePermissionRepository, WorkspaceRoleRepository,
 };
 use std::sync::Arc;
 
@@ -12,6 +12,7 @@ type DynCreateUpdateHandler = application::document::CreateDocumentUpdateHandler
     dyn DocumentUpdateRepository<Error = BoxedError>,
     dyn WorkspaceMemberRepository<Error = BoxedError>,
     dyn WorkspaceRoleRepository<Error = BoxedError>,
+    dyn WorkspaceRolePermissionRepository<Error = BoxedError>,
     dyn DeviceRepository<Error = BoxedError>,
 >;
 
@@ -20,6 +21,7 @@ type DynListUpdatesHandler = application::document::ListDocumentUpdatesHandler<
     dyn DocumentUpdateRepository<Error = BoxedError>,
     dyn WorkspaceMemberRepository<Error = BoxedError>,
     dyn WorkspaceRoleRepository<Error = BoxedError>,
+    dyn WorkspaceRolePermissionRepository<Error = BoxedError>,
 >;
 
 /// Sub-state for document-related routes
@@ -30,22 +32,25 @@ pub struct DocumentSubState {
     pub document_key_repo: DynDocumentEncryptedKeyRepository,
     pub workspace_member_repo: DynWorkspaceMemberRepository,
     pub workspace_role_repo: DynWorkspaceRoleRepository,
+    pub workspace_role_perm_repo: DynWorkspaceRolePermissionRepository,
     pub device_repo: DynDeviceRepository,
 }
 
 impl DocumentSubState {
-    /// Clone the three repos needed by most document CRUD handlers.
+    /// Clone the repos needed by most document CRUD handlers.
     pub fn doc_member_role_repos(
         &self,
     ) -> (
         DynDocumentRepository,
         DynWorkspaceMemberRepository,
         DynWorkspaceRoleRepository,
+        DynWorkspaceRolePermissionRepository,
     ) {
         (
             self.document_repo.clone(),
             self.workspace_member_repo.clone(),
             self.workspace_role_repo.clone(),
+            self.workspace_role_perm_repo.clone(),
         )
     }
 
@@ -55,6 +60,7 @@ impl DocumentSubState {
             self.document_update_repo.clone(),
             self.workspace_member_repo.clone(),
             self.workspace_role_repo.clone(),
+            self.workspace_role_perm_repo.clone(),
         )
     }
 
@@ -64,6 +70,7 @@ impl DocumentSubState {
             self.document_update_repo.clone(),
             self.workspace_member_repo.clone(),
             self.workspace_role_repo.clone(),
+            self.workspace_role_perm_repo.clone(),
             self.device_repo.clone(),
         )
     }
@@ -71,5 +78,5 @@ impl DocumentSubState {
 
 impl_from_ref!(DocumentSubState {
     document_repo, document_update_repo, document_key_repo,
-    workspace_member_repo, workspace_role_repo, device_repo,
+    workspace_member_repo, workspace_role_repo, workspace_role_perm_repo, device_repo,
 });

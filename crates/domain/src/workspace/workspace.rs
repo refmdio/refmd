@@ -25,13 +25,13 @@ pub struct Workspace {
 
 impl Workspace {
     /// Create a new workspace
-    pub fn new(name: String, slug: Slug, owner_id: UserId) -> Self {
+    pub fn new(name: String, slug: Slug, owner_id: UserId, description: Option<String>) -> Self {
         let now = Utc::now();
         Self {
             id: WorkspaceId::new(),
             name,
             slug,
-            description: None,
+            description,
             icon: None,
             owner_id,
             min_kek_version: 1,
@@ -66,11 +66,15 @@ impl Workspace {
     pub fn update(
         &mut self,
         name: Option<String>,
+        slug: Option<Slug>,
         description: Option<Option<String>>,
         icon: Option<Option<String>>,
     ) {
         if let Some(n) = name {
             self.name = n;
+        }
+        if let Some(s) = slug {
+            self.slug = s;
         }
         if let Some(d) = description {
             self.description = d;

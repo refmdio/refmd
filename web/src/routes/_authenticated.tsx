@@ -3,6 +3,7 @@ import { PdkFallbackDialog } from '@/features/auth'
 import { WorkspaceSelectionProvider, WorkspacesDataContext } from '@/entities/workspace'
 import { DocumentsDataContext } from '@/entities/document'
 import { PendingDeviceProvider } from '@/features/device'
+import { WorkspaceEventProvider } from '@/features/workspace-events'
 import { DocumentWorkspaceProvider } from '@/widgets/document-workspace'
 import { NotificationList } from '@/widgets/notification'
 import { SettingsDialog } from '@/widgets/settings'
@@ -29,8 +30,10 @@ function AuthenticatedLayoutInner() {
     setSettingsOpen,
   } = useAuthenticatedLayout()
 
+  // Key on effectiveWorkspaceId: changes when URL changes (via navigate in handleSelectWorkspace),
+  // which triggers Provider remount AFTER the document page has already unmounted.
   return (
-    <DocumentWorkspaceProvider>
+    <DocumentWorkspaceProvider key={effectiveWorkspaceId ?? '__none'}>
       {pdkFallback && (
         <PdkFallbackDialog
           open={true}
@@ -50,6 +53,7 @@ function AuthenticatedLayoutInner() {
         <WorkspacesDataContext.Provider value={workspaces}>
         <DocumentsDataContext.Provider value={{ documents, documentsLoading }}>
         <PendingDeviceProvider>
+        <WorkspaceEventProvider>
           <AppShell
             effectiveWorkspaceId={effectiveWorkspaceId}
             onSelectWorkspace={handleSelectWorkspace}
@@ -60,6 +64,7 @@ function AuthenticatedLayoutInner() {
             settingsSlot={<SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />}
             onSettingsClick={() => setSettingsOpen(true)}
           />
+        </WorkspaceEventProvider>
         </PendingDeviceProvider>
         </DocumentsDataContext.Provider>
         </WorkspacesDataContext.Provider>

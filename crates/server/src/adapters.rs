@@ -7,12 +7,12 @@ use application::types::{
     // BoxedError
     BoxedError,
     // ID types
-    DocumentId, DeviceId, SessionId, UserId, RoleId, WorkspaceId,
+    DocumentId, DeviceId, InvitationId, SessionId, UserId, RoleId, WorkspaceId,
     // Entity types
     Document, DocumentUpdate,
     Device, DeviceEncryptedUMK, DeviceRevocationEvent, DocumentEncryptedKey, PendingDevice,
     UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey,
-    WorkspaceEncryptedKey, WorkspaceKekBackup,
+    WorkspaceEncryptedKey, WorkspaceInvitation, WorkspaceKekBackup,
     Email, Session, User, UserSettings,
     Slug, Workspace, WorkspaceMember, WorkspaceRole,
     // Repository traits
@@ -20,16 +20,17 @@ use application::types::{
     DeviceEncryptedUMKRepository, DeviceRepository, DeviceRevocationEventRepository,
     DocumentEncryptedKeyRepository, PendingDeviceRepository, UserEncryptedIdentityKeyRepository,
     UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
-    WorkspaceEncryptedKeyRepository, WorkspaceKekBackupRepository,
+    WorkspaceEncryptedKeyRepository, WorkspaceInvitationRepository, WorkspaceKekBackupRepository,
     SessionRepository, UserRepository, UserSettingsRepository,
-    WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRoleRepository,
+    WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRolePermission,
+    WorkspaceRolePermissionRepository, WorkspaceRoleRepository,
 };
 
 /// Generic adapter that wraps a repository and converts errors to BoxedError
 pub struct BoxedRepo<T>(pub T);
 
 fn boxed_err(e: impl std::error::Error + Send + Sync + 'static) -> BoxedError {
-    BoxedError(Box::new(e))
+    BoxedError::new(e)
 }
 
 /// Generates an entire `#[async_trait] impl Trait for BoxedRepo<T>` block.
@@ -60,6 +61,7 @@ macro_rules! impl_boxed_repo {
 
 impl_boxed_repo!(UserRepository {
     fn find_by_id(&self, id: UserId) -> Result<Option<User>>;
+    fn find_by_ids(&self, ids: &[UserId]) -> Result<Vec<User>>;
     fn find_by_email(&self, email: &Email) -> Result<Option<User>>;
     fn email_exists(&self, email: &Email) -> Result<bool>;
     fn save(&self, user: &User) -> Result<()>;
@@ -142,6 +144,7 @@ impl_boxed_repo!(DeviceRevocationEventRepository {
 impl_boxed_repo!(WorkspaceKekBackupRepository {
     fn find_active_by_workspace_and_user(&self, workspace_id: WorkspaceId, user_id: UserId) -> Result<Option<WorkspaceKekBackup>>;
     fn save(&self, backup: &WorkspaceKekBackup) -> Result<()>;
+    fn find_max_key_version(&self, workspace_id: WorkspaceId) -> Result<Option<i32>>;
 });
 
 impl_boxed_repo!(DeviceEncryptedUMKRepository {
@@ -230,14 +233,12 @@ where
     }
 
     fn is_duplicate_hash(&self, err: &Self::Error) -> bool {
-        err.0
-            .downcast_ref::<T::Error>()
+        err.downcast_ref::<T::Error>()
             .is_some_and(|inner| self.0.is_duplicate_hash(inner))
     }
 
     fn is_chain_mismatch(&self, err: &Self::Error) -> bool {
-        err.0
-            .downcast_ref::<T::Error>()
+        err.downcast_ref::<T::Error>()
             .is_some_and(|inner| self.0.is_chain_mismatch(inner))
     }
 
@@ -267,14 +268,36 @@ where
 // Workspace
 // =============================================================================
 
-impl_boxed_repo!(WorkspaceRepository {
-    fn find_by_id(&self, id: WorkspaceId) -> Result<Option<Workspace>>;
-    fn find_by_slug(&self, slug: &Slug) -> Result<Option<Workspace>>;
-    fn find_by_ids(&self, ids: &[WorkspaceId]) -> Result<Vec<Workspace>>;
-    fn slug_exists(&self, slug: &Slug) -> Result<bool>;
-    fn save(&self, workspace: &Workspace) -> Result<()>;
-    fn delete(&self, id: WorkspaceId) -> Result<()>;
-});
+// WorkspaceRepository needs special handling to capture classifier flags
+#[async_trait::async_trait]
+impl<T: WorkspaceRepository + Send + Sync> WorkspaceRepository for BoxedRepo<T>
+where
+    T::Error: 'static,
+{
+    type Error = BoxedError;
+
+    async fn find_by_id(&self, id: WorkspaceId) -> Result<Option<Workspace>, Self::Error> {
+        self.0.find_by_id(id).await.map_err(BoxedError::from_workspace_repo)
+    }
+    async fn find_by_slug(&self, slug: &Slug) -> Result<Option<Workspace>, Self::Error> {
+        self.0.find_by_slug(slug).await.map_err(BoxedError::from_workspace_repo)
+    }
+    async fn find_by_ids(&self, ids: &[WorkspaceId]) -> Result<Vec<Workspace>, Self::Error> {
+        self.0.find_by_ids(ids).await.map_err(BoxedError::from_workspace_repo)
+    }
+    async fn slug_exists(&self, slug: &Slug) -> Result<bool, Self::Error> {
+        self.0.slug_exists(slug).await.map_err(BoxedError::from_workspace_repo)
+    }
+    async fn save(&self, workspace: &Workspace) -> Result<(), Self::Error> {
+        self.0.save(workspace).await.map_err(BoxedError::from_workspace_repo)
+    }
+    async fn update(&self, workspace: &Workspace) -> Result<bool, Self::Error> {
+        self.0.update(workspace).await.map_err(BoxedError::from_workspace_repo)
+    }
+    async fn delete(&self, id: WorkspaceId) -> Result<(), Self::Error> {
+        self.0.delete(id).await.map_err(BoxedError::from_workspace_repo)
+    }
+}
 
 impl_boxed_repo!(WorkspaceMemberRepository {
     fn find_by_workspace_and_user(&self, workspace_id: WorkspaceId, user_id: UserId) -> Result<Option<WorkspaceMember>>;
@@ -287,11 +310,56 @@ impl_boxed_repo!(WorkspaceMemberRepository {
     fn clear_default_for_user(&self, user_id: UserId) -> Result<()>;
 });
 
-impl_boxed_repo!(WorkspaceRoleRepository {
-    fn find_by_id(&self, id: RoleId) -> Result<Option<WorkspaceRole>>;
-    fn find_by_ids(&self, ids: &[RoleId]) -> Result<Vec<WorkspaceRole>>;
-    fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<WorkspaceRole>>;
-    fn save(&self, role: &WorkspaceRole) -> Result<()>;
-    fn delete(&self, id: RoleId) -> Result<()>;
-    fn delete_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<()>;
+// WorkspaceRoleRepository needs special handling to capture classifier flags
+#[async_trait::async_trait]
+impl<T: WorkspaceRoleRepository + Send + Sync> WorkspaceRoleRepository for BoxedRepo<T>
+where
+    T::Error: 'static,
+{
+    type Error = BoxedError;
+
+    async fn find_by_id(&self, id: RoleId) -> Result<Option<WorkspaceRole>, Self::Error> {
+        self.0.find_by_id(id).await.map_err(BoxedError::from_role_repo)
+    }
+    async fn find_by_ids(&self, ids: &[RoleId]) -> Result<Vec<WorkspaceRole>, Self::Error> {
+        self.0.find_by_ids(ids).await.map_err(BoxedError::from_role_repo)
+    }
+    async fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<WorkspaceRole>, Self::Error> {
+        self.0.find_by_workspace_id(workspace_id).await.map_err(BoxedError::from_role_repo)
+    }
+    async fn save(&self, role: &WorkspaceRole) -> Result<(), Self::Error> {
+        self.0.save(role).await.map_err(BoxedError::from_role_repo)
+    }
+    async fn update(&self, role: &WorkspaceRole) -> Result<bool, Self::Error> {
+        self.0.update(role).await.map_err(BoxedError::from_role_repo)
+    }
+    async fn delete(&self, id: RoleId, workspace_id: WorkspaceId) -> Result<(), Self::Error> {
+        self.0.delete(id, workspace_id).await.map_err(BoxedError::from_role_repo)
+    }
+    async fn delete_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<(), Self::Error> {
+        self.0.delete_by_workspace_id(workspace_id).await.map_err(BoxedError::from_role_repo)
+    }
+    async fn swap_default(&self, workspace_id: WorkspaceId, new_default_role_id: RoleId, new_name: Option<&str>) -> Result<(), Self::Error> {
+        self.0.swap_default(workspace_id, new_default_role_id, new_name).await.map_err(BoxedError::from_role_repo)
+    }
+    async fn save_and_set_default(&self, role: &WorkspaceRole) -> Result<(), Self::Error> {
+        self.0.save_and_set_default(role).await.map_err(BoxedError::from_role_repo)
+    }
+}
+
+impl_boxed_repo!(WorkspaceRolePermissionRepository {
+    fn find_by_role_id(&self, role_id: RoleId) -> Result<Vec<WorkspaceRolePermission>>;
+    fn find_by_role_ids(&self, role_ids: &[RoleId]) -> Result<Vec<WorkspaceRolePermission>>;
+    fn save_batch(&self, role_id: RoleId, perms: &[(String, bool)]) -> Result<()>;
+    fn delete_by_role_id(&self, role_id: RoleId) -> Result<()>;
+});
+
+impl_boxed_repo!(WorkspaceInvitationRepository {
+    fn find_by_id(&self, id: InvitationId) -> Result<Option<WorkspaceInvitation>>;
+    fn find_by_token_hash(&self, token_hash: &str) -> Result<Option<WorkspaceInvitation>>;
+    fn find_active_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<WorkspaceInvitation>>;
+    fn save(&self, invitation: &WorkspaceInvitation) -> Result<()>;
+    fn revoke(&self, id: InvitationId, workspace_id: WorkspaceId) -> Result<bool>;
+    fn count_by_role_id(&self, workspace_id: WorkspaceId, role_id: RoleId) -> Result<i64>;
+    fn revoke_all_active(&self, workspace_id: WorkspaceId) -> Result<i64>;
 });

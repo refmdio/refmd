@@ -7,7 +7,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { type PendingDevice } from '@/shared/api'
-import { usePendingDevices, useDeviceRevocation, useTofuVerification } from '@/features/device'
+import { usePendingDevices, useDeviceRevocation, useTofuVerification, type RevocationMode } from '@/features/device'
 import { useAuthContext } from '@/shared/context'
 
 export function useSecuritySection(onClose: () => void) {
@@ -32,11 +32,11 @@ export function useSecuritySection(onClose: () => void) {
   const [revokeTargetId, setRevokeTargetId] = useState<string | null>(null)
   const revokeTargetDevice = revokeTargetId ? tofu.devices.find(d => d.id === revokeTargetId) : null
 
-  const confirmRevoke = useCallback(async () => {
+  const confirmRevoke = useCallback(async (mode: RevocationMode) => {
     if (!revokeTargetId) return
     setRevokeTargetId(null)
-    await revocation.revokeDevice(revokeTargetId)
-  }, [revokeTargetId, revocation])
+    await revocation.revokeDevice(revokeTargetId, mode)
+  }, [revokeTargetId, revocation.revokeDevice])
 
   const reviewPending = useCallback((device: PendingDevice) => {
     onClose()

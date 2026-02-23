@@ -13,7 +13,10 @@ use domain::document::{
 };
 use domain::encryption::{DeviceId, DeviceRepository};
 use domain::identity::UserId;
-use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository};
+use domain::workspace::{
+    WorkspaceMemberRepository, WorkspaceRolePermissionRepository, WorkspaceRoleRepository,
+    permission,
+};
 
 use crate::util::document_update_verification;
 use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
@@ -21,7 +24,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 /// Alias for the verbose `CreateDocumentUpdateError` with concrete associated error types.
-type CduError<DR, DUR, MR, RR, DevR> = CreateDocumentUpdateError<DR, DUR, MR, RR, DevR>;
+type CduError<DR, DUR, MR, RR, RPR, DevR> = CreateDocumentUpdateError<DR, DUR, MR, RR, RPR, DevR>;
 
 /// Create document update command
 #[derive(Debug)]
@@ -59,13 +62,14 @@ pub enum CreateDocumentUpdateError<
     DUR: std::error::Error,
     MR: std::error::Error,
     RR: std::error::Error,
+    RPR: std::error::Error,
     DevR: std::error::Error,
 > {
     #[error("document not found")]
     DocumentNotFound,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("document is archived")]
     DocumentArchived,
@@ -114,8 +118,8 @@ pub enum CreateDocumentUpdateError<
 }
 
 crate::types::impl_app_error!(
-    [DR: std::error::Error, DUR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DevR: std::error::Error]
-    CreateDocumentUpdateError<DR, DUR, MR, RR, DevR>,
+    [DR: std::error::Error, DUR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error, DevR: std::error::Error]
+    CreateDocumentUpdateError<DR, DUR, MR, RR, RPR, DevR>,
     not_found: [
         CreateDocumentUpdateError::DocumentNotFound,
         CreateDocumentUpdateError::WorkspaceAccess(WorkspaceAccessError::NotMember),
@@ -140,23 +144,28 @@ crate::types::impl_app_error!(
     ],
 );
 
-crate::util::workspace_access::impl_from_load_doc_perm!([DR, DUR, MR, RR, DevR] CreateDocumentUpdateError<DR, DUR, MR, RR, DevR>, DR, MR, RR);
+crate::util::workspace_access::impl_from_load_doc_perm!([DR, DUR, MR, RR, RPR, DevR] CreateDocumentUpdateError<DR, DUR, MR, RR, RPR, DevR>, DR, MR, RR, RPR);
 
 /// Create document update handler
-pub struct CreateDocumentUpdateHandler<DR: ?Sized, DUR: ?Sized, MR: ?Sized, RR: ?Sized, DevR: ?Sized> {
+pub struct CreateDocumentUpdateHandler<DR: ?Sized, DUR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized, DevR: ?Sized> {
     document_repo: Arc<DR>,
     update_repo: Arc<DUR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
     device_repo: Arc<DevR>,
 }
 
-impl<DR: ?Sized, DUR: ?Sized, MR: ?Sized, RR: ?Sized, DevR: ?Sized> CreateDocumentUpdateHandler<DR, DUR, MR, RR, DevR>
+// type_complexity: The 6-parameter error type is inherent to DDD with generic repository errors.
+// A type alias (CduError) reduces repetition; further simplification would require trait objects.
+#[allow(clippy::type_complexity)]
+impl<DR: ?Sized, DUR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized, DevR: ?Sized> CreateDocumentUpdateHandler<DR, DUR, MR, RR, RPR, DevR>
 where
     DR: DocumentRepository,
     DUR: DocumentUpdateRepository,
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
+    RPR: WorkspaceRolePermissionRepository,
     DevR: DeviceRepository,
 {
     pub fn new(
@@ -164,6 +173,7 @@ where
         update_repo: Arc<DUR>,
         member_repo: Arc<MR>,
         role_repo: Arc<RR>,
+        role_perm_repo: Arc<RPR>,
         device_repo: Arc<DevR>,
     ) -> Self {
         Self {
@@ -171,6 +181,7 @@ where
             update_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
             device_repo,
         }
     }
@@ -180,7 +191,7 @@ where
         command: CreateDocumentUpdateCommand,
     ) -> Result<
         CreateDocumentUpdateResult,
-        CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>,
+        CduError<DR::Error, DUR::Error, MR::Error, RR::Error, RPR::Error, DevR::Error>,
     > {
         self.validate_input(&command)?;
 
@@ -194,11 +205,10 @@ where
     }
 
     /// Phase 1: Validate nonce length and timestamp range.
-    #[allow(clippy::type_complexity)]
     fn validate_input(
         &self,
         command: &CreateDocumentUpdateCommand,
-    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
+    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, RPR::Error, DevR::Error>> {
         if command.nonce.len() != 24 {
             return Err(CreateDocumentUpdateError::InvalidNonceLength);
         }
@@ -213,14 +223,15 @@ where
     async fn authorize(
         &self,
         command: &CreateDocumentUpdateCommand,
-    ) -> Result<domain::document::Document, CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
+    ) -> Result<domain::document::Document, CduError<DR::Error, DUR::Error, MR::Error, RR::Error, RPR::Error, DevR::Error>> {
         let document = load_document_with_permission(
             &self.document_repo,
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             command.document_id,
             command.user_id,
-            WorkspacePermission::Write,
+            permission::DOCUMENT_WRITE,
         )
         .await
         .map_err(CreateDocumentUpdateError::from_load)?;
@@ -242,7 +253,7 @@ where
     async fn verify_integrity(
         &self,
         command: &CreateDocumentUpdateCommand,
-    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
+    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, RPR::Error, DevR::Error>> {
         if self
             .update_repo
             .find_by_hash(&command.update_hash)
@@ -260,7 +271,7 @@ where
     async fn verify_author_device(
         &self,
         command: &CreateDocumentUpdateCommand,
-    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
+    ) -> Result<(), CduError<DR::Error, DUR::Error, MR::Error, RR::Error, RPR::Error, DevR::Error>> {
         let device = self
             .device_repo
             .find_by_id(command.author_device_id)
@@ -293,7 +304,7 @@ where
     async fn persist(
         &self,
         command: CreateDocumentUpdateCommand,
-    ) -> Result<CreateDocumentUpdateResult, CduError<DR::Error, DUR::Error, MR::Error, RR::Error, DevR::Error>> {
+    ) -> Result<CreateDocumentUpdateResult, CduError<DR::Error, DUR::Error, MR::Error, RR::Error, RPR::Error, DevR::Error>> {
         let update = DocumentUpdate::new(NewDocumentUpdateParams {
             document_id: command.document_id,
             seq: 0,

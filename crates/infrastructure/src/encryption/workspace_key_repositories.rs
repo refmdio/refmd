@@ -414,4 +414,18 @@ impl WorkspaceKekBackupRepository for PgWorkspaceKekBackupRepository {
             )
         )
     }
+
+    async fn find_max_key_version(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Option<i32>, Self::Error> {
+        let row = sqlx::query_scalar!(
+            "SELECT MAX(key_version) FROM workspace_kek_backups WHERE workspace_id = $1",
+            workspace_id.as_uuid()
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(row)
+    }
 }

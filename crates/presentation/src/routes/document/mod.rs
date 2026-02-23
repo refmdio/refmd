@@ -16,13 +16,9 @@ use utoipa::ToSchema;
 
 use crate::AppState;
 
-/// Create document routes under /api/documents
+/// Document routes under /api/documents/{document_id}
 pub fn routes(state: AppState) -> Router {
     Router::new()
-        .route(
-            "/",
-            get(list_documents).post(create_document),
-        )
         .route(
             "/{document_id}",
             get(get_document)
@@ -40,6 +36,16 @@ pub fn routes(state: AppState) -> Router {
         .route(
             "/{document_id}/updates",
             get(list_updates).post(create_update),
+        )
+        .with_state(state)
+}
+
+/// Workspace-scoped document routes under /api/workspaces/{workspace_id}/documents
+pub fn workspace_document_routes(state: AppState) -> Router {
+    Router::new()
+        .route(
+            "/{workspace_id}/documents",
+            get(list_documents).post(create_document),
         )
         .with_state(state)
 }
@@ -96,6 +102,7 @@ pub(crate) fn document_to_response(doc: DocumentDto) -> DocumentResponse {
 const MAX_ENCRYPTED_TITLE_BYTES: usize = 4096;
 
 /// Decode optional base64url-encoded encrypted title fields.
+// type_complexity: axum response tuples inherently produce complex types.
 #[allow(clippy::type_complexity)]
 pub(crate) fn decode_encrypted_title_fields(
     encrypted_title: Option<String>,

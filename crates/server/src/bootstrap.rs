@@ -7,7 +7,9 @@ use infrastructure::{RedisChallengeStore, RedisRecoveryChallengeStore};
 use infrastructure::{RedisPool, RedisTransferNonceStore, RedisTransferStateStore};
 use infrastructure::InMemoryChallengeStore;
 use infrastructure::InMemoryDeviceEventBus;
+use infrastructure::InMemoryWorkspaceEventBus;
 use infrastructure::RedisDeviceEventBus;
+use infrastructure::RedisWorkspaceEventBus;
 use application::types::{ChallengeStore, RecoveryChallengeStore};
 use presentation::{AppState, AppStateParams};
 
@@ -17,18 +19,22 @@ use std::sync::Arc;
 use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository};
 use infrastructure::encryption::{
     PgDeviceEncryptedUMKRepository, PgDeviceRepository, PgDeviceRevocationEventRepository,
-    PgDocumentEncryptedKeyRepository, PgPendingDeviceRepository,
-    PgUserEncryptedIdentityKeyRepository, PgUserEncryptedMasterKeyRepository,
-    PgUserIdentityPublicKeyRepository, PgWorkspaceEncryptedKeyRepository,
-    PgWorkspaceKekBackupRepository,
+    PgDocumentEncryptedKeyRepository, PgKekRotationCompletionService, PgPendingDeviceRepository,
+    PgRotationMarkingService, PgUserEncryptedIdentityKeyRepository,
+    PgUserEncryptedMasterKeyRepository, PgUserIdentityPublicKeyRepository,
+    PgWorkspaceEncryptedKeyRepository, PgWorkspaceKekBackupRepository,
 };
 use infrastructure::identity::{PgSessionRepository, PgUserRepository, PgUserSettingsRepository};
 use infrastructure::workspace::{
-    PgWorkspaceMemberRepository, PgWorkspaceRepository, PgWorkspaceRoleRepository,
+    PgInvitationAcceptanceService, PgInvitationCreationService, PgMemberMutationService,
+    PgRoleUpdateService, PgWorkspaceCreationService, PgWorkspaceInvitationRepository,
+    PgWorkspaceMemberRepository, PgWorkspaceRepository, PgWorkspaceRolePermissionRepository,
+    PgWorkspaceRoleRepository,
 };
 use infrastructure::PgRegistrationService;
 
 use application::events::DeviceEventBus;
+use application::workspace_events::WorkspaceEventBus;
 
 /// Dynamic stores created based on cluster mode (Redis) or single-node (in-memory).
 pub type RuntimeStores = (
@@ -37,6 +43,7 @@ pub type RuntimeStores = (
     Arc<dyn application::types::TransferNonceStore>,
     Arc<dyn application::types::TransferStateStore>,
     Arc<dyn DeviceEventBus>,
+    Arc<dyn WorkspaceEventBus>,
 );
 
 /// Compose AppState from all dependencies (DB, Redis/in-memory stores, secrets).
@@ -50,7 +57,7 @@ pub fn build_app_state(
     let p: PgPool = (*pool).clone();
 
     // Runtime stores: Redis (cluster) or in-memory (single-node)
-    let (challenge_store, recovery_challenge_store, transfer_nonce_store, transfer_state_store, device_event_bus): RuntimeStores =
+    let (challenge_store, recovery_challenge_store, transfer_nonce_store, transfer_state_store, device_event_bus, workspace_event_bus): RuntimeStores =
         if let Some((redis_pool, url)) = redis {
             (
                 Arc::new(RedisChallengeStore::new(redis_pool.clone())),
@@ -58,6 +65,7 @@ pub fn build_app_state(
                 Arc::new(RedisTransferNonceStore::new(redis_pool.clone())),
                 Arc::new(RedisTransferStateStore::new(redis_pool.clone())),
                 RedisDeviceEventBus::new(redis_pool.clone(), url.clone()),
+                RedisWorkspaceEventBus::new(redis_pool.clone(), url.clone()),
             )
         } else {
             (
@@ -66,6 +74,7 @@ pub fn build_app_state(
                 Arc::new(infrastructure::InMemoryTransferNonceStore::default()),
                 Arc::new(infrastructure::InMemoryTransferStateStore::default()),
                 Arc::new(InMemoryDeviceEventBus::new()),
+                Arc::new(InMemoryWorkspaceEventBus::new()),
             )
         };
 
@@ -86,6 +95,7 @@ pub fn build_app_state(
         workspace_repo: Arc::new(BoxedRepo(PgWorkspaceRepository::new(p.clone()))),
         workspace_member_repo: Arc::new(BoxedRepo(PgWorkspaceMemberRepository::new(p.clone()))),
         workspace_role_repo: Arc::new(BoxedRepo(PgWorkspaceRoleRepository::new(p.clone()))),
+        workspace_role_perm_repo: Arc::new(BoxedRepo(PgWorkspaceRolePermissionRepository::new(p.clone()))),
         document_repo: Arc::new(BoxedRepo(PgDocumentRepository::new(p.clone()))),
         document_update_repo: Arc::new(BoxedRepo(PgDocumentUpdateRepository::new(p.clone()))),
         workspace_key_repo: Arc::new(BoxedRepo(PgWorkspaceEncryptedKeyRepository::new(p.clone()))),
@@ -96,7 +106,16 @@ pub fn build_app_state(
         device_encrypted_umk_repo: Arc::new(BoxedRepo(PgDeviceEncryptedUMKRepository::new(p.clone()))),
         device_revocation_event_repo: Arc::new(BoxedRepo(PgDeviceRevocationEventRepository::new(p.clone()))),
         workspace_kek_backup_repo: Arc::new(BoxedRepo(PgWorkspaceKekBackupRepository::new(p.clone()))),
+        workspace_invitation_repo: Arc::new(BoxedRepo(PgWorkspaceInvitationRepository::new(p.clone()))),
+        workspace_creation_service: Arc::new(PgWorkspaceCreationService::new(Arc::new(p.clone()))),
+        invitation_acceptance_service: Arc::new(PgInvitationAcceptanceService::new(Arc::new(p.clone()))),
+        invitation_creation_service: Arc::new(PgInvitationCreationService::new(Arc::new(p.clone()))),
+        member_mutation_service: Arc::new(PgMemberMutationService::new(Arc::new(p.clone()))),
+        kek_rotation_completion_service: Arc::new(PgKekRotationCompletionService::new(Arc::new(p.clone()))),
+        rotation_marking_service: Arc::new(PgRotationMarkingService::new(Arc::new(p.clone()))),
+        role_update_service: Arc::new(PgRoleUpdateService::new(p.clone())),
         device_event_bus,
+        workspace_event_bus,
         challenge_store,
         recovery_challenge_store,
         transfer_nonce_store,

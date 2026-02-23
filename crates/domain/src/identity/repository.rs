@@ -15,6 +15,9 @@ pub trait UserRepository: Send + Sync {
     /// Find user by ID
     async fn find_by_id(&self, id: UserId) -> Result<Option<User>, Self::Error>;
 
+    /// Find users by IDs (batch)
+    async fn find_by_ids(&self, ids: &[UserId]) -> Result<Vec<User>, Self::Error>;
+
     /// Find user by email
     async fn find_by_email(&self, email: &Email) -> Result<Option<User>, Self::Error>;
 

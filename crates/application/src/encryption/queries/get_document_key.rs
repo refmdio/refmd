@@ -7,7 +7,7 @@ use crate::dto::DocumentEncryptedKeyDto;
 use domain::document::{DocumentId, DocumentRepository};
 use domain::encryption::DocumentEncryptedKeyRepository;
 use domain::identity::UserId;
-use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository};
+use domain::workspace::{WorkspaceMemberRepository, WorkspaceRolePermissionRepository, WorkspaceRoleRepository, permission};
 use std::sync::Arc;
 
 use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
@@ -33,6 +33,7 @@ pub enum GetDocumentKeyError<
     DR: std::error::Error,
     MR: std::error::Error,
     RR: std::error::Error,
+    RPR: std::error::Error,
 > {
     #[error("document not found")]
     DocumentNotFound,
@@ -41,7 +42,7 @@ pub enum GetDocumentKeyError<
     KeyNotFound,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("document key repository error: {0}")]
     DocumentKeyRepository(DKR),
@@ -51,8 +52,8 @@ pub enum GetDocumentKeyError<
 }
 
 crate::types::impl_app_error!(
-    [DKR: std::error::Error, DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
-    GetDocumentKeyError<DKR, DR, MR, RR>,
+    [DKR: std::error::Error, DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error]
+    GetDocumentKeyError<DKR, DR, MR, RR, RPR>,
     not_found: [
         GetDocumentKeyError::DocumentNotFound,
         GetDocumentKeyError::KeyNotFound,
@@ -63,34 +64,38 @@ crate::types::impl_app_error!(
     ],
 );
 
-crate::util::workspace_access::impl_from_load_doc_perm!([DKR, DR, MR, RR] GetDocumentKeyError<DKR, DR, MR, RR>, DR, MR, RR);
+crate::util::workspace_access::impl_from_load_doc_perm!([DKR, DR, MR, RR, RPR] GetDocumentKeyError<DKR, DR, MR, RR, RPR>, DR, MR, RR, RPR);
 
 /// Get document key handler
-pub struct GetDocumentKeyHandler<DKR: ?Sized, DR: ?Sized, MR: ?Sized, RR: ?Sized> {
+pub struct GetDocumentKeyHandler<DKR: ?Sized, DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     document_key_repo: Arc<DKR>,
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
 }
 
-impl<DKR, DR, MR, RR> GetDocumentKeyHandler<DKR, DR, MR, RR>
+impl<DKR, DR, MR, RR, RPR> GetDocumentKeyHandler<DKR, DR, MR, RR, RPR>
 where
     DKR: DocumentEncryptedKeyRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
     MR: WorkspaceMemberRepository + ?Sized,
     RR: WorkspaceRoleRepository + ?Sized,
+    RPR: WorkspaceRolePermissionRepository + ?Sized,
 {
     pub fn new(
         document_key_repo: Arc<DKR>,
         document_repo: Arc<DR>,
         member_repo: Arc<MR>,
         role_repo: Arc<RR>,
+        role_perm_repo: Arc<RPR>,
     ) -> Self {
         Self {
             document_key_repo,
             document_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
         }
     }
 
@@ -99,15 +104,16 @@ where
         query: GetDocumentKeyQuery,
     ) -> Result<
         GetDocumentKeyResult,
-        GetDocumentKeyError<DKR::Error, DR::Error, MR::Error, RR::Error>,
+        GetDocumentKeyError<DKR::Error, DR::Error, MR::Error, RR::Error, RPR::Error>,
     > {
         let _document = load_document_with_permission(
             &self.document_repo,
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             query.document_id,
             query.user_id,
-            WorkspacePermission::Read,
+            permission::DOCUMENT_READ,
         )
         .await
         .map_err(GetDocumentKeyError::from_load)?;

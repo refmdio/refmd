@@ -14,6 +14,8 @@ pub struct DeviceSubState {
     pub workspace_repo: DynWorkspaceRepository,
     pub document_repo: DynDocumentRepository,
     pub document_key_repo: DynDocumentEncryptedKeyRepository,
+    pub workspace_invitation_repo: DynWorkspaceInvitationRepository,
+    pub rotation_marking_service: DynRotationMarkingService,
     pub device_event_bus: DynDeviceEventBus,
     pub challenge_store: DynChallengeStore,
 }
@@ -22,5 +24,6 @@ impl_from_ref!(DeviceSubState {
     device_repo, pending_device_repo, device_encrypted_umk_repo,
     device_revocation_event_repo, user_identity_public_key_repo,
     workspace_member_repo, workspace_repo, document_repo,
-    document_key_repo, device_event_bus, challenge_store,
+    document_key_repo, workspace_invitation_repo, rotation_marking_service,
+    device_event_bus, challenge_store,
 });

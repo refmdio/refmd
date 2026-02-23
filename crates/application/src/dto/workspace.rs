@@ -2,7 +2,8 @@ use chrono::{DateTime, Utc};
 
 use domain::identity::UserId;
 use domain::workspace::{
-    RoleId, Workspace, WorkspaceId, WorkspaceMember, WorkspaceRole,
+    InvitationId, RoleId, Workspace, WorkspaceId, WorkspaceInvitation, WorkspaceMember,
+    WorkspaceRole,
 };
 
 /// DTO for Workspace entity
@@ -68,6 +69,8 @@ pub struct WorkspaceRoleDto {
     pub base_role: String,
     pub is_default: bool,
     pub created_at: DateTime<Utc>,
+    /// Permission overrides from the DB (empty if none)
+    pub permission_overrides: Vec<(String, bool)>,
 }
 
 impl From<WorkspaceRole> for WorkspaceRoleDto {
@@ -79,6 +82,41 @@ impl From<WorkspaceRole> for WorkspaceRoleDto {
             base_role: r.base_role.to_string(),
             is_default: r.is_default,
             created_at: r.created_at,
+            permission_overrides: Vec::new(),
+        }
+    }
+}
+
+/// DTO for WorkspaceInvitation entity
+#[derive(Debug, Clone)]
+pub struct WorkspaceInvitationDto {
+    pub id: InvitationId,
+    pub workspace_id: WorkspaceId,
+    pub token_prefix: String,
+    pub role_id: Option<RoleId>,
+    pub invited_by: UserId,
+    pub invited_email: String,
+    pub kek_version: i32,
+    pub is_used: bool,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<WorkspaceInvitation> for WorkspaceInvitationDto {
+    fn from(i: WorkspaceInvitation) -> Self {
+        Self {
+            id: i.id,
+            workspace_id: i.workspace_id,
+            token_prefix: i.token_prefix,
+            role_id: i.role_id,
+            invited_by: i.invited_by,
+            invited_email: i.invited_email,
+            kek_version: i.kek_version,
+            is_used: i.is_used,
+            revoked_at: i.revoked_at,
+            expires_at: i.expires_at,
+            created_at: i.created_at,
         }
     }
 }

@@ -62,32 +62,26 @@ export interface PdkFallbackRequired {
   email: string
 }
 
-/**
- * Quick check: does any resumable session exist?
- * Used by the index route to decide whether to redirect to dashboard or login.
- * Mirrors the checks in restoreSession() without performing full restoration.
- */
-export async function hasResumableSession(): Promise<boolean> {
-  // SSR: browser storage APIs are not available on the server
-  if (typeof window === 'undefined') return false
-  return (
-    loadSessionUmk() !== null ||
-    (await hasCachedSession()) ||
-    hasPdkWrappedDeviceKeys()
-  )
-}
-
 /** Try to load cached UMK from sessionStorage or IndexedDB. */
 async function loadCachedUmk(): Promise<{ umk: Uint8Array; userId: string } | null> {
+  // 1. sessionStorage (tab-scoped, for rememberMe=false)
   const sessionData = loadSessionUmk()
   if (sessionData) return sessionData
 
-  if (await hasCachedSession()) {
-    const dsk = await loadDsk()
-    if (dsk) {
-      const unwrapped = await loadAndUnwrapUmk(dsk)
-      if (unwrapped) return unwrapped
+  // 2. IndexedDB DSK-wrapped UMK (persistent, for rememberMe=true)
+  try {
+    if (await hasCachedSession()) {
+      const dsk = await loadDsk()
+      if (dsk) {
+        const unwrapped = await loadAndUnwrapUmk(dsk)
+        if (unwrapped) return unwrapped
+        console.warn('[session] DSK found but UMK unwrap failed (corrupted or tampered)')
+      } else {
+        console.warn('[session] hasCachedSession=true but loadDsk returned null')
+      }
     }
+  } catch (e) {
+    console.warn('[session] IndexedDB error during UMK load:', e)
   }
 
   return null
@@ -95,13 +89,24 @@ async function loadCachedUmk(): Promise<{ umk: Uint8Array; userId: string } | nu
 
 /** Try to load device keys from DSK store. */
 async function loadDeviceData(userId: string): Promise<SessionRestoreResult['deviceData']> {
-  const deviceId = await loadDeviceId()
-  if (!deviceId) return undefined
+  try {
+    const deviceId = await loadDeviceId()
+    if (!deviceId) {
+      console.warn('[session] No device ID in IndexedDB')
+      return undefined
+    }
 
-  const deviceKeys = await loadDeviceKeysFromDsk(userId)
-  if (!deviceKeys) return undefined
+    const deviceKeys = await loadDeviceKeysFromDsk(userId)
+    if (!deviceKeys) {
+      console.warn('[session] Device ID found but device keys unavailable')
+      return undefined
+    }
 
-  return { deviceId, deviceKeys }
+    return { deviceId, deviceKeys }
+  } catch (e) {
+    console.warn('[session] Error loading device data from IndexedDB:', e)
+    return undefined
+  }
 }
 
 /**
@@ -116,12 +121,15 @@ export async function restoreSession(): Promise<SessionRestoreResult | PdkFallba
   const cached = await loadCachedUmk()
 
   if (!cached) {
+    // No cached UMK — check if we can prompt for password to recover
     if (hasPdkWrappedDeviceKeys()) {
       const meResponse = await fetchMeOrNull()
       if (meResponse?.auth_type === 'password' && meResponse.device_verified && meResponse.device_id) {
+        console.warn('[session] No cached UMK but session cookie valid — requesting PDK fallback')
         return { type: 'pdk_fallback_required', email: meResponse.email }
       }
     }
+    console.warn('[session] No cached UMK and no PDK fallback available')
     return null
   }
 
@@ -130,17 +138,20 @@ export async function restoreSession(): Promise<SessionRestoreResult | PdkFallba
   // Validate session with server
   const meResponse = await fetchMeOrNull()
   if (!meResponse) {
+    console.warn('[session] Session cookie invalid or expired (401 from /me)')
     clearSessionUmk()
     return null
   }
 
   if (cachedUserId !== meResponse.user_id) {
+    console.warn('[session] Cached user ID mismatch — clearing local state')
     clearSessionUmk()
     await clearDskData()
     return null
   }
 
   if (!meResponse.device_verified || !meResponse.keys) {
+    console.warn('[session] Device not verified or keys missing in /me response')
     clearSessionUmk()
     return null
   }
@@ -148,9 +159,13 @@ export async function restoreSession(): Promise<SessionRestoreResult | PdkFallba
   const deviceData = await loadDeviceData(meResponse.user_id)
 
   if (!deviceData) {
+    // Device keys lost from IndexedDB but we still have UMK + valid session.
+    // Try PDK fallback to re-derive device keys without requiring password re-entry.
     if (hasPdkWrappedDeviceKeys() && meResponse.auth_type === 'password') {
+      console.warn('[session] Device keys lost from IndexedDB — requesting PDK fallback')
       return { type: 'pdk_fallback_required', email: meResponse.email }
     }
+    console.warn('[session] Device keys unavailable and no PDK fallback — session unrecoverable')
     clearSessionUmk()
     return null
   }

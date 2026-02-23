@@ -5,7 +5,8 @@
 use domain::document::{Document, DocumentId, DocumentRepository};
 use domain::identity::UserId;
 use domain::workspace::{
-    WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
+    WorkspaceId, WorkspaceMemberRepository, WorkspaceRolePermissionRepository,
+    WorkspaceRoleRepository, permission,
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -37,9 +38,9 @@ pub struct CreateDocumentResult {
 
 /// Create document error
 #[derive(Debug, Error)]
-pub enum CreateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error> {
+pub enum CreateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error> {
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("parent document not found")]
     ParentNotFound,
@@ -61,8 +62,8 @@ pub enum CreateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: s
 }
 
 crate::types::impl_app_error!(
-    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
-    CreateDocumentError<DR, MR, RR>,
+    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error]
+    CreateDocumentError<DR, MR, RR, RPR>,
     not_found: [
         CreateDocumentError::ParentNotFound,
         CreateDocumentError::WorkspaceAccess(WorkspaceAccessError::NotMember),
@@ -81,41 +82,45 @@ crate::types::impl_app_error!(
 );
 
 crate::util::document_validation::impl_from_parent_validation!(
-    [DR, MR, RR] CreateDocumentError<DR, MR, RR>
+    [DR, MR, RR, RPR] CreateDocumentError<DR, MR, RR, RPR>
 );
 
 /// Create document handler
-pub struct CreateDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
+pub struct CreateDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
 }
 
-impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> CreateDocumentHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> CreateDocumentHandler<DR, MR, RR, RPR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
+    RPR: WorkspaceRolePermissionRepository,
 {
-    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
+    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>, role_perm_repo: Arc<RPR>) -> Self {
         Self {
             document_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
         }
     }
 
     pub async fn handle(
         &self,
         command: CreateDocumentCommand,
-    ) -> Result<CreateDocumentResult, CreateDocumentError<DR::Error, MR::Error, RR::Error>> {
+    ) -> Result<CreateDocumentResult, CreateDocumentError<DR::Error, MR::Error, RR::Error, RPR::Error>> {
         // 1. Check membership and Write permission
         check_workspace_permission(
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             command.workspace_id,
             command.user_id,
-            WorkspacePermission::Write,
+            permission::DOCUMENT_WRITE,
         )
         .await
         .map_err(CreateDocumentError::WorkspaceAccess)?;
@@ -186,7 +191,7 @@ where
         &self,
         workspace_id: WorkspaceId,
         base_slug: String,
-    ) -> Result<String, CreateDocumentError<DR::Error, MR::Error, RR::Error>> {
+    ) -> Result<String, CreateDocumentError<DR::Error, MR::Error, RR::Error, RPR::Error>> {
         // Check if base slug is available
         let exists = self
             .document_repo

@@ -8,7 +8,7 @@
 
 use domain::document::{DocumentId, DocumentRepository};
 use domain::identity::UserId;
-use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository};
+use domain::workspace::{WorkspaceMemberRepository, WorkspaceRolePermissionRepository, WorkspaceRoleRepository, permission};
 use std::sync::Arc;
 
 use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
@@ -27,12 +27,12 @@ pub struct DeleteDocumentResult;
 
 /// Delete document error
 #[derive(Debug, Error)]
-pub enum DeleteDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error> {
+pub enum DeleteDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error> {
     #[error("document not found")]
     DocumentNotFound,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("cannot delete folder with children")]
     FolderNotEmpty,
@@ -42,8 +42,8 @@ pub enum DeleteDocumentError<DR: std::error::Error, MR: std::error::Error, RR: s
 }
 
 crate::types::impl_app_error!(
-    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
-    DeleteDocumentError<DR, MR, RR>,
+    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error]
+    DeleteDocumentError<DR, MR, RR, RPR>,
     not_found: [
         DeleteDocumentError::DocumentNotFound,
         DeleteDocumentError::WorkspaceAccess(WorkspaceAccessError::NotMember),
@@ -54,40 +54,44 @@ crate::types::impl_app_error!(
     invalid_input: [DeleteDocumentError::FolderNotEmpty],
 );
 
-crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR] DeleteDocumentError<DR, MR, RR>);
+crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR, RPR] DeleteDocumentError<DR, MR, RR, RPR>);
 
 /// Delete document handler
-pub struct DeleteDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
+pub struct DeleteDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
 }
 
-impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> DeleteDocumentHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> DeleteDocumentHandler<DR, MR, RR, RPR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
+    RPR: WorkspaceRolePermissionRepository,
 {
-    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
+    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>, role_perm_repo: Arc<RPR>) -> Self {
         Self {
             document_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
         }
     }
 
     pub async fn handle(
         &self,
         command: DeleteDocumentCommand,
-    ) -> Result<DeleteDocumentResult, DeleteDocumentError<DR::Error, MR::Error, RR::Error>> {
+    ) -> Result<DeleteDocumentResult, DeleteDocumentError<DR::Error, MR::Error, RR::Error, RPR::Error>> {
         let document = load_document_with_permission(
             &self.document_repo,
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             command.document_id,
             command.user_id,
-            WorkspacePermission::Delete,
+            permission::DOCUMENT_DELETE,
         )
         .await
         .map_err(DeleteDocumentError::from_load)?;

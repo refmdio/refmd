@@ -4,7 +4,7 @@
 
 use domain::document::{DocumentId, DocumentRepository};
 use domain::identity::UserId;
-use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository};
+use domain::workspace::{WorkspaceMemberRepository, WorkspaceRolePermissionRepository, WorkspaceRoleRepository, permission};
 use std::sync::Arc;
 
 use crate::dto::DocumentDto;
@@ -34,7 +34,7 @@ pub struct UpdateDocumentResult {
 
 /// Update document error
 #[derive(Debug, Error)]
-pub enum UpdateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error> {
+pub enum UpdateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error> {
     #[error("document not found")]
     DocumentNotFound,
 
@@ -42,7 +42,7 @@ pub enum UpdateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: s
     DocumentArchived,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("parent document not found")]
     ParentNotFound,
@@ -64,8 +64,8 @@ pub enum UpdateDocumentError<DR: std::error::Error, MR: std::error::Error, RR: s
 }
 
 crate::types::impl_app_error!(
-    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
-    UpdateDocumentError<DR, MR, RR>,
+    [DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error]
+    UpdateDocumentError<DR, MR, RR, RPR>,
     not_found: [
         UpdateDocumentError::DocumentNotFound,
         UpdateDocumentError::ParentNotFound,
@@ -85,44 +85,48 @@ crate::types::impl_app_error!(
     ],
 );
 
-crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR] UpdateDocumentError<DR, MR, RR>);
+crate::util::workspace_access::impl_from_load_doc_perm!([DR, MR, RR, RPR] UpdateDocumentError<DR, MR, RR, RPR>);
 
 crate::util::document_validation::impl_from_parent_validation!(
-    [DR, MR, RR] UpdateDocumentError<DR, MR, RR>
+    [DR, MR, RR, RPR] UpdateDocumentError<DR, MR, RR, RPR>
 );
 
 /// Update document handler
-pub struct UpdateDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized> {
+pub struct UpdateDocumentHandler<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
 }
 
-impl<DR: ?Sized, MR: ?Sized, RR: ?Sized> UpdateDocumentHandler<DR, MR, RR>
+impl<DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> UpdateDocumentHandler<DR, MR, RR, RPR>
 where
     DR: DocumentRepository,
     MR: WorkspaceMemberRepository,
     RR: WorkspaceRoleRepository,
+    RPR: WorkspaceRolePermissionRepository,
 {
-    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>) -> Self {
+    pub fn new(document_repo: Arc<DR>, member_repo: Arc<MR>, role_repo: Arc<RR>, role_perm_repo: Arc<RPR>) -> Self {
         Self {
             document_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
         }
     }
 
     pub async fn handle(
         &self,
         command: UpdateDocumentCommand,
-    ) -> Result<UpdateDocumentResult, UpdateDocumentError<DR::Error, MR::Error, RR::Error>> {
+    ) -> Result<UpdateDocumentResult, UpdateDocumentError<DR::Error, MR::Error, RR::Error, RPR::Error>> {
         let mut document = load_document_with_permission(
             &self.document_repo,
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             command.document_id,
             command.user_id,
-            WorkspacePermission::Write,
+            permission::DOCUMENT_WRITE,
         )
         .await
         .map_err(UpdateDocumentError::from_load)?;
@@ -143,7 +147,7 @@ where
 
         // 7. Update encrypted title if provided
         if let Some(encrypted_title) = command.encrypted_title {
-            let nonce = command.encrypted_title_nonce.unwrap_or_default();
+            let nonce = command.encrypted_title_nonce.expect("validated: nonce required with encrypted_title");
             document.set_encrypted_title(encrypted_title, nonce);
         }
 
@@ -167,7 +171,7 @@ where
         &self,
         document: &mut domain::document::Document,
         new_parent_id: Option<DocumentId>,
-    ) -> Result<(), UpdateDocumentError<DR::Error, MR::Error, RR::Error>> {
+    ) -> Result<(), UpdateDocumentError<DR::Error, MR::Error, RR::Error, RPR::Error>> {
         if let Some(parent_id) = new_parent_id {
             // Basic parent validation (exists, is folder, not archived, same workspace)
             validate_parent_document(&*self.document_repo, parent_id, document.workspace_id)

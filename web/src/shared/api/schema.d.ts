@@ -374,24 +374,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/documents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List documents in a workspace */
-        get: operations["list_documents"];
-        put?: never;
-        /** Create a new document */
-        post: operations["create_document"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/documents/{document_id}": {
         parameters: {
             query?: never;
@@ -534,6 +516,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation */
+        post: operations["accept_invitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/trust-transfer/nonce": {
         parameters: {
             query?: never;
@@ -576,20 +575,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List user's workspaces
-         * @description Returns all workspaces the authenticated user is a member of.
-         */
+        /** List user's workspaces */
         get: operations["list_workspaces"];
         put?: never;
-        post?: never;
+        /** Create a new workspace */
+        post: operations["create_workspace"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/workspaces/{id}": {
+    "/api/workspaces/events": {
         parameters: {
             query?: never;
             header?: never;
@@ -597,10 +594,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get workspace details
-         * @description Returns workspace details with membership info for the authenticated user.
+         * SSE endpoint for workspace events (invitation accepted, etc.)
+         * @description Streams events relevant to the authenticated user's workspaces.
          */
-        get: operations["get_workspace"];
+        get: operations["workspace_events"];
         put?: never;
         post?: never;
         delete?: never;
@@ -609,10 +606,169 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get workspace details */
+        get: operations["get_workspace"];
+        put?: never;
+        post?: never;
+        /** Delete a workspace */
+        delete: operations["delete_workspace"];
+        options?: never;
+        head?: never;
+        /** Update a workspace */
+        patch: operations["update_workspace"];
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List documents in a workspace */
+        get: operations["list_documents"];
+        put?: never;
+        /** Create a new document */
+        post: operations["create_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List invitations */
+        get: operations["list_invitations"];
+        put?: never;
+        /** Create an invitation */
+        post: operations["create_invitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/invitations/{invitation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an invitation */
+        delete: operations["revoke_invitation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List members of a workspace */
+        get: operations["list_members"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a member from workspace */
+        delete: operations["remove_member"];
+        options?: never;
+        head?: never;
+        /** Change a member's role */
+        patch: operations["change_member_role"];
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List roles in a workspace */
+        get: operations["list_roles"];
+        put?: never;
+        /** Create a new role in a workspace */
+        post: operations["create_role"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/roles/{role_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a role */
+        delete: operations["delete_role"];
+        options?: never;
+        head?: never;
+        /** Update a role */
+        patch: operations["update_role"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Accept invitation request */
+        AcceptInvitationRequest: {
+            /** @description Raw base64url-encoded invitation token (32 bytes when decoded) */
+            token: string;
+        };
+        /** @description Accept invitation response */
+        AcceptInvitationResponse: {
+            encrypted_kek: string;
+            invitation_id: string;
+            kek_nonce: string;
+            /** Format: int32 */
+            kek_version: number;
+            role_name?: string | null;
+            workspace_id: string;
+            workspace_name: string;
+        };
         /** @description Approve device request */
         ApproveDeviceRequest: {
             /**
@@ -635,6 +791,11 @@ export interface components {
         AuthErrorResponse: {
             /** @example invalid email */
             error: string;
+        };
+        /** @description Change member role request */
+        ChangeMemberRoleRequest: {
+            /** Format: uuid */
+            role_id: string;
         };
         /** @description Complete KEK rotation request */
         CompleteKekRotationRequest: {
@@ -662,8 +823,6 @@ export interface components {
             /** Format: uuid */
             parent_id?: string | null;
             title: string;
-            /** Format: uuid */
-            workspace_id: string;
         };
         /** @description Create document update request */
         CreateDocumentUpdateRequest: {
@@ -694,6 +853,39 @@ export interface components {
         CreateDocumentUpdateResponse: {
             /** Format: int64 */
             seq: number;
+        };
+        /** @description Create invitation request */
+        CreateInvitationRequest: {
+            encrypted_kek: string;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /**
+             * @description Must be canonical lowercase-hyphenated UUID (e.g. "550e8400-e29b-41d4-a716-446655440000").
+             *     Non-canonical formats are rejected to prevent AAD mismatch: the client builds AAD from
+             *     this string, so it must round-trip exactly through `Uuid::to_string()`.
+             */
+            invitation_id: string;
+            invited_email: string;
+            kek_nonce: string;
+            /** Format: int32 */
+            kek_version: number;
+            /** Format: uuid */
+            role_id?: string | null;
+            token_hash: string;
+            token_prefix: string;
+        };
+        /** @description Create invitation response (201 Created) */
+        CreateInvitationResponse: {
+            created_at: string;
+            expires_at: string;
+            invitation_id: string;
+            invited_email: string;
+            is_used: boolean;
+            /** Format: int32 */
+            kek_version: number;
+            role_id: string;
+            token_prefix: string;
+            workspace_id: string;
         };
         /** @description Create pending device request */
         CreatePendingDeviceRequest: {
@@ -731,6 +923,22 @@ export interface components {
             id: string;
             /** @description User's identity signing public key (base64url, 32 bytes) for SAS calculation */
             identity_signing_public_key: string;
+        };
+        /** @description Create role request */
+        CreateRoleRequest: {
+            base_role: string;
+            is_default?: boolean;
+            name: string;
+        };
+        /** @description Create workspace request */
+        CreateWorkspaceRequest: {
+            description?: string | null;
+            name: string;
+        };
+        /** @description Delete role response */
+        DeleteRoleResponse: {
+            /** Format: int64 */
+            invalidated_invitation_count: number;
         };
         DeviceErrorResponse: {
             error: string;
@@ -950,6 +1158,25 @@ export interface components {
              */
             device_id: string;
         };
+        InvitationErrorResponse: {
+            /** @example invitation error */
+            error: string;
+        };
+        /** @description Invitation list item (GET response) */
+        InvitationListItem: {
+            created_at: string;
+            expires_at: string;
+            invitation_id: string;
+            invited_by: string;
+            invited_email: string;
+            is_used: boolean;
+            /** Format: int32 */
+            kek_version: number;
+            role_id?: string | null;
+            role_name?: string | null;
+            token_prefix: string;
+            workspace_id: string;
+        };
         /** @description KDF parameters response */
         KdfParamsResponse: {
             /**
@@ -993,20 +1220,29 @@ export interface components {
             /** Format: uuid */
             parent_id?: string | null;
             root_only?: boolean;
-            /** Format: uuid */
-            workspace_id: string;
         };
         /** @description List documents response */
         ListDocumentsResponse: {
             documents: components["schemas"]["DocumentResponse"][];
         };
+        /** @description List invitations response */
+        ListInvitationsResponse: {
+            invitations: components["schemas"]["InvitationListItem"][];
+        };
+        /** @description List members response */
+        ListMembersResponse: {
+            members: components["schemas"]["MemberDetailResponse"][];
+        };
         /** @description List pending devices response */
         ListPendingDevicesResponse: {
             pending_devices: components["schemas"]["PendingDeviceResponse"][];
         };
+        /** @description List roles response */
+        ListRolesResponse: {
+            roles: components["schemas"]["RoleDetailResponse"][];
+        };
         /** @description List workspaces response */
         ListWorkspacesResponse: {
-            /** @description List of workspaces with membership info */
             workspaces: components["schemas"]["WorkspaceWithMembershipResponse"][];
         };
         /** @description Login request */
@@ -1184,11 +1420,20 @@ export interface components {
              */
             umk_nonce?: string | null;
         };
+        /** @description Member detail response */
+        MemberDetailResponse: {
+            base_role: string;
+            email: string;
+            is_default: boolean;
+            joined_at: string;
+            name: string;
+            role_id: string;
+            role_name: string;
+            user_id: string;
+        };
         /** @description Workspace membership response */
         MembershipResponse: {
-            /** @description Whether this is the user's default workspace */
             is_default: boolean;
-            /** @description User's role in the workspace */
             role: components["schemas"]["RoleResponse"];
         };
         /** @description Pending device response */
@@ -1199,6 +1444,16 @@ export interface components {
             id: string;
             ip_address?: string | null;
             name: string;
+        };
+        /** @description Permission override */
+        PermissionOverride: {
+            granted: boolean;
+            permission: string;
+        };
+        /** @description Permission override in a role response */
+        PermissionOverrideResponse: {
+            granted: boolean;
+            permission: string;
         };
         /** @description PoP challenge response */
         PopChallengeResponse: {
@@ -1448,6 +1703,11 @@ export interface components {
              */
             identity_signature: string;
             /**
+             * @description Revocation mode: "security" (lost/compromised, triggers key rotation) or "retire" (safe disposal, no rotation).
+             *     Defaults to "security" if not specified.
+             */
+            revocation_mode?: string | null;
+            /**
              * Format: int64
              * @description Timestamp when revocation was requested (Unix milliseconds)
              * @example 1704067200000
@@ -1459,26 +1719,34 @@ export interface components {
             /** @description Documents grouped by workspace that need DEK rotation for forward secrecy */
             documents_needing_dek_rotation: components["schemas"]["WorkspaceDocumentsForRotationResponse"][];
             message: string;
+            /** @description Revocation mode that was applied */
+            revocation_mode: string;
+            /**
+             * Format: int64
+             * @description Number of active invitations revoked across all workspaces (stale KEKs)
+             */
+            revoked_invitation_count: number;
             rotation_marking_failures?: null | components["schemas"]["RotationMarkingFailuresResponse"];
             /** @description List of workspace IDs that now need KEK rotation for forward secrecy */
             workspaces_needing_kek_rotation: string[];
         };
+        /** @description Role detail response */
+        RoleDetailResponse: {
+            base_role: string;
+            created_at: string;
+            id: string;
+            is_default: boolean;
+            name: string;
+            permission_overrides: components["schemas"]["PermissionOverrideResponse"][];
+        };
         /** @description Role response */
         RoleResponse: {
-            /**
-             * @description Base role type
-             * @example owner
-             */
+            /** @example owner */
             base_role: string;
-            /**
-             * @description Role ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
+            /** @example 01234567-89ab-cdef-0123-456789abcdef */
             id: string;
-            /**
-             * @description Role name
-             * @example owner
-             */
+            is_default: boolean;
+            /** @example owner */
             name: string;
         };
         /** @description Non-fatal failures during rotation marking after device revocation */
@@ -1573,6 +1841,20 @@ export interface components {
             parent_id?: string | null;
             title?: string | null;
         };
+        /** @description Update role request */
+        UpdateRoleRequest: {
+            base_role?: string | null;
+            is_default?: boolean | null;
+            name?: string | null;
+            permission_overrides?: components["schemas"]["PermissionOverride"][] | null;
+        };
+        /** @description Update workspace request */
+        UpdateWorkspaceRequest: {
+            description?: string | null;
+            icon?: string | null;
+            name?: string | null;
+            slug?: string | null;
+        };
         /** @description Documents grouped by workspace that need DEK rotation */
         WorkspaceDocumentsForRotationResponse: {
             document_ids: string[];
@@ -1619,36 +1901,22 @@ export interface components {
         };
         /** @description Workspace response */
         WorkspaceResponse: {
-            /** @description Creation timestamp */
             created_at: string;
-            /**
-             * @description Workspace ID (UUID)
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
+            description?: string | null;
+            icon?: string | null;
+            /** @example 01234567-89ab-cdef-0123-456789abcdef */
             id: string;
-            /**
-             * @description Workspace name
-             * @example My Workspace
-             */
+            /** @example My Workspace */
             name: string;
-            /**
-             * @description Owner user ID
-             * @example 01234567-89ab-cdef-0123-456789abcdef
-             */
+            /** @example 01234567-89ab-cdef-0123-456789abcdef */
             owner_id: string;
-            /**
-             * @description Workspace slug
-             * @example my-workspace
-             */
+            /** @example my-workspace */
             slug: string;
-            /** @description Last update timestamp */
             updated_at: string;
         };
         /** @description Workspace with membership response */
         WorkspaceWithMembershipResponse: {
-            /** @description User's membership in the workspace */
             membership: components["schemas"]["MembershipResponse"];
-            /** @description Workspace details */
             workspace: components["schemas"]["WorkspaceResponse"];
         };
     };
@@ -2590,113 +2858,6 @@ export interface operations {
             };
         };
     };
-    list_documents: {
-        parameters: {
-            query: {
-                /** @description Workspace ID */
-                workspace_id: string;
-                /** @description Filter by parent ID */
-                parent_id?: string;
-                /** @description Only return root documents */
-                root_only: boolean;
-                /** @description Include archived documents */
-                include_archived: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of documents */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ListDocumentsResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-            /** @description Not a member of this workspace */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-        };
-    };
-    create_document: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Document created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"];
-                };
-            };
-            /** @description Bad request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-            /** @description Slug conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-        };
-    };
     get_document: {
         parameters: {
             query?: never;
@@ -3506,6 +3667,84 @@ export interface operations {
             };
         };
     };
+    accept_invitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Invitation accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptInvitationResponse"];
+                };
+            };
+            /** @description Invalid token format or length */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description PoP verification failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description Invitation not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description KEK rotation in progress */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description Invitation expired/revoked/exhausted */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+        };
+    };
     request_nonce: {
         parameters: {
             query?: never;
@@ -3706,13 +3945,82 @@ export interface operations {
             };
         };
     };
+    create_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Workspace created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceWithMembershipResponse"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    workspace_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SSE event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_workspace: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description Workspace ID */
-                id: string;
+                workspace_id: string;
             };
             cookie?: never;
         };
@@ -3754,8 +4062,813 @@ export interface operations {
                     "application/json": components["schemas"]["WorkspaceErrorResponse"];
                 };
             };
-            /** @description Internal server error */
-            500: {
+        };
+    };
+    delete_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    update_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Workspace updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    list_documents: {
+        parameters: {
+            query: {
+                /** @description Filter by parent ID */
+                parent_id?: string;
+                /** @description Only return root documents */
+                root_only: boolean;
+                /** @description Include archived documents */
+                include_archived: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of documents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListDocumentsResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Not a member of this workspace */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    create_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Document created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+            /** @description Slug conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentErrorResponse"];
+                };
+            };
+        };
+    };
+    list_invitations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of active invitations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListInvitationsResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    create_invitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Invitation created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateInvitationResponse"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description KEK rotation in progress */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description KEK version mismatch */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    revoke_invitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Invitation ID */
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Invitation not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    list_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of members */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListMembersResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not a member */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Target user ID */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Member not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Cannot remove last owner */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    change_member_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Target user ID */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeMemberRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Role changed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Member not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Cannot demote last owner */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    list_roles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of roles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListRolesResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not a member */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    create_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Role created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDetailResponse"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Role ID */
+                role_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Role deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteRoleResponse"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Role not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Role has members */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    update_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Role ID */
+                role_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Role updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDetailResponse"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Role not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Invalid operation (e.g. base_role change attempt) */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

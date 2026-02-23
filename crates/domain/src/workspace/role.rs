@@ -38,6 +38,11 @@ impl WorkspaceRole {
         Self::new(workspace_id, "Owner".to_string(), BaseRole::Owner, false)
     }
 
+    /// Create the default admin role
+    pub fn admin(workspace_id: WorkspaceId) -> Self {
+        Self::new(workspace_id, "Admin".to_string(), BaseRole::Admin, false)
+    }
+
     /// Create the default editor role
     pub fn editor(workspace_id: WorkspaceId) -> Self {
         Self::new(workspace_id, "Editor".to_string(), BaseRole::Editor, true)

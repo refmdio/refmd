@@ -5,8 +5,9 @@
  * Each document has separate Editor and Preview panels.
  */
 
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MosaicNode } from 'react-mosaic-component'
+import { useWorkspaceSelection } from '@/entities/workspace'
 import {
   encodePanelId,
   decodePanelId,
@@ -34,6 +35,7 @@ interface DocumentWorkspaceContextValue {
   openDocument: (doc: OpenDocument) => void
   upsertDocumentMetadata: (doc: OpenDocument) => void
   closePanel: (panelId: string) => void
+  closeAll: () => void
   splitPanel: (panelId: string, direction: 'row' | 'column') => void
   switchPanelType: (panelId: string) => void
   setMosaicState: (state: MosaicNode<string> | null) => void
@@ -46,6 +48,20 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
   const [openDocuments, setOpenDocuments] = useState<Map<string, OpenDocument>>(new Map())
   const [mosaicState, setMosaicState] = useState<MosaicNode<string> | null>(null)
   const [focusedDocumentId, setFocusedDocumentId] = useState<string | null>(null)
+
+  // Reset all document state SYNCHRONOUSLY (before paint) when workspace changes.
+  // useLayoutEffect ensures the stale tiles are never visible to the user.
+  const { currentWorkspaceId } = useWorkspaceSelection()
+  const prevWorkspaceRef = useRef(currentWorkspaceId)
+
+  useLayoutEffect(() => {
+    if (prevWorkspaceRef.current !== currentWorkspaceId) {
+      setOpenDocuments(new Map())
+      setMosaicState(null)
+      setFocusedDocumentId(null)
+      prevWorkspaceRef.current = currentWorkspaceId
+    }
+  }, [currentWorkspaceId])
 
   const upsertDocumentMetadata = useCallback((doc: OpenDocument) => {
     setOpenDocuments((prev) => {
@@ -94,6 +110,12 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
     },
     []
   )
+
+  const closeAll = useCallback(() => {
+    setOpenDocuments(new Map())
+    setMosaicState(null)
+    setFocusedDocumentId(null)
+  }, [])
 
   // Sync openDocuments and focusedDocumentId when mosaic panels change.
   useEffect(() => {
@@ -162,6 +184,7 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
         openDocument,
         upsertDocumentMetadata,
         closePanel,
+        closeAll,
         splitPanel,
         switchPanelType,
         setMosaicState,

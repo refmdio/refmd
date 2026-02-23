@@ -21,8 +21,10 @@ import type { AuthInfo, CurrentDeviceInfo } from './types'
 
 type WorkspaceDocumentsForRotation = components['schemas']['WorkspaceDocumentsForRotationResponse']
 
+export type RevocationMode = 'security' | 'retire'
+
 export interface UseDeviceRevocationReturn {
-  revokeDevice: (deviceId: string) => Promise<void>
+  revokeDevice: (deviceId: string, mode: RevocationMode) => Promise<void>
   rotatingKek: boolean
   keyChangeDialogProps: KeyChangeWarningDialogProps | null
 }
@@ -41,7 +43,7 @@ export function useDeviceRevocation(
   // KEK rotation (handles all TOFU verification and dialog management)
   const kekRotation = useKekRotation(auth, currentDevice, onDevicesChanged, onError)
 
-  const revokeDevice = useCallback(async (deviceId: string) => {
+  const revokeDevice = useCallback(async (deviceId: string, mode: RevocationMode = 'security') => {
     const currentAuth = authRef.current
     const currentDev = deviceRef.current
     if (!currentAuth || !currentDev) {
@@ -54,6 +56,7 @@ export function useDeviceRevocation(
       const message = buildSignatureMessage(SIGNATURE_ACTION.DEVICE_REVOCATION, {
         user_id: currentAuth.userId,
         device_id: deviceId,
+        revocation_mode: mode,
         revoked_at: revokedAt,
         revoked_by_device_id: currentDev.deviceId,
       })
@@ -66,6 +69,7 @@ export function useDeviceRevocation(
       const response = await deviceApi.revokeDevice(deviceId, {
         identity_signature: base64UrlEncode(signature),
         revoked_at: revokedAt,
+        revocation_mode: mode,
       })
 
       await pinRevocation({
@@ -75,13 +79,18 @@ export function useDeviceRevocation(
         signature,
       })
 
-      const workspacesToRotate = response?.workspaces_needing_kek_rotation || []
-      const documentsForRotation: WorkspaceDocumentsForRotation[] = response?.documents_needing_dek_rotation || []
+      if (mode === 'security') {
+        const workspacesToRotate = response?.workspaces_needing_kek_rotation || []
+        const documentsForRotation: WorkspaceDocumentsForRotation[] = response?.documents_needing_dek_rotation || []
 
-      if (workspacesToRotate.length > 0) {
-        // Delegate to useKekRotation (handles TOFU pre-check, dialogs, rotation)
-        await kekRotation.performKekRotation(deviceId, workspacesToRotate, documentsForRotation)
+        if (workspacesToRotate.length > 0) {
+          // Delegate to useKekRotation (handles TOFU pre-check, dialogs, rotation)
+          await kekRotation.performKekRotation(deviceId, workspacesToRotate, documentsForRotation)
+        } else {
+          await onDevicesChangedRef.current()
+        }
       } else {
+        // retire mode: no rotation needed, just refresh device list
         await onDevicesChangedRef.current()
       }
     } catch (err) {

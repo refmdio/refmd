@@ -75,6 +75,7 @@ export {
   buildUmkKekBackupAad,
   buildDekWrapAad,
   buildDocumentContentAad,
+  buildInvitationKekWrapAad,
   type AadPurpose,
   type AadCommonHeader,
 } from './aad'

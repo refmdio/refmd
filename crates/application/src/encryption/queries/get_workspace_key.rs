@@ -9,11 +9,11 @@ use domain::encryption::{
 };
 use domain::identity::UserId;
 use domain::workspace::{
-    WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
+    WorkspaceId, WorkspaceMemberRepository,
 };
 use std::sync::Arc;
 
-use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
+use crate::util::workspace_access::{check_workspace_membership, MembershipError};
 use thiserror::Error;
 
 /// Get workspace key query
@@ -41,7 +41,6 @@ pub struct GetWorkspaceKeyResult {
 pub enum GetWorkspaceKeyError<
     WKR: std::error::Error,
     MR: std::error::Error,
-    RR: std::error::Error,
     DR: std::error::Error,
 > {
     #[error("device_id does not match PoP-verified device")]
@@ -54,7 +53,7 @@ pub enum GetWorkspaceKeyError<
     SenderDeviceNotFound,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    Membership(MembershipError<MR>),
 
     #[error("workspace key repository error: {0}")]
     WorkspaceKeyRepository(WKR),
@@ -63,15 +62,15 @@ pub enum GetWorkspaceKeyError<
     DeviceRepository(DR),
 }
 
-impl<WKR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DR: std::error::Error>
-    crate::types::AppError for GetWorkspaceKeyError<WKR, MR, RR, DR>
+impl<WKR: std::error::Error, MR: std::error::Error, DR: std::error::Error>
+    crate::types::AppError for GetWorkspaceKeyError<WKR, MR, DR>
 {
     fn is_not_found(&self) -> bool {
         matches!(
             self,
             GetWorkspaceKeyError::KeyNotFound
                 | GetWorkspaceKeyError::SenderDeviceNotFound
-                | GetWorkspaceKeyError::WorkspaceAccess(WorkspaceAccessError::NotMember)
+                | GetWorkspaceKeyError::Membership(MembershipError::NotMember)
         )
     }
 
@@ -79,36 +78,31 @@ impl<WKR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DR: s
         matches!(
             self,
             GetWorkspaceKeyError::DeviceMismatch
-                | GetWorkspaceKeyError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied)
         )
     }
 }
 
 /// Get workspace key handler
-pub struct GetWorkspaceKeyHandler<WKR: ?Sized, MR: ?Sized, RR: ?Sized, DR: ?Sized> {
+pub struct GetWorkspaceKeyHandler<WKR: ?Sized, MR: ?Sized, DR: ?Sized> {
     workspace_key_repo: Arc<WKR>,
     member_repo: Arc<MR>,
-    role_repo: Arc<RR>,
     device_repo: Arc<DR>,
 }
 
-impl<WKR, MR, RR, DR> GetWorkspaceKeyHandler<WKR, MR, RR, DR>
+impl<WKR, MR, DR> GetWorkspaceKeyHandler<WKR, MR, DR>
 where
     WKR: WorkspaceEncryptedKeyRepository + ?Sized,
     MR: WorkspaceMemberRepository + ?Sized,
-    RR: WorkspaceRoleRepository + ?Sized,
     DR: DeviceRepository + ?Sized,
 {
     pub fn new(
         workspace_key_repo: Arc<WKR>,
         member_repo: Arc<MR>,
-        role_repo: Arc<RR>,
         device_repo: Arc<DR>,
     ) -> Self {
         Self {
             workspace_key_repo,
             member_repo,
-            role_repo,
             device_repo,
         }
     }
@@ -118,23 +112,21 @@ where
         query: GetWorkspaceKeyQuery,
     ) -> Result<
         GetWorkspaceKeyResult,
-        GetWorkspaceKeyError<WKR::Error, MR::Error, RR::Error, DR::Error>,
+        GetWorkspaceKeyError<WKR::Error, MR::Error, DR::Error>,
     > {
         // 1. Verify device_id matches PoP-verified device
         if query.device_id != query.pop_verified_device_id {
             return Err(GetWorkspaceKeyError::DeviceMismatch);
         }
 
-        // 2. Check membership and Read permission
-        check_workspace_permission(
+        // 2. Check membership (KEK endpoints require PoP + membership, not RBAC)
+        check_workspace_membership(
             &self.member_repo,
-            &self.role_repo,
             query.workspace_id,
             query.user_id,
-            WorkspacePermission::Read,
         )
         .await
-        .map_err(GetWorkspaceKeyError::WorkspaceAccess)?;
+        .map_err(GetWorkspaceKeyError::Membership)?;
 
         // 3. Get active key for device
         let key = self

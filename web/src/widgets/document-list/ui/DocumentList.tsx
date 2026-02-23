@@ -27,7 +27,7 @@ export function DocumentList({ workspaceId }: DocumentListProps) {
   return (
     <div>
       <div className="flex items-center gap-4 mb-6">
-        <Link to="/dashboard">
+        <Link to="/workspace/$workspaceId" params={{ workspaceId }}>
           <Button variant="ghost" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back

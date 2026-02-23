@@ -2,19 +2,19 @@
  * Notification List Component
  *
  * Displays a list of notifications in a popover.
- * Currently supports pending device notifications.
- * Extensible for future notification types.
+ * Supports pending device notifications and workspace event notifications.
  */
 
-import { Bell } from 'lucide-react'
+import { Bell, UserPlus, X } from 'lucide-react'
 import { Button } from '@/shared/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/shared/ui/popover'
 import { usePendingDevices } from '@/features/device'
+import { useWorkspaceEvents, type WorkspaceNotification } from '@/features/workspace-events'
 import { PendingDeviceInfo } from '@/shared/ui/PendingDeviceInfo'
 import type { PendingDevice } from '@/shared/api'
 
-function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString)
+function formatTimeAgo(timestamp: string | number): string {
+  const date = typeof timestamp === 'number' ? new Date(timestamp) : new Date(timestamp)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
@@ -28,8 +28,9 @@ function formatTimeAgo(dateString: string): string {
 
 export function NotificationList() {
   const { pendingDevices, pendingCount, showApprovalDialog } = usePendingDevices()
+  const { notifications: wsNotifications, notificationCount: wsCount, dismiss } = useWorkspaceEvents()
 
-  const totalCount = pendingCount
+  const totalCount = pendingCount + wsCount
 
   const handleDeviceClick = (device: PendingDevice) => {
     showApprovalDialog(device)
@@ -87,6 +88,40 @@ export function NotificationList() {
                     </span>
                   </div>
                 </button>
+              ))}
+
+              {/* Workspace Event Notifications */}
+              {wsNotifications.map((notification: WorkspaceNotification) => (
+                <div
+                  key={notification.id}
+                  className="w-full px-4 py-3 hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 mt-0.5">
+                      <UserPlus className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {notification.email}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        joined the workspace
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatTimeAgo(notification.timestamp)}
+                      </span>
+                      <button
+                        onClick={() => dismiss(notification.id)}
+                        className="p-0.5 rounded hover:bg-muted"
+                        aria-label="Dismiss"
+                      >
+                        <X className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           )}

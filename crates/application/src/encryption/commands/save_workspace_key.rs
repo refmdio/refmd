@@ -10,13 +10,12 @@ use domain::encryption::{
 };
 use domain::identity::UserId;
 use domain::workspace::{
-    WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRepository,
-    WorkspaceRoleRepository,
+    WorkspaceId, WorkspaceMemberRepository, WorkspaceRepository,
 };
 use std::sync::Arc;
 
 use crate::util::device_ownership::verify_pop_sender_and_devices;
-use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
+use crate::util::workspace_access::{check_workspace_membership, MembershipError};
 use thiserror::Error;
 
 /// Save workspace key command
@@ -49,7 +48,6 @@ pub struct SaveWorkspaceKeyResult {
 pub enum SaveWorkspaceKeyError<
     WKR: std::error::Error,
     MR: std::error::Error,
-    RR: std::error::Error,
     DR: std::error::Error,
     WR: std::error::Error,
 > {
@@ -57,16 +55,10 @@ pub enum SaveWorkspaceKeyError<
     SenderDeviceMismatch,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    Membership(MembershipError<MR>),
 
-    #[error("invalid key version: must be between 1 and {}", i32::MAX)]
+    #[error("invalid key version: must be between min_kek_version and min_kek_version + 1")]
     InvalidKeyVersion,
-
-    #[error("key version too old: minimum required is {min_version}, got {provided_version}")]
-    KeyVersionTooOld {
-        min_version: i32,
-        provided_version: i32,
-    },
 
     #[error("workspace not found")]
     WorkspaceNotFound,
@@ -94,54 +86,48 @@ pub enum SaveWorkspaceKeyError<
 }
 
 crate::types::impl_app_error!(
-    [WKR: std::error::Error, MR: std::error::Error, RR: std::error::Error, DR: std::error::Error, WR: std::error::Error]
-    SaveWorkspaceKeyError<WKR, MR, RR, DR, WR>,
+    [WKR: std::error::Error, MR: std::error::Error, DR: std::error::Error, WR: std::error::Error]
+    SaveWorkspaceKeyError<WKR, MR, DR, WR>,
     not_found: [
         SaveWorkspaceKeyError::DeviceNotFound,
         SaveWorkspaceKeyError::WorkspaceNotFound,
-        SaveWorkspaceKeyError::WorkspaceAccess(WorkspaceAccessError::NotMember),
+        SaveWorkspaceKeyError::Membership(MembershipError::NotMember),
     ],
     access_denied: [
         SaveWorkspaceKeyError::SenderDeviceMismatch,
-        SaveWorkspaceKeyError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied),
         SaveWorkspaceKeyError::DeviceNotOwned,
     ],
     invalid_input: [
         SaveWorkspaceKeyError::InvalidKeyVersion,
-        SaveWorkspaceKeyError::KeyVersionTooOld { .. },
         SaveWorkspaceKeyError::DeviceRevoked,
     ],
     conflict: [SaveWorkspaceKeyError::KeyAlreadyExists],
 );
 
 /// Save workspace key handler
-pub struct SaveWorkspaceKeyHandler<WKR: ?Sized, MR: ?Sized, RR: ?Sized, DR: ?Sized, WR: ?Sized> {
+pub struct SaveWorkspaceKeyHandler<WKR: ?Sized, MR: ?Sized, DR: ?Sized, WR: ?Sized> {
     workspace_key_repo: Arc<WKR>,
     member_repo: Arc<MR>,
-    role_repo: Arc<RR>,
     device_repo: Arc<DR>,
     workspace_repo: Arc<WR>,
 }
 
-impl<WKR, MR, RR, DR, WR> SaveWorkspaceKeyHandler<WKR, MR, RR, DR, WR>
+impl<WKR, MR, DR, WR> SaveWorkspaceKeyHandler<WKR, MR, DR, WR>
 where
     WKR: WorkspaceEncryptedKeyRepository + ?Sized,
     MR: WorkspaceMemberRepository + ?Sized,
-    RR: WorkspaceRoleRepository + ?Sized,
     DR: DeviceRepository + ?Sized,
     WR: WorkspaceRepository + ?Sized,
 {
     pub fn new(
         workspace_key_repo: Arc<WKR>,
         member_repo: Arc<MR>,
-        role_repo: Arc<RR>,
         device_repo: Arc<DR>,
         workspace_repo: Arc<WR>,
     ) -> Self {
         Self {
             workspace_key_repo,
             member_repo,
-            role_repo,
             device_repo,
             workspace_repo,
         }
@@ -152,7 +138,7 @@ where
         command: SaveWorkspaceKeyCommand,
     ) -> Result<
         SaveWorkspaceKeyResult,
-        SaveWorkspaceKeyError<WKR::Error, MR::Error, RR::Error, DR::Error, WR::Error>,
+        SaveWorkspaceKeyError<WKR::Error, MR::Error, DR::Error, WR::Error>,
     > {
         // 0–4. Enforce PoP sender-device binding and device ownership
         verify_pop_sender_and_devices(
@@ -175,7 +161,16 @@ where
             )
         })?;
 
-        // 1. Get workspace to check min_kek_version
+        // 1. Check membership first to prevent workspace existence enumeration
+        check_workspace_membership(
+            &self.member_repo,
+            command.workspace_id,
+            command.user_id,
+        )
+        .await
+        .map_err(SaveWorkspaceKeyError::Membership)?;
+
+        // 2. Get workspace to check min_kek_version
         let workspace = self
             .workspace_repo
             .find_by_id(command.workspace_id)
@@ -183,31 +178,34 @@ where
             .map_err(SaveWorkspaceKeyError::WorkspaceRepository)?
             .ok_or(SaveWorkspaceKeyError::WorkspaceNotFound)?;
 
-        // 2. Check membership and Read permission (minimum required to access workspace keys)
-        check_workspace_permission(
-            &self.member_repo,
-            &self.role_repo,
-            command.workspace_id,
-            command.user_id,
-            WorkspacePermission::Read,
-        )
-        .await
-        .map_err(SaveWorkspaceKeyError::WorkspaceAccess)?;
-
         // 5. Validate and create key version
         let key_version = if let Some(v) = command.key_version {
             crate::encryption::key_version_util::validate_explicit_key_version(v)
                 .map_err(|_| SaveWorkspaceKeyError::InvalidKeyVersion)?
         } else {
-            // Auto-determine: max(existing) + 1, at least min_kek_version
+            // Auto-determine: max(existing) + 1, at least min_kek_version.
+            //
+            // Guard: if ANY user's key already exists for this workspace, reject
+            // auto-version. This prevents key fork — new KEK creation is only valid
+            // for brand-new workspaces (registration flow). Checking workspace-wide
+            // (not just the requesting user's keys) ensures that even if two devices
+            // of the same user race, the second request fails.
+            //
+            // Note: this is a read-then-write pattern without row locks. A true
+            // concurrent race is still theoretically possible, but:
+            // (a) registration runs from a single device (no concurrency in practice)
+            // (b) the UPSERT in the repository means worst-case the second device
+            //     overwrites the first device's key for the same (workspace, user,
+            //     device, key_version), which is idempotent when the same KEK is used
+            //
+            // For belt-and-suspenders, callers should handle 409 (KeyAlreadyExists)
+            // and fall back to fetching the existing key via backup restore.
             let existing_keys = self
                 .workspace_key_repo
                 .find_by_workspace_id(command.workspace_id)
                 .await
                 .map_err(SaveWorkspaceKeyError::WorkspaceKeyRepository)?;
 
-            // Guard: if keys already exist for this workspace, reject auto-version
-            // (prevents key fork — new KEK creation is only valid for brand-new workspaces)
             if !existing_keys.is_empty() {
                 return Err(SaveWorkspaceKeyError::KeyAlreadyExists);
             }
@@ -218,12 +216,23 @@ where
             )
         };
 
-        // 6. Check KEK version meets minimum requirement (after key rotation)
-        if key_version.as_i32() < workspace.min_kek_version {
-            return Err(SaveWorkspaceKeyError::KeyVersionTooOld {
-                min_version: workspace.min_kek_version,
-                provided_version: key_version.as_i32(),
-            });
+        // 6. Check KEK version is within the valid range.
+        //    During normal operation key_version must equal min_kek_version exactly.
+        //    During rotation it may also be min_kek_version + 1.
+        //    Anything outside this window is invalid — a too-high value would
+        //    poison MAX(key_version) and break invitation creation.
+        if workspace.needs_kek_rotation {
+            // During rotation: accept current or next version
+            if key_version.as_i32() < workspace.min_kek_version
+                || key_version.as_i32() > workspace.min_kek_version + 1
+            {
+                return Err(SaveWorkspaceKeyError::InvalidKeyVersion);
+            }
+        } else {
+            // Normal operation: exact version only
+            if key_version.as_i32() != workspace.min_kek_version {
+                return Err(SaveWorkspaceKeyError::InvalidKeyVersion);
+            }
         }
 
         // 7. Create and save key

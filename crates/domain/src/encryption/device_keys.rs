@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use super::value_objects::DeviceId;
+use super::value_objects::{DeviceId, RevocationMode};
 use crate::identity::UserId;
 use crate::signature::{SignatureAction, SignatureError, build_signature_message};
 
@@ -18,6 +18,8 @@ pub struct DeviceRevocationEvent {
     pub revoked_at: i64,
     /// Device that performed the revocation
     pub revoked_by_device_id: DeviceId,
+    /// Revocation mode: security (lost/compromised) or retire (safe disposal)
+    pub revocation_mode: RevocationMode,
     /// Signature by user's Identity signing key
     pub signature: Vec<u8>,
     pub created_at: DateTime<Utc>,
@@ -31,6 +33,7 @@ impl DeviceRevocationEvent {
         device_id: DeviceId,
         revoked_by_device_id: DeviceId,
         revoked_at: i64,
+        revocation_mode: RevocationMode,
         signature: Vec<u8>,
     ) -> Self {
         Self {
@@ -38,6 +41,7 @@ impl DeviceRevocationEvent {
             device_id,
             revoked_at,
             revoked_by_device_id,
+            revocation_mode,
             signature,
             created_at: Utc::now(),
         }
@@ -56,6 +60,7 @@ impl DeviceRevocationEvent {
         #[derive(Serialize)]
         struct RevocationPayload {
             device_id: String,
+            revocation_mode: String,
             revoked_at: i64,
             revoked_by_device_id: String,
             user_id: String,
@@ -66,6 +71,7 @@ impl DeviceRevocationEvent {
             &RevocationPayload {
                 user_id: self.user_id.as_uuid().to_string(),
                 device_id: self.device_id.as_uuid().to_string(),
+                revocation_mode: self.revocation_mode.as_str().to_string(),
                 revoked_at: self.revoked_at,
                 revoked_by_device_id: self.revoked_by_device_id.as_uuid().to_string(),
             },

@@ -37,6 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuth(null)
     setDevice(null)
     clearPopCredentials()
+    // Clear any pending invite token to prevent cross-user token reuse
+    try { sessionStorage.removeItem('refmd_invite_token') } catch { /* ignore */ }
   }, [])
 
   // isAuthenticated is true only when user has full auth state (with UMK and identity keys)

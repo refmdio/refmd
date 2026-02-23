@@ -10,10 +10,10 @@ use domain::encryption::{
 };
 use domain::identity::UserId;
 use domain::workspace::{
-    WorkspaceId, WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository,
+    WorkspaceId, WorkspaceMemberRepository,
 };
 
-use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
+use crate::util::workspace_access::{check_workspace_membership, MembershipError};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -38,9 +38,9 @@ pub struct SaveWorkspaceKekBackupResult {
 
 /// Save workspace KEK backup error
 #[derive(Debug, Error)]
-pub enum SaveWorkspaceKekBackupError<BR: std::error::Error, MR: std::error::Error, RR: std::error::Error, WKR: std::error::Error> {
+pub enum SaveWorkspaceKekBackupError<BR: std::error::Error, MR: std::error::Error, WKR: std::error::Error> {
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    Membership(MembershipError<MR>),
 
     #[error("invalid key version: must be between 1 and {}", i32::MAX)]
     InvalidKeyVersion,
@@ -61,20 +61,13 @@ pub enum SaveWorkspaceKekBackupError<BR: std::error::Error, MR: std::error::Erro
     WorkspaceKeyRepository(WKR),
 }
 
-impl<BR: std::error::Error, MR: std::error::Error, RR: std::error::Error, WKR: std::error::Error>
-    crate::types::AppError for SaveWorkspaceKekBackupError<BR, MR, RR, WKR>
+impl<BR: std::error::Error, MR: std::error::Error, WKR: std::error::Error>
+    crate::types::AppError for SaveWorkspaceKekBackupError<BR, MR, WKR>
 {
     fn is_not_found(&self) -> bool {
         matches!(
             self,
-            SaveWorkspaceKekBackupError::WorkspaceAccess(WorkspaceAccessError::NotMember)
-        )
-    }
-
-    fn is_access_denied(&self) -> bool {
-        matches!(
-            self,
-            SaveWorkspaceKekBackupError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied)
+            SaveWorkspaceKekBackupError::Membership(MembershipError::NotMember)
         )
     }
 
@@ -90,30 +83,26 @@ impl<BR: std::error::Error, MR: std::error::Error, RR: std::error::Error, WKR: s
 }
 
 /// Save workspace KEK backup handler
-pub struct SaveWorkspaceKekBackupHandler<BR: ?Sized, MR: ?Sized, RR: ?Sized, WKR: ?Sized> {
+pub struct SaveWorkspaceKekBackupHandler<BR: ?Sized, MR: ?Sized, WKR: ?Sized> {
     backup_repo: Arc<BR>,
     member_repo: Arc<MR>,
-    role_repo: Arc<RR>,
     workspace_key_repo: Arc<WKR>,
 }
 
-impl<BR, MR, RR, WKR> SaveWorkspaceKekBackupHandler<BR, MR, RR, WKR>
+impl<BR, MR, WKR> SaveWorkspaceKekBackupHandler<BR, MR, WKR>
 where
     BR: WorkspaceKekBackupRepository + ?Sized,
     MR: WorkspaceMemberRepository + ?Sized,
-    RR: WorkspaceRoleRepository + ?Sized,
     WKR: WorkspaceEncryptedKeyRepository + ?Sized,
 {
     pub fn new(
         backup_repo: Arc<BR>,
         member_repo: Arc<MR>,
-        role_repo: Arc<RR>,
         workspace_key_repo: Arc<WKR>,
     ) -> Self {
         Self {
             backup_repo,
             member_repo,
-            role_repo,
             workspace_key_repo,
         }
     }
@@ -123,7 +112,7 @@ where
         command: SaveWorkspaceKekBackupCommand,
     ) -> Result<
         SaveWorkspaceKekBackupResult,
-        SaveWorkspaceKekBackupError<BR::Error, MR::Error, RR::Error, WKR::Error>,
+        SaveWorkspaceKekBackupError<BR::Error, MR::Error, WKR::Error>,
     > {
         // 1. Validate nonce length
         if command.nonce.len() != XCHACHA20_NONCE_SIZE {
@@ -136,16 +125,14 @@ where
         )
         .map_err(|_| SaveWorkspaceKekBackupError::InvalidKeyVersion)?;
 
-        // 3. Check membership and Read permission
-        check_workspace_permission(
+        // 3. Check membership (KEK endpoints require PoP + membership, not RBAC)
+        check_workspace_membership(
             &self.member_repo,
-            &self.role_repo,
             command.workspace_id,
             command.user_id,
-            WorkspacePermission::Read,
         )
         .await
-        .map_err(SaveWorkspaceKekBackupError::WorkspaceAccess)?;
+        .map_err(SaveWorkspaceKekBackupError::Membership)?;
 
         // 5. Validate key_version matches the requesting user's active KEK version
         // Uses user-scoped keys (not workspace-global) to prevent DoS via other users

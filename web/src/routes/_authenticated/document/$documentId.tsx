@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { MosaicDocumentWorkspace, useDocumentWorkspace } from '@/widgets/document-workspace'
+import { useWorkspaceSelection } from '@/entities/workspace'
 
 export const Route = createFileRoute('/_authenticated/document/$documentId')({
   component: DocumentWorkspacePage,
@@ -9,35 +10,61 @@ export const Route = createFileRoute('/_authenticated/document/$documentId')({
 function DocumentWorkspacePage() {
   const { documentId } = Route.useParams()
   const navigate = useNavigate()
+  const { currentWorkspaceId } = useWorkspaceSelection()
   const { openDocuments, openDocument, setFocusedDocumentId, focusedDocumentId } = useDocumentWorkspace()
-  const openedFromRouteRef = useRef<string | null>(null)
 
+  const wasOpenRef = useRef(false)
+  const openedRef = useRef<string | null>(null)
+  // Track which workspace this document was opened under
+  const workspaceRef = useRef(currentWorkspaceId)
+
+  // Keep latest references to avoid stale closures without triggering re-runs
+  const openDocumentRef = useRef(openDocument)
+  openDocumentRef.current = openDocument
+  const setFocusedRef = useRef(setFocusedDocumentId)
+  setFocusedRef.current = setFocusedDocumentId
+  const openDocsRef = useRef(openDocuments)
+  openDocsRef.current = openDocuments
+
+  // Open the document on mount / documentId change.
+  // GUARD: only open if workspace hasn't changed since mount (prevents
+  // cross-workspace document leakage during workspace switch).
   useEffect(() => {
-    // Already open — just focus
+    if (openedRef.current === documentId) return
+    // If workspace changed since this component mounted, don't open — navigate away
+    if (workspaceRef.current !== currentWorkspaceId) return
+
+    openedRef.current = documentId
+    wasOpenRef.current = false
+
+    if (!openDocsRef.current.has(documentId)) {
+      openDocumentRef.current({ id: documentId })
+    } else {
+      wasOpenRef.current = true
+    }
+    setFocusedRef.current(documentId)
+  }, [documentId, currentWorkspaceId])
+
+  // If workspace changes while on this document route, navigate to workspace
+  useEffect(() => {
+    if (currentWorkspaceId && currentWorkspaceId !== workspaceRef.current) {
+      navigate({ to: '/workspace/$workspaceId', params: { workspaceId: currentWorkspaceId } })
+    }
+  }, [currentWorkspaceId, navigate])
+
+  // Track open state and navigate away when tile is closed
+  useEffect(() => {
     if (openDocuments.has(documentId)) {
-      setFocusedDocumentId(documentId)
+      wasOpenRef.current = true
       return
     }
+    if (!wasOpenRef.current) return
 
-    // Guard against double-open (React Strict Mode)
-    if (openedFromRouteRef.current === documentId) return
-    openedFromRouteRef.current = documentId
-
-    openDocument({ id: documentId })
-  }, [documentId, openDocument, openDocuments, setFocusedDocumentId])
-
-  // Navigate away when the document tile is closed while this route is active.
-  // Without this, the URL remains at /document/$documentId but the tile is gone.
-  useEffect(() => {
-    if (openedFromRouteRef.current !== documentId) return
-    if (openDocuments.has(documentId)) return
-
-    // Tile was closed — sync URL with actual state
-    openedFromRouteRef.current = null
+    wasOpenRef.current = false
     if (focusedDocumentId && focusedDocumentId !== documentId) {
       navigate({ to: '/document/$documentId', params: { documentId: focusedDocumentId } })
     } else {
-      navigate({ to: '/dashboard' })
+      navigate({ to: '/workspace' })
     }
   }, [documentId, openDocuments, focusedDocumentId, navigate])
 

@@ -51,7 +51,7 @@ function RecoveryPage() {
     setError: (msg: string) => setError(msg),
     onSuccess: () => {
       redirectTimerRef.current = setTimeout(() => {
-        navigate({ to: '/' })
+        navigate({ to: '/workspace' })
       }, 1500)
     },
   })

@@ -7,7 +7,7 @@ use crate::dto::DocumentEncryptedKeyDto;
 use domain::document::{DocumentId, DocumentRepository};
 use domain::encryption::{DocumentEncryptedKey, DocumentEncryptedKeyRepository};
 use domain::identity::UserId;
-use domain::workspace::{WorkspaceMemberRepository, WorkspacePermission, WorkspaceRoleRepository};
+use domain::workspace::{WorkspaceMemberRepository, WorkspaceRolePermissionRepository, WorkspaceRoleRepository, permission};
 use std::sync::Arc;
 
 use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
@@ -41,12 +41,13 @@ pub enum SaveDocumentKeyError<
     DR: std::error::Error,
     MR: std::error::Error,
     RR: std::error::Error,
+    RPR: std::error::Error,
 > {
     #[error("document not found")]
     DocumentNotFound,
 
     #[error(transparent)]
-    WorkspaceAccess(WorkspaceAccessError<MR, RR>),
+    WorkspaceAccess(WorkspaceAccessError<MR, RR, RPR>),
 
     #[error("invalid key version: must be between 1 and {}", i32::MAX)]
     InvalidKeyVersion,
@@ -65,8 +66,8 @@ pub enum SaveDocumentKeyError<
 }
 
 crate::types::impl_app_error!(
-    [DKR: std::error::Error, DR: std::error::Error, MR: std::error::Error, RR: std::error::Error]
-    SaveDocumentKeyError<DKR, DR, MR, RR>,
+    [DKR: std::error::Error, DR: std::error::Error, MR: std::error::Error, RR: std::error::Error, RPR: std::error::Error]
+    SaveDocumentKeyError<DKR, DR, MR, RR, RPR>,
     not_found: [
         SaveDocumentKeyError::DocumentNotFound,
         SaveDocumentKeyError::WorkspaceAccess(WorkspaceAccessError::NotMember),
@@ -80,34 +81,38 @@ crate::types::impl_app_error!(
     ],
 );
 
-crate::util::workspace_access::impl_from_load_doc_perm!([DKR, DR, MR, RR] SaveDocumentKeyError<DKR, DR, MR, RR>, DR, MR, RR);
+crate::util::workspace_access::impl_from_load_doc_perm!([DKR, DR, MR, RR, RPR] SaveDocumentKeyError<DKR, DR, MR, RR, RPR>, DR, MR, RR, RPR);
 
 /// Save document key handler
-pub struct SaveDocumentKeyHandler<DKR: ?Sized, DR: ?Sized, MR: ?Sized, RR: ?Sized> {
+pub struct SaveDocumentKeyHandler<DKR: ?Sized, DR: ?Sized, MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     document_key_repo: Arc<DKR>,
     document_repo: Arc<DR>,
     member_repo: Arc<MR>,
     role_repo: Arc<RR>,
+    role_perm_repo: Arc<RPR>,
 }
 
-impl<DKR, DR, MR, RR> SaveDocumentKeyHandler<DKR, DR, MR, RR>
+impl<DKR, DR, MR, RR, RPR> SaveDocumentKeyHandler<DKR, DR, MR, RR, RPR>
 where
     DKR: DocumentEncryptedKeyRepository + ?Sized,
     DR: DocumentRepository + ?Sized,
     MR: WorkspaceMemberRepository + ?Sized,
     RR: WorkspaceRoleRepository + ?Sized,
+    RPR: WorkspaceRolePermissionRepository + ?Sized,
 {
     pub fn new(
         document_key_repo: Arc<DKR>,
         document_repo: Arc<DR>,
         member_repo: Arc<MR>,
         role_repo: Arc<RR>,
+        role_perm_repo: Arc<RPR>,
     ) -> Self {
         Self {
             document_key_repo,
             document_repo,
             member_repo,
             role_repo,
+            role_perm_repo,
         }
     }
 
@@ -116,15 +121,16 @@ where
         command: SaveDocumentKeyCommand,
     ) -> Result<
         SaveDocumentKeyResult,
-        SaveDocumentKeyError<DKR::Error, DR::Error, MR::Error, RR::Error>,
+        SaveDocumentKeyError<DKR::Error, DR::Error, MR::Error, RR::Error, RPR::Error>,
     > {
         let mut document = load_document_with_permission(
             &self.document_repo,
             &self.member_repo,
             &self.role_repo,
+            &self.role_perm_repo,
             command.document_id,
             command.user_id,
-            WorkspacePermission::Write,
+            permission::DOCUMENT_WRITE,
         )
         .await
         .map_err(SaveDocumentKeyError::from_load)?;
