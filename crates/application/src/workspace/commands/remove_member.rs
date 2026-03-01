@@ -13,6 +13,7 @@ use crate::encryption::services::mark_rotation::MarkRotationService;
 use crate::encryption::services::rotation_marking_service::RotationMarkingService;
 use crate::util::workspace_access::{MemberWithRole, WorkspaceAccessError, check_workspace_permission};
 use crate::workspace::MemberMutationService;
+use crate::workspace_events::WorkspaceEventPublisher;
 use domain::document::DocumentRepository;
 use domain::encryption::DocumentEncryptedKeyRepository;
 use domain::identity::UserId;
@@ -91,6 +92,7 @@ pub struct RemoveMemberHandler<MR: ?Sized, RR: ?Sized, RPR: ?Sized, DocR: ?Sized
     document_repo: Arc<DocR>,
     document_key_repo: Arc<DKR>,
     rotation_marking_service: Arc<dyn RotationMarkingService>,
+    workspace_event_publisher: Arc<dyn WorkspaceEventPublisher>,
 }
 
 impl<MR: ?Sized, RR: ?Sized, RPR: ?Sized, DocR: ?Sized, DKR: ?Sized> RemoveMemberHandler<MR, RR, RPR, DocR, DKR>
@@ -109,6 +111,7 @@ where
         document_repo: Arc<DocR>,
         document_key_repo: Arc<DKR>,
         rotation_marking_service: Arc<dyn RotationMarkingService>,
+        workspace_event_publisher: Arc<dyn WorkspaceEventPublisher>,
     ) -> Self {
         Self {
             member_repo,
@@ -118,6 +121,7 @@ where
             document_repo,
             document_key_repo,
             rotation_marking_service,
+            workspace_event_publisher,
         }
     }
 
@@ -199,22 +203,34 @@ where
 
             // Best-effort KEK/DEK rotation after owner removal
             self.mark_rotation_best_effort(command.workspace_id).await;
+
+            // Best-effort: publish event for real-time WS disconnect
+            self.workspace_event_publisher
+                .publish(domain::WorkspaceEvent::MemberRemoved {
+                    workspace_id: command.workspace_id,
+                    removed_user_id: command.target_user_id,
+                })
+                .await;
+
             return Ok(());
         }
 
-        // 6. Non-owner target: conditional delete with role_id guard.
-        //    If the member was concurrently promoted to a different role (e.g. Owner),
-        //    the DELETE will match 0 rows and return a conflict error.
+        // 6. Non-owner target: conditional delete with role_id guard for both the
+        //    target (concurrent promotion protection) and the operator (concurrent
+        //    demotion protection via operator freshness guard).
         use crate::workspace::MemberMutationError;
         self.member_mutation_service
             .remove_non_owner_member(
                 command.workspace_id,
                 command.target_user_id,
                 target_member.role_id,
+                command.user_id,
+                actor.role.id,
             )
             .await
             .map_err(|e| match e {
                 MemberMutationError::RoleConflict => RemoveMemberError::RoleConflict,
+                MemberMutationError::OperatorDemoted => RemoveMemberError::OperatorDemoted,
                 MemberMutationError::Database(msg) => RemoveMemberError::MutationService(msg),
                 _ => RemoveMemberError::MutationService(e.to_string()),
             })?;
@@ -223,6 +239,14 @@ where
         //    The member is already removed; rotation failures are logged but
         //    do not fail the removal. A background job can detect missed markers.
         self.mark_rotation_best_effort(command.workspace_id).await;
+
+        // Best-effort: publish event for real-time WS disconnect
+        self.workspace_event_publisher
+            .publish(domain::WorkspaceEvent::MemberRemoved {
+                workspace_id: command.workspace_id,
+                removed_user_id: command.target_user_id,
+            })
+            .await;
 
         Ok(())
     }

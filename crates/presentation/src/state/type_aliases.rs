@@ -3,10 +3,11 @@
 use application::types::{
     BoxedError, ChallengeStore, DeviceEncryptedUMKRepository, DeviceRepository,
     DeviceRevocationEventRepository, DocumentEncryptedKeyRepository, DocumentRepository,
-    DocumentUpdateRepository, PendingDeviceRepository, RecoveryChallengeStore, SessionRepository,
-    TransferNonceStore, TransferStateStore, UserEncryptedIdentityKeyRepository,
-    UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository, UserRepository,
-    UserSettingsRepository, WorkspaceEncryptedKeyRepository, WorkspaceInvitationRepository,
+    DocumentSnapshotRepository, DocumentUpdateRepository, PendingDeviceRepository,
+    RecoveryChallengeStore, SessionRepository, TransferNonceStore, TransferStateStore,
+    UserEncryptedIdentityKeyRepository, UserEncryptedMasterKeyRepository,
+    UserIdentityPublicKeyRepository, UserRepository, UserSettingsRepository,
+    WorkspaceEncryptedKeyRepository, WorkspaceInvitationRepository,
     WorkspaceKekBackupRepository, WorkspaceMemberRepository, WorkspaceRepository,
     WorkspaceRolePermissionRepository, WorkspaceRoleRepository,
 };
@@ -57,6 +58,8 @@ pub(crate) type DynWorkspaceInvitationRepository =
 pub(crate) type DynDocumentRepository = Arc<dyn DocumentRepository<Error = BoxedError>>;
 pub(crate) type DynDocumentUpdateRepository =
     Arc<dyn DocumentUpdateRepository<Error = BoxedError>>;
+pub(crate) type DynSnapshotRepository =
+    Arc<dyn DocumentSnapshotRepository<Error = BoxedError>>;
 
 // Services
 pub(crate) type DynRegistrationService = Arc<dyn RegistrationService>;

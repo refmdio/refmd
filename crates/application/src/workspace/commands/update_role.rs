@@ -6,6 +6,7 @@
 use crate::dto::WorkspaceRoleDto;
 use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
 use crate::workspace::RoleUpdateService;
+use crate::workspace_events::WorkspaceEventPublisher;
 use domain::identity::UserId;
 use domain::workspace::{
     BaseRole, RoleId, WorkspaceId, WorkspaceMemberRepository,
@@ -53,6 +54,9 @@ pub enum UpdateRoleError<MR: std::error::Error, RR: std::error::Error, RPR: std:
     #[error("only the workspace owner can change the default role")]
     OwnerOnlyOperation,
 
+    #[error("operator_demoted")]
+    OperatorDemoted,
+
     #[error("unknown permission: {0}")]
     UnknownPermission(String),
 
@@ -88,6 +92,7 @@ crate::types::impl_app_error!(
     access_denied: [
         UpdateRoleError::WorkspaceAccess(WorkspaceAccessError::PermissionDenied),
         UpdateRoleError::OwnerOnlyOperation,
+        UpdateRoleError::OperatorDemoted,
         UpdateRoleError::RoleWorkspaceMismatch,
     ],
     invalid_input: [
@@ -106,6 +111,7 @@ pub struct UpdateRoleHandler<MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     role_repo: Arc<RR>,
     role_perm_repo: Arc<RPR>,
     role_update_service: Arc<dyn RoleUpdateService>,
+    workspace_event_publisher: Arc<dyn WorkspaceEventPublisher>,
 }
 
 impl<MR: ?Sized, RR: ?Sized, RPR: ?Sized> UpdateRoleHandler<MR, RR, RPR>
@@ -119,12 +125,14 @@ where
         role_repo: Arc<RR>,
         role_perm_repo: Arc<RPR>,
         role_update_service: Arc<dyn RoleUpdateService>,
+        workspace_event_publisher: Arc<dyn WorkspaceEventPublisher>,
     ) -> Self {
         Self {
             member_repo,
             role_repo,
             role_perm_repo,
             role_update_service,
+            workspace_event_publisher,
         }
     }
 
@@ -230,12 +238,55 @@ where
                     trimmed_name.as_deref(),
                     needs_default_swap,
                     command.permission_overrides.as_deref(),
+                    command.user_id,
+                    actor.role.id,
                 )
                 .await
                 .map_err(|e| match e {
                     RoleUpdateError::RoleNotFound => UpdateRoleError::RoleNotFound,
+                    RoleUpdateError::OperatorDemoted => UpdateRoleError::OperatorDemoted,
                     RoleUpdateError::Database(msg) => UpdateRoleError::UpdateService(msg),
                 })?;
+        }
+
+        // Proactive disconnect: if document:read was revoked in the permission overrides,
+        // publish MemberRoleChanged for all members with this role so the WS layer
+        // disconnects them. Without this, revoked users stay connected until the next
+        // lazy RBAC check (which only runs at broadcast time).
+        let read_revoked = command
+            .permission_overrides
+            .as_ref()
+            .is_some_and(|overrides| {
+                overrides
+                    .iter()
+                    .any(|(perm, granted)| perm == permission::DOCUMENT_READ && !granted)
+            });
+        if read_revoked {
+            // Best-effort: find all members with this role and publish events.
+            // Errors are logged but do not fail the role update.
+            match self
+                .member_repo
+                .find_by_workspace_id(command.workspace_id)
+                .await
+            {
+                Ok(members) => {
+                    for member in members {
+                        if member.role_id == command.role_id {
+                            self.workspace_event_publisher
+                                .publish(domain::WorkspaceEvent::MemberRoleChanged {
+                                    workspace_id: command.workspace_id,
+                                    target_user_id: member.user_id,
+                                })
+                                .await;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to find members for proactive disconnect after role update: {e}"
+                    );
+                }
+            }
         }
 
         // Always re-read persisted overrides for the response

@@ -19,3 +19,10 @@ pub mod types;
 pub(crate) mod util;
 pub mod workspace;
 pub mod workspace_events;
+
+/// Re-export domain types/functions for presentation layer.
+/// Presentation MUST NOT depend on domain directly (Cargo.toml boundary).
+pub mod jcs {
+    pub use domain::signature::{SignatureError, sort_value_public};
+}
+

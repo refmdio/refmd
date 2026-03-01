@@ -2,8 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Opaque public metadata associated with snapshots and updates (secsync protocol).
+/// Stored alongside encrypted content; not interpreted by the domain layer.
+pub type PublicData = serde_json::Value;
+
 define_id!(/// Document ID
 pub DocumentId);
+
+define_id!(/// Collaboration snapshot ID
+pub DocumentSnapshotId);
 
 /// Document type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,13 +9,14 @@
  * Stores:
  * 1. revocation-pins - Tracks device revocation events
  * 2. key-version-pins - Tracks highest observed key versions
- * 3. document-state-pins - Tracks latest document sequence numbers
+ * 3. document-state-pins - Tracks latest document snapshot/version state
  */
 
 import { openIdb, idbGet, idbPut, idbClear, idbConditionalPut, toArrayBuffer } from '@/shared/lib/idb'
+import { computeParentSnapshotProof } from '@/shared/lib/crypto'
 
 const DB_NAME = 'refmd-security'
-const DB_VERSION = 4
+const DB_VERSION = 8
 
 const STORES = {
   REVOCATION_PINS: 'revocation-pins',
@@ -43,8 +44,16 @@ export interface KeyVersionPin {
 
 export interface DocumentStatePin {
   documentId: string
-  latestSeq: number
-  latestUpdateHash: string
+  /** Active collab snapshot ID (null = no snapshot yet, new document) */
+  latestSnapshotId: string | null
+  /** BLAKE3 proof hash of the snapshot chain head (prevents snapshot substitution) */
+  latestSnapshotProofHash: string
+  /** BLAKE3(ciphertext) of the pinned snapshot (needed for cross-snapshot proof verification) */
+  latestSnapshotCiphertextHash: string
+  /** Global version (monotonically increasing across all devices) */
+  latestGlobalVersion: number
+  /** Per-device max clocks { deviceSigningPubKey: maxClock } */
+  perDeviceMaxClocks: Record<string, number>
   observedAt: number
 }
 
@@ -61,7 +70,8 @@ interface SerializedRevocationPin {
 // =============================================================================
 
 function openDb(): Promise<IDBDatabase> {
-  return openIdb(DB_NAME, DB_VERSION, (db) => {
+  return openIdb(DB_NAME, DB_VERSION, (db, oldVersion) => {
+    // v1: create stores
     if (!db.objectStoreNames.contains(STORES.REVOCATION_PINS)) {
       db.createObjectStore(STORES.REVOCATION_PINS, {
         keyPath: ['userId', 'deviceId'],
@@ -81,9 +91,15 @@ function openDb(): Promise<IDBDatabase> {
     }
 
     // v4: remove unused membership-logs scaffold (was Phase 3 pre-implementation)
-    if (db.objectStoreNames.contains('membership-logs')) {
+    if (oldVersion < 4 && db.objectStoreNames.contains('membership-logs')) {
       db.deleteObjectStore('membership-logs')
     }
+
+    // v8: latestSnapshotCiphertextHash field added to document-state-pins
+    // No store migration needed — IndexedDB is schemaless, new field is simply
+    // undefined on old records. checkDocumentStateRollback is fail-closed:
+    // pins without latestSnapshotCiphertextHash reject cross-snapshot transitions
+    // (forces reconnect to re-pin with the new field).
   })
 }
 
@@ -246,7 +262,7 @@ export async function clearAllKeyVersionPins(): Promise<void> {
 }
 
 // =============================================================================
-// Document State Pins
+// Document State Pins (snapshot + clock based)
 // =============================================================================
 
 export async function pinDocumentState(pin: DocumentStatePin): Promise<void> {
@@ -256,8 +272,34 @@ export async function pinDocumentState(pin: DocumentStatePin): Promise<void> {
     STORES.DOCUMENT_STATE_PINS,
     pin.documentId,
     pin,
-    (existing) => !existing || existing.latestSeq <= pin.latestSeq
+    (existing) =>
+      !existing ||
+      // Snapshot transition: always accept new snapshot
+      existing.latestSnapshotId !== pin.latestSnapshotId ||
+      // Within same snapshot: accept only if per-device clocks are monotonically
+      // non-decreasing. This uses signed clock data (not unsigned version) to
+      // prevent both pin-freeze (malicious server freezing unsigned version) and
+      // pin-downgrade (malicious server sending stale clocks) attacks.
+      clocksMonotonicallyAdvanced(existing.perDeviceMaxClocks, pin.perDeviceMaxClocks)
   )
+}
+
+/**
+ * Check that new clocks are >= existing clocks for all known devices.
+ * Existing devices missing from incoming are treated as clock=0 (downgrade).
+ * New devices (not in existing) are always accepted.
+ */
+function clocksMonotonicallyAdvanced(
+  existing: Record<string, number>,
+  incoming: Record<string, number>,
+): boolean {
+  for (const [device, existingClock] of Object.entries(existing)) {
+    const incomingClock = incoming[device] ?? -1
+    if (incomingClock < existingClock) {
+      return false
+    }
+  }
+  return true
 }
 
 export async function getDocumentStatePin(
@@ -270,16 +312,148 @@ export async function getDocumentStatePin(
 
 /**
  * Check if a document state is being rolled back.
- * Returns the pinned state if the provided seq is lower than the pinned one, null otherwise.
+ * Uses per-device clocks (monotonically increasing across snapshots) as the
+ * primary integrity check. Global version is only compared within the same
+ * snapshot (version resets when a new snapshot is created).
  */
 export async function checkDocumentStateRollback(
   documentId: string,
-  seq: number
-): Promise<{ rolledBack: true; pinnedSeq: number } | { rolledBack: false }> {
+  snapshotId: string | null,
+  globalVersion: number,
+  perDeviceClocks?: Record<string, number>,
+  snapshotProofHash?: string,
+  snapshotProofChain?: Array<{ snapshotId: string; ciphertextHash: string; parentSnapshotProof: string }>,
+  snapshotCiphertextHash?: string,
+): Promise<{ rolledBack: true; pinnedVersion: number; detail?: string } | { rolledBack: false }> {
   const pin = await getDocumentStatePin(documentId)
-  if (pin && seq < pin.latestSeq) {
-    return { rolledBack: true, pinnedSeq: pin.latestSeq }
+  if (!pin) return { rolledBack: false }
+
+  // Fail-closed: if server returns null snapshot but we have a pinned snapshot,
+  // this is a rollback attack (server deleted a known snapshot).
+  if (!snapshotId && pin.latestSnapshotId) {
+    return {
+      rolledBack: true,
+      pinnedVersion: pin.latestGlobalVersion,
+      detail: `Snapshot disappeared: server returned null but pinned snapshot ${pin.latestSnapshotId} exists`,
+    }
   }
+
+  // Same-snapshot integrity: detect content substitution when snapshotId matches pinned.
+  // Compare both parentSnapshotProof (chain integrity) and ciphertextHash (content integrity).
+  // A malicious server could replay a valid signed snapshot with a relabeled snapshotId;
+  // ciphertextHash comparison prevents substitution of snapshot content.
+  if (snapshotId && pin.latestSnapshotId === snapshotId) {
+    if (snapshotProofHash && pin.latestSnapshotProofHash && pin.latestSnapshotProofHash !== snapshotProofHash) {
+      return {
+        rolledBack: true,
+        pinnedVersion: pin.latestGlobalVersion,
+        detail: 'Snapshot proof hash mismatch',
+      }
+    }
+    if (snapshotCiphertextHash && pin.latestSnapshotCiphertextHash && pin.latestSnapshotCiphertextHash !== snapshotCiphertextHash) {
+      return {
+        rolledBack: true,
+        pinnedVersion: pin.latestGlobalVersion,
+        detail: 'Snapshot ciphertext hash mismatch (content substitution detected)',
+      }
+    }
+  }
+
+  // Cross-snapshot rollback detection via proof chain (fail-closed)
+  // When the snapshot has changed, proof chain is REQUIRED to verify ancestry.
+  // Missing chain → reject as rollback attack.
+  if (snapshotId && pin.latestSnapshotId && snapshotId !== pin.latestSnapshotId) {
+    if (!snapshotProofChain || snapshotProofChain.length === 0) {
+      return {
+        rolledBack: true,
+        pinnedVersion: pin.latestGlobalVersion,
+        detail: `Cross-snapshot rollback: proof chain missing for snapshot transition ${pin.latestSnapshotId} → ${snapshotId}`,
+      }
+    }
+    // Find the chain entry whose snapshotId matches the pinned snapshot
+    const pinnedEntry = snapshotProofChain.find((e) => e.snapshotId === pin.latestSnapshotId)
+    if (pinnedEntry) {
+      // Verify parentSnapshotProof links to the pinned proof hash.
+      // Use locally pinned ciphertextHash (not server-provided pinnedEntry.ciphertextHash)
+      // to prevent server from substituting the ciphertext of a pinned snapshot.
+      // Fail-closed: if latestSnapshotCiphertextHash is missing (pre-v8 pin),
+      // we cannot verify proof chain integrity — reject as rollback.
+      if (!pin.latestSnapshotCiphertextHash) {
+        return {
+          rolledBack: true,
+          pinnedVersion: pin.latestGlobalVersion,
+          detail: `Cross-snapshot rollback: cannot verify proof for pinned snapshot ${pin.latestSnapshotId} (missing ciphertextHash)`,
+        }
+      }
+      const expectedProof = computeParentSnapshotProof(
+        pin.latestSnapshotProofHash,
+        pin.latestSnapshotId,
+        pin.latestSnapshotCiphertextHash,
+      )
+      if (pinnedEntry.parentSnapshotProof !== expectedProof) {
+        return {
+          rolledBack: true,
+          pinnedVersion: pin.latestGlobalVersion,
+          detail: `Cross-snapshot rollback: proof chain mismatch for pinned snapshot ${pin.latestSnapshotId}`,
+        }
+      }
+    } else if (pin.latestSnapshotCiphertextHash) {
+      // Pinned snapshot is the BASE of the chain (from_snapshot_id):
+      // find_proof_chain walks parent_snapshot_id chain (recursive CTE) which excludes it.
+      // Verify the first chain entry's parentSnapshotProof links to the pinned snapshot.
+      const firstEntry = snapshotProofChain[0]
+      const expectedProof = computeParentSnapshotProof(
+        pin.latestSnapshotProofHash,
+        pin.latestSnapshotId,
+        pin.latestSnapshotCiphertextHash,
+      )
+      if (firstEntry.parentSnapshotProof !== expectedProof) {
+        return {
+          rolledBack: true,
+          pinnedVersion: pin.latestGlobalVersion,
+          detail: `Cross-snapshot rollback: pinned snapshot ${pin.latestSnapshotId} not found in proof chain`,
+        }
+      }
+    } else {
+      // No ciphertext hash to verify — cannot confirm chain integrity
+      return {
+        rolledBack: true,
+        pinnedVersion: pin.latestGlobalVersion,
+        detail: `Cross-snapshot rollback: pinned snapshot ${pin.latestSnapshotId} not found in proof chain`,
+      }
+    }
+  }
+
+  // Global version is NOT compared for rollback detection.
+  // Version is unsigned (server-assigned) and can be inflated by a malicious server
+  // to poison the pin (DoS via false positive rollback). Per-device signed clocks
+  // provide stronger same-snapshot rollback detection (see below).
+  void globalVersion
+
+  // Per-device clocks: only valid within the same snapshot (ADR-015: clocks reset per snapshot).
+  // Each device's clock must be >= pinned value.
+  // A device disappearing from the clocks map is also a rollback indicator
+  // (server dropped updates from a known device).
+  if (snapshotId && snapshotId === pin.latestSnapshotId && perDeviceClocks && pin.perDeviceMaxClocks) {
+    for (const [deviceKey, pinnedClock] of Object.entries(pin.perDeviceMaxClocks)) {
+      const currentClock = perDeviceClocks[deviceKey]
+      if (currentClock === undefined) {
+        return {
+          rolledBack: true,
+          pinnedVersion: pin.latestGlobalVersion,
+          detail: `Device ${deviceKey} disappeared: pinned clock=${pinnedClock} but device absent from server clocks`,
+        }
+      }
+      if (currentClock < pinnedClock) {
+        return {
+          rolledBack: true,
+          pinnedVersion: pin.latestGlobalVersion,
+          detail: `Device ${deviceKey} clock rolled back: server=${currentClock}, pinned=${pinnedClock}`,
+        }
+      }
+    }
+  }
+
   return { rolledBack: false }
 }
 
@@ -287,5 +461,3 @@ export async function clearAllDocumentStatePins(): Promise<void> {
   const db = await openDb()
   await idbClear(db, STORES.DOCUMENT_STATE_PINS)
 }
-
-

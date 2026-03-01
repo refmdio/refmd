@@ -141,7 +141,7 @@ fn extract_auth_query(headers: &HeaderMap) -> Result<AuthenticateSessionQuery, A
 }
 
 /// Authenticate request and return minimal user info (user_id + session).
-pub(super) async fn authenticate(
+pub(crate) async fn authenticate(
     headers: &HeaderMap,
     session_repo: &DynSessionRepository,
 ) -> Result<AuthUser, AuthError> {

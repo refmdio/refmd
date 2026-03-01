@@ -16,7 +16,7 @@ use presentation::{AppState, AppStateParams};
 use crate::adapters::BoxedRepo;
 use std::sync::Arc;
 
-use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository};
+use infrastructure::document::{PgDocumentRepository, PgDocumentUpdateRepository, PgSnapshotRepository};
 use infrastructure::encryption::{
     PgDeviceEncryptedUMKRepository, PgDeviceRepository, PgDeviceRevocationEventRepository,
     PgDocumentEncryptedKeyRepository, PgKekRotationCompletionService, PgPendingDeviceRepository,
@@ -98,6 +98,7 @@ pub fn build_app_state(
         workspace_role_perm_repo: Arc::new(BoxedRepo(PgWorkspaceRolePermissionRepository::new(p.clone()))),
         document_repo: Arc::new(BoxedRepo(PgDocumentRepository::new(p.clone()))),
         document_update_repo: Arc::new(BoxedRepo(PgDocumentUpdateRepository::new(p.clone()))),
+        snapshot_repo: Arc::new(BoxedRepo(PgSnapshotRepository::new(p.clone()))),
         workspace_key_repo: Arc::new(BoxedRepo(PgWorkspaceEncryptedKeyRepository::new(p.clone()))),
         document_key_repo: Arc::new(BoxedRepo(PgDocumentEncryptedKeyRepository::new(p.clone()))),
         registration_service: Arc::new(PgRegistrationService::new(Arc::new(p.clone()))),

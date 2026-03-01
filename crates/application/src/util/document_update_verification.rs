@@ -1,43 +1,32 @@
-//! Document update hash and signature verification utilities.
+//! Document hash computation utilities.
 //!
-//! Extracted from `create_update.rs` for reuse and testability.
+//! Server-side hash computation for document updates and snapshot proofs.
 
-use domain::document::DocumentId;
-use domain::encryption::DeviceId;
-use domain::signature::{SignatureAction, build_signature_message};
+use domain::document::{DocumentId, DocumentSnapshotId};
+use domain::signature::SignatureError;
 use serde::Serialize;
-use thiserror::Error;
 
-/// Error from update hash verification.
-#[derive(Debug, Error)]
-#[error("invalid update hash")]
-pub struct UpdateHashError;
-
-/// Error from document update signature verification.
-#[derive(Debug, Error)]
-#[error("invalid document update signature")]
-pub struct DocumentUpdateSignatureError;
-
-/// Verify that `BLAKE3(JCS({fields}))` matches the claimed `update_hash`.
-#[allow(clippy::too_many_arguments)]
-pub fn verify_update_hash(
+/// Compute `BLAKE3(JCS({fields}))` for a document update.
+/// Client sends update_hash; server re-computes and verifies match.
+pub fn compute_update_hash(
     document_id: DocumentId,
     update_data: &[u8],
     nonce: &[u8],
     key_version: i32,
-    update_hash: &str,
-    prev_update_hash: Option<&str>,
-    author_device_id: DeviceId,
+    ref_snapshot_id: DocumentSnapshotId,
+    clock: i32,
+    device_signing_pub_key: &str,
     timestamp: i64,
-) -> Result<(), UpdateHashError> {
+) -> Result<String, SignatureError> {
     #[derive(Serialize)]
     struct UpdateHashInput<'a> {
-        created_by_device_id: &'a str,
+        clock: i64,
+        device_signing_pub_key: &'a str,
         document_id: &'a str,
         encrypted_content: &'a str,
         key_version: i64,
         nonce: &'a str,
-        prev_update_hash: Option<&'a str>,
+        ref_snapshot_id: &'a str,
         timestamp: i64,
     }
 
@@ -45,65 +34,52 @@ pub fn verify_update_hash(
     let nonce_b64 = base64_url::encode(nonce);
 
     let input = UpdateHashInput {
-        created_by_device_id: &author_device_id.to_string(),
+        clock: clock as i64,
+        device_signing_pub_key,
         document_id: &document_id.to_string(),
         encrypted_content: &encrypted_content_b64,
         key_version: key_version as i64,
         nonce: &nonce_b64,
-        prev_update_hash,
+        ref_snapshot_id: &ref_snapshot_id.to_string(),
         timestamp,
     };
 
     let canonical = {
-        let value = serde_json::to_value(&input).map_err(|_| UpdateHashError)?;
-        let sorted =
-            domain::signature::sort_value_public(value).map_err(|_| UpdateHashError)?;
-        serde_json::to_vec(&sorted).map_err(|_| UpdateHashError)?
+        let value = serde_json::to_value(&input)?;
+        let sorted = domain::signature::sort_value_public(value)?;
+        serde_json::to_vec(&sorted)?
     };
     let computed_hash = blake3::hash(&canonical);
-    let computed_hash_b64 = base64_url::encode(computed_hash.as_bytes());
-    if computed_hash_b64 != update_hash {
-        return Err(UpdateHashError);
-    }
-
-    Ok(())
+    Ok(base64_url::encode(computed_hash.as_bytes()))
 }
 
-/// Verify Ed25519 signature over document update metadata using JCS.
-pub fn verify_document_update_signature(
-    signing_public_key: &[u8],
-    signature: &[u8],
-    document_id: &str,
-    update_hash: &str,
-    prev_update_hash: Option<&str>,
-    key_version: i64,
-    timestamp: i64,
-) -> Result<(), DocumentUpdateSignatureError> {
+/// Compute `parentSnapshotProof = BLAKE3(JCS({ ciphertext_hash, parent_proof, snapshot_id }))`.
+///
+/// Per ADR-015 / collaboration.md: chain hash proves snapshot ancestry.
+/// Keys use snake_case per codebase JCS convention (same as update_hash).
+pub fn compute_parent_snapshot_proof(
+    parent_ciphertext_hash: &str,
+    grandparent_proof: &str,
+    parent_snapshot_id: &str,
+) -> Result<String, SignatureError> {
     #[derive(Serialize)]
-    struct DocumentUpdatePayload<'a> {
-        document_id: &'a str,
-        key_version: i64,
-        prev_update_hash: Option<&'a str>,
-        timestamp: i64,
-        update_hash: &'a str,
+    struct ProofInput<'a> {
+        ciphertext_hash: &'a str,
+        parent_proof: &'a str,
+        snapshot_id: &'a str,
     }
 
-    let message = build_signature_message(
-        SignatureAction::DocumentUpdate,
-        &DocumentUpdatePayload {
-            document_id,
-            key_version,
-            prev_update_hash,
-            timestamp,
-            update_hash,
-        },
-    )
-    .map_err(|_| DocumentUpdateSignatureError)?;
+    let input = ProofInput {
+        ciphertext_hash: parent_ciphertext_hash,
+        parent_proof: grandparent_proof,
+        snapshot_id: parent_snapshot_id,
+    };
 
-    crate::util::signature_verification::verify_ed25519_signature(
-        signing_public_key,
-        signature,
-        &message,
-    )
-    .map_err(|_| DocumentUpdateSignatureError)
+    let canonical = {
+        let value = serde_json::to_value(&input)?;
+        let sorted = domain::signature::sort_value_public(value)?;
+        serde_json::to_vec(&sorted)?
+    };
+    let computed = blake3::hash(&canonical);
+    Ok(base64_url::encode(computed.as_bytes()))
 }

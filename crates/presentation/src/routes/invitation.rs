@@ -46,7 +46,7 @@ pub fn pop_routes(state: AppState) -> Router {
 /// Accept an invitation
 #[utoipa::path(
     post,
-    path = "/api/invitations/accept",
+    path = "/api/workspaces/invitations/accept",
     request_body = AcceptInvitationRequest,
     responses(
         (status = 200, description = "Invitation accepted", body = AcceptInvitationResponse),
@@ -57,7 +57,7 @@ pub fn pop_routes(state: AppState) -> Router {
         (status = 409, description = "KEK rotation in progress", body = InvitationErrorResponse),
         (status = 410, description = "Invitation expired/revoked/exhausted", body = InvitationErrorResponse),
     ),
-    tag = "invitation"
+    tag = "workspace"
 )]
 pub async fn accept_invitation(
     State(state): State<WorkspaceSubState>,

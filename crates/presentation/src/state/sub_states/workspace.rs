@@ -186,6 +186,7 @@ impl WorkspaceSubState {
             self.workspace_role_repo.clone(),
             self.workspace_role_perm_repo.clone(),
             self.role_update_service.clone(),
+            self.workspace_event_bus.clone(),
         )
     }
 
@@ -213,6 +214,7 @@ impl WorkspaceSubState {
             self.workspace_role_repo.clone(),
             self.workspace_role_perm_repo.clone(),
             self.member_mutation_service.clone(),
+            self.workspace_event_bus.clone(),
         )
     }
 
@@ -225,6 +227,7 @@ impl WorkspaceSubState {
             self.document_repo.clone(),
             self.document_key_repo.clone(),
             self.rotation_marking_service.clone(),
+            self.workspace_event_bus.clone(),
         )
     }
 

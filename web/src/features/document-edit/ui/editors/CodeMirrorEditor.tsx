@@ -1,18 +1,20 @@
 /**
- * Document Editor Component
+ * CodeMirror Editor Component
  *
  * CodeMirror 6 editor integrated with Yjs for CRDT state management.
  */
 
 import { useEffect, useRef } from 'react'
-import { EditorState, Compartment } from '@codemirror/state'
-import { EditorView, keymap } from '@codemirror/view'
+import { EditorState, Compartment, Transaction } from '@codemirror/state'
+import { EditorView, ViewPlugin, keymap } from '@codemirror/view'
+import type { ViewUpdate } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
 import { yCollab } from 'y-codemirror.next'
 import * as Y from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
 import { useTheme } from '@/shared/context'
 
 // Compartments for dynamic reconfiguration without editor recreation
@@ -108,25 +110,56 @@ const darkTheme = createEditorTheme(true)
 const lightHighlighting = createHighlighting(false)
 const darkHighlighting = createHighlighting(true)
 
-export interface DocumentEditorProps {
+/**
+ * CM ViewPlugin that detects genuine local user edits and notifies auto-sync.
+ *
+ * We only notify for doc-changing transactions that carry a user-event
+ * annotation. This avoids false positives from remote sync reconciliation and
+ * extension normalization passes that are not direct user interaction.
+ */
+function localEditNotifier(onLocalEdit: () => void) {
+  const isLocalUserEdit = (tr: Transaction): boolean => {
+    if (!tr.docChanged) return false
+    return (
+      tr.isUserEvent('input') ||
+      tr.isUserEvent('delete') ||
+      tr.isUserEvent('move') ||
+      tr.isUserEvent('undo') ||
+      tr.isUserEvent('redo')
+    )
+  }
+
+  return ViewPlugin.fromClass(
+    class {
+      update(update: ViewUpdate) {
+        if (!update.docChanged) return
+        if (update.transactions.some(isLocalUserEdit)) {
+          onLocalEdit()
+        }
+      }
+    },
+  )
+}
+
+export interface CodeMirrorEditorProps {
   documentId: string
   yDoc: Y.Doc
-  onSave: () => void
+  awareness: Awareness | null
+  onLocalEdit?: () => void
   readOnly?: boolean
 }
 
-export function DocumentEditor({
+export function CodeMirrorEditor({
   documentId,
   yDoc,
-  onSave,
+  awareness,
+  onLocalEdit,
   readOnly = false,
-}: DocumentEditorProps) {
+}: CodeMirrorEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
-  const onSaveRef = useRef(onSave)
-  onSaveRef.current = onSave
-  const readOnlyRef = useRef(readOnly)
-  readOnlyRef.current = readOnly
+  const onLocalEditRef = useRef(onLocalEdit)
+  onLocalEditRef.current = onLocalEdit
   const { isDarkMode } = useTheme()
 
   // Update theme when dark mode changes
@@ -150,22 +183,19 @@ export function DocumentEditor({
     }
   }, [readOnly])
 
-  // Update save keymap without recreating editor
+  // Suppress browser "Save As" dialog on Mod-s
   useEffect(() => {
     if (viewRef.current) {
       viewRef.current.dispatch({
         effects: keymapCompartment.reconfigure(
           keymap.of([{
             key: 'Mod-s',
-            run: () => {
-              if (!readOnlyRef.current) onSaveRef.current()
-              return true
-            },
+            run: () => true,
           }])
         ),
       })
     }
-  }, [onSave, readOnly])
+  }, [])
 
   // Create editor once per yDoc/documentId
   useEffect(() => {
@@ -173,7 +203,6 @@ export function DocumentEditor({
       return
     }
 
-    // Get Y.Text from Y.Doc (create if not exists)
     const yText = yDoc.getText('content')
 
     // Create editor state with extensions
@@ -187,16 +216,16 @@ export function DocumentEditor({
           syntaxHighlighting(isDarkMode ? darkHighlighting : lightHighlighting),
         ]),
         editableCompartment.of(EditorView.editable.of(!readOnly)),
-        // Yjs collaboration extension
-        yCollab(yText, null, { undoManager: new Y.UndoManager(yText) }),
-        // Keyboard shortcuts
+        // Yjs collaboration extension (must be before localEditNotifier so
+        // yCollab syncs CM → Y.Text before auto-sync computes the diff)
+        yCollab(yText, awareness, { undoManager: new Y.UndoManager(yText) }),
+        // Detect user-originated CM edits and notify auto-sync via callback prop
+        localEditNotifier(() => onLocalEditRef.current?.()),
+        // Suppress browser "Save As" dialog
         keymapCompartment.of(
           keymap.of([{
             key: 'Mod-s',
-            run: () => {
-              if (!readOnlyRef.current) onSaveRef.current()
-              return true
-            },
+            run: () => true,
           }])
         ),
       ],
@@ -210,12 +239,11 @@ export function DocumentEditor({
 
     viewRef.current = view
 
-    // Cleanup on unmount
     return () => {
       view.destroy()
       viewRef.current = null
     }
-  }, [yDoc, documentId])
+  }, [yDoc, documentId, awareness])
 
   return (
     <div ref={editorRef} className="h-full overflow-hidden" data-testid="document-editor" />

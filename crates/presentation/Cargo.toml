@@ -35,9 +35,13 @@ uuid.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 
-# Cryptography (for auth)
+# Cryptography (for auth + WS signature verification)
 base64-url.workspace = true
+ed25519-dalek.workspace = true
 
 # Rate limiting
 tower_governor.workspace = true
 governor.workspace = true
+
+# WebSocket connection store
+dashmap.workspace = true

@@ -55,15 +55,19 @@ pub trait MemberMutationService: Send + Sync {
         target_user_id: UserId,
     ) -> Result<(), MemberMutationError>;
 
-    /// Remove a non-Owner member with a conditional DELETE that includes the
-    /// expected role_id. If the member was concurrently promoted to a different
-    /// role (especially Owner), the DELETE will affect 0 rows and return
-    /// `MemberMutationError::RoleConflict`.
+    /// Remove a non-Owner member with operator freshness guard.
+    ///
+    /// The conditional DELETE includes both the target's expected role_id (TOCTOU
+    /// protection against concurrent promotion) and a subquery verifying the
+    /// operator still holds the expected role_id (TOCTOU protection against
+    /// concurrent demotion of the operator).
     async fn remove_non_owner_member(
         &self,
         workspace_id: WorkspaceId,
         target_user_id: UserId,
         expected_role_id: RoleId,
+        operator_user_id: UserId,
+        expected_operator_role_id: RoleId,
     ) -> Result<(), MemberMutationError>;
 
     /// Change an Owner member's role atomically with Owner continuity check.
@@ -76,15 +80,19 @@ pub trait MemberMutationService: Send + Sync {
         new_role_id: RoleId,
     ) -> Result<(), MemberMutationError>;
 
-    /// Change a non-Owner member's role with a conditional UPDATE that includes the
-    /// expected current role_id. If the member was concurrently promoted to a different
-    /// role (especially Owner), the UPDATE will affect 0 rows and return
-    /// `MemberMutationError::RoleConflict`.
+    /// Change a non-Owner member's role with operator freshness guard.
+    ///
+    /// The conditional UPDATE includes both the target's expected role_id (TOCTOU
+    /// protection against concurrent promotion) and a subquery verifying the
+    /// operator still holds the expected role_id (TOCTOU protection against
+    /// concurrent demotion of the operator).
     async fn change_non_owner_role(
         &self,
         workspace_id: WorkspaceId,
         target_user_id: UserId,
         expected_role_id: RoleId,
         new_role_id: RoleId,
+        operator_user_id: UserId,
+        expected_operator_role_id: RoleId,
     ) -> Result<(), MemberMutationError>;
 }

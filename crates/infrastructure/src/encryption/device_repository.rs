@@ -104,6 +104,26 @@ impl DeviceRepository for PgDeviceRepository {
         rows.into_iter().map(|r| r.try_into_device()).collect()
     }
 
+    async fn find_active_by_signing_pub_key(
+        &self,
+        signing_pub_key: &[u8],
+    ) -> Result<Option<Device>, Self::Error> {
+        let row = sqlx::query_as!(
+            DeviceRow,
+            r#"
+            SELECT id, user_id, name, device_type, ecdh_public_key, signing_public_key,
+                   identity_signature, client_nonce, last_seen_at, created_at, revoked_at
+            FROM devices
+            WHERE signing_public_key = $1 AND revoked_at IS NULL
+            "#,
+            signing_pub_key
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|r| r.try_into_device()).transpose()
+    }
+
     async fn save(&self, device: &Device) -> Result<(), Self::Error> {
         sqlx::query!(
             r#"

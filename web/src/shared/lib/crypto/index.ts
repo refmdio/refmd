@@ -59,7 +59,11 @@ export {
   SIGNATURE_ACTION,
   canonicalizeBytes,
   buildSignatureMessage,
+  // Phase 4B: WS envelope signatures
+  WS_SIGNATURE_PREFIX,
+  buildWsEnvelopeMessage,
   type SignatureAction,
+  type WsSignaturePrefix,
 } from './signature'
 
 // AAD constants and helpers
@@ -96,9 +100,11 @@ export {
   unwrapDek,
   encryptContent,
   decryptContent,
+  encryptSnapshot,
+  decryptSnapshot,
+  computeSnapshotCiphertextHash,
+  computeParentSnapshotProof,
   computeUpdateHash,
-  signDocumentUpdate,
-  verifyDocumentUpdate,
 } from './document'
 
 // DSK (Device Storage Key) functions

@@ -18,18 +18,34 @@ pub enum WorkspaceEvent {
         /// User IDs of existing workspace members (for SSE filtering)
         member_user_ids: Vec<UserId>,
     },
+    /// A member was removed from the workspace
+    MemberRemoved {
+        workspace_id: WorkspaceId,
+        removed_user_id: UserId,
+    },
+    /// A member's role was changed in the workspace
+    MemberRoleChanged {
+        workspace_id: WorkspaceId,
+        target_user_id: UserId,
+    },
 }
 
 impl WorkspaceEvent {
     /// Check if this event is relevant for a specific user.
     ///
-    /// When `member_user_ids` is empty (cross-instance deserialization),
-    /// broadcasts to all connected users — the frontend filters by workspace.
+    /// Fail-closed: empty `member_user_ids` suppresses delivery rather than
+    /// broadcasting to all users (prevents information leakage).
     pub fn is_for_user(&self, user_id: UserId) -> bool {
         match self {
             WorkspaceEvent::InvitationAccepted {
                 member_user_ids, ..
-            } => member_user_ids.is_empty() || member_user_ids.contains(&user_id),
+            } => member_user_ids.contains(&user_id),
+            WorkspaceEvent::MemberRemoved {
+                removed_user_id, ..
+            } => *removed_user_id == user_id,
+            WorkspaceEvent::MemberRoleChanged {
+                target_user_id, ..
+            } => *target_user_id == user_id,
         }
     }
 }

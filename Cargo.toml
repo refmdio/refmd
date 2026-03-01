@@ -22,7 +22,7 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
 
 # Web framework
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "set-header"] }
 tower_governor = "0.6"
@@ -62,6 +62,7 @@ hex = "0.4"
 blake3 = "1.5"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 rand = "0.9"
+dashmap = "6"
 
 # Configuration
 dotenvy = "0.15"

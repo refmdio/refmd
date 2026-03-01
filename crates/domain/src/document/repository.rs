@@ -1,10 +1,12 @@
 //! Document repository traits
 
 use async_trait::async_trait;
+use std::collections::HashMap;
 
 use super::document::Document;
+use super::document_snapshot::{DocumentSnapshot, SnapshotProof};
 use super::document_update::DocumentUpdate;
-use super::value_objects::DocumentId;
+use super::value_objects::{DocumentId, DocumentSnapshotId, PublicData};
 use crate::workspace::WorkspaceId;
 
 /// Document repository trait
@@ -20,6 +22,12 @@ pub trait DocumentRepository: Send + Sync {
         &self,
         workspace_id: WorkspaceId,
     ) -> Result<Vec<Document>, Self::Error>;
+
+    /// Find document IDs in a workspace (lightweight, for scoped disconnect)
+    async fn find_ids_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<DocumentId>, Self::Error>;
 
     /// Find documents by parent
     async fn find_by_parent_id(&self, parent_id: DocumentId) -> Result<Vec<Document>, Self::Error>;
@@ -47,55 +55,105 @@ pub trait DocumentRepository: Send + Sync {
     async fn delete(&self, id: DocumentId) -> Result<(), Self::Error>;
 }
 
-/// Document update repository trait
+/// Document update repository trait (clock-based)
 #[async_trait]
 pub trait DocumentUpdateRepository: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
 
-    /// Find updates by document ID
-    async fn find_by_document_id(
+    /// Find updates belonging to a specific collab snapshot, optionally after a version
+    async fn find_by_snapshot_id(
         &self,
-        document_id: DocumentId,
-    ) -> Result<Vec<DocumentUpdate>, Self::Error>;
+        snapshot_id: DocumentSnapshotId,
+        after_version: Option<i64>,
+    ) -> Result<Vec<(DocumentUpdate, PublicData)>, Self::Error>;
 
-    /// Find updates by document ID after a sequence number
-    async fn find_by_document_id_after_seq(
+    /// Save update with clock validation (Serializable transaction)
+    /// Returns (id, clock, version) on success
+    async fn save_with_clock(
         &self,
-        document_id: DocumentId,
-        after_seq: i64,
-    ) -> Result<Vec<DocumentUpdate>, Self::Error>;
+        update: &DocumentUpdate,
+        snapshot_id: DocumentSnapshotId,
+        public_data: PublicData,
+    ) -> Result<(i64, i32, i64), Self::Error>;
 
-    /// Find update by hash (for idempotency)
-    async fn find_by_hash(&self, update_hash: &str) -> Result<Option<DocumentUpdate>, Self::Error>;
+    /// Check if an error represents a clock mismatch
+    fn is_clock_mismatch(&self, err: &Self::Error) -> bool;
 
-    /// Get latest sequence number for a document (Phase 3+: update compaction)
-    async fn get_latest_seq(&self, document_id: DocumentId) -> Result<Option<i64>, Self::Error>;
+    /// Check if an error represents a snapshot mismatch (active snapshot changed)
+    fn is_snapshot_mismatch(&self, err: &Self::Error) -> bool;
 
-    /// Get the hash of the latest update for a document (for hash chain validation)
-    async fn get_latest_update_hash(
+    /// Check if an error represents a key version too old (below min_dek_version)
+    fn is_key_version_too_old(&self, err: &Self::Error) -> bool;
+
+    /// Find updates by snapshot ID, filtering by per-device known clocks.
+    /// Returns updates where the device is unknown to the caller, or clock > known_clock.
+    async fn find_by_snapshot_id_after_clocks(
         &self,
-        document_id: DocumentId,
-    ) -> Result<Option<String>, Self::Error>;
-
-    /// Save update atomically (assigns seq, verifies chain)
-    /// Returns (id, seq) on success
-    async fn save(&self, update: &DocumentUpdate) -> Result<(i64, i64), Self::Error>;
-
-    /// Check if an error represents a duplicate update_hash violation
-    fn is_duplicate_hash(&self, err: &Self::Error) -> bool;
-
-    /// Check if an error represents a chain mismatch (prev_update_hash didn't match latest)
-    fn is_chain_mismatch(&self, err: &Self::Error) -> bool;
+        snapshot_id: DocumentSnapshotId,
+        known_clocks: &std::collections::HashMap<String, i64>,
+    ) -> Result<Vec<(DocumentUpdate, PublicData)>, Self::Error>;
 
     /// Delete updates by document ID
     async fn delete_by_document_id(&self, document_id: DocumentId) -> Result<(), Self::Error>;
-
-    /// Delete updates before a sequence number (Phase 3+: update compaction)
-    async fn delete_before_seq(
-        &self,
-        document_id: DocumentId,
-        before_seq: i64,
-    ) -> Result<u64, Self::Error>;
 }
 
+/// Outcome of a snapshot save operation
+#[derive(Debug, Clone, PartialEq)]
+pub enum SnapshotSaveOutcome {
+    /// Snapshot saved successfully
+    Saved,
+    /// CAS failed: active_snapshot_id did not match expected parent
+    ParentMismatch,
+    /// Clocks changed between validation and save (concurrent update)
+    ClockMismatch,
+    /// Key version is below min_dek_version (DEK rotation occurred concurrently)
+    KeyVersionTooOld,
+    /// Client-provided snapshot ID already exists (UUID collision or malicious replay)
+    DuplicateId,
+}
 
+/// Collaboration snapshot repository trait
+#[async_trait]
+pub trait DocumentSnapshotRepository: Send + Sync {
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Find the active collab snapshot for a document
+    async fn find_active_by_document_id(
+        &self,
+        document_id: DocumentId,
+    ) -> Result<Option<(DocumentSnapshot, PublicData)>, Self::Error>;
+
+    /// Find a snapshot by its ID
+    async fn find_by_id(
+        &self,
+        id: DocumentSnapshotId,
+    ) -> Result<Option<(DocumentSnapshot, PublicData)>, Self::Error>;
+
+    /// Save a new snapshot and set it as active (Serializable transaction).
+    /// Uses CAS: only sets active if current active_snapshot_id == expected_parent_id.
+    /// When `expected_parent_id` is `None` (genesis), CAS checks `active_snapshot_id IS NULL`.
+    /// Clock validation happens inside the transaction to prevent race conditions.
+    async fn save(
+        &self,
+        snapshot: &DocumentSnapshot,
+        expected_parent_id: Option<DocumentSnapshotId>,
+        expected_parent_clocks: &HashMap<String, i64>,
+        public_data: PublicData,
+    ) -> Result<SnapshotSaveOutcome, Self::Error>;
+
+    /// Find the proof chain from a given snapshot up to (and including) the target snapshot.
+    /// Returns snapshots created strictly after `from_snapshot_id` and up to `up_to_snapshot_id`.
+    async fn find_proof_chain(
+        &self,
+        document_id: DocumentId,
+        from_snapshot_id: DocumentSnapshotId,
+        up_to_snapshot_id: DocumentSnapshotId,
+    ) -> Result<Vec<SnapshotProof>, Self::Error>;
+
+    /// Get aggregate clocks for all updates in a snapshot
+    async fn get_snapshot_clocks(
+        &self,
+        snapshot_id: DocumentSnapshotId,
+    ) -> Result<HashMap<String, i64>, Self::Error>;
+
+}

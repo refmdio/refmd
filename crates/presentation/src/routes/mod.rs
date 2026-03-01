@@ -23,9 +23,13 @@ pub mod invitation;
 pub mod trust_transfer;
 pub mod workspace;
 
+use axum::extract::FromRef;
+use axum::Router;
+use axum::routing::get;
+
 use crate::AppState;
 use crate::auth::PopLayer;
-use axum::Router;
+use crate::ws;
 
 /// Generate an error response struct with `error: String` field.
 ///
@@ -117,11 +121,20 @@ macro_rules! app_error_response {
 pub(crate) use app_error_response;
 
 /// Create all API routes
-pub fn create_routes(state: AppState) -> Result<Router, anyhow::Error> {
-    Ok(Router::new().nest("/api", api_routes(state)?))
+pub fn create_routes(
+    state: AppState,
+    connection_store: ws::DocumentConnectionStore,
+    allowed_origins: Vec<String>,
+) -> Result<Router, anyhow::Error> {
+    Ok(Router::new()
+        .nest("/api", api_routes(state, connection_store, allowed_origins)?))
 }
 
-fn api_routes(state: AppState) -> Result<Router, anyhow::Error> {
+fn api_routes(
+    state: AppState,
+    connection_store: ws::DocumentConnectionStore,
+    allowed_origins: Vec<String>,
+) -> Result<Router, anyhow::Error> {
     let pop_layer = PopLayer::new(
         state.device_repo(),
         state.session_repo(),
@@ -135,16 +148,57 @@ fn api_routes(state: AppState) -> Result<Router, anyhow::Error> {
     // cause the first nested scope to 404 without falling through to the others.
     let workspace_pop_routes = workspace::pop_routes(state.clone())
         .merge(workspace::invitation_routes(state.clone()))
-        .merge(document::workspace_document_routes(state.clone()));
+        .merge(document::workspace_document_routes(state.clone()))
+        .nest("/invitations", invitation::pop_routes(state.clone()));
 
     let pop_protected = Router::new()
         .nest("/workspaces", workspace_pop_routes)
-        .nest("/invitations", invitation::pop_routes(state.clone()))
         .nest("/documents", document::routes(state.clone()))
         .nest("/encryption", encryption::routes(state.clone()))
         .nest("/devices", device::pop_routes(state.clone()))
         .nest("/trust-transfer", trust_transfer::pop_routes(state.clone()))
         .layer(pop_layer);
+
+    // WebSocket routes (session auth only, no PoP)
+    let ws_state = ws::handler::WsState {
+        document_sub_state: crate::DocumentSubState::from_ref(&state),
+        session_repo: state.session_repo(),
+        connection_store,
+        allowed_origins,
+    };
+
+    // Spawn background task: workspace events → WS disconnect (workspace-scoped)
+    {
+        let connection_store = ws_state.connection_store.clone();
+        let doc_sub: crate::DocumentSubState = FromRef::from_ref(&state);
+        let service = application::workspace::WorkspaceDisconnectService::new(
+            doc_sub.document_repo.clone(),
+        );
+        let workspace_sub: crate::WorkspaceSubState = FromRef::from_ref(&state);
+        let mut rx = application::workspace_events::WorkspaceEventSubscriber::subscribe(
+            workspace_sub.workspace_event_bus.as_ref(),
+        );
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        service.handle_event(&event, &connection_store).await;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!("WS disconnect listener lagged by {n} events");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
+    let ws_routes = Router::new()
+        .route(
+            "/documents/{document_id}/ws",
+            get(ws::handler::ws_document),
+        )
+        .with_state(ws_state);
 
     // Routes requiring session auth only (no PoP)
     let session_only = Router::new()
@@ -155,5 +209,6 @@ fn api_routes(state: AppState) -> Result<Router, anyhow::Error> {
 
     Ok(Router::new()
         .merge(pop_protected)
-        .merge(session_only))
+        .merge(session_only)
+        .merge(ws_routes))
 }

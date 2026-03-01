@@ -7,16 +7,16 @@ use application::types::{
     // BoxedError
     BoxedError,
     // ID types
-    DocumentId, DeviceId, InvitationId, SessionId, UserId, RoleId, WorkspaceId,
+    DocumentId, DocumentSnapshotId, DeviceId, InvitationId, SessionId, UserId, RoleId, WorkspaceId,
     // Entity types
-    Document, DocumentUpdate,
+    Document, DocumentSnapshot, DocumentUpdate,
     Device, DeviceEncryptedUMK, DeviceRevocationEvent, DocumentEncryptedKey, PendingDevice,
     UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey,
     WorkspaceEncryptedKey, WorkspaceInvitation, WorkspaceKekBackup,
     Email, Session, User, UserSettings,
     Slug, Workspace, WorkspaceMember, WorkspaceRole,
     // Repository traits
-    DocumentRepository, DocumentUpdateRepository,
+    DocumentRepository, DocumentSnapshotRepository, DocumentUpdateRepository,
     DeviceEncryptedUMKRepository, DeviceRepository, DeviceRevocationEventRepository,
     DocumentEncryptedKeyRepository, PendingDeviceRepository, UserEncryptedIdentityKeyRepository,
     UserEncryptedMasterKeyRepository, UserIdentityPublicKeyRepository,
@@ -25,6 +25,8 @@ use application::types::{
     WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRolePermission,
     WorkspaceRolePermissionRepository, WorkspaceRoleRepository,
 };
+use application::types::{SnapshotProof, SnapshotSaveOutcome};
+use std::collections::HashMap;
 
 /// Generic adapter that wraps a repository and converts errors to BoxedError
 pub struct BoxedRepo<T>(pub T);
@@ -91,6 +93,7 @@ impl_boxed_repo!(DeviceRepository {
     fn find_by_id(&self, id: DeviceId) -> Result<Option<Device>>;
     fn find_by_user_id(&self, user_id: UserId) -> Result<Vec<Device>>;
     fn find_active_by_user_id(&self, user_id: UserId) -> Result<Vec<Device>>;
+    fn find_active_by_signing_pub_key(&self, signing_pub_key: &[u8]) -> Result<Option<Device>>;
     fn save(&self, device: &Device) -> Result<()>;
     fn delete(&self, id: DeviceId) -> Result<()>;
 });
@@ -161,6 +164,7 @@ impl_boxed_repo!(DeviceEncryptedUMKRepository {
 impl_boxed_repo!(DocumentRepository {
     fn find_by_id(&self, id: DocumentId) -> Result<Option<Document>>;
     fn find_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<Document>>;
+    fn find_ids_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<DocumentId>>;
     fn find_by_parent_id(&self, parent_id: DocumentId) -> Result<Vec<Document>>;
     fn find_roots_by_workspace_id(&self, workspace_id: WorkspaceId) -> Result<Vec<Document>>;
     fn find_needing_dek_rotation(&self, workspace_id: WorkspaceId) -> Result<Vec<Document>>;
@@ -169,7 +173,7 @@ impl_boxed_repo!(DocumentRepository {
     fn delete(&self, id: DocumentId) -> Result<()>;
 });
 
-// DocumentUpdateRepository needs special handling for is_duplicate_hash/is_chain_mismatch
+// DocumentUpdateRepository needs special handling for is_clock_mismatch
 #[async_trait::async_trait]
 impl<T: DocumentUpdateRepository + Send + Sync> DocumentUpdateRepository for BoxedRepo<T>
 where
@@ -177,69 +181,53 @@ where
 {
     type Error = BoxedError;
 
-    async fn find_by_document_id(
+    async fn find_by_snapshot_id(
         &self,
-        document_id: DocumentId,
-    ) -> Result<Vec<DocumentUpdate>, Self::Error> {
+        snapshot_id: DocumentSnapshotId,
+        after_version: Option<i64>,
+    ) -> Result<Vec<(DocumentUpdate, serde_json::Value)>, Self::Error> {
         self.0
-            .find_by_document_id(document_id)
+            .find_by_snapshot_id(snapshot_id, after_version)
             .await
             .map_err(boxed_err)
     }
 
-    async fn find_by_document_id_after_seq(
-        &self,
-        document_id: DocumentId,
-        after_seq: i64,
-    ) -> Result<Vec<DocumentUpdate>, Self::Error> {
-        self.0
-            .find_by_document_id_after_seq(document_id, after_seq)
-            .await
-            .map_err(boxed_err)
-    }
-
-    async fn find_by_hash(
-        &self,
-        update_hash: &str,
-    ) -> Result<Option<DocumentUpdate>, Self::Error> {
-        self.0.find_by_hash(update_hash).await.map_err(boxed_err)
-    }
-
-    async fn get_latest_seq(
-        &self,
-        document_id: DocumentId,
-    ) -> Result<Option<i64>, Self::Error> {
-        self.0
-            .get_latest_seq(document_id)
-            .await
-            .map_err(boxed_err)
-    }
-
-    async fn get_latest_update_hash(
-        &self,
-        document_id: DocumentId,
-    ) -> Result<Option<String>, Self::Error> {
-        self.0
-            .get_latest_update_hash(document_id)
-            .await
-            .map_err(boxed_err)
-    }
-
-    async fn save(
+    async fn save_with_clock(
         &self,
         update: &DocumentUpdate,
-    ) -> Result<(i64, i64), Self::Error> {
-        self.0.save(update).await.map_err(boxed_err)
+        snapshot_id: DocumentSnapshotId,
+        public_data: serde_json::Value,
+    ) -> Result<(i64, i32, i64), Self::Error> {
+        self.0
+            .save_with_clock(update, snapshot_id, public_data)
+            .await
+            .map_err(boxed_err)
     }
 
-    fn is_duplicate_hash(&self, err: &Self::Error) -> bool {
+    fn is_clock_mismatch(&self, err: &Self::Error) -> bool {
         err.downcast_ref::<T::Error>()
-            .is_some_and(|inner| self.0.is_duplicate_hash(inner))
+            .is_some_and(|inner| self.0.is_clock_mismatch(inner))
     }
 
-    fn is_chain_mismatch(&self, err: &Self::Error) -> bool {
+    fn is_snapshot_mismatch(&self, err: &Self::Error) -> bool {
         err.downcast_ref::<T::Error>()
-            .is_some_and(|inner| self.0.is_chain_mismatch(inner))
+            .is_some_and(|inner| self.0.is_snapshot_mismatch(inner))
+    }
+
+    fn is_key_version_too_old(&self, err: &Self::Error) -> bool {
+        err.downcast_ref::<T::Error>()
+            .is_some_and(|inner| self.0.is_key_version_too_old(inner))
+    }
+
+    async fn find_by_snapshot_id_after_clocks(
+        &self,
+        snapshot_id: DocumentSnapshotId,
+        known_clocks: &HashMap<String, i64>,
+    ) -> Result<Vec<(DocumentUpdate, serde_json::Value)>, Self::Error> {
+        self.0
+            .find_by_snapshot_id_after_clocks(snapshot_id, known_clocks)
+            .await
+            .map_err(boxed_err)
     }
 
     async fn delete_by_document_id(
@@ -251,17 +239,68 @@ where
             .await
             .map_err(boxed_err)
     }
+}
 
-    async fn delete_before_seq(
+// DocumentSnapshotRepository
+#[async_trait::async_trait]
+impl<T: DocumentSnapshotRepository + Send + Sync> DocumentSnapshotRepository for BoxedRepo<T>
+where
+    T::Error: 'static,
+{
+    type Error = BoxedError;
+
+    async fn find_active_by_document_id(
         &self,
         document_id: DocumentId,
-        before_seq: i64,
-    ) -> Result<u64, Self::Error> {
+    ) -> Result<Option<(DocumentSnapshot, serde_json::Value)>, Self::Error> {
         self.0
-            .delete_before_seq(document_id, before_seq)
+            .find_active_by_document_id(document_id)
             .await
             .map_err(boxed_err)
     }
+
+    async fn find_by_id(
+        &self,
+        id: DocumentSnapshotId,
+    ) -> Result<Option<(DocumentSnapshot, serde_json::Value)>, Self::Error> {
+        self.0.find_by_id(id).await.map_err(boxed_err)
+    }
+
+    async fn save(
+        &self,
+        snapshot: &DocumentSnapshot,
+        expected_parent_id: Option<DocumentSnapshotId>,
+        expected_parent_clocks: &std::collections::HashMap<String, i64>,
+        public_data: serde_json::Value,
+    ) -> Result<SnapshotSaveOutcome, Self::Error> {
+        self.0
+            .save(snapshot, expected_parent_id, expected_parent_clocks, public_data)
+            .await
+            .map_err(boxed_err)
+    }
+
+    async fn find_proof_chain(
+        &self,
+        document_id: DocumentId,
+        from_snapshot_id: DocumentSnapshotId,
+        up_to_snapshot_id: DocumentSnapshotId,
+    ) -> Result<Vec<SnapshotProof>, Self::Error> {
+        self.0
+            .find_proof_chain(document_id, from_snapshot_id, up_to_snapshot_id)
+            .await
+            .map_err(boxed_err)
+    }
+
+    async fn get_snapshot_clocks(
+        &self,
+        snapshot_id: DocumentSnapshotId,
+    ) -> Result<HashMap<String, i64>, Self::Error> {
+        self.0
+            .get_snapshot_clocks(snapshot_id)
+            .await
+            .map_err(boxed_err)
+    }
+
 }
 
 // =============================================================================

@@ -19,6 +19,7 @@ pub mod events;
 pub mod rate_limit;
 pub mod routes;
 mod state;
+pub mod ws;
 
 pub use auth::{AuthUser, AuthError, PopVerifiedUser, RecoveryOrPopUser};
 pub use events::{
@@ -59,8 +60,6 @@ use utoipa::OpenApi;
         routes::document::delete_document,
         routes::document::archive_document,
         routes::document::unarchive_document,
-        routes::document::list_updates,
-        routes::document::create_update,
         routes::encryption::save_workspace_key,
         routes::encryption::get_workspace_key,
         routes::encryption::save_document_key,
@@ -97,6 +96,7 @@ use utoipa::OpenApi;
         routes::trust_transfer::request_nonce,
         routes::trust_transfer::submit_state,
         routes::trust_transfer::retrieve_state,
+        ws::handler::ws_document,
     ),
     components(
         schemas(
@@ -130,11 +130,6 @@ use utoipa::OpenApi;
             routes::document::ListDocumentsParams,
             routes::document::ListDocumentsResponse,
             routes::document::DocumentErrorResponse,
-            routes::document::DocumentUpdateResponse,
-            routes::document::ListDocumentUpdatesResponse,
-            routes::document::ListDocumentUpdatesParams,
-            routes::document::CreateDocumentUpdateRequest,
-            routes::document::CreateDocumentUpdateResponse,
             routes::encryption::SaveWorkspaceKeyRequest,
             routes::encryption::WorkspaceKeyResponse,
             routes::encryption::GetWorkspaceKeyParams,
@@ -183,6 +178,15 @@ use utoipa::OpenApi;
             routes::trust_transfer::TrustTransferErrorResponse,
             routes::trust_transfer::SubmitStateRequest,
             routes::trust_transfer::RetrieveStateResponse,
+            ws::messages::WsOutMessage,
+            ws::messages::WsSnapshotData,
+            ws::messages::WsUpdateData,
+            ws::messages::WsSnapshotProof,
+            ws::messages::WsInEnvelope,
+            ws::messages::WsInPublicData,
+            ws::messages::WsSnapshotEnvelope,
+            ws::messages::WsUpdateEnvelope,
+            ws::messages::WsEphemeralEnvelope,
         )
     ),
     tags(

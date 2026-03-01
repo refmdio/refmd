@@ -82,6 +82,7 @@ CREATE TABLE devices (
 
 CREATE INDEX idx_devices_user_id ON devices(user_id);
 CREATE INDEX idx_devices_user_active ON devices(user_id) WHERE revoked_at IS NULL;
+CREATE UNIQUE INDEX idx_devices_signing_public_key ON devices(signing_public_key);
 
 -- Pending devices (awaiting SAS verification)
 CREATE TABLE pending_devices (

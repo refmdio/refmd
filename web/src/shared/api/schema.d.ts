@@ -427,18 +427,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/documents/{document_id}/updates": {
+    "/api/documents/{document_id}/ws": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List document updates (CRDT update log) */
-        get: operations["list_updates"];
+        /**
+         * WebSocket document endpoint: GET /documents/{document_id}/ws
+         * @description Upgrades the HTTP connection to a WebSocket for real-time document collaboration.
+         *     Requires session cookie authentication.
+         *
+         *     ## Protocol
+         *
+         *     After upgrade, the server sends an initial `document` message containing the
+         *     current snapshot + updates. Clients then exchange encrypted update/snapshot/ephemeral
+         *     messages through the WebSocket.
+         *
+         *     ## Client → Server messages
+         *
+         *     All messages use a signed envelope format (`WsInEnvelope`):
+         *     - **update**: Encrypted Y.js diff with clock and ref_snapshot_id
+         *     - **snapshot**: Encrypted full Y.js state with proof chain
+         *     - **ephemeral**: Encrypted cursor/presence data (not persisted)
+         *
+         *     ## Server → Client messages
+         *
+         *     See `WsOutMessage` for all possible server responses including
+         *     confirmations (`update-saved`, `snapshot-saved`) and broadcasts.
+         */
+        get: operations["ws_document"];
         put?: never;
-        /** Create a new document update (CRDT update) */
-        post: operations["create_update"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -516,23 +537,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/invitations/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Accept an invitation */
-        post: operations["accept_invitation"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/trust-transfer/nonce": {
         parameters: {
             query?: never;
@@ -600,6 +604,23 @@ export interface paths {
         get: operations["workspace_events"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation */
+        post: operations["accept_invitation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -824,36 +845,6 @@ export interface components {
             parent_id?: string | null;
             title: string;
         };
-        /** @description Create document update request */
-        CreateDocumentUpdateRequest: {
-            /** @description Device that authored this update */
-            author_device_id: string;
-            /**
-             * Format: int32
-             * @description DEK version used for encryption
-             */
-            key_version: number;
-            /** @description Base64url-encoded 24-byte nonce */
-            nonce: string;
-            /** @description Hash of the previous update for hash chain (base64url, nullable for first update) */
-            prev_update_hash?: string | null;
-            /** @description Ed25519 signature over the update (base64url) */
-            signature: string;
-            /**
-             * Format: int64
-             * @description Client timestamp (milliseconds since epoch)
-             */
-            timestamp: number;
-            /** @description Base64url-encoded encrypted Yjs update binary */
-            update_data: string;
-            /** @description Content-addressable hash for idempotency (base64url) */
-            update_hash: string;
-        };
-        /** @description Create document update response */
-        CreateDocumentUpdateResponse: {
-            /** Format: int64 */
-            seq: number;
-        };
         /** @description Create invitation request */
         CreateInvitationRequest: {
             encrypted_kek: string;
@@ -1013,33 +1004,6 @@ export interface components {
             title: string;
             updated_at: string;
             workspace_id: string;
-        };
-        /** @description Document update response (single update) */
-        DocumentUpdateResponse: {
-            /** @description Device that authored this update */
-            author_device_id: string;
-            /**
-             * Format: int32
-             * @description DEK version used for encryption
-             */
-            key_version: number;
-            /** @description Base64url-encoded 24-byte nonce */
-            nonce: string;
-            /** @description Hash of the previous update (null for first update) */
-            prev_update_hash?: string | null;
-            /** Format: int64 */
-            seq: number;
-            /** @description Ed25519 signature (base64url) */
-            signature: string;
-            /**
-             * Format: int64
-             * @description Client timestamp (milliseconds since epoch)
-             */
-            timestamp: number;
-            /** @description Base64url-encoded encrypted Yjs update binary */
-            update_data: string;
-            /** @description Content-addressable hash for idempotency */
-            update_hash: string;
         };
         EncryptionErrorResponse: {
             /** @example key not found */
@@ -1201,18 +1165,6 @@ export interface components {
         /** @description List devices response */
         ListDevicesResponse: {
             devices: components["schemas"]["DeviceResponse"][];
-        };
-        /** @description List document updates query params */
-        ListDocumentUpdatesParams: {
-            /**
-             * Format: int64
-             * @description If provided, only return updates after this sequence number
-             */
-            after_seq?: number | null;
-        };
-        /** @description List document updates response */
-        ListDocumentUpdatesResponse: {
-            updates: components["schemas"]["DocumentUpdateResponse"][];
         };
         /** @description List documents query params */
         ListDocumentsParams: {
@@ -1427,6 +1379,7 @@ export interface components {
             is_default: boolean;
             joined_at: string;
             name: string;
+            permission_overrides: components["schemas"]["PermissionOverrideResponse"][];
             role_id: string;
             role_name: string;
             user_id: string;
@@ -1918,6 +1871,175 @@ export interface components {
         WorkspaceWithMembershipResponse: {
             membership: components["schemas"]["MembershipResponse"];
             workspace: components["schemas"]["WorkspaceResponse"];
+        };
+        /** @description Envelope relayed to other clients (ephemeral) */
+        WsEphemeralEnvelope: {
+            ciphertext: string;
+            nonce: string;
+            publicData: unknown;
+            signature: string;
+        };
+        /**
+         * @description Client → Server envelope (raw JSON from WS)
+         *
+         *     Parsed from a single `serde_json::Value` to avoid double-deserializing
+         *     the same JSON text. `raw_public_data` retains the original JSON for
+         *     signature verification and DB storage.
+         */
+        WsInEnvelope: {
+            ciphertext: string;
+            nonce: string;
+            publicData: components["schemas"]["WsInPublicData"];
+            signature: string;
+        };
+        /** @description Public data from client envelope — used to determine message type */
+        WsInPublicData: {
+            /** Format: int32 */
+            clock?: number | null;
+            deviceId: string;
+            docId: string;
+            /** Format: int32 */
+            keyVersion?: number | null;
+            parentSnapshotId?: string | null;
+            parentSnapshotProof?: string | null;
+            parentSnapshotUpdateClocks?: {
+                [key: string]: number;
+            } | null;
+            refSnapshotId?: string | null;
+            signingPubKey: string;
+            /** @description Client-generated snapshot ID (included in signed publicData for snapshots) */
+            snapshotId?: string | null;
+            /**
+             * Format: int64
+             * @description Client-generated Unix ms timestamp (used for update_hash verification)
+             */
+            timestamp?: number | null;
+            /** @description Client-computed update_hash (BLAKE3 of JCS-canonical fields, base64url) */
+            updateHash?: string | null;
+        };
+        /** @description Outgoing message from server to client (sent via per-connection mpsc channels) */
+        WsOutMessage: {
+            snapshot?: null | components["schemas"]["WsSnapshotData"];
+            snapshotProofChain: components["schemas"]["WsSnapshotProof"][];
+            /** @enum {string} */
+            type: "document";
+            updates: components["schemas"]["WsUpdateData"][];
+        } | {
+            snapshot: components["schemas"]["WsSnapshotEnvelope"];
+            snapshotId: string;
+            /** @enum {string} */
+            type: "snapshot";
+        } | {
+            snapshotId: string;
+            /** @enum {string} */
+            type: "snapshot-saved";
+        } | {
+            snapshot?: null | components["schemas"]["WsSnapshotData"];
+            snapshotProofChain: components["schemas"]["WsSnapshotProof"][];
+            /** @enum {string} */
+            type: "snapshot-save-failed";
+            updates: components["schemas"]["WsUpdateData"][];
+        } | (components["schemas"]["WsUpdateEnvelope"] & {
+            /** @enum {string} */
+            type: "update";
+        }) | {
+            /** Format: int32 */
+            clock: number;
+            snapshotId: string;
+            /** @enum {string} */
+            type: "update-saved";
+            /** Format: int64 */
+            version: number;
+        } | {
+            /** Format: int32 */
+            clock: number;
+            requiresNewSnapshot: boolean;
+            snapshotId: string;
+            /** @enum {string} */
+            type: "update-save-failed";
+        } | (components["schemas"]["WsEphemeralEnvelope"] & {
+            /** @enum {string} */
+            type: "ephemeral-message";
+        }) | {
+            /** @enum {string} */
+            type: "document-not-found";
+        } | {
+            /** @enum {string} */
+            type: "unauthorized";
+        } | {
+            /** @enum {string} */
+            type: "document-error";
+        } | {
+            detail: string;
+            messageType: string;
+            /** @enum {string} */
+            type: "validation-error";
+        };
+        /** @description Snapshot data from DB (for document/snapshot-save-failed messages) */
+        WsSnapshotData: {
+            ciphertextHash: string;
+            clocks: {
+                [key: string]: number;
+            };
+            createdAt: string;
+            createdByDevice: string;
+            data: string;
+            documentId: string;
+            id: string;
+            /** Format: int32 */
+            keyVersion: number;
+            /** Format: int64 */
+            latestVersion: number;
+            nonce: string;
+            parentSnapshotProof: string;
+            parentSnapshotUpdateClocks: {
+                [key: string]: number;
+            };
+            publicData?: unknown;
+            signature: string;
+        };
+        /** @description Envelope relayed to other clients (snapshot) */
+        WsSnapshotEnvelope: {
+            ciphertext: string;
+            nonce: string;
+            publicData: unknown;
+            signature: string;
+        };
+        /** @description Snapshot proof chain entry */
+        WsSnapshotProof: {
+            ciphertextHash: string;
+            parentSnapshotProof: string;
+            snapshotId: string;
+        };
+        /** @description Update data from DB (for document message) */
+        WsUpdateData: {
+            /** Format: int32 */
+            clock: number;
+            deviceSigningPubKey: string;
+            /** Format: int32 */
+            keyVersion: number;
+            nonce: string;
+            publicData?: unknown;
+            signature: string;
+            snapshotId: string;
+            /** Format: int64 */
+            timestamp: number;
+            updateData: string;
+            updateHash: string;
+            /** Format: int64 */
+            version: number;
+        };
+        /** @description Envelope relayed to other clients (update) */
+        WsUpdateEnvelope: {
+            ciphertext: string;
+            nonce: string;
+            publicData: unknown;
+            signature: string;
+            /**
+             * Format: int64
+             * @description Server-assigned version (added by server)
+             */
+            version: number;
         };
     };
     responses: never;
@@ -3146,11 +3268,15 @@ export interface operations {
             };
         };
     };
-    list_updates: {
+    ws_document: {
         parameters: {
             query?: {
-                /** @description Only return updates after this sequence number */
-                after_seq?: number;
+                /** @description Connection mode: "complete" (full state) or "delta" (changes since known state) */
+                mode?: string | null;
+                /** @description Known snapshot ID for delta mode */
+                knownSnapshotId?: string | null;
+                /** @description JSON-encoded map of known per-device update clocks for delta mode */
+                knownSnapshotUpdateClocks?: string | null;
             };
             header?: never;
             path: {
@@ -3161,113 +3287,40 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List of encrypted document updates */
-            200: {
+            /** @description WebSocket upgrade successful */
+            101: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["ListDocumentUpdatesResponse"];
-                };
+                content?: never;
             };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-            /** @description Permission denied */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-            /** @description Document not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-        };
-    };
-    create_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Document ID */
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateDocumentUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Document update created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreateDocumentUpdateResponse"];
-                };
-            };
-            /** @description Bad request (invalid nonce, encoding) */
+            /** @description Bad request — invalid query parameters */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
+                content?: never;
             };
-            /** @description Not authenticated */
+            /** @description Unauthorized — missing or invalid session */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
+                content?: never;
             };
-            /** @description Permission denied */
+            /** @description Forbidden — CSWSH origin rejected or insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
+                content?: never;
             };
-            /** @description Document not found */
+            /** @description Not found — document does not exist */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
-            };
-            /** @description Document is archived */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentErrorResponse"];
-                };
+                content?: never;
             };
         };
     };
@@ -3667,84 +3720,6 @@ export interface operations {
             };
         };
     };
-    accept_invitation: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AcceptInvitationRequest"];
-            };
-        };
-        responses: {
-            /** @description Invitation accepted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AcceptInvitationResponse"];
-                };
-            };
-            /** @description Invalid token format or length */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationErrorResponse"];
-                };
-            };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationErrorResponse"];
-                };
-            };
-            /** @description PoP verification failed */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationErrorResponse"];
-                };
-            };
-            /** @description Invitation not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationErrorResponse"];
-                };
-            };
-            /** @description KEK rotation in progress */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationErrorResponse"];
-                };
-            };
-            /** @description Invitation expired/revoked/exhausted */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InvitationErrorResponse"];
-                };
-            };
-        };
-    };
     request_nonce: {
         parameters: {
             query?: never;
@@ -4011,6 +3986,84 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    accept_invitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Invitation accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptInvitationResponse"];
+                };
+            };
+            /** @description Invalid token format or length */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description PoP verification failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description Invitation not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description KEK rotation in progress */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
+            };
+            /** @description Invitation expired/revoked/exhausted */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationErrorResponse"];
+                };
             };
         };
     };

@@ -4,6 +4,7 @@
 //! The infrastructure layer provides the transactional implementation.
 
 use async_trait::async_trait;
+use domain::identity::UserId;
 use domain::workspace::{RoleId, WorkspaceId};
 use thiserror::Error;
 
@@ -12,6 +13,9 @@ use thiserror::Error;
 pub enum RoleUpdateError {
     #[error("role not found")]
     RoleNotFound,
+
+    #[error("operator role changed (concurrent demotion)")]
+    OperatorDemoted,
 
     #[error("database error: {0}")]
     Database(String),
@@ -29,6 +33,9 @@ pub trait RoleUpdateService: Send + Sync {
     /// - If `swap_default` is `true`, swaps the workspace default to this role.
     /// - `permission_overrides` replaces all existing overrides for the role.
     ///   If `None`, permission overrides are not modified.
+    /// - `operator_user_id` + `expected_operator_role_id`: operator freshness guard.
+    ///   Verified within the transaction to prevent TOCTOU race where the operator
+    ///   is demoted between the handler's RBAC check and this transaction.
     async fn update_role_atomic(
         &self,
         workspace_id: WorkspaceId,
@@ -36,5 +43,7 @@ pub trait RoleUpdateService: Send + Sync {
         new_name: Option<&str>,
         swap_default: bool,
         permission_overrides: Option<&[(String, bool)]>,
+        operator_user_id: UserId,
+        expected_operator_role_id: RoleId,
     ) -> Result<(), RoleUpdateError>;
 }

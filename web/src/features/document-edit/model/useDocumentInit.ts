@@ -9,9 +9,8 @@
 import { useState, useEffect } from 'react'
 import * as Y from 'yjs'
 import type { DocumentResponse } from '@/shared/api'
-import type { AuthState } from '@/shared/model/auth-types'
+import type { AuthState, DeviceState } from '@/shared/model/auth-types'
 import { initializeDocumentCore } from '../lib/initializeDocument'
-import { MultiUserNotSupportedError } from '../lib/document-verification-service'
 import type { DocumentState, TofuKeyChangeWarning } from '../lib/types'
 import { documentCache } from '../lib/document-cache'
 
@@ -30,6 +29,7 @@ export function useDocumentInit(
   document: DocumentResponse | null,
   kek: Uint8Array | null,
   auth: AuthState | null,
+  device: DeviceState | null,
   retryTrigger: number,
   onTofuKeyChange: (warning: TofuKeyChangeWarning | null) => void
 ): UseDocumentInitResult {
@@ -46,7 +46,7 @@ export function useDocumentInit(
     }
 
     async function initializeYDoc() {
-      if (!document || !kek || !auth) {
+      if (!document || !kek || !auth || !device) {
         return
       }
 
@@ -73,6 +73,7 @@ export function useDocumentInit(
             document,
             kek,
             auth,
+            device,
           })
           if (result.status === 'key_changed') {
             if (!cancelled) {
@@ -84,14 +85,7 @@ export function useDocumentInit(
           return result.state
         } catch (err) {
           if (!cancelled) {
-            if (err instanceof MultiUserNotSupportedError) {
-              setError(new Error(
-                'This document contains updates from another user. ' +
-                'Multi-user collaboration is not yet supported.'
-              ))
-            } else {
-              setError(err instanceof Error ? err : new Error('Failed to initialize document'))
-            }
+            setError(err instanceof Error ? err : new Error('Failed to initialize document'))
           }
           return null
         } finally {
@@ -113,7 +107,7 @@ export function useDocumentInit(
     return () => {
       cancelled = true
     }
-  }, [document, kek, auth, documentId, retryTrigger, onTofuKeyChange])
+  }, [document, kek, auth, device, documentId, retryTrigger, onTofuKeyChange])
 
   return { yDoc, isLoading, error }
 }

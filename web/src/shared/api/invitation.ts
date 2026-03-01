@@ -6,6 +6,6 @@ import { api, unwrap } from './core'
 
 export const invitationApi = {
   async accept(body: { token: string }) {
-    return unwrap(await api.POST('/api/invitations/accept', { body }))
+    return unwrap(await api.POST('/api/workspaces/invitations/accept', { body }))
   },
 }

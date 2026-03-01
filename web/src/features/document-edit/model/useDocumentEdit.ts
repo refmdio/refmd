@@ -1,38 +1,40 @@
 /**
  * Document Edit Hook
  *
- * Coordinates document editing:
+ * Orchestrates document editing by composing:
  * - Metadata fetching
  * - KEK fetching (useWorkspaceKek)
  * - Y.Doc initialization (useDocumentInit)
- * - Content subscription (useDocumentContent)
- * - Save + TOFU key change flow
+ * - WebSocket + auto-sync (useDocumentWs)
+ * - TOFU key change flow
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import type * as Y from 'yjs'
+import type { Awareness } from 'y-protocols/awareness'
 import { documentApi } from '@/shared/api'
 import type { DocumentResponse } from '@/shared/api'
 import { useAuthContext } from '@/shared/context'
 import { useWorkspaceKek } from '@/entities/workspace'
 import { useKeyChangeFlow, useAsyncData, type KeyChangeWarningDialogProps } from '@/shared/hooks'
+import type { WsConnectionState } from '../lib/ws'
 import type { TofuKeyChangeWarning } from '../lib/types'
 import { documentCache, invalidateDocument } from '../lib/document-cache'
-import { saveDocumentToServer } from '../lib/saveDocument'
-import { useDocumentContent } from './useDocumentContent'
 import { useDocumentInit } from './useDocumentInit'
+import { useDocumentWs } from './useDocumentWs'
 
 export interface UseDocumentEditResult {
   document: DocumentResponse | null
   yDoc: Y.Doc | null
-  content: string
+  awareness: Awareness | null
   isLoading: boolean
   error: Error | null
-  isDirty: boolean
-  isSaving: boolean
-  save: () => Promise<void>
   /** Non-null when an identity key change is detected and user confirmation is needed */
   keyChangeDialogProps: KeyChangeWarningDialogProps | null
+  /** Current WebSocket connection state */
+  wsState: WsConnectionState
+  /** Notify auto-sync of a local CM edit */
+  onLocalEdit: () => void
 }
 
 /**
@@ -43,8 +45,6 @@ export interface UseDocumentEditResult {
  */
 export function useDocumentEdit(documentId: string): UseDocumentEditResult {
   const { auth, device } = useAuthContext()
-  const [isSaving, setIsSaving] = useState(false)
-  const [isDirty, setIsDirty] = useState(false)
   const [overrideError, setOverrideError] = useState<Error | null>(null)
   const [retryTrigger, setRetryTrigger] = useState(0)
 
@@ -97,50 +97,45 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
     yDoc,
     isLoading: initLoading,
     error: initError,
-  } = useDocumentInit(documentId, document, kek, auth, retryTrigger, handleTofuKeyChange)
+  } = useDocumentInit(documentId, document, kek, auth, device, retryTrigger, handleTofuKeyChange)
 
   const error = overrideError || docFetchError || kekError || initError
 
-  // Content subscription + ref counting
-  const content = useDocumentContent(documentId, yDoc, setIsDirty)
+  // Shared Awareness instance from documentCache (created in initializeDocumentCore)
+  const awareness = useMemo(() => {
+    if (!yDoc) return null
+    return documentCache.getValue(documentId)?.awareness ?? null
+  }, [yDoc, documentId])
 
-  // Save function
-  const save = useCallback(async () => {
+  // WebSocket connection + auto-sync (delegated to useDocumentWs)
+  const onFatalError = useCallback((err: Error) => setOverrideError(err), [])
+  const { wsState, onLocalEdit } = useDocumentWs(documentId, yDoc, device, onFatalError)
+
+  // Y.Doc ref counting: destroy Y.Doc when last subscriber disconnects
+  useEffect(() => {
     const state = documentCache.getValue(documentId)
-    if (!state || !auth || !device || !kek || !document || state.isSaving) {
-      return
+    if (!state) return
+
+    state.refCount++
+
+    return () => {
+      state.refCount--
+      if (state.refCount <= 0) {
+        state.awareness.destroy()
+        state.yDoc.destroy()
+        documentCache.removeValue(documentId)
+      }
     }
-
-    state.isSaving = true
-    setIsSaving(true)
-
-    try {
-      await saveDocumentToServer({
-        documentId,
-        auth,
-        device,
-        kek,
-        document,
-      })
-
-      setIsDirty(false)
-    } catch (err) {
-      setOverrideError(err instanceof Error ? err : new Error('Failed to save document'))
-    } finally {
-      state.isSaving = false
-      setIsSaving(false)
-    }
-  }, [documentId, auth, device, kek, document])
+  }, [documentId, yDoc])
 
   return {
     document,
     yDoc,
-    content,
+    awareness,
     isLoading: !error && (initLoading || kekLoading),
     error,
-    isDirty,
-    isSaving,
-    save,
     keyChangeDialogProps,
+    wsState,
+    onLocalEdit,
   }
 }

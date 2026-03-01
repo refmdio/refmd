@@ -2,12 +2,16 @@
 //!
 //! Uses tower-governor for rate limiting on sensitive endpoints.
 
-use std::{sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use axum::http::Request;
+use axum::{extract::ConnectInfo, http::Request};
 use tower_governor::{GovernorError, governor::GovernorConfigBuilder, key_extractor::KeyExtractor};
 
-/// Key extractor that uses client IP from X-Forwarded-For or X-Real-IP header
+/// Key extractor that uses client IP with fallback chain:
+/// 1. Proxy headers (CF-Connecting-IP, X-Real-IP, X-Forwarded-For)
+/// 2. ConnectInfo (direct socket connection IP)
+///
+/// See: `07-deployment/web-security.md` — IP address extraction
 #[derive(Clone)]
 pub struct ClientIpKeyExtractor;
 
@@ -15,7 +19,15 @@ impl KeyExtractor for ClientIpKeyExtractor {
     type Key = String;
 
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
-        crate::client_ip::extract_client_ip(req.headers()).ok_or_else(|| GovernorError::Other {
+        if let Some(ip) = crate::client_ip::extract_client_ip(req.headers()) {
+            return Ok(ip);
+        }
+
+        if let Some(connect_info) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+            return Ok(connect_info.0.ip().to_string());
+        }
+
+        Err(GovernorError::Other {
             code: axum::http::StatusCode::BAD_REQUEST,
             msg: Some("unable to determine client IP".to_string()),
             headers: None,
@@ -60,6 +72,8 @@ pub fn create_register_rate_limit_config() -> Result<Arc<RateLimitConfig>, anyho
 /// Create rate limiting configuration for device registration
 ///
 /// Limit: 5 requests per minute (1 per 12 seconds, burst of 5)
+/// Uses IP-based key: session-based keying is vulnerable to fake-cookie rotation
+/// (attacker sends different bogus session cookie per request to get unlimited buckets).
 pub fn create_device_rate_limit_config() -> Result<Arc<RateLimitConfig>, anyhow::Error> {
     Ok(Arc::new(
         GovernorConfigBuilder::default()

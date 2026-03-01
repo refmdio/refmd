@@ -62,6 +62,7 @@ define_state! {
         workspace_role_perm_repo: DynWorkspaceRolePermissionRepository,
         document_repo: DynDocumentRepository,
         document_update_repo: DynDocumentUpdateRepository,
+        snapshot_repo: DynSnapshotRepository,
         workspace_key_repo: DynWorkspaceEncryptedKeyRepository,
         document_key_repo: DynDocumentEncryptedKeyRepository,
         registration_service: DynRegistrationService,

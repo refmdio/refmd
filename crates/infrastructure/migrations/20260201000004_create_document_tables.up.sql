@@ -1,5 +1,24 @@
 -- Document domain tables
 
+-- Document snapshots (CRDT checkpoints)
+CREATE TABLE document_snapshots (
+    id UUID PRIMARY KEY,
+    document_id UUID NOT NULL,  -- FK added after documents table
+    parent_snapshot_id UUID,    -- NULL for genesis snapshot, self-referencing FK added below
+    latest_version BIGINT NOT NULL DEFAULT 0,
+    data BYTEA NOT NULL,
+    nonce BYTEA NOT NULL,
+    key_version INT NOT NULL,
+    signature BYTEA NOT NULL,
+    ciphertext_hash VARCHAR(64) NOT NULL,
+    clocks JSONB NOT NULL DEFAULT '{}',
+    parent_snapshot_update_clocks JSONB NOT NULL DEFAULT '{}',
+    parent_snapshot_proof VARCHAR(64) NOT NULL DEFAULT '',
+    created_by_device VARCHAR(64) NOT NULL,
+    public_data JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Documents
 CREATE TABLE documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -13,6 +32,7 @@ CREATE TABLE documents (
     doc_type VARCHAR(20) NOT NULL DEFAULT 'document',  -- 'document' or 'folder'
     is_encrypted BOOLEAN NOT NULL DEFAULT FALSE,
     needs_dek_rotation BOOLEAN NOT NULL DEFAULT FALSE,
+    active_snapshot_id UUID REFERENCES document_snapshots(id),
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -24,55 +44,43 @@ CREATE INDEX idx_documents_parent_id ON documents(parent_id);
 CREATE UNIQUE INDEX idx_documents_workspace_slug ON documents(workspace_id, slug);
 CREATE INDEX idx_documents_needs_dek_rotation ON documents(workspace_id) WHERE needs_dek_rotation = TRUE;
 
--- Document updates (CRDT update log)
+-- Add FK from document_snapshots back to documents (deferred due to circular reference)
+ALTER TABLE document_snapshots
+    ADD CONSTRAINT document_snapshots_document_id_fkey
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE;
+
+CREATE INDEX idx_document_snapshots_document ON document_snapshots(document_id);
+
+-- Self-referencing FK for snapshot chain traversal (proof chain)
+ALTER TABLE document_snapshots
+    ADD CONSTRAINT document_snapshots_parent_snapshot_id_fkey
+    FOREIGN KEY (parent_snapshot_id) REFERENCES document_snapshots(id) ON DELETE SET NULL;
+
+-- Document updates (CRDT update log, clock-based)
 CREATE TABLE document_updates (
     id BIGSERIAL PRIMARY KEY,
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    seq BIGINT NOT NULL,
     update_data BYTEA NOT NULL,
     nonce BYTEA NOT NULL,
     key_version INT NOT NULL,
-    update_hash VARCHAR(64) NOT NULL UNIQUE,
-    prev_update_hash VARCHAR(64),
+    update_hash VARCHAR(64) NOT NULL,
     signature BYTEA NOT NULL,
-    author_device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
     timestamp BIGINT NOT NULL,
+    snapshot_id UUID NOT NULL REFERENCES document_snapshots(id),
+    clock INT NOT NULL,
+    version BIGINT NOT NULL,
+    device_signing_pub_key VARCHAR(64) NOT NULL,
+    public_data JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_document_updates_document_id ON document_updates(document_id);
-CREATE INDEX idx_document_updates_document_seq ON document_updates(document_id, seq);
 
--- Document snapshots
-CREATE TABLE document_snapshots (
-    id BIGSERIAL PRIMARY KEY,
-    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    version BIGINT NOT NULL,
-    snapshot_data BYTEA NOT NULL,
-    nonce BYTEA NOT NULL,
-    key_version INT NOT NULL,
-    signature BYTEA NOT NULL,
-    author_device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    seq_at_snapshot BIGINT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+CREATE UNIQUE INDEX idx_updates_snapshot_device_clock
+    ON document_updates(snapshot_id, device_signing_pub_key, clock);
 
-CREATE INDEX idx_document_snapshots_document_id ON document_snapshots(document_id);
-CREATE UNIQUE INDEX idx_document_snapshots_document_version ON document_snapshots(document_id, version);
-
--- Document snapshot archives (labeled snapshots)
-CREATE TABLE document_snapshot_archives (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    snapshot_id BIGINT NOT NULL REFERENCES document_snapshots(id) ON DELETE CASCADE,
-    label VARCHAR(255) NOT NULL,
-    notes TEXT,
-    kind VARCHAR(20) NOT NULL DEFAULT 'manual',  -- 'manual' or 'auto'
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_document_snapshot_archives_document_id ON document_snapshot_archives(document_id);
+CREATE UNIQUE INDEX idx_updates_snapshot_version
+    ON document_updates(snapshot_id, version);
 
 -- Tags (workspace scoped)
 CREATE TABLE tags (

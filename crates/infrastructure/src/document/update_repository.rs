@@ -1,9 +1,8 @@
-//! PostgreSQL document update repository implementation
+//! PostgreSQL document update repository implementation (clock-based)
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use domain::document::{DocumentId, DocumentUpdate, DocumentUpdateRepository};
-use domain::encryption::DeviceId;
+use domain::document::{DocumentId, DocumentSnapshotId, DocumentUpdate, DocumentUpdateRepository};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -14,230 +13,265 @@ pub enum PgDocumentUpdateRepositoryError {
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
-    #[error("duplicate update hash")]
-    DuplicateHash,
+    #[error("clock mismatch: expected next clock value")]
+    ClockMismatch,
 
-    #[error("chain mismatch: prev_update_hash does not match latest")]
-    ChainMismatch,
+    #[error("snapshot mismatch: ref_snapshot_id does not match active")]
+    SnapshotMismatch,
+
+    #[error("key version too old: below min_dek_version")]
+    KeyVersionTooOld,
 }
 
 #[derive(sqlx::FromRow)]
 struct DocumentUpdateRow {
     id: i64,
     document_id: Uuid,
-    seq: i64,
     update_data: Vec<u8>,
     nonce: Vec<u8>,
     key_version: i32,
     update_hash: String,
-    prev_update_hash: Option<String>,
     signature: Vec<u8>,
-    author_device_id: Uuid,
     timestamp: i64,
+    snapshot_id: Uuid,
+    clock: i32,
+    version: i64,
+    device_signing_pub_key: String,
+    public_data: serde_json::Value,
     created_at: DateTime<Utc>,
 }
 
-impl From<DocumentUpdateRow> for DocumentUpdate {
+impl From<DocumentUpdateRow> for (DocumentUpdate, serde_json::Value) {
     fn from(row: DocumentUpdateRow) -> Self {
-        Self {
+        let public_data = row.public_data;
+        let update = DocumentUpdate {
             id: row.id,
             document_id: DocumentId::from_uuid(row.document_id),
-            seq: row.seq,
             update_data: row.update_data,
             nonce: row.nonce,
             key_version: row.key_version,
             update_hash: row.update_hash,
-            prev_update_hash: row.prev_update_hash,
             signature: row.signature,
-            author_device_id: DeviceId::from_uuid(row.author_device_id),
             timestamp: row.timestamp,
+            snapshot_id: DocumentSnapshotId::from_uuid(row.snapshot_id),
+            clock: row.clock,
+            version: row.version,
+            device_signing_pub_key: row.device_signing_pub_key,
             created_at: row.created_at,
-        }
+        };
+        (update, public_data)
     }
 }
+
+const UPDATE_COLUMNS: &str = "id, document_id, update_data, nonce, key_version, update_hash, signature, timestamp, snapshot_id, clock, version, device_signing_pub_key, public_data, created_at";
 
 #[async_trait]
 impl DocumentUpdateRepository for PgDocumentUpdateRepository {
     type Error = PgDocumentUpdateRepositoryError;
 
-    async fn find_by_document_id(
+    async fn find_by_snapshot_id(
         &self,
-        document_id: DocumentId,
-    ) -> Result<Vec<DocumentUpdate>, Self::Error> {
-        let rows = sqlx::query_as!(
-            DocumentUpdateRow,
-            r#"
-            SELECT id, document_id, seq, update_data, nonce, key_version, update_hash,
-                   prev_update_hash, signature, author_device_id, timestamp, created_at
-            FROM document_updates
-            WHERE document_id = $1
-            ORDER BY seq
-            "#,
-            document_id.as_uuid()
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        snapshot_id: DocumentSnapshotId,
+        after_version: Option<i64>,
+    ) -> Result<Vec<(DocumentUpdate, serde_json::Value)>, Self::Error> {
+        let rows = if let Some(after_ver) = after_version {
+            let sql = format!(
+                "SELECT {UPDATE_COLUMNS} FROM document_updates WHERE snapshot_id = $1 AND version > $2 ORDER BY version"
+            );
+            sqlx::query_as::<_, DocumentUpdateRow>(&sql)
+                .bind(snapshot_id.as_uuid())
+                .bind(after_ver)
+                .fetch_all(&self.pool)
+                .await?
+        } else {
+            let sql = format!(
+                "SELECT {UPDATE_COLUMNS} FROM document_updates WHERE snapshot_id = $1 ORDER BY version"
+            );
+            sqlx::query_as::<_, DocumentUpdateRow>(&sql)
+                .bind(snapshot_id.as_uuid())
+                .fetch_all(&self.pool)
+                .await?
+        };
 
-        Ok(rows.into_iter().map(DocumentUpdate::from).collect())
+        Ok(rows.into_iter().map(<(DocumentUpdate, serde_json::Value)>::from).collect())
     }
 
-    async fn find_by_document_id_after_seq(
+    async fn save_with_clock(
         &self,
-        document_id: DocumentId,
-        after_seq: i64,
-    ) -> Result<Vec<DocumentUpdate>, Self::Error> {
-        let rows = sqlx::query_as!(
-            DocumentUpdateRow,
-            r#"
-            SELECT id, document_id, seq, update_data, nonce, key_version, update_hash,
-                   prev_update_hash, signature, author_device_id, timestamp, created_at
-            FROM document_updates
-            WHERE document_id = $1 AND seq > $2
-            ORDER BY seq
-            "#,
-            document_id.as_uuid(),
-            after_seq
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        update: &DocumentUpdate,
+        snapshot_id: DocumentSnapshotId,
+        public_data: serde_json::Value,
+    ) -> Result<(i64, i32, i64), Self::Error> {
+        // Use SERIALIZABLE transaction to prevent concurrent clock races.
+        // Atomic INSERT: auto-assign version, verify clock is next expected value
+        // for the device within this snapshot.
+        // Clock verification: expected_clock = COALESCE(MAX(clock) + 1, 0) for this (snapshot, device)
+        // Also verifies that the referenced snapshot is still the active snapshot (prevents
+        // writes to a stale snapshot after a new snapshot has been activated).
+        let mut tx = self.pool.begin().await.map_err(PgDocumentUpdateRepositoryError::Database)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .map_err(PgDocumentUpdateRepositoryError::Database)?;
 
-        Ok(rows.into_iter().map(DocumentUpdate::from).collect())
-    }
-
-    async fn find_by_hash(&self, update_hash: &str) -> Result<Option<DocumentUpdate>, Self::Error> {
-        let row = sqlx::query_as!(
-            DocumentUpdateRow,
-            r#"
-            SELECT id, document_id, seq, update_data, nonce, key_version, update_hash,
-                   prev_update_hash, signature, author_device_id, timestamp, created_at
-            FROM document_updates
-            WHERE update_hash = $1
-            "#,
-            update_hash
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(row.map(DocumentUpdate::from))
-    }
-
-    async fn get_latest_seq(&self, document_id: DocumentId) -> Result<Option<i64>, Self::Error> {
-        let result = sqlx::query_scalar!(
-            r#"
-            SELECT MAX(seq) FROM document_updates WHERE document_id = $1
-            "#,
-            document_id.as_uuid()
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(result)
-    }
-
-    async fn get_latest_update_hash(
-        &self,
-        document_id: DocumentId,
-    ) -> Result<Option<String>, Self::Error> {
-        let result = sqlx::query_scalar!(
-            r#"
-            SELECT update_hash FROM document_updates
-            WHERE document_id = $1 ORDER BY seq DESC LIMIT 1
-            "#,
-            document_id.as_uuid()
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(result)
-    }
-
-    async fn save(&self, update: &DocumentUpdate) -> Result<(i64, i64), Self::Error> {
-        // Atomic INSERT: auto-assign seq and verify prev_update_hash chain in a single query.
-        // If prev_update_hash doesn't match the latest update's hash, no row is inserted.
-        // If (document_id, seq) UNIQUE constraint is violated, it's a concurrent race.
-        let result = sqlx::query!(
+        let row = sqlx::query_as::<_, (i64, i32, i64)>(
             r#"
             INSERT INTO document_updates (
-                document_id, seq, update_data, nonce, key_version, update_hash,
-                prev_update_hash, signature, author_device_id, timestamp, created_at
+                document_id, update_data, nonce, key_version, update_hash,
+                signature, timestamp, snapshot_id, clock,
+                version, device_signing_pub_key, public_data, created_at
             )
             SELECT
-                $1,
-                COALESCE((SELECT MAX(seq) FROM document_updates WHERE document_id = $1), 0) + 1,
-                $2, $3, $4, $5, $6::varchar(64), $7, $8, $9, $10
-            WHERE
-                (SELECT update_hash FROM document_updates WHERE document_id = $1 ORDER BY seq DESC LIMIT 1)
-                IS NOT DISTINCT FROM $6::varchar(64)
-            RETURNING id, seq
+                $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                COALESCE(
+                    (SELECT MAX(version) FROM document_updates WHERE snapshot_id = $8), 0
+                ) + 1,
+                $10, $11, $12
+            WHERE $9 = COALESCE(
+                (SELECT MAX(clock) + 1
+                 FROM document_updates
+                 WHERE snapshot_id = $8 AND device_signing_pub_key = $10),
+                0
+            )
+            AND EXISTS (
+                SELECT 1 FROM documents
+                WHERE id = $1 AND active_snapshot_id = $8
+                AND min_dek_version <= $4
+            )
+            RETURNING id, clock, version
             "#,
-            update.document_id.as_uuid(),    // $1: document_id
-            &update.update_data,              // $2: update_data
-            &update.nonce,                    // $3: nonce
-            update.key_version,               // $4: key_version
-            &update.update_hash,              // $5: update_hash
-            update.prev_update_hash.as_deref(), // $6: prev_update_hash
-            &update.signature,                // $7: signature
-            update.author_device_id.as_uuid(), // $8: author_device_id
-            update.timestamp,                 // $9: timestamp
-            update.created_at,                // $10: created_at
         )
-        .fetch_optional(&self.pool)
+        .bind(update.document_id.as_uuid())       // $1
+        .bind(&update.update_data)                 // $2
+        .bind(&update.nonce)                       // $3
+        .bind(update.key_version)                  // $4
+        .bind(&update.update_hash)                 // $5
+        .bind(&update.signature)                   // $6
+        .bind(update.timestamp)                    // $7
+        .bind(snapshot_id.as_uuid())               // $8
+        .bind(update.clock)                        // $9
+        .bind(&update.device_signing_pub_key)      // $10
+        .bind(&public_data)                        // $11
+        .bind(update.created_at)                   // $12
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| {
-            // Check for UNIQUE violation (PostgreSQL error code 23505)
-            if let sqlx::Error::Database(ref db_err) = e
-                && db_err.code().as_deref() == Some("23505")
-            {
-                // Check which constraint was violated
-                let message = db_err.message();
-                if message.contains("update_hash") {
-                    return PgDocumentUpdateRepositoryError::DuplicateHash;
+            if let sqlx::Error::Database(ref db_err) = e {
+                // Serialization failure (concurrent transaction conflict)
+                if db_err.code().as_deref() == Some("40001") {
+                    return PgDocumentUpdateRepositoryError::ClockMismatch;
                 }
-                // seq UNIQUE violation = concurrent race, treat as chain mismatch
-                return PgDocumentUpdateRepositoryError::ChainMismatch;
+                if db_err.code().as_deref() == Some("23505") {
+                    return PgDocumentUpdateRepositoryError::ClockMismatch;
+                }
             }
             PgDocumentUpdateRepositoryError::Database(e)
         })?;
 
-        match result {
-            Some(row) => Ok((row.id, row.seq)),
-            // No row inserted = chain mismatch (WHERE clause didn't match)
-            None => Err(PgDocumentUpdateRepositoryError::ChainMismatch),
+        match row {
+            Some((id, clock, version)) => {
+                // Update snapshot metadata to keep clocks and latest_version in sync
+                // (design: websocket-scaling.md lines 237-241)
+                sqlx::query(
+                    r#"
+                    UPDATE document_snapshots
+                    SET clocks = jsonb_set(clocks, ARRAY[$1], to_jsonb($2::int)),
+                        latest_version = $3
+                    WHERE id = $4
+                    "#,
+                )
+                .bind(&update.device_signing_pub_key)  // $1
+                .bind(clock)                           // $2
+                .bind(version)                         // $3
+                .bind(snapshot_id.as_uuid())            // $4
+                .execute(&mut *tx)
+                .await
+                .map_err(PgDocumentUpdateRepositoryError::Database)?;
+
+                tx.commit().await.map_err(|e| {
+                    if let sqlx::Error::Database(ref db_err) = e {
+                        if db_err.code().as_deref() == Some("40001") {
+                            return PgDocumentUpdateRepositoryError::ClockMismatch;
+                        }
+                    }
+                    PgDocumentUpdateRepositoryError::Database(e)
+                })?;
+                Ok((id, clock, version))
+            }
+            None => {
+                // Distinguish snapshot mismatch, key version too old, and clock mismatch.
+                // Check active snapshot and min_dek_version within the same transaction.
+                let diag = sqlx::query_as::<_, (bool, bool)>(
+                    r#"SELECT
+                        EXISTS(SELECT 1 FROM documents WHERE id = $1 AND active_snapshot_id = $2),
+                        EXISTS(SELECT 1 FROM documents WHERE id = $1 AND min_dek_version <= $3)
+                    "#
+                )
+                .bind(update.document_id.as_uuid())
+                .bind(snapshot_id.as_uuid())
+                .bind(update.key_version)
+                .fetch_one(&mut *tx)
+                .await
+                .map(|r| (r.0, r.1))
+                .unwrap_or((false, true));
+
+                tx.rollback().await.map_err(PgDocumentUpdateRepositoryError::Database)?;
+
+                let (active_matches, key_version_ok) = diag;
+                if !active_matches {
+                    Err(PgDocumentUpdateRepositoryError::SnapshotMismatch)
+                } else if !key_version_ok {
+                    Err(PgDocumentUpdateRepositoryError::KeyVersionTooOld)
+                } else {
+                    Err(PgDocumentUpdateRepositoryError::ClockMismatch)
+                }
+            }
         }
     }
 
-    fn is_duplicate_hash(&self, err: &Self::Error) -> bool {
-        matches!(err, PgDocumentUpdateRepositoryError::DuplicateHash)
+    fn is_clock_mismatch(&self, err: &Self::Error) -> bool {
+        matches!(err, PgDocumentUpdateRepositoryError::ClockMismatch)
     }
 
-    fn is_chain_mismatch(&self, err: &Self::Error) -> bool {
-        matches!(err, PgDocumentUpdateRepositoryError::ChainMismatch)
+    fn is_snapshot_mismatch(&self, err: &Self::Error) -> bool {
+        matches!(err, PgDocumentUpdateRepositoryError::SnapshotMismatch)
+    }
+
+    fn is_key_version_too_old(&self, err: &Self::Error) -> bool {
+        matches!(err, PgDocumentUpdateRepositoryError::KeyVersionTooOld)
+    }
+
+    async fn find_by_snapshot_id_after_clocks(
+        &self,
+        snapshot_id: DocumentSnapshotId,
+        known_clocks: &std::collections::HashMap<String, i64>,
+    ) -> Result<Vec<(DocumentUpdate, serde_json::Value)>, Self::Error> {
+        let clocks_json = serde_json::to_value(known_clocks)
+            .unwrap_or(serde_json::Value::Object(Default::default()));
+        let sql = format!(
+            r#"SELECT {UPDATE_COLUMNS} FROM document_updates
+            WHERE snapshot_id = $1
+            AND (
+                NOT ($2::jsonb ? device_signing_pub_key)
+                OR clock > ($2::jsonb ->> device_signing_pub_key)::integer
+            )
+            ORDER BY version"#
+        );
+        let rows = sqlx::query_as::<_, DocumentUpdateRow>(&sql)
+            .bind(snapshot_id.as_uuid())
+            .bind(&clocks_json)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows.into_iter().map(<(DocumentUpdate, serde_json::Value)>::from).collect())
     }
 
     async fn delete_by_document_id(&self, document_id: DocumentId) -> Result<(), Self::Error> {
-        sqlx::query!(
-            "DELETE FROM document_updates WHERE document_id = $1",
-            document_id.as_uuid()
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("DELETE FROM document_updates WHERE document_id = $1")
+            .bind(document_id.as_uuid())
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
-    }
-
-    async fn delete_before_seq(
-        &self,
-        document_id: DocumentId,
-        before_seq: i64,
-    ) -> Result<u64, Self::Error> {
-        let result = sqlx::query!(
-            "DELETE FROM document_updates WHERE document_id = $1 AND seq < $2",
-            document_id.as_uuid(),
-            before_seq
-        )
-        .execute(&self.pool)
-        .await?;
-
-        Ok(result.rows_affected())
     }
 }

@@ -52,23 +52,53 @@ impl MemberMutationService for PgMemberMutationService {
         workspace_id: WorkspaceId,
         target_user_id: UserId,
         expected_role_id: RoleId,
+        operator_user_id: UserId,
+        expected_operator_role_id: RoleId,
     ) -> Result<(), MemberMutationError> {
-        // Conditional DELETE: includes expected_role_id to guard against TOCTOU race
-        // where the target's role changed between the handler's read and this DELETE.
-        // If role_id no longer matches, rows_affected() == 0 → RoleConflict.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| MemberMutationError::Database(e.to_string()))?;
+
+        // 1. Lock operator row with FOR UPDATE and verify freshness.
+        //    This prevents concurrent demotion from committing between the
+        //    check and the target mutation within this transaction.
+        let operator_locked = sqlx::query_scalar!(
+            r#"SELECT role_id FROM workspace_members
+               WHERE workspace_id = $1 AND user_id = $2
+               FOR UPDATE"#,
+            workspace_id.as_uuid(),
+            operator_user_id.as_uuid(),
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| MemberMutationError::Database(e.to_string()))?;
+
+        match operator_locked {
+            Some(role_id) if role_id == expected_operator_role_id.as_uuid() => {}
+            _ => return Err(MemberMutationError::OperatorDemoted),
+        }
+
+        // 2. Delete target with role_id guard (concurrent promotion protection).
         let rows = sqlx::query!(
-            "DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2 AND role_id = $3",
+            r#"DELETE FROM workspace_members
+               WHERE workspace_id = $1 AND user_id = $2 AND role_id = $3"#,
             workspace_id.as_uuid(),
             target_user_id.as_uuid(),
             expected_role_id.as_uuid(),
         )
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| MemberMutationError::Database(e.to_string()))?;
 
         if rows.rows_affected() == 0 {
             return Err(MemberMutationError::RoleConflict);
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| MemberMutationError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -99,24 +129,54 @@ impl MemberMutationService for PgMemberMutationService {
         target_user_id: UserId,
         expected_role_id: RoleId,
         new_role_id: RoleId,
+        operator_user_id: UserId,
+        expected_operator_role_id: RoleId,
     ) -> Result<(), MemberMutationError> {
-        // Conditional UPDATE: includes expected_role_id to guard against TOCTOU race
-        // where the target's role changed between the handler's read and this UPDATE.
-        // If role_id no longer matches, rows_affected() == 0 → RoleConflict.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| MemberMutationError::Database(e.to_string()))?;
+
+        // 1. Lock operator row with FOR UPDATE and verify freshness.
+        //    This prevents concurrent demotion from committing between the
+        //    check and the target mutation within this transaction.
+        let operator_locked = sqlx::query_scalar!(
+            r#"SELECT role_id FROM workspace_members
+               WHERE workspace_id = $1 AND user_id = $2
+               FOR UPDATE"#,
+            workspace_id.as_uuid(),
+            operator_user_id.as_uuid(),
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| MemberMutationError::Database(e.to_string()))?;
+
+        match operator_locked {
+            Some(role_id) if role_id == expected_operator_role_id.as_uuid() => {}
+            _ => return Err(MemberMutationError::OperatorDemoted),
+        }
+
+        // 2. Update target role with expected role_id guard (concurrent promotion protection).
         let rows = sqlx::query!(
-            "UPDATE workspace_members SET role_id = $1 WHERE workspace_id = $2 AND user_id = $3 AND role_id = $4",
+            r#"UPDATE workspace_members SET role_id = $1
+               WHERE workspace_id = $2 AND user_id = $3 AND role_id = $4"#,
             new_role_id.as_uuid(),
             workspace_id.as_uuid(),
             target_user_id.as_uuid(),
             expected_role_id.as_uuid(),
         )
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| MemberMutationError::Database(e.to_string()))?;
 
         if rows.rows_affected() == 0 {
             return Err(MemberMutationError::RoleConflict);
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| MemberMutationError::Database(e.to_string()))?;
         Ok(())
     }
 }

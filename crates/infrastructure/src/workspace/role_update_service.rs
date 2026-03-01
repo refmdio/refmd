@@ -2,6 +2,7 @@
 
 use application::workspace::{RoleUpdateError, RoleUpdateService};
 use async_trait::async_trait;
+use domain::identity::UserId;
 use domain::workspace::{RoleId, WorkspaceId};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -25,6 +26,8 @@ impl RoleUpdateService for PgRoleUpdateService {
         new_name: Option<&str>,
         swap_default: bool,
         permission_overrides: Option<&[(String, bool)]>,
+        operator_user_id: UserId,
+        expected_operator_role_id: RoleId,
     ) -> Result<(), RoleUpdateError> {
         let mut tx = self
             .pool
@@ -35,9 +38,28 @@ impl RoleUpdateService for PgRoleUpdateService {
         let ws_id: Uuid = workspace_id.as_uuid();
         let r_id: Uuid = role_id.as_uuid();
 
-        // 0. Lock the role row (SELECT FOR UPDATE) to prevent concurrent deletes
-        //    between this check and subsequent updates within the same transaction.
-        //    This also verifies the role exists and belongs to the workspace.
+        // 0a. Operator freshness guard: lock operator's membership row with FOR UPDATE
+        //     and verify role_id. This prevents concurrent demotion from committing
+        //     between this check and the role mutations later in the transaction.
+        let operator_role_id = sqlx::query_scalar!(
+            r#"SELECT role_id FROM workspace_members
+               WHERE workspace_id = $1 AND user_id = $2
+               FOR UPDATE"#,
+            ws_id,
+            operator_user_id.as_uuid(),
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| RoleUpdateError::Database(e.to_string()))?;
+
+        match operator_role_id {
+            Some(role_id) if role_id == expected_operator_role_id.as_uuid() => {}
+            _ => return Err(RoleUpdateError::OperatorDemoted),
+        }
+
+        // 0b. Lock the role row (SELECT FOR UPDATE) to prevent concurrent deletes
+        //     between this check and subsequent updates within the same transaction.
+        //     This also verifies the role exists and belongs to the workspace.
         let locked = sqlx::query_scalar!(
             "SELECT id FROM workspace_roles WHERE id = $1 AND workspace_id = $2 FOR UPDATE",
             r_id,

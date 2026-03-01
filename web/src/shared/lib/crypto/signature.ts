@@ -36,8 +36,6 @@ export const SIGNATURE_ACTION = {
   DEVICE_REGISTRATION: 'device_registration',
   /** Device revocation (identity key signs revocation event) */
   DEVICE_REVOCATION: 'device_revocation',
-  /** Document update (device signing key signs update metadata) */
-  DOCUMENT_UPDATE: 'document_update',
 } as const
 
 export type SignatureAction = (typeof SIGNATURE_ACTION)[keyof typeof SIGNATURE_ACTION]
@@ -156,4 +154,59 @@ export function buildSignatureMessage(
     action,
     ...payload,
   })
+}
+
+// =========================================================================
+// Phase 4B: WebSocket Envelope Signatures
+// =========================================================================
+
+/** Domain-separation prefixes for WS envelope signatures */
+export const WS_SIGNATURE_PREFIX = {
+  SNAPSHOT: 'refmd_snapshot',
+  UPDATE: 'refmd_update',
+  EPHEMERAL: 'refmd_ephemeral',
+  /** Used client-side within encrypted ephemeral payloads for session proof exchange */
+  EPHEMERAL_SESSION_PROOF: 'refmd_ephemeral_session_proof',
+} as const
+
+export type WsSignaturePrefix =
+  (typeof WS_SIGNATURE_PREFIX)[keyof typeof WS_SIGNATURE_PREFIX]
+
+/**
+ * Build the message bytes for a WS envelope signature.
+ *
+ * Format: `prefix || JCS({ ciphertext, nonce, publicData: base64url(JCS(publicData)) })`
+ *
+ * @param prefix Domain-separation prefix ("refmd_snapshot", "refmd_update", "refmd_ephemeral")
+ * @param ciphertext Base64url-encoded ciphertext
+ * @param nonce Base64url-encoded nonce
+ * @param publicData Public data object
+ * @param base64UrlEncode Function to encode bytes to base64url
+ * @returns Message bytes ready for signing
+ */
+export function buildWsEnvelopeMessage(
+  prefix: WsSignaturePrefix,
+  ciphertext: string,
+  nonce: string,
+  publicData: Record<string, unknown>,
+  base64UrlEncodeFn: (bytes: Uint8Array) => string
+): Uint8Array {
+  // 1. Canonicalize publicData
+  const publicDataJcs = canonicalizeBytes(publicData)
+  const publicDataB64 = base64UrlEncodeFn(publicDataJcs)
+
+  // 2. Build envelope: { ciphertext, nonce, publicData: base64url(JCS(publicData)) }
+  const envelopeJcs = canonicalizeBytes({
+    ciphertext,
+    nonce,
+    publicData: publicDataB64,
+  })
+
+  // 3. prefix || envelope_jcs
+  const prefixBytes = new TextEncoder().encode(prefix)
+  const message = new Uint8Array(prefixBytes.length + envelopeJcs.length)
+  message.set(prefixBytes, 0)
+  message.set(envelopeJcs, prefixBytes.length)
+
+  return message
 }

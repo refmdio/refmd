@@ -134,15 +134,18 @@ async fn main() -> anyhow::Result<()> {
     let pop_challenge = HeaderName::from_static("x-pop-challenge");
     let pop_signature = HeaderName::from_static("x-pop-signature");
 
-    let cors = middleware_builders::build_cors(&pop_device_id, &pop_challenge, &pop_signature)?;
+    let allowed_origins = middleware_builders::parse_cors_origins()?;
+    let cors = middleware_builders::build_cors(&pop_device_id, &pop_challenge, &pop_signature, &allowed_origins)?;
 
     // Build application
     let enable_swagger = config::is_swagger_enabled();
     let security_headers = middleware_builders::build_security_headers(enable_swagger);
 
+    let connection_store = presentation::ws::DocumentConnectionStore::new();
+
     let app = Router::new()
         .route("/health", get(health_check).with_state(health_state))
-        .merge(routes::create_routes(state)?);
+        .merge(routes::create_routes(state, connection_store, allowed_origins)?);
 
     let app = if enable_swagger {
         app.merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))

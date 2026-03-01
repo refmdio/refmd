@@ -5,6 +5,7 @@
  * - DEK generation (32 bytes random)
  * - DEK wrapping with KEK using XChaCha20-Poly1305
  * - Content (Yjs updates) encryption with DEK using XChaCha20-Poly1305
+ * - Snapshot encryption/decryption and proof chain
  *
  * Key hierarchy: KEK → DEK
  * All AEAD operations use AAD with protocol/version/purpose/context
@@ -13,10 +14,9 @@
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { randomBytes } from '@noble/ciphers/utils.js'
 import { blake3 } from '@noble/hashes/blake3.js'
-import { ed25519 } from '@noble/curves/ed25519.js'
 import { buildDekWrapAad, buildDocumentContentAad } from './aad'
-import { SIGNATURE_ACTION, buildSignatureMessage, canonicalizeBytes } from './signature'
-import { base64UrlEncode, base64UrlDecode } from './encoding'
+import { canonicalizeBytes } from './signature'
+import { base64UrlEncode } from './encoding'
 
 /**
  * Generate a random Document Encryption Key (256 bits)
@@ -129,121 +129,121 @@ export function decryptContent(
   return cipher.decrypt(encrypted)
 }
 
+// =============================================================================
+// Snapshot encryption/decryption and proof chain
+// =============================================================================
+
 /**
- * Compute update hash using JCS-normalized BLAKE3
+ * Encrypt a Yjs full state (snapshot) with DEK using XChaCha20-Poly1305
  *
- * Hash input is a JCS-canonicalized JSON object containing all update metadata
- * fields that the client can compute. This binds the nonce to the hash,
- * preventing nonce-manipulation attacks.
+ * @param yjsState Full Yjs state binary
+ * @param dek Document Encryption Key (32 bytes)
+ * @param documentId Document ID for AAD binding
+ * @param keyVersion DEK version for AAD binding
+ * @returns { ciphertext, nonce } - encrypted snapshot and 24-byte nonce
+ */
+export function encryptSnapshot(
+  yjsState: Uint8Array,
+  dek: Uint8Array,
+  documentId: string,
+  keyVersion: number
+): { ciphertext: Uint8Array; nonce: Uint8Array } {
+  const { encrypted, nonce } = encryptContent(yjsState, dek, documentId, keyVersion)
+  return { ciphertext: encrypted, nonce }
+}
+
+/**
+ * Decrypt a snapshot ciphertext with DEK using XChaCha20-Poly1305
  *
- * @param params Update metadata fields
+ * @param ciphertext Encrypted snapshot
+ * @param nonce Nonce used for encryption (24 bytes)
+ * @param dek Document Encryption Key (32 bytes)
+ * @param documentId Document ID for AAD binding
+ * @param keyVersion DEK version for AAD binding
+ * @returns Decrypted Yjs state binary
+ * @throws Error if decryption fails
+ */
+export function decryptSnapshot(
+  ciphertext: Uint8Array,
+  nonce: Uint8Array,
+  dek: Uint8Array,
+  documentId: string,
+  keyVersion: number
+): Uint8Array {
+  return decryptContent(ciphertext, nonce, dek, documentId, keyVersion)
+}
+
+/**
+ * Compute BLAKE3 hash of snapshot ciphertext (content-addressable)
+ *
+ * @param ciphertext Encrypted snapshot bytes
  * @returns Base64url-encoded BLAKE3 hash
  */
-export function computeUpdateHash(params: {
-  documentId: string
-  encryptedContent: string   // base64url-encoded ciphertext
-  nonce: string              // base64url-encoded nonce
-  keyVersion: number
-  prevUpdateHash: string | null
-  timestamp: number          // Unix ms
-  authorDeviceId: string     // UUID
-}): string {
+export function computeSnapshotCiphertextHash(ciphertext: Uint8Array): string {
+  const hash = blake3(ciphertext)
+  return base64UrlEncode(hash)
+}
+
+/**
+ * Compute parent snapshot proof (chain hash)
+ *
+ * proof = BLAKE3(JCS({ ciphertext_hash, parent_proof, snapshot_id }))
+ *
+ * JCS key names follow the codebase snake_case convention (same as update_hash).
+ * For the first snapshot (no grandparent), parent_proof is empty string.
+ *
+ * @param grandParentProof Base64url-encoded proof from grandparent (or empty string)
+ * @param parentSnapshotId UUID of the parent snapshot
+ * @param parentCiphertextHash Base64url-encoded BLAKE3 hash of parent's ciphertext
+ * @returns Base64url-encoded BLAKE3 hash (the proof)
+ */
+export function computeParentSnapshotProof(
+  grandParentProof: string,
+  parentSnapshotId: string,
+  parentCiphertextHash: string
+): string {
   const canonical = canonicalizeBytes({
-    created_by_device_id: params.authorDeviceId,
-    document_id: params.documentId,
-    encrypted_content: params.encryptedContent,
-    key_version: params.keyVersion,
-    nonce: params.nonce,
-    prev_update_hash: params.prevUpdateHash,
-    timestamp: params.timestamp,
+    ciphertext_hash: parentCiphertextHash,
+    parent_proof: grandParentProof,
+    snapshot_id: parentSnapshotId,
   })
   const hash = blake3(canonical)
   return base64UrlEncode(hash)
 }
 
 /**
- * Sign document update metadata using Ed25519 with JCS signature protocol
+ * Compute update_hash per update-hash.md specification.
  *
- * @param params Signing parameters
- * @returns Ed25519 signature (64 bytes)
+ * update_hash = BLAKE3(JCS({
+ *   clock, device_signing_pub_key, document_id,
+ *   encrypted_content, key_version, nonce,
+ *   ref_snapshot_id, timestamp
+ * }))
+ *
+ * @param params All fields required for the hash computation
+ * @returns Base64url-encoded BLAKE3 hash
  */
-export function signDocumentUpdate(params: {
-  signingPrivateKey: Uint8Array
+export function computeUpdateHash(params: {
+  clock: number
+  deviceSigningPubKey: string
   documentId: string
-  updateHash: string
-  prevUpdateHash: string | null
+  encryptedContent: string
   keyVersion: number
+  nonce: string
+  refSnapshotId: string
   timestamp: number
-}): Uint8Array {
-  const message = buildSignatureMessage(SIGNATURE_ACTION.DOCUMENT_UPDATE, {
+}): string {
+  const canonical = canonicalizeBytes({
+    clock: params.clock,
+    device_signing_pub_key: params.deviceSigningPubKey,
     document_id: params.documentId,
+    encrypted_content: params.encryptedContent,
     key_version: params.keyVersion,
-    prev_update_hash: params.prevUpdateHash,
-    timestamp: params.timestamp,
-    update_hash: params.updateHash,
-  })
-  return ed25519.sign(message, params.signingPrivateKey)
-}
-
-/**
- * Verify a document update's signature and update_hash (read-time verification)
- *
- * The read path must:
- * 1. Verify the Ed25519 signature against the author device's signing public key
- * 2. Recompute the update_hash and verify it matches
- *
- * @param params Update data and author device's signing public key
- * @returns true if both signature and hash are valid
- * @throws Error with details on what failed
- */
-export function verifyDocumentUpdate(params: {
-  signingPublicKey: Uint8Array
-  documentId: string
-  encryptedContent: string   // base64url-encoded ciphertext
-  nonce: string              // base64url-encoded nonce
-  keyVersion: number
-  updateHash: string
-  prevUpdateHash: string | null
-  signature: string          // base64url-encoded Ed25519 signature
-  authorDeviceId: string
-  timestamp: number
-}): void {
-  // 1. Recompute update_hash and verify
-  const recomputedHash = computeUpdateHash({
-    documentId: params.documentId,
-    encryptedContent: params.encryptedContent,
     nonce: params.nonce,
-    keyVersion: params.keyVersion,
-    prevUpdateHash: params.prevUpdateHash,
+    ref_snapshot_id: params.refSnapshotId,
     timestamp: params.timestamp,
-    authorDeviceId: params.authorDeviceId,
   })
-
-  if (recomputedHash !== params.updateHash) {
-    throw new Error(
-      `Update hash verification failed: expected ${params.updateHash}, computed ${recomputedHash}`
-    )
-  }
-
-  // 2. Verify Ed25519 signature
-  const message = buildSignatureMessage(SIGNATURE_ACTION.DOCUMENT_UPDATE, {
-    document_id: params.documentId,
-    key_version: params.keyVersion,
-    prev_update_hash: params.prevUpdateHash,
-    timestamp: params.timestamp,
-    update_hash: params.updateHash,
-  })
-
-  const signatureBytes = base64UrlDecode(params.signature)
-  try {
-    const valid = ed25519.verify(signatureBytes, message, params.signingPublicKey)
-    if (!valid) {
-      throw new Error('Document update signature verification failed')
-    }
-  } catch (e) {
-    if (e instanceof Error && e.message.includes('signature verification failed')) {
-      throw e
-    }
-    throw new Error(`Document update signature verification error: ${e}`)
-  }
+  const hash = blake3(canonical)
+  return base64UrlEncode(hash)
 }
+

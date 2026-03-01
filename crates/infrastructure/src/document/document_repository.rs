@@ -91,6 +91,20 @@ impl DocumentRepository for PgDocumentRepository {
         rows.into_iter().map(|r| r.try_into_document()).collect()
     }
 
+    async fn find_ids_by_workspace_id(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<DocumentId>, Self::Error> {
+        let rows = sqlx::query_scalar!(
+            "SELECT id FROM documents WHERE workspace_id = $1",
+            workspace_id.as_uuid()
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(DocumentId::from_uuid).collect())
+    }
+
     async fn find_by_parent_id(&self, parent_id: DocumentId) -> Result<Vec<Document>, Self::Error> {
         let sql = format!(
             "SELECT {DOCUMENT_COLUMNS} FROM documents WHERE parent_id = $1 ORDER BY title"
@@ -156,46 +170,83 @@ impl DocumentRepository for PgDocumentRepository {
         let created_by = document.created_by.map(|id| id.as_uuid());
         let doc_type_str = document.doc_type.as_str();
 
-        sqlx::query!(
-            r#"
-            INSERT INTO documents (
-                id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
-                slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
-                created_by, created_at, updated_at, archived_at
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            ON CONFLICT (id) DO UPDATE SET
-                parent_id = EXCLUDED.parent_id,
-                title = EXCLUDED.title,
-                encrypted_title = EXCLUDED.encrypted_title,
-                encrypted_title_nonce = EXCLUDED.encrypted_title_nonce,
-                path = EXCLUDED.path,
-                is_encrypted = EXCLUDED.is_encrypted,
-                needs_dek_rotation = EXCLUDED.needs_dek_rotation,
-                min_dek_version = EXCLUDED.min_dek_version,
-                updated_at = EXCLUDED.updated_at,
-                archived_at = EXCLUDED.archived_at
-            "#,
-            document.id.as_uuid(),
-            document.workspace_id.as_uuid(),
-            parent_id as _,
-            &document.title,
-            document.encrypted_title.as_deref(),
-            document.encrypted_title_nonce.as_deref(),
-            &document.slug,
-            document.path.as_deref(),
-            doc_type_str,
-            document.is_encrypted,
-            document.needs_dek_rotation,
-            document.min_dek_version,
-            created_by as _,
-            document.created_at,
-            document.updated_at,
-            document.archived_at as _
+        let mut tx = self.pool.begin().await?;
+
+        // Check if this is a new document (INSERT) or update (ON CONFLICT)
+        let existing = sqlx::query_scalar!(
+            "SELECT id FROM documents WHERE id = $1",
+            document.id.as_uuid()
         )
-        .execute(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
 
+        let is_new = existing.is_none();
+
+        if is_new {
+            // New document: INSERT without active_snapshot_id (NULL).
+            // The genesis snapshot will be created by the first client via WS.
+            sqlx::query(
+                r#"
+                INSERT INTO documents (
+                    id, workspace_id, parent_id, title, encrypted_title, encrypted_title_nonce,
+                    slug, path, doc_type, is_encrypted, needs_dek_rotation, min_dek_version,
+                    created_by, created_at, updated_at, archived_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                "#,
+            )
+            .bind(document.id.as_uuid())      // $1
+            .bind(document.workspace_id.as_uuid()) // $2
+            .bind(parent_id)                   // $3
+            .bind(&document.title)             // $4
+            .bind(document.encrypted_title.as_deref()) // $5
+            .bind(document.encrypted_title_nonce.as_deref()) // $6
+            .bind(&document.slug)              // $7
+            .bind(document.path.as_deref())    // $8
+            .bind(doc_type_str)                // $9
+            .bind(document.is_encrypted)       // $10
+            .bind(document.needs_dek_rotation) // $11
+            .bind(document.min_dek_version)    // $12
+            .bind(created_by)                  // $13
+            .bind(document.created_at)         // $14
+            .bind(document.updated_at)         // $15
+            .bind(document.archived_at)        // $16
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            // Existing document: UPDATE only mutable fields (preserve active_snapshot_id)
+            sqlx::query(
+                r#"
+                UPDATE documents SET
+                    parent_id = $2,
+                    title = $3,
+                    encrypted_title = $4,
+                    encrypted_title_nonce = $5,
+                    path = $6,
+                    is_encrypted = $7,
+                    needs_dek_rotation = $8,
+                    min_dek_version = $9,
+                    updated_at = $10,
+                    archived_at = $11
+                WHERE id = $1
+                "#,
+            )
+            .bind(document.id.as_uuid())
+            .bind(parent_id)
+            .bind(&document.title)
+            .bind(document.encrypted_title.as_deref())
+            .bind(document.encrypted_title_nonce.as_deref())
+            .bind(document.path.as_deref())
+            .bind(document.is_encrypted)
+            .bind(document.needs_dek_rotation)
+            .bind(document.min_dek_version)
+            .bind(document.updated_at)
+            .bind(document.archived_at)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 

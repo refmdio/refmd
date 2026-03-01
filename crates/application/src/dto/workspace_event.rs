@@ -11,6 +11,15 @@ pub enum WorkspaceEventDto {
         workspace_id: String,
         invitation_id: String,
         accepted_by_email: String,
+        member_user_ids: Vec<String>,
+    },
+    MemberRemoved {
+        workspace_id: String,
+        removed_user_id: String,
+    },
+    MemberRoleChanged {
+        workspace_id: String,
+        target_user_id: String,
     },
 }
 
@@ -21,11 +30,26 @@ impl From<&WorkspaceEvent> for WorkspaceEventDto {
                 workspace_id,
                 invitation_id,
                 accepted_by_email,
-                ..
+                member_user_ids,
             } => WorkspaceEventDto::InvitationAccepted {
                 workspace_id: workspace_id.to_string(),
                 invitation_id: invitation_id.to_string(),
                 accepted_by_email: accepted_by_email.clone(),
+                member_user_ids: member_user_ids.iter().map(|id| id.to_string()).collect(),
+            },
+            WorkspaceEvent::MemberRemoved {
+                workspace_id,
+                removed_user_id,
+            } => WorkspaceEventDto::MemberRemoved {
+                workspace_id: workspace_id.to_string(),
+                removed_user_id: removed_user_id.to_string(),
+            },
+            WorkspaceEvent::MemberRoleChanged {
+                workspace_id,
+                target_user_id,
+            } => WorkspaceEventDto::MemberRoleChanged {
+                workspace_id: workspace_id.to_string(),
+                target_user_id: target_user_id.to_string(),
             },
         }
     }
@@ -51,6 +75,7 @@ impl TryFrom<WorkspaceEventDto> for WorkspaceEvent {
     type Error = String;
 
     fn try_from(dto: WorkspaceEventDto) -> Result<Self, Self::Error> {
+        use domain::identity::UserId;
         use domain::workspace::{InvitationId, WorkspaceId};
 
         match dto {
@@ -58,6 +83,7 @@ impl TryFrom<WorkspaceEventDto> for WorkspaceEvent {
                 workspace_id,
                 invitation_id,
                 accepted_by_email,
+                member_user_ids,
             } => {
                 let workspace_id = WorkspaceId::from_uuid(parse_uuid(
                     &workspace_id,
@@ -69,17 +95,56 @@ impl TryFrom<WorkspaceEventDto> for WorkspaceEvent {
                     "InvitationAccepted",
                     "invitation_id",
                 )?);
-                // member_user_ids is not transmitted over wire — the SSE endpoint
-                // on the receiving instance will re-check membership from DB or
-                // simply broadcast to all local SSE clients (who filter client-side).
-                // For cross-instance, we use an empty list — the receiving instance's
-                // SSE handler won't be able to filter, but that's acceptable since
-                // the client-side workspace_id check provides sufficient scoping.
+                let member_user_ids = member_user_ids
+                    .into_iter()
+                    .map(|id| {
+                        parse_uuid(&id, "InvitationAccepted", "member_user_ids[]")
+                            .map(UserId::from_uuid)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(WorkspaceEvent::InvitationAccepted {
                     workspace_id,
                     invitation_id,
                     accepted_by_email,
-                    member_user_ids: vec![],
+                    member_user_ids,
+                })
+            }
+            WorkspaceEventDto::MemberRemoved {
+                workspace_id,
+                removed_user_id,
+            } => {
+                let workspace_id = WorkspaceId::from_uuid(parse_uuid(
+                    &workspace_id,
+                    "MemberRemoved",
+                    "workspace_id",
+                )?);
+                let removed_user_id = UserId::from_uuid(parse_uuid(
+                    &removed_user_id,
+                    "MemberRemoved",
+                    "removed_user_id",
+                )?);
+                Ok(WorkspaceEvent::MemberRemoved {
+                    workspace_id,
+                    removed_user_id,
+                })
+            }
+            WorkspaceEventDto::MemberRoleChanged {
+                workspace_id,
+                target_user_id,
+            } => {
+                let workspace_id = WorkspaceId::from_uuid(parse_uuid(
+                    &workspace_id,
+                    "MemberRoleChanged",
+                    "workspace_id",
+                )?);
+                let target_user_id = UserId::from_uuid(parse_uuid(
+                    &target_user_id,
+                    "MemberRoleChanged",
+                    "target_user_id",
+                )?);
+                Ok(WorkspaceEvent::MemberRoleChanged {
+                    workspace_id,
+                    target_user_id,
                 })
             }
         }

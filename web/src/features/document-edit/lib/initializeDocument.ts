@@ -1,21 +1,22 @@
 /**
  * Document Initialization
  *
- * Handles the full document initialization flow:
+ * Handles the document initialization flow:
  * - Get or create DEK for the document
- * - Load and decrypt existing Yjs updates
- * - Verify TOFU, signatures, hash chains, and anti-rollback
- * - Build the shared DocumentState cache entry
+ * - Build device key caches with TOFU verification
+ * - Create empty Y.Doc + shared DocumentState cache entry
+ *
+ * Actual document content (snapshot + updates) is loaded via the WS
+ * `onDocument` message, which is the sole initialization path.
  */
 
 import * as Y from 'yjs'
-import { documentApi } from '@/shared/api'
-import { pinDocumentState } from '@/shared/lib/anti-rollback'
-import type { AuthState } from '@/shared/model/auth-types'
+import { Awareness } from 'y-protocols/awareness'
+import type { AuthState, DeviceState } from '@/shared/model/auth-types'
 import type { DocumentResponse } from '@/shared/api'
 import type { TofuKeyChangeWarning, DocumentState } from './types'
 import { getOrCreateDek } from './dek-service'
-import { verifyDocumentStateAntiRollback, buildDeviceKeyCaches, verifyAndApplyUpdates } from './document-verification-service'
+import { buildDeviceKeyCaches } from './document-verification-service'
 import { documentCache } from './document-cache'
 
 export interface InitializeDocumentParams {
@@ -23,6 +24,7 @@ export interface InitializeDocumentParams {
   document: DocumentResponse
   kek: Uint8Array
   auth: AuthState
+  device: DeviceState
 }
 
 export type InitResult =
@@ -31,8 +33,9 @@ export type InitResult =
 
 /**
  * Core initialization logic for a document.
- * Returns a discriminated union: 'ok' with DocumentState, or 'key_changed' with warning.
- * Throws on any verification or decryption error.
+ *
+ * Prepares DEK, device key caches, and an empty Y.Doc.
+ * The WS `onDocument` callback handles snapshot/update loading and verification.
  */
 export async function initializeDocumentCore(
   params: InitializeDocumentParams
@@ -47,88 +50,39 @@ export async function initializeDocumentCore(
   // 1. Get or create DEK
   const { dek, keyVersion } = await getOrCreateDek(documentId, document.workspace_id, kek)
 
-  // 2. Load updates
-  const updatesResponse = await documentApi.listUpdates(documentId)
-  const updates = updatesResponse.updates || []
+  // 2. Build device key caches with TOFU verification
+  const cacheResult = await buildDeviceKeyCaches(auth.userId)
+  if (cacheResult.status === 'key_changed') {
+    return { status: 'key_changed', warning: cacheResult.warning }
+  }
+  const { signingKeys } = cacheResult
 
-  // 3. Anti-rollback check on document state
-  await verifyDocumentStateAntiRollback(documentId, updates)
-
-  // 4. Build device key caches with TOFU verification
+  // 3. Create empty Y.Doc + shared Awareness (content will be loaded via WS onDocument)
   const newYDoc = new Y.Doc()
-  let prevUpdateHash: string | null = null
+  const awareness = new Awareness(newYDoc)
 
-  if (updates.length > 0) {
-    const cacheResult = await buildDeviceKeyCaches(auth.userId)
-    if (cacheResult.status === 'key_changed') {
-      return { status: 'key_changed', warning: cacheResult.warning }
-    }
-
-    // 5. Verify and decrypt each update
-    const verifyResult = await verifyAndApplyUpdates(
-      updates, newYDoc, dek, documentId, auth.userId,
-      cacheResult.signingKeys, cacheResult.ecdhKeys,
-    )
-    if (verifyResult.status === 'key_changed') {
-      return { status: 'key_changed', warning: verifyResult.warning }
-    }
-    prevUpdateHash = verifyResult.prevUpdateHash
-  }
-
-  // 6. Pin document state after loading updates
-  if (updates.length > 0) {
-    const lastUpdate = updates[updates.length - 1]
-    const lastSeq = (lastUpdate as Record<string, unknown>).seq as number | undefined
-    if (lastSeq != null) {
-      await pinDocumentState({
-        documentId,
-        latestSeq: lastSeq,
-        latestUpdateHash: lastUpdate.update_hash,
-        observedAt: Date.now(),
-      })
-    }
-  }
-
-  // 7. Save initial state for dirty tracking
-  const lastSavedState = Y.encodeStateAsUpdate(newYDoc)
-
-  // 8. Create shared state
+  // 4. Create shared state
   const state: DocumentState = {
     yDoc: newYDoc,
+    awareness,
     dek,
     keyVersion,
-    lastSavedState,
-    prevUpdateHash,
-    isDirty: false,
-    isSaving: false,
-    contentListeners: new Set(),
+    lastSavedState: null,
     refCount: 0,
+    activeSnapshotId: null,
+    snapshotProofHash: '',
+    snapshotCiphertextHash: '',
+    localClock: 0,
+    knownClocks: {},
+    confirmedClocks: {},
+    snapshotUpdatesCount: 0,
+    ws: null,
+    wsRefCount: 0,
+    autoSync: null,
+    signingKeys,
+    pendingSnapshot: null,
+    initialized: false,
   }
-
-  // 9. Track changes
-  const yText = newYDoc.getText('content')
-  newYDoc.on('update', () => {
-    const currentState = Y.encodeStateAsUpdate(newYDoc)
-    const savedState = state.lastSavedState
-    const newContent = yText.toString()
-
-    // Compare states
-    if (!savedState || currentState.length !== savedState.length) {
-      state.isDirty = true
-    } else {
-      let same = true
-      for (let i = 0; i < currentState.length; i++) {
-        if (currentState[i] !== savedState[i]) {
-          same = false
-          break
-        }
-      }
-      state.isDirty = !same
-    }
-
-    // Notify all listeners
-    state.contentListeners.forEach((listener) => listener(newContent))
-  })
 
   documentCache.setValue(documentId, state)
   return { status: 'ok', state }

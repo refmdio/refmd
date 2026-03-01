@@ -320,13 +320,13 @@ pub(crate) use impl_app_error;
 pub use domain::crypto_validation;
 
 // ID types
-pub use domain::document::DocumentId;
+pub use domain::document::{DocumentId, DocumentSnapshotId};
 pub use domain::encryption::{DeviceId, DeviceType, RevocationMode};
 pub use domain::identity::{SessionId, UserId};
 pub use domain::workspace::{BaseRole, InvitationId, RoleId, WorkspaceId};
 
 // Repository traits
-pub use domain::document::{DocumentRepository, DocumentUpdateRepository};
+pub use domain::document::{DocumentRepository, DocumentSnapshotRepository, DocumentUpdateRepository, SnapshotSaveOutcome};
 pub use domain::encryption::{
     DeviceEncryptedUMKRepository, DeviceRepository, DeviceRevocationEventRepository,
     DocumentEncryptedKeyRepository, PendingDeviceRepository, UserEncryptedIdentityKeyRepository,
@@ -340,7 +340,7 @@ pub use domain::workspace::{
 };
 
 // Entity types
-pub use domain::document::{Document, DocumentUpdate};
+pub use domain::document::{Document, DocumentSnapshot, DocumentUpdate, SnapshotProof};
 pub use domain::encryption::{
     Device, DeviceEncryptedUMK, DeviceRevocationEvent, DocumentEncryptedKey, PendingDevice,
     UserEncryptedIdentityKey, UserEncryptedMasterKey, UserIdentityPublicKey,

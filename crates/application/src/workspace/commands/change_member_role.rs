@@ -8,6 +8,7 @@
 
 use crate::util::workspace_access::{WorkspaceAccessError, check_workspace_permission};
 use crate::workspace::MemberMutationService;
+use crate::workspace_events::WorkspaceEventPublisher;
 use domain::identity::UserId;
 use domain::workspace::{
     BaseRole, RoleId, WorkspaceId, WorkspaceMemberRepository,
@@ -94,6 +95,7 @@ pub struct ChangeMemberRoleHandler<MR: ?Sized, RR: ?Sized, RPR: ?Sized> {
     role_repo: Arc<RR>,
     role_perm_repo: Arc<RPR>,
     member_mutation_service: Arc<dyn MemberMutationService>,
+    workspace_event_publisher: Arc<dyn WorkspaceEventPublisher>,
 }
 
 impl<MR: ?Sized, RR: ?Sized, RPR: ?Sized> ChangeMemberRoleHandler<MR, RR, RPR>
@@ -107,12 +109,14 @@ where
         role_repo: Arc<RR>,
         role_perm_repo: Arc<RPR>,
         member_mutation_service: Arc<dyn MemberMutationService>,
+        workspace_event_publisher: Arc<dyn WorkspaceEventPublisher>,
     ) -> Self {
         Self {
             member_repo,
             role_repo,
             role_perm_repo,
             member_mutation_service,
+            workspace_event_publisher,
         }
     }
 
@@ -180,8 +184,7 @@ where
             && new_role.base_role != BaseRole::Owner
         {
             use crate::workspace::MemberMutationError;
-            return self
-                .member_mutation_service
+            self.member_mutation_service
                 .demote_owner_member(
                     command.workspace_id,
                     command.user_id,
@@ -198,17 +201,26 @@ where
                     MemberMutationError::Database(_) => {
                         ChangeMemberRoleError::MutationService(e.to_string())
                     }
-                });
+                })?;
+
+            // Best-effort: publish WS disconnect event when new role lacks document:read.
+            // Effective permission check: DB override first, then base_role default (steps 7-8).
+            let lost_read = self.check_lost_document_read(&new_role).await;
+            if lost_read {
+                self.workspace_event_publisher
+                    .publish(domain::WorkspaceEvent::MemberRoleChanged {
+                        workspace_id: command.workspace_id,
+                        target_user_id: command.target_user_id,
+                    })
+                    .await;
+            }
+
+            return Ok(());
         }
 
         // 9. Non-owner role change: conditional update with expected role_id guard
-        //    to prevent TOCTOU if the target gets promoted to Owner concurrently.
-        //
-        //    Note: the operator's RBAC permission (member:change_role) was verified at step 1.
-        //    A concurrent demotion of the operator could make this stale, but the time window
-        //    is negligible and this is a standard eventual-consistency trade-off shared by all
-        //    RBAC-checked operations in the system. Full re-verification would require passing
-        //    operator context into the service transaction, which is disproportionate.
+        //    for both the target (concurrent promotion protection) and the operator
+        //    (concurrent demotion protection via operator freshness guard).
         use crate::workspace::MemberMutationError;
         self.member_mutation_service
             .change_non_owner_role(
@@ -216,14 +228,62 @@ where
                 command.target_user_id,
                 target_member.role_id,
                 command.new_role_id,
+                command.user_id,
+                actor.role.id,
             )
             .await
             .map_err(|e| match e {
                 MemberMutationError::RoleConflict => ChangeMemberRoleError::RoleConflict,
                 MemberMutationError::TargetNotFound => ChangeMemberRoleError::TargetNotFound,
+                MemberMutationError::OperatorDemoted => ChangeMemberRoleError::OperatorDemoted,
                 _ => ChangeMemberRoleError::MutationService(e.to_string()),
             })?;
 
+        // Best-effort: publish WS disconnect event when new role lacks document:read.
+        // Effective permission check: DB override first, then base_role default (steps 7-8).
+        let lost_read = self.check_lost_document_read(&new_role).await;
+        if lost_read {
+            self.workspace_event_publisher
+                .publish(domain::WorkspaceEvent::MemberRoleChanged {
+                    workspace_id: command.workspace_id,
+                    target_user_id: command.target_user_id,
+                })
+                .await;
+        }
+
         Ok(())
+    }
+
+    /// Check if a role effectively lacks document:read permission.
+    ///
+    /// Effective permission resolution per design doc (workspace.md steps 7-8):
+    /// 1. Check workspace_role_permissions table for (role_id, "document:read") override
+    /// 2. If override exists, use its `granted` flag
+    /// 3. If no override exists, fall back to base_role default permission matrix
+    ///
+    /// Returns true if document:read is NOT granted (i.e., read access is lost).
+    /// Best-effort: on DB errors, assumes read is NOT lost (fail-open for disconnect events).
+    async fn check_lost_document_read(
+        &self,
+        new_role: &domain::workspace::WorkspaceRole,
+    ) -> bool {
+        let overrides = match self
+            .role_perm_repo
+            .find_by_role_id(new_role.id)
+            .await
+        {
+            Ok(perms) => perms,
+            Err(_) => return false, // Best-effort: fail-open on DB error
+        };
+
+        // Check for explicit document:read override
+        for perm in &overrides {
+            if perm.permission == permission::DOCUMENT_READ {
+                return !perm.granted;
+            }
+        }
+
+        // No override: fall back to base_role default
+        !permission::default_grant(new_role.base_role, permission::DOCUMENT_READ)
     }
 }

@@ -19,3 +19,4 @@ pub use session::{
     AuthError, AuthUser, extract_session_token,
     hash_session_token,
 };
+pub(crate) use session::authenticate;

@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
 
-use domain::document::{Document, DocumentUpdate};
+use domain::document::{Document, DocumentSnapshot, DocumentSnapshotId, DocumentUpdate, SnapshotProof};
 use domain::document::DocumentId;
-use domain::encryption::DeviceId;
 use domain::identity::UserId;
 use domain::workspace::WorkspaceId;
+use std::collections::HashMap;
 
 /// DTO for Document entity
 #[derive(Debug, Clone)]
@@ -54,38 +54,100 @@ impl From<Document> for DocumentDto {
     }
 }
 
-/// DTO for DocumentUpdate entity
+/// DTO for DocumentUpdate entity (clock-based)
 #[derive(Debug, Clone)]
 pub struct DocumentUpdateDto {
     pub id: i64,
     pub document_id: DocumentId,
-    pub seq: i64,
     pub update_data: Vec<u8>,
     pub nonce: Vec<u8>,
     pub key_version: i32,
     pub update_hash: String,
-    pub prev_update_hash: Option<String>,
     pub signature: Vec<u8>,
-    pub author_device_id: DeviceId,
     pub timestamp: i64,
+    pub snapshot_id: DocumentSnapshotId,
+    pub clock: i32,
+    pub version: i64,
+    pub device_signing_pub_key: String,
+    pub public_data: serde_json::Value,
     pub created_at: DateTime<Utc>,
 }
 
-impl From<DocumentUpdate> for DocumentUpdateDto {
-    fn from(u: DocumentUpdate) -> Self {
+impl From<(DocumentUpdate, serde_json::Value)> for DocumentUpdateDto {
+    fn from((u, public_data): (DocumentUpdate, serde_json::Value)) -> Self {
         Self {
             id: u.id,
             document_id: u.document_id,
-            seq: u.seq,
             update_data: u.update_data,
             nonce: u.nonce,
             key_version: u.key_version,
             update_hash: u.update_hash,
-            prev_update_hash: u.prev_update_hash,
             signature: u.signature,
-            author_device_id: u.author_device_id,
             timestamp: u.timestamp,
+            snapshot_id: u.snapshot_id,
+            clock: u.clock,
+            version: u.version,
+            device_signing_pub_key: u.device_signing_pub_key,
+            public_data,
             created_at: u.created_at,
+        }
+    }
+}
+
+/// DTO for DocumentSnapshot entity
+#[derive(Debug, Clone)]
+pub struct DocumentSnapshotDto {
+    pub id: DocumentSnapshotId,
+    pub document_id: DocumentId,
+    pub latest_version: i64,
+    pub data: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub key_version: i32,
+    pub signature: Vec<u8>,
+    pub ciphertext_hash: String,
+    pub clocks: HashMap<String, i64>,
+    pub parent_snapshot_update_clocks: HashMap<String, i64>,
+    pub parent_snapshot_proof: String,
+    pub created_by_device: String,
+    pub public_data: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<(DocumentSnapshot, serde_json::Value)> for DocumentSnapshotDto {
+    fn from((s, public_data): (DocumentSnapshot, serde_json::Value)) -> Self {
+        Self {
+            id: s.id,
+            document_id: s.document_id,
+            latest_version: s.latest_version,
+            data: s.data,
+            nonce: s.nonce,
+            key_version: s.key_version,
+            signature: s.signature,
+            ciphertext_hash: s.ciphertext_hash,
+            clocks: s.clocks,
+            parent_snapshot_update_clocks: s.parent_snapshot_update_clocks,
+            parent_snapshot_proof: s.parent_snapshot_proof,
+            created_by_device: s.created_by_device,
+            public_data,
+            created_at: s.created_at,
+        }
+    }
+}
+
+/// DTO for SnapshotProof (proof chain entry)
+#[derive(Debug, Clone)]
+pub struct SnapshotProofDto {
+    pub snapshot_id: DocumentSnapshotId,
+    pub ciphertext_hash: String,
+    pub parent_snapshot_proof: String,
+}
+
+impl From<SnapshotProof> for SnapshotProofDto {
+    fn from(p: SnapshotProof) -> Self {
+        Self {
+            snapshot_id: p.snapshot_id,
+            ciphertext_hash: p.ciphertext_hash,
+            parent_snapshot_proof: p.parent_snapshot_proof,
         }
     }
 }

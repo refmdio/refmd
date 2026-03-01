@@ -23,7 +23,7 @@ export function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export function openIdb(
   name: string,
   version: number,
-  onUpgrade: (db: IDBDatabase) => void
+  onUpgrade: (db: IDBDatabase, oldVersion: number) => void
 ): Promise<IDBDatabase> {
   if (typeof indexedDB === 'undefined') {
     return Promise.reject(new Error('IndexedDB is not available in this environment'))
@@ -36,7 +36,7 @@ export function openIdb(
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result
-      onUpgrade(db)
+      onUpgrade(db, event.oldVersion)
     }
   })
 }

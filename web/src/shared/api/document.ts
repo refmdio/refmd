@@ -41,31 +41,4 @@ export const documentApi = {
     ))
   },
 
-  async listUpdates(documentId: string, afterSeq?: number) {
-    return unwrap(await api.GET('/api/documents/{document_id}/updates', {
-      params: {
-        path: { document_id: documentId },
-        query: afterSeq !== undefined ? { after_seq: afterSeq } : undefined,
-      },
-    }))
-  },
-
-  async createUpdate(
-    documentId: string,
-    body: {
-      update_data: string
-      nonce: string
-      key_version: number
-      update_hash: string
-      prev_update_hash: string | null
-      signature: string
-      author_device_id: string
-      timestamp: number
-    }
-  ) {
-    return unwrap(await api.POST('/api/documents/{document_id}/updates', {
-      params: { path: { document_id: documentId } },
-      body,
-    }))
-  },
 }

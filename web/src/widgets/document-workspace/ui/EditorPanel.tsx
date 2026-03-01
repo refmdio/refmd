@@ -5,7 +5,7 @@
  */
 
 import { DocumentPanelShell } from './DocumentPanelShell'
-import { DocumentEditor } from './DocumentEditor'
+import { CodeMirrorEditor } from '@/features/document-edit'
 
 interface EditorPanelProps {
   documentId: string
@@ -14,12 +14,13 @@ interface EditorPanelProps {
 export function EditorPanel({ documentId }: EditorPanelProps) {
   return (
     <DocumentPanelShell documentId={documentId}>
-      {({ document, yDoc, save }) =>
+      {({ document, yDoc, awareness, onLocalEdit }) =>
         yDoc ? (
-          <DocumentEditor
+          <CodeMirrorEditor
             documentId={documentId}
             yDoc={yDoc}
-            onSave={save}
+            awareness={awareness}
+            onLocalEdit={onLocalEdit}
             readOnly={document.is_archived}
           />
         ) : (

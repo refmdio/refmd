@@ -25,6 +25,12 @@ pub trait DeviceRepository: Send + Sync {
     /// Find all active (non-revoked) devices for a user
     async fn find_active_by_user_id(&self, user_id: UserId) -> Result<Vec<Device>, Self::Error>;
 
+    /// Find an active (non-revoked) device by its signing public key (raw bytes)
+    async fn find_active_by_signing_pub_key(
+        &self,
+        signing_pub_key: &[u8],
+    ) -> Result<Option<Device>, Self::Error>;
+
     /// Save device
     async fn save(&self, device: &Device) -> Result<(), Self::Error>;
 

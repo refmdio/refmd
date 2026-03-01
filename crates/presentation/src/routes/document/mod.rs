@@ -1,10 +1,8 @@
 //! Document routes
 
 mod crud;
-mod updates;
 
 pub use crud::*;
-pub use updates::*;
 
 use application::dto::DocumentDto;
 use axum::{
@@ -32,10 +30,6 @@ pub fn routes(state: AppState) -> Router {
         .route(
             "/{document_id}/unarchive",
             post(unarchive_document),
-        )
-        .route(
-            "/{document_id}/updates",
-            get(list_updates).post(create_update),
         )
         .with_state(state)
 }

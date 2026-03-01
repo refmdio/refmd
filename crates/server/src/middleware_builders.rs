@@ -98,6 +98,37 @@ where
 // CORS
 // =============================================================================
 
+/// Parse the `CORS_ORIGINS` environment variable into a list of origin strings.
+///
+/// Returns the validated list of allowed origins. Rejects wildcards (incompatible
+/// with credentials). Used by both CORS middleware and CSWSH WebSocket protection.
+pub fn parse_cors_origins() -> Result<Vec<String>, anyhow::Error> {
+    let cors_origins =
+        std::env::var("CORS_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
+
+    for origin in cors_origins.split(',') {
+        if origin.trim() == "*" {
+            anyhow::bail!(
+                "CORS_ORIGINS contains '*' which is not allowed with credentials. Specify explicit origins (e.g., 'http://localhost:3000')."
+            );
+        }
+    }
+
+    let origins: Vec<String> = cors_origins
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if origins.is_empty() {
+        anyhow::bail!(
+            "CORS_ORIGINS contains no valid origins. Specify at least one valid origin URL."
+        );
+    }
+
+    Ok(origins)
+}
+
 /// Build the CORS layer from the `CORS_ORIGINS` environment variable.
 ///
 /// Reads and validates `CORS_ORIGINS` (comma-separated list of allowed origins),
@@ -107,28 +138,15 @@ pub fn build_cors(
     pop_device_id: &HeaderName,
     pop_challenge: &HeaderName,
     pop_signature: &HeaderName,
+    allowed_origins: &[String],
 ) -> Result<CorsLayer, anyhow::Error> {
-    let cors_origins =
-        std::env::var("CORS_ORIGINS").unwrap_or_else(|_| "http://localhost:3000".to_string());
-
-    // Validate CORS origins - reject wildcard with credentials
-    // Check for '*' anywhere in the list (not just as sole value)
-    for origin in cors_origins.split(',') {
-        if origin.trim() == "*" {
-            anyhow::bail!(
-                "CORS_ORIGINS contains '*' which is not allowed with credentials. Specify explicit origins (e.g., 'http://localhost:3000')."
-            );
-        }
-    }
-
-    let origins: Vec<_> = cors_origins
-        .split(',')
+    let origins: Vec<_> = allowed_origins
+        .iter()
         .filter_map(|s| {
-            let trimmed = s.trim();
-            match trimmed.parse() {
+            match s.parse() {
                 Ok(origin) => Some(origin),
                 Err(_) => {
-                    tracing::warn!("Ignoring invalid CORS origin: {:?}", trimmed);
+                    tracing::warn!("Ignoring invalid CORS origin: {:?}", s);
                     None
                 }
             }

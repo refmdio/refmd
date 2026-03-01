@@ -36,8 +36,6 @@ pub enum SignatureAction {
     DeviceRegistration,
     /// Device revocation (identity key signs revocation event)
     DeviceRevocation,
-    /// Document update (device signing key signs update metadata)
-    DocumentUpdate,
 }
 
 impl SignatureAction {
@@ -48,7 +46,6 @@ impl SignatureAction {
             SignatureAction::DeviceApproval => "device_approval",
             SignatureAction::DeviceRegistration => "device_registration",
             SignatureAction::DeviceRevocation => "device_revocation",
-            SignatureAction::DocumentUpdate => "document_update",
         }
     }
 }
@@ -390,55 +387,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_cross_platform_document_update_vector() {
-        // Test with prev_update_hash = null (first update in chain)
-        #[derive(Serialize)]
-        struct DocumentUpdatePayload {
-            document_id: String,
-            key_version: i64,
-            prev_update_hash: Option<String>,
-            timestamp: i64,
-            update_hash: String,
-        }
-
-        let message = build_signature_message(
-            SignatureAction::DocumentUpdate,
-            &DocumentUpdatePayload {
-                document_id: "660e8400-e29b-41d4-a716-446655440001".to_string(),
-                key_version: 1,
-                prev_update_hash: None, // null in JSON
-                timestamp: 1700000000000i64,
-                update_hash: "dXBkYXRlX2hhc2g".to_string(), // base64url("update_hash")
-            },
-        )
-        .unwrap();
-
-        let json_str = String::from_utf8(message).unwrap();
-        // Keys sorted: action, document_id, key_version, prev_update_hash, protocol, timestamp, update_hash, version
-        // prev_update_hash serializes as null (not omitted)
-        assert_eq!(
-            json_str,
-            r#"{"action":"document_update","document_id":"660e8400-e29b-41d4-a716-446655440001","key_version":1,"prev_update_hash":null,"protocol":"doclock-v1","timestamp":1700000000000,"update_hash":"dXBkYXRlX2hhc2g","version":1}"#
-        );
-
-        // Test with prev_update_hash = Some (subsequent update)
-        let message2 = build_signature_message(
-            SignatureAction::DocumentUpdate,
-            &DocumentUpdatePayload {
-                document_id: "660e8400-e29b-41d4-a716-446655440001".to_string(),
-                key_version: 1,
-                prev_update_hash: Some("cHJldl9oYXNo".to_string()), // base64url("prev_hash")
-                timestamp: 1700000001000i64,
-                update_hash: "bmV3X2hhc2g".to_string(), // base64url("new_hash")
-            },
-        )
-        .unwrap();
-
-        let json_str2 = String::from_utf8(message2).unwrap();
-        assert_eq!(
-            json_str2,
-            r#"{"action":"document_update","document_id":"660e8400-e29b-41d4-a716-446655440001","key_version":1,"prev_update_hash":"cHJldl9oYXNo","protocol":"doclock-v1","timestamp":1700000001000,"update_hash":"bmV3X2hhc2g","version":1}"#
-        );
-    }
 }

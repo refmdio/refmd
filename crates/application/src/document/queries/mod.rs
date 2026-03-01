@@ -1,9 +1,9 @@
 //! Document query handlers
 
 mod get_document;
+mod get_document_with_snapshot;
 mod list_documents;
-mod list_updates;
 
 pub use get_document::*;
+pub use get_document_with_snapshot::*;
 pub use list_documents::*;
-pub use list_updates::*;

@@ -53,7 +53,7 @@ export function MosaicDocumentWorkspace() {
     return (
       <MosaicWindow<string>
         path={path}
-        title={`${title} - ${isEditor ? 'Editor' : 'Preview'}`}
+        title={`${title} - ${isEditor ? 'Markdown' : 'WYSIWYG'}`}
         toolbarControls={[
           <DropdownMenu key="menu">
             <DropdownMenuTrigger asChild>
@@ -73,7 +73,7 @@ export function MosaicDocumentWorkspace() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => switchPanelType(panelId)}>
                 <RefreshCw className="w-4 h-4 mr-2" />
-                Switch to {isEditor ? 'Preview' : 'Editor'}
+                Switch to {isEditor ? 'WYSIWYG' : 'Markdown'}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => closePanel(panelId)}>
