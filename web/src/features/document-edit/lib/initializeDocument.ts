@@ -3,65 +3,51 @@
  *
  * Handles the document initialization flow:
  * - Get or create DEK for the document
- * - Build device key caches with TOFU verification
  * - Create empty Y.Doc + shared DocumentState cache entry
  *
+ * Device key caches and TOFU verification are handled on WS connection
+ * (onDocument callback) per design spec (collaboration.md).
  * Actual document content (snapshot + updates) is loaded via the WS
  * `onDocument` message, which is the sole initialization path.
  */
 
 import * as Y from 'yjs'
 import { Awareness } from 'y-protocols/awareness'
-import type { AuthState, DeviceState } from '@/shared/model/auth-types'
 import type { DocumentResponse } from '@/shared/api'
-import type { TofuKeyChangeWarning, DocumentState } from './types'
+import type { DocumentState } from './types'
 import { getOrCreateDek } from './dek-service'
-import { buildDeviceKeyCaches } from './document-verification-service'
 import { documentCache } from './document-cache'
 
 export interface InitializeDocumentParams {
   documentId: string
   document: DocumentResponse
   kek: Uint8Array
-  auth: AuthState
-  device: DeviceState
 }
-
-export type InitResult =
-  | { status: 'ok'; state: DocumentState }
-  | { status: 'key_changed'; warning: TofuKeyChangeWarning }
 
 /**
  * Core initialization logic for a document.
  *
- * Prepares DEK, device key caches, and an empty Y.Doc.
- * The WS `onDocument` callback handles snapshot/update loading and verification.
+ * Prepares DEK and an empty Y.Doc.
+ * The WS `onDocument` callback handles device key caches, TOFU verification,
+ * and snapshot/update loading.
  */
 export async function initializeDocumentCore(
   params: InitializeDocumentParams
-): Promise<InitResult> {
+): Promise<DocumentState> {
   const {
     documentId,
     document,
     kek,
-    auth,
   } = params
 
   // 1. Get or create DEK
   const { dek, keyVersion } = await getOrCreateDek(documentId, document.workspace_id, kek)
 
-  // 2. Build device key caches with TOFU verification
-  const cacheResult = await buildDeviceKeyCaches(auth.userId)
-  if (cacheResult.status === 'key_changed') {
-    return { status: 'key_changed', warning: cacheResult.warning }
-  }
-  const { signingKeys } = cacheResult
-
-  // 3. Create empty Y.Doc + shared Awareness (content will be loaded via WS onDocument)
+  // 2. Create empty Y.Doc + shared Awareness (content will be loaded via WS onDocument)
   const newYDoc = new Y.Doc()
   const awareness = new Awareness(newYDoc)
 
-  // 4. Create shared state
+  // 3. Create shared state (signingKeys populated on WS onDocument per design spec)
   const state: DocumentState = {
     yDoc: newYDoc,
     awareness,
@@ -69,6 +55,7 @@ export async function initializeDocumentCore(
     keyVersion,
     lastSavedState: null,
     refCount: 0,
+    workspaceId: document.workspace_id,
     activeSnapshotId: null,
     snapshotProofHash: '',
     snapshotCiphertextHash: '',
@@ -79,11 +66,15 @@ export async function initializeDocumentCore(
     ws: null,
     wsRefCount: 0,
     autoSync: null,
-    signingKeys,
+    signingKeys: new Map(),
+    signingKeyOwners: new Map(),
     pendingSnapshot: null,
     initialized: false,
+    ephemeralSession: null,
+    awarenessRelayCleanup: null,
+    onTofuKeyChange: null,
   }
 
   documentCache.setValue(documentId, state)
-  return { status: 'ok', state }
+  return state
 }

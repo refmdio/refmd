@@ -101,3 +101,21 @@ export function hasDocumentPanels(node: MosaicNode<string>, documentId: string):
 
   return hasDocumentPanels(node.first, documentId) || hasDocumentPanels(node.second, documentId)
 }
+
+export function hasDocumentPanelOfType(node: MosaicNode<string>, documentId: string, type: PanelType): boolean {
+  if (typeof node === 'string') {
+    const panel = decodePanelId(node)
+    return panel?.documentId === documentId && panel.type === type
+  }
+
+  return hasDocumentPanelOfType(node.first, documentId, type) || hasDocumentPanelOfType(node.second, documentId, type)
+}
+
+export function findFirstPanelType(node: MosaicNode<string>, documentId: string): PanelType | null {
+  if (typeof node === 'string') {
+    const panel = decodePanelId(node)
+    return panel?.documentId === documentId ? panel.type : null
+  }
+
+  return findFirstPanelType(node.first, documentId) ?? findFirstPanelType(node.second, documentId)
+}

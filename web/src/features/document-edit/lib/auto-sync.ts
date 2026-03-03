@@ -32,7 +32,7 @@ import {
   WS_SIGNATURE_PREFIX,
 } from '@/shared/lib/crypto'
 import type { DeviceState } from '@/shared/model/auth-types'
-import { VerificationError } from './ws'
+import { VerificationError, TofuKeyChangeError } from './ws'
 import type { DocumentWebSocket } from './ws'
 import type {
   WsUpdateMessage,
@@ -44,6 +44,7 @@ import type {
 import { ORIGIN_PM_TO_TEXT } from '@pm-cm/yjs'
 import { pinDocumentState } from '@/shared/lib/anti-rollback'
 import type { DocumentState } from './types'
+import { resolveSigningKey } from './document-verification-service'
 
 /** Throttle interval for auto-sync (ms) — sends at most once per interval */
 const THROTTLE_MS = 25
@@ -359,12 +360,12 @@ function createAndSendGenesisSnapshot(
  * Verifies the WS envelope signature, decrypts the ciphertext,
  * and applies the Y.js update to the local Y.Doc.
  */
-export function applyRemoteUpdate(
+export async function applyRemoteUpdate(
   msg: WsUpdateMessage,
   state: DocumentState,
   documentId: string,
   localDeviceSigningPubKey?: string,
-): boolean {
+): Promise<boolean> {
   const devicePubKey = msg.publicData.signingPubKey
 
   // 1. Verify refSnapshotId matches our active snapshot
@@ -373,11 +374,15 @@ export function applyRemoteUpdate(
     return false
   }
 
-  // 2. Find signing key (fail-closed: Phase 4C will add device re-fetch)
-  const signingPubKey = state.signingKeys.get(devicePubKey)
-  if (!signingPubKey) {
+  // 2. Find signing key (re-fetch member devices on cache miss)
+  const resolveResult = await resolveSigningKey(devicePubKey, state)
+  if (resolveResult.status === 'key_changed') {
+    throw new TofuKeyChangeError(resolveResult.warning)
+  }
+  if (resolveResult.status === 'not_found') {
     throw new VerificationError(`Remote update: unknown signing key ${devicePubKey}`)
   }
+  const signingPubKey = resolveResult.key
 
   // 3. Verify WS envelope signature
   const publicDataObj: Record<string, unknown> = { ...msg.publicData }
@@ -465,6 +470,31 @@ export function applyRemoteUpdate(
  * Performs signature verification and clock ordering checks using existing signing keys.
  * Returns updated known clocks.
  */
+/**
+ * Pre-resolve all signing keys for a batch of updates.
+ * Must be called before verifyAndApplyWsUpdates when updates may contain
+ * unknown signing keys (e.g., after reconnect with new members).
+ */
+export async function preResolveSigningKeys(
+  updates: WsUpdateData[],
+  state: DocumentState,
+): Promise<void> {
+  for (const update of updates) {
+    if (!update.publicData) continue
+    const pd = update.publicData as Record<string, unknown>
+    const signedPubKey = pd.signingPubKey as string | undefined
+    if (signedPubKey && !state.signingKeys.has(signedPubKey)) {
+      const result = await resolveSigningKey(signedPubKey, state)
+      if (result.status === 'key_changed') {
+        throw new TofuKeyChangeError(result.warning)
+      }
+      if (result.status === 'not_found') {
+        throw new VerificationError(`Unknown signing key ${signedPubKey}`)
+      }
+    }
+  }
+}
+
 export function verifyAndApplyWsUpdates(
   updates: WsUpdateData[],
   state: DocumentState,
@@ -485,9 +515,9 @@ export function verifyAndApplyWsUpdates(
     if (!signedPubKey) {
       throw new VerificationError(`Update missing signingPubKey in publicData`)
     }
-    const signingKey = state.signingKeys.get(signedPubKey)
 
-    // Fail-closed: unknown signing key → reject (Phase 4C will add device re-fetch)
+    // Look up signing key (pre-resolved via preResolveSigningKeys)
+    const signingKey = state.signingKeys.get(signedPubKey)
     if (!signingKey) {
       throw new VerificationError(`Unknown signing key ${signedPubKey}`)
     }

@@ -9,9 +9,16 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { ed25519 } from '@noble/curves/ed25519.js'
 import type { DeviceState } from '@/shared/model/auth-types'
-import { base64UrlEncode } from '@/shared/lib/crypto'
-import { DocumentWebSocket, type WsConnectionState } from '../lib/ws'
+import {
+  base64UrlEncode,
+  base64UrlDecode,
+  decryptContent,
+  buildWsEnvelopeMessage,
+  WS_SIGNATURE_PREFIX,
+} from '@/shared/lib/crypto'
+import { DocumentWebSocket, TofuKeyChangeError, VerificationError, type WsConnectionState } from '../lib/ws'
 import { pinDocumentState, getDocumentStatePin } from '@/shared/lib/anti-rollback'
 import { documentCache } from '../lib/document-cache'
 import {
@@ -21,6 +28,88 @@ import {
   handleUpdateSaveFailed,
 } from '../lib/auto-sync'
 import { handleDocumentMessage, handleSnapshotMessage, handleSnapshotSaveFailedMessage } from '../lib/ws-handlers'
+import { buildDeviceKeyCaches, resolveSigningKey } from '../lib/document-verification-service'
+import {
+  createEphemeralSession,
+  decodeEphemeralPayload,
+  encodeEphemeralPayload,
+  handleIncomingEphemeral,
+  MSG_INITIALIZE,
+} from '../lib/ephemeral-session'
+import { sendEphemeralEnvelope } from '../lib/ephemeral-send'
+import { encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
+import { MSG_MESSAGE } from '../lib/ephemeral-session'
+import { assignUserColor } from '../lib/user-colors'
+import type { DocumentState, TofuKeyChangeWarning } from '../lib/types'
+
+/**
+ * Set up the Awareness relay listener on shared state.
+ * The listener is stored in `state.awarenessRelayCleanup` so it survives
+ * beyond the hook instance that created the WS — any panel can hold the WS
+ * alive and Awareness relay will keep working.
+ *
+ * Idempotent: re-calling replaces the previous listener (e.g. on reconnect).
+ */
+function setupAwarenessRelay(
+  state: DocumentState,
+  deviceRef: React.RefObject<DeviceState | null>,
+  documentId: string,
+): void {
+  // Clean up any existing listener (reconnect or re-call)
+  state.awarenessRelayCleanup?.()
+
+  let awarenessThrottleTimer: ReturnType<typeof setTimeout> | null = null
+  let pendingAwarenessClients: number[] | null = null
+
+  const flushAwareness = () => {
+    awarenessThrottleTimer = null
+    const clients = pendingAwarenessClients
+    pendingAwarenessClients = null
+    if (!clients || clients.length === 0) return
+    const dev = deviceRef.current
+    const session = state.ephemeralSession
+    if (!dev || !session || !state.ws) return
+    const encoded = encodeAwarenessUpdate(state.awareness, clients)
+    const payload = encodeEphemeralPayload(session, MSG_MESSAGE, encoded)
+    sendEphemeralEnvelope(payload, state, state.ws, dev, documentId)
+  }
+
+  const onAwarenessUpdate = ({ added, updated, removed }: {
+    added: number[]; updated: number[]; removed: number[]
+  }, origin: unknown) => {
+    if (origin === 'remote') return
+    const localClientId = state.awareness.clientID
+    const changedClients = [...added, ...updated, ...removed].filter(
+      (id) => id === localClientId,
+    )
+    if (changedClients.length === 0) return
+
+    if (!pendingAwarenessClients) {
+      pendingAwarenessClients = changedClients
+    } else {
+      for (const c of changedClients) {
+        if (!pendingAwarenessClients.includes(c)) {
+          pendingAwarenessClients.push(c)
+        }
+      }
+    }
+    if (!awarenessThrottleTimer) {
+      awarenessThrottleTimer = setTimeout(flushAwareness, 100)
+    }
+  }
+
+  state.awareness.on('update', onAwarenessUpdate)
+  state.awarenessRelayCleanup = () => {
+    // Flush any pending awareness update immediately (e.g. removal on teardown)
+    // before removing the listener, so the final state reaches peers.
+    if (awarenessThrottleTimer) {
+      clearTimeout(awarenessThrottleTimer)
+      awarenessThrottleTimer = null
+    }
+    flushAwareness()
+    state.awareness.off('update', onAwarenessUpdate)
+  }
+}
 
 export interface UseDocumentWsResult {
   wsState: WsConnectionState
@@ -38,13 +127,23 @@ export function useDocumentWs(
   documentId: string,
   yDoc: unknown | null,
   device: DeviceState | null,
+  userId: string,
   onFatalError: (error: Error) => void,
+  onTofuKeyChange?: (warning: TofuKeyChangeWarning) => void,
 ): UseDocumentWsResult {
   const [wsState, setWsState] = useState<WsConnectionState>('idle')
 
-  // Keep device in a ref so WS callbacks always see the latest value
+  // Keep device in ref so WS callbacks always see the latest value
   const deviceRef = useRef(device)
   deviceRef.current = device
+
+  // Update shared TOFU callback on every render so whichever panel is
+  // still mounted can surface the warning dialog. This runs outside
+  // useEffect to stay current across re-renders without cleanup races.
+  const state = documentCache.getValue(documentId)
+  if (state && onTofuKeyChange) {
+    state.onTofuKeyChange = onTofuKeyChange
+  }
 
   useEffect(() => {
     if (!yDoc || !documentId) return
@@ -65,9 +164,13 @@ export function useDocumentWs(
             wsError === 'unrecoverable-error'
           ) {
             if (state.ws === wsInstance) {
+              removeAwarenessStates(state.awareness, [state.awareness.clientID], 'local')
+              state.awarenessRelayCleanup?.()
+              state.awarenessRelayCleanup = null
               const syncToDispose = state.autoSync
               state.ws = null
               state.autoSync = null
+              state.ephemeralSession = null
               state.wsRefCount = 0
               syncToDispose?.dispose()
             }
@@ -89,10 +192,16 @@ export function useDocumentWs(
         if (state.ws !== reusedWs) return
         state.wsRefCount--
         if (state.wsRefCount <= 0) {
+          // Remove local Awareness first (while relay listener is still active)
+          // so the removal is broadcast to peers before we tear down
+          removeAwarenessStates(state.awareness, [state.awareness.clientID], 'local')
+          state.awarenessRelayCleanup?.()
+          state.awarenessRelayCleanup = null
           state.autoSync?.dispose()
           reusedWs.disconnect()
           state.ws = null
           state.autoSync = null
+          state.ephemeralSession = null
         }
       }
     }
@@ -104,9 +213,15 @@ export function useDocumentWs(
     // re-renders and runs useEffect cleanup.
     const teardownAndFatal = (wsInstance: DocumentWebSocket, error: Error) => {
       if (state.ws === wsInstance) {
+        // Remove local Awareness first (while relay listener + WS are still active)
+        // so the removal is broadcast to peers before we tear down
+        removeAwarenessStates(state.awareness, [state.awareness.clientID], 'local')
+        state.awarenessRelayCleanup?.()
+        state.awarenessRelayCleanup = null
         const syncToDispose = state.autoSync
         state.ws = null
         state.autoSync = null
+        state.ephemeralSession = null
         state.wsRefCount = 0
         syncToDispose?.dispose()
       }
@@ -117,12 +232,70 @@ export function useDocumentWs(
     const handlerDeps = { documentId, deviceRef, ws: null! as DocumentWebSocket }
     const ws = new DocumentWebSocket(documentId, {
       onDocument: async (msg, mode) => {
-        await handleDocumentMessage(msg, mode, state, handlerDeps)
+        // Refresh device key cache on every WS (re)connect per design spec
+        // (collaboration.md: fetch workspace member devices on WS connection)
+        const cacheResult = await buildDeviceKeyCaches(state.workspaceId)
+        if (cacheResult.status === 'key_changed') {
+          state.onTofuKeyChange?.(cacheResult.warning)
+          throw new VerificationError(`TOFU key change on reconnect: device ${cacheResult.warning.deviceId}`)
+        }
+        // Replace cache with fresh keys (prunes revoked devices)
+        state.signingKeys.clear()
+        for (const [key, value] of cacheResult.signingKeys) {
+          state.signingKeys.set(key, value)
+        }
+        state.signingKeyOwners.clear()
+        for (const [key, value] of cacheResult.signingKeyOwners) {
+          state.signingKeyOwners.set(key, value)
+        }
+
+        try {
+          await handleDocumentMessage(msg, mode, state, handlerDeps)
+        } catch (err) {
+          if (err instanceof TofuKeyChangeError) {
+            state.onTofuKeyChange?.(err.warning)
+            // Re-throw as VerificationError to trigger disconnect (fail-closed).
+            // User can retry after trusting the new key via the dialog.
+            throw new VerificationError(err.message)
+          }
+          throw err
+        }
+        // Set local Awareness state with user info for cursor rendering
+        // Use member name from device key cache (fetched from workspace members API)
+        const localMemberName = cacheResult.memberNames.get(userId) ?? userId
+        state.awareness.setLocalStateField('user', {
+          userId,
+          name: localMemberName,
+          color: assignUserColor(userId),
+        })
+        // After each document message (initial or reconnect): create a fresh
+        // ephemeral session and broadcast initialize. Old sessions are invalidated
+        // on reconnect because peers' counter state is stale.
+        // Drain any stale ephemeral messages queued during disconnect (delta mode
+        // doesn't call drainAllQueues, so old-session ephemerals may linger).
+        handlerDeps.ws.drainEphemeralQueue()
+        const dev = deviceRef.current
+        if (dev) {
+          const session = createEphemeralSession()
+          state.ephemeralSession = session
+          const initPayload = encodeEphemeralPayload(session, MSG_INITIALIZE, new Uint8Array(0))
+          sendEphemeralEnvelope(initPayload, state, handlerDeps.ws, dev, documentId)
+          session.initializeSent = true
+        }
       },
-      onUpdate: (msg) => {
+      onUpdate: async (msg) => {
         const dev = deviceRef.current
         const localKey = dev ? base64UrlEncode(dev.deviceKeys.signingPublicKey) : undefined
-        const applied = applyRemoteUpdate(msg, state, documentId, localKey)
+        let applied: boolean
+        try {
+          applied = await applyRemoteUpdate(msg, state, documentId, localKey)
+        } catch (err) {
+          if (err instanceof TofuKeyChangeError) {
+            state.onTofuKeyChange?.(err.warning)
+            throw new VerificationError(err.message)
+          }
+          throw err
+        }
         if (!applied) return
         // Update WS known state so delta reconnect uses confirmed clocks only
         handlerDeps.ws.updateKnownState(state.activeSnapshotId, state.confirmedClocks)
@@ -143,7 +316,15 @@ export function useDocumentWs(
         })
       },
       onSnapshot: async (msg) => {
-        await handleSnapshotMessage(msg, state, handlerDeps)
+        try {
+          await handleSnapshotMessage(msg, state, handlerDeps)
+        } catch (err) {
+          if (err instanceof TofuKeyChangeError) {
+            state.onTofuKeyChange?.(err.warning)
+            throw new VerificationError(err.message)
+          }
+          throw err
+        }
       },
       onSnapshotSaved: (msg) => {
         const resolvedSnapshot = handlerDeps.ws.resolvePendingSnapshot()
@@ -195,7 +376,15 @@ export function useDocumentWs(
         state.autoSync?.notifyPendingChanges()
       },
       onSnapshotSaveFailed: async (msg) => {
-        await handleSnapshotSaveFailedMessage(msg, state, handlerDeps)
+        try {
+          await handleSnapshotSaveFailedMessage(msg, state, handlerDeps)
+        } catch (err) {
+          if (err instanceof TofuKeyChangeError) {
+            state.onTofuKeyChange?.(err.warning)
+            throw new VerificationError(err.message)
+          }
+          throw err
+        }
       },
       onUpdateSaved: (msg) => {
         const dev = deviceRef.current
@@ -211,7 +400,131 @@ export function useDocumentWs(
           state.autoSync?.notifyPendingChanges()
         }
       },
-      onEphemeral: () => {},
+      onEphemeral: async (msg) => {
+        const dev = deviceRef.current
+        if (!dev || !state.ephemeralSession) return
+
+        const pd = msg.publicData as Record<string, unknown>
+        const senderPubKeyB64 = pd?.signingPubKey as string | undefined
+        if (!senderPubKeyB64) return
+
+        // Validate docId matches current document (prevent cross-document injection)
+        const msgDocId = pd?.docId as string | undefined
+        if (!msgDocId || msgDocId !== documentId) {
+          console.warn('[ws] Ephemeral: docId missing or mismatch, ignoring')
+          return
+        }
+
+        // Skip own messages (defense-in-depth: server uses broadcast_except,
+        // but client-side filter guards against future transport changes)
+        const localPubKeyB64 = base64UrlEncode(dev.deviceKeys.signingPublicKey)
+        if (senderPubKeyB64 === localPubKeyB64) return
+
+        // 1. Resolve sender's signing key via shared resolver (dedup + TOFU + cache refresh)
+        const resolveResult = await resolveSigningKey(senderPubKeyB64, state)
+        if (resolveResult.status === 'key_changed') {
+          state.onTofuKeyChange?.(resolveResult.warning)
+          throw new VerificationError(`TOFU key change on ephemeral resolve: device ${resolveResult.warning.deviceId}`)
+        }
+        if (resolveResult.status === 'not_found') {
+          console.warn('[ws] Ephemeral: unknown signing key, ignoring')
+          return
+        }
+        const senderPubKeyBytes = resolveResult.key
+
+        // 2. Verify envelope signature
+        const envelopeMessage = buildWsEnvelopeMessage(
+          WS_SIGNATURE_PREFIX.EPHEMERAL,
+          msg.ciphertext,
+          msg.nonce,
+          pd,
+          base64UrlEncode,
+        )
+        const sigBytes = base64UrlDecode(msg.signature)
+        if (!ed25519.verify(sigBytes, envelopeMessage, senderPubKeyBytes)) {
+          console.warn('[ws] Ephemeral: envelope signature verification failed')
+          return
+        }
+
+        // 3. Decrypt ciphertext
+        let decrypted: Uint8Array
+        try {
+          const ciphertextBytes = base64UrlDecode(msg.ciphertext)
+          const nonceBytes = base64UrlDecode(msg.nonce)
+          decrypted = decryptContent(ciphertextBytes, nonceBytes, state.dek, documentId, state.keyVersion)
+        } catch (err) {
+          console.warn('[ws] Ephemeral: decryption failed:', err)
+          return
+        }
+
+        // 4. Decode ephemeral payload
+        const decoded = decodeEphemeralPayload(decrypted)
+        if (!decoded) {
+          console.warn('[ws] Ephemeral: payload decode failed')
+          return
+        }
+
+        // 5. Handle handshake / awareness
+        const result = handleIncomingEphemeral(
+          state.ephemeralSession,
+          decoded,
+          senderPubKeyB64,
+          senderPubKeyBytes,
+          dev.deviceKeys.signingPrivateKey,
+        )
+
+        const remoteSessionIdB64 = base64UrlEncode(decoded.sessionId)
+
+        // Helper: resend current Awareness state so peer sees our presence immediately
+        const resendAwareness = () => {
+          const session = state.ephemeralSession
+          if (!session) return
+          const localState = state.awareness.getLocalState()
+          if (!localState) return
+          const encoded = encodeAwarenessUpdate(state.awareness, [state.awareness.clientID])
+          const payload = encodeEphemeralPayload(session, MSG_MESSAGE, encoded)
+          sendEphemeralEnvelope(payload, state, handlerDeps.ws, dev, documentId)
+        }
+
+        switch (result.action) {
+          case 'respond':
+            sendEphemeralEnvelope(result.responsePayload, state, handlerDeps.ws, dev, documentId)
+            // After respond to proofAndRequest, we've added the peer as trusted.
+            // Resend Awareness so they see our presence immediately.
+            if (state.ephemeralSession?.trustedPeers.has(remoteSessionIdB64)) {
+              resendAwareness()
+            }
+            break
+          case 'trusted':
+            // Peer is now trusted — resend current Awareness so they see our presence
+            // immediately (any earlier MSG_MESSAGE was rejected while untrusted).
+            resendAwareness()
+            break
+          case 'awareness': {
+            // Same-user different-device: apply then immediately remove
+            // (collaboration.md: applyAwarenessUpdate → removeAwarenessStates)
+            const resolvedUserId = state.signingKeyOwners.get(senderPubKeyB64)
+            if (resolvedUserId && resolvedUserId === userId) {
+              let changedClients: number[] = []
+              const captureHandler = ({ added, updated }: { added: number[]; updated: number[] }) => {
+                changedClients = [...added, ...updated]
+              }
+              state.awareness.on('update', captureHandler)
+              applyAwarenessUpdate(state.awareness, result.awarenessData, 'remote')
+              state.awareness.off('update', captureHandler)
+              if (changedClients.length > 0) {
+                removeAwarenessStates(state.awareness, changedClients, 'same-user')
+              }
+            } else {
+              applyAwarenessUpdate(state.awareness, result.awarenessData, 'remote')
+            }
+            break
+          }
+          case 'reject':
+            console.warn('[ws] Ephemeral rejected:', result.reason)
+            break
+        }
+      },
     })
     // Bind the ws instance to handlerDeps after creation (circular ref resolved)
     handlerDeps.ws = ws
@@ -260,6 +573,11 @@ export function useDocumentWs(
     })
     state.autoSync = sync
 
+    // Subscribe to Awareness updates for outbound ephemeral relay (throttled ~100ms).
+    // This is stored on shared state so it survives beyond the creator hook instance.
+    // If the creator panel unmounts, the listener stays alive while other panels exist.
+    setupAwarenessRelay(state, deviceRef, documentId)
+
     return () => {
       cancelled = true
       unsubscribe()
@@ -267,13 +585,19 @@ export function useDocumentWs(
       if (state.ws !== ws) return
       state.wsRefCount--
       if (state.wsRefCount <= 0) {
+        // Remove local Awareness first (while relay listener is still active)
+        // so the removal is broadcast to peers before we tear down
+        removeAwarenessStates(state.awareness, [state.awareness.clientID], 'local')
+        state.awarenessRelayCleanup?.()
+        state.awarenessRelayCleanup = null
         sync.dispose()
         ws.disconnect()
         state.ws = null
         state.autoSync = null
+        state.ephemeralSession = null
       }
     }
-  }, [yDoc, documentId])
+  }, [yDoc, documentId, userId])
 
   // Stable callback that reads autoSync from cache at call time
   const onLocalEdit = useCallback(() => {

@@ -14,8 +14,8 @@ import {
   evaluateTofu,
   type TofuDecision,
 } from '@/shared/lib/crypto'
-import { deviceApi } from '@/shared/api'
-import type { TofuKeyChangeWarning } from './types'
+import { workspaceApi } from '@/shared/api'
+import type { TofuKeyChangeWarning, DocumentState } from './types'
 
 /**
  * Evaluate a TOFU decision for document verification contexts.
@@ -46,33 +46,119 @@ function evaluateVerificationTofu(
 // =============================================================================
 
 export type DeviceKeyCacheResult =
-  | { status: 'ok'; signingKeys: Map<string, Uint8Array> }
+  | { status: 'ok'; signingKeys: Map<string, Uint8Array>; signingKeyOwners: Map<string, string>; memberNames: Map<string, string> }
   | { status: 'key_changed'; warning: TofuKeyChangeWarning }
 
 /**
- * Build device key caches and verify TOFU for all devices.
+ * Build device key caches for all workspace members and verify TOFU for each device.
  * Keys are indexed by device signing public key (base64url) for clock-based lookups.
  * Returns a key_changed result if a TOFU key change is detected.
  */
 export async function buildDeviceKeyCaches(
-  userId: string,
+  workspaceId: string,
 ): Promise<DeviceKeyCacheResult> {
   const signingKeys = new Map<string, Uint8Array>()
+  const signingKeyOwners = new Map<string, string>()
+  const memberNames = new Map<string, string>()
 
-  const devicesResponse = await deviceApi.listDevices()
-  for (const dev of devicesResponse.devices) {
-    const signingPk = base64UrlDecode(dev.signing_public_key)
-    const ecdhPk = base64UrlDecode(dev.ecdh_public_key)
-    signingKeys.set(dev.signing_public_key, signingPk)
+  // Fetch all workspace members
+  const membersResponse = await workspaceApi.listMembers(workspaceId)
 
-    const devDecision = await evaluateTofu(userId, dev.id, signingPk, ecdhPk)
-    const tofuResult = evaluateVerificationTofu(devDecision, dev.id)
-    if (tofuResult !== 'continue') {
-      return { status: 'key_changed', warning: tofuResult }
+  // Build userId → name mapping for presence display
+  for (const member of membersResponse.members) {
+    memberNames.set(member.user_id, member.name)
+  }
+
+  // Fetch devices for all members in parallel
+  interface MemberDevices {
+    memberId: string
+    devices: Array<{ id: string; signing_public_key: string; ecdh_public_key: string }>
+  }
+  const memberDevices: MemberDevices[] = await Promise.all(
+    membersResponse.members.map(async (member): Promise<MemberDevices> => {
+      const memberId = member.user_id
+      const resp = await workspaceApi.listMemberDevices(workspaceId, memberId)
+      return {
+        memberId,
+        devices: resp.devices.map((d: { device_id: string; signing_public_key: string; ecdh_public_key: string }) => ({
+          id: d.device_id,
+          signing_public_key: d.signing_public_key,
+          ecdh_public_key: d.ecdh_public_key,
+        })),
+      }
+    }),
+  )
+
+  // Evaluate TOFU sequentially (must abort on first key change)
+  for (const { memberId, devices } of memberDevices) {
+    for (const dev of devices) {
+      const signingPk = base64UrlDecode(dev.signing_public_key)
+      const ecdhPk = base64UrlDecode(dev.ecdh_public_key)
+      signingKeys.set(dev.signing_public_key, signingPk)
+      signingKeyOwners.set(dev.signing_public_key, memberId)
+
+      const devDecision = await evaluateTofu(memberId, dev.id, signingPk, ecdhPk)
+      const tofuResult = evaluateVerificationTofu(devDecision, dev.id)
+      if (tofuResult !== 'continue') {
+        return { status: 'key_changed', warning: tofuResult }
+      }
     }
   }
 
-  return { status: 'ok', signingKeys }
+  return { status: 'ok', signingKeys, signingKeyOwners, memberNames }
+}
+
+// Module-level dedup map to prevent concurrent re-fetches (React Strict Mode safety)
+const pendingRefreshes = new Map<string, Promise<DeviceKeyCacheResult>>()
+
+export type ResolveSigningKeyResult =
+  | { status: 'found'; key: Uint8Array }
+  | { status: 'not_found' }
+  | { status: 'key_changed'; warning: TofuKeyChangeWarning }
+
+/**
+ * Resolve a signing key from the cache, re-fetching member devices on cache miss.
+ * Returns the signing public key bytes, or a key_changed warning if TOFU detects
+ * an identity key change during re-fetch.
+ */
+export async function resolveSigningKey(
+  pubKeyB64: string,
+  state: DocumentState,
+): Promise<ResolveSigningKeyResult> {
+  // 1. Check cache
+  const cached = state.signingKeys.get(pubKeyB64)
+  if (cached) return { status: 'found', key: cached }
+
+  // 2. Re-fetch with dedup
+  const dedupKey = state.workspaceId
+  let refresh = pendingRefreshes.get(dedupKey)
+  if (!refresh) {
+    refresh = buildDeviceKeyCaches(state.workspaceId).then(
+      (r) => { pendingRefreshes.delete(dedupKey); return r },
+      (err) => { pendingRefreshes.delete(dedupKey); throw err },
+    )
+    pendingRefreshes.set(dedupKey, refresh)
+  }
+
+  const result = await refresh
+  if (result.status === 'key_changed') {
+    return { status: 'key_changed', warning: result.warning }
+  }
+
+  // 3. Replace cache with fresh key set (prunes revoked/removed devices)
+  state.signingKeys.clear()
+  for (const [key, value] of result.signingKeys) {
+    state.signingKeys.set(key, value)
+  }
+  state.signingKeyOwners.clear()
+  for (const [key, value] of result.signingKeyOwners) {
+    state.signingKeyOwners.set(key, value)
+  }
+
+  // 4. Re-check
+  const resolved = state.signingKeys.get(pubKeyB64)
+  if (resolved) return { status: 'found', key: resolved }
+  return { status: 'not_found' }
 }
 
 // =============================================================================

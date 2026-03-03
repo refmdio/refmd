@@ -8,7 +8,7 @@
 import { useEffect } from 'react'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { useDocumentEdit, type UseDocumentEditResult } from '@/features/document-edit'
-import { KeyChangeGuard } from '@/shared/ui/KeyChangeGuard'
+import { KeyChangeWarningDialog } from '@/shared/ui/KeyChangeWarningDialog'
 import { useDocumentWorkspace } from '../model/DocumentWorkspaceContext'
 
 interface DocumentPanelShellProps {
@@ -29,6 +29,13 @@ export function DocumentPanelShell({ documentId, children }: DocumentPanelShellP
     })
   }, [result.document, upsertDocumentMetadata])
 
+  // Show key-change dialog before error — TOFU key change triggers both a dialog
+  // and a verification error (disconnect). The dialog must be visible so the user
+  // can trust or block the changed key before seeing the error UI.
+  if (result.keyChangeDialogProps) {
+    return <KeyChangeWarningDialog {...result.keyChangeDialogProps} />
+  }
+
   if (result.error) {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-background">
@@ -46,15 +53,14 @@ export function DocumentPanelShell({ documentId, children }: DocumentPanelShellP
     )
   }
 
-  return (
-    <KeyChangeGuard dialogProps={result.keyChangeDialogProps}>
-      {!result.document ? (
-        <div className="flex items-center justify-center h-full bg-background text-muted-foreground">
-          Document not found
-        </div>
-      ) : (
-        <>{children({ ...result, document: result.document })}</>
-      )}
-    </KeyChangeGuard>
-  )
+  if (!result.document) {
+    return (
+      <div className="flex items-center justify-center h-full bg-background text-muted-foreground">
+        Document not found
+      </div>
+    )
+  }
+
+  return <>{children({ ...result, document: result.document })}</>
+
 }

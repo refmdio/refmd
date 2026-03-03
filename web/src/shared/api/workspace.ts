@@ -46,6 +46,12 @@ export const workspaceApi = {
     }))
   },
 
+  async listMemberDevices(workspaceId: string, userId: string) {
+    return unwrap(await api.GET('/api/workspaces/{workspace_id}/members/{user_id}/devices', {
+      params: { path: { workspace_id: workspaceId, user_id: userId } },
+    }))
+  },
+
   // Roles
   async listRoles(workspaceId: string) {
     return unwrap(await api.GET('/api/workspaces/{workspace_id}/roles', {

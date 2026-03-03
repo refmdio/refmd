@@ -112,7 +112,11 @@ export class DocumentWebSocket {
 
     this.ws.onmessage = (event) => {
       this.incomingQueue.push(event.data as string)
-      this.processIncomingQueue()
+      this.processIncomingQueue().catch((err) => {
+        console.error('[ws] Unhandled error in message processing:', err)
+        this.broadcastError('unrecoverable-error')
+        this.disconnect()
+      })
     }
 
     this.ws.onclose = () => {
@@ -163,6 +167,8 @@ export class DocumentWebSocket {
         this.pendingQueue.push(message)
       }
     } else {
+      // Drop ephemeral messages in failed state to prevent unbounded queue growth
+      if (this.state === 'failed' && message.type === 'ephemeral') return
       this.sendQueue.push(message)
     }
   }
@@ -201,6 +207,11 @@ export class DocumentWebSocket {
       return this.pendingQueue.splice(idx, 1)[0]
     }
     return undefined
+  }
+
+  /** Remove queued ephemeral messages (stale after session rotation) */
+  drainEphemeralQueue(): void {
+    this.sendQueue = this.sendQueue.filter((m) => m.type !== 'ephemeral')
   }
 
   /** Drain all pending and queued messages (for full state reset before reconnect) */
@@ -260,17 +271,19 @@ export class DocumentWebSocket {
           if (err instanceof VerificationError) {
             console.error('[ws] Verification failed on document message, disconnecting:', err.message)
             this.broadcastError('verification-failed')
+            this.disconnect()
           } else {
-            console.error('[ws] Unrecoverable error on document message, disconnecting:', err)
-            this.broadcastError('unrecoverable-error')
+            // Transient error (e.g. network failure during device-key bootstrap):
+            // close WS to trigger onclose → scheduleReconnect instead of permanent disconnect
+            console.warn('[ws] Transient error on document message, will reconnect:', err)
+            this.ws?.close()
           }
-          this.disconnect()
           return
         }
         break
       case 'update':
         try {
-          this.callbacks.onUpdate(msg)
+          await this.callbacks.onUpdate(msg)
         } catch (err) {
           if (err instanceof VerificationError) {
             console.error('[ws] Verification failed on update message, disconnecting:', err.message)
@@ -323,7 +336,18 @@ export class DocumentWebSocket {
         }
         break
       case 'ephemeral-message':
-        this.callbacks.onEphemeral(msg)
+        try {
+          await this.callbacks.onEphemeral(msg)
+        } catch (err) {
+          if (err instanceof VerificationError) {
+            console.error('[ws] Verification failed on ephemeral message, disconnecting:', err.message)
+            this.broadcastError('verification-failed')
+            this.disconnect()
+            return
+          }
+          // Other ephemeral errors are non-fatal (awareness/handshake): log and continue
+          console.warn('[ws] Error processing ephemeral message:', err)
+        }
         break
       case 'document-not-found':
         this.broadcastError('document-not-found')

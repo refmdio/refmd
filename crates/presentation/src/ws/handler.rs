@@ -841,10 +841,9 @@ async fn handle_snapshot(
 
 /// Handle ephemeral messages (cursor positions, presence indicators).
 ///
-/// Phase 4C: Ephemeral payloads contain an encrypted `sessionProof` that recipients
-/// can verify to confirm the sender holds the claimed session. Server does not verify
-/// this proof (it cannot decrypt the payload). Client-side verification will be added
-/// in Phase 4C when multi-user collaboration is implemented.
+/// Ephemeral payloads contain an encrypted session proof that recipients verify
+/// client-side to confirm the sender holds the claimed session. The server does
+/// not verify this proof (it cannot decrypt the payload).
 async fn handle_ephemeral(
     state: &WsState,
     room: &super::connection_store::DocumentRoom,

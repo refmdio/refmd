@@ -12,6 +12,8 @@ import {
   encodePanelId,
   decodePanelId,
   findFirstDocumentId,
+  findFirstPanelType,
+  hasDocumentPanelOfType,
   removeFromMosaic,
   replacePanelInMosaic,
   replacePanelIdInMosaic,
@@ -32,6 +34,7 @@ interface DocumentWorkspaceContextValue {
   openDocuments: Map<string, OpenDocument>
   mosaicState: MosaicNode<string> | null
   focusedDocumentId: string | null
+  focusedPanelType: PanelType | null
   openDocument: (doc: OpenDocument) => void
   upsertDocumentMetadata: (doc: OpenDocument) => void
   closePanel: (panelId: string) => void
@@ -40,6 +43,7 @@ interface DocumentWorkspaceContextValue {
   switchPanelType: (panelId: string) => void
   setMosaicState: (state: MosaicNode<string> | null) => void
   setFocusedDocumentId: (id: string | null) => void
+  setFocusedPanelType: (type: PanelType | null) => void
 }
 
 const DocumentWorkspaceContext = createContext<DocumentWorkspaceContextValue | null>(null)
@@ -48,6 +52,7 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
   const [openDocuments, setOpenDocuments] = useState<Map<string, OpenDocument>>(new Map())
   const [mosaicState, setMosaicState] = useState<MosaicNode<string> | null>(null)
   const [focusedDocumentId, setFocusedDocumentId] = useState<string | null>(null)
+  const [focusedPanelType, setFocusedPanelType] = useState<PanelType | null>('editor')
 
   // Reset all document state SYNCHRONOUSLY (before paint) when workspace changes.
   // useLayoutEffect ensures the stale tiles are never visible to the user.
@@ -59,6 +64,7 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
       setOpenDocuments(new Map())
       setMosaicState(null)
       setFocusedDocumentId(null)
+      setFocusedPanelType('editor')
       prevWorkspaceRef.current = currentWorkspaceId
     }
   }, [currentWorkspaceId])
@@ -97,6 +103,7 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
       })
 
       setFocusedDocumentId(doc.id)
+      setFocusedPanelType('editor')
     },
     [upsertDocumentMetadata]
   )
@@ -115,6 +122,7 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
     setOpenDocuments(new Map())
     setMosaicState(null)
     setFocusedDocumentId(null)
+    setFocusedPanelType('editor')
   }, [])
 
   // Sync openDocuments and focusedDocumentId when mosaic panels change.
@@ -138,8 +146,16 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
       if (!current) return current
       if (!mosaicState) return null
       if (!hasDocumentPanels(mosaicState, current)) {
+        // Document panels removed — reset panel type to default for the next document
+        setFocusedPanelType('editor')
         return findFirstDocumentId(mosaicState)
       }
+      // Document still has panels — ensure focusedPanelType matches a remaining panel
+      setFocusedPanelType((currentType) => {
+        if (!currentType || !mosaicState) return currentType
+        if (hasDocumentPanelOfType(mosaicState, current, currentType)) return currentType
+        return findFirstPanelType(mosaicState, current) ?? currentType
+      })
       return current
     })
   }, [mosaicState])
@@ -173,6 +189,16 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
       if (!prev) return null
       return replacePanelIdInMosaic(prev, panelId, newPanelId)
     })
+
+    // Keep focusedPanelType in sync only when the switched panel is the focused one
+    setFocusedDocumentId((currentDocId) => {
+      if (currentDocId === panel.documentId) {
+        setFocusedPanelType((currentType) =>
+          currentType === panel.type ? newType : currentType
+        )
+      }
+      return currentDocId
+    })
   }, [])
 
   return (
@@ -181,6 +207,7 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
         openDocuments,
         mosaicState,
         focusedDocumentId,
+        focusedPanelType,
         openDocument,
         upsertDocumentMetadata,
         closePanel,
@@ -189,6 +216,7 @@ export function DocumentWorkspaceProvider({ children }: { children: React.ReactN
         switchPanelType,
         setMosaicState,
         setFocusedDocumentId,
+        setFocusedPanelType,
       }}
     >
       {children}

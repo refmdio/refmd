@@ -51,6 +51,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
   // TOFU key change flow
   const { push: pushKeyChange, dialogProps: keyChangeDialogProps } = useKeyChangeFlow({
     afterTrust: async () => {
+      setOverrideError(null)
       invalidateDocument(documentId)
       setRetryTrigger((n) => n + 1)
     },
@@ -97,7 +98,7 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
     yDoc,
     isLoading: initLoading,
     error: initError,
-  } = useDocumentInit(documentId, document, kek, auth, device, retryTrigger, handleTofuKeyChange)
+  } = useDocumentInit(documentId, document, kek, retryTrigger)
 
   const error = overrideError || docFetchError || kekError || initError
 
@@ -109,7 +110,12 @@ export function useDocumentEdit(documentId: string): UseDocumentEditResult {
 
   // WebSocket connection + auto-sync (delegated to useDocumentWs)
   const onFatalError = useCallback((err: Error) => setOverrideError(err), [])
-  const { wsState, onLocalEdit } = useDocumentWs(documentId, yDoc, device, onFatalError)
+  const { wsState, onLocalEdit } = useDocumentWs(
+    documentId, yDoc, device,
+    auth?.userId ?? '',
+    onFatalError,
+    handleTofuKeyChange,
+  )
 
   // Y.Doc ref counting: destroy Y.Doc when last subscriber disconnects
   useEffect(() => {

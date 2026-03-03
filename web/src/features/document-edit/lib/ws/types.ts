@@ -11,6 +11,15 @@ export class VerificationError extends Error {
   }
 }
 
+/** Thrown when TOFU detects an identity key change during device resolution.
+ *  Callers should surface the warning to the user via the key-change dialog. */
+export class TofuKeyChangeError extends Error {
+  constructor(public readonly warning: import('../types').TofuKeyChangeWarning) {
+    super(`TOFU key change detected for device ${warning.deviceId}`)
+    this.name = 'TofuKeyChangeError'
+  }
+}
+
 /** WebSocket connection states */
 export type WsConnectionState =
   | 'idle'
@@ -189,7 +198,7 @@ export type WsConnectionMode = 'complete' | 'delta'
 export interface WsSyncCallbacks {
   /** Handle initial document message. Throw VerificationError on verification failure to trigger disconnect. */
   onDocument: (msg: WsDocumentMessage, mode: WsConnectionMode) => Promise<void> | void
-  onUpdate: (msg: WsUpdateMessage) => void
+  onUpdate: (msg: WsUpdateMessage) => Promise<void> | void
   /** Handle remote snapshot broadcast. Throw VerificationError on verification failure to trigger disconnect. */
   onSnapshot: (msg: WsSnapshotMessage) => Promise<void> | void
   onSnapshotSaved: (msg: WsSnapshotSavedMessage) => void
@@ -197,5 +206,5 @@ export interface WsSyncCallbacks {
   onSnapshotSaveFailed: (msg: WsSnapshotSaveFailedMessage) => Promise<void> | void
   onUpdateSaved: (msg: WsUpdateSavedMessage) => void
   onUpdateSaveFailed: (msg: WsUpdateSaveFailedMessage) => void
-  onEphemeral: (msg: WsEphemeralMessage) => void
+  onEphemeral: (msg: WsEphemeralMessage) => Promise<void> | void
 }

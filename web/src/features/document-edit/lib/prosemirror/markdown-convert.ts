@@ -40,7 +40,12 @@ const markdownStringifier = unified()
   })
 
 export function normalizeMarkdown(value: string): string {
-  return value.replace(/\r\n?/g, '\n')
+  // Strip trailing \n to match proseMirrorDocToMarkdown which also strips it.
+  // Without this, the bridge's canonical check (normalize(serialize(doc)) vs
+  // normalize(text)) detects a mismatch and writes back to Y.Text. That
+  // write-back fires yCollab's Y.Text observer during CM's ViewPlugin.update,
+  // causing a reentrant EditorView.update that permanently destroys yCollab.
+  return value.replace(/\r\n?/g, '\n').replace(/\n+$/, '')
 }
 
 function appendMark(marks: Mark[], nextMark: Mark): Mark[] {
@@ -433,7 +438,10 @@ function splitBreakParagraphs(children: Content[]): Content[] {
   return result
 }
 
-export function markdownToProseMirrorDoc(markdown: string, schema: Schema): ProseMirrorNode {
+export function markdownToProseMirrorDoc(
+  markdown: string,
+  schema: Schema,
+): ProseMirrorNode {
   try {
     const parsedTree = markdownParser.runSync(
       markdownParser.parse(normalizeMarkdown(markdown)),

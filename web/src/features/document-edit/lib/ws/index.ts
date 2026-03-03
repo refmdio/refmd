@@ -1,5 +1,5 @@
 export { DocumentWebSocket } from './websocket-sync'
-export { VerificationError } from './types'
+export { VerificationError, TofuKeyChangeError } from './types'
 export type {
   WsConnectionState,
   WsConnectionMode,

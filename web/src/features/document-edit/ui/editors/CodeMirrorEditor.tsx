@@ -12,10 +12,11 @@ import { markdown } from '@codemirror/lang-markdown'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
-import { yCollab } from 'y-codemirror.next'
+import { yCollab, ySyncFacet } from 'y-codemirror.next'
 import * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { useTheme } from '@/shared/context'
+import './codemirror-cursors.css'
 
 // Compartments for dynamic reconfiguration without editor recreation
 const themeCompartment = new Compartment()
@@ -231,10 +232,27 @@ export function CodeMirrorEditor({
       ],
     })
 
-    // Create editor view
+    // Wrap CM updates in a Y.js transaction to defer Y.Text observer
+    // firing until after the CM update completes. Without this, the
+    // bridge's textObserver runs syncTextToProsemirror during the CM
+    // update, and if a canonical write-back occurs, yCollab's observer
+    // dispatches to CM — causing a reentrant "Calls to EditorView.update
+    // are not allowed" crash.
+    //
+    // The origin MUST be the YSyncConfig from ySyncFacet (the same object
+    // yCollab uses internally). Nested Y.js transact merges into the
+    // outer transaction, so the outer origin wins. If we used a different
+    // origin (e.g. a string), yCollab's observer would not recognise its
+    // own Y.Text writes and would re-apply them to CM, corrupting content.
     const view = new EditorView({
       state: startState,
       parent: editorRef.current,
+      dispatchTransactions(trs) {
+        const origin = view.state.facet(ySyncFacet)
+        yDoc.transact(() => {
+          view.update(trs)
+        }, origin)
+      },
     })
 
     viewRef.current = view

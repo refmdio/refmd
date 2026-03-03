@@ -1,3 +1,5 @@
+@import 'prosemirror-view/style/prosemirror.css';
+
 /* Notion-style ProseMirror Editor Styles */
 
 .ProseMirror {
@@ -191,3 +193,41 @@
 .pm-block-handle-drag:active {
   cursor: grabbing;
 }
+
+/* ---- Remote Cursor (y-prosemirror) ---- */
+.ProseMirror-yjs-cursor {
+  position: relative;
+  border-left: 2px solid;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+  word-break: normal;
+}
+
+/* y-prosemirror: keep first cursor visible when the first block is empty */
+.ProseMirror > .ProseMirror-yjs-cursor:first-child {
+  margin-top: 16px;
+}
+
+.ProseMirror-yjs-cursor > div {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 3px 3px 3px 0;
+  white-space: nowrap;
+  color: #fff;
+  pointer-events: none;
+  background-color: inherit;
+}
+
+.ProseMirror-yjs-selection {
+  /* background-color set inline by y-prosemirror via user.color + 70 alpha */
+}
+
+/* Hide remote cursors when panel is not focused */
+.hide-remote-cursors .ProseMirror-yjs-cursor { display: none !important; }
+.hide-remote-cursors .ProseMirror-yjs-selection { background-color: transparent !important; }

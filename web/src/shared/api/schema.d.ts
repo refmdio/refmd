@@ -734,6 +734,23 @@ export interface paths {
         patch: operations["change_member_role"];
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/members/{user_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List active devices for a workspace member */
+        get: operations["list_member_devices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/roles": {
         parameters: {
             query?: never;
@@ -1181,6 +1198,10 @@ export interface components {
         ListInvitationsResponse: {
             invitations: components["schemas"]["InvitationListItem"][];
         };
+        /** @description List member devices response */
+        ListMemberDevicesResponse: {
+            devices: components["schemas"]["MemberDeviceResponse"][];
+        };
         /** @description List members response */
         ListMembersResponse: {
             members: components["schemas"]["MemberDetailResponse"][];
@@ -1383,6 +1404,13 @@ export interface components {
             role_id: string;
             role_name: string;
             user_id: string;
+        };
+        /** @description Member device public key response */
+        MemberDeviceResponse: {
+            created_at: string;
+            device_id: string;
+            ecdh_public_key: string;
+            signing_public_key: string;
         };
         /** @description Workspace membership response */
         MembershipResponse: {
@@ -1995,7 +2023,7 @@ export interface components {
             parentSnapshotUpdateClocks: {
                 [key: string]: number;
             };
-            publicData?: unknown;
+            publicData: unknown;
             signature: string;
         };
         /** @description Envelope relayed to other clients (snapshot) */
@@ -2019,7 +2047,7 @@ export interface components {
             /** Format: int32 */
             keyVersion: number;
             nonce: string;
-            publicData?: unknown;
+            publicData: unknown;
             signature: string;
             snapshotId: string;
             /** Format: int64 */
@@ -4683,6 +4711,58 @@ export interface operations {
             };
             /** @description Cannot demote last owner */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+        };
+    };
+    list_member_devices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Target member user ID */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of member's active devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListMemberDevicesResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Permission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceErrorResponse"];
+                };
+            };
+            /** @description Not a member */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

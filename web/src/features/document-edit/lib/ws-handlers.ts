@@ -23,7 +23,7 @@ import {
   WS_SIGNATURE_PREFIX,
 } from '@/shared/lib/crypto'
 import type { DeviceState } from '@/shared/model/auth-types'
-import { VerificationError } from './ws'
+import { VerificationError, TofuKeyChangeError } from './ws'
 import type { DocumentWebSocket } from './ws'
 import type {
   WsConnectionMode,
@@ -34,7 +34,8 @@ import type {
 } from './ws'
 import { checkDocumentStateRollback, pinDocumentState, getDocumentStatePin } from '@/shared/lib/anti-rollback'
 import { verifySnapshotProofChain } from './document-verification-service'
-import { verifyAndApplyWsUpdates } from './auto-sync'
+import { verifyAndApplyWsUpdates, preResolveSigningKeys } from './auto-sync'
+import { resolveSigningKey } from './document-verification-service'
 import type { DocumentState } from './types'
 
 // =============================================================================
@@ -57,12 +58,16 @@ export interface HandlerDeps {
  * Fail-closed: returns false if the signing key is not found in the local
  * key cache (unknown device) OR if the signature doesn't match. Callers
  * must reject the snapshot when this returns false.
+ *
+ * Uses resolveSigningKey for multi-user device resolution: if a signing key
+ * is not cached, it re-fetches all workspace members' device keys before
+ * rejecting (fail-closed on persistent miss).
  */
-function verifySnapshotSignature(
+async function verifySnapshotSignature(
   snapshot: { data: string; nonce: string; signature: string; publicData?: Record<string, unknown>; createdByDevice: string },
-  signingKeys: Map<string, Uint8Array>,
+  state: DocumentState,
   context: string,
-): boolean {
+): Promise<boolean> {
   if (!snapshot.publicData) {
     console.error(`[ws] ${context}: missing publicData, rejecting`)
     return false
@@ -74,11 +79,15 @@ function verifySnapshotSignature(
     console.error(`[ws] ${context}: missing signingPubKey in publicData, rejecting`)
     return false
   }
-  const signingKey = signingKeys.get(signedPubKey)
-  if (!signingKey) {
+  const resolveResult = await resolveSigningKey(signedPubKey, state)
+  if (resolveResult.status === 'key_changed') {
+    throw new TofuKeyChangeError(resolveResult.warning)
+  }
+  if (resolveResult.status === 'not_found') {
     console.error(`[ws] ${context}: unknown signing key ${signedPubKey}, rejecting (fail-closed)`)
     return false
   }
+  const signingKey = resolveResult.key
 
   const envMsg = buildWsEnvelopeMessage(
     WS_SIGNATURE_PREFIX.SNAPSHOT,
@@ -170,7 +179,7 @@ export async function handleDocumentMessage(
     } else if (needsSnapshotVerification && msg.snapshot !== null) {
       // Full signature + ciphertext verification required.
       // Triggered for: snapshot ID change (any mode) OR complete mode (even same ID).
-      if (!verifySnapshotSignature(msg.snapshot, state.signingKeys, 'Document snapshot')) {
+      if (!await verifySnapshotSignature(msg.snapshot, state, 'Document snapshot')) {
         throw new VerificationError('Document snapshot signature verification failed')
       }
 
@@ -330,6 +339,11 @@ export async function handleDocumentMessage(
     const needsServerDoc = needsSnapshotVerification || (isDeltaUnchanged && msg.updates.length > 0)
     const serverDoc = needsServerDoc ? new Y.Doc() : undefined
 
+    // Pre-resolve signing keys for updates (async, before sync Y.transact)
+    if (msg.updates.length > 0) {
+      await preResolveSigningKeys(msg.updates, state)
+    }
+
     // Apply snapshot + updates atomically
     state.yDoc.transact(() => {
       if (pendingSnapshotUpdate) {
@@ -436,10 +450,14 @@ export async function handleSnapshotMessage(
       throw new VerificationError('Remote snapshot missing publicData')
     }
     const signingPubKeyB64 = pd.signingPubKey as string
-    const signingKey = state.signingKeys.get(signingPubKeyB64)
-    if (!signingKey) {
+    const resolveResult = await resolveSigningKey(signingPubKeyB64, state)
+    if (resolveResult.status === 'key_changed') {
+      throw new TofuKeyChangeError(resolveResult.warning)
+    }
+    if (resolveResult.status === 'not_found') {
       throw new VerificationError(`Remote snapshot: unknown signing key ${signingPubKeyB64} (fail-closed)`)
     }
+    const signingKey = resolveResult.key
 
     // 1. Verify envelope signature
     const envelopeMessage = buildWsEnvelopeMessage(
@@ -576,7 +594,7 @@ export async function handleSnapshotSaveFailedMessage(
 
   try {
     // 1. Fail-closed signature verification
-    if (!verifySnapshotSignature(msg.snapshot, state.signingKeys, 'Snapshot-save-failed')) {
+    if (!await verifySnapshotSignature(msg.snapshot, state, 'Snapshot-save-failed')) {
       throw new VerificationError('Snapshot-save-failed signature verification failed')
     }
 
@@ -684,6 +702,11 @@ export async function handleSnapshotSaveFailedMessage(
     // returns ALL updates (complete mode), so updates start from clock=0.
     // snapshot.clocks is a live cache of max clocks, not a base for post-snapshot updates.
     state.knownClocks = {}
+
+    // Pre-resolve signing keys for updates (async, before sync Y.transact)
+    if (msg.updates.length > 0) {
+      await preResolveSigningKeys(msg.updates, state)
+    }
 
     const serverDoc = new Y.Doc()
     state.yDoc.transact(() => {

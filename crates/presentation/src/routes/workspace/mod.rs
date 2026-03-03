@@ -6,6 +6,7 @@
 pub mod crud;
 pub mod events;
 pub mod invitations;
+pub mod member_devices;
 pub mod members;
 pub mod roles;
 
@@ -67,6 +68,7 @@ pub fn session_routes(state: AppState) -> Router {
         .route("/{workspace_id}/members", get(members::list_members))
         .route("/{workspace_id}/members/{user_id}", patch(members::change_member_role))
         .route("/{workspace_id}/members/{user_id}", delete(members::remove_member))
+        .route("/{workspace_id}/members/{user_id}/devices", get(member_devices::list_member_devices))
         // SSE events
         .route("/events", get(events::workspace_events))
         .with_state(state)

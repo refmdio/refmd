@@ -3,6 +3,7 @@ import type { Awareness } from 'y-protocols/awareness'
 import type { TofuVerifyResult } from '@/shared/lib/crypto'
 import type { DocumentWebSocket } from './ws'
 import type { AutoSyncHandle } from './auto-sync'
+import type { EphemeralSession } from './ephemeral-session'
 
 export interface TofuKeyChangeWarning {
   deviceId: string
@@ -18,6 +19,8 @@ export interface DocumentState {
   keyVersion: number
   lastSavedState: Uint8Array | null
   refCount: number
+  /** Workspace ID for multi-user device resolution */
+  workspaceId: string
   /** Current active collab snapshot ID (null = no snapshot yet, new document) */
   activeSnapshotId: string | null
   /** BLAKE3 proof hash of the snapshot chain head (for anti-rollback) */
@@ -58,6 +61,8 @@ export interface DocumentState {
   autoSync: AutoSyncHandle | null
   /** Device signing key cache for verifying remote updates */
   signingKeys: Map<string, Uint8Array>
+  /** Signing key → userId mapping for same-user filtering */
+  signingKeyOwners: Map<string, string>
   /** Pending snapshot metadata (set before send, consumed on snapshot-saved) */
   pendingSnapshot: {
     /** Client-generated snapshot ID (included in signed publicData) */
@@ -69,4 +74,11 @@ export interface DocumentState {
   } | null
   /** True after the first WS `document` message has been processed */
   initialized: boolean
+  /** Ephemeral session state for session proof exchange and Awareness relay */
+  ephemeralSession: EphemeralSession | null
+  /** Awareness relay cleanup function (lives as long as WS connection) */
+  awarenessRelayCleanup: (() => void) | null
+  /** Shared TOFU key-change callback — updated by every useDocumentWs subscriber
+   *  so that whichever panel is still mounted can surface the warning dialog. */
+  onTofuKeyChange: ((warning: TofuKeyChangeWarning) => void) | null
 }

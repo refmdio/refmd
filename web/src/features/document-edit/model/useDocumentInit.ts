@@ -9,9 +9,8 @@
 import { useState, useEffect } from 'react'
 import * as Y from 'yjs'
 import type { DocumentResponse } from '@/shared/api'
-import type { AuthState, DeviceState } from '@/shared/model/auth-types'
 import { initializeDocumentCore } from '../lib/initializeDocument'
-import type { DocumentState, TofuKeyChangeWarning } from '../lib/types'
+import type { DocumentState } from '../lib/types'
 import { documentCache } from '../lib/document-cache'
 
 export interface UseDocumentInitResult {
@@ -28,10 +27,7 @@ export function useDocumentInit(
   documentId: string,
   document: DocumentResponse | null,
   kek: Uint8Array | null,
-  auth: AuthState | null,
-  device: DeviceState | null,
   retryTrigger: number,
-  onTofuKeyChange: (warning: TofuKeyChangeWarning | null) => void
 ): UseDocumentInitResult {
   const [yDoc, setYDoc] = useState<Y.Doc | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -46,7 +42,7 @@ export function useDocumentInit(
     }
 
     async function initializeYDoc() {
-      if (!document || !kek || !auth || !device) {
+      if (!document || !kek) {
         return
       }
 
@@ -72,17 +68,8 @@ export function useDocumentInit(
             documentId,
             document,
             kek,
-            auth,
-            device,
           })
-          if (result.status === 'key_changed') {
-            if (!cancelled) {
-              onTofuKeyChange(result.warning)
-              setIsLoading(false)
-            }
-            return null
-          }
-          return result.state
+          return result
         } catch (err) {
           if (!cancelled) {
             setError(err instanceof Error ? err : new Error('Failed to initialize document'))
@@ -107,7 +94,7 @@ export function useDocumentInit(
     return () => {
       cancelled = true
     }
-  }, [document, kek, auth, device, documentId, retryTrigger, onTofuKeyChange])
+  }, [document, kek, documentId, retryTrigger])
 
   return { yDoc, isLoading, error }
 }

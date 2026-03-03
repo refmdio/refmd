@@ -73,14 +73,17 @@ export function ProseMirrorEditor({
     const view = new EditorView(containerRef.current, {
       state,
       editable: () => !readOnly,
-      dispatchTransaction(this: EditorView, tr) {
+      dispatchTransaction(tr) {
         if (destroyed) return
-        const newState = this.state.apply(tr)
-        this.updateState(newState)
+
+        const newState = view.state.apply(tr)
+        view.updateState(newState)
 
         const ss = slashPlugin.getState(newState) as SlashMenuState | undefined
         setSlashState(ss ?? INACTIVE)
-        setHasSelection(!newState.selection.empty)
+
+        const { from, to } = newState.selection
+        setHasSelection(from !== to)
       },
     })
 

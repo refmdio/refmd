@@ -20,6 +20,7 @@ import {
 } from '@/shared/ui/dropdown-menu'
 import { EditorPanel } from './EditorPanel'
 import { PreviewPanel } from './PreviewPanel'
+import { DocumentPresenceAvatars } from '@/features/document-edit'
 
 import 'react-mosaic-component/react-mosaic-component.css'
 import './mosaic-theme.css'
@@ -28,11 +29,14 @@ export function MosaicDocumentWorkspace() {
   const {
     openDocuments,
     mosaicState,
+    focusedDocumentId,
+    focusedPanelType,
     closePanel,
     splitPanel,
     switchPanelType,
     setMosaicState,
     setFocusedDocumentId,
+    setFocusedPanelType,
   } = useDocumentWorkspace()
 
   const handleChange = useCallback(
@@ -49,12 +53,20 @@ export function MosaicDocumentWorkspace() {
     const doc = openDocuments.get(panel.documentId)
     const title = doc?.title ?? 'Loading...'
     const isEditor = panel.type === 'editor'
+    const showCursors =
+      panel.documentId === focusedDocumentId &&
+      panel.type === (focusedPanelType ?? 'editor')
+    const focusPanel = () => {
+      setFocusedDocumentId(panel.documentId)
+      setFocusedPanelType(panel.type)
+    }
 
     return (
       <MosaicWindow<string>
         path={path}
         title={`${title} - ${isEditor ? 'Markdown' : 'WYSIWYG'}`}
         toolbarControls={[
+          <DocumentPresenceAvatars key="presence" documentId={panel.documentId} />,
           <DropdownMenu key="menu">
             <DropdownMenuTrigger asChild>
               <button className="p-1 hover:bg-muted rounded">
@@ -83,17 +95,18 @@ export function MosaicDocumentWorkspace() {
             </DropdownMenuContent>
           </DropdownMenu>,
         ]}
-        onDragStart={() => setFocusedDocumentId(panel.documentId)}
+        onDragStart={focusPanel}
       >
         <div
           className="h-full"
-          onFocus={() => setFocusedDocumentId(panel.documentId)}
-          onMouseDown={() => setFocusedDocumentId(panel.documentId)}
+          // Capture phase avoids editor internals suppressing bubble events.
+          onFocusCapture={focusPanel}
+          onMouseDownCapture={focusPanel}
         >
           {isEditor ? (
-            <EditorPanel documentId={panel.documentId} />
+            <EditorPanel documentId={panel.documentId} showCursors={showCursors} />
           ) : (
-            <PreviewPanel documentId={panel.documentId} />
+            <PreviewPanel documentId={panel.documentId} showCursors={showCursors} />
           )}
         </div>
       </MosaicWindow>

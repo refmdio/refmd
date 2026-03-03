@@ -68,6 +68,7 @@ export function setupCollabPlugins(opts: {
     serialize,
     parse,
     normalize: normalizeMarkdown,
+    skipOrigins: new Set<unknown>(['remote']),
   })
 
   const { plugins, doc } = createCollabPlugins(schema, {

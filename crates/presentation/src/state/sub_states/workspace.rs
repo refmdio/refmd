@@ -1,5 +1,5 @@
 use application::types::{
-    BoxedError as BE, UserRepository, WorkspaceInvitationRepository,
+    BoxedError as BE, DeviceRepository, UserRepository, WorkspaceInvitationRepository,
     WorkspaceMemberRepository, WorkspaceRepository, WorkspaceRolePermissionRepository,
     WorkspaceRoleRepository,
 };
@@ -54,6 +54,13 @@ type DynListMembersHandler = application::workspace::ListMembersHandler<
     dyn UserRepository<Error = BE>,
 >;
 
+type DynListMemberDevicesHandler = application::encryption::ListMemberDevicesHandler<
+    dyn WorkspaceMemberRepository<Error = BE>,
+    dyn WorkspaceRoleRepository<Error = BE>,
+    dyn WorkspaceRolePermissionRepository<Error = BE>,
+    dyn DeviceRepository<Error = BE>,
+>;
+
 type DynChangeMemberRoleHandler = application::workspace::ChangeMemberRoleHandler<
     dyn WorkspaceMemberRepository<Error = BE>,
     dyn WorkspaceRoleRepository<Error = BE>,
@@ -106,6 +113,7 @@ pub struct WorkspaceSubState {
     pub role_update_service: DynRoleUpdateService,
     pub user_repo: DynUserRepository,
     pub workspace_event_bus: DynWorkspaceEventBus,
+    pub device_repo: DynDeviceRepository,
 }
 
 impl WorkspaceSubState {
@@ -258,6 +266,15 @@ impl WorkspaceSubState {
         )
     }
 
+    pub fn list_member_devices_handler(&self) -> DynListMemberDevicesHandler {
+        application::encryption::ListMemberDevicesHandler::new(
+            self.workspace_member_repo.clone(),
+            self.workspace_role_repo.clone(),
+            self.workspace_role_perm_repo.clone(),
+            self.device_repo.clone(),
+        )
+    }
+
     pub fn accept_invitation_handler(
         &self,
     ) -> application::workspace::AcceptInvitationHandler<
@@ -278,5 +295,5 @@ impl_from_ref!(WorkspaceSubState {
     workspace_invitation_repo, workspace_creation_service,
     invitation_acceptance_service, invitation_creation_service, member_mutation_service,
     document_repo, document_key_repo, rotation_marking_service, role_update_service, user_repo,
-    workspace_event_bus,
+    workspace_event_bus, device_repo,
 });
