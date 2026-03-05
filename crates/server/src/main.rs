@@ -141,7 +141,11 @@ async fn main() -> anyhow::Result<()> {
     let enable_swagger = config::is_swagger_enabled();
     let security_headers = middleware_builders::build_security_headers(enable_swagger);
 
-    let connection_store = presentation::ws::DocumentConnectionStore::new();
+    let connection_store = presentation::ws::DocumentConnectionStore::new(
+        state.document_relay_bus(),
+    );
+
+    routes::spawn_background_listeners(&state, &connection_store);
 
     let app = Router::new()
         .route("/health", get(health_check).with_state(health_state))

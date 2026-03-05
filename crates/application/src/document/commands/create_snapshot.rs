@@ -16,9 +16,11 @@ use domain::workspace::{
 };
 use std::collections::HashMap;
 
+use crate::document_relay::{DocumentRelayPublisher, RelayPayload, RelaySnapshotPayload};
 use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
 use std::sync::Arc;
 use thiserror::Error;
+
 
 /// Create snapshot command
 #[derive(Debug)]
@@ -163,6 +165,7 @@ pub struct CreateSnapshotHandler<DR: ?Sized, SR: ?Sized, MR: ?Sized, RR: ?Sized,
     role_repo: Arc<RR>,
     role_perm_repo: Arc<RPR>,
     device_repo: Arc<DevR>,
+    relay_publisher: Arc<dyn DocumentRelayPublisher>,
 }
 
 #[allow(clippy::type_complexity)]
@@ -183,6 +186,7 @@ where
         role_repo: Arc<RR>,
         role_perm_repo: Arc<RPR>,
         device_repo: Arc<DevR>,
+        relay_publisher: Arc<dyn DocumentRelayPublisher>,
     ) -> Self {
         Self {
             document_repo,
@@ -191,6 +195,7 @@ where
             role_repo,
             role_perm_repo,
             device_repo,
+            relay_publisher,
         }
     }
 
@@ -201,7 +206,8 @@ where
     /// Authorization (document:write check) runs before snapshot persistence. A user
     /// whose access is revoked in the milliseconds between the RBAC check and the
     /// SERIALIZABLE INSERT could persist one unauthorized snapshot. The snapshot
-    /// remains in the DB and may become the active snapshot.
+    /// remains in the DB, may become the active snapshot, and is relay-published to
+    /// other backend instances before the local RBAC check runs.
     ///
     /// See `CreateDocumentUpdateHandler::handle` for the full risk analysis,
     /// mitigations, and rationale for accepting this residual risk.
@@ -315,6 +321,14 @@ where
         // avoids trusting presentation layer computation).
         let ciphertext_hash = base64_url::encode(blake3::hash(&command.data).as_bytes());
 
+        // Capture relay data before persist (persist consumes command fields).
+        let relay_document_id = command.document_id.as_uuid();
+        let relay_snapshot_id = command.snapshot_id.to_string();
+        let relay_ciphertext = base64_url::encode(&command.data);
+        let relay_nonce = base64_url::encode(&command.nonce);
+        let relay_signature = base64_url::encode(&command.signature);
+        let relay_public_data = command.public_data.clone();
+
         // Phase 6: Create and save snapshot
         let snapshot = DocumentSnapshot::new(NewDocumentSnapshotParams {
             id: command.snapshot_id,
@@ -356,6 +370,22 @@ where
                 return Err(CreateSnapshotError::DuplicateSnapshotId);
             }
         }
+
+        // Relay publish after successful persist (verify -> persist -> publish).
+        // The infrastructure implementation handles fire-and-forget semantics
+        // (non-blocking spawn with timeout) so local delivery (ack + broadcast)
+        // proceeds immediately even if Redis is stalled.
+        self.relay_publisher
+            .publish_document_relay(
+                relay_document_id,
+                &RelayPayload::Snapshot(RelaySnapshotPayload {
+                    snapshot_id: relay_snapshot_id,
+                    ciphertext: relay_ciphertext,
+                    nonce: relay_nonce,
+                    signature: relay_signature,
+                    public_data: relay_public_data,
+                }),
+            );
 
         Ok(CreateSnapshotResult { snapshot_id })
     }

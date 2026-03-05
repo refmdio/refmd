@@ -120,14 +120,148 @@ macro_rules! app_error_response {
 
 pub(crate) use app_error_response;
 
-/// Create all API routes
+/// Convert a typed `DocumentRelayEventPayload` to a presentation-layer `WsOutMessage`.
+fn relay_event_payload_to_ws_out(
+    payload: application::document_relay::DocumentRelayEventPayload,
+) -> ws::messages::WsOutMessage {
+    match payload {
+        application::document_relay::DocumentRelayEventPayload::Document(relay) => match relay {
+            application::document_relay::RelayPayload::Update(p) => {
+                ws::messages::WsOutMessage::Update(ws::messages::WsUpdateEnvelope {
+                    ciphertext: p.ciphertext,
+                    nonce: p.nonce,
+                    signature: p.signature,
+                    public_data: p.public_data,
+                    version: p.version,
+                })
+            }
+            application::document_relay::RelayPayload::Snapshot(p) => {
+                ws::messages::WsOutMessage::Snapshot {
+                    snapshot_id: p.snapshot_id,
+                    snapshot: ws::messages::WsSnapshotEnvelope {
+                        ciphertext: p.ciphertext,
+                        nonce: p.nonce,
+                        signature: p.signature,
+                        public_data: p.public_data,
+                    },
+                }
+            }
+        },
+        application::document_relay::DocumentRelayEventPayload::Ephemeral(ephemeral) => {
+            ws::messages::WsOutMessage::EphemeralMessage(ws::messages::WsEphemeralEnvelope {
+                ciphertext: ephemeral.ciphertext,
+                nonce: ephemeral.nonce,
+                signature: ephemeral.signature,
+                public_data: ephemeral.public_data,
+            })
+        }
+    }
+}
+
+/// Create all API routes.
 pub fn create_routes(
     state: AppState,
     connection_store: ws::DocumentConnectionStore,
     allowed_origins: Vec<String>,
 ) -> Result<Router, anyhow::Error> {
-    Ok(Router::new()
-        .nest("/api", api_routes(state, connection_store, allowed_origins)?))
+    let router = api_routes(state, connection_store, allowed_origins)?;
+    Ok(Router::new().nest("/api", router))
+}
+
+/// Spawn background tasks that bridge event buses to WebSocket connections.
+///
+/// Called once per process from the composition root, separately from route creation
+/// (design: websocket-scaling.md, Bootstrap section).
+pub fn spawn_background_listeners(state: &AppState, connection_store: &ws::DocumentConnectionStore) {
+    // Workspace events → WS disconnect (member removal / role change)
+    {
+        let connection_store = connection_store.clone();
+        let doc_sub: crate::DocumentSubState = FromRef::from_ref(state);
+        let service = application::workspace::WorkspaceDisconnectService::new(
+            doc_sub.document_repo.clone(),
+        );
+        let workspace_sub: crate::WorkspaceSubState = FromRef::from_ref(state);
+        let mut rx = application::workspace_events::WorkspaceEventSubscriber::subscribe(
+            workspace_sub.workspace_event_bus.as_ref(),
+        );
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        service.handle_event(&event, &connection_store).await;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!("WS disconnect listener lagged by {n} events");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
+    // Document relay events → broadcast to local rooms
+    {
+        let connection_store = connection_store.clone();
+        let doc_sub: crate::DocumentSubState = FromRef::from_ref(state);
+        let relay_bus = state.document_relay_bus();
+        let mut rx = application::document_relay::DocumentRelaySubscriber::subscribe(
+            relay_bus.as_ref(),
+        );
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let msg = relay_event_payload_to_ws_out(event.payload);
+                        if let Some(room) = connection_store.get_room(event.document_id) {
+                            // Lazy RBAC check before broadcast (same as local path)
+                            let rbac_ok = ws::handler::check_and_evict_unauthorized(
+                                &doc_sub, &room, event.document_id,
+                            ).await;
+                            if rbac_ok {
+                                room.broadcast_all(msg);
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(
+                            "Document relay listener lagged by {n} events, triggering resync for affected clients"
+                        );
+                        connection_store.disconnect_all_for_resync();
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
+    // Redis reconnect → force disconnect all WS connections.
+    // After Redis recovers from an outage, connected clients may have missed cross-node
+    // updates. Force-closing triggers client delta reconnect from PostgreSQL
+    // (design: websocket-scaling.md §Redis接続断, point 3).
+    {
+        let connection_store = connection_store.clone();
+        let relay_bus = state.document_relay_bus();
+        let mut reconnect_rx = application::document_relay::DocumentRelaySubscriber::subscribe_reconnect(
+            relay_bus.as_ref(),
+        );
+        tokio::spawn(async move {
+            loop {
+                match reconnect_rx.recv().await {
+                    Ok(()) => {
+                        tracing::info!(
+                            "Redis reconnected after outage, force-disconnecting all WS connections for PostgreSQL resync"
+                        );
+                        connection_store.disconnect_all_for_resync();
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!("Redis reconnect listener lagged by {n} events, triggering resync");
+                        connection_store.disconnect_all_for_resync();
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
 }
 
 fn api_routes(
@@ -166,32 +300,6 @@ fn api_routes(
         connection_store,
         allowed_origins,
     };
-
-    // Spawn background task: workspace events → WS disconnect (workspace-scoped)
-    {
-        let connection_store = ws_state.connection_store.clone();
-        let doc_sub: crate::DocumentSubState = FromRef::from_ref(&state);
-        let service = application::workspace::WorkspaceDisconnectService::new(
-            doc_sub.document_repo.clone(),
-        );
-        let workspace_sub: crate::WorkspaceSubState = FromRef::from_ref(&state);
-        let mut rx = application::workspace_events::WorkspaceEventSubscriber::subscribe(
-            workspace_sub.workspace_event_bus.as_ref(),
-        );
-        tokio::spawn(async move {
-            loop {
-                match rx.recv().await {
-                    Ok(event) => {
-                        service.handle_event(&event, &connection_store).await;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("WS disconnect listener lagged by {n} events");
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        });
-    }
 
     let ws_routes = Router::new()
         .route(

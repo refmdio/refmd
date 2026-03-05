@@ -81,6 +81,7 @@ define_state! {
         role_update_service: DynRoleUpdateService,
         device_event_bus: DynDeviceEventBus,
         workspace_event_bus: DynWorkspaceEventBus,
+        document_relay_bus: DynDocumentRelayBus,
         challenge_store: DynChallengeStore,
         recovery_challenge_store: DynRecoveryChallengeStore,
         transfer_nonce_store: DynTransferNonceStore,
@@ -103,5 +104,9 @@ impl AppState {
 
     pub fn challenge_store(&self) -> DynChallengeStore {
         Arc::clone(&self.challenge_store)
+    }
+
+    pub fn document_relay_bus(&self) -> DynDocumentRelayBus {
+        Arc::clone(&self.document_relay_bus)
     }
 }

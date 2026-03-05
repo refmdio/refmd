@@ -173,10 +173,13 @@ async fn handle_socket(
     user_id: application::types::UserId,
     parsed_params: ParsedWsParams,
 ) {
-    // Join the room FIRST so that any broadcasts during the DB read are queued
-    // in the per-connection mpsc channel and delivered after the initial message.
+    // Join the room: subscribe to relay channels (or timeout for degraded mode),
+    // then insert connection. The initial DB read below happens after join, so
+    // broadcasts during subscribe are captured by the DB read.
+    // On subscribe timeout, connection proceeds in degraded mode — cross-node
+    // updates may be missed until delta reconnect.
     let (conn_id, mut targeted_rx, room) =
-        state.connection_store.join(document_id, user_id.as_uuid());
+        state.connection_store.join(document_id, user_id.as_uuid()).await;
 
     // Read document state from DB (after room join — no gap for missed broadcasts)
     let doc_id = DocumentId::from_uuid(document_id);
@@ -550,7 +553,8 @@ async fn handle_update(
 
     match handler.handle(command).await {
         Ok(result) => {
-            // Confirmation to sender only
+            // Confirmation to sender immediately after successful persist
+            // (collaboration.md step 5: persist → ack → broadcast).
             room.send_to(sender_conn_id, WsOutMessage::UpdateSaved {
                 snapshot_id: ref_snapshot_id.to_string(),
                 clock: result.clock,
@@ -559,7 +563,8 @@ async fn handle_update(
 
             // RBAC check before broadcast: evict connections that lost permission.
             // Fail-closed: skip broadcast if the check could not complete (DB error).
-            let rbac_ok = check_and_evict_unauthorized(state, room, document_id).await;
+            // Relay publish already happened in the application-layer handler.
+            let rbac_ok = check_and_evict_unauthorized(&state.document_sub_state, room, document_id).await;
 
             if rbac_ok {
                 // If sender was evicted by RBAC, skip broadcast of their update.
@@ -568,7 +573,7 @@ async fn handle_update(
                 if !room.has_connection(sender_conn_id) {
                     return;
                 }
-                // Broadcast the update envelope to other clients (not sender)
+
                 room.broadcast_except(sender_conn_id, WsOutMessage::Update(WsUpdateEnvelope {
                     ciphertext: envelope.ciphertext.clone(),
                     nonce: envelope.nonce.clone(),
@@ -759,21 +764,25 @@ async fn handle_snapshot(
 
     match handler.handle(command).await {
         Ok(result) => {
-            // Confirmation to sender only
+            // Confirmation to sender immediately after successful persist
+            // (collaboration.md: persist → ack → broadcast).
             room.send_to(sender_conn_id, WsOutMessage::SnapshotSaved {
                 snapshot_id: result.snapshot_id.to_string(),
             });
 
             // RBAC check before broadcast: evict connections that lost permission.
             // Fail-closed: skip broadcast if the check could not complete (DB error).
-            let rbac_ok = check_and_evict_unauthorized(state, room, document_id).await;
+            // Relay publish already happened in the application-layer handler.
+            let rbac_ok = check_and_evict_unauthorized(&state.document_sub_state, room, document_id).await;
 
             if rbac_ok {
                 // If sender was evicted by RBAC, skip broadcast of their snapshot.
+                // The snapshot is already persisted (accepted risk: RBAC TOCTOU),
+                // but we prevent active broadcast of unauthorized content.
                 if !room.has_connection(sender_conn_id) {
                     return;
                 }
-                // Broadcast snapshot to other clients (not sender)
+
                 room.broadcast_except(sender_conn_id, WsOutMessage::Snapshot {
                     snapshot_id: result.snapshot_id.to_string(),
                     snapshot: WsSnapshotEnvelope {
@@ -955,7 +964,7 @@ async fn handle_ephemeral(
     // before relaying to ensure the sender still has document:read.
     // Fail-closed: skip broadcast if the check could not complete (DB error).
     // DoS prevention is handled by per-connection rate limiting (see ConnectionInfo).
-    let rbac_ok = check_and_evict_unauthorized(state, room, document_id).await;
+    let rbac_ok = check_and_evict_unauthorized(&state.document_sub_state, room, document_id).await;
     if !rbac_ok {
         return;
     }
@@ -966,12 +975,22 @@ async fn handle_ephemeral(
     }
 
     // No persistence, broadcast to other clients only
-    room.broadcast_except(sender_conn_id, WsOutMessage::EphemeralMessage(WsEphemeralEnvelope {
+    let out_msg = WsOutMessage::EphemeralMessage(WsEphemeralEnvelope {
         ciphertext: envelope.ciphertext.clone(),
         nonce: envelope.nonce.clone(),
         signature: envelope.signature.clone(),
         public_data: raw_public_data.clone(),
-    }));
+    });
+    room.broadcast_except(sender_conn_id, out_msg);
+
+    // Relay to other backend instances (best-effort, local delivery already done)
+    let ephemeral_payload = application::document_relay::EphemeralRelayPayload {
+        ciphertext: envelope.ciphertext.clone(),
+        nonce: envelope.nonce.clone(),
+        signature: envelope.signature.clone(),
+        public_data: raw_public_data.clone(),
+    };
+    state.document_sub_state.document_relay_bus.publish_ephemeral_relay(document_id, &ephemeral_payload);
 }
 
 /// Convert application DocumentSnapshotDto to WS wire format
@@ -1002,8 +1021,8 @@ fn snapshot_dto_to_ws(s: &DocumentSnapshotDto) -> WsSnapshotData {
 ///
 /// Returns `true` if the check completed successfully (safe to proceed with broadcast).
 /// Returns `false` if a DB error prevented the check (fail-closed: caller should skip broadcast).
-async fn check_and_evict_unauthorized(
-    state: &WsState,
+pub(crate) async fn check_and_evict_unauthorized(
+    ds: &crate::DocumentSubState,
     room: &super::connection_store::DocumentRoom,
     document_id: Uuid,
 ) -> bool {
@@ -1014,7 +1033,6 @@ async fn check_and_evict_unauthorized(
     }
 
     let doc_id = DocumentId::from_uuid(document_id);
-    let ds = &state.document_sub_state;
     let handler = application::document::GetDocumentHandler::new(
         ds.document_repo.clone(),
         ds.workspace_member_repo.clone(),

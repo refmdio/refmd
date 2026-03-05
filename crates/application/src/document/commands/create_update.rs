@@ -17,10 +17,12 @@ use domain::workspace::{
     permission,
 };
 
+use crate::document_relay::{DocumentRelayPublisher, RelayPayload, RelayUpdatePayload};
 use crate::util::document_update_verification;
 use crate::util::workspace_access::{WorkspaceAccessError, load_document_with_permission};
 use std::sync::Arc;
 use thiserror::Error;
+
 
 /// Alias for the verbose error type
 type CduError<DR, DUR, SR, MR, RR, RPR, DevR> =
@@ -186,6 +188,7 @@ pub struct CreateDocumentUpdateHandler<
     role_repo: Arc<RR>,
     role_perm_repo: Arc<RPR>,
     device_repo: Arc<DevR>,
+    relay_publisher: Arc<dyn DocumentRelayPublisher>,
 }
 
 #[allow(clippy::type_complexity)]
@@ -208,6 +211,7 @@ where
         role_repo: Arc<RR>,
         role_perm_repo: Arc<RPR>,
         device_repo: Arc<DevR>,
+        relay_publisher: Arc<dyn DocumentRelayPublisher>,
     ) -> Self {
         Self {
             document_repo,
@@ -217,6 +221,7 @@ where
             role_repo,
             role_perm_repo,
             device_repo,
+            relay_publisher,
         }
     }
 
@@ -228,14 +233,17 @@ where
     /// access is revoked in the milliseconds between authorize() and the DB INSERT
     /// could persist one unauthorized update.
     ///
-    /// **Residual impact**: the update is persisted in the DB. The WS handler's
-    /// broadcast-time RBAC check (`check_and_evict_unauthorized`) evicts the sender
-    /// and skips the immediate broadcast, but the update remains in the DB and may
-    /// be delivered to authorized clients on subsequent delta-mode reconnections.
+    /// **Residual impact**: the update is persisted in the DB and relay-published
+    /// to other backend instances before the local RBAC check runs. Local broadcast
+    /// is blocked by the WS handler's RBAC check (`check_and_evict_unauthorized`),
+    /// which evicts the sender (collaboration.md §RBAC TOCTOU). Cross-node delivery
+    /// is subject to independent RBAC on the receiving node (websocket-scaling.md,
+    /// fail-open model). The persisted update may also reach authorized clients via
+    /// delta reconnect.
     ///
     /// **Mitigations** (reduce but do not eliminate the residual):
     /// 1. **Broadcast-time lazy RBAC** (websocket-scaling.md): the sender is evicted
-    ///    and the immediate broadcast is skipped if the sender lost access.
+    ///    if they lost access.
     /// 2. **DEK rotation** (ADR-002/003): member removal triggers best-effort
     ///    KEK/DEK rotation, limiting the decryptable lifetime of orphaned ciphertext.
     /// 3. **Bounded window**: the race window is single-digit milliseconds, requiring
@@ -255,7 +263,33 @@ where
         let document = self.authorize(&command).await?;
         self.verify_snapshot_ref(&command, &document).await?;
         self.verify_device(&command).await?;
-        self.persist(command).await
+
+        // Capture relay data before persist (persist consumes command fields).
+        let relay_document_id = command.document_id.as_uuid();
+        let relay_ciphertext = base64_url::encode(&command.update_data);
+        let relay_nonce = base64_url::encode(&command.nonce);
+        let relay_signature = base64_url::encode(&command.signature);
+        let relay_public_data = command.public_data.clone();
+
+        let result = self.persist(command).await?;
+
+        // Relay publish after successful persist (verify -> persist -> publish).
+        // The infrastructure implementation handles fire-and-forget semantics
+        // (non-blocking spawn with timeout) so local delivery (ack + broadcast)
+        // proceeds immediately even if Redis is stalled.
+        self.relay_publisher
+            .publish_document_relay(
+                relay_document_id,
+                &RelayPayload::Update(RelayUpdatePayload {
+                    ciphertext: relay_ciphertext,
+                    nonce: relay_nonce,
+                    signature: relay_signature,
+                    public_data: relay_public_data,
+                    version: result.version,
+                }),
+            );
+
+        Ok(result)
     }
 
     fn validate_input(

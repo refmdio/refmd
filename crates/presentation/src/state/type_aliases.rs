@@ -76,5 +76,7 @@ pub(crate) type DynChallengeStore = Arc<dyn ChallengeStore>;
 pub(crate) type DynRecoveryChallengeStore = Arc<dyn RecoveryChallengeStore>;
 pub(crate) type DynDeviceEventBus = Arc<dyn application::events::DeviceEventBus>;
 pub(crate) type DynWorkspaceEventBus = Arc<dyn application::workspace_events::WorkspaceEventBus>;
+pub(crate) type DynDocumentRelayBus = Arc<dyn application::document_relay::DocumentRelayBus>;
+pub(crate) type DynDocumentRelayPublisher = Arc<dyn application::document_relay::DocumentRelayPublisher>;
 pub(crate) type DynTransferNonceStore = Arc<dyn TransferNonceStore>;
 pub(crate) type DynTransferStateStore = Arc<dyn TransferStateStore>;

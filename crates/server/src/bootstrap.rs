@@ -7,8 +7,10 @@ use infrastructure::{RedisChallengeStore, RedisRecoveryChallengeStore};
 use infrastructure::{RedisPool, RedisTransferNonceStore, RedisTransferStateStore};
 use infrastructure::InMemoryChallengeStore;
 use infrastructure::InMemoryDeviceEventBus;
+use infrastructure::InMemoryDocumentRelayBus;
 use infrastructure::InMemoryWorkspaceEventBus;
 use infrastructure::RedisDeviceEventBus;
+use infrastructure::RedisDocumentRelayBus;
 use infrastructure::RedisWorkspaceEventBus;
 use application::types::{ChallengeStore, RecoveryChallengeStore};
 use presentation::{AppState, AppStateParams};
@@ -33,6 +35,7 @@ use infrastructure::workspace::{
 };
 use infrastructure::PgRegistrationService;
 
+use application::document_relay::DocumentRelayBus;
 use application::events::DeviceEventBus;
 use application::workspace_events::WorkspaceEventBus;
 
@@ -44,6 +47,7 @@ pub type RuntimeStores = (
     Arc<dyn application::types::TransferStateStore>,
     Arc<dyn DeviceEventBus>,
     Arc<dyn WorkspaceEventBus>,
+    Arc<dyn DocumentRelayBus>,
 );
 
 /// Compose AppState from all dependencies (DB, Redis/in-memory stores, secrets).
@@ -57,7 +61,7 @@ pub fn build_app_state(
     let p: PgPool = (*pool).clone();
 
     // Runtime stores: Redis (cluster) or in-memory (single-node)
-    let (challenge_store, recovery_challenge_store, transfer_nonce_store, transfer_state_store, device_event_bus, workspace_event_bus): RuntimeStores =
+    let (challenge_store, recovery_challenge_store, transfer_nonce_store, transfer_state_store, device_event_bus, workspace_event_bus, document_relay_bus): RuntimeStores =
         if let Some((redis_pool, url)) = redis {
             (
                 Arc::new(RedisChallengeStore::new(redis_pool.clone())),
@@ -66,6 +70,7 @@ pub fn build_app_state(
                 Arc::new(RedisTransferStateStore::new(redis_pool.clone())),
                 RedisDeviceEventBus::new(redis_pool.clone(), url.clone()),
                 RedisWorkspaceEventBus::new(redis_pool.clone(), url.clone()),
+                RedisDocumentRelayBus::new(redis_pool.clone(), url.clone()),
             )
         } else {
             (
@@ -75,6 +80,7 @@ pub fn build_app_state(
                 Arc::new(infrastructure::InMemoryTransferStateStore::default()),
                 Arc::new(InMemoryDeviceEventBus::new()),
                 Arc::new(InMemoryWorkspaceEventBus::new()),
+                Arc::new(InMemoryDocumentRelayBus::new()),
             )
         };
 
@@ -117,6 +123,7 @@ pub fn build_app_state(
         role_update_service: Arc::new(PgRoleUpdateService::new(p.clone())),
         device_event_bus,
         workspace_event_bus,
+        document_relay_bus,
         challenge_store,
         recovery_challenge_store,
         transfer_nonce_store,

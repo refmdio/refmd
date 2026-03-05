@@ -10,6 +10,7 @@
 //! - Application services/stores (ChallengeStore, TransferNonceStore, etc.): `Arc<dyn Trait>`
 
 pub mod document;
+pub mod document_relay;
 pub mod dto;
 pub mod encryption;
 pub mod events;
