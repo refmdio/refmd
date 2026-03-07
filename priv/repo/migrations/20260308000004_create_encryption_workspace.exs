@@ -1,0 +1,30 @@
+defmodule RefMD.Repo.Migrations.CreateEncryptionWorkspace do
+  use Ecto.Migration
+
+  def change do
+    create table(:workspace_encrypted_keys, primary_key: false) do
+      add :workspace_id,
+          references(:workspaces, type: :binary_id, on_delete: :delete_all),
+          primary_key: true
+
+      add :user_id,
+          references(:users, type: :binary_id, on_delete: :delete_all),
+          primary_key: true
+
+      add :device_id,
+          references(:devices, type: :binary_id, on_delete: :delete_all),
+          primary_key: true
+
+      add :key_version, :integer, primary_key: true
+
+      add :sender_device_id,
+          references(:devices, type: :binary_id, on_delete: :delete_all),
+          null: false
+
+      add :encrypted_kek, :binary, null: false
+      add :nonce, :binary, null: false
+      add :is_active, :boolean, null: false
+      add :created_at, :utc_datetime_usec, null: false
+    end
+  end
+end

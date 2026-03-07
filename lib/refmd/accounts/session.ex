@@ -1,0 +1,37 @@
+defmodule RefMD.Accounts.Session do
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
+  schema "sessions" do
+    belongs_to :user, RefMD.Accounts.User
+    belongs_to :device, RefMD.Accounts.Device
+    field :token_hash, :string
+    field :remember_me, :boolean
+    field :is_recovery, :boolean, default: false
+    field :ip_address, :string
+    field :user_agent, :string
+    field :expires_at, :utc_datetime_usec
+    field :last_seen_at, :utc_datetime_usec
+    field :created_at, :utc_datetime_usec
+  end
+
+  def changeset(session, attrs) do
+    session
+    |> cast(attrs, [
+      :user_id,
+      :device_id,
+      :token_hash,
+      :remember_me,
+      :is_recovery,
+      :ip_address,
+      :user_agent,
+      :expires_at,
+      :last_seen_at
+    ])
+    |> validate_required([:user_id, :token_hash, :remember_me, :expires_at, :last_seen_at])
+    |> unique_constraint(:token_hash)
+  end
+end
