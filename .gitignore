@@ -1,0 +1,33 @@
+# Dependencies
+/deps
+/_build
+/node_modules
+/assets/node_modules
+
+# Build
+/priv/static/assets
+/target
+
+# Local
+/local
+/.env
+/.env.*
+
+# Elixir
+*.beam
+*.ez
+erl_crash.dump
+refmd-*.tar
+/.fetch
+/cover/
+/doc/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
