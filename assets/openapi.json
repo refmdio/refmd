@@ -1,0 +1,1119 @@
+{
+  "components": {
+    "responses": {},
+    "schemas": {
+      "ApproveDeviceRequest": {
+        "properties": {
+          "identity_signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identity_signature"
+        ],
+        "title": "ApproveDeviceRequest",
+        "type": "object"
+      },
+      "ApproveDeviceResponse": {
+        "properties": {
+          "device": {
+            "$ref": "#/components/schemas/DeviceInfo"
+          }
+        },
+        "required": [
+          "device"
+        ],
+        "title": "ApproveDeviceResponse",
+        "type": "object"
+      },
+      "CreateKekBackupRequest": {
+        "properties": {
+          "encrypted_kek": {
+            "type": "string"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_version",
+          "encrypted_kek",
+          "nonce"
+        ],
+        "title": "CreateKekBackupRequest",
+        "type": "object"
+      },
+      "CreatePendingDeviceRequest": {
+        "properties": {
+          "client_nonce": {
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "ecdh_public_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "signing_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "device_type",
+          "ecdh_public_key",
+          "signing_public_key",
+          "client_nonce"
+        ],
+        "title": "CreatePendingDeviceRequest",
+        "type": "object"
+      },
+      "CreatePendingDeviceResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "CreatePendingDeviceResponse",
+        "type": "object"
+      },
+      "CreateWorkspaceKeyRequest": {
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "encrypted_kek": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "sender_device_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "key_version",
+          "sender_device_id",
+          "encrypted_kek",
+          "nonce"
+        ],
+        "title": "CreateWorkspaceKeyRequest",
+        "type": "object"
+      },
+      "DeviceInfo": {
+        "properties": {
+          "device_type": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "device_type"
+        ],
+        "title": "DeviceInfo",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "details": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "KdfMigrationRequest": {
+        "properties": {
+          "new_auth_key": {
+            "type": "string"
+          },
+          "new_encrypted_umk": {
+            "type": "string"
+          },
+          "new_kdf_params": {
+            "$ref": "#/components/schemas/KdfParams"
+          },
+          "new_nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "new_auth_key",
+          "new_encrypted_umk",
+          "new_nonce",
+          "new_kdf_params"
+        ],
+        "title": "KdfMigrationRequest",
+        "type": "object"
+      },
+      "KdfParams": {
+        "properties": {
+          "algorithm": {
+            "type": "string"
+          },
+          "hash_length": {
+            "type": "integer"
+          },
+          "iterations": {
+            "type": "integer"
+          },
+          "memory": {
+            "type": "integer"
+          },
+          "parallelism": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "algorithm",
+          "memory",
+          "iterations",
+          "parallelism",
+          "hash_length"
+        ],
+        "title": "KdfParams",
+        "type": "object"
+      },
+      "KekBackupResponse": {
+        "properties": {
+          "encrypted_kek": {
+            "type": "string"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_version",
+          "encrypted_kek",
+          "nonce"
+        ],
+        "title": "KekBackupResponse",
+        "type": "object"
+      },
+      "LoginKeys": {
+        "nullable": true,
+        "properties": {
+          "encrypted_ecdh_private": {
+            "type": "string"
+          },
+          "encrypted_ecdh_private_nonce": {
+            "type": "string"
+          },
+          "encrypted_signing_private": {
+            "type": "string"
+          },
+          "encrypted_signing_private_nonce": {
+            "type": "string"
+          },
+          "encrypted_umk": {
+            "type": "string"
+          },
+          "umk_nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "encrypted_ecdh_private",
+          "encrypted_ecdh_private_nonce",
+          "encrypted_signing_private",
+          "encrypted_signing_private_nonce"
+        ],
+        "title": "LoginKeys",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "auth_key": {
+            "type": "string"
+          },
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "remember_me": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "email",
+          "auth_key"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "LoginResponse": {
+        "properties": {
+          "device_verified": {
+            "type": "boolean"
+          },
+          "kdf_migration_required": {
+            "type": "boolean"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/LoginKeys"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "target_kdf_params": {
+            "$ref": "#/components/schemas/KdfParams"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          }
+        },
+        "required": [
+          "user",
+          "session_id",
+          "device_verified"
+        ],
+        "title": "LoginResponse",
+        "type": "object"
+      },
+      "MeResponse": {
+        "properties": {
+          "auth_type": {
+            "nullable": true,
+            "type": "string"
+          },
+          "device_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "device_verified": {
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/LoginKeys"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfoWithSetup"
+          }
+        },
+        "required": [
+          "user",
+          "session_id",
+          "device_verified",
+          "expires_at"
+        ],
+        "title": "MeResponse",
+        "type": "object"
+      },
+      "OkResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "OkResponse",
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "auth_key": {
+            "type": "string"
+          },
+          "ecdh_public_key": {
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "encrypted_ecdh_private": {
+            "type": "string"
+          },
+          "encrypted_ecdh_private_nonce": {
+            "type": "string"
+          },
+          "encrypted_signing_private": {
+            "type": "string"
+          },
+          "encrypted_signing_private_nonce": {
+            "type": "string"
+          },
+          "encrypted_umk": {
+            "type": "string"
+          },
+          "kdf_params": {
+            "$ref": "#/components/schemas/KdfParams"
+          },
+          "name": {
+            "type": "string"
+          },
+          "recovery_encrypted_umk": {
+            "type": "string"
+          },
+          "recovery_nonce": {
+            "type": "string"
+          },
+          "salt": {
+            "type": "string"
+          },
+          "signing_public_key": {
+            "type": "string"
+          },
+          "umk_nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "auth_key",
+          "salt",
+          "encrypted_umk",
+          "umk_nonce",
+          "kdf_params",
+          "recovery_encrypted_umk",
+          "recovery_nonce",
+          "ecdh_public_key",
+          "signing_public_key",
+          "encrypted_ecdh_private",
+          "encrypted_ecdh_private_nonce",
+          "encrypted_signing_private",
+          "encrypted_signing_private_nonce"
+        ],
+        "title": "RegisterRequest",
+        "type": "object"
+      },
+      "RegisterResponse": {
+        "properties": {
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfo"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user",
+          "workspace_id",
+          "session_id"
+        ],
+        "title": "RegisterResponse",
+        "type": "object"
+      },
+      "SaltResponse": {
+        "properties": {
+          "kdf_params": {
+            "$ref": "#/components/schemas/KdfParams"
+          },
+          "salt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "salt",
+          "kdf_params"
+        ],
+        "title": "SaltResponse",
+        "type": "object"
+      },
+      "UserInfo": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name"
+        ],
+        "title": "UserInfo",
+        "type": "object"
+      },
+      "UserInfoWithSetup": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "encryption_setup_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name"
+        ],
+        "title": "UserInfoWithSetup",
+        "type": "object"
+      },
+      "WorkspaceKeyItem": {
+        "properties": {
+          "encrypted_kek": {
+            "type": "string"
+          },
+          "key_version": {
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "sender_device_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_version",
+          "encrypted_kek",
+          "nonce",
+          "sender_device_id"
+        ],
+        "title": "WorkspaceKeyItem",
+        "type": "object"
+      },
+      "WorkspaceKeysResponse": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceKeyItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "title": "WorkspaceKeysResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "RefMD API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/auth/kdf-migration": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.AuthController.kdf_migration",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KdfMigrationRequest"
+              }
+            }
+          },
+          "description": "KDF migration params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Migration result"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Migration failed"
+          }
+        },
+        "summary": "Migrate KDF parameters",
+        "tags": []
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.AuthController.login",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "description": "Login params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Login response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid credentials"
+          }
+        },
+        "summary": "Login with credentials",
+        "tags": []
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.AuthController.me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": "Session info"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not authenticated"
+          }
+        },
+        "summary": "Get current session info",
+        "tags": []
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.AuthController.register",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "description": "Registration params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponse"
+                }
+              }
+            },
+            "description": "Registration response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Register a new user",
+        "tags": []
+      }
+    },
+    "/api/auth/salt": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.AuthController.salt",
+        "parameters": [
+          {
+            "description": "",
+            "in": "query",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaltResponse"
+                }
+              }
+            },
+            "description": "Salt response"
+          }
+        },
+        "summary": "Get salt for email",
+        "tags": []
+      }
+    },
+    "/api/auth/session": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.AuthController.logout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Logout result"
+          }
+        },
+        "summary": "Logout current session",
+        "tags": []
+      }
+    },
+    "/api/devices/pending": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DeviceController.create_pending",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePendingDeviceRequest"
+              }
+            }
+          },
+          "description": "Device params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatePendingDeviceResponse"
+                }
+              }
+            },
+            "description": "Pending device"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a pending device",
+        "tags": []
+      }
+    },
+    "/api/devices/pending/{id}/approve": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DeviceController.approve",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveDeviceRequest"
+              }
+            }
+          },
+          "description": "Approval params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveDeviceResponse"
+                }
+              }
+            },
+            "description": "Approved device"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Approval failed"
+          }
+        },
+        "summary": "Approve a pending device",
+        "tags": []
+      }
+    },
+    "/api/encryption/setup-complete": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.EncryptionController.setup_complete",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Setup complete"
+          }
+        },
+        "summary": "Mark encryption setup as complete",
+        "tags": []
+      }
+    },
+    "/api/encryption/workspaces/{workspace_id}/kek-backup": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.EncryptionController.get_kek_backup",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KekBackupResponse"
+                }
+              }
+            },
+            "description": "KEK backup"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get active KEK backup",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.EncryptionController.create_kek_backup",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKekBackupRequest"
+              }
+            }
+          },
+          "description": "Backup params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Backup created"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Workspace not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Version mismatch"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a KEK backup",
+        "tags": []
+      }
+    },
+    "/api/encryption/workspaces/{workspace_id}/keys": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.EncryptionController.get_workspace_keys",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceKeysResponse"
+                }
+              }
+            },
+            "description": "Workspace keys"
+          }
+        },
+        "summary": "Get workspace encryption keys",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.EncryptionController.create_workspace_key",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceKeyRequest"
+              }
+            }
+          },
+          "description": "Key params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Key created"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a workspace encryption key",
+        "tags": []
+      }
+    }
+  },
+  "security": [],
+  "servers": [
+    {
+      "url": "/",
+      "variables": {}
+    }
+  ],
+  "tags": []
+}

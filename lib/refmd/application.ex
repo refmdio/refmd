@@ -10,6 +10,7 @@ defmodule RefMD.Application do
     children = [
       RefMDWeb.Telemetry,
       RefMD.Repo,
+      {PlugAttack.Storage.Ets, name: RefMDWeb.Plugs.RateLimit.Storage, clean_period: 60_000},
       {DNSCluster, query: Application.get_env(:refmd, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: RefMD.PubSub},
       # Start a worker by calling: RefMD.Worker.start_link(arg)

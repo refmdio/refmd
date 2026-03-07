@@ -23,6 +23,16 @@ end
 config :refmd, RefMDWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  dummy_salt_secret =
+    System.get_env("DUMMY_SALT_SECRET") ||
+      raise """
+      environment variable DUMMY_SALT_SECRET is missing.
+      Generate a random 32+ character secret for dummy salt derivation.
+      """
+
+  config :refmd, dummy_salt_secret: dummy_salt_secret
+
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

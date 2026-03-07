@@ -3,5 +3,310 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --glass-shadow-outline: var(--glass-shadow-outline);
+  --glass-shadow-outline-subtle: var(--glass-shadow-outline-subtle);
+  --glass-shadow-outline-strong: var(--glass-shadow-outline-strong);
+  --glass-shadow-outline-heavy: var(--glass-shadow-outline-heavy);
+  --glass-shadow-outline-faint: var(--glass-shadow-outline-faint);
+  --glass-shadow-inset: var(--glass-shadow-inset);
+  --glass-shadow-card: var(--glass-shadow-card);
+  --glass-shadow-card-dark: var(--glass-shadow-card-dark);
+  --glass-shadow-card-inner-light: var(--glass-shadow-card-inner-light);
+  --glass-shadow-card-inner-dark: var(--glass-shadow-card-inner-dark);
+  --glass-highlight-subtle: var(--glass-highlight-subtle);
+  --glass-highlight-soft: var(--glass-highlight-soft);
+  --glass-highlight-strong: var(--glass-highlight-strong);
+  --glass-highlight-bright: var(--glass-highlight-bright);
+  --glass-tint-base: var(--glass-tint-base);
+  --glass-tint-subtle: var(--glass-tint-subtle);
+  --glass-tint-strong: var(--glass-tint-strong);
+  --glass-tint-heavy: var(--glass-tint-heavy);
+  --glass-gradient-card-light: var(--glass-gradient-card-light);
+  --glass-gradient-card-dark: var(--glass-gradient-card-dark);
+  --glass-drop-shadow-subtle: var(--glass-drop-shadow-subtle);
+  --color-glass-tint-subtle: var(--glass-tint-subtle);
+  --color-glass-tint-strong: var(--glass-tint-strong);
+  --color-glass-tint-heavy: var(--glass-tint-heavy);
+  --color-glass-tint-base: var(--glass-tint-base);
+  --color-glass-highlight-strong: var(--glass-highlight-strong);
+  --color-glass-highlight-bright: var(--glass-highlight-bright);
+  --color-glass-highlight-subtle: var(--glass-highlight-subtle);
+  --color-glass-highlight-soft: var(--glass-highlight-soft);
+  --glass-radiant-warning: rgba(254, 243, 199, 0.9);
+  --glass-toast-warning: rgba(254, 243, 199, 0.9);
+  --tone-destructive-bar: rgba(239, 68, 68, 0.7);
+  --tone-destructive-bg: rgba(239, 68, 68, 0.08);
+  --tone-destructive-border: rgba(239, 68, 68, 0.45);
+  --tone-destructive-gradient: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.5), transparent);
+  --tone-destructive-icon-bg: rgba(239, 68, 68, 0.15);
+  --tone-destructive-icon-border: rgba(239, 68, 68, 0.5);
+  --tone-info-bar: rgba(56, 189, 248, 0.7);
+  --tone-info-bg: rgba(14, 165, 233, 0.1);
+  --tone-info-border: rgba(14, 165, 233, 0.4);
+  --tone-info-gradient: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.5), transparent);
+  --tone-info-icon-bg: rgba(14, 165, 233, 0.15);
+  --tone-info-icon-border: rgba(56, 189, 248, 0.5);
+  --tone-success-bar: rgba(52, 211, 153, 0.7);
+  --tone-success-bg: rgba(16, 185, 129, 0.1);
+  --tone-success-border: rgba(16, 185, 129, 0.4);
+  --tone-success-gradient: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.5), transparent);
+  --tone-success-icon-bg: rgba(16, 185, 129, 0.15);
+  --tone-success-icon-border: rgba(52, 211, 153, 0.5);
+  --tone-warning-bar: rgba(251, 191, 36, 0.7);
+  --tone-warning-bg: rgba(245, 158, 11, 0.1);
+  --tone-warning-border: rgba(245, 158, 11, 0.4);
+  --tone-warning-gradient: linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.5), transparent);
+  --tone-warning-icon-bg: rgba(245, 158, 11, 0.15);
+  --tone-warning-icon-border: rgba(251, 191, 36, 0.5);
+  --color-tone-warning-title: var(----tone-warning-title);
+  --color-tone-warning-icon-fg: var(----tone-warning-icon-fg);
+  --color-tone-warning-description: var(----tone-warning-description);
+  --color-tone-warning-body: var(----tone-warning-body);
+  --color-tone-success-title: var(----tone-success-title);
+  --color-tone-success-icon-fg: var(----tone-success-icon-fg);
+  --color-tone-success-description: var(----tone-success-description);
+  --color-tone-success-body: var(----tone-success-body);
+  --color-tone-info-title: var(----tone-info-title);
+  --color-tone-info-icon-fg: var(----tone-info-icon-fg);
+  --color-tone-info-description: var(----tone-info-description);
+  --color-tone-info-body: var(----tone-info-body);
+  --color-tone-destructive-title: var(----tone-destructive-title);
+  --color-tone-destructive-icon-fg: var(----tone-destructive-icon-fg);
+  --color-tone-destructive-description: var(----tone-destructive-description);
+  --color-tone-destructive-body: var(----tone-destructive-body);
+  --color-tone-default-title: var(----tone-default-title);
+  --color-tone-default-icon-fg: var(----tone-default-icon-fg);
+  --color-tone-default-icon-border: var(----tone-default-icon-border);
+  --color-tone-default-icon-bg: var(----tone-default-icon-bg);
+  --tone-default-gradient: var(----tone-default-gradient);
+  --color-tone-default-description: var(----tone-default-description);
+  --color-tone-default-border: var(----tone-default-border);
+  --color-tone-default-body: var(----tone-default-body);
+  --color-tone-default-bg: var(----tone-default-bg);
+  --color-tone-default-bar: var(----tone-default-bar);
+  --color-tone-warning-icon-border: var(----tone-warning-icon-border);
+  --color-tone-warning-icon-bg: var(----tone-warning-icon-bg);
+  --color-tone-warning-border: var(----tone-warning-border);
+  --color-tone-warning-bg: var(----tone-warning-bg);
+  --color-tone-warning-bar: var(----tone-warning-bar);
+  --color-tone-success-icon-border: var(----tone-success-icon-border);
+  --color-tone-success-icon-bg: var(----tone-success-icon-bg);
+  --color-tone-success-border: var(----tone-success-border);
+  --color-tone-success-bg: var(----tone-success-bg);
+  --color-tone-success-bar: var(----tone-success-bar);
+  --color-tone-info-icon-border: var(----tone-info-icon-border);
+  --color-tone-info-icon-bg: var(----tone-info-icon-bg);
+  --color-tone-info-border: var(----tone-info-border);
+  --color-tone-info-bg: var(----tone-info-bg);
+  --color-tone-info-bar: var(----tone-info-bar);
+  --color-tone-destructive-icon-border: var(----tone-destructive-icon-border);
+  --color-tone-destructive-icon-bg: var(----tone-destructive-icon-bg);
+  --color-tone-destructive-border: var(----tone-destructive-border);
+  --color-tone-destructive-bg: var(----tone-destructive-bg);
+  --color-tone-destructive-bar: var(----tone-destructive-bar);
+  --color-glass-toast-warning: var(----glass-toast-warning);
+  --color-glass-radiant-warning: var(----glass-radiant-warning);
+}
+
+:root {
+  --radius: 0.625rem;
+
+  --glass-shadow-outline-heavy: 0 0 0 1px rgba(15, 23, 42, 0.2);
+  --glass-shadow-outline-faint: 0 0 0 1px rgba(15, 23, 42, 0.06);
+  --glass-shadow-inset: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  --glass-shadow-card-inner-dark: 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 0 0 0.3px rgba(255, 255, 255, 0.04);
+  --glass-highlight-subtle: rgba(255, 255, 255, 0.03);
+  --glass-highlight-soft: rgba(255, 255, 255, 0.04);
+  --glass-drop-shadow-subtle: 0 0 10px rgba(15, 23, 42, 0.08);
+  --glass-gradient-card-light: linear-gradient(180deg, rgba(32, 34, 40, 0.18) 0%, rgba(32, 34, 40, 0.05) 70%, rgba(32, 34, 40, 0) 100%);
+  --glass-gradient-card-dark: linear-gradient(180deg, rgba(63, 63, 70, 0.78) 0%, rgba(31, 31, 44, 0.55) 48%, rgba(9, 9, 11, 0.35) 100%);
+  --glass-highlight-bright: rgba(255, 255, 255, 0.14);
+  --glass-highlight-strong: rgba(255, 255, 255, 0.12);
+  --glass-shadow-card: 0 0 4px rgba(0, 0, 0, 0.08);
+  --glass-shadow-card-dark: 0 0 10px rgba(0, 0, 0, 0.45);
+  --glass-shadow-card-inner-light: 0 0 0 1px rgba(15, 23, 42, 0.06),
+    inset 0 0 0 0.8px rgba(255, 255, 255, 0.03);
+  --glass-shadow-outline: 0 0 0 1px rgba(15, 23, 42, 0.12);
+  --glass-shadow-outline-strong: 0 0 0 1px rgba(15, 23, 42, 0.18);
+  --glass-shadow-outline-subtle: 0 0 0 1px rgba(15, 23, 42, 0.08);
+  --glass-tint-base: rgba(15, 23, 42, 0.12);
+  --glass-tint-heavy: rgba(15, 23, 42, 0.2);
+  --glass-tint-strong: rgba(15, 23, 42, 0.18);
+  --glass-tint-subtle: rgba(15, 23, 42, 0.08);
+  --tone-default-bar: rgba(148, 163, 184, 0.7);
+  --tone-default-bg: rgba(15, 23, 42, 0.08);
+  --tone-default-body: rgba(15, 23, 42, 0.85);
+  --tone-default-border: rgba(15, 23, 42, 0.12);
+  --tone-default-description: rgba(30, 41, 59, 0.85);
+  --tone-default-gradient: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.5), transparent);
+  --tone-default-icon-bg: rgba(148, 163, 184, 0.12);
+  --tone-default-icon-border: rgba(148, 163, 184, 0.5);
+  --tone-default-icon-fg: rgba(100, 116, 139, 0.8);
+  --tone-default-title: rgba(100, 116, 139, 0.9);
+  --tone-destructive-body: #7f1d1d;
+  --tone-destructive-description: rgba(185, 28, 28, 0.9);
+  --tone-destructive-icon-fg: #dc2626;
+  --tone-destructive-title: #b91c1c;
+  --tone-info-body: #0c4a6e;
+  --tone-info-description: #0c4a6e;
+  --tone-info-icon-fg: #0284c7;
+  --tone-info-title: #0369a1;
+  --tone-success-body: #064e3b;
+  --tone-success-description: #065f46;
+  --tone-success-icon-fg: #059669;
+  --tone-success-title: #047857;
+  --tone-warning-body: #92400e;
+  --tone-warning-description: #b45309;
+  --tone-warning-icon-fg: #b45309;
+  --tone-warning-title: #b45309;
+}
+
+:root,
+.light {
+  color-scheme: light;
+
+  --background: #ffffff;
+  --foreground: #252a33;
+  --card: #fdfdfd;
+  --card-foreground: #252a33;
+  --popover: #ffffff;
+  --popover-foreground: #252a33;
+  --primary: #6e63d6;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f3f6;
+  --secondary-foreground: #252a33;
+  --muted: #f2f3f6;
+  --muted-foreground: #596272;
+  --accent: #6e63d6;
+  --accent-foreground: #ffffff;
+  --destructive: #cd4f51;
+  --border: rgba(18, 20, 28, 0.08);
+  --input: rgba(18, 20, 28, 0.08);
+  --ring: #b8bcff;
+  --sidebar: #f6f6f6;
+  --sidebar-foreground: #252a33;
+  --sidebar-primary: #6e63d6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ebeef5;
+  --sidebar-accent-foreground: #252a33;
+  --sidebar-border: rgba(18, 20, 28, 0.08);
+  --sidebar-ring: #b8bcff;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --glass-shadow-card: 0 0 10px rgba(0, 0, 0, 0.45);
+  --glass-shadow-card-dark: 0 0 10px rgba(0, 0, 0, 0.45);
+  --glass-shadow-card-inner-light: var(--glass-shadow-card-inner-dark);
+  --glass-shadow-outline: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  --glass-shadow-outline-subtle: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --glass-shadow-outline-strong: 0 0 0 1px rgba(255, 255, 255, 0.18);
+  --glass-highlight-strong: rgba(255, 255, 255, 0.16);
+  --glass-highlight-bright: rgba(255, 255, 255, 0.2);
+  --glass-tint-base: rgba(255, 255, 255, 0.08);
+  --glass-tint-subtle: rgba(255, 255, 255, 0.04);
+  --glass-tint-strong: rgba(255, 255, 255, 0.12);
+  --glass-tint-heavy: rgba(255, 255, 255, 0.18);
+
+  --background: #1e1e1e;
+  --foreground: #e4e7eb;
+  --card: #262626;
+  --card-foreground: #e4e7eb;
+  --popover: #262626;
+  --popover-foreground: #e4e7eb;
+  --primary: #8f86e8;
+  --primary-foreground: #14141b;
+  --secondary: #2a2a2a;
+  --secondary-foreground: #e4e7eb;
+  --muted: #2a2a2a;
+  --muted-foreground: #9aa1b0;
+  --accent: #8f86e8;
+  --accent-foreground: #14141b;
+  --destructive: #ff6b6b;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #7770e0;
+  --sidebar: #262626;
+  --sidebar-foreground: #d3d6dc;
+  --sidebar-primary: #8f86e8;
+  --sidebar-primary-foreground: #14141b;
+  --sidebar-accent: #313131;
+  --sidebar-accent-foreground: #d3d6dc;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #7770e0;
+  --tone-default-bar: rgba(148, 163, 184, 0.4);
+  --tone-default-bg: rgba(148, 163, 184, 0.15);
+  --tone-default-body: rgba(226, 232, 240, 0.85);
+  --tone-default-border: rgba(255, 255, 255, 0.12);
+  --tone-default-description: rgba(148, 163, 184, 0.85);
+  --tone-default-gradient: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.35), transparent);
+  --tone-default-icon-bg: rgba(148, 163, 184, 0.18);
+  --tone-default-icon-border: rgba(148, 163, 184, 0.35);
+  --tone-default-icon-fg: rgba(226, 232, 240, 0.85);
+  --tone-default-title: rgba(226, 232, 240, 0.9);
+  --tone-destructive-body: rgba(254, 202, 202, 0.9);
+  --tone-destructive-description: rgba(248, 113, 113, 0.85);
+  --tone-destructive-icon-fg: #fca5a5;
+  --tone-destructive-title: #fca5a5;
+  --tone-info-body: #bae6fd;
+  --tone-info-description: rgba(125, 211, 252, 0.85);
+  --tone-info-icon-fg: #bae6fd;
+  --tone-info-title: #bae6fd;
+  --tone-success-body: #bbf7d0;
+  --tone-success-description: rgba(134, 239, 172, 0.85);
+  --tone-success-icon-fg: #bbf7d0;
+  --tone-success-title: #bbf7d0;
+  --tone-warning-body: rgba(254, 243, 199, 0.9);
+  --tone-warning-description: rgba(253, 224, 71, 0.85);
+  --tone-warning-icon-fg: #fcd34d;
+  --tone-warning-title: #fcd34d;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  input[type='checkbox'] {
+    @apply cursor-pointer;
+    accent-color: var(--primary);
+  }
 }

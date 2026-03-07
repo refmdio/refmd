@@ -49,6 +49,9 @@ config :refmd, RefMDWeb.Endpoint,
 # configured to run both http and https servers on
 # different ports.
 
+# Dummy salt secret for consistent fake salts (non-existent users)
+config :refmd, dummy_salt_secret: "dev-dummy-salt-secret-do-not-use-in-production"
+
 # Enable dev routes for dashboard and mailbox
 config :refmd, dev_routes: true
 

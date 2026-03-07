@@ -20,6 +20,9 @@ config :refmd, RefMDWeb.Endpoint,
   secret_key_base: "lrXu5GPXHMgzLRwuC3D3u3iHadwMAj/HWA+fUidwaDuBTvvAM05SdxFROCo4zZNb",
   server: false
 
+# Dummy salt secret for consistent fake salts (non-existent users)
+config :refmd, dummy_salt_secret: "test-dummy-salt-secret"
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 
