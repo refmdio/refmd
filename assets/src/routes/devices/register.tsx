@@ -1,15 +1,15 @@
 import { createSignal, onMount, onCleanup, Show, Match, Switch } from "solid-js";
-import { useNavigate, A } from "@solidjs/router";
+import { useNavigate, useLocation, A } from "@solidjs/router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel } from "@/shared/ui/field";
-import { ShieldCheckIcon, AlertTriangleIcon } from "lucide-solid";
+import { ShieldCheckIcon, AlertTriangleIcon, CheckCircleIcon } from "lucide-solid";
 import { SafetyNumber } from "@/features/devices/safety-number";
 import { authState, setFullSession, setDeviceState } from "@/shared/lib/auth-state";
-import { authApi, devicesApi, trustTransferApi } from "@/shared/api";
+import { authApi, devicesApi, encryptionApi, trustTransferApi } from "@/shared/api";
 import { persistDeviceId } from "@/features/auth";
 import { persistDeviceKeysOnly, persistUmkForLogin, restoreSessionPdk, persistSessionPdk } from "@/features/auth/lib/key-persistence";
 import {
@@ -17,12 +17,20 @@ import {
   base64UrlDecode,
   generateDeviceKeyPair,
   generateClientNonce,
+  signDeviceRegistration,
   ecdhDecrypt,
   verifyTofu,
   handleTofuResult,
   decryptTrustState,
+  decryptIdentityPrivateKeys,
   deriveAuthKeys,
+  decryptKekFromMemberEnvelope,
+  unwrapKekFromBackup,
+  encryptKekForDevice,
+  wrapKekWithUmk,
+  generateKek,
 } from "@/shared/lib/crypto";
+import type { IdentityKeyPair } from "@/shared/lib/crypto";
 import { importTofuEntries } from "@/shared/lib/trust-store";
 import { buildDeviceUmkDistributionAad } from "@/shared/lib/crypto/aad";
 
@@ -30,6 +38,8 @@ type Phase = "generating" | "waiting" | "restoring" | "done" | "error" | "expire
 
 export default function DeviceRegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isRecoveryMode = () => (location.state as Record<string, unknown>)?.recovery === true;
   const [phase, setPhase] = createSignal<Phase>("generating");
   const [error, setError] = createSignal<string | null>(null);
   const [deviceKeys, setDeviceKeys] = createSignal<{
@@ -51,16 +61,19 @@ export default function DeviceRegisterPage() {
   const [pdkPassword, setPdkPassword] = createSignal("");
   const [pdkLoading, setPdkLoading] = createSignal(false);
   const [pdkError, setPdkError] = createSignal<string | null>(null);
+  const [statusMessage, setStatusMessage] = createSignal("");
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let eventSource: EventSource | undefined;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   let nonceRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  let redirectTimer: ReturnType<typeof setTimeout> | undefined;
 
   onCleanup(() => {
     if (pollTimer) clearInterval(pollTimer);
     if (eventSource) eventSource.close();
     if (expiryTimer) clearTimeout(expiryTimer);
     if (nonceRefreshTimer) clearInterval(nonceRefreshTimer);
+    if (redirectTimer) clearTimeout(redirectTimer);
   });
 
   onMount(async () => {
@@ -71,113 +84,203 @@ export default function DeviceRegisterPage() {
     }
 
     try {
-      // Get identity signing public key from server
-      const me = await authApi.me();
-
-      if (!me.identity_signing_public_key) {
-        throw new Error("Identity key not available");
+      if (isRecoveryMode()) {
+        await startRecoveryRegistration(auth);
+      } else {
+        await startNormalRegistration(auth);
       }
-      setIdentitySigningPublic(base64UrlDecode(me.identity_signing_public_key));
-
-      // Generate device keys and persist early (design: DSK early persistence)
-      const keys = generateDeviceKeyPair();
-      setDeviceKeys(keys);
-      try {
-        await persistDeviceKeysOnly(keys.ecdhPrivate, keys.signingPrivate, auth.user.id);
-      } catch {
-        // DSK unavailable and no in-memory PDK (e.g. page reload) — need password re-entry
-        setPendingKeys(keys);
-        setPhase("needs_password");
-        return;
-      }
-      const nonce = generateClientNonce();
-      setClientNonce(nonce);
-
-      // Create pending device (2nd+ devices only)
-      const res = await devicesApi.createPending({
-        name: getDeviceName(),
-        device_type: getDeviceType(),
-        device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
-        device_signing_public_key: base64UrlEncode(keys.signingPublic),
-        client_nonce: base64UrlEncode(nonce),
-        identity_signing_public_key: base64UrlEncode(identitySigningPublic()!),
-      });
-
-      setPendingDeviceId(res.device_id);
-      setPhase("waiting");
-
-      // Request trust transfer nonce (best-effort, non-blocking)
-      // Refresh every 4 minutes to stay within the 5-minute server TTL
-      requestTrustTransferNonce(res.device_id);
-      nonceRefreshTimer = setInterval(() => {
-        if (phase() === "waiting") {
-          requestTrustTransferNonce(res.device_id);
-        }
-      }, 4 * 60 * 1000);
-
-      const startPollingFallback = () => {
-        if (pollTimer) return;
-        pollTimer = setInterval(async () => {
-          try {
-            const status = await devicesApi.getPendingStatus(res.device_id);
-            if (status.status === "approved") {
-              if (pollTimer) clearInterval(pollTimer);
-              await handleApproved(res.device_id, keys);
-            } else if (status.status === "expired") {
-              if (pollTimer) clearInterval(pollTimer);
-              setPhase("expired");
-            }
-          } catch {
-            // Polling error — continue
-          }
-        }, 5000);
-      };
-
-      // SSE for approval notification
-      try {
-        eventSource = new EventSource(`/api/devices/pending/${res.device_id}/events`);
-        eventSource.addEventListener("pending_approved", async () => {
-          if (eventSource) eventSource.close();
-          if (pollTimer) clearInterval(pollTimer);
-          await handleApproved(res.device_id, keys);
-        });
-        eventSource.addEventListener("expired", () => {
-          if (eventSource) eventSource.close();
-          if (pollTimer) clearInterval(pollTimer);
-          setPhase("expired");
-        });
-        eventSource.addEventListener("pending_rejected", () => {
-          if (eventSource) eventSource.close();
-          if (pollTimer) clearInterval(pollTimer);
-          setError("Device registration was rejected by an existing device.");
-          setPhase("error");
-        });
-        eventSource.onerror = () => {
-          // SSE interrupted — start polling fallback
-          if (eventSource) {
-            eventSource.close();
-            eventSource = undefined;
-          }
-          startPollingFallback();
-        };
-      } catch {
-        // SSE not available — start polling fallback
-        startPollingFallback();
-      }
-
-      // Expiry timer: pending devices have a 5-minute TTL
-      expiryTimer = setTimeout(() => {
-        if (phase() === "waiting") {
-          if (eventSource) eventSource.close();
-          if (pollTimer) clearInterval(pollTimer);
-          setPhase("expired");
-        }
-      }, 5 * 60 * 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Setup failed");
       setPhase("error");
     }
   });
+
+  // Normal flow: emoji approval from existing device
+  const startNormalRegistration = async (auth: NonNullable<ReturnType<typeof authState>>) => {
+    const me = await authApi.me();
+
+    if (!me.identity_signing_public_key) {
+      throw new Error("Identity key not available");
+    }
+    setIdentitySigningPublic(base64UrlDecode(me.identity_signing_public_key));
+
+    const keys = generateDeviceKeyPair();
+    setDeviceKeys(keys);
+    try {
+      await persistDeviceKeysOnly(keys.ecdhPrivate, keys.signingPrivate, auth.user.id);
+    } catch {
+      setPendingKeys(keys);
+      setPhase("needs_password");
+      return;
+    }
+
+    await createPendingAndWait(keys);
+  };
+
+  // Create pending device and set up SSE/polling for approval
+  const createPendingAndWait = async (
+    keys: { ecdhPrivate: Uint8Array; ecdhPublic: Uint8Array; signingPrivate: Uint8Array; signingPublic: Uint8Array },
+  ) => {
+    const nonce = generateClientNonce();
+    setClientNonce(nonce);
+
+    const res = await devicesApi.createPending({
+      name: getDeviceName(),
+      device_type: getDeviceType(),
+      device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
+      device_signing_public_key: base64UrlEncode(keys.signingPublic),
+      client_nonce: base64UrlEncode(nonce),
+      identity_signing_public_key: base64UrlEncode(identitySigningPublic()!),
+    });
+
+    setPendingDeviceId(res.device_id);
+    setPhase("waiting");
+
+    // Request trust transfer nonce (best-effort, non-blocking)
+    // Refresh every 4 minutes to stay within the 5-minute server TTL
+    requestTrustTransferNonce(res.device_id);
+    nonceRefreshTimer = setInterval(() => {
+      if (phase() === "waiting") {
+        requestTrustTransferNonce(res.device_id);
+      }
+    }, 4 * 60 * 1000);
+
+    const startPollingFallback = () => {
+      if (pollTimer) return;
+      pollTimer = setInterval(async () => {
+        try {
+          const status = await devicesApi.getPendingStatus(res.device_id);
+          if (status.status === "approved") {
+            if (pollTimer) clearInterval(pollTimer);
+            await handleApproved(res.device_id, keys);
+          } else if (status.status === "expired") {
+            if (pollTimer) clearInterval(pollTimer);
+            setPhase("expired");
+          }
+        } catch {
+          // Polling error — continue
+        }
+      }, 5000);
+    };
+
+    // SSE for approval notification
+    try {
+      eventSource = new EventSource(`/api/devices/pending/${res.device_id}/events`);
+      eventSource.addEventListener("pending_approved", async () => {
+        if (eventSource) eventSource.close();
+        if (pollTimer) clearInterval(pollTimer);
+        await handleApproved(res.device_id, keys);
+      });
+      eventSource.addEventListener("expired", () => {
+        if (eventSource) eventSource.close();
+        if (pollTimer) clearInterval(pollTimer);
+        setPhase("expired");
+      });
+      eventSource.addEventListener("pending_rejected", () => {
+        if (eventSource) eventSource.close();
+        if (pollTimer) clearInterval(pollTimer);
+        setError("Device registration was rejected by an existing device.");
+        setPhase("error");
+      });
+      eventSource.onerror = () => {
+        if (eventSource) {
+          eventSource.close();
+          eventSource = undefined;
+        }
+        startPollingFallback();
+      };
+    } catch {
+      startPollingFallback();
+    }
+
+    // Expiry timer: pending devices have a 5-minute TTL
+    expiryTimer = setTimeout(() => {
+      if (phase() === "waiting") {
+        if (eventSource) eventSource.close();
+        if (pollTimer) clearInterval(pollTimer);
+        setPhase("expired");
+      }
+    }, 5 * 60 * 1000);
+  };
+
+  // Recovery flow: self-approve with identity signature
+  const startRecoveryRegistration = async (auth: NonNullable<ReturnType<typeof authState>>) => {
+    const umk = auth.umk!;
+    const identityKeys = auth.identityKeys!;
+    const pdk = restoreSessionPdk() ?? undefined;
+
+    setPhase("generating");
+    setStatusMessage("Generating device keys\u2026");
+    const keys = generateDeviceKeyPair();
+    await persistDeviceKeysOnly(keys.ecdhPrivate, keys.signingPrivate, auth.user.id, pdk);
+
+    setPhase("restoring");
+    setStatusMessage("Registering device\u2026");
+
+    const clientNonce = generateClientNonce();
+    const deviceSignature = signDeviceRegistration(
+      keys.signingPublic,
+      keys.ecdhPublic,
+      clientNonce,
+      identityKeys.signingPrivate,
+    );
+
+    const pendingRes = await devicesApi.createPending({
+      name: getDeviceName(),
+      device_type: getDeviceType(),
+      device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
+      device_signing_public_key: base64UrlEncode(keys.signingPublic),
+      client_nonce: base64UrlEncode(clientNonce),
+      identity_signing_public_key: base64UrlEncode(identityKeys.signingPublic),
+    });
+
+    const approveRes = await devicesApi.approveWithoutPop(pendingRes.device_id, {
+      identity_signature: base64UrlEncode(deviceSignature),
+    });
+
+    const deviceId = approveRes.device.id;
+
+    persistDeviceId(deviceId);
+    await persistUmkForLogin({
+      umk,
+      pdk,
+      kmsi: false,
+      userId: auth.user.id,
+    });
+
+    setFullSession(
+      {
+        user: auth.user,
+        sessionId: auth.sessionId,
+        umk,
+        identityKeys,
+        expiresAt: auth.expiresAt,
+      },
+      {
+        deviceId,
+        deviceEcdhPrivate: keys.ecdhPrivate,
+        deviceSigningPrivate: keys.signingPrivate,
+      },
+    );
+
+    setStatusMessage("Restoring workspace keys\u2026");
+    try {
+      await restoreWorkspaceKeks(
+        auth.user.id,
+        deviceId,
+        umk,
+        identityKeys,
+        keys.ecdhPrivate,
+        keys.ecdhPublic,
+      );
+    } catch {
+      // KEK restoration is best-effort
+    }
+
+    setPhase("done");
+    setStatusMessage("Recovery complete!");
+    redirectTimer = setTimeout(() => navigate("/"), 1500);
+  };
 
   const handlePdkReentry = async (e: Event) => {
     e.preventDefault();
@@ -188,96 +291,17 @@ export default function DeviceRegisterPage() {
       const auth = authState();
       if (!auth) throw new Error("No session");
 
-      const keys = pendingKeys();
-      if (!keys) throw new Error("No pending keys");
-
       const saltRes = await authApi.getSalt(auth.user.email);
       const derived = await deriveAuthKeys(pdkPassword(), saltRes.salt, saltRes.kdf_params);
       await authApi.verifyKey(derived.authKeyBase64);
       persistSessionPdk(derived.pdk);
+
+      const keys = pendingKeys();
+      if (!keys) throw new Error("No pending keys");
       await persistDeviceKeysOnly(keys.ecdhPrivate, keys.signingPrivate, auth.user.id);
-
-      // Resume the normal flow
-      setDeviceKeys(keys);
       setPendingKeys(null);
-      const nonce = generateClientNonce();
-      setClientNonce(nonce);
-      setPhase("generating");
-
-      // Re-run the pending device creation (same as onMount continuation)
-      const res = await devicesApi.createPending({
-        name: getDeviceName(),
-        device_type: getDeviceType(),
-        device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
-        device_signing_public_key: base64UrlEncode(keys.signingPublic),
-        client_nonce: base64UrlEncode(nonce),
-        identity_signing_public_key: base64UrlEncode(identitySigningPublic()!),
-      });
-
-      setPendingDeviceId(res.device_id);
-      setPhase("waiting");
-
-      requestTrustTransferNonce(res.device_id);
-      nonceRefreshTimer = setInterval(() => {
-        if (phase() === "waiting") {
-          requestTrustTransferNonce(res.device_id);
-        }
-      }, 4 * 60 * 1000);
-
-      const startPollingFallback = () => {
-        if (pollTimer) return;
-        pollTimer = setInterval(async () => {
-          try {
-            const status = await devicesApi.getPendingStatus(res.device_id);
-            if (status.status === "approved") {
-              if (pollTimer) clearInterval(pollTimer);
-              await handleApproved(res.device_id, keys);
-            } else if (status.status === "expired") {
-              if (pollTimer) clearInterval(pollTimer);
-              setPhase("expired");
-            }
-          } catch {
-            // Polling error — continue
-          }
-        }, 5000);
-      };
-
-      try {
-        eventSource = new EventSource(`/api/devices/pending/${res.device_id}/events`);
-        eventSource.addEventListener("pending_approved", async () => {
-          if (eventSource) eventSource.close();
-          if (pollTimer) clearInterval(pollTimer);
-          await handleApproved(res.device_id, keys);
-        });
-        eventSource.addEventListener("expired", () => {
-          if (eventSource) eventSource.close();
-          if (pollTimer) clearInterval(pollTimer);
-          setPhase("expired");
-        });
-        eventSource.addEventListener("pending_rejected", () => {
-          if (eventSource) eventSource.close();
-          if (pollTimer) clearInterval(pollTimer);
-          setError("Device registration was rejected by an existing device.");
-          setPhase("error");
-        });
-        eventSource.onerror = () => {
-          if (eventSource) {
-            eventSource.close();
-            eventSource = undefined;
-          }
-          startPollingFallback();
-        };
-      } catch {
-        startPollingFallback();
-      }
-
-      expiryTimer = setTimeout(() => {
-        if (phase() === "waiting") {
-          if (eventSource) eventSource.close();
-          if (pollTimer) clearInterval(pollTimer);
-          setPhase("expired");
-        }
-      }, 5 * 60 * 1000);
+      setDeviceKeys(keys);
+      await createPendingAndWait(keys);
     } catch (err) {
       setPdkError(err instanceof Error ? err.message : "Password verification failed");
     } finally {
@@ -375,7 +399,6 @@ export default function DeviceRegisterPage() {
 
       let identityKeys = null;
       if (me.keys) {
-        const { decryptIdentityPrivateKeys } = await import("@/shared/lib/crypto");
         identityKeys = decryptIdentityPrivateKeys(
           {
             encryptedEcdhPrivate: base64UrlDecode(me.keys.encrypted_ecdh_private),
@@ -430,10 +453,15 @@ export default function DeviceRegisterPage() {
             New Device
           </CardTitle>
           <CardDescription>
-            Verify this device from an existing device, or{" "}
-            <A href="/auth/recovery" class="text-primary underline underline-offset-4">
-              use your recovery key
-            </A>.
+            {isRecoveryMode()
+              ? "Setting up your recovered device\u2026"
+              : <>
+                  Verify this device from an existing device, or{" "}
+                  <A href="/auth/recovery" class="text-primary underline underline-offset-4">
+                    use your recovery key
+                  </A>.
+                </>
+            }
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -441,7 +469,9 @@ export default function DeviceRegisterPage() {
             <Match when={phase() === "generating"}>
               <div class="flex flex-col items-center gap-4 py-8">
                 <Spinner class="size-6" />
-                <p class="text-sm text-muted-foreground">Generating device keys...</p>
+                <p class="text-sm text-muted-foreground">
+                  {statusMessage() || "Generating device keys..."}
+                </p>
               </div>
             </Match>
 
@@ -475,7 +505,19 @@ export default function DeviceRegisterPage() {
             <Match when={phase() === "restoring"}>
               <div class="flex flex-col items-center gap-4 py-8">
                 <Spinner class="size-6" />
-                <p class="text-sm text-muted-foreground">Restoring encryption keys...</p>
+                <p class="text-sm text-muted-foreground">
+                  {statusMessage() || "Restoring encryption keys..."}
+                </p>
+              </div>
+            </Match>
+
+            <Match when={phase() === "done" && isRecoveryMode()}>
+              <div class="flex flex-col items-center gap-4 py-8">
+                <div class="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                  <CheckCircleIcon class="size-6 text-green-600" />
+                </div>
+                <p class="text-lg font-medium">Recovery Successful!</p>
+                <p class="text-sm text-muted-foreground">Redirecting to your workspace&hellip;</p>
               </div>
             </Match>
 
@@ -620,6 +662,172 @@ async function retrieveAndImportTrustState(
   await handleTofuResult(senderTofuResult);
   await importTofuEntries(snapshot.tofuEntries);
   sessionStorage.removeItem(`refmd-transfer-nonce-${deviceId}`);
+}
+
+async function restoreWorkspaceKeks(
+  userId: string,
+  deviceId: string,
+  umk: Uint8Array,
+  identityKeys: IdentityKeyPair,
+  deviceEcdhPrivate: Uint8Array,
+  deviceEcdhPublic: Uint8Array,
+): Promise<void> {
+  const { workspace_ids } = await encryptionApi.getWorkspaceIds();
+
+  for (const workspaceId of workspace_ids) {
+    try {
+      await restoreKekForWorkspace(
+        workspaceId,
+        userId,
+        deviceId,
+        umk,
+        identityKeys,
+        deviceEcdhPrivate,
+        deviceEcdhPublic,
+      );
+    } catch {
+      // Per-workspace best-effort
+    }
+  }
+}
+
+async function restoreKekForWorkspace(
+  workspaceId: string,
+  userId: string,
+  deviceId: string,
+  umk: Uint8Array,
+  identityKeys: IdentityKeyPair,
+  deviceEcdhPrivate: Uint8Array,
+  deviceEcdhPublic: Uint8Array,
+): Promise<void> {
+  const existing = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
+  if (existing.keys.length > 0) return;
+  const currentKekVersion = existing.current_kek_version;
+
+  const memberEnvelope = await encryptionApi.getMemberEnvelopeWithPop(workspaceId);
+  if (memberEnvelope && memberEnvelope.sender_ecdh_public_key && memberEnvelope.sender_signing_public_key) {
+    const senderEcdhPk = base64UrlDecode(memberEnvelope.sender_ecdh_public_key);
+    const senderSigningPk = base64UrlDecode(memberEnvelope.sender_signing_public_key);
+
+    const tofuResult = await verifyTofu(userId, memberEnvelope.sender_device_id, senderSigningPk, senderEcdhPk);
+    if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
+      throw new Error("Key verification failed for member envelope sender. Aborting KEK recovery.");
+    }
+    await handleTofuResult(tofuResult);
+
+    const kek = decryptKekFromMemberEnvelope(
+      base64UrlDecode(memberEnvelope.encrypted_kek),
+      base64UrlDecode(memberEnvelope.nonce),
+      identityKeys.ecdhPrivate,
+      senderEcdhPk,
+      workspaceId,
+      userId,
+      memberEnvelope.key_version,
+      memberEnvelope.sender_device_id,
+    );
+
+    const deviceEnvelope = encryptKekForDevice(
+      kek,
+      deviceEcdhPrivate,
+      deviceEcdhPublic,
+      workspaceId,
+      userId,
+      deviceId,
+      deviceId,
+      memberEnvelope.key_version,
+    );
+
+    await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
+      key_version: memberEnvelope.key_version,
+      device_id: deviceId,
+      sender_device_id: deviceId,
+      encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
+      nonce: base64UrlEncode(deviceEnvelope.nonce),
+    });
+
+    const backup = wrapKekWithUmk(kek, umk, workspaceId, userId, memberEnvelope.key_version);
+    await encryptionApi.createKekBackupWithPop(workspaceId, {
+      key_version: memberEnvelope.key_version,
+      encrypted_kek: base64UrlEncode(backup.encryptedKek),
+      nonce: base64UrlEncode(backup.nonce),
+    });
+
+    return;
+  }
+
+  let backupData: { encrypted_kek: string; nonce: string; key_version: number } | null = null;
+  try {
+    backupData = await encryptionApi.getKekBackupWithPop(workspaceId);
+  } catch {
+    // No backup available
+  }
+
+  if (backupData) {
+    const kek = unwrapKekFromBackup(
+      base64UrlDecode(backupData.encrypted_kek),
+      base64UrlDecode(backupData.nonce),
+      umk,
+      workspaceId,
+      userId,
+      backupData.key_version,
+    );
+
+    const deviceEnvelope = encryptKekForDevice(
+      kek,
+      deviceEcdhPrivate,
+      deviceEcdhPublic,
+      workspaceId,
+      userId,
+      deviceId,
+      deviceId,
+      backupData.key_version,
+    );
+
+    await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
+      key_version: backupData.key_version,
+      device_id: deviceId,
+      sender_device_id: deviceId,
+      encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
+      nonce: base64UrlEncode(deviceEnvelope.nonce),
+    });
+
+    return;
+  }
+
+  if (currentKekVersion > 0) return;
+
+  const freshKek = generateKek();
+  const freshEnvelope = encryptKekForDevice(
+    freshKek,
+    deviceEcdhPrivate,
+    deviceEcdhPublic,
+    workspaceId,
+    userId,
+    deviceId,
+    deviceId,
+    1,
+  );
+
+  const freshBackup = wrapKekWithUmk(freshKek, umk, workspaceId, userId, 1);
+
+  try {
+    await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
+      key_version: 1,
+      device_id: deviceId,
+      sender_device_id: deviceId,
+      encrypted_kek: base64UrlEncode(freshEnvelope.ciphertext),
+      nonce: base64UrlEncode(freshEnvelope.nonce),
+      is_active: true,
+    });
+
+    await encryptionApi.createKekBackupWithPop(workspaceId, {
+      key_version: 1,
+      encrypted_kek: base64UrlEncode(freshBackup.encryptedKek),
+      nonce: base64UrlEncode(freshBackup.nonce),
+    });
+  } catch {
+    // 409 Conflict: KEK already exists
+  }
 }
 
 function getDeviceName(): string {

@@ -1,4 +1,4 @@
-import { createSignal, Show, Switch, Match, For, onCleanup } from "solid-js";
+import { createSignal, Show, Switch, Match, For } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -6,10 +6,10 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
-import { KeyRoundIcon, AlertTriangleIcon, UploadIcon, CheckCircleIcon } from "lucide-solid";
-import { authState, setFullSession } from "@/shared/lib/auth-state";
-import { authApi, devicesApi, encryptionApi } from "@/shared/api";
-import { persistDeviceId, persistDeviceKeysOnly, persistUmkForLogin, persistSessionPdk, restoreSessionPdk } from "@/features/auth";
+import { KeyRoundIcon, AlertTriangleIcon, UploadIcon } from "lucide-solid";
+import { authState, setAuthState } from "@/shared/lib/auth-state";
+import { authApi } from "@/shared/api";
+import { persistSessionPdk } from "@/features/auth";
 import { parseRecoveryKeyFile } from "@/shared/lib/recovery-key-format";
 import {
   base64UrlEncode,
@@ -21,21 +21,11 @@ import {
   decryptIdentityPrivateKeys,
   sign,
   wrapUmk,
-  generateDeviceKeyPair,
-  generateClientNonce,
-  signDeviceRegistration,
-  generateKek,
-  decryptKekFromMemberEnvelope,
-  unwrapKekFromBackup,
-  encryptKekForDevice,
-  wrapKekWithUmk,
-  verifyTofu,
-  handleTofuResult,
   isValidMnemonic,
 } from "@/shared/lib/crypto";
-import type { IdentityKeyPair, KdfParams } from "@/shared/lib/crypto";
+import type { KdfParams } from "@/shared/lib/crypto";
 
-type Phase = "input" | "recovering" | "password_set" | "success" | "error";
+type Phase = "input" | "recovering" | "password_set" | "error";
 
 const TARGET_KDF_PARAMS: KdfParams = {
   algorithm: "argon2id",
@@ -62,15 +52,10 @@ export default function RecoveryPage() {
   const [confirmPassword, setConfirmPassword] = createSignal("");
 
   const [recoveredUmk, setRecoveredUmk] = createSignal<Uint8Array | null>(null);
-  const [recoveredIdentityKeys, setRecoveredIdentityKeys] = createSignal<IdentityKeyPair | null>(null);
+  const [recoveredIdentityKeys, setRecoveredIdentityKeys] = createSignal<ReturnType<typeof decryptIdentityPrivateKeys> | null>(null);
 
-  let redirectTimer: ReturnType<typeof setTimeout> | null = null;
   let inputRefs: (HTMLInputElement | undefined)[] = [];
   let fileInputRef: HTMLInputElement | undefined;
-
-  onCleanup(() => {
-    if (redirectTimer !== null) clearTimeout(redirectTimer);
-  });
 
   const handleWordChange = (index: number, value: string) => {
     // Paste 24 words into first field
@@ -224,7 +209,7 @@ export default function RecoveryPage() {
       const signature = sign(message, identityKeys.signingPrivate);
 
       setStatusMessage("Creating session\u2026");
-      await authApi.recoverySession({
+      const sessionRes = await authApi.recoverySession({
         email: auth.user.email,
         challenge: challengeRes.challenge,
         signature: base64UrlEncode(signature),
@@ -239,9 +224,15 @@ export default function RecoveryPage() {
         return;
       }
 
-      const sessionPdk = restoreSessionPdk() ?? undefined;
-      setStatusMessage("Setting up new device\u2026");
-      await registerDevice(auth, umk, identityKeys, auth.sessionId, sessionPdk);
+      // Recovery session established — redirect to device registration (self-approve)
+      setAuthState({
+        user: auth.user,
+        sessionId: sessionRes.session_id,
+        umk,
+        identityKeys,
+        expiresAt: auth.expiresAt,
+      });
+      navigate("/devices/register", { state: { recovery: true } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Recovery failed");
       setPhase("error");
@@ -290,9 +281,15 @@ export default function RecoveryPage() {
 
       persistSessionPdk(derived.pdk);
 
-      setPhase("recovering");
-      setStatusMessage("Setting up new device\u2026");
-      await registerDevice(auth, umk, identityKeys, res.session_id, derived.pdk);
+      // Password set — redirect to device registration (self-approve)
+      setAuthState({
+        user: auth.user,
+        sessionId: res.session_id,
+        umk,
+        identityKeys,
+        expiresAt: auth.expiresAt,
+      });
+      navigate("/devices/register", { state: { recovery: true } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Password set failed");
       setPhase("error");
@@ -301,95 +298,18 @@ export default function RecoveryPage() {
     }
   };
 
-  async function registerDevice(
-    auth: NonNullable<ReturnType<typeof authState>>,
-    umk: Uint8Array,
-    identityKeys: IdentityKeyPair,
-    sessionId: string,
-    pdk?: Uint8Array,
-  ) {
-    setStatusMessage("Generating device keys\u2026");
-    const deviceKeys = generateDeviceKeyPair();
-    await persistDeviceKeysOnly(deviceKeys.ecdhPrivate, deviceKeys.signingPrivate, auth.user.id, pdk);
-
-    const clientNonce = generateClientNonce();
-    const deviceSignature = signDeviceRegistration(
-      deviceKeys.signingPublic,
-      deviceKeys.ecdhPublic,
-      clientNonce,
-      identityKeys.signingPrivate,
-    );
-
-    setStatusMessage("Registering device\u2026");
-    const pendingRes = await devicesApi.createPending({
-      name: getDeviceName(),
-      device_type: getDeviceType(),
-      device_ecdh_public_key: base64UrlEncode(deviceKeys.ecdhPublic),
-      device_signing_public_key: base64UrlEncode(deviceKeys.signingPublic),
-      client_nonce: base64UrlEncode(clientNonce),
-      identity_signing_public_key: base64UrlEncode(identityKeys.signingPublic),
-    });
-
-    const approveRes = await devicesApi.approveWithoutPop(pendingRes.device_id, {
-      identity_signature: base64UrlEncode(deviceSignature),
-    });
-
-    const deviceId = approveRes.device.id;
-
-    persistDeviceId(deviceId);
-    await persistUmkForLogin({
-      umk,
-      pdk,
-      kmsi: false,
-      userId: auth.user.id,
-    });
-
-    setFullSession(
-      {
-        user: auth.user,
-        sessionId,
-        umk,
-        identityKeys,
-        expiresAt: auth.expiresAt,
-      },
-      {
-        deviceId,
-        deviceEcdhPrivate: deviceKeys.ecdhPrivate,
-        deviceSigningPrivate: deviceKeys.signingPrivate,
-      },
-    );
-
-    setStatusMessage("Restoring workspace keys\u2026");
-    try {
-      await restoreWorkspaceKeks(
-        auth.user.id,
-        deviceId,
-        umk,
-        identityKeys,
-        deviceKeys.ecdhPrivate,
-        deviceKeys.ecdhPublic,
-      );
-    } catch {
-      // KEK restoration is best-effort
-    }
-
-    setPhase("success");
-    setStatusMessage("Recovery complete!");
-    redirectTimer = setTimeout(() => navigate("/"), 1500);
-  }
-
   return (
     <main class="min-h-screen flex items-center justify-center p-4">
       <Card class="w-full max-w-2xl">
         <CardHeader class="space-y-1">
           <CardTitle class="flex items-center gap-2 text-2xl font-bold">
             <KeyRoundIcon class="size-6" />
-            {isPasswordReset() ? "Reset Password" : "Account Recovery"}
+            {isPasswordReset() ? "Reset Password" : "Recovery Key"}
           </CardTitle>
           <CardDescription>
             {isPasswordReset()
               ? "Enter your 24-word recovery phrase to verify your identity, then set a new password."
-              : "Restore access to your account using your 24-word recovery phrase."}
+              : "Enter your 24-word recovery phrase to restore your encryption keys."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -398,16 +318,6 @@ export default function RecoveryPage() {
               <div class="flex flex-col items-center gap-4 py-12">
                 <Spinner class="size-6" />
                 <p class="text-muted-foreground">{statusMessage()}</p>
-              </div>
-            </Match>
-
-            <Match when={phase() === "success"}>
-              <div class="flex flex-col items-center gap-4 py-12">
-                <div class="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                  <CheckCircleIcon class="size-6 text-green-600" />
-                </div>
-                <p class="text-lg font-medium">Recovery Successful!</p>
-                <p class="text-muted-foreground">Redirecting to your workspace&hellip;</p>
               </div>
             </Match>
 
@@ -566,183 +476,4 @@ export default function RecoveryPage() {
       </Card>
     </main>
   );
-}
-
-function getDeviceName(): string {
-  const ua = navigator.userAgent;
-  if (/Chrome/.test(ua)) return "Chrome (Recovery)";
-  if (/Firefox/.test(ua)) return "Firefox (Recovery)";
-  if (/Safari/.test(ua)) return "Safari (Recovery)";
-  return "Browser (Recovery)";
-}
-
-function getDeviceType(): string {
-  if (/Mobi|Android/i.test(navigator.userAgent)) return "mobile";
-  return "desktop";
-}
-
-async function restoreWorkspaceKeks(
-  userId: string,
-  deviceId: string,
-  umk: Uint8Array,
-  identityKeys: IdentityKeyPair,
-  deviceEcdhPrivate: Uint8Array,
-  deviceEcdhPublic: Uint8Array,
-): Promise<void> {
-  const { workspace_ids } = await encryptionApi.getWorkspaceIds();
-
-  for (const workspaceId of workspace_ids) {
-    try {
-      await restoreKekForWorkspace(
-        workspaceId,
-        userId,
-        deviceId,
-        umk,
-        identityKeys,
-        deviceEcdhPrivate,
-        deviceEcdhPublic,
-      );
-    } catch {
-      // Per-workspace best-effort
-    }
-  }
-}
-
-async function restoreKekForWorkspace(
-  workspaceId: string,
-  userId: string,
-  deviceId: string,
-  umk: Uint8Array,
-  identityKeys: IdentityKeyPair,
-  deviceEcdhPrivate: Uint8Array,
-  deviceEcdhPublic: Uint8Array,
-): Promise<void> {
-  const existing = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
-  if (existing.keys.length > 0) return;
-  const currentKekVersion = existing.current_kek_version;
-
-  const memberEnvelope = await encryptionApi.getMemberEnvelopeWithPop(workspaceId);
-  if (memberEnvelope && memberEnvelope.sender_ecdh_public_key && memberEnvelope.sender_signing_public_key) {
-    const senderEcdhPk = base64UrlDecode(memberEnvelope.sender_ecdh_public_key);
-    const senderSigningPk = base64UrlDecode(memberEnvelope.sender_signing_public_key);
-
-    const tofuResult = await verifyTofu(userId, memberEnvelope.sender_device_id, senderSigningPk, senderEcdhPk);
-    if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
-      throw new Error("Key verification failed for member envelope sender. Aborting KEK recovery.");
-    }
-    await handleTofuResult(tofuResult);
-
-    const kek = decryptKekFromMemberEnvelope(
-      base64UrlDecode(memberEnvelope.encrypted_kek),
-      base64UrlDecode(memberEnvelope.nonce),
-      identityKeys.ecdhPrivate,
-      senderEcdhPk,
-      workspaceId,
-      userId,
-      memberEnvelope.key_version,
-      memberEnvelope.sender_device_id,
-    );
-
-    const deviceEnvelope = encryptKekForDevice(
-      kek,
-      deviceEcdhPrivate,
-      deviceEcdhPublic,
-      workspaceId,
-      userId,
-      deviceId,
-      deviceId,
-      memberEnvelope.key_version,
-    );
-
-    await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
-      key_version: memberEnvelope.key_version,
-      device_id: deviceId,
-      sender_device_id: deviceId,
-      encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
-      nonce: base64UrlEncode(deviceEnvelope.nonce),
-    });
-
-    const backup = wrapKekWithUmk(kek, umk, workspaceId, userId, memberEnvelope.key_version);
-    await encryptionApi.createKekBackupWithPop(workspaceId, {
-      key_version: memberEnvelope.key_version,
-      encrypted_kek: base64UrlEncode(backup.encryptedKek),
-      nonce: base64UrlEncode(backup.nonce),
-    });
-
-    return;
-  }
-
-  let backupData: { encrypted_kek: string; nonce: string; key_version: number } | null = null;
-  try {
-    backupData = await encryptionApi.getKekBackupWithPop(workspaceId);
-  } catch {
-    // No backup available
-  }
-
-  if (backupData) {
-    const kek = unwrapKekFromBackup(
-      base64UrlDecode(backupData.encrypted_kek),
-      base64UrlDecode(backupData.nonce),
-      umk,
-      workspaceId,
-      userId,
-      backupData.key_version,
-    );
-
-    const deviceEnvelope = encryptKekForDevice(
-      kek,
-      deviceEcdhPrivate,
-      deviceEcdhPublic,
-      workspaceId,
-      userId,
-      deviceId,
-      deviceId,
-      backupData.key_version,
-    );
-
-    await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
-      key_version: backupData.key_version,
-      device_id: deviceId,
-      sender_device_id: deviceId,
-      encrypted_kek: base64UrlEncode(deviceEnvelope.ciphertext),
-      nonce: base64UrlEncode(deviceEnvelope.nonce),
-    });
-
-    return;
-  }
-
-  if (currentKekVersion > 0) return;
-
-  const freshKek = generateKek();
-  const freshEnvelope = encryptKekForDevice(
-    freshKek,
-    deviceEcdhPrivate,
-    deviceEcdhPublic,
-    workspaceId,
-    userId,
-    deviceId,
-    deviceId,
-    1,
-  );
-
-  const freshBackup = wrapKekWithUmk(freshKek, umk, workspaceId, userId, 1);
-
-  try {
-    await encryptionApi.createWorkspaceKeyWithPop(workspaceId, {
-      key_version: 1,
-      device_id: deviceId,
-      sender_device_id: deviceId,
-      encrypted_kek: base64UrlEncode(freshEnvelope.ciphertext),
-      nonce: base64UrlEncode(freshEnvelope.nonce),
-      is_active: true,
-    });
-
-    await encryptionApi.createKekBackupWithPop(workspaceId, {
-      key_version: 1,
-      encrypted_kek: base64UrlEncode(freshBackup.encryptedKek),
-      nonce: base64UrlEncode(freshBackup.nonce),
-    });
-  } catch {
-    // 409 Conflict: KEK already exists
-  }
 }

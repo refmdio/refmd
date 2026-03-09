@@ -5,7 +5,7 @@ import HomePage from "@/routes/home";
 import LoginPage from "@/routes/auth/login";
 import RegisterPage from "@/routes/auth/register";
 import DevicesPage from "@/routes/devices";
-import DeviceRegisterPage from "@/routes/auth/device-register";
+import DeviceRegisterPage from "@/routes/devices/register";
 import RecoveryPage from "@/routes/auth/recovery";
 import PasswordResetPage from "@/routes/auth/password-reset";
 import PasswordReentryDialog from "@/features/auth/password-reentry-dialog";
@@ -64,7 +64,7 @@ export default function App() {
           <Route path="/" component={HomePage} />
           <Route path="/auth/login" component={LoginPage} />
           <Route path="/auth/register" component={RegisterPage} />
-          <Route path="/auth/device-register" component={DeviceRegisterPage} />
+          <Route path="/devices/register" component={DeviceRegisterPage} />
           <Route path="/auth/recovery" component={RecoveryPage} />
           <Route path="/auth/password-reset" component={PasswordResetPage} />
           <Route path="/devices" component={DevicesPage} />

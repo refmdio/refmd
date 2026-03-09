@@ -36,7 +36,7 @@ export default function LoginPage() {
           identityKeys: null,
           expiresAt: null,
         });
-        navigate("/auth/device-register");
+        navigate("/devices/register");
         return;
       }
 
@@ -143,12 +143,6 @@ export default function LoginPage() {
               Don't have an account?{" "}
               <A href="/auth/register" class="text-primary hover:underline">
                 Register
-              </A>
-            </p>
-
-            <p class="text-center text-sm text-muted-foreground">
-              <A href="/auth/recovery" class="text-primary hover:underline">
-                Lost access to your device?
               </A>
             </p>
           </form>
