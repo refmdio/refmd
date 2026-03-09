@@ -17,7 +17,8 @@ import {
 } from "@/shared/lib/crypto";
 import type { KdfParams, IdentityKeyPair, DeviceKeyPair } from "@/shared/lib/crypto";
 import { authApi, devicesApi, encryptionApi } from "@/shared/api";
-import { persistKeys, persistDeviceId } from "./key-persistence";
+import { persistKeys, persistDeviceId, persistDeviceKeysOnly, persistSessionPdk } from "./key-persistence";
+import { setDeviceState } from "@/shared/lib/auth-state";
 
 const TARGET_KDF_PARAMS: KdfParams = {
   algorithm: "argon2id",
@@ -50,20 +51,24 @@ export async function register(
   const saltBase64 = base64UrlEncode(salt);
   const derived = await deriveAuthKeys(password, saltBase64, TARGET_KDF_PARAMS);
 
-  // Step 2: Generate UMK and wrap with PUK
+  // Step 2: Pre-generate user_id for AAD binding (server accepts client-generated UUID)
+  const userId = crypto.randomUUID();
+
+  // Step 3: Generate UMK and wrap with PUK
   const umk = generateUmk();
-  const umkWrapped = wrapUmk(umk, derived.puk, "pending");
+  const umkWrapped = wrapUmk(umk, derived.puk, userId);
 
-  // Step 3: Generate recovery key
+  // Step 4: Generate recovery key
   const recovery = await generateRecoveryKey();
-  const recoveryWrapped = wrapUmkWithRuk(umk, recovery.ruk, "pending");
+  const recoveryWrapped = wrapUmkWithRuk(umk, recovery.ruk, userId);
 
-  // Step 4: Generate identity keys and encrypt with UMK
+  // Step 5: Generate identity keys and encrypt with UMK
   const identityKeys = generateIdentityKeyPair();
-  const encryptedIdentity = encryptIdentityKeys(identityKeys, umk, "pending");
+  const encryptedIdentity = encryptIdentityKeys(identityKeys, umk, userId);
 
-  // Step 5: Register with server
+  // Step 6: Register with server
   const registerRes = await authApi.register({
+    user_id: userId,
     email,
     name,
     auth_key: derived.authKeyBase64,
@@ -81,27 +86,11 @@ export async function register(
     encrypted_signing_private_nonce: base64UrlEncode(encryptedIdentity.signingPrivateNonce),
   });
 
-  const userId = registerRes.user.id;
-
-  // Now we know the userId, re-wrap UMK with correct AAD
-  // (Registration used "pending" as userId placeholder — server stores the provided ciphertext.
-  //  For Phase 1 we accept this. In production, the server returns the user ID before
-  //  the client finalizes encryption, or we use a two-step flow.)
-
-  // Step 6: Post-registration encryption setup
-  // 6a: Register device (first device — self-approved)
+  // Step 6: Generate device keys and persist early (design: DSK early persistence)
   const deviceKeys = generateDeviceKeyPair();
+  persistSessionPdk(derived.pdk);
+  await persistDeviceKeysOnly(deviceKeys.ecdhPrivate, deviceKeys.signingPrivate, userId);
   const clientNonce = generateClientNonce();
-
-  const pendingRes = await devicesApi.createPending({
-    name: getDeviceName(),
-    device_type: getDeviceType(),
-    ecdh_public_key: base64UrlEncode(deviceKeys.ecdhPublic),
-    signing_public_key: base64UrlEncode(deviceKeys.signingPublic),
-    client_nonce: base64UrlEncode(clientNonce),
-  });
-
-  // Self-approve (first device — uses device_registration action)
   const identitySignature = signDeviceRegistration(
     deviceKeys.signingPublic,
     deviceKeys.ecdhPublic,
@@ -109,14 +98,28 @@ export async function register(
     identityKeys.signingPrivate,
   );
 
-  const approveRes = await devicesApi.approve(pendingRes.id, {
+  // Step 7: Bootstrap first device (dedicated endpoint)
+  const bootstrapRes = await devicesApi.bootstrap({
+    name: getDeviceName(),
+    device_type: getDeviceType(),
+    identity_signing_public_key: base64UrlEncode(identityKeys.signingPublic),
+    device_signing_public_key: base64UrlEncode(deviceKeys.signingPublic),
+    device_ecdh_public_key: base64UrlEncode(deviceKeys.ecdhPublic),
+    client_nonce: base64UrlEncode(clientNonce),
     identity_signature: base64UrlEncode(identitySignature),
   });
 
-  const deviceId = approveRes.device.id;
+  const deviceId = bootstrapRes.device_id;
   persistDeviceId(deviceId);
 
-  // 6b: Generate KEK and save device envelope
+  // Step 8: Establish PoP capability by setting device state in memory
+  setDeviceState({
+    deviceId,
+    deviceEcdhPrivate: deviceKeys.ecdhPrivate,
+    deviceSigningPrivate: deviceKeys.signingPrivate,
+  });
+
+  // Step 9: Generate KEK and save device envelope (PoP required)
   const kek = generateKek();
   const kekWrapped = encryptKekForDevice(
     kek,
@@ -129,7 +132,7 @@ export async function register(
     1,
   );
 
-  await encryptionApi.createWorkspaceKey(registerRes.workspace_id, {
+  await encryptionApi.createWorkspaceKeyWithPop(registerRes.workspace_id, {
     device_id: deviceId,
     key_version: 1,
     sender_device_id: deviceId,
@@ -138,25 +141,26 @@ export async function register(
     is_active: true,
   });
 
-  // 6c: Save KEK UMK backup
+  // Step 10: Save KEK UMK backup (PoP required)
   const kekBackup = wrapKekWithUmk(kek, umk, registerRes.workspace_id, userId, 1);
 
-  await encryptionApi.createKekBackup(registerRes.workspace_id, {
+  await encryptionApi.createKekBackupWithPop(registerRes.workspace_id, {
     key_version: 1,
     encrypted_kek: base64UrlEncode(kekBackup.encryptedKek),
     nonce: base64UrlEncode(kekBackup.nonce),
   });
 
-  // 6d: Mark encryption setup complete
+  // Step 11: Mark encryption setup complete
   await encryptionApi.setupComplete();
 
-  // 6e: Persist keys locally (DSK/PDK + sessionStorage for non-KMSI)
+  // Step 12: Persist keys locally
   await persistKeys({
     umk,
     deviceEcdhPrivate: deviceKeys.ecdhPrivate,
     deviceSigningPrivate: deviceKeys.signingPrivate,
     pdk: derived.pdk,
     kmsi: false,
+    userId,
   });
 
   return {

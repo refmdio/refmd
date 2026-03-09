@@ -52,7 +52,8 @@ defmodule RefMD.MixProject do
       {:bcrypt_elixir, "~> 3.0"},
       {:open_api_spex, "~> 3.21"},
       {:hammer, "~> 7.0"},
-      {:plug_attack, "~> 0.4"}
+      {:plug_attack, "~> 0.4"},
+      {:oban, "~> 2.19"}
     ]
   end
 

@@ -6,6 +6,7 @@ export { restoreSession } from "./lib/session";
 export type { SessionRestoreResult } from "./lib/session";
 export {
   persistKeys,
+  persistDeviceKeysOnly,
   persistUmkForLogin,
   persistDeviceId,
   getPersistedDeviceId,
@@ -16,6 +17,9 @@ export {
   restoreUmkFromSession,
   hasPdkData,
   clearSessionUmk,
+  persistSessionPdk,
+  restoreSessionPdk,
+  clearSessionData,
   clearAllPersistedKeys,
 } from "./lib/key-persistence";
 export type { PersistKeysParams, RestoredKeys } from "./lib/key-persistence";

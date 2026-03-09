@@ -13,6 +13,7 @@ defmodule RefMD.Encryption do
     DeviceEncryptedUMK,
     WorkspaceEncryptedKey,
     WorkspaceKekBackup,
+    WorkspaceMemberEnvelope,
     DocumentEncryptedKey
   }
 
@@ -57,6 +58,41 @@ defmodule RefMD.Encryption do
     end
   end
 
+  def update_master_key_for_password_set(user_id, attrs) do
+    case Repo.get(UserEncryptedMasterKey, user_id) do
+      nil ->
+        {:error, :not_found}
+
+      master_key ->
+        master_key
+        |> Ecto.Changeset.change(%{
+          auth_type: "password",
+          kdf_type: "argon2id",
+          auth_key_hash: attrs.auth_key_hash,
+          salt: attrs.salt,
+          encrypted_umk: attrs.encrypted_umk,
+          umk_nonce: attrs.umk_nonce,
+          kdf_params: attrs.kdf_params
+        })
+        |> Repo.update()
+    end
+  end
+
+  def update_recovery_key(user_id, attrs) do
+    case Repo.get(UserEncryptedMasterKey, user_id) do
+      nil ->
+        {:error, :not_found}
+
+      master_key ->
+        master_key
+        |> Ecto.Changeset.change(%{
+          recovery_encrypted_umk: attrs.recovery_encrypted_umk,
+          recovery_nonce: attrs.recovery_nonce
+        })
+        |> Repo.update()
+    end
+  end
+
   def get_user_encrypted_identity_key(user_id) do
     Repo.get(UserEncryptedIdentityKey, user_id)
   end
@@ -96,6 +132,17 @@ defmodule RefMD.Encryption do
     end
   end
 
+  def delete_workspace_encrypted_key(workspace_id, user_id, device_id, key_version) do
+    from(k in WorkspaceEncryptedKey,
+      where:
+        k.workspace_id == ^workspace_id and
+          k.user_id == ^user_id and
+          k.device_id == ^device_id and
+          k.key_version == ^key_version
+    )
+    |> Repo.delete_all()
+  end
+
   def get_workspace_encrypted_keys(workspace_id, user_id, device_id) do
     from(k in WorkspaceEncryptedKey,
       where:
@@ -107,12 +154,38 @@ defmodule RefMD.Encryption do
     |> Repo.all()
   end
 
+  def user_has_active_kek?(workspace_id, user_id) do
+    from(k in WorkspaceEncryptedKey,
+      where:
+        k.workspace_id == ^workspace_id and
+          k.user_id == ^user_id and
+          k.is_active == true,
+      select: count()
+    )
+    |> Repo.one()
+    |> Kernel.>(0)
+  end
+
   # ── KEK Backups ───────────────────────────────
 
   def create_workspace_kek_backup(attrs) do
-    %WorkspaceKekBackup{created_at: DateTime.utc_now()}
-    |> WorkspaceKekBackup.changeset(attrs)
-    |> Repo.insert()
+    Repo.transaction(fn ->
+      # Deactivate existing active backup for this (workspace, user) to satisfy partial unique index
+      from(b in WorkspaceKekBackup,
+        where:
+          b.workspace_id == ^attrs.workspace_id and
+            b.user_id == ^attrs.user_id and
+            b.is_active == true
+      )
+      |> Repo.update_all(set: [is_active: false])
+
+      case %WorkspaceKekBackup{created_at: DateTime.utc_now()}
+           |> WorkspaceKekBackup.changeset(attrs)
+           |> Repo.insert() do
+        {:ok, backup} -> backup
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
   end
 
   def get_active_kek_backup(workspace_id, user_id) do
@@ -131,6 +204,106 @@ defmodule RefMD.Encryption do
       select: max(k.key_version)
     )
     |> Repo.one()
+  end
+
+  # ── Member Envelopes ─────────────────────────
+
+  def save_member_envelopes(workspace_id, envelopes) do
+    now = DateTime.utc_now()
+
+    parsed =
+      Enum.reduce_while(envelopes, {:ok, []}, fn env, {:ok, acc} ->
+        with {:ok, encrypted_kek} <- safe_decode64(env["encrypted_kek"]),
+             {:ok, nonce} <- safe_decode64(env["nonce"]) do
+          changeset =
+            %WorkspaceMemberEnvelope{created_at: now}
+            |> WorkspaceMemberEnvelope.changeset(%{
+              workspace_id: workspace_id,
+              target_user_id: env["target_user_id"],
+              key_version: env["key_version"],
+              sender_device_id: env["sender_device_id"],
+              encrypted_kek: encrypted_kek,
+              nonce: nonce
+            })
+
+          {:cont, {:ok, [changeset | acc]}}
+        else
+          :error -> {:halt, {:error, :invalid_base64}}
+        end
+      end)
+
+    case parsed do
+      {:error, reason} ->
+        {:error, reason}
+
+      {:ok, changesets} ->
+        Repo.transaction(fn ->
+          Enum.each(changesets, fn changeset ->
+            case Repo.insert(changeset,
+                   on_conflict: {:replace, [:encrypted_kek, :nonce, :sender_device_id, :created_at]},
+                   conflict_target: [:workspace_id, :target_user_id, :key_version]
+                 ) do
+              {:ok, _} -> :ok
+              {:error, changeset} -> Repo.rollback({:invalid_envelope, changeset})
+            end
+          end)
+        end)
+    end
+  end
+
+  defp safe_decode64(base64) when is_binary(base64) do
+    Base.url_decode64(base64, padding: false)
+  end
+
+  defp safe_decode64(_), do: :error
+
+  def get_member_envelope(workspace_id, user_id) do
+    from(e in WorkspaceMemberEnvelope,
+      where: e.workspace_id == ^workspace_id and e.target_user_id == ^user_id,
+      order_by: [desc: :key_version],
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
+  def all_user_devices_have_key?(workspace_id, user_id, key_version) do
+    active_device_count =
+      from(d in RefMD.Accounts.Device,
+        where: d.user_id == ^user_id and is_nil(d.revoked_at),
+        select: count()
+      )
+      |> Repo.one()
+
+    device_key_count =
+      from(k in WorkspaceEncryptedKey,
+        where:
+          k.workspace_id == ^workspace_id and
+            k.user_id == ^user_id and
+            k.key_version == ^key_version and
+            k.is_active == true,
+        select: count()
+      )
+      |> Repo.one()
+
+    device_key_count >= active_device_count
+  end
+
+  def all_members_have_envelope?(workspace_id, key_version) do
+    member_count =
+      from(wm in RefMD.Workspaces.WorkspaceMember,
+        where: wm.workspace_id == ^workspace_id,
+        select: count()
+      )
+      |> Repo.one()
+
+    envelope_count =
+      from(e in WorkspaceMemberEnvelope,
+        where: e.workspace_id == ^workspace_id and e.key_version == ^key_version,
+        select: count()
+      )
+      |> Repo.one()
+
+    envelope_count >= member_count
   end
 
   # ── Document Keys ──────────────────────────────

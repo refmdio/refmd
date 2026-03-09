@@ -79,39 +79,41 @@ export async function loadDsk(): Promise<CryptoKey | null> {
   }
 }
 
-async function wrapWithDsk(dsk: CryptoKey, plaintext: Uint8Array): Promise<WrappedBlob> {
+async function wrapWithDsk(dsk: CryptoKey, plaintext: Uint8Array, aad: Uint8Array): Promise<WrappedBlob> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
+  const aadBuffer = new Uint8Array(aad).buffer;
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv, additionalData: aadBuffer },
     dsk,
     new Uint8Array(plaintext),
   );
   return { ciphertext, iv: iv.buffer };
 }
 
-async function unwrapWithDsk(dsk: CryptoKey, blob: WrappedBlob): Promise<Uint8Array> {
+async function unwrapWithDsk(dsk: CryptoKey, blob: WrappedBlob, aad: Uint8Array): Promise<Uint8Array> {
+  const aadBuffer = new Uint8Array(aad).buffer;
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: blob.iv },
+    { name: "AES-GCM", iv: blob.iv, additionalData: aadBuffer },
     dsk,
     blob.ciphertext,
   );
   return new Uint8Array(plaintext);
 }
 
-export async function storeWrappedUmk(dsk: CryptoKey, umk: Uint8Array): Promise<void> {
-  const wrapped = await wrapWithDsk(dsk, umk);
+export async function storeWrappedUmk(dsk: CryptoKey, umk: Uint8Array, aad: Uint8Array): Promise<void> {
+  const wrapped = await wrapWithDsk(dsk, umk, aad);
   const db = await openDB();
   await idbPut(db, WRAPPED_UMK_KEY, wrapped);
   db.close();
 }
 
-export async function loadWrappedUmk(dsk: CryptoKey): Promise<Uint8Array | null> {
+export async function loadWrappedUmk(dsk: CryptoKey, aad: Uint8Array): Promise<Uint8Array | null> {
   try {
     const db = await openDB();
     const blob = await idbGet<WrappedBlob>(db, WRAPPED_UMK_KEY);
     db.close();
     if (!blob) return null;
-    return await unwrapWithDsk(dsk, blob);
+    return await unwrapWithDsk(dsk, blob, aad);
   } catch {
     return null;
   }
@@ -121,9 +123,11 @@ export async function storeWrappedDeviceKeys(
   dsk: CryptoKey,
   ecdhPrivate: Uint8Array,
   signingPrivate: Uint8Array,
+  ecdhAad: Uint8Array,
+  signingAad: Uint8Array,
 ): Promise<void> {
-  const wrappedEcdh = await wrapWithDsk(dsk, ecdhPrivate);
-  const wrappedSigning = await wrapWithDsk(dsk, signingPrivate);
+  const wrappedEcdh = await wrapWithDsk(dsk, ecdhPrivate, ecdhAad);
+  const wrappedSigning = await wrapWithDsk(dsk, signingPrivate, signingAad);
   const db = await openDB();
   await idbPut(db, WRAPPED_DEVICE_ECDH_KEY, wrappedEcdh);
   await idbPut(db, WRAPPED_DEVICE_SIGNING_KEY, wrappedSigning);
@@ -132,6 +136,8 @@ export async function storeWrappedDeviceKeys(
 
 export async function loadWrappedDeviceKeys(
   dsk: CryptoKey,
+  ecdhAad: Uint8Array,
+  signingAad: Uint8Array,
 ): Promise<{ ecdhPrivate: Uint8Array; signingPrivate: Uint8Array } | null> {
   try {
     const db = await openDB();
@@ -139,11 +145,21 @@ export async function loadWrappedDeviceKeys(
     const signingBlob = await idbGet<WrappedBlob>(db, WRAPPED_DEVICE_SIGNING_KEY);
     db.close();
     if (!ecdhBlob || !signingBlob) return null;
-    const ecdhPrivate = await unwrapWithDsk(dsk, ecdhBlob);
-    const signingPrivate = await unwrapWithDsk(dsk, signingBlob);
+    const ecdhPrivate = await unwrapWithDsk(dsk, ecdhBlob, ecdhAad);
+    const signingPrivate = await unwrapWithDsk(dsk, signingBlob, signingAad);
     return { ecdhPrivate, signingPrivate };
   } catch {
     return null;
+  }
+}
+
+export async function clearWrappedUmk(): Promise<void> {
+  try {
+    const db = await openDB();
+    await idbDelete(db, WRAPPED_UMK_KEY);
+    db.close();
+  } catch {
+    // Best effort
   }
 }
 

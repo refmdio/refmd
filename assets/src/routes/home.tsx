@@ -3,7 +3,7 @@ import { useNavigate } from "@solidjs/router";
 import { Button } from "@/shared/ui/button";
 import { authState, clearSession } from "@/shared/lib/auth-state";
 import { authApi } from "@/shared/api";
-import { clearAllPersistedKeys } from "@/features/auth";
+import { clearSessionData } from "@/features/auth";
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -12,7 +12,7 @@ export default function HomePage() {
     try {
       await authApi.logout();
     } finally {
-      await clearAllPersistedKeys();
+      clearSessionData();
       clearSession();
       navigate("/auth/login");
     }

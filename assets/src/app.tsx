@@ -4,12 +4,19 @@ import "./app.css";
 import HomePage from "@/routes/home";
 import LoginPage from "@/routes/auth/login";
 import RegisterPage from "@/routes/auth/register";
+import DevicesPage from "@/routes/devices";
+import DeviceRegisterPage from "@/routes/auth/device-register";
+import RecoveryPage from "@/routes/auth/recovery";
+import PasswordResetPage from "@/routes/auth/password-reset";
+import PasswordReentryDialog from "@/features/auth/password-reentry-dialog";
+import { PendingDeviceMonitor } from "@/features/devices/pending-device-monitor";
 import { restoreSession } from "@/features/auth";
 import { setFullSession, setAuthState } from "@/shared/lib/auth-state";
 import { Spinner } from "@/shared/ui/spinner";
 
 export default function App() {
   const [ready, setReady] = createSignal(false);
+  const [showPasswordReentry, setShowPasswordReentry] = createSignal(false);
 
   onMount(async () => {
     try {
@@ -24,7 +31,7 @@ export default function App() {
           needsPasswordReentry: result.needsPasswordReentry,
         };
 
-        if (result.deviceId) {
+        if (result.deviceId && result.deviceSigningPrivate) {
           setFullSession(auth, {
             deviceId: result.deviceId,
             deviceEcdhPrivate: result.deviceEcdhPrivate,
@@ -32,6 +39,10 @@ export default function App() {
           });
         } else {
           setAuthState(auth);
+        }
+
+        if (result.needsPasswordReentry) {
+          setShowPasswordReentry(true);
         }
       }
     } finally {
@@ -48,11 +59,21 @@ export default function App() {
         </main>
       }
     >
-      <Router>
-        <Route path="/" component={HomePage} />
-        <Route path="/auth/login" component={LoginPage} />
-        <Route path="/auth/register" component={RegisterPage} />
-      </Router>
+      <PendingDeviceMonitor>
+        <Router>
+          <Route path="/" component={HomePage} />
+          <Route path="/auth/login" component={LoginPage} />
+          <Route path="/auth/register" component={RegisterPage} />
+          <Route path="/auth/device-register" component={DeviceRegisterPage} />
+          <Route path="/auth/recovery" component={RecoveryPage} />
+          <Route path="/auth/password-reset" component={PasswordResetPage} />
+          <Route path="/devices" component={DevicesPage} />
+        </Router>
+        <PasswordReentryDialog
+          open={showPasswordReentry()}
+          onComplete={() => setShowPasswordReentry(false)}
+        />
+      </PendingDeviceMonitor>
     </Show>
   );
 }

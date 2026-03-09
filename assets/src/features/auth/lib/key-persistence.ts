@@ -5,6 +5,7 @@ import {
   loadWrappedUmk,
   storeWrappedDeviceKeys,
   loadWrappedDeviceKeys,
+  clearWrappedUmk,
   clearWrappedKeys,
 } from "@/shared/lib/crypto/dsk";
 import {
@@ -15,9 +16,17 @@ import {
   clearPdkWrappedKeys,
 } from "@/shared/lib/crypto/pdk";
 import { base64UrlEncode, base64UrlDecode } from "@/shared/lib/crypto";
+import {
+  buildDskUmkCacheAad,
+  buildDskDeviceEcdhAad,
+  buildDskDeviceSigningAad,
+} from "@/shared/lib/crypto/aad";
 
 const SESSION_UMK_KEY = "refmd-session-umk";
 const DEVICE_ID_KEY = "refmd-device-id";
+
+// PDK is kept in-memory only per design (key-hierarchy.md: disposable, in-memory).
+let inMemoryPdk: Uint8Array | null = null;
 
 // ── Device ID persistence ─────────────────────
 
@@ -35,12 +44,13 @@ export interface PersistKeysParams {
   umk: Uint8Array;
   deviceEcdhPrivate: Uint8Array;
   deviceSigningPrivate: Uint8Array;
-  pdk: Uint8Array;
+  pdk?: Uint8Array;
   kmsi: boolean;
+  userId: string;
 }
 
 export async function persistKeys(params: PersistKeysParams): Promise<void> {
-  const { umk, deviceEcdhPrivate, deviceSigningPrivate, pdk, kmsi } = params;
+  const { umk, deviceEcdhPrivate, deviceSigningPrivate, pdk, kmsi, userId } = params;
 
   // Try DSK (IndexedDB non-exportable key)
   let dsk = await loadDsk();
@@ -55,20 +65,22 @@ export async function persistKeys(params: PersistKeysParams): Promise<void> {
   if (dsk) {
     // DSK available: wrap UMK and device keys in IndexedDB
     if (kmsi) {
-      await storeWrappedUmk(dsk, umk);
+      await storeWrappedUmk(dsk, umk, buildDskUmkCacheAad(userId));
     }
-    await storeWrappedDeviceKeys(dsk, deviceEcdhPrivate, deviceSigningPrivate);
-  } else {
+    await storeWrappedDeviceKeys(dsk, deviceEcdhPrivate, deviceSigningPrivate, buildDskDeviceEcdhAad(userId), buildDskDeviceSigningAad(userId));
+  } else if (pdk) {
     // DSK unavailable: PDK fallback (localStorage + XChaCha20-Poly1305)
-    if (kmsi) {
-      storePdkWrappedUmk(pdk, umk);
-    }
-    storePdkWrappedDeviceKeys(pdk, deviceEcdhPrivate, deviceSigningPrivate);
+    // PDK-wrapped UMK is always stored regardless of KMSI (frontend.md: PDK fallback section)
+    storePdkWrappedUmk(pdk, umk, userId);
+    storePdkWrappedDeviceKeys(pdk, deviceEcdhPrivate, deviceSigningPrivate, userId);
   }
 
   // Non-KMSI: store plain UMK in sessionStorage (tab-scoped, lost on browser close)
+  // Clear DSK-wrapped UMK so session restore doesn't bypass KMSI=false
+  // PDK-wrapped UMK is NOT cleared: it requires password re-entry and is independent of KMSI
   if (!kmsi) {
     sessionStorage.setItem(SESSION_UMK_KEY, base64UrlEncode(umk));
+    await clearWrappedUmk();
   }
 }
 
@@ -76,25 +88,31 @@ export async function persistKeys(params: PersistKeysParams): Promise<void> {
 
 export async function persistUmkForLogin(params: {
   umk: Uint8Array;
-  pdk: Uint8Array;
+  pdk: Uint8Array | undefined;
   kmsi: boolean;
+  userId: string;
 }): Promise<void> {
-  const { umk, pdk, kmsi } = params;
+  const { umk, pdk, kmsi, userId } = params;
 
   const dsk = await loadDsk();
 
   if (dsk) {
     if (kmsi) {
-      await storeWrappedUmk(dsk, umk);
+      await storeWrappedUmk(dsk, umk, buildDskUmkCacheAad(userId));
     }
   } else {
-    if (kmsi) {
-      storePdkWrappedUmk(pdk, umk);
+    // PDK-wrapped UMK is always stored regardless of KMSI (frontend.md: PDK fallback section)
+    if (!pdk) {
+      throw new Error("Cannot persist UMK: DSK unavailable and PDK not provided");
     }
+    storePdkWrappedUmk(pdk, umk, userId);
   }
 
+  // Non-KMSI: store plain UMK in sessionStorage (tab-scoped, lost on browser close)
+  // Clear DSK-wrapped UMK only; PDK-wrapped UMK is independent of KMSI
   if (!kmsi) {
     sessionStorage.setItem(SESSION_UMK_KEY, base64UrlEncode(umk));
+    await clearWrappedUmk();
   }
 }
 
@@ -106,12 +124,12 @@ export interface RestoredKeys {
   deviceSigningPrivate: Uint8Array;
 }
 
-export async function restoreKeysFromDsk(): Promise<RestoredKeys | null> {
+export async function restoreKeysFromDsk(userId: string): Promise<RestoredKeys | null> {
   const dsk = await loadDsk();
   if (!dsk) return null;
 
-  const umk = await loadWrappedUmk(dsk);
-  const deviceKeys = await loadWrappedDeviceKeys(dsk);
+  const umk = await loadWrappedUmk(dsk, buildDskUmkCacheAad(userId));
+  const deviceKeys = await loadWrappedDeviceKeys(dsk, buildDskDeviceEcdhAad(userId), buildDskDeviceSigningAad(userId));
 
   if (!umk || !deviceKeys) return null;
 
@@ -122,20 +140,21 @@ export async function restoreKeysFromDsk(): Promise<RestoredKeys | null> {
   };
 }
 
-export async function restoreDeviceKeysFromDsk(): Promise<{
+export async function restoreDeviceKeysFromDsk(userId: string): Promise<{
   ecdhPrivate: Uint8Array;
   signingPrivate: Uint8Array;
 } | null> {
   const dsk = await loadDsk();
   if (!dsk) return null;
-  return loadWrappedDeviceKeys(dsk);
+  return loadWrappedDeviceKeys(dsk, buildDskDeviceEcdhAad(userId), buildDskDeviceSigningAad(userId));
 }
 
 export function restoreKeysFromPdk(
   pdk: Uint8Array,
+  userId: string,
 ): RestoredKeys | null {
-  const umk = loadPdkWrappedUmk(pdk);
-  const deviceKeys = loadPdkWrappedDeviceKeys(pdk);
+  const umk = loadPdkWrappedUmk(pdk, userId);
+  const deviceKeys = loadPdkWrappedDeviceKeys(pdk, userId);
 
   if (!umk || !deviceKeys) return null;
 
@@ -146,11 +165,14 @@ export function restoreKeysFromPdk(
   };
 }
 
-export function restoreDeviceKeysFromPdk(pdk: Uint8Array): {
+export function restoreDeviceKeysFromPdk(
+  pdk: Uint8Array,
+  userId: string,
+): {
   ecdhPrivate: Uint8Array;
   signingPrivate: Uint8Array;
 } | null {
-  return loadPdkWrappedDeviceKeys(pdk);
+  return loadPdkWrappedDeviceKeys(pdk, userId);
 }
 
 export function restoreUmkFromSession(): Uint8Array | null {
@@ -167,13 +189,54 @@ export function hasPdkData(): boolean {
   return localStorage.getItem("refmd-pdk-umk") !== null;
 }
 
+export function persistSessionPdk(pdk: Uint8Array): void {
+  inMemoryPdk = pdk;
+}
+
+export function restoreSessionPdk(): Uint8Array | null {
+  return inMemoryPdk;
+}
+
+export async function persistDeviceKeysOnly(
+  deviceEcdhPrivate: Uint8Array,
+  deviceSigningPrivate: Uint8Array,
+  userId: string,
+  pdk?: Uint8Array,
+): Promise<void> {
+  let dsk = await loadDsk();
+  if (!dsk) {
+    try {
+      dsk = await generateDsk();
+    } catch {
+      dsk = null;
+    }
+  }
+
+  if (dsk) {
+    await storeWrappedDeviceKeys(dsk, deviceEcdhPrivate, deviceSigningPrivate, buildDskDeviceEcdhAad(userId), buildDskDeviceSigningAad(userId));
+  } else {
+    const pdkToUse = pdk ?? restoreSessionPdk();
+    if (pdkToUse) {
+      storePdkWrappedDeviceKeys(pdkToUse, deviceEcdhPrivate, deviceSigningPrivate, userId);
+    } else {
+      throw new Error("Cannot persist device keys: neither DSK nor PDK available");
+    }
+  }
+}
+
 export function clearSessionUmk(): void {
   sessionStorage.removeItem(SESSION_UMK_KEY);
+}
+
+export function clearSessionData(): void {
+  sessionStorage.clear();
+  inMemoryPdk = null;
 }
 
 export async function clearAllPersistedKeys(): Promise<void> {
   await clearWrappedKeys();
   clearPdkWrappedKeys();
   clearSessionUmk();
+  inMemoryPdk = null;
   localStorage.removeItem(DEVICE_ID_KEY);
 }

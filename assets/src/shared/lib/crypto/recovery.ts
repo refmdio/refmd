@@ -37,3 +37,18 @@ export function wrapUmkWithRuk(
   const cipher = xchacha20poly1305(ruk, nonce, aad);
   return { encryptedUmk: cipher.encrypt(umk), nonce };
 }
+
+export function isValidMnemonic(mnemonic: string): boolean {
+  return validateMnemonic(mnemonic, wordlist);
+}
+
+export function unwrapUmkWithRuk(
+  encryptedUmk: Uint8Array,
+  nonce: Uint8Array,
+  ruk: Uint8Array,
+  userId: string,
+): Uint8Array {
+  const aad = buildRecoveryUmkWrapAad(userId);
+  const cipher = xchacha20poly1305(ruk, nonce, aad);
+  return cipher.decrypt(encryptedUmk);
+}

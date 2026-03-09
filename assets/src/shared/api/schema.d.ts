@@ -4,7 +4,59 @@
  */
 
 export interface paths {
-    "/api/auth/kdf-migration": {
+    "/api/auth/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get recovery data (encrypted UMK, identity keys) */
+        get: operations["RefMDWeb.AuthController.get_recovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/trust-transfer/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Retrieve and consume trust state for a device (new device, no PoP) */
+        get: operations["RefMDWeb.TrustTransferController.get_state"];
+        put?: never;
+        /** Send encrypted trust state (existing device, PoP required) */
+        post: operations["RefMDWeb.TrustTransferController.send_state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/recovery-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Regenerate recovery key (PoP required) */
+        put: operations["RefMDWeb.AuthController.regenerate_recovery_key"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/member-envelopes": {
         parameters: {
             query?: never;
             header?: never;
@@ -13,8 +65,59 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Migrate KDF parameters */
-        post: operations["RefMDWeb.AuthController.kdf_migration"];
+        /** Save member envelopes for KEK rotation */
+        post: operations["RefMDWeb.EncryptionController.save_member_envelopes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a password reset email */
+        post: operations["RefMDWeb.AuthController.password_reset_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout current session */
+        post: operations["RefMDWeb.AuthController.logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/password-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set password after recovery (recovery session required) */
+        post: operations["RefMDWeb.AuthController.password_set"];
         delete?: never;
         options?: never;
         head?: never;
@@ -38,24 +141,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get current session info */
-        get: operations["RefMDWeb.AuthController.me"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/register": {
+    "/api/auth/pop-challenge": {
         parameters: {
             query?: never;
             header?: never;
@@ -64,59 +150,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register a new user */
-        post: operations["RefMDWeb.AuthController.register"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/salt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get salt for email */
-        get: operations["RefMDWeb.AuthController.salt"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/session": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Logout current session */
-        delete: operations["RefMDWeb.AuthController.logout"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/pending": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create a pending device */
-        post: operations["RefMDWeb.DeviceController.create_pending"];
+        /** Request a PoP challenge nonce */
+        post: operations["RefMDWeb.AuthController.pop_challenge"];
         delete?: never;
         options?: never;
         head?: never;
@@ -140,7 +175,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/encryption/setup-complete": {
+    "/api/devices/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List pending devices for current user */
+        get: operations["RefMDWeb.DeviceController.list_pending"];
+        put?: never;
+        /** Create a pending device (2nd+ devices only) */
+        post: operations["RefMDWeb.DeviceController.create_pending"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/register": {
         parameters: {
             query?: never;
             header?: never;
@@ -149,8 +202,94 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mark encryption setup as complete */
-        post: operations["RefMDWeb.EncryptionController.setup_complete"];
+        /** Register a new user */
+        post: operations["RefMDWeb.AuthController.register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/pending/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Reject (delete) a pending device */
+        delete: operations["RefMDWeb.DeviceController.reject_pending"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get workspace encryption keys */
+        get: operations["RefMDWeb.EncryptionController.get_workspace_keys"];
+        put?: never;
+        /** Create a workspace encryption key */
+        post: operations["RefMDWeb.EncryptionController.create_workspace_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/verify-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify auth key without creating a session */
+        post: operations["RefMDWeb.AuthController.verify_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/pending/{id}/sas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get pending device status (polling fallback for SSE) */
+        get: operations["RefMDWeb.DeviceController.get_pending_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get current session info */
+        get: operations["RefMDWeb.AuthController.me"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -175,18 +314,274 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/encryption/workspaces/{workspace_id}/keys": {
+    "/api/encryption/setup-complete": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get workspace encryption keys */
-        get: operations["RefMDWeb.EncryptionController.get_workspace_keys"];
+        get?: never;
         put?: never;
-        /** Create a workspace encryption key */
-        post: operations["RefMDWeb.EncryptionController.create_workspace_key"];
+        /** Mark encryption setup as complete */
+        post: operations["RefMDWeb.EncryptionController.setup_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/recovery/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Establish a recovery session via Identity signature */
+        post: operations["RefMDWeb.AuthController.recovery_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start KEK rotation for a workspace (manual trigger) */
+        post: operations["RefMDWeb.EncryptionController.start_kek_rotation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/trust-transfer/nonce": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a trust transfer nonce */
+        post: operations["RefMDWeb.TrustTransferController.create_nonce"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List active devices for current user */
+        get: operations["RefMDWeb.DeviceController.list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete KEK rotation for a workspace */
+        post: operations["RefMDWeb.EncryptionController.complete_kek_rotation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/salt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get salt for email */
+        get: operations["RefMDWeb.AuthController.salt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bootstrap first device (first device only) */
+        post: operations["RefMDWeb.DeviceController.bootstrap"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a device */
+        delete: operations["RefMDWeb.DeviceController.revoke"];
+        options?: never;
+        head?: never;
+        /** Rename a device */
+        patch: operations["RefMDWeb.DeviceController.rename"];
+        trace?: never;
+    };
+    "/api/auth/password-reset/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify password reset token and create session */
+        post: operations["RefMDWeb.AuthController.password_reset_verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/kdf-migration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Migrate KDF parameters */
+        post: operations["RefMDWeb.AuthController.kdf_migration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/recovery/challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a recovery challenge */
+        post: operations["RefMDWeb.AuthController.recovery_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{device_id}/keys/umk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get distributed UMK for a device */
+        get: operations["RefMDWeb.EncryptionController.get_umk"];
+        put?: never;
+        /** Distribute UMK to a device (existing device sends) */
+        post: operations["RefMDWeb.EncryptionController.distribute_umk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change password (PoP required) */
+        patch: operations["RefMDWeb.AuthController.change_password"];
+        trace?: never;
+    };
+    "/api/workspaces/ids": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get workspace IDs for the current user */
+        get: operations["RefMDWeb.EncryptionController.workspace_ids"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/encryption/workspaces/{workspace_id}/member-envelope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get own member envelope for KEK recovery */
+        get: operations["RefMDWeb.EncryptionController.get_member_envelope"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -197,43 +592,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** ApproveDeviceRequest */
-        ApproveDeviceRequest: {
-            identity_signature: string;
-        };
-        /** ApproveDeviceResponse */
-        ApproveDeviceResponse: {
-            device: components["schemas"]["DeviceInfo"];
-        };
-        /** CreateKekBackupRequest */
-        CreateKekBackupRequest: {
-            encrypted_kek: string;
-            key_version: number;
-            nonce: string;
-        };
-        /** CreatePendingDeviceRequest */
-        CreatePendingDeviceRequest: {
+        /** PendingDeviceInfo */
+        PendingDeviceInfo: {
             client_nonce: string;
+            /** Format: date-time */
+            created_at?: string;
             device_type: string;
             ecdh_public_key: string;
-            name: string;
-            signing_public_key: string;
-        };
-        /** CreatePendingDeviceResponse */
-        CreatePendingDeviceResponse: {
+            /** Format: date-time */
+            expires_at?: string;
             /** Format: uuid */
             id: string;
-        };
-        /** CreateWorkspaceKeyRequest */
-        CreateWorkspaceKeyRequest: {
-            /** Format: uuid */
-            device_id: string;
-            encrypted_kek: string;
-            is_active?: boolean;
-            key_version: number;
-            nonce: string;
-            /** Format: uuid */
-            sender_device_id: string;
+            ip_address?: string | null;
+            name: string;
+            signing_public_key: string;
         };
         /** DeviceInfo */
         DeviceInfo: {
@@ -241,80 +613,6 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
-        };
-        /** ErrorResponse */
-        ErrorResponse: {
-            details?: {
-                [key: string]: unknown;
-            };
-            error: string;
-            step?: string;
-        };
-        /** KdfMigrationRequest */
-        KdfMigrationRequest: {
-            new_auth_key: string;
-            new_encrypted_umk: string;
-            new_kdf_params: components["schemas"]["KdfParams"];
-            new_nonce: string;
-        };
-        /** KdfParams */
-        KdfParams: {
-            algorithm: string;
-            hash_length: number;
-            iterations: number;
-            memory: number;
-            parallelism: number;
-        };
-        /** KekBackupResponse */
-        KekBackupResponse: {
-            encrypted_kek: string;
-            key_version: number;
-            nonce: string;
-        };
-        /** LoginKeys */
-        LoginKeys: {
-            encrypted_ecdh_private: string;
-            encrypted_ecdh_private_nonce: string;
-            encrypted_signing_private: string;
-            encrypted_signing_private_nonce: string;
-            encrypted_umk?: string;
-            umk_nonce?: string;
-        } | null;
-        /** LoginRequest */
-        LoginRequest: {
-            auth_key: string;
-            /** Format: uuid */
-            device_id?: string;
-            /** Format: email */
-            email: string;
-            remember_me?: boolean;
-        };
-        /** LoginResponse */
-        LoginResponse: {
-            device_verified: boolean;
-            kdf_migration_required?: boolean;
-            keys?: components["schemas"]["LoginKeys"];
-            /** Format: uuid */
-            session_id: string;
-            target_kdf_params?: components["schemas"]["KdfParams"];
-            user: components["schemas"]["UserInfo"];
-        };
-        /** MeResponse */
-        MeResponse: {
-            auth_type?: string | null;
-            /** Format: uuid */
-            device_id?: string | null;
-            device_verified: boolean;
-            /** Format: date-time */
-            expires_at: string;
-            keys?: components["schemas"]["LoginKeys"];
-            /** Format: uuid */
-            session_id: string;
-            user: components["schemas"]["UserInfoWithSetup"];
-        };
-        /** OkResponse */
-        OkResponse: {
-            ok: boolean;
         };
         /** RegisterRequest */
         RegisterRequest: {
@@ -334,27 +632,99 @@ export interface components {
             salt: string;
             signing_public_key: string;
             umk_nonce: string;
+            /**
+             * Format: uuid
+             * @description Client-generated UUID for AAD binding
+             */
+            user_id: string;
         };
-        /** RegisterResponse */
-        RegisterResponse: {
+        /** CreateWorkspaceKeyRequest */
+        CreateWorkspaceKeyRequest: {
             /** Format: uuid */
-            session_id: string;
-            user: components["schemas"]["UserInfo"];
+            device_id: string;
+            encrypted_kek: string;
+            is_active?: boolean;
+            key_version: number;
+            nonce: string;
+            /** Format: uuid */
+            sender_device_id: string;
+        };
+        /** WorkspaceKeyItem */
+        WorkspaceKeyItem: {
+            encrypted_kek: string;
+            key_version: number;
+            nonce: string;
+            /** Format: uuid */
+            sender_device_id: string;
+        };
+        /** TrustTransferNonceRequest */
+        TrustTransferNonceRequest: {
+            /** Format: uuid */
+            device_id: string;
+        };
+        /** RecoveryDataResponse */
+        RecoveryDataResponse: {
+            ecdh_public_key?: string;
+            encrypted_ecdh_private?: string;
+            encrypted_ecdh_private_nonce?: string;
+            encrypted_signing_private?: string;
+            encrypted_signing_private_nonce?: string;
+            recovery_encrypted_umk: string;
+            recovery_nonce: string;
+            signing_public_key?: string;
+        };
+        /** WorkspaceRotationInfo */
+        WorkspaceRotationInfo: {
+            current_kek_version: number;
             /** Format: uuid */
             workspace_id: string;
         };
-        /** SaltResponse */
-        SaltResponse: {
-            kdf_params: components["schemas"]["KdfParams"];
-            salt: string;
+        /** RecoverySessionResponse */
+        RecoverySessionResponse: {
+            is_recovery: boolean;
+            /** Format: uuid */
+            session_id: string;
+            user: components["schemas"]["UserInfo"];
         };
-        /** UserInfo */
-        UserInfo: {
+        /** TrustTransferGetResponse */
+        TrustTransferGetResponse: {
+            ciphertext: string;
+            nonce: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            sender_ecdh_public_key?: string;
+            sender_signing_public_key?: string;
+            signature: string;
+        };
+        /** LoginRequest */
+        LoginRequest: {
+            auth_key: string;
+            /** Format: uuid */
+            device_id?: string;
             /** Format: email */
             email: string;
+            remember_me?: boolean;
+        };
+        /** CreateKekBackupRequest */
+        CreateKekBackupRequest: {
+            encrypted_kek: string;
+            key_version: number;
+            nonce: string;
+        };
+        /** MeResponse */
+        MeResponse: {
+            auth_type?: string | null;
             /** Format: uuid */
-            id: string;
-            name: string;
+            device_id?: string | null;
+            device_verified: boolean;
+            /** Format: date-time */
+            expires_at: string;
+            identity_signing_public_key?: string | null;
+            keys?: components["schemas"]["LoginKeys"];
+            remember_me?: boolean;
+            /** Format: uuid */
+            session_id: string;
+            user: components["schemas"]["UserInfoWithSetup"];
         };
         /** UserInfoWithSetup */
         UserInfoWithSetup: {
@@ -366,17 +736,293 @@ export interface components {
             id: string;
             name: string;
         };
-        /** WorkspaceKeyItem */
-        WorkspaceKeyItem: {
+        /** TrustTransferSendRequest */
+        TrustTransferSendRequest: {
+            ciphertext: string;
+            nonce: string;
+            signature: string;
+            /** Format: uuid */
+            target_device_id: string;
+            transfer_nonce: string;
+        };
+        /** DevicesResponse */
+        DevicesResponse: {
+            devices: components["schemas"]["DeviceFullInfo"][];
+        };
+        /** ApproveDeviceResponse */
+        ApproveDeviceResponse: {
+            device: components["schemas"]["DeviceInfo"];
+        };
+        /** SaltResponse */
+        SaltResponse: {
+            kdf_params: components["schemas"]["KdfParams"];
+            salt: string;
+        };
+        /** RecoveryChallengeResponse */
+        RecoveryChallengeResponse: {
+            challenge: string;
+        };
+        /** PopChallengeResponse */
+        PopChallengeResponse: {
+            challenge: string;
+        };
+        /** RevokeDeviceRequest */
+        RevokeDeviceRequest: {
+            identity_signature: string;
+            /** @enum {string} */
+            revocation_mode?: "security" | "retire";
+            /** @description Unix timestamp in milliseconds */
+            revoked_at: number;
+        };
+        /** RenameDeviceRequest */
+        RenameDeviceRequest: {
+            name: string;
+        };
+        /** DistributeUmkRequest */
+        DistributeUmkRequest: {
+            encrypted_umk: string;
+            nonce: string;
+            /** Format: uuid */
+            sender_device_id: string;
+        };
+        /** SaveMemberEnvelopesRequest */
+        SaveMemberEnvelopesRequest: {
+            envelopes: components["schemas"]["MemberEnvelopeItem"][];
+        };
+        /** LoginKeys */
+        LoginKeys: {
+            encrypted_ecdh_private: string;
+            encrypted_ecdh_private_nonce: string;
+            encrypted_signing_private: string;
+            encrypted_signing_private_nonce: string;
+            encrypted_umk?: string;
+            umk_nonce?: string;
+        } | null;
+        /** RevokeDeviceResponse */
+        RevokeDeviceResponse: {
+            revocation_mode: string;
+            /** Format: uuid */
+            revoked_device_id: string;
+            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
+        };
+        /** WorkspaceIdsResponse */
+        WorkspaceIdsResponse: {
+            workspace_ids: string[];
+        };
+        /** PasswordSetRequest */
+        PasswordSetRequest: {
+            new_auth_key: string;
+            new_encrypted_umk: string;
+            new_salt: string;
+            new_umk_nonce: string;
+        };
+        /** PasswordResetVerifyResponse */
+        PasswordResetVerifyResponse: {
+            /** Format: uuid */
+            session_id: string;
+            user: components["schemas"]["UserInfo"];
+        };
+        /** VerifyKeyRequest */
+        VerifyKeyRequest: {
+            auth_key: string;
+        };
+        /** KekBackupResponse */
+        KekBackupResponse: {
+            encrypted_kek: string;
+            key_version: number;
+            nonce: string;
+        };
+        /** UserInfo */
+        UserInfo: {
+            /** Format: email */
+            email: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        /** MemberEnvelopeItem */
+        MemberEnvelopeItem: {
             encrypted_kek: string;
             key_version: number;
             nonce: string;
             /** Format: uuid */
             sender_device_id: string;
+            /** Format: uuid */
+            target_user_id: string;
+        };
+        /** ChangePasswordRequest */
+        ChangePasswordRequest: {
+            current_auth_key: string;
+            new_auth_key: string;
+            new_encrypted_umk: string;
+            new_salt: string;
+            new_umk_nonce: string;
+        };
+        /** RegenerateRecoveryKeyRequest */
+        RegenerateRecoveryKeyRequest: {
+            new_recovery_encrypted_umk: string;
+            new_recovery_nonce: string;
+        };
+        /** PasswordResetRequestBody */
+        PasswordResetRequestBody: {
+            /** Format: email */
+            email: string;
+        };
+        /** LoginResponse */
+        LoginResponse: {
+            device_verified: boolean;
+            kdf_migration_required?: boolean;
+            keys?: components["schemas"]["LoginKeys"];
+            /** Format: uuid */
+            session_id: string;
+            target_kdf_params?: components["schemas"]["KdfParams"];
+            user: components["schemas"]["UserInfo"];
+        };
+        /** PendingDevicesResponse */
+        PendingDevicesResponse: {
+            devices: components["schemas"]["PendingDeviceInfo"][];
+        };
+        /** GetUmkResponse */
+        GetUmkResponse: {
+            encrypted_umk: string;
+            nonce: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            sender_ecdh_public_key?: string;
+            sender_signing_public_key?: string;
+        };
+        /** KdfMigrationRequest */
+        KdfMigrationRequest: {
+            new_auth_key: string;
+            new_encrypted_umk: string;
+            new_kdf_params: components["schemas"]["KdfParams"];
+            new_nonce: string;
+        };
+        /** KdfParams */
+        KdfParams: {
+            algorithm: string;
+            hash_length: number;
+            iterations: number;
+            memory: number;
+            parallelism: number;
+        };
+        /** RegisterResponse */
+        RegisterResponse: {
+            /** Format: uuid */
+            session_id: string;
+            user: components["schemas"]["UserInfo"];
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** KekRotationCompleteRequest */
+        KekRotationCompleteRequest: {
+            new_kek_version: number;
+        };
+        /** PasswordResetVerifyBody */
+        PasswordResetVerifyBody: {
+            token: string;
+        };
+        /** ErrorResponse */
+        ErrorResponse: {
+            details?: {
+                [key: string]: unknown;
+            };
+            error: string;
+            step?: string;
+        };
+        /** PendingDeviceStatusResponse */
+        PendingDeviceStatusResponse: {
+            /** @enum {string} */
+            status: "pending" | "approved" | "expired";
         };
         /** WorkspaceKeysResponse */
         WorkspaceKeysResponse: {
+            current_kek_version: number;
             keys: components["schemas"]["WorkspaceKeyItem"][];
+        };
+        /** CreatePendingDeviceRequest */
+        CreatePendingDeviceRequest: {
+            client_nonce: string;
+            device_ecdh_public_key: string;
+            device_signing_public_key: string;
+            device_type?: string;
+            identity_signing_public_key: string;
+            name?: string;
+        };
+        /** CreatePendingDeviceResponse */
+        CreatePendingDeviceResponse: {
+            /** Format: uuid */
+            device_id: string;
+            status: string;
+        };
+        /** TrustTransferNonceResponse */
+        TrustTransferNonceResponse: {
+            /** Format: date-time */
+            expires_at: string;
+            nonce: string;
+        };
+        /** ApproveDeviceRequest */
+        ApproveDeviceRequest: {
+            identity_signature: string;
+        };
+        /** MemberEnvelopeResponse */
+        MemberEnvelopeResponse: {
+            encrypted_kek: string;
+            key_version: number;
+            nonce: string;
+            /** Format: uuid */
+            sender_device_id: string;
+            sender_ecdh_public_key?: string;
+            sender_signing_public_key?: string;
+        };
+        /** DeviceFullInfo */
+        DeviceFullInfo: {
+            client_nonce?: string;
+            /** Format: date-time */
+            created_at?: string;
+            device_type: string;
+            ecdh_public_key: string;
+            /** Format: uuid */
+            id: string;
+            /** @description Identity cross-sign of device keys */
+            identity_signature?: string;
+            /** Format: date-time */
+            last_seen_at?: string;
+            name: string;
+            signing_public_key: string;
+        };
+        /** OkResponse */
+        OkResponse: {
+            ok: boolean;
+        };
+        /** KekRotationStartResponse */
+        KekRotationStartResponse: {
+            needs_kek_rotation: boolean;
+            /** Format: uuid */
+            workspace_id: string;
+        };
+        /** BootstrapDeviceRequest */
+        BootstrapDeviceRequest: {
+            client_nonce: string;
+            device_ecdh_public_key: string;
+            device_signing_public_key: string;
+            device_type: string;
+            identity_signature: string;
+            identity_signing_public_key: string;
+            name: string;
+        };
+        /** RecoverySessionRequest */
+        RecoverySessionRequest: {
+            challenge: string;
+            /** Format: email */
+            email: string;
+            signature: string;
+            timestamp: number;
+        };
+        /** RecoveryChallengeRequest */
+        RecoveryChallengeRequest: {
+            /** Format: email */
+            email: string;
         };
     };
     responses: never;
@@ -387,21 +1033,90 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    "RefMDWeb.AuthController.kdf_migration": {
+    "RefMDWeb.AuthController.get_recovery": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** @description KDF migration params */
+        requestBody?: never;
+        responses: {
+            /** @description Recovery data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryDataResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.TrustTransferController.get_state": {
+        parameters: {
+            query: {
+                device_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trust state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrustTransferGetResponse"];
+                };
+            };
+            /** @description Invalid device */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.TrustTransferController.send_state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Trust state */
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["KdfMigrationRequest"];
+                "application/json": components["schemas"]["TrustTransferSendRequest"];
             };
         };
         responses: {
-            /** @description Migration result */
+            /** @description State saved */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -410,7 +1125,174 @@ export interface operations {
                     "application/json": components["schemas"]["OkResponse"];
                 };
             };
-            /** @description Migration failed */
+            /** @description Invalid device */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Payload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.regenerate_recovery_key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Recovery key params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RegenerateRecoveryKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Recovery key updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Update failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.save_member_envelopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Member envelopes */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SaveMemberEnvelopesRequest"];
+            };
+        };
+        responses: {
+            /** @description Envelopes saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.password_reset_request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Reset request */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Request accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Logout result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.password_set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Password set params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PasswordSetRequest"];
+            };
+        };
+        responses: {
+            /** @description Password set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not a recovery session */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Update failed */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -455,7 +1337,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.AuthController.me": {
+    "RefMDWeb.AuthController.pop_challenge": {
         parameters: {
             query?: never;
             header?: never;
@@ -464,127 +1346,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Session info */
+            /** @description Challenge response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeResponse"];
+                    "application/json": components["schemas"]["PopChallengeResponse"];
                 };
             };
-            /** @description Not authenticated */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Registration params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["RegisterRequest"];
-            };
-        };
-        responses: {
-            /** @description Registration response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegisterResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.salt": {
-        parameters: {
-            query: {
-                email: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Salt response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SaltResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.AuthController.logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Logout result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.create_pending": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Device params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreatePendingDeviceRequest"];
-            };
-        };
-        responses: {
-            /** @description Pending device */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreatePendingDeviceResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
+            /** @description Invalid device */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -648,7 +1420,7 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.setup_complete": {
+    "RefMDWeb.DeviceController.list_pending": {
         parameters: {
             query?: never;
             header?: never;
@@ -657,13 +1429,284 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Setup complete */
+            /** @description Pending devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingDevicesResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.create_pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Device params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreatePendingDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Pending device */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatePendingDeviceResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Registration params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Registration response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.reject_pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rejection result */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.get_workspace_keys": {
+        parameters: {
+            query: {
+                device_id: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceKeysResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.create_workspace_key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Key params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Key created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.verify_key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Verify key params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["VerifyKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Valid */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.get_pending_status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingDeviceStatusResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session info */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -753,7 +1796,61 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.EncryptionController.get_workspace_keys": {
+    "RefMDWeb.EncryptionController.setup_complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Setup complete */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.recovery_session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Recovery session request */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RecoverySessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Recovery session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoverySessionResponse"];
+                };
+            };
+            /** @description Invalid recovery */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.start_kek_rotation": {
         parameters: {
             query?: never;
             header?: never;
@@ -764,18 +1861,99 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Workspace keys */
+            /** @description Rotation started */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkspaceKeysResponse"];
+                    "application/json": components["schemas"]["KekRotationStartResponse"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rotation already in progress */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
     };
-    "RefMDWeb.EncryptionController.create_workspace_key": {
+    "RefMDWeb.TrustTransferController.create_nonce": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Nonce request */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TrustTransferNonceRequest"];
+            };
+        };
+        responses: {
+            /** @description Nonce response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrustTransferNonceResponse"];
+                };
+            };
+            /** @description Invalid device */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicesResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.complete_kek_rotation": {
         parameters: {
             query?: never;
             header?: never;
@@ -784,14 +1962,356 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description Key params */
+        /** @description Completion params */
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["CreateWorkspaceKeyRequest"];
+                "application/json": components["schemas"]["KekRotationCompleteRequest"];
             };
         };
         responses: {
-            /** @description Key created */
+            /** @description Rotation completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Preconditions not met */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.salt": {
+        parameters: {
+            query: {
+                email: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Salt response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaltResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Bootstrap params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["BootstrapDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Bootstrapped device */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatePendingDeviceResponse"];
+                };
+            };
+            /** @description Already has devices */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Revocation params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RevokeDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Revocation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokeDeviceResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Rename params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RenameDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Renamed device */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.password_reset_verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Token verification */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetVerifyBody"];
+            };
+        };
+        responses: {
+            /** @description Session created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetVerifyResponse"];
+                };
+            };
+            /** @description Invalid token */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.kdf_migration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description KDF migration params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["KdfMigrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Migration result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Migration failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.recovery_challenge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Recovery challenge request */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RecoveryChallengeRequest"];
+            };
+        };
+        responses: {
+            /** @description Challenge response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryChallengeResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.get_umk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description UMK data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GetUmkResponse"];
+                };
+            };
+            /** @description Invalid device */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.distribute_umk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description UMK distribution params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DistributeUmkRequest"];
+            };
+        };
+        responses: {
+            /** @description UMK distributed */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -800,8 +2320,120 @@ export interface operations {
                     "application/json": components["schemas"]["OkResponse"];
                 };
             };
+            /** @description Invalid device */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description UMK already distributed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Validation error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.AuthController.change_password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Password change params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Invalid current password */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Update failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.workspace_ids": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace IDs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceIdsResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.get_member_envelope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member envelope */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberEnvelopeResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

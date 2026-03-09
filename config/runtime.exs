@@ -32,6 +32,19 @@ if config_env() == :prod do
 
   config :refmd, dummy_salt_secret: dummy_salt_secret
 
+  cors_origins =
+    case System.get_env("CORS_ORIGINS") do
+      nil -> []
+      origins -> String.split(origins, ",", trim: true)
+    end
+
+  config :refmd, cors_origins: cors_origins
+
+  samesite_mode = System.get_env("SAMESITE_MODE", "lax")
+  config :refmd, samesite_mode: samesite_mode
+
+  config :refmd, cookie_secure: true
+
 
   database_url =
     System.get_env("DATABASE_URL") ||

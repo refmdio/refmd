@@ -14,7 +14,12 @@ import {
   getPersistedDeviceId,
   restoreDeviceKeysFromDsk,
   restoreDeviceKeysFromPdk,
+  persistSessionPdk,
 } from "./key-persistence";
+import {
+  storePdkWrappedUmk,
+  storePdkWrappedDeviceKeys,
+} from "@/shared/lib/crypto/pdk";
 
 export type LoginResult =
   | {
@@ -46,7 +51,7 @@ export async function login(
   const saltRes = await authApi.getSalt(email);
 
   // Step 2: Derive keys
-  const derived = await deriveAuthKeys(password, saltRes.salt, saltRes.kdf_params);
+  let derived = await deriveAuthKeys(password, saltRes.salt, saltRes.kdf_params);
 
   // Step 3: Authenticate (send device_id if available)
   const deviceId = getPersistedDeviceId();
@@ -59,11 +64,13 @@ export async function login(
 
   // Step 4: Handle KDF migration if needed
   if (loginRes.kdf_migration_required && loginRes.target_kdf_params) {
-    await handleKdfMigration(password, loginRes, derived.puk);
+    const newDerived = await handleKdfMigration(password, loginRes, derived.puk, derived.pdk);
+    derived = newDerived;
   }
 
   // Step 5: Check device status
   if (!loginRes.device_verified || !loginRes.keys) {
+    persistSessionPdk(derived.pdk);
     return {
       type: "device_required",
       userId: loginRes.user.id,
@@ -100,23 +107,39 @@ export async function login(
     umk,
     pdk: derived.pdk,
     kmsi: rememberMe,
+    userId,
   });
+
+  // Store PDK in sessionStorage for device-register PDK fallback
+  persistSessionPdk(derived.pdk);
 
   // Step 8: Restore device keys from local storage
   let deviceEcdhPrivate: Uint8Array | null = null;
   let deviceSigningPrivate: Uint8Array | null = null;
 
-  const dskDeviceKeys = await restoreDeviceKeysFromDsk();
+  const dskDeviceKeys = await restoreDeviceKeysFromDsk(userId);
   if (dskDeviceKeys) {
     deviceEcdhPrivate = dskDeviceKeys.ecdhPrivate;
     deviceSigningPrivate = dskDeviceKeys.signingPrivate;
   } else {
     // PDK fallback — we have the password so we can derive PDK
-    const pdkDeviceKeys = restoreDeviceKeysFromPdk(derived.pdk);
+    const pdkDeviceKeys = restoreDeviceKeysFromPdk(derived.pdk, userId);
     if (pdkDeviceKeys) {
       deviceEcdhPrivate = pdkDeviceKeys.ecdhPrivate;
       deviceSigningPrivate = pdkDeviceKeys.signingPrivate;
     }
+  }
+
+  // If device keys could not be restored, PoP is not possible — treat as device_required
+  if (!deviceSigningPrivate) {
+    persistSessionPdk(derived.pdk);
+    return {
+      type: "device_required",
+      userId,
+      email: loginRes.user.email,
+      name: loginRes.user.name,
+      sessionId: loginRes.session_id,
+    };
   }
 
   return {
@@ -136,32 +159,48 @@ export async function login(
 async function handleKdfMigration(
   password: string,
   loginRes: LoginResponse,
-  _oldPuk: Uint8Array,
-): Promise<void> {
+  oldPuk: Uint8Array,
+  oldPdk: Uint8Array,
+): Promise<Awaited<ReturnType<typeof deriveAuthKeys>>> {
   const targetParams = loginRes.target_kdf_params!;
   const keys = loginRes.keys;
-  if (!keys?.encrypted_umk) return;
-
   const userId = loginRes.user.id;
 
   // Re-derive with new params
   const saltRes = await authApi.getSalt(loginRes.user.email);
   const newDerived = await deriveAuthKeys(password, saltRes.salt, targetParams);
 
-  // Decrypt UMK with old PUK, re-encrypt with new PUK
-  const umk = unwrapUmk(
-    base64UrlDecode(keys.encrypted_umk),
-    base64UrlDecode(keys.umk_nonce!),
-    _oldPuk,
-    userId,
-  );
+  if (keys?.encrypted_umk) {
+    // Decrypt UMK with old PUK, re-encrypt with new PUK
+    const umk = unwrapUmk(
+      base64UrlDecode(keys.encrypted_umk),
+      base64UrlDecode(keys.umk_nonce!),
+      oldPuk,
+      userId,
+    );
 
-  const newWrapped = wrapUmk(umk, newDerived.puk, userId);
+    const newWrapped = wrapUmk(umk, newDerived.puk, userId);
 
-  await authApi.kdfMigration({
-    new_auth_key: newDerived.authKeyBase64,
-    new_encrypted_umk: base64UrlEncode(newWrapped.encryptedUmk),
-    new_nonce: base64UrlEncode(newWrapped.nonce),
-    new_kdf_params: targetParams,
-  });
+    await authApi.kdfMigration({
+      new_auth_key: newDerived.authKeyBase64,
+      new_encrypted_umk: base64UrlEncode(newWrapped.encryptedUmk),
+      new_nonce: base64UrlEncode(newWrapped.nonce),
+      new_kdf_params: targetParams,
+    });
+
+    // Re-wrap local PDK data with new PDK (PDK changes after KDF migration)
+    storePdkWrappedUmk(newDerived.pdk, umk, userId);
+
+    const oldDeviceKeys = restoreDeviceKeysFromPdk(oldPdk, userId);
+    if (oldDeviceKeys) {
+      storePdkWrappedDeviceKeys(
+        newDerived.pdk,
+        oldDeviceKeys.ecdhPrivate,
+        oldDeviceKeys.signingPrivate,
+        userId,
+      );
+    }
+  }
+
+  return newDerived;
 }

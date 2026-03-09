@@ -11,6 +11,7 @@ defmodule RefMD.Accounts.Session do
     field :token_hash, :string
     field :remember_me, :boolean
     field :is_recovery, :boolean, default: false
+    field :pending_device_id, :binary_id
     field :ip_address, :string
     field :user_agent, :string
     field :expires_at, :utc_datetime_usec
@@ -26,6 +27,7 @@ defmodule RefMD.Accounts.Session do
       :token_hash,
       :remember_me,
       :is_recovery,
+      :pending_device_id,
       :ip_address,
       :user_agent,
       :expires_at,

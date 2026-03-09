@@ -1,0 +1,80 @@
+import { blake3 } from "@noble/hashes/blake3.js";
+
+// 256 visually distinct emojis for SAS display (Signal-inspired categories)
+// Each byte (0-255) maps to exactly one emoji
+const SAS_EMOJIS: readonly string[] = [
+  // Animals (0-49)
+  "\u{1F436}", "\u{1F431}", "\u{1F42D}", "\u{1F439}", "\u{1F430}", "\u{1F98A}", "\u{1F43B}", "\u{1F43C}",
+  "\u{1F428}", "\u{1F42F}", "\u{1F981}", "\u{1F42E}", "\u{1F437}", "\u{1F438}", "\u{1F435}", "\u{1F649}",
+  "\u{1F414}", "\u{1F427}", "\u{1F426}", "\u{1F985}", "\u{1F987}", "\u{1F43A}", "\u{1F98C}", "\u{1F984}",
+  "\u{1F40C}", "\u{1F41B}", "\u{1F98B}", "\u{1F982}", "\u{1F422}", "\u{1F40D}", "\u{1F432}", "\u{1F409}",
+  "\u{1F995}", "\u{1F996}", "\u{1F433}", "\u{1F42C}", "\u{1F41F}", "\u{1F420}", "\u{1F421}", "\u{1F988}",
+  "\u{1F419}", "\u{1F41A}", "\u{1F980}", "\u{1F990}", "\u{1F991}", "\u{1F40A}", "\u{1F405}", "\u{1F406}",
+  "\u{1F993}", "\u{1F418}",
+  // Food (50-109)
+  "\u{1F34E}", "\u{1F34F}", "\u{1F350}", "\u{1F34A}", "\u{1F34B}", "\u{1F34C}", "\u{1F349}", "\u{1F347}",
+  "\u{1F353}", "\u{1F348}", "\u{1F352}", "\u{1F351}", "\u{1F34D}", "\u{1F965}", "\u{1F95D}", "\u{1F345}",
+  "\u{1F346}", "\u{1F951}", "\u{1F955}", "\u{1F33D}", "\u{1F336}", "\u{1F952}", "\u{1F96C}", "\u{1F966}",
+  "\u{1F344}", "\u{1F95C}", "\u{1F330}", "\u{1F35E}", "\u{1F950}", "\u{1F956}", "\u{1F968}", "\u{1F96F}",
+  "\u{1F95E}", "\u{1F9C0}", "\u{1F356}", "\u{1F357}", "\u{1F969}", "\u{1F953}", "\u{1F354}", "\u{1F35F}",
+  "\u{1F355}", "\u{1F32D}", "\u{1F96A}", "\u{1F32E}", "\u{1F32F}", "\u{1F959}", "\u{1F9C6}", "\u{1F95A}",
+  "\u{1F373}", "\u{1F958}", "\u{1F372}", "\u{1F963}", "\u{1F957}", "\u{1F37F}", "\u{1F9C8}", "\u{1F9C2}",
+  "\u{1F96B}", "\u{1F371}", "\u{1F358}", "\u{1F359}",
+  // Nature (110-159)
+  "\u{1F33B}", "\u{1F337}", "\u{1F339}", "\u{1F33A}", "\u{1F338}", "\u{1F33C}", "\u{1F490}", "\u{1F940}",
+  "\u{1F335}", "\u{1F332}", "\u{1F333}", "\u{1F334}", "\u{1F331}", "\u{1F33E}", "\u{1F33F}", "\u{2618}\u{FE0F}",
+  "\u{1F340}", "\u{1F341}", "\u{1F342}", "\u{1F343}", "\u{1F30D}", "\u{1F30E}", "\u{1F30F}", "\u{1F315}",
+  "\u{1F319}", "\u{2B50}", "\u{1F31F}", "\u{26A1}", "\u{1F525}", "\u{1F4A7}", "\u{1F30A}", "\u{2744}\u{FE0F}",
+  "\u{26C4}", "\u{1F308}", "\u{2600}\u{FE0F}", "\u{26C5}", "\u{1F327}\u{FE0F}", "\u{1F329}\u{FE0F}", "\u{1F30B}", "\u{1F3D4}\u{FE0F}",
+  "\u{1F3D6}\u{FE0F}", "\u{1F3DC}\u{FE0F}", "\u{1F3DD}\u{FE0F}", "\u{1F3DE}\u{FE0F}", "\u{1F3DF}\u{FE0F}", "\u{1F30C}", "\u{1F311}", "\u{1F312}",
+  "\u{1F313}", "\u{1F314}",
+  // Sports & Activities (160-209)
+  "\u{26BD}", "\u{1F3C0}", "\u{1F3C8}", "\u{26BE}", "\u{1F94E}", "\u{1F3BE}", "\u{1F3D0}", "\u{1F3C9}",
+  "\u{1F94F}", "\u{1F3B1}", "\u{1F3D3}", "\u{1F3F8}", "\u{1F3D2}", "\u{1F3D1}", "\u{1F945}", "\u{1F3AF}",
+  "\u{26F3}", "\u{1F94A}", "\u{1F94B}", "\u{1F3BD}", "\u{26F7}\u{FE0F}", "\u{1F6F7}", "\u{1F3BF}", "\u{26F8}\u{FE0F}",
+  "\u{1F6F6}", "\u{1F3C4}", "\u{1F6A3}", "\u{1F3CA}", "\u{26F9}\u{FE0F}", "\u{1F3CB}\u{FE0F}", "\u{1F6B4}", "\u{1F6B5}",
+  "\u{1F938}", "\u{1F93C}", "\u{1F93D}", "\u{1F93E}", "\u{1F939}", "\u{1F9D7}", "\u{1F3C6}", "\u{1F396}\u{FE0F}",
+  "\u{1F3C5}", "\u{1F947}", "\u{1F948}", "\u{1F949}", "\u{1F3AA}", "\u{1F3AD}", "\u{1F3A8}", "\u{1F3AC}",
+  "\u{1F3A4}", "\u{1F3A7}",
+  // Objects (210-255)
+  "\u{1F3B8}", "\u{1F3B9}", "\u{1F3BA}", "\u{1F3BB}", "\u{1F941}", "\u{1FA98}", "\u{1F4F7}", "\u{1F4F1}",
+  "\u{1F4BB}", "\u{1F5A5}\u{FE0F}", "\u{1F3AE}", "\u{1F579}\u{FE0F}", "\u{1F52D}", "\u{1F52C}", "\u{1F4A1}", "\u{1F526}",
+  "\u{1F56F}\u{FE0F}", "\u{1F4DA}", "\u{1F4D6}", "\u{1F511}", "\u{1F512}", "\u{1F513}", "\u{1F528}", "\u{1FA93}",
+  "\u{1F527}", "\u{1F529}", "\u{2699}\u{FE0F}", "\u{1F9F2}", "\u{1F52B}", "\u{1F4E6}", "\u{1F381}", "\u{1F388}",
+  "\u{1F389}", "\u{1F38A}", "\u{1F3E0}", "\u{1F3D7}\u{FE0F}", "\u{1F680}", "\u{2708}\u{FE0F}", "\u{1F6F8}", "\u{1F6F0}\u{FE0F}",
+  "\u{1F6A2}", "\u{1F682}", "\u{1F697}", "\u{1F6B2}", "\u{1F3CD}\u{FE0F}", "\u{1F6A1}",
+] as const;
+
+export interface SasResult {
+  emojis: string[];
+  bytes: Uint8Array;
+}
+
+export function computeSas(
+  identitySigningPublic: Uint8Array,
+  deviceSigningPublic: Uint8Array,
+  deviceEcdhPublic: Uint8Array,
+  clientNonce: Uint8Array,
+): SasResult {
+  const input = new Uint8Array(
+    identitySigningPublic.length +
+    deviceSigningPublic.length +
+    deviceEcdhPublic.length +
+    clientNonce.length,
+  );
+  let offset = 0;
+  input.set(identitySigningPublic, offset); offset += identitySigningPublic.length;
+  input.set(deviceSigningPublic, offset); offset += deviceSigningPublic.length;
+  input.set(deviceEcdhPublic, offset); offset += deviceEcdhPublic.length;
+  input.set(clientNonce, offset);
+
+  const hash = blake3(input);
+  const sasBytes = hash.slice(0, 7);
+
+  const emojis: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    emojis.push(SAS_EMOJIS[sasBytes[i]!]!);
+  }
+
+  return { emojis, bytes: sasBytes };
+}

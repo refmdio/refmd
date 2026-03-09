@@ -1,6 +1,6 @@
 import { x25519, ed25519 } from "@noble/curves/ed25519.js";
 import { randomBytes, base64UrlEncode } from "./encoding";
-import { sign } from "./identity";
+import { sign, verify } from "./identity";
 import { buildSignatureMessage, SIGNATURE_ACTION } from "./signature";
 
 export interface DeviceKeyPair {
@@ -51,4 +51,26 @@ export function signDeviceRegistration(
     client_nonce: base64UrlEncode(clientNonce),
   });
   return sign(message, identitySigningPrivate);
+}
+
+export function verifyDeviceIdentitySignature(
+  deviceSigningPublicKey: Uint8Array,
+  deviceEcdhPublicKey: Uint8Array,
+  clientNonce: Uint8Array,
+  identitySignature: Uint8Array,
+  identitySigningPublic: Uint8Array,
+): boolean {
+  for (const action of [SIGNATURE_ACTION.DEVICE_APPROVAL, SIGNATURE_ACTION.DEVICE_REGISTRATION]) {
+    const message = buildSignatureMessage(action, {
+      device_signing_public_key: base64UrlEncode(deviceSigningPublicKey),
+      device_ecdh_public_key: base64UrlEncode(deviceEcdhPublicKey),
+      client_nonce: base64UrlEncode(clientNonce),
+    });
+    try {
+      if (verify(message, identitySignature, identitySigningPublic)) return true;
+    } catch {
+      // continue
+    }
+  }
+  return false;
 }

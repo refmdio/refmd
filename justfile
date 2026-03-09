@@ -3,6 +3,17 @@ set dotenv-load
 default:
     @just --list
 
+# ── Setup ────────────────────────────────────────
+
+# Initial project setup
+setup:
+    mix setup
+    cd assets && pnpm install
+
+clean:
+    rm -rf _build deps
+    rm -rf assets/node_modules
+
 # ── Services ─────────────────────────────────────
 
 # Start infra (PostgreSQL)
@@ -21,6 +32,7 @@ services-clean:
 
 # API + Frontend (hot reload)
 dev:
+    mix ecto.migrate --quiet
     @trap 'kill 0' EXIT; \
     mix phx.server & \
     cd assets && pnpm dev & \
@@ -28,6 +40,7 @@ dev:
 
 # API only
 dev-api:
+    mix ecto.migrate --quiet
     mix phx.server
 
 # Frontend only
@@ -42,7 +55,11 @@ test:
 test-verbose:
     mix test --trace
 
-check: fmt-check lint test
+# Full verification (compile + typecheck + test)
+check:
+    mix compile --warnings-as-errors
+    cd assets && npx tsc -p tsconfig.app.json --noEmit
+    mix test
 
 fmt:
     mix format
@@ -51,18 +68,15 @@ fmt:
 fmt-check:
     mix format --check-formatted
 
-lint:
-    mix compile --warnings-as-errors
-
 # ── Database ─────────────────────────────────────
 
-migrate:
+db-migrate:
     mix ecto.migrate
 
-migrate-new name:
+db-new name:
     mix ecto.gen.migration {{name}}
 
-migrate-rollback:
+db-rollback:
     mix ecto.rollback
 
 db-reset:
@@ -76,13 +90,7 @@ web-install:
 web-build:
     cd assets && pnpm build
 
-# ── Setup ────────────────────────────────────────
-
-# Initial project setup
-setup:
-    mix setup
-    cd assets && pnpm install
-
-clean:
-    rm -rf _build deps
-    rm -rf assets/node_modules
+# Generate OpenAPI types (schema.d.ts)
+web-gen:
+    mix openapi.gen
+    cd assets && npx openapi-typescript openapi.json -o src/shared/api/schema.d.ts

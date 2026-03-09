@@ -13,8 +13,7 @@ defmodule RefMD.Application do
       {PlugAttack.Storage.Ets, name: RefMDWeb.Plugs.RateLimit.Storage, clean_period: 60_000},
       {DNSCluster, query: Application.get_env(:refmd, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: RefMD.PubSub},
-      # Start a worker by calling: RefMD.Worker.start_link(arg)
-      # {RefMD.Worker, arg},
+      {Oban, Application.fetch_env!(:refmd, Oban)},
       # Start to serve requests, typically the last entry
       RefMDWeb.Endpoint
     ]

@@ -28,6 +28,20 @@ config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
 
+# Configure Oban job queue
+config :refmd, Oban,
+  repo: RefMD.Repo,
+  queues: [default: 10],
+  plugins: [
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24},
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"*/5 * * * *", RefMD.Workers.CleanupPopChallenges},
+       {"*/15 * * * *", RefMD.Workers.CleanupSessions},
+       {"0 * * * *", RefMD.Workers.KekRotationReminder}
+     ]}
+  ]
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 

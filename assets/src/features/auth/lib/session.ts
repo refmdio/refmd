@@ -35,7 +35,7 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
     let needsPasswordReentry = false;
 
     // Attempt full key restoration from DSK (IndexedDB)
-    const dskKeys = await restoreKeysFromDsk();
+    const dskKeys = await restoreKeysFromDsk(me.user.id);
     if (dskKeys) {
       umk = dskKeys.umk;
       deviceEcdhPrivate = dskKeys.deviceEcdhPrivate;
@@ -46,15 +46,15 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
 
       // Try DSK for device keys even if UMK came from sessionStorage
       if (umk) {
-        const devKeys = await restoreDeviceKeysFromDsk();
+        const devKeys = await restoreDeviceKeysFromDsk(me.user.id);
         if (devKeys) {
           deviceEcdhPrivate = devKeys.ecdhPrivate;
           deviceSigningPrivate = devKeys.signingPrivate;
         }
       }
 
-      // If still no UMK, PDK fallback requires password re-entry
-      if (!umk && hasPdkData()) {
+      // PDK fallback requires password re-entry when UMK or device keys are missing
+      if (hasPdkData() && (!umk || !deviceSigningPrivate)) {
         needsPasswordReentry = true;
       }
     }

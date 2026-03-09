@@ -39,5 +39,9 @@ defmodule RefMD.Encryption.WorkspaceEncryptedKey do
       :nonce,
       :is_active
     ])
+    |> unique_constraint([:workspace_id, :user_id, :device_id, :key_version],
+      name: :workspace_encrypted_keys_pkey,
+      message: "key version already exists for this device"
+    )
   end
 end

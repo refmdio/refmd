@@ -8,9 +8,13 @@ defmodule RefMDWeb.Plugs.RequireAuth do
 
   def init(opts), do: opts
 
+  @touch_interval_seconds 5 * 60
+
   def call(conn, _opts) do
     with token when is_binary(token) <- get_session_token(conn),
-         {:ok, session} <- Accounts.get_valid_session_by_token(token) do
+         {:ok, session} <- Accounts.get_valid_session_by_token_base64(token) do
+      maybe_touch_session(session)
+
       conn
       |> assign(:current_user_id, session.user_id)
       |> assign(:current_session, session)
@@ -42,4 +46,12 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   end
 
   defp parse_session_cookie(_), do: nil
+
+  defp maybe_touch_session(session) do
+    elapsed = DateTime.diff(DateTime.utc_now(), session.last_seen_at, :second)
+
+    if elapsed >= @touch_interval_seconds do
+      Accounts.touch_session(session.id)
+    end
+  end
 end

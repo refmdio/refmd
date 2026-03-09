@@ -1,5 +1,5 @@
 export { base64UrlEncode, base64UrlDecode, randomBytes, constantTimeEqual } from "./encoding";
-export { canonicalizeBytes, AAD_PURPOSE } from "./aad";
+export { canonicalizeBytes, AAD_PURPOSE, buildDeviceUmkDistributionAad } from "./aad";
 export { SIGNATURE_PROTOCOL, SIGNATURE_ACTION, buildSignatureMessage } from "./signature";
 export { deriveAuthKeys } from "./kdf";
 export type { KdfParams, DerivedKeys } from "./kdf";
@@ -13,15 +13,16 @@ export {
 } from "./identity";
 export type { IdentityKeyPair, EncryptedIdentityKeys } from "./identity";
 export { generateUmk, wrapUmk, unwrapUmk } from "./umk";
-export { generateRecoveryKey, deriveRukFromMnemonic, wrapUmkWithRuk } from "./recovery";
+export { generateRecoveryKey, deriveRukFromMnemonic, wrapUmkWithRuk, unwrapUmkWithRuk, isValidMnemonic } from "./recovery";
 export type { RecoveryKeyData } from "./recovery";
 export { ecdhEncrypt, ecdhDecrypt } from "./ecdh-cipher";
-export { generateKek, encryptKekForDevice, wrapKekWithUmk } from "./kek";
+export { generateKek, encryptKekForDevice, decryptKekFromDeviceEnvelope, encryptKekForMember, decryptKekFromMemberEnvelope, unwrapKekFromBackup, wrapKekWithUmk } from "./kek";
 export {
   generateDeviceKeyPair,
   generateClientNonce,
   signDeviceApproval,
   signDeviceRegistration,
+  verifyDeviceIdentitySignature,
 } from "./device";
 export type { DeviceKeyPair } from "./device";
 export {
@@ -40,3 +41,22 @@ export {
   loadPdkWrappedDeviceKeys,
   clearPdkWrappedKeys,
 } from "./pdk";
+export { computeSas } from "./sas";
+export type { SasResult } from "./sas";
+export { calculateFingerprint, formatFingerprint } from "./fingerprint";
+export {
+  verifyTofu,
+  trustDevice,
+  updateDeviceLastSeen,
+  handleTofuResult,
+} from "./tofu";
+export type { TofuStatus, TofuVerifyResult } from "./tofu";
+export {
+  encryptTrustState,
+  decryptTrustState,
+} from "./trust-transfer";
+export type {
+  TrustStateSnapshot,
+  EncryptedTrustState,
+  TrustTransferAadParams,
+} from "./trust-transfer";

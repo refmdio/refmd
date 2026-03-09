@@ -23,6 +23,9 @@ config :refmd, RefMDWeb.Endpoint,
 # Dummy salt secret for consistent fake salts (non-existent users)
 config :refmd, dummy_salt_secret: "test-dummy-salt-secret"
 
+# Disable Oban in tests (no queues, no plugins)
+config :refmd, Oban, testing: :manual
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

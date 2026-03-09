@@ -8,8 +8,8 @@ import { Field, FieldLabel } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
 import { register } from "@/features/auth";
 import { setFullSession } from "@/shared/lib/auth-state";
-import { login } from "@/features/auth";
 import { AlertTriangleIcon } from "lucide-solid";
+import { formatRecoveryKeyFile } from "@/shared/lib/recovery-key-format";
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -22,8 +22,6 @@ export default function RegisterPage() {
   const [recoveryMnemonic, setRecoveryMnemonic] = createSignal<string | null>(null);
   const [mnemonicConfirmed, setMnemonicConfirmed] = createSignal(false);
   const [showMnemonic, setShowMnemonic] = createSignal(false);
-  const [loggingIn, setLoggingIn] = createSignal(false);
-
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     setError(null);
@@ -78,18 +76,7 @@ export default function RegisterPage() {
     const mnemonic = recoveryMnemonic();
     if (!mnemonic) return;
 
-    const content = [
-      "RefMD Recovery Key",
-      "==================",
-      "",
-      "Store this file in a safe place.",
-      "You will need these 24 words to recover your account.",
-      "",
-      ...mnemonic.split(" ").map((w, i) => `${String(i + 1).padStart(2, " ")}. ${w}`),
-      "",
-      "WARNING: If you lose this recovery key and forget your password,",
-      "you will permanently lose access to your encrypted data.",
-    ].join("\n");
+    const content = formatRecoveryKeyFile(mnemonic);
 
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -104,27 +91,10 @@ export default function RegisterPage() {
     setMnemonicConfirmed(true);
   };
 
-  const handleConfirmMnemonic = async () => {
-    setLoggingIn(true);
-    setError(null);
-
-    const loginEmail = email();
-    const loginPassword = password();
+  const handleConfirmMnemonic = () => {
     setPassword("");
     setConfirmPassword("");
-
-    try {
-      const result = await login(loginEmail, loginPassword, false);
-
-      if (result.type === "device_required") {
-        navigate("/auth/login");
-        return;
-      }
-
-      navigate("/");
-    } catch {
-      navigate("/auth/login");
-    }
+    navigate("/");
   };
 
   return (
@@ -196,15 +166,9 @@ export default function RegisterPage() {
                 <Button
                   onClick={handleConfirmMnemonic}
                   class="w-full"
-                  disabled={!mnemonicConfirmed() || loggingIn()}
+                  disabled={!mnemonicConfirmed()}
                 >
-                  {loggingIn() ? (
-                    <span class="flex items-center gap-2">
-                      <Spinner class="size-3" /> Signing in...
-                    </span>
-                  ) : (
-                    "Continue"
-                  )}
+                  Continue
                 </Button>
               </div>
             </CardContent>
