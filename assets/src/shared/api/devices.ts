@@ -125,6 +125,14 @@ export const devicesApi = {
     if (!res.ok) throw new Error(`rename device failed: ${res.status}`);
   },
 
+  rejectPending: async (id: string): Promise<void> => {
+    const res = await fetch(`/api/devices/pending/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`reject pending failed: ${res.status}`);
+  },
+
   getPendingStatus: async (id: string): Promise<{ status: string }> => {
     const res = await fetch(`/api/devices/pending/${id}/sas`, {
       credentials: "include",

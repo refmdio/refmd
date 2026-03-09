@@ -158,6 +158,26 @@ defmodule RefMDWeb.DeviceEventsController do
     })
   end
 
+  @spec broadcast_pending_device_removed(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          :ok | {:error, term()}
+  def broadcast_pending_device_removed(user_id, device_id) do
+    PubSub.broadcast(RefMD.PubSub, "device_events:user:#{user_id}", {
+      :sse_event,
+      "pending_device_removed",
+      %{device_id: device_id}
+    })
+  end
+
+  @spec broadcast_pending_rejected(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          :ok | {:error, term()}
+  def broadcast_pending_rejected(user_id, device_id) do
+    PubSub.broadcast(
+      RefMD.PubSub,
+      "device_events:pending:#{user_id}:#{device_id}",
+      {:sse_event, "pending_rejected", %{device_id: device_id}}
+    )
+  end
+
   @spec broadcast_trust_transfer_nonce_ready(Ecto.UUID.t(), Ecto.UUID.t(), binary()) ::
           :ok | {:error, term()}
   def broadcast_trust_transfer_nonce_ready(user_id, new_device_id, nonce) do

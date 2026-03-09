@@ -146,6 +146,12 @@ export default function DeviceRegisterPage() {
           if (pollTimer) clearInterval(pollTimer);
           setPhase("expired");
         });
+        eventSource.addEventListener("pending_rejected", () => {
+          if (eventSource) eventSource.close();
+          if (pollTimer) clearInterval(pollTimer);
+          setError("Device registration was rejected by an existing device.");
+          setPhase("error");
+        });
         eventSource.onerror = () => {
           // SSE interrupted — start polling fallback
           if (eventSource) {
@@ -247,6 +253,12 @@ export default function DeviceRegisterPage() {
           if (eventSource) eventSource.close();
           if (pollTimer) clearInterval(pollTimer);
           setPhase("expired");
+        });
+        eventSource.addEventListener("pending_rejected", () => {
+          if (eventSource) eventSource.close();
+          if (pollTimer) clearInterval(pollTimer);
+          setError("Device registration was rejected by an existing device.");
+          setPhase("error");
         });
         eventSource.onerror = () => {
           if (eventSource) {

@@ -322,6 +322,50 @@ defmodule RefMD.Accounts do
     |> Repo.delete_all()
   end
 
+  @spec replace_user_pending_device(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
+          {:ok, %{removed_ids: [Ecto.UUID.t()], pending: PendingDevice.t()}}
+          | {:error, atom(), term(), map()}
+  def replace_user_pending_device(user_id, session_id, attrs) do
+    now = DateTime.utc_now()
+    expires_at = DateTime.add(now, 5 * 60, :second)
+
+    Ecto.Multi.new()
+    |> Ecto.Multi.run(:removed_ids, fn repo, _changes ->
+      ids =
+        from(pd in PendingDevice,
+          where: pd.user_id == ^user_id and pd.expires_at > ^now,
+          select: pd.id
+        )
+        |> repo.all()
+
+      if ids != [] do
+        from(pd in PendingDevice, where: pd.id in ^ids)
+        |> repo.delete_all()
+      end
+
+      {:ok, ids}
+    end)
+    |> Ecto.Multi.insert(
+      :pending,
+      %PendingDevice{created_at: now, expires_at: expires_at}
+      |> PendingDevice.changeset(attrs)
+    )
+    |> Ecto.Multi.run(:bind_session, fn repo, %{pending: pending} ->
+      from(s in Session, where: s.id == ^session_id)
+      |> repo.update_all(set: [pending_device_id: pending.id])
+
+      {:ok, :bound}
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{removed_ids: ids, pending: pending}} ->
+        {:ok, %{removed_ids: ids, pending: pending}}
+
+      {:error, step, changeset, changes} ->
+        {:error, step, changeset, changes}
+    end
+  end
+
   @spec approve_pending_device(PendingDevice.t(), binary(), keyword()) ::
           {:ok, Device.t()} | {:error, atom() | Ecto.Changeset.t()}
   def approve_pending_device(pending_device, identity_signature, opts \\ []) do

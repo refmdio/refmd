@@ -229,8 +229,19 @@ export function ApproveDeviceDialog(props: Props) {
         </Show>
 
         <DialogFooter>
-          <Button variant="outline" onClick={props.onClose} disabled={loading()}>
-            Cancel
+          <Button
+            variant="destructive"
+            onClick={async () => {
+              try {
+                await devicesApi.rejectPending(props.device.id);
+              } catch {
+                // Already deleted or expired
+              }
+              props.onClose();
+            }}
+            disabled={loading()}
+          >
+            Reject
           </Button>
           <Button onClick={handleApprove} disabled={loading() || !tofuChecked() || !!tofuBlocked()}>
             {loading() ? (

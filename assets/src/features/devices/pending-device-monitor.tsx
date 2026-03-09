@@ -40,6 +40,7 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
 
   let eventSource: EventSource | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let expiryTimers: ReturnType<typeof setTimeout>[] = [];
 
   const pendingCount = () => pendingDevices().length;
 
@@ -70,6 +71,10 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
       eventSource = new EventSource("/api/devices/events");
 
       eventSource.addEventListener("pending_device_created", () => {
+        refetchPending();
+      });
+
+      eventSource.addEventListener("pending_device_removed", () => {
         refetchPending();
       });
 
@@ -119,6 +124,30 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
         retryTimer = undefined;
       }
     });
+  });
+
+  // Schedule refetch when pending devices expire (TTL-based cleanup)
+  createEffect(() => {
+    const devices = pendingDevices();
+    for (const timer of expiryTimers) clearTimeout(timer);
+    expiryTimers = [];
+
+    for (const d of devices) {
+      const ms = new Date(d.expires_at).getTime() - Date.now();
+      if (ms > 0) {
+        expiryTimers.push(setTimeout(() => refetchPending(), ms + 500));
+      }
+    }
+  });
+
+  // Dismiss dialog if the pending device was removed (e.g. rejected/expired)
+  createEffect(() => {
+    const dialog = currentDialog();
+    if (!dialog) return;
+    const devices = pendingDevices();
+    if (!devices.some((d) => d.id === dialog.id)) {
+      setCurrentDialog(null);
+    }
   });
 
   // Auto-show dialog for new unseen/undismissed pending devices

@@ -146,8 +146,9 @@ defmodule RefMDWeb.DeviceController do
          client_nonce
        ) do
     ua = get_req_header(conn, "user-agent") |> List.first() || ""
+    session = conn.assigns.current_session
 
-    case Accounts.create_pending_device(%{
+    case Accounts.replace_user_pending_device(user_id, session.id, %{
            user_id: user_id,
            name: params["name"] || device_name_from_ua(ua),
            device_type: params["device_type"] || device_type_from_ua(ua),
@@ -156,9 +157,10 @@ defmodule RefMDWeb.DeviceController do
            client_nonce: client_nonce,
            ip_address: to_string(:inet_parse.ntoa(conn.remote_ip))
          }) do
-      {:ok, pending} ->
-        session = conn.assigns.current_session
-        Accounts.bind_pending_device_to_session(session.id, pending.id)
+      {:ok, %{removed_ids: removed_ids, pending: pending}} ->
+        for removed_id <- removed_ids do
+          DeviceEventsController.broadcast_pending_device_removed(user_id, removed_id)
+        end
 
         DeviceEventsController.broadcast_pending_device_created(user_id, pending)
 
@@ -166,7 +168,7 @@ defmodule RefMDWeb.DeviceController do
         |> put_status(:created)
         |> json(%{device_id: pending.id, status: "pending"})
 
-      {:error, changeset} ->
+      {:error, _step, changeset, _} ->
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "invalid_device", details: format_errors(changeset)})
@@ -221,6 +223,8 @@ defmodule RefMDWeb.DeviceController do
     case Accounts.get_valid_pending_device(id) do
       %{user_id: ^user_id} ->
         Accounts.delete_pending_device(id)
+        DeviceEventsController.broadcast_pending_device_removed(user_id, id)
+        DeviceEventsController.broadcast_pending_rejected(user_id, id)
         json(conn, %{ok: true})
 
       _ ->
