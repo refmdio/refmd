@@ -12,8 +12,10 @@ defmodule RefMDWeb.Plugs.RequirePoP do
 
   @touch_interval_seconds 5 * 60
 
+  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
+  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     with {:ok, device_id} <- get_pop_device_id(conn),
          {:ok, challenge} <- get_pop_challenge(conn),
@@ -117,27 +119,7 @@ defmodule RefMDWeb.Plugs.RequirePoP do
 
     cond do
       session.device_id == nil ->
-        case Accounts.bind_session_to_device(session.id, device_id) do
-          {1, _} ->
-            {:ok,
-             conn
-             |> assign(:current_session, %{session | device_id: device_id, is_recovery: false})
-             |> assign(:device_verified, true)}
-
-          {0, _} ->
-            # Race condition: another request already bound this session.
-            # Re-read from DB to check if it was bound to the same device.
-            case Accounts.get_session(session.id) do
-              %{device_id: ^device_id} ->
-                {:ok,
-                 conn
-                 |> assign(:current_session, %{session | device_id: device_id, is_recovery: false})
-                 |> assign(:device_verified, true)}
-
-              _ ->
-                {:error, :device_session_mismatch}
-            end
-        end
+        bind_unbound_session(conn, session, device_id)
 
       session.device_id == device_id ->
         {:ok, conn}
@@ -145,6 +127,32 @@ defmodule RefMDWeb.Plugs.RequirePoP do
       true ->
         {:error, :device_session_mismatch}
     end
+  end
+
+  defp bind_unbound_session(conn, session, device_id) do
+    case Accounts.bind_session_to_device(session.id, device_id) do
+      {1, _} ->
+        {:ok, assign_bound_session(conn, session, device_id)}
+
+      {0, _} ->
+        handle_bind_race_condition(conn, session, device_id)
+    end
+  end
+
+  defp handle_bind_race_condition(conn, session, device_id) do
+    case Accounts.get_session(session.id) do
+      %{device_id: ^device_id} ->
+        {:ok, assign_bound_session(conn, session, device_id)}
+
+      _ ->
+        {:error, :device_session_mismatch}
+    end
+  end
+
+  defp assign_bound_session(conn, session, device_id) do
+    conn
+    |> assign(:current_session, %{session | device_id: device_id, is_recovery: false})
+    |> assign(:device_verified, true)
   end
 
   defp pop_error_message(:missing_device_id), do: "pop_missing_device_id"
@@ -156,7 +164,6 @@ defmodule RefMDWeb.Plugs.RequirePoP do
   defp pop_error_message(:invalid_signature), do: "pop_invalid_signature"
   defp pop_error_message(:invalid_challenge), do: "pop_invalid_or_expired_challenge"
   defp pop_error_message(:device_session_mismatch), do: "pop_device_session_mismatch"
-  defp pop_error_message(_), do: "pop_verification_failed"
 
   defp maybe_touch_device(device) do
     elapsed = DateTime.diff(DateTime.utc_now(), device.last_seen_at, :second)

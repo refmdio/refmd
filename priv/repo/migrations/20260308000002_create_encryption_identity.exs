@@ -51,7 +51,7 @@ defmodule RefMD.Repo.Migrations.CreateEncryptionIdentity do
     end
 
     create unique_index(:device_encrypted_umks, [:user_id, :device_id],
-      name: :device_encrypted_umks_pkey
-    )
+             name: :device_encrypted_umks_pkey
+           )
   end
 end

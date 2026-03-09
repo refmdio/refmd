@@ -21,6 +21,7 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
 
     create table(:workspace_roles, primary_key: false) do
       add :id, :binary_id, primary_key: true
+
       add :workspace_id, references(:workspaces, type: :binary_id, on_delete: :delete_all),
         null: false
 
@@ -34,9 +35,9 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
     create unique_index(:workspace_roles, [:workspace_id, :id], name: :workspace_roles_composite)
 
     create unique_index(:workspace_roles, [:workspace_id],
-      where: "is_default = true",
-      name: :workspace_roles_one_default_per_workspace
-    )
+             where: "is_default = true",
+             name: :workspace_roles_one_default_per_workspace
+           )
 
     create table(:workspace_members, primary_key: false) do
       add :workspace_id,

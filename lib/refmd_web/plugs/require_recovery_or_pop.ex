@@ -9,15 +9,19 @@ defmodule RefMDWeb.Plugs.RequireRecoveryOrPoP do
   Non-recovery sessions delegate to RequirePoP.
   """
 
+  alias RefMDWeb.Plugs.RequirePoP
+
+  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
+  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, opts) do
     session = conn.assigns.current_session
 
     if session.is_recovery do
       conn
     else
-      RefMDWeb.Plugs.RequirePoP.call(conn, opts)
+      RequirePoP.call(conn, opts)
     end
   end
 end

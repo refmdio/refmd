@@ -6,10 +6,12 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   import Plug.Conn
   alias RefMD.Accounts
 
+  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
   @touch_interval_seconds 5 * 60
 
+  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     with token when is_binary(token) <- get_session_token(conn),
          {:ok, session} <- Accounts.get_valid_session_by_token_base64(token) do

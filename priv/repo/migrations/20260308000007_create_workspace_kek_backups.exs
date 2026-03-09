@@ -19,9 +19,9 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceKekBackups do
     end
 
     create unique_index(:workspace_kek_backups, [:workspace_id, :user_id],
-      where: "is_active = true",
-      name: :workspace_kek_backups_one_active_per_user
-    )
+             where: "is_active = true",
+             name: :workspace_kek_backups_one_active_per_user
+           )
 
     execute(
       "ALTER TABLE workspace_kek_backups ADD CONSTRAINT workspace_kek_backups_key_version_positive CHECK (key_version > 0)",

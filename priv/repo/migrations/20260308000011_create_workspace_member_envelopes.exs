@@ -14,9 +14,11 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceMemberEnvelopes do
       add :created_at, :utc_datetime_usec, null: false
     end
 
-    create unique_index(:workspace_member_envelopes, [:workspace_id, :target_user_id, :key_version],
-      name: :workspace_member_envelopes_pk
-    )
+    create unique_index(
+             :workspace_member_envelopes,
+             [:workspace_id, :target_user_id, :key_version],
+             name: :workspace_member_envelopes_pk
+           )
 
     # Composite FK: (workspace_id, target_user_id) → workspace_members(workspace_id, user_id)
     execute(

@@ -72,7 +72,6 @@ defmodule RefMDWeb.Schemas do
       type: :object,
       properties: %{
         error: %Schema{type: :string},
-        step: %Schema{type: :string},
         details: %Schema{type: :object, additionalProperties: true}
       },
       required: [:error]
@@ -115,7 +114,11 @@ defmodule RefMDWeb.Schemas do
       title: "RegisterRequest",
       type: :object,
       properties: %{
-        user_id: %Schema{type: :string, format: :uuid, description: "Client-generated UUID for AAD binding"},
+        user_id: %Schema{
+          type: :string,
+          format: :uuid,
+          description: "Client-generated UUID for AAD binding"
+        },
         email: %Schema{type: :string, format: :email},
         name: %Schema{type: :string},
         auth_key: %Schema{type: :string},
@@ -133,11 +136,22 @@ defmodule RefMDWeb.Schemas do
         encrypted_signing_private_nonce: %Schema{type: :string}
       },
       required: [
-        :user_id, :email, :name, :auth_key, :salt, :encrypted_umk, :umk_nonce,
-        :kdf_params, :recovery_encrypted_umk, :recovery_nonce,
-        :ecdh_public_key, :signing_public_key,
-        :encrypted_ecdh_private, :encrypted_ecdh_private_nonce,
-        :encrypted_signing_private, :encrypted_signing_private_nonce
+        :user_id,
+        :email,
+        :name,
+        :auth_key,
+        :salt,
+        :encrypted_umk,
+        :umk_nonce,
+        :kdf_params,
+        :recovery_encrypted_umk,
+        :recovery_nonce,
+        :ecdh_public_key,
+        :signing_public_key,
+        :encrypted_ecdh_private,
+        :encrypted_ecdh_private_nonce,
+        :encrypted_signing_private,
+        :encrypted_signing_private_nonce
       ]
     })
   end
@@ -189,8 +203,10 @@ defmodule RefMDWeb.Schemas do
         encrypted_signing_private_nonce: %Schema{type: :string}
       },
       required: [
-        :encrypted_ecdh_private, :encrypted_ecdh_private_nonce,
-        :encrypted_signing_private, :encrypted_signing_private_nonce
+        :encrypted_ecdh_private,
+        :encrypted_ecdh_private_nonce,
+        :encrypted_signing_private,
+        :encrypted_signing_private_nonce
       ]
     })
   end
@@ -450,7 +466,15 @@ defmodule RefMDWeb.Schemas do
         client_nonce: %Schema{type: :string},
         identity_signature: %Schema{type: :string}
       },
-      required: [:name, :device_type, :identity_signing_public_key, :device_signing_public_key, :device_ecdh_public_key, :client_nonce, :identity_signature]
+      required: [
+        :name,
+        :device_type,
+        :identity_signing_public_key,
+        :device_signing_public_key,
+        :device_ecdh_public_key,
+        :client_nonce,
+        :identity_signature
+      ]
     })
   end
 
@@ -468,7 +492,12 @@ defmodule RefMDWeb.Schemas do
         device_ecdh_public_key: %Schema{type: :string},
         client_nonce: %Schema{type: :string}
       },
-      required: [:identity_signing_public_key, :device_signing_public_key, :device_ecdh_public_key, :client_nonce]
+      required: [
+        :identity_signing_public_key,
+        :device_signing_public_key,
+        :device_ecdh_public_key,
+        :client_nonce
+      ]
     })
   end
 
@@ -587,7 +616,10 @@ defmodule RefMDWeb.Schemas do
         ecdh_public_key: %Schema{type: :string},
         signing_public_key: %Schema{type: :string},
         client_nonce: %Schema{type: :string},
-        identity_signature: %Schema{type: :string, description: "Identity cross-sign of device keys"},
+        identity_signature: %Schema{
+          type: :string,
+          description: "Identity cross-sign of device keys"
+        },
         last_seen_at: %Schema{type: :string, format: :"date-time"},
         created_at: %Schema{type: :string, format: :"date-time"}
       },

@@ -45,7 +45,6 @@ if config_env() == :prod do
 
   config :refmd, cookie_secure: true
 
-
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

@@ -12,45 +12,48 @@ defmodule RefMDWeb.Plugs.VerifyOrigin do
 
   import Plug.Conn
 
+  @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
+  @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
-    if Application.get_env(:refmd, :samesite_mode, "lax") != "none" do
-      # SameSite=Lax: cookie attribute prevents CSRF; no Origin check needed
-      conn
-    else
-      # SameSite=None: enforce Origin verification on POST/PATCH/DELETE only (web-security.md).
-      # GET/HEAD/OPTIONS are exempt — browsers may omit Origin on same-origin GETs.
-      # SSE endpoints are routed through a separate pipeline without this plug.
-      if conn.method in ["GET", "HEAD", "OPTIONS"] do
+    samesite_mode = Application.get_env(:refmd, :samesite_mode, "lax")
+
+    cond do
+      samesite_mode != "none" ->
         conn
-      else
-        allowed_origins = Application.get_env(:refmd, :cors_origins, [])
 
-        case get_req_header(conn, "origin") do
-          [origin] ->
-            if origin in allowed_origins do
-              conn
-            else
-              conn
-              |> put_status(:forbidden)
-              |> Phoenix.Controller.json(%{error: "origin_not_allowed"})
-              |> halt()
-            end
+      conn.method in ["GET", "HEAD", "OPTIONS"] ->
+        conn
 
-          [] ->
-            conn
-            |> put_status(:forbidden)
-            |> Phoenix.Controller.json(%{error: "origin_required"})
-            |> halt()
-
-          _multiple ->
-            conn
-            |> put_status(:forbidden)
-            |> Phoenix.Controller.json(%{error: "invalid_origin"})
-            |> halt()
-        end
-      end
+      true ->
+        verify_origin_header(conn)
     end
+  end
+
+  defp verify_origin_header(conn) do
+    allowed_origins = Application.get_env(:refmd, :cors_origins, [])
+
+    case get_req_header(conn, "origin") do
+      [origin] ->
+        if origin in allowed_origins do
+          conn
+        else
+          reject_origin(conn, "origin_not_allowed")
+        end
+
+      [] ->
+        reject_origin(conn, "origin_required")
+
+      _multiple ->
+        reject_origin(conn, "invalid_origin")
+    end
+  end
+
+  defp reject_origin(conn, error) do
+    conn
+    |> put_status(:forbidden)
+    |> Phoenix.Controller.json(%{error: error})
+    |> halt()
   end
 end

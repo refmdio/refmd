@@ -117,14 +117,29 @@ defmodule RefMDWeb.Router do
     # Encryption (KEK/DEK operations)
     post "/encryption/workspaces/:workspace_id/keys", EncryptionController, :create_workspace_key
     get "/encryption/workspaces/:workspace_id/keys", EncryptionController, :get_workspace_keys
-    post "/encryption/workspaces/:workspace_id/kek-backup", EncryptionController, :create_kek_backup
+
+    post "/encryption/workspaces/:workspace_id/kek-backup",
+         EncryptionController,
+         :create_kek_backup
+
     get "/encryption/workspaces/:workspace_id/kek-backup", EncryptionController, :get_kek_backup
 
     # KEK Rotation
-    post "/encryption/workspaces/:workspace_id/kek-rotation", EncryptionController, :start_kek_rotation
-    post "/encryption/workspaces/:workspace_id/kek-rotation/complete", EncryptionController, :complete_kek_rotation
-    post "/encryption/workspaces/:workspace_id/member-envelopes", EncryptionController, :save_member_envelopes
-    get "/encryption/workspaces/:workspace_id/member-envelope", EncryptionController, :get_member_envelope
+    post "/encryption/workspaces/:workspace_id/kek-rotation",
+         EncryptionController,
+         :start_kek_rotation
+
+    post "/encryption/workspaces/:workspace_id/kek-rotation/complete",
+         EncryptionController,
+         :complete_kek_rotation
+
+    post "/encryption/workspaces/:workspace_id/member-envelopes",
+         EncryptionController,
+         :save_member_envelopes
+
+    get "/encryption/workspaces/:workspace_id/member-envelope",
+        EncryptionController,
+        :get_member_envelope
   end
 
   # SPA fallback: serve index.html for all non-API routes

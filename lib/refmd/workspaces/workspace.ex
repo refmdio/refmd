@@ -22,6 +22,9 @@ defmodule RefMD.Workspaces.Workspace do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(workspace, attrs) do
     workspace
     |> cast(attrs, [:name, :slug, :description, :icon, :owner_id])

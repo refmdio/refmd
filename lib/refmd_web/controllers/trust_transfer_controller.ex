@@ -3,7 +3,7 @@ defmodule RefMDWeb.TrustTransferController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Accounts
-  alias RefMDWeb.{Schemas, DeviceEventsController}
+  alias RefMDWeb.{DeviceEventsController, Schemas}
 
   operation(:create_nonce,
     summary: "Request a trust transfer nonce",
@@ -14,6 +14,7 @@ defmodule RefMDWeb.TrustTransferController do
     ]
   )
 
+  @spec create_nonce(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_nonce(conn, %{"device_id" => device_id}) do
     user_id = conn.assigns.current_user_id
     session = conn.assigns.current_session
@@ -23,22 +24,22 @@ defmodule RefMDWeb.TrustTransferController do
         conn |> put_status(:forbidden) |> json(%{error: "bound_session"})
 
       not (Accounts.user_owns_active_device?(user_id, device_id) or
-             Accounts.user_owns_pending_device?(user_id, device_id)) ->
+               Accounts.user_owns_pending_device?(user_id, device_id)) ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
 
       true ->
-      case Accounts.create_trust_transfer_nonce(user_id, device_id) do
-        {:ok, nonce, expires_at} ->
-          DeviceEventsController.broadcast_trust_transfer_nonce_ready(user_id, device_id, nonce)
+        case Accounts.create_trust_transfer_nonce(user_id, device_id) do
+          {:ok, nonce, expires_at} ->
+            DeviceEventsController.broadcast_trust_transfer_nonce_ready(user_id, device_id, nonce)
 
-          json(conn, %{
-            nonce: Base.url_encode64(nonce, padding: false),
-            expires_at: DateTime.to_iso8601(expires_at)
-          })
+            json(conn, %{
+              nonce: Base.url_encode64(nonce, padding: false),
+              expires_at: DateTime.to_iso8601(expires_at)
+            })
 
-        {:error, _} ->
-          conn |> put_status(:unprocessable_entity) |> json(%{error: "nonce_creation_failed"})
-      end
+          {:error, _} ->
+            conn |> put_status(:unprocessable_entity) |> json(%{error: "nonce_creation_failed"})
+        end
     end
   end
 
@@ -52,13 +53,16 @@ defmodule RefMDWeb.TrustTransferController do
     ]
   )
 
+  @spec send_state(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def send_state(conn, params) do
     user_id = conn.assigns.current_user_id
     target_device_id = params["target_device_id"]
 
     target_valid =
       case Accounts.get_device(target_device_id) do
-        %{user_id: ^user_id, revoked_at: nil} -> true
+        %{user_id: ^user_id, revoked_at: nil} ->
+          true
+
         _ ->
           case Accounts.get_valid_pending_device(target_device_id) do
             %{user_id: ^user_id} -> true
@@ -66,40 +70,10 @@ defmodule RefMDWeb.TrustTransferController do
           end
       end
 
-    unless target_valid do
-      conn |> put_status(:forbidden) |> json(%{error: "invalid_target_device"})
+    if target_valid do
+      send_trust_state(conn, params, user_id, target_device_id)
     else
-      with {:ok, transfer_nonce} <- decode_binary(params["transfer_nonce"]),
-           {:ok, ciphertext} <- decode_binary(params["ciphertext"]),
-           {:ok, nonce} <- decode_binary(params["nonce"]),
-           {:ok, signature} <- decode_binary(params["signature"]) do
-        if byte_size(ciphertext) > Accounts.trust_transfer_max_payload_bytes() do
-          conn |> put_status(:request_entity_too_large) |> json(%{error: "payload_too_large"})
-        else
-          with :ok <- Accounts.consume_trust_transfer_nonce(user_id, target_device_id, transfer_nonce) do
-            case Accounts.save_trust_transfer_state(%{
-                   user_id: user_id,
-                   target_device_id: target_device_id,
-                   sender_device_id: conn.assigns[:pop_device_id],
-                   ciphertext: ciphertext,
-                   nonce: nonce,
-                   signature: signature
-                 }) do
-              {:ok, _} ->
-                json(conn, %{ok: true})
-
-              {:error, _} ->
-                conn |> put_status(:unprocessable_entity) |> json(%{error: "save_failed"})
-            end
-          else
-            {:error, :invalid_nonce} ->
-              conn |> put_status(:forbidden) |> json(%{error: "invalid_or_expired_nonce"})
-          end
-        end
-      else
-        {:error, :invalid_base64} ->
-          conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
-      end
+      conn |> put_status(:forbidden) |> json(%{error: "invalid_target_device"})
     end
   end
 
@@ -115,6 +89,7 @@ defmodule RefMDWeb.TrustTransferController do
     ]
   )
 
+  @spec get_state(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def get_state(conn, %{"device_id" => device_id}) do
     user_id = conn.assigns.current_user_id
     session = conn.assigns.current_session
@@ -124,26 +99,81 @@ defmodule RefMDWeb.TrustTransferController do
         conn |> put_status(:forbidden) |> json(%{error: "bound_session"})
 
       not (Accounts.user_owns_active_device?(user_id, device_id) or
-             Accounts.user_owns_pending_device?(user_id, device_id)) ->
+               Accounts.user_owns_pending_device?(user_id, device_id)) ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
 
       true ->
-      case Accounts.consume_trust_transfer_state(user_id, device_id) do
-        {:ok, state} ->
-          sender = Accounts.get_device(state.sender_device_id)
+        case Accounts.consume_trust_transfer_state(user_id, device_id) do
+          {:ok, state} ->
+            sender = Accounts.get_device(state.sender_device_id)
 
-          json(conn, %{
-            sender_device_id: state.sender_device_id,
-            sender_ecdh_public_key: sender && encode_binary(sender.ecdh_public_key),
-            sender_signing_public_key: sender && encode_binary(sender.signing_public_key),
-            ciphertext: encode_binary(state.ciphertext),
-            nonce: encode_binary(state.nonce),
-            signature: encode_binary(state.signature)
-          })
+            json(conn, %{
+              sender_device_id: state.sender_device_id,
+              sender_ecdh_public_key: sender && encode_binary(sender.ecdh_public_key),
+              sender_signing_public_key: sender && encode_binary(sender.signing_public_key),
+              ciphertext: encode_binary(state.ciphertext),
+              nonce: encode_binary(state.nonce),
+              signature: encode_binary(state.signature)
+            })
 
-        {:error, :not_found} ->
-          conn |> put_status(:not_found) |> json(%{error: "not_found"})
+          {:error, :not_found} ->
+            conn |> put_status(:not_found) |> json(%{error: "not_found"})
+        end
+    end
+  end
+
+  defp send_trust_state(conn, params, user_id, target_device_id) do
+    with {:ok, transfer_nonce} <- decode_binary(params["transfer_nonce"]),
+         {:ok, ciphertext} <- decode_binary(params["ciphertext"]),
+         {:ok, nonce} <- decode_binary(params["nonce"]),
+         {:ok, signature} <- decode_binary(params["signature"]) do
+      if byte_size(ciphertext) > Accounts.trust_transfer_max_payload_bytes() do
+        conn |> put_status(:request_entity_too_large) |> json(%{error: "payload_too_large"})
+      else
+        consume_nonce_and_save(
+          conn,
+          user_id,
+          target_device_id,
+          transfer_nonce,
+          ciphertext,
+          nonce,
+          signature
+        )
       end
+    else
+      {:error, :invalid_base64} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
+    end
+  end
+
+  defp consume_nonce_and_save(
+         conn,
+         user_id,
+         target_device_id,
+         transfer_nonce,
+         ciphertext,
+         nonce,
+         signature
+       ) do
+    case Accounts.consume_trust_transfer_nonce(user_id, target_device_id, transfer_nonce) do
+      :ok ->
+        case Accounts.save_trust_transfer_state(%{
+               user_id: user_id,
+               target_device_id: target_device_id,
+               sender_device_id: conn.assigns[:pop_device_id],
+               ciphertext: ciphertext,
+               nonce: nonce,
+               signature: signature
+             }) do
+          {:ok, _} ->
+            json(conn, %{ok: true})
+
+          {:error, _} ->
+            conn |> put_status(:unprocessable_entity) |> json(%{error: "save_failed"})
+        end
+
+      {:error, :invalid_nonce} ->
+        conn |> put_status(:forbidden) |> json(%{error: "invalid_or_expired_nonce"})
     end
   end
 

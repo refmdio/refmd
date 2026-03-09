@@ -15,6 +15,9 @@ defmodule RefMD.Accounts.UserSettings do
     field :updated_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(settings, attrs) do
     settings
     |> cast(attrs, [:theme, :locale, :editor_vim_mode, :editor_font_size])

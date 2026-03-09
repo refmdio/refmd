@@ -15,10 +15,27 @@ defmodule RefMD.Accounts.DeviceRevocationEvent do
     field :created_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(record, attrs) do
     record
-    |> cast(attrs, [:user_id, :device_id, :revoked_by_device_id, :revocation_mode, :signature, :revoked_at])
-    |> validate_required([:user_id, :device_id, :revoked_by_device_id, :revocation_mode, :signature, :revoked_at])
+    |> cast(attrs, [
+      :user_id,
+      :device_id,
+      :revoked_by_device_id,
+      :revocation_mode,
+      :signature,
+      :revoked_at
+    ])
+    |> validate_required([
+      :user_id,
+      :device_id,
+      :revoked_by_device_id,
+      :revocation_mode,
+      :signature,
+      :revoked_at
+    ])
     |> validate_inclusion(:revocation_mode, ~w(security retire))
   end
 end

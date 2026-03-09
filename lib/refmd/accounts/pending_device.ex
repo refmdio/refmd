@@ -17,6 +17,9 @@ defmodule RefMD.Accounts.PendingDevice do
     field :expires_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(pending_device, attrs) do
     pending_device
     |> cast(attrs, [

@@ -3,7 +3,7 @@ defmodule RefMDWeb.DeviceController do
   use OpenApiSpex.ControllerSpecs
 
   alias RefMD.Accounts
-  alias RefMDWeb.{Schemas, DeviceEventsController, CryptoValidation}
+  alias RefMDWeb.{CryptoValidation, DeviceEventsController, Schemas}
 
   operation(:bootstrap,
     summary: "Bootstrap first device (first device only)",
@@ -15,6 +15,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec bootstrap(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def bootstrap(conn, params) do
     user_id = conn.assigns.current_user_id
     identity_signing_public_key = decode_binary!(params["identity_signing_public_key"])
@@ -25,40 +26,40 @@ defmodule RefMDWeb.DeviceController do
 
     stored_identity = RefMD.Encryption.get_user_identity_public_key(user_id)
 
-    cond do
-      stored_identity == nil ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "identity_key_not_found"})
-
-      identity_signing_public_key != stored_identity.signing_public_key ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "identity_signing_public_key_mismatch"})
-
-      byte_size(ecdh_public_key) != 32 ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_ecdh_public_key_size"})
-
-      not CryptoValidation.valid_x25519_public_key?(ecdh_public_key) ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_ecdh_public_key"})
-
-      byte_size(signing_public_key) != 32 ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_signing_public_key_size"})
-
-      not CryptoValidation.valid_ed25519_public_key?(signing_public_key) ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_signing_public_key"})
-
-      byte_size(client_nonce) != 16 ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_client_nonce_size"})
-
-      Accounts.user_has_any_device_records?(user_id) ->
+    with :ok <- validate_identity_key(stored_identity, identity_signing_public_key),
+         :ok <- validate_device_keys(ecdh_public_key, signing_public_key, client_nonce) do
+      if Accounts.user_has_any_device_records?(user_id) do
         conn |> put_status(:conflict) |> json(%{error: "already_has_devices"})
-
-      true ->
-        bootstrap_first_device(conn, params, user_id, ecdh_public_key, signing_public_key, client_nonce, identity_signature)
+      else
+        bootstrap_first_device(
+          conn,
+          params,
+          user_id,
+          ecdh_public_key,
+          signing_public_key,
+          client_nonce,
+          identity_signature
+        )
+      end
+    else
+      {:error, error} ->
+        {status, msg} = device_validation_error_response(error)
+        conn |> put_status(status) |> json(%{error: msg})
     end
   rescue
     ArgumentError ->
       conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
 
-  defp bootstrap_first_device(conn, params, user_id, ecdh_public_key, signing_public_key, client_nonce, identity_signature) do
+  defp bootstrap_first_device(
+         conn,
+         params,
+         user_id,
+         ecdh_public_key,
+         signing_public_key,
+         client_nonce,
+         identity_signature
+       ) do
     case Accounts.bootstrap_first_device(
            %{
              user_id: user_id,
@@ -100,6 +101,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec create_pending(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_pending(conn, params) do
     user_id = conn.assigns.current_user_id
     ecdh_public_key = decode_binary!(params["device_ecdh_public_key"])
@@ -109,40 +111,40 @@ defmodule RefMDWeb.DeviceController do
 
     stored_identity = RefMD.Encryption.get_user_identity_public_key(user_id)
 
-    cond do
-      stored_identity == nil ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "identity_key_not_found"})
-
-      identity_signing_public_key != stored_identity.signing_public_key ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "identity_signing_public_key_mismatch"})
-
-      byte_size(ecdh_public_key) != 32 ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_ecdh_public_key_size"})
-
-      not CryptoValidation.valid_x25519_public_key?(ecdh_public_key) ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_ecdh_public_key"})
-
-      byte_size(signing_public_key) != 32 ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_signing_public_key_size"})
-
-      not CryptoValidation.valid_ed25519_public_key?(signing_public_key) ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_signing_public_key"})
-
-      byte_size(client_nonce) != 16 ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_client_nonce_size"})
-
-      not Accounts.user_has_any_device_records?(user_id) ->
-        conn |> put_status(:unprocessable_entity) |> json(%{error: "use_bootstrap_for_first_device"})
-
-      true ->
-        create_pending_device(conn, params, user_id, ecdh_public_key, signing_public_key, client_nonce)
+    with :ok <- validate_identity_key(stored_identity, identity_signing_public_key),
+         :ok <- validate_device_keys(ecdh_public_key, signing_public_key, client_nonce) do
+      if Accounts.user_has_any_device_records?(user_id) do
+        create_pending_device(
+          conn,
+          params,
+          user_id,
+          ecdh_public_key,
+          signing_public_key,
+          client_nonce
+        )
+      else
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "use_bootstrap_for_first_device"})
+      end
+    else
+      {:error, error} ->
+        {status, msg} = device_validation_error_response(error)
+        conn |> put_status(status) |> json(%{error: msg})
     end
   rescue
     ArgumentError ->
       conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
 
-  defp create_pending_device(conn, params, user_id, ecdh_public_key, signing_public_key, client_nonce) do
+  defp create_pending_device(
+         conn,
+         params,
+         user_id,
+         ecdh_public_key,
+         signing_public_key,
+         client_nonce
+       ) do
     ua = get_req_header(conn, "user-agent") |> List.first() || ""
 
     case Accounts.create_pending_device(%{
@@ -178,6 +180,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec list_pending(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def list_pending(conn, _params) do
     user_id = conn.assigns.current_user_id
     pending_devices = Accounts.get_user_pending_devices(user_id)
@@ -211,6 +214,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec reject_pending(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def reject_pending(conn, %{"id" => id}) do
     user_id = conn.assigns.current_user_id
 
@@ -235,6 +239,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec get_pending_status(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def get_pending_status(conn, %{"id" => id}) do
     user_id = conn.assigns.current_user_id
 
@@ -258,6 +263,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec approve(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def approve(conn, %{"id" => id} = params) do
     user_id = conn.assigns.current_user_id
 
@@ -266,30 +272,7 @@ defmodule RefMDWeb.DeviceController do
         conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
       %{user_id: ^user_id} = pending ->
-        identity_signature = decode_binary!(params["identity_signature"])
-        session = conn.assigns.current_session
-
-        # Recovery sessions may only self-approve their own pending device
-        # (auth.md: recovery always allows self-approval, even when has_devices=true)
-        if session.is_recovery and session.pending_device_id != id do
-          conn |> put_status(:forbidden) |> json(%{error: "recovery_self_approval_only"})
-        else
-          case Accounts.approve_pending_device(pending, identity_signature,
-                 is_recovery: session.is_recovery
-               ) do
-            {:ok, device} ->
-              json(conn, %{
-                device: %{
-                  id: device.id,
-                  name: device.name,
-                  device_type: device.device_type
-                }
-              })
-
-            {:error, _} ->
-              conn |> put_status(:unprocessable_entity) |> json(%{error: "approval_failed"})
-          end
-        end
+        approve_owned_pending_device(conn, pending, id, params)
 
       _ ->
         conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
@@ -306,6 +289,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec list(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def list(conn, _params) do
     user_id = conn.assigns.current_user_id
     devices = Accounts.get_user_devices(user_id)
@@ -342,6 +326,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec revoke(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def revoke(conn, %{"device_id" => device_id} = params) do
     user_id = conn.assigns.current_user_id
     pop_device_id = conn.assigns[:pop_device_id]
@@ -364,12 +349,24 @@ defmodule RefMDWeb.DeviceController do
         identity_signature = decode_binary!(params["identity_signature"])
         revoked_at_ms = params["revoked_at"]
 
-        with true <- Accounts.verify_revocation_signature(
-               user_id, device_id, revocation_mode, pop_device_id, revoked_at_ms, identity_signature
-             ),
-             {:ok, result} <- Accounts.revoke_device(
-               user_id, device_id, pop_device_id, revocation_mode, identity_signature, revoked_at_ms
-             ) do
+        with true <-
+               Accounts.verify_revocation_signature(
+                 user_id,
+                 device_id,
+                 revocation_mode,
+                 pop_device_id,
+                 revoked_at_ms,
+                 identity_signature
+               ),
+             {:ok, result} <-
+               Accounts.revoke_device(
+                 user_id,
+                 device_id,
+                 pop_device_id,
+                 revocation_mode,
+                 identity_signature,
+                 revoked_at_ms
+               ) do
           json(conn, %{
             revoked_device_id: device_id,
             revocation_mode: revocation_mode,
@@ -404,6 +401,7 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
+  @spec rename(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def rename(conn, %{"device_id" => device_id} = params) do
     user_id = conn.assigns.current_user_id
     name = params["name"]
@@ -419,6 +417,69 @@ defmodule RefMDWeb.DeviceController do
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "invalid_name", details: format_errors(changeset)})
+    end
+  end
+
+  defp validate_identity_key(nil, _identity_signing_public_key) do
+    {:error, :identity_key_not_found}
+  end
+
+  defp validate_identity_key(stored_identity, identity_signing_public_key) do
+    if identity_signing_public_key == stored_identity.signing_public_key do
+      :ok
+    else
+      {:error, :identity_signing_public_key_mismatch}
+    end
+  end
+
+  defp validate_device_keys(ecdh_public_key, signing_public_key, client_nonce) do
+    cond do
+      byte_size(ecdh_public_key) != 32 ->
+        {:error, :invalid_ecdh_public_key_size}
+
+      not CryptoValidation.valid_x25519_public_key?(ecdh_public_key) ->
+        {:error, :invalid_ecdh_public_key}
+
+      byte_size(signing_public_key) != 32 ->
+        {:error, :invalid_signing_public_key_size}
+
+      not CryptoValidation.valid_ed25519_public_key?(signing_public_key) ->
+        {:error, :invalid_signing_public_key}
+
+      byte_size(client_nonce) != 16 ->
+        {:error, :invalid_client_nonce_size}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp device_validation_error_response(error) do
+    {:unprocessable_entity, Atom.to_string(error)}
+  end
+
+  defp approve_owned_pending_device(conn, pending, id, params) do
+    identity_signature = decode_binary!(params["identity_signature"])
+    session = conn.assigns.current_session
+
+    if session.is_recovery and session.pending_device_id != id do
+      conn |> put_status(:forbidden) |> json(%{error: "recovery_self_approval_only"})
+    else
+      case Accounts.approve_pending_device(pending, identity_signature,
+             is_recovery: session.is_recovery
+           ) do
+        {:ok, device} ->
+          json(conn, %{
+            device: %{
+              id: device.id,
+              name: device.name,
+              device_type: device.device_type
+            }
+          })
+
+        {:error, _} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: "approval_failed"})
+      end
     end
   end
 
@@ -447,6 +508,4 @@ defmodule RefMDWeb.DeviceController do
   defp format_errors(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} -> msg end)
   end
-
-  defp format_errors(_), do: %{}
 end

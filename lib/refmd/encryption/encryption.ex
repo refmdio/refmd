@@ -4,43 +4,53 @@ defmodule RefMD.Encryption do
   """
 
   import Ecto.Query
-  alias RefMD.Repo
 
   alias RefMD.Encryption.{
-    UserIdentityPublicKey,
-    UserEncryptedMasterKey,
-    UserEncryptedIdentityKey,
     DeviceEncryptedUMK,
+    DocumentEncryptedKey,
+    UserEncryptedIdentityKey,
+    UserEncryptedMasterKey,
+    UserIdentityPublicKey,
     WorkspaceEncryptedKey,
     WorkspaceKekBackup,
-    WorkspaceMemberEnvelope,
-    DocumentEncryptedKey
+    WorkspaceMemberEnvelope
   }
+
+  alias RefMD.Repo
 
   # ── User Keys ──────────────────────────────────
 
+  @spec create_user_identity_public_key(map()) ::
+          {:ok, UserIdentityPublicKey.t()} | {:error, Ecto.Changeset.t()}
   def create_user_identity_public_key(attrs) do
     %UserIdentityPublicKey{}
     |> UserIdentityPublicKey.changeset(attrs)
     |> Repo.insert()
   end
 
+  @spec create_user_encrypted_master_key(map()) ::
+          {:ok, UserEncryptedMasterKey.t()} | {:error, Ecto.Changeset.t()}
   def create_user_encrypted_master_key(attrs) do
     %UserEncryptedMasterKey{}
     |> UserEncryptedMasterKey.changeset(attrs)
     |> Repo.insert()
   end
 
+  @spec create_user_encrypted_identity_key(map()) ::
+          {:ok, UserEncryptedIdentityKey.t()} | {:error, Ecto.Changeset.t()}
   def create_user_encrypted_identity_key(attrs) do
     %UserEncryptedIdentityKey{}
     |> UserEncryptedIdentityKey.changeset(attrs)
     |> Repo.insert()
   end
 
+  @spec get_user_encrypted_master_key(Ecto.UUID.t()) :: UserEncryptedMasterKey.t() | nil
   def get_user_encrypted_master_key(user_id) do
     Repo.get(UserEncryptedMasterKey, user_id)
   end
 
+  @spec update_master_key_kdf(Ecto.UUID.t(), map()) ::
+          {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_master_key_kdf(user_id, attrs) do
     case Repo.get(UserEncryptedMasterKey, user_id) do
       nil ->
@@ -58,6 +68,8 @@ defmodule RefMD.Encryption do
     end
   end
 
+  @spec update_master_key_for_password_set(Ecto.UUID.t(), map()) ::
+          {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_master_key_for_password_set(user_id, attrs) do
     case Repo.get(UserEncryptedMasterKey, user_id) do
       nil ->
@@ -78,6 +90,8 @@ defmodule RefMD.Encryption do
     end
   end
 
+  @spec update_recovery_key(Ecto.UUID.t(), map()) ::
+          {:ok, UserEncryptedMasterKey.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def update_recovery_key(user_id, attrs) do
     case Repo.get(UserEncryptedMasterKey, user_id) do
       nil ->
@@ -93,22 +107,27 @@ defmodule RefMD.Encryption do
     end
   end
 
+  @spec get_user_encrypted_identity_key(Ecto.UUID.t()) :: UserEncryptedIdentityKey.t() | nil
   def get_user_encrypted_identity_key(user_id) do
     Repo.get(UserEncryptedIdentityKey, user_id)
   end
 
+  @spec get_user_identity_public_key(Ecto.UUID.t()) :: UserIdentityPublicKey.t() | nil
   def get_user_identity_public_key(user_id) do
     Repo.get(UserIdentityPublicKey, user_id)
   end
 
   # ── Device Keys ────────────────────────────────
 
+  @spec create_device_encrypted_umk(map()) ::
+          {:ok, DeviceEncryptedUMK.t()} | {:error, Ecto.Changeset.t()}
   def create_device_encrypted_umk(attrs) do
     %DeviceEncryptedUMK{created_at: DateTime.utc_now()}
     |> DeviceEncryptedUMK.changeset(attrs)
     |> Repo.insert()
   end
 
+  @spec get_device_encrypted_umk(Ecto.UUID.t(), Ecto.UUID.t()) :: DeviceEncryptedUMK.t() | nil
   def get_device_encrypted_umk(user_id, device_id) do
     from(d in DeviceEncryptedUMK,
       where: d.user_id == ^user_id and d.device_id == ^device_id
@@ -118,6 +137,8 @@ defmodule RefMD.Encryption do
 
   # ── Workspace Keys ─────────────────────────────
 
+  @spec create_workspace_encrypted_key(map()) ::
+          {:ok, WorkspaceEncryptedKey.t()} | {:error, :invalid_sender_device | Ecto.Changeset.t()}
   def create_workspace_encrypted_key(attrs) do
     user_id = attrs[:user_id] || attrs["user_id"]
     sender_device_id = attrs[:sender_device_id] || attrs["sender_device_id"]
@@ -132,6 +153,8 @@ defmodule RefMD.Encryption do
     end
   end
 
+  @spec delete_workspace_encrypted_key(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), integer()) ::
+          {non_neg_integer(), nil | [term()]}
   def delete_workspace_encrypted_key(workspace_id, user_id, device_id, key_version) do
     from(k in WorkspaceEncryptedKey,
       where:
@@ -143,6 +166,8 @@ defmodule RefMD.Encryption do
     |> Repo.delete_all()
   end
 
+  @spec get_workspace_encrypted_keys(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          [WorkspaceEncryptedKey.t()]
   def get_workspace_encrypted_keys(workspace_id, user_id, device_id) do
     from(k in WorkspaceEncryptedKey,
       where:
@@ -154,6 +179,7 @@ defmodule RefMD.Encryption do
     |> Repo.all()
   end
 
+  @spec user_has_active_kek?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def user_has_active_kek?(workspace_id, user_id) do
     from(k in WorkspaceEncryptedKey,
       where:
@@ -168,6 +194,8 @@ defmodule RefMD.Encryption do
 
   # ── KEK Backups ───────────────────────────────
 
+  @spec create_workspace_kek_backup(map()) ::
+          {:ok, WorkspaceKekBackup.t()} | {:error, Ecto.Changeset.t()}
   def create_workspace_kek_backup(attrs) do
     Repo.transaction(fn ->
       # Deactivate existing active backup for this (workspace, user) to satisfy partial unique index
@@ -188,6 +216,7 @@ defmodule RefMD.Encryption do
     end)
   end
 
+  @spec get_active_kek_backup(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceKekBackup.t() | nil
   def get_active_kek_backup(workspace_id, user_id) do
     from(b in WorkspaceKekBackup,
       where:
@@ -198,6 +227,7 @@ defmodule RefMD.Encryption do
     |> Repo.one()
   end
 
+  @spec get_max_active_kek_version(Ecto.UUID.t()) :: integer() | nil
   def get_max_active_kek_version(workspace_id) do
     from(k in WorkspaceEncryptedKey,
       where: k.workspace_id == ^workspace_id and k.is_active == true,
@@ -208,6 +238,7 @@ defmodule RefMD.Encryption do
 
   # ── Member Envelopes ─────────────────────────
 
+  @spec save_member_envelopes(Ecto.UUID.t(), [map()]) :: {:ok, any()} | {:error, any()}
   def save_member_envelopes(workspace_id, envelopes) do
     now = DateTime.utc_now()
 
@@ -238,16 +269,18 @@ defmodule RefMD.Encryption do
 
       {:ok, changesets} ->
         Repo.transaction(fn ->
-          Enum.each(changesets, fn changeset ->
-            case Repo.insert(changeset,
-                   on_conflict: {:replace, [:encrypted_kek, :nonce, :sender_device_id, :created_at]},
-                   conflict_target: [:workspace_id, :target_user_id, :key_version]
-                 ) do
-              {:ok, _} -> :ok
-              {:error, changeset} -> Repo.rollback({:invalid_envelope, changeset})
-            end
-          end)
+          Enum.each(changesets, &insert_envelope_or_rollback/1)
         end)
+    end
+  end
+
+  defp insert_envelope_or_rollback(changeset) do
+    case Repo.insert(changeset,
+           on_conflict: {:replace, [:encrypted_kek, :nonce, :sender_device_id, :created_at]},
+           conflict_target: [:workspace_id, :target_user_id, :key_version]
+         ) do
+      {:ok, _} -> :ok
+      {:error, changeset} -> Repo.rollback({:invalid_envelope, changeset})
     end
   end
 
@@ -257,6 +290,7 @@ defmodule RefMD.Encryption do
 
   defp safe_decode64(_), do: :error
 
+  @spec get_member_envelope(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceMemberEnvelope.t() | nil
   def get_member_envelope(workspace_id, user_id) do
     from(e in WorkspaceMemberEnvelope,
       where: e.workspace_id == ^workspace_id and e.target_user_id == ^user_id,
@@ -266,6 +300,7 @@ defmodule RefMD.Encryption do
     |> Repo.one()
   end
 
+  @spec all_user_devices_have_key?(Ecto.UUID.t(), Ecto.UUID.t(), integer()) :: boolean()
   def all_user_devices_have_key?(workspace_id, user_id, key_version) do
     active_device_count =
       from(d in RefMD.Accounts.Device,
@@ -288,6 +323,7 @@ defmodule RefMD.Encryption do
     device_key_count >= active_device_count
   end
 
+  @spec all_members_have_envelope?(Ecto.UUID.t(), integer()) :: boolean()
   def all_members_have_envelope?(workspace_id, key_version) do
     member_count =
       from(wm in RefMD.Workspaces.WorkspaceMember,
@@ -308,12 +344,15 @@ defmodule RefMD.Encryption do
 
   # ── Document Keys ──────────────────────────────
 
+  @spec create_document_encrypted_key(map()) ::
+          {:ok, DocumentEncryptedKey.t()} | {:error, Ecto.Changeset.t()}
   def create_document_encrypted_key(attrs) do
     %DocumentEncryptedKey{created_at: DateTime.utc_now()}
     |> DocumentEncryptedKey.changeset(attrs)
     |> Repo.insert()
   end
 
+  @spec get_active_document_encrypted_key(Ecto.UUID.t()) :: DocumentEncryptedKey.t() | nil
   def get_active_document_encrypted_key(document_id) do
     from(k in DocumentEncryptedKey,
       where: k.document_id == ^document_id and k.is_active == true
@@ -323,6 +362,7 @@ defmodule RefMD.Encryption do
 
   # ── Login Keys Response ────────────────────────
 
+  @spec get_login_keys(Ecto.UUID.t(), Ecto.UUID.t()) :: map()
   def get_login_keys(user_id, device_id) do
     %{
       encrypted_master_key: get_user_encrypted_master_key(user_id),

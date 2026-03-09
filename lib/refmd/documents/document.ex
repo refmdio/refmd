@@ -29,6 +29,9 @@ defmodule RefMD.Documents.Document do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(document, attrs) do
     document
     |> cast(attrs, [

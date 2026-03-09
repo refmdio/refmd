@@ -12,14 +12,17 @@ defmodule RefMD.Workspaces do
     WorkspaceRole
   }
 
+  @spec create_default_workspace(Ecto.UUID.t(), String.t()) ::
+          {:ok, Workspace.t()} | {:error, term()}
   def create_default_workspace(user_id, name) do
     slug = generate_slug(name)
 
     Repo.transaction(fn ->
-      {:ok, workspace} =
-        %Workspace{}
-        |> Workspace.changeset(%{name: name, slug: slug, owner_id: user_id})
-        |> Repo.insert()
+      workspace =
+        insert_or_rollback(
+          %Workspace{}
+          |> Workspace.changeset(%{name: name, slug: slug, owner_id: user_id})
+        )
 
       roles =
         for {base_role, role_name} <- [
@@ -28,7 +31,7 @@ defmodule RefMD.Workspaces do
               {"editor", "Editor"},
               {"viewer", "Viewer"}
             ] do
-          {:ok, role} =
+          insert_or_rollback(
             %WorkspaceRole{created_at: DateTime.utc_now()}
             |> WorkspaceRole.changeset(%{
               workspace_id: workspace.id,
@@ -36,14 +39,12 @@ defmodule RefMD.Workspaces do
               base_role: base_role,
               is_default: base_role == "editor"
             })
-            |> Repo.insert()
-
-          role
+          )
         end
 
       owner_role = Enum.find(roles, &(&1.base_role == "owner"))
 
-      {:ok, _member} =
+      insert_or_rollback(
         %WorkspaceMember{joined_at: DateTime.utc_now()}
         |> WorkspaceMember.changeset(%{
           workspace_id: workspace.id,
@@ -52,24 +53,36 @@ defmodule RefMD.Workspaces do
           is_default: true,
           joined_at: DateTime.utc_now()
         })
-        |> Repo.insert()
+      )
 
       workspace
     end)
   end
 
+  defp insert_or_rollback(changeset) do
+    case Repo.insert(changeset) do
+      {:ok, record} -> record
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  @spec get_workspace(Ecto.UUID.t()) :: Workspace.t() | nil
   def get_workspace(id), do: Repo.get(Workspace, id)
 
+  @spec update_current_kek_version(Ecto.UUID.t(), integer()) ::
+          {non_neg_integer(), nil | [term()]}
   def update_current_kek_version(workspace_id, version) do
     from(w in Workspace, where: w.id == ^workspace_id)
     |> Repo.update_all(set: [current_kek_version: version])
   end
 
+  @spec initialize_kek_version(Ecto.UUID.t()) :: {non_neg_integer(), nil | [term()]}
   def initialize_kek_version(workspace_id) do
     from(w in Workspace, where: w.id == ^workspace_id and w.current_kek_version == 0)
     |> Repo.update_all(set: [current_kek_version: 1])
   end
 
+  @spec get_user_default_workspace(Ecto.UUID.t()) :: Workspace.t() | nil
   def get_user_default_workspace(user_id) do
     from(wm in WorkspaceMember,
       join: w in Workspace,
@@ -81,6 +94,7 @@ defmodule RefMD.Workspaces do
     |> Repo.one()
   end
 
+  @spec list_user_workspaces(Ecto.UUID.t()) :: [Workspace.t()]
   def list_user_workspaces(user_id) do
     from(wm in WorkspaceMember,
       join: w in Workspace,
@@ -92,6 +106,7 @@ defmodule RefMD.Workspaces do
     |> Repo.all()
   end
 
+  @spec get_user_workspace_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
   def get_user_workspace_ids(user_id) do
     from(wm in WorkspaceMember,
       where: wm.user_id == ^user_id,
@@ -100,6 +115,7 @@ defmodule RefMD.Workspaces do
     |> Repo.all()
   end
 
+  @spec get_user_workspace_ids_with_kek_version(Ecto.UUID.t()) :: [{Ecto.UUID.t(), integer()}]
   def get_user_workspace_ids_with_kek_version(user_id) do
     from(wm in WorkspaceMember,
       join: w in Workspace,
@@ -110,6 +126,8 @@ defmodule RefMD.Workspaces do
     |> Repo.all()
   end
 
+  @spec mark_kek_rotation_needed([Ecto.UUID.t()], Ecto.UUID.t()) ::
+          {non_neg_integer(), nil | [term()]}
   def mark_kek_rotation_needed(workspace_ids, initiator_user_id) when workspace_ids != [] do
     from(w in Workspace,
       where: w.id in ^workspace_ids and w.needs_kek_rotation == false
@@ -121,6 +139,7 @@ defmodule RefMD.Workspaces do
 
   def mark_kek_rotation_needed([], _initiator_user_id), do: {0, nil}
 
+  @spec mark_dek_rotation_needed([Ecto.UUID.t()]) :: {non_neg_integer(), nil | [term()]}
   def mark_dek_rotation_needed(workspace_ids) when workspace_ids != [] do
     from(d in RefMD.Documents.Document,
       where: d.workspace_id in ^workspace_ids and d.needs_dek_rotation == false
@@ -130,6 +149,8 @@ defmodule RefMD.Workspaces do
 
   def mark_dek_rotation_needed([]), do: {0, nil}
 
+  @spec start_kek_rotation(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, Workspace.t()} | {:error, :not_found | :kek_rotation_already_in_progress}
   def start_kek_rotation(workspace_id, initiator_user_id) do
     from(w in Workspace,
       where: w.id == ^workspace_id and w.needs_kek_rotation == false
@@ -152,6 +173,7 @@ defmodule RefMD.Workspaces do
     end
   end
 
+  @spec complete_kek_rotation(Ecto.UUID.t(), integer(), keyword()) :: :ok | {:error, term()}
   def complete_kek_rotation(workspace_id, new_kek_version, opts \\ []) do
     envelope_checks = Keyword.get(opts, :envelope_checks, fn -> :ok end)
 
@@ -174,23 +196,7 @@ defmodule RefMD.Workspaces do
           Repo.rollback(:version_not_monotonic)
 
         true ->
-          case envelope_checks.() do
-            :ok ->
-              from(w in Workspace, where: w.id == ^workspace_id)
-              |> Repo.update_all(
-                set: [
-                  current_kek_version: new_kek_version,
-                  min_kek_version: new_kek_version,
-                  needs_kek_rotation: false,
-                  kek_rotation_initiator_user_id: nil
-                ]
-              )
-
-              :ok
-
-            {:error, reason} ->
-              Repo.rollback(reason)
-          end
+          apply_rotation_completion(workspace_id, new_kek_version, envelope_checks)
       end
     end)
     |> case do
@@ -199,6 +205,27 @@ defmodule RefMD.Workspaces do
     end
   end
 
+  defp apply_rotation_completion(workspace_id, new_kek_version, envelope_checks) do
+    case envelope_checks.() do
+      :ok ->
+        from(w in Workspace, where: w.id == ^workspace_id)
+        |> Repo.update_all(
+          set: [
+            current_kek_version: new_kek_version,
+            min_kek_version: new_kek_version,
+            needs_kek_rotation: false,
+            kek_rotation_initiator_user_id: nil
+          ]
+        )
+
+        :ok
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  @spec list_workspaces_needing_kek_rotation() :: [map()]
   def list_workspaces_needing_kek_rotation do
     from(w in Workspace,
       where: w.needs_kek_rotation == true,
@@ -211,6 +238,7 @@ defmodule RefMD.Workspaces do
     |> Repo.all()
   end
 
+  @spec list_workspace_member_user_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
   def list_workspace_member_user_ids(workspace_id) do
     from(wm in WorkspaceMember,
       where: wm.workspace_id == ^workspace_id,
@@ -219,6 +247,7 @@ defmodule RefMD.Workspaces do
     |> Repo.all()
   end
 
+  @spec get_workspace_member(Ecto.UUID.t(), Ecto.UUID.t()) :: WorkspaceMember.t() | nil
   def get_workspace_member(workspace_id, user_id) do
     from(wm in WorkspaceMember,
       where: wm.workspace_id == ^workspace_id and wm.user_id == ^user_id
@@ -226,6 +255,7 @@ defmodule RefMD.Workspaces do
     |> Repo.one()
   end
 
+  @spec get_member_role(Ecto.UUID.t(), Ecto.UUID.t()) :: String.t() | nil
   def get_member_role(workspace_id, user_id) do
     from(wm in WorkspaceMember,
       join: r in WorkspaceRole,

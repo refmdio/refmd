@@ -1032,9 +1032,6 @@
           },
           "error": {
             "type": "string"
-          },
-          "step": {
-            "type": "string"
           }
         },
         "required": [

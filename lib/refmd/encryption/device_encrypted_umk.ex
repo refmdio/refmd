@@ -14,6 +14,9 @@ defmodule RefMD.Encryption.DeviceEncryptedUMK do
     field :created_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(key, attrs) do
     key
     |> cast(attrs, [:user_id, :device_id, :sender_device_id, :encrypted_umk, :nonce])

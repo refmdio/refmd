@@ -12,6 +12,9 @@ defmodule RefMD.Accounts.PasswordResetToken do
     field :created_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(token, attrs) do
     token
     |> cast(attrs, [:user_id, :token_hash, :expires_at])

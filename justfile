@@ -55,11 +55,15 @@ test:
 test-verbose:
     mix test --trace
 
-# Full verification (compile + typecheck + test)
+# Full verification (compile + typecheck + lint + test + dialyzer)
 check:
     mix compile --warnings-as-errors
+    mix format --check-formatted
     cd assets && npx tsc -p tsconfig.app.json --noEmit
+    mix specs.check
+    mix credo --strict
     mix test
+    mix dialyzer --format short
 
 fmt:
     mix format

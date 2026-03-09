@@ -22,6 +22,9 @@ defmodule RefMD.Documents.DocumentSnapshot do
     field :created_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(snapshot, attrs) do
     snapshot
     |> cast(attrs, [

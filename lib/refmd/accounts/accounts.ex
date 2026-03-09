@@ -4,46 +4,55 @@ defmodule RefMD.Accounts do
   """
 
   import Ecto.Query
-  alias RefMD.Repo
+
   alias RefMD.Accounts.{
-    User,
-    UserSettings,
-    Session,
     Device,
+    DeviceRevocationEvent,
+    PasswordResetToken,
     PendingDevice,
     PopChallenge,
+    RecoveryChallenge,
+    Session,
     TrustTransferNonce,
     TrustTransferState,
-    DeviceRevocationEvent,
-    RecoveryChallenge,
-    PasswordResetToken
+    User,
+    UserSettings
   }
+
+  alias RefMD.Repo
 
   # ── Users ──────────────────────────────────────
 
+  @spec get_user(Ecto.UUID.t()) :: User.t() | nil
   def get_user(id), do: Repo.get(User, id)
 
+  @spec get_user_by_email(String.t()) :: User.t() | nil
   def get_user_by_email(email) when is_binary(email) do
     Repo.get_by(User, email: String.downcase(email))
   end
 
+  @spec create_user(map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
   def create_user(attrs) do
     %User{}
     |> User.changeset(attrs)
     |> Repo.insert()
   end
 
+  @spec create_user_with_struct(User.t(), map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
   def create_user_with_struct(%User{} = user_struct, attrs) do
     user_struct
     |> User.changeset(attrs)
     |> Repo.insert()
   end
 
+  @spec create_user_settings(Ecto.UUID.t()) ::
+          {:ok, UserSettings.t()} | {:error, Ecto.Changeset.t()}
   def create_user_settings(user_id) do
     %UserSettings{user_id: user_id, updated_at: DateTime.utc_now()}
     |> Repo.insert()
   end
 
+  @spec update_encryption_setup(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def update_encryption_setup(user_id) do
     from(u in User, where: u.id == ^user_id)
     |> Repo.update_all(set: [encryption_setup_at: DateTime.utc_now()])
@@ -54,6 +63,8 @@ defmodule RefMD.Accounts do
   @session_ttl_default 24 * 60 * 60
   @session_ttl_remember 30 * 24 * 60 * 60
 
+  @spec create_session(Ecto.UUID.t(), map()) ::
+          {:ok, Session.t(), binary()} | {:error, Ecto.Changeset.t()}
   def create_session(user_id, attrs \\ %{}) do
     token = :crypto.strong_rand_bytes(32)
     token_hash = Base.url_encode64(:crypto.hash(:sha256, token), padding: false)
@@ -81,6 +92,7 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec get_valid_session_by_token(binary()) :: {:ok, Session.t()} | {:error, :invalid_session}
   def get_valid_session_by_token(raw_token) do
     token_hash = Base.url_encode64(:crypto.hash(:sha256, raw_token), padding: false)
     now = DateTime.utc_now()
@@ -97,6 +109,8 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec get_valid_session_by_token_base64(String.t()) ::
+          {:ok, Session.t()} | {:error, :invalid_session | :invalid_token}
   def get_valid_session_by_token_base64(token_base64) do
     case Base.url_decode64(token_base64, padding: false) do
       {:ok, raw_token} -> get_valid_session_by_token(raw_token)
@@ -104,18 +118,22 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec get_session(Ecto.UUID.t()) :: Session.t() | nil
   def get_session(session_id), do: Repo.get(Session, session_id)
 
+  @spec delete_session(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_session(session_id) do
     from(s in Session, where: s.id == ^session_id)
     |> Repo.delete_all()
   end
 
+  @spec bind_pending_device_to_session(Ecto.UUID.t(), Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def bind_pending_device_to_session(session_id, pending_device_id) do
     from(s in Session, where: s.id == ^session_id)
     |> Repo.update_all(set: [pending_device_id: pending_device_id])
   end
 
+  @spec delete_other_sessions(Ecto.UUID.t(), Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_other_sessions(user_id, current_session_id) do
     from(s in Session,
       where: s.user_id == ^user_id and s.id != ^current_session_id
@@ -123,21 +141,25 @@ defmodule RefMD.Accounts do
     |> Repo.delete_all()
   end
 
+  @spec delete_all_sessions(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_all_sessions(user_id) do
     from(s in Session, where: s.user_id == ^user_id)
     |> Repo.delete_all()
   end
 
+  @spec touch_session(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def touch_session(session_id) do
     from(s in Session, where: s.id == ^session_id)
     |> Repo.update_all(set: [last_seen_at: DateTime.utc_now()])
   end
 
+  @spec touch_device(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def touch_device(device_id) do
     from(d in Device, where: d.id == ^device_id and is_nil(d.revoked_at))
     |> Repo.update_all(set: [last_seen_at: DateTime.utc_now()])
   end
 
+  @spec bind_session_to_device(Ecto.UUID.t(), Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def bind_session_to_device(session_id, device_id) do
     from(s in Session, where: s.id == ^session_id and is_nil(s.device_id))
     |> Repo.update_all(set: [device_id: device_id, is_recovery: false])
@@ -145,8 +167,10 @@ defmodule RefMD.Accounts do
 
   # ── Devices ────────────────────────────────────
 
+  @spec get_device(Ecto.UUID.t()) :: Device.t() | nil
   def get_device(id), do: Repo.get(Device, id)
 
+  @spec get_user_devices(Ecto.UUID.t()) :: [Device.t()]
   def get_user_devices(user_id) do
     from(d in Device,
       where: d.user_id == ^user_id and is_nil(d.revoked_at),
@@ -155,6 +179,7 @@ defmodule RefMD.Accounts do
     |> Repo.all()
   end
 
+  @spec create_device(map()) :: {:ok, Device.t()} | {:error, Ecto.Changeset.t()}
   def create_device(attrs) do
     now = DateTime.utc_now()
 
@@ -163,6 +188,8 @@ defmodule RefMD.Accounts do
     |> Repo.insert()
   end
 
+  @spec bootstrap_first_device(map(), binary()) ::
+          {:ok, Device.t()} | {:error, atom() | Ecto.Changeset.t()}
   def bootstrap_first_device(attrs, identity_signature) do
     user_id = attrs.user_id
 
@@ -174,27 +201,8 @@ defmodule RefMD.Accounts do
       Repo.transaction(fn ->
         # Lock user row to serialize concurrent bootstrap attempts
         Repo.one!(from(u in RefMD.Accounts.User, where: u.id == ^user_id, lock: "FOR UPDATE"))
-
-        if user_has_any_device_records?(user_id) do
-          Repo.rollback(:already_has_devices)
-        end
-
-        case %Device{
-               id: Ecto.UUID.generate(),
-               user_id: user_id,
-               name: attrs.name,
-               device_type: attrs.device_type,
-               ecdh_public_key: attrs.ecdh_public_key,
-               signing_public_key: attrs.signing_public_key,
-               identity_signature: identity_signature,
-               client_nonce: attrs.client_nonce,
-               last_seen_at: now,
-               created_at: now
-             }
-             |> Repo.insert() do
-          {:ok, device} -> device
-          {:error, changeset} -> Repo.rollback(changeset)
-        end
+        reject_if_has_devices(user_id)
+        insert_device_or_rollback(build_bootstrap_device(attrs, identity_signature, now))
       end)
     else
       false -> {:error, :invalid_signature}
@@ -202,21 +210,25 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec user_has_devices?(Ecto.UUID.t()) :: boolean()
   def user_has_devices?(user_id) do
     from(d in Device, where: d.user_id == ^user_id and is_nil(d.revoked_at))
     |> Repo.exists?()
   end
 
+  @spec user_has_any_device_records?(Ecto.UUID.t()) :: boolean()
   def user_has_any_device_records?(user_id) do
     from(d in Device, where: d.user_id == ^user_id)
     |> Repo.exists?()
   end
 
+  @spec device_exists?(Ecto.UUID.t()) :: boolean()
   def device_exists?(device_id) do
     from(d in Device, where: d.id == ^device_id)
     |> Repo.exists?()
   end
 
+  @spec user_owns_active_device?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def user_owns_active_device?(user_id, device_id) do
     from(d in Device,
       where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
@@ -224,6 +236,7 @@ defmodule RefMD.Accounts do
     |> Repo.exists?()
   end
 
+  @spec user_owns_pending_device?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def user_owns_pending_device?(user_id, device_id) do
     now = DateTime.utc_now()
 
@@ -233,6 +246,8 @@ defmodule RefMD.Accounts do
     |> Repo.exists?()
   end
 
+  @spec rename_device(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
+          {:ok, Device.t()} | {:error, :not_found | Ecto.Changeset.t()}
   def rename_device(user_id, device_id, name) do
     case from(d in Device,
            where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
@@ -245,6 +260,7 @@ defmodule RefMD.Accounts do
 
   # ── Pending Devices ────────────────────────────
 
+  @spec create_pending_device(map()) :: {:ok, PendingDevice.t()} | {:error, Ecto.Changeset.t()}
   def create_pending_device(attrs) do
     now = DateTime.utc_now()
     expires_at = DateTime.add(now, 5 * 60, :second)
@@ -254,6 +270,7 @@ defmodule RefMD.Accounts do
     |> Repo.insert()
   end
 
+  @spec get_valid_pending_device(Ecto.UUID.t()) :: PendingDevice.t() | nil
   def get_valid_pending_device(id) do
     now = DateTime.utc_now()
 
@@ -263,6 +280,7 @@ defmodule RefMD.Accounts do
     |> Repo.one()
   end
 
+  @spec get_user_pending_devices(Ecto.UUID.t()) :: [PendingDevice.t()]
   def get_user_pending_devices(user_id) do
     now = DateTime.utc_now()
 
@@ -273,6 +291,8 @@ defmodule RefMD.Accounts do
     |> Repo.all()
   end
 
+  @spec get_pending_device_status(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, String.t()} | {:error, :not_found}
   def get_pending_device_status(user_id, device_id) do
     case Repo.get(PendingDevice, device_id) do
       nil ->
@@ -296,11 +316,14 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec delete_pending_device(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_pending_device(id) do
     from(pd in PendingDevice, where: pd.id == ^id)
     |> Repo.delete_all()
   end
 
+  @spec approve_pending_device(PendingDevice.t(), binary(), keyword()) ::
+          {:ok, Device.t()} | {:error, atom() | Ecto.Changeset.t()}
   def approve_pending_device(pending_device, identity_signature, opts \\ []) do
     user_id = pending_device.user_id
     is_recovery = Keyword.get(opts, :is_recovery, false)
@@ -311,37 +334,24 @@ defmodule RefMD.Accounts do
          action = determine_signature_action(user_id, is_recovery),
          message = build_device_signature_message(action, pending_device),
          true <- verify_ed25519_signature(message, identity_signature, signing_pub) do
-      Repo.transaction(fn ->
-        # Re-check inside transaction to prevent race on first-device auto-approval
-        if first_device and user_has_any_device_records?(user_id) do
-          Repo.rollback(:not_first_device)
-        end
-
-        case %Device{
-               id: pending_device.id,
-               user_id: user_id,
-               name: pending_device.name,
-               device_type: pending_device.device_type,
-               ecdh_public_key: pending_device.ecdh_public_key,
-               signing_public_key: pending_device.signing_public_key,
-               identity_signature: identity_signature,
-               client_nonce: pending_device.client_nonce,
-               last_seen_at: DateTime.utc_now(),
-               created_at: DateTime.utc_now()
-             }
-             |> Repo.insert() do
-          {:ok, device} ->
-            Repo.delete_all(from(pd in PendingDevice, where: pd.id == ^pending_device.id))
-            device
-
-          {:error, changeset} ->
-            Repo.rollback(changeset)
-        end
-      end)
+      execute_approve_pending_device(pending_device, identity_signature, user_id, first_device)
     else
       false -> {:error, :invalid_signature}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp execute_approve_pending_device(pending_device, identity_signature, user_id, first_device) do
+    Repo.transaction(fn ->
+      # Re-check inside transaction to prevent race on first-device auto-approval
+      if first_device, do: reject_if_has_devices(user_id, :not_first_device)
+
+      device =
+        insert_device_or_rollback(build_approved_device(pending_device, identity_signature))
+
+      Repo.delete_all(from(pd in PendingDevice, where: pd.id == ^pending_device.id))
+      device
+    end)
   end
 
   defp get_identity_signing_public_key(user_id) do
@@ -363,8 +373,10 @@ defmodule RefMD.Accounts do
     fields = %{
       "action" => action,
       "client_nonce" => Base.url_encode64(pending_device.client_nonce, padding: false),
-      "device_ecdh_public_key" => Base.url_encode64(pending_device.ecdh_public_key, padding: false),
-      "device_signing_public_key" => Base.url_encode64(pending_device.signing_public_key, padding: false),
+      "device_ecdh_public_key" =>
+        Base.url_encode64(pending_device.ecdh_public_key, padding: false),
+      "device_signing_public_key" =>
+        Base.url_encode64(pending_device.signing_public_key, padding: false),
       "protocol" => "refmd",
       "version" => 1
     }
@@ -387,10 +399,55 @@ defmodule RefMD.Accounts do
     :crypto.verify(:eddsa, :none, message, signature, [public_key, :ed25519])
   end
 
+  defp build_bootstrap_device(attrs, identity_signature, now) do
+    %Device{
+      id: Ecto.UUID.generate(),
+      user_id: attrs.user_id,
+      name: attrs.name,
+      device_type: attrs.device_type,
+      ecdh_public_key: attrs.ecdh_public_key,
+      signing_public_key: attrs.signing_public_key,
+      identity_signature: identity_signature,
+      client_nonce: attrs.client_nonce,
+      last_seen_at: now,
+      created_at: now
+    }
+  end
+
+  defp build_approved_device(pending_device, identity_signature) do
+    now = DateTime.utc_now()
+
+    %Device{
+      id: pending_device.id,
+      user_id: pending_device.user_id,
+      name: pending_device.name,
+      device_type: pending_device.device_type,
+      ecdh_public_key: pending_device.ecdh_public_key,
+      signing_public_key: pending_device.signing_public_key,
+      identity_signature: identity_signature,
+      client_nonce: pending_device.client_nonce,
+      last_seen_at: now,
+      created_at: now
+    }
+  end
+
+  defp insert_device_or_rollback(device) do
+    case Repo.insert(device) do
+      {:ok, device} -> device
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp reject_if_has_devices(user_id, reason \\ :already_has_devices) do
+    if user_has_any_device_records?(user_id), do: Repo.rollback(reason)
+  end
+
   # ── PoP Challenges ────────────────────────────
 
   @pop_challenge_ttl 5 * 60
 
+  @spec create_pop_challenge(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def create_pop_challenge(user_id, device_id) do
     challenge = :crypto.strong_rand_bytes(32)
     challenge_hash = :crypto.hash(:sha256, challenge)
@@ -409,6 +466,8 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec consume_pop_challenge(binary(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          :ok | {:error, :invalid_challenge}
   def consume_pop_challenge(challenge, user_id, device_id) do
     challenge_hash = :crypto.hash(:sha256, challenge)
     now = DateTime.utc_now()
@@ -428,6 +487,7 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec cleanup_expired_pop_challenges() :: {non_neg_integer(), nil}
   def cleanup_expired_pop_challenges do
     now = DateTime.utc_now()
 
@@ -440,6 +500,8 @@ defmodule RefMD.Accounts do
   @trust_transfer_nonce_ttl 5 * 60
   @trust_transfer_max_payload_bytes 1_048_576
 
+  @spec create_trust_transfer_nonce(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, binary(), DateTime.t()} | {:error, Ecto.Changeset.t()}
   def create_trust_transfer_nonce(user_id, device_id) do
     nonce = :crypto.strong_rand_bytes(32)
     now = DateTime.utc_now()
@@ -462,6 +524,8 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec consume_trust_transfer_nonce(Ecto.UUID.t(), Ecto.UUID.t(), binary()) ::
+          :ok | {:error, :invalid_nonce}
   def consume_trust_transfer_nonce(user_id, device_id, transfer_nonce) do
     now = DateTime.utc_now()
 
@@ -480,8 +544,11 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec trust_transfer_max_payload_bytes() :: pos_integer()
   def trust_transfer_max_payload_bytes, do: @trust_transfer_max_payload_bytes
 
+  @spec save_trust_transfer_state(map()) ::
+          {:ok, TrustTransferState.t()} | {:error, Ecto.Changeset.t()}
   def save_trust_transfer_state(attrs) do
     %TrustTransferState{created_at: DateTime.utc_now()}
     |> TrustTransferState.changeset(attrs)
@@ -491,6 +558,8 @@ defmodule RefMD.Accounts do
     )
   end
 
+  @spec consume_trust_transfer_state(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, TrustTransferState.t()} | {:error, :not_found}
   def consume_trust_transfer_state(user_id, device_id) do
     Repo.transaction(fn ->
       query =
@@ -517,79 +586,143 @@ defmodule RefMD.Accounts do
 
   # ── Device Revocation ─────────────────────────
 
-  def revoke_device(user_id, device_id, revoked_by_device_id, revocation_mode, identity_signature, revoked_at_ms) do
+  @spec revoke_device(
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          String.t(),
+          binary(),
+          integer()
+        ) ::
+          {:ok, map()} | {:error, atom() | {atom(), Ecto.Changeset.t()}}
+  def revoke_device(
+        user_id,
+        device_id,
+        revoked_by_device_id,
+        revocation_mode,
+        identity_signature,
+        revoked_at_ms
+      ) do
     now = DateTime.utc_now()
 
     Repo.transaction(fn ->
-      # Set revoked_at on the device
-      case from(d in Device,
-             where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
-           )
-           |> Repo.update_all(set: [revoked_at: now]) do
-        {1, _} -> :ok
-        {0, _} -> Repo.rollback(:already_revoked)
-      end
+      mark_device_revoked(user_id, device_id, now)
+      invalidate_revoked_device_sessions(user_id, device_id, revocation_mode)
 
-      # Invalidate all sessions for the revoked device.
-      # For security mode: also delete unbound sessions (device_id IS NULL) for the user,
-      # since we cannot determine which unbound session belongs to the compromised device.
-      if revocation_mode == "security" do
-        from(s in Session,
-          where: s.user_id == ^user_id and (s.device_id == ^device_id or is_nil(s.device_id))
-        )
-        |> Repo.delete_all()
-      else
-        from(s in Session, where: s.device_id == ^device_id)
-        |> Repo.delete_all()
-      end
+      insert_revocation_event(
+        user_id,
+        device_id,
+        revoked_by_device_id,
+        revocation_mode,
+        identity_signature,
+        revoked_at_ms,
+        now
+      )
 
-      # Store revocation event with identity signature (revoked_at in Unix ms for signature verification)
-      _event =
-        case %DeviceRevocationEvent{created_at: now}
-             |> DeviceRevocationEvent.changeset(%{
-               user_id: user_id,
-               device_id: device_id,
-               revoked_by_device_id: revoked_by_device_id,
-               revocation_mode: revocation_mode,
-               signature: identity_signature,
-               revoked_at: revoked_at_ms
-             })
-             |> Repo.insert() do
-          {:ok, event} -> event
-          {:error, changeset} -> Repo.rollback({:event_insert_failed, changeset})
-        end
-
-      # For security mode, mark workspaces for KEK/DEK rotation
-      workspaces_for_rotation =
-        if revocation_mode == "security" do
-          ws_with_versions = RefMD.Workspaces.get_user_workspace_ids_with_kek_version(user_id)
-          ws_ids = Enum.map(ws_with_versions, &elem(&1, 0))
-
-          RefMD.Workspaces.mark_kek_rotation_needed(ws_ids, user_id)
-          RefMD.Workspaces.mark_dek_rotation_needed(ws_ids)
-
-          Enum.map(ws_with_versions, fn {id, version} ->
-            %{workspace_id: id, current_kek_version: version}
-          end)
-        else
-          []
-        end
+      workspaces_for_rotation = handle_security_rotation(user_id, revocation_mode)
 
       %{workspaces_needing_kek_rotation: workspaces_for_rotation}
     end)
   end
 
-  def verify_revocation_signature(user_id, device_id, revocation_mode, revoked_by_device_id, revoked_at_ms, identity_signature) do
+  defp mark_device_revoked(user_id, device_id, now) do
+    case from(d in Device,
+           where: d.id == ^device_id and d.user_id == ^user_id and is_nil(d.revoked_at)
+         )
+         |> Repo.update_all(set: [revoked_at: now]) do
+      {1, _} -> :ok
+      {0, _} -> Repo.rollback(:already_revoked)
+    end
+  end
+
+  defp invalidate_revoked_device_sessions(user_id, device_id, "security") do
+    from(s in Session,
+      where: s.user_id == ^user_id and (s.device_id == ^device_id or is_nil(s.device_id))
+    )
+    |> Repo.delete_all()
+  end
+
+  defp invalidate_revoked_device_sessions(_user_id, device_id, _revocation_mode) do
+    from(s in Session, where: s.device_id == ^device_id)
+    |> Repo.delete_all()
+  end
+
+  defp insert_revocation_event(
+         user_id,
+         device_id,
+         revoked_by_device_id,
+         revocation_mode,
+         identity_signature,
+         revoked_at_ms,
+         now
+       ) do
+    case %DeviceRevocationEvent{created_at: now}
+         |> DeviceRevocationEvent.changeset(%{
+           user_id: user_id,
+           device_id: device_id,
+           revoked_by_device_id: revoked_by_device_id,
+           revocation_mode: revocation_mode,
+           signature: identity_signature,
+           revoked_at: revoked_at_ms
+         })
+         |> Repo.insert() do
+      {:ok, event} -> event
+      {:error, changeset} -> Repo.rollback({:event_insert_failed, changeset})
+    end
+  end
+
+  defp handle_security_rotation(user_id, "security") do
+    ws_with_versions = RefMD.Workspaces.get_user_workspace_ids_with_kek_version(user_id)
+    ws_ids = Enum.map(ws_with_versions, &elem(&1, 0))
+
+    RefMD.Workspaces.mark_kek_rotation_needed(ws_ids, user_id)
+    RefMD.Workspaces.mark_dek_rotation_needed(ws_ids)
+
+    Enum.map(ws_with_versions, fn {id, version} ->
+      %{workspace_id: id, current_kek_version: version}
+    end)
+  end
+
+  defp handle_security_rotation(_user_id, _revocation_mode), do: []
+
+  @spec verify_revocation_signature(
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          String.t(),
+          Ecto.UUID.t(),
+          integer(),
+          binary()
+        ) ::
+          boolean() | {:error, :identity_key_not_found}
+  def verify_revocation_signature(
+        user_id,
+        device_id,
+        revocation_mode,
+        revoked_by_device_id,
+        revoked_at_ms,
+        identity_signature
+      ) do
     with {:ok, signing_pub} <- get_identity_signing_public_key(user_id) do
-      message = build_revocation_signature_message(
-        user_id, device_id, revocation_mode, revoked_at_ms, revoked_by_device_id
-      )
+      message =
+        build_revocation_signature_message(
+          user_id,
+          device_id,
+          revocation_mode,
+          revoked_at_ms,
+          revoked_by_device_id
+        )
 
       verify_ed25519_signature(message, identity_signature, signing_pub)
     end
   end
 
-  defp build_revocation_signature_message(user_id, device_id, revocation_mode, revoked_at_ms, revoked_by_device_id) do
+  defp build_revocation_signature_message(
+         user_id,
+         device_id,
+         revocation_mode,
+         revoked_at_ms,
+         revoked_by_device_id
+       ) do
     fields = %{
       "action" => "device_revocation",
       "device_id" => device_id,
@@ -617,6 +750,7 @@ defmodule RefMD.Accounts do
   @recovery_timestamp_past_tolerance_ms 5 * 60 * 1000
   @recovery_timestamp_future_tolerance_ms 1 * 60 * 1000
 
+  @spec create_recovery_challenge(Ecto.UUID.t()) :: {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def create_recovery_challenge(user_id) do
     challenge = :crypto.strong_rand_bytes(32)
     challenge_hash = :crypto.hash(:sha256, challenge)
@@ -634,6 +768,8 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec verify_recovery_session(Ecto.UUID.t(), binary(), binary(), integer()) ::
+          :ok | {:error, :invalid_recovery}
   def verify_recovery_session(user_id, challenge, signature, timestamp) do
     challenge_hash = :crypto.hash(:sha256, challenge)
     now = DateTime.utc_now()
@@ -684,6 +820,7 @@ defmodule RefMD.Accounts do
 
   # ── Cleanup ───────────────────────────────────
 
+  @spec delete_expired_pop_challenges() :: {non_neg_integer(), nil}
   def delete_expired_pop_challenges do
     now = DateTime.utc_now()
 
@@ -691,6 +828,7 @@ defmodule RefMD.Accounts do
     |> Repo.delete_all()
   end
 
+  @spec delete_expired_sessions() :: {non_neg_integer(), nil}
   def delete_expired_sessions do
     now = DateTime.utc_now()
 
@@ -698,6 +836,7 @@ defmodule RefMD.Accounts do
     |> Repo.delete_all()
   end
 
+  @spec delete_expired_recovery_challenges() :: {non_neg_integer(), nil}
   def delete_expired_recovery_challenges do
     now = DateTime.utc_now()
 
@@ -705,6 +844,7 @@ defmodule RefMD.Accounts do
     |> Repo.delete_all()
   end
 
+  @spec delete_expired_pending_devices() :: {non_neg_integer(), nil}
   def delete_expired_pending_devices do
     now = DateTime.utc_now()
 
@@ -712,6 +852,7 @@ defmodule RefMD.Accounts do
     |> Repo.delete_all()
   end
 
+  @spec delete_expired_trust_transfer_nonces() :: {non_neg_integer(), nil}
   def delete_expired_trust_transfer_nonces do
     now = DateTime.utc_now()
 
@@ -724,6 +865,8 @@ defmodule RefMD.Accounts do
   @password_reset_ttl 60 * 60
   @password_reset_rate_limit 5 * 60
 
+  @spec create_password_reset_token(Ecto.UUID.t()) ::
+          {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def create_password_reset_token(user_id) do
     token = :crypto.strong_rand_bytes(32)
     token_hash = :crypto.hash(:sha256, token)
@@ -741,6 +884,7 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec can_send_password_reset?(Ecto.UUID.t()) :: boolean()
   def can_send_password_reset?(user_id) do
     cutoff = DateTime.add(DateTime.utc_now(), -@password_reset_rate_limit, :second)
 
@@ -751,6 +895,7 @@ defmodule RefMD.Accounts do
     )
   end
 
+  @spec verify_password_reset_token(binary()) :: {:ok, Ecto.UUID.t()} | {:error, :invalid_token}
   def verify_password_reset_token(raw_token) do
     token_hash = :crypto.hash(:sha256, raw_token)
     now = DateTime.utc_now()
@@ -763,7 +908,9 @@ defmodule RefMD.Accounts do
         )
 
       case Repo.one(query) do
-        nil -> Repo.rollback(:invalid_token)
+        nil ->
+          Repo.rollback(:invalid_token)
+
         token ->
           # Invalidate token (single-use) but keep row for rate limiting (5-minute interval)
           from(t in PasswordResetToken, where: t.id == ^token.id)
@@ -774,6 +921,7 @@ defmodule RefMD.Accounts do
     end)
   end
 
+  @spec delete_expired_password_reset_tokens() :: {non_neg_integer(), nil}
   def delete_expired_password_reset_tokens do
     now = DateTime.utc_now()
 
@@ -783,6 +931,8 @@ defmodule RefMD.Accounts do
 
   # ── Authentication Helpers ─────────────────────
 
+  @spec get_salt_for_email(String.t()) ::
+          {:ok, RefMD.Encryption.UserEncryptedMasterKey.t() | nil, binary()}
   def get_salt_for_email(email) do
     case get_user_by_email(email) do
       nil ->
@@ -819,29 +969,32 @@ defmodule RefMD.Accounts do
     end
   end
 
+  @spec verify_auth_key(String.t(), String.t()) ::
+          {:ok, User.t()} | {:error, :invalid_credentials}
   def verify_auth_key(email, auth_key) do
-    case get_user_by_email(email) do
-      nil ->
+    with %User{} = user <- get_user_by_email(email),
+         auth_key_hash when auth_key_hash != nil <- get_auth_key_hash(user.id) do
+      verify_auth_key_hash(user, auth_key, auth_key_hash)
+    else
+      _ ->
         Bcrypt.no_user_verify()
         {:error, :invalid_credentials}
+    end
+  end
 
-      user ->
-        case Repo.get(RefMD.Encryption.UserEncryptedMasterKey, user.id) do
-          nil ->
-            Bcrypt.no_user_verify()
-            {:error, :invalid_credentials}
+  defp verify_auth_key_hash(user, auth_key, auth_key_hash) do
+    if Bcrypt.verify_pass(auth_key, auth_key_hash) do
+      {:ok, user}
+    else
+      {:error, :invalid_credentials}
+    end
+  end
 
-          %{auth_key_hash: nil} ->
-            Bcrypt.no_user_verify()
-            {:error, :invalid_credentials}
-
-          master_key ->
-            if Bcrypt.verify_pass(auth_key, master_key.auth_key_hash) do
-              {:ok, user}
-            else
-              {:error, :invalid_credentials}
-            end
-        end
+  defp get_auth_key_hash(user_id) do
+    case Repo.get(RefMD.Encryption.UserEncryptedMasterKey, user_id) do
+      nil -> nil
+      %{auth_key_hash: nil} -> nil
+      master_key -> master_key.auth_key_hash
     end
   end
 end

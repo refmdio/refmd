@@ -16,6 +16,9 @@ defmodule RefMD.Documents.DocumentSnapshotArchive do
     field :created_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(archive, attrs) do
     archive
     |> cast(attrs, [:document_id, :snapshot_id, :label, :notes, :kind, :created_by])

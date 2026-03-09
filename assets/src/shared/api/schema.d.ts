@@ -928,7 +928,6 @@ export interface components {
                 [key: string]: unknown;
             };
             error: string;
-            step?: string;
         };
         /** PendingDeviceStatusResponse */
         PendingDeviceStatusResponse: {

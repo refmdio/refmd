@@ -10,7 +10,11 @@ defmodule RefMD.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      dialyzer: [
+        plt_add_apps: [:mix, :ex_unit],
+        plt_core_path: "_build/#{Mix.env()}"
+      ]
     ]
   end
 
@@ -53,7 +57,11 @@ defmodule RefMD.MixProject do
       {:open_api_spex, "~> 3.21"},
       {:hammer, "~> 7.0"},
       {:plug_attack, "~> 0.4"},
-      {:oban, "~> 2.19"}
+      {:oban, "~> 2.19"},
+
+      # Dev/test tools
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -69,7 +77,14 @@ defmodule RefMD.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "specs.check",
+        "credo --strict",
+        "test"
+      ]
     ]
   end
 end

@@ -23,6 +23,9 @@ defmodule RefMD.Documents.DocumentUpdate do
     field :created_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(update, attrs) do
     update
     |> cast(attrs, [

@@ -1,6 +1,7 @@
 defmodule RefMDWeb.FallbackController do
   use RefMDWeb, :controller
 
+  @spec index(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def index(conn, _params) do
     index_path = Path.join(:code.priv_dir(:refmd), "static/index.html")
 

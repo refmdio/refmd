@@ -13,6 +13,9 @@ defmodule RefMD.Workspaces.WorkspaceMember do
     field :joined_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(member, attrs) do
     member
     |> cast(attrs, [:workspace_id, :user_id, :role_id, :is_default, :joined_at])

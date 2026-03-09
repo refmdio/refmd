@@ -15,10 +15,27 @@ defmodule RefMD.Encryption.WorkspaceMemberEnvelope do
     field :created_at, :utc_datetime_usec
   end
 
+  @type t :: %__MODULE__{}
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(record, attrs) do
     record
-    |> cast(attrs, [:workspace_id, :target_user_id, :key_version, :sender_device_id, :encrypted_kek, :nonce])
-    |> validate_required([:workspace_id, :target_user_id, :key_version, :sender_device_id, :encrypted_kek, :nonce])
+    |> cast(attrs, [
+      :workspace_id,
+      :target_user_id,
+      :key_version,
+      :sender_device_id,
+      :encrypted_kek,
+      :nonce
+    ])
+    |> validate_required([
+      :workspace_id,
+      :target_user_id,
+      :key_version,
+      :sender_device_id,
+      :encrypted_kek,
+      :nonce
+    ])
     |> unique_constraint([:workspace_id, :target_user_id, :key_version],
       name: :workspace_member_envelopes_pk
     )

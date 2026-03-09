@@ -1,0 +1,6 @@
+# Phoenix framework boilerplate (return quoted AST for `use` macros)
+RefMDWeb.static_paths/0
+RefMDWeb.router/0
+RefMDWeb.channel/0
+RefMDWeb.controller/0
+RefMDWeb.verified_routes/0

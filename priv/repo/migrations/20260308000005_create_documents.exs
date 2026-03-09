@@ -4,6 +4,7 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
   def change do
     create table(:documents, primary_key: false) do
       add :id, :binary_id, primary_key: true
+
       add :workspace_id, references(:workspaces, type: :binary_id, on_delete: :delete_all),
         null: false
 
@@ -29,12 +30,13 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
     create index(:documents, [:workspace_id])
 
     create unique_index(:documents, [:workspace_id, :parent_id, :position],
-      name: :documents_workspace_parent_position,
-      nulls_distinct: false
-    )
+             name: :documents_workspace_parent_position,
+             nulls_distinct: false
+           )
 
     create table(:document_snapshots, primary_key: false) do
       add :id, :binary_id, primary_key: true
+
       add :document_id, references(:documents, type: :binary_id, on_delete: :delete_all),
         null: false
 
@@ -61,6 +63,7 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
 
     create table(:document_updates, primary_key: false) do
       add :id, :bigserial, primary_key: true
+
       add :document_id, references(:documents, type: :binary_id, on_delete: :delete_all),
         null: false
 
@@ -100,6 +103,7 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
 
     create table(:document_snapshot_archives, primary_key: false) do
       add :id, :binary_id, primary_key: true
+
       add :document_id, references(:documents, type: :binary_id, on_delete: :delete_all),
         null: false
 
