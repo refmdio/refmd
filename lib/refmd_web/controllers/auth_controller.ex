@@ -224,15 +224,14 @@ defmodule RefMDWeb.AuthController do
       end
 
     response = %{
-      user: %{
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        encryption_setup_at: user.encryption_setup_at
-      },
+      user_id: user.id,
+      email: user.email,
+      name: user.name,
+      encryption_setup_at: user.encryption_setup_at,
       session_id: session.id,
       device_id: session.device_id,
       device_verified: device_verified,
+      is_recovery: session.is_recovery,
       remember_me: session.remember_me,
       expires_at: session.expires_at,
       auth_type: master_key && master_key.auth_type,
@@ -299,9 +298,11 @@ defmodule RefMDWeb.AuthController do
   @spec verify_key(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def verify_key(conn, %{"auth_key" => auth_key}) do
     user = Accounts.get_user(conn.assigns.current_user_id)
+    session = conn.assigns.current_session
 
     case Accounts.verify_auth_key(user.email, auth_key) do
       {:ok, _} ->
+        Accounts.update_session_verified_at(session.id)
         json(conn, %{ok: true})
 
       {:error, :invalid_credentials} ->
@@ -469,7 +470,7 @@ defmodule RefMDWeb.AuthController do
     summary: "Set password after recovery (recovery session required)",
     request_body: {"Password set params", "application/json", Schemas.PasswordSetRequest},
     responses: [
-      ok: {"Password set", "application/json", Schemas.OkResponse},
+      ok: {"Password set", "application/json", Schemas.PasswordSetResponse},
       forbidden: {"Not a recovery session", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Update failed", "application/json", Schemas.ErrorResponse}
     ]
@@ -680,15 +681,15 @@ defmodule RefMDWeb.AuthController do
   defp build_login_response(user, session, device_id, device_verified) do
     master_key = Encryption.get_user_encrypted_master_key(user.id)
 
-    kdf_migration_required =
-      master_key != nil and master_key.kdf_params != nil and
-        master_key.kdf_params != @target_kdf_params
-
     keys =
       if device_verified do
         Encryption.get_login_keys(user.id, device_id)
         |> format_login_keys()
       end
+
+    kdf_migration_required =
+      master_key != nil and master_key.kdf_params != nil and
+        master_key.kdf_params != @target_kdf_params
 
     response = %{
       user: %{
@@ -705,7 +706,9 @@ defmodule RefMDWeb.AuthController do
     if kdf_migration_required do
       Map.merge(response, %{
         kdf_migration_required: true,
-        target_kdf_params: @target_kdf_params
+        target_kdf_params: @target_kdf_params,
+        encrypted_umk: Base.url_encode64(master_key.encrypted_umk, padding: false),
+        umk_nonce: Base.url_encode64(master_key.umk_nonce, padding: false)
       })
     else
       response
@@ -723,7 +726,7 @@ defmodule RefMDWeb.AuthController do
 
   defp set_session_cookie(conn, token, remember_me) do
     token_base64 = Base.url_encode64(token, padding: false)
-    max_age = if remember_me, do: 30 * 24 * 60 * 60, else: nil
+    max_age = if remember_me, do: 30 * 24 * 60 * 60, else: 24 * 60 * 60
 
     same_site =
       case Application.get_env(:refmd, :samesite_mode, "lax") do
@@ -739,8 +742,7 @@ defmodule RefMDWeb.AuthController do
       same_site: same_site
     ]
 
-    opts = if max_age, do: [{:max_age, max_age} | opts], else: opts
-    put_resp_cookie(conn, "_refmd_session", token_base64, opts)
+    put_resp_cookie(conn, "_refmd_session", token_base64, [{:max_age, max_age} | opts])
   end
 
   defp delete_session_cookie(conn) do
@@ -756,7 +758,7 @@ defmodule RefMDWeb.AuthController do
 
   defp decode_binary(_), do: {:error, :invalid_base64}
 
-  @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+  @uuid_regex ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
 
   defp valid_uuid?(str) when is_binary(str), do: Regex.match?(@uuid_regex, str)
 

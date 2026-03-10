@@ -6,8 +6,8 @@ defmodule RefMD.Encryption.WorkspaceKekBackup do
   @foreign_key_type :binary_id
 
   schema "workspace_kek_backups" do
-    belongs_to :workspace, RefMD.Workspaces.Workspace
-    belongs_to :user, RefMD.Accounts.User
+    belongs_to :workspace, RefMD.Workspaces.Workspace, primary_key: true
+    belongs_to :user, RefMD.Accounts.User, primary_key: true
     field :key_version, :integer, primary_key: true
     field :encrypted_kek, :binary
     field :nonce, :binary

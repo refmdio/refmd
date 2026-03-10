@@ -97,12 +97,26 @@ defmodule RefMDWeb.DeviceController do
     request_body: {"Device params", "application/json", Schemas.CreatePendingDeviceRequest},
     responses: [
       created: {"Pending device", "application/json", Schemas.CreatePendingDeviceResponse},
+      forbidden: {"Re-authentication required", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
     ]
   )
 
+  # Re-authentication threshold for sensitive operations (5 minutes)
+  @reauth_max_age_seconds 300
+
   @spec create_pending(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create_pending(conn, params) do
+    session = conn.assigns.current_session
+
+    if requires_reauth?(session) do
+      conn |> put_status(:forbidden) |> json(%{error: "reauth_required"})
+    else
+      create_pending_after_reauth(conn, params)
+    end
+  end
+
+  defp create_pending_after_reauth(conn, params) do
     user_id = conn.assigns.current_user_id
     ecdh_public_key = decode_binary!(params["device_ecdh_public_key"])
     signing_public_key = decode_binary!(params["device_signing_public_key"])
@@ -507,6 +521,15 @@ defmodule RefMDWeb.DeviceController do
 
   defp device_type_from_ua(ua) do
     if Regex.match?(~r/Mobi|Android/i, ua), do: "mobile", else: "desktop"
+  end
+
+  defp requires_reauth?(session) do
+    if session.is_recovery, do: false, else: do_requires_reauth?(session)
+  end
+
+  defp do_requires_reauth?(session) do
+    last_auth = session.last_verified_at || session.created_at
+    DateTime.diff(DateTime.utc_now(), last_auth, :second) >= @reauth_max_age_seconds
   end
 
   defp format_errors(%Ecto.Changeset{} = changeset) do

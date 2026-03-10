@@ -25,7 +25,7 @@ import {
 const SESSION_UMK_KEY = "refmd-session-umk";
 const DEVICE_ID_KEY = "refmd-device-id";
 
-// PDK is kept in-memory only per design (key-hierarchy.md: disposable, in-memory).
+// PDK is kept in-memory only (disposable, never persisted).
 let inMemoryPdk: Uint8Array | null = null;
 
 // ── Device ID persistence ─────────────────────
@@ -186,7 +186,11 @@ export function restoreUmkFromSession(): Uint8Array | null {
 }
 
 export function hasPdkData(): boolean {
-  return localStorage.getItem("refmd-pdk-umk") !== null;
+  return (
+    localStorage.getItem("refmd-pdk-umk") !== null &&
+    localStorage.getItem("refmd-pdk-device-ecdh") !== null &&
+    localStorage.getItem("refmd-pdk-device-signing") !== null
+  );
 }
 
 export function persistSessionPdk(pdk: Uint8Array): void {

@@ -19,7 +19,7 @@ defmodule RefMD.Workspaces.Workspace do
     has_many :roles, RefMD.Workspaces.WorkspaceRole
     has_many :members, RefMD.Workspaces.WorkspaceMember
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
   @type t :: %__MODULE__{}

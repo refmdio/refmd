@@ -1,11 +1,10 @@
-import { base64UrlDecode, decryptIdentityPrivateKeys } from "@/shared/lib/crypto";
+import { base64UrlDecode, decryptIdentityPrivateKeys, verifyAllDeviceTofu, TofuHardFailError } from "@/shared/lib/crypto";
 import type { IdentityKeyPair } from "@/shared/lib/crypto";
-import { authApi, ApiError } from "@/shared/api";
+import { authApi, ApiError, devicesApi, withPopDevice } from "@/shared/api";
 import {
   restoreKeysFromDsk,
   restoreUmkFromSession,
   restoreDeviceKeysFromDsk,
-  getPersistedDeviceId,
   hasPdkData,
 } from "./key-persistence";
 
@@ -22,6 +21,7 @@ export interface SessionRestoreResult {
   deviceEcdhPrivate: Uint8Array | null;
   deviceSigningPrivate: Uint8Array | null;
   needsPasswordReentry: boolean;
+  tofuWarnings: string[];
 }
 
 export async function restoreSession(): Promise<SessionRestoreResult | null> {
@@ -35,7 +35,7 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
     let needsPasswordReentry = false;
 
     // Attempt full key restoration from DSK (IndexedDB)
-    const dskKeys = await restoreKeysFromDsk(me.user.id);
+    const dskKeys = await restoreKeysFromDsk(me.user_id);
     if (dskKeys) {
       umk = dskKeys.umk;
       deviceEcdhPrivate = dskKeys.deviceEcdhPrivate;
@@ -46,16 +46,26 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
 
       // Try DSK for device keys even if UMK came from sessionStorage
       if (umk) {
-        const devKeys = await restoreDeviceKeysFromDsk(me.user.id);
+        const devKeys = await restoreDeviceKeysFromDsk(me.user_id);
         if (devKeys) {
           deviceEcdhPrivate = devKeys.ecdhPrivate;
           deviceSigningPrivate = devKeys.signingPrivate;
         }
       }
 
-      // PDK fallback requires password re-entry when UMK or device keys are missing
+      if (me.device_verified && !hasPdkData() && (!umk || !deviceSigningPrivate)) {
+        // Verified session but neither DSK nor PDK can restore keys — force re-login
+        return null;
+      }
+
+      // PDK fallback requires password re-entry (auth_type must be "password")
       if (hasPdkData() && (!umk || !deviceSigningPrivate)) {
-        needsPasswordReentry = true;
+        if (me.auth_type === "password") {
+          needsPasswordReentry = true;
+        } else if (me.device_verified) {
+          // Non-password user cannot use PDK fallback — force re-login
+          return null;
+        }
       }
     }
 
@@ -68,16 +78,34 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
           signingPrivateNonce: base64UrlDecode(me.keys.encrypted_signing_private_nonce),
         },
         umk,
-        me.user.id,
+        me.user_id,
       );
     }
 
-    const deviceId = me.device_id ?? getPersistedDeviceId() ?? null;
+    const deviceId = me.device_id ?? null;
+
+    // TOFU verification at session restore
+    let tofuWarnings: string[] = [];
+    if (me.device_verified && deviceId && deviceSigningPrivate) {
+      try {
+        const { devices } = await withPopDevice(
+          { deviceId, deviceSigningPrivate },
+          () => devicesApi.list(),
+        );
+        tofuWarnings = await verifyAllDeviceTofu(
+          me.user_id,
+          devices,
+          identityKeys?.signingPublic ?? null,
+        );
+      } catch (e) {
+        if (e instanceof TofuHardFailError) throw e;
+      }
+    }
 
     return {
-      userId: me.user.id,
-      email: me.user.email,
-      name: me.user.name,
+      userId: me.user_id,
+      email: me.email,
+      name: me.name,
       sessionId: me.session_id,
       deviceId,
       deviceVerified: me.device_verified,
@@ -87,6 +115,7 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
       deviceEcdhPrivate,
       deviceSigningPrivate,
       needsPasswordReentry,
+      tofuWarnings,
     };
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {

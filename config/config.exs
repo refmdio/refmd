@@ -42,6 +42,10 @@ config :refmd, Oban,
      ]}
   ]
 
+# Configure Swoosh mailer
+config :refmd, RefMD.Mailer, adapter: Swoosh.Adapters.Local
+config :swoosh, :api_client, false
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 

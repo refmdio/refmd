@@ -223,7 +223,9 @@ defmodule RefMDWeb.Schemas do
         device_verified: %Schema{type: :boolean},
         keys: LoginKeys,
         kdf_migration_required: %Schema{type: :boolean},
-        target_kdf_params: KdfParams
+        target_kdf_params: KdfParams,
+        encrypted_umk: %Schema{type: :string},
+        umk_nonce: %Schema{type: :string}
       },
       required: [:user, :session_id, :device_verified]
     })
@@ -236,17 +238,21 @@ defmodule RefMDWeb.Schemas do
       title: "MeResponse",
       type: :object,
       properties: %{
-        user: UserInfoWithSetup,
+        user_id: %Schema{type: :string, format: :uuid},
+        email: %Schema{type: :string, format: :email},
+        name: %Schema{type: :string},
+        encryption_setup_at: %Schema{type: :string, format: :"date-time", nullable: true},
         session_id: %Schema{type: :string, format: :uuid},
         device_id: %Schema{type: :string, format: :uuid, nullable: true},
         device_verified: %Schema{type: :boolean},
+        is_recovery: %Schema{type: :boolean},
         expires_at: %Schema{type: :string, format: :"date-time"},
         auth_type: %Schema{type: :string, nullable: true},
         remember_me: %Schema{type: :boolean},
         identity_signing_public_key: %Schema{type: :string, nullable: true},
         keys: LoginKeys
       },
-      required: [:user, :session_id, :device_verified, :expires_at]
+      required: [:user_id, :email, :name, :session_id, :device_verified, :expires_at]
     })
   end
 
@@ -280,6 +286,20 @@ defmodule RefMDWeb.Schemas do
   end
 
   # ── Password / Recovery Key Schemas ────────────
+
+  defmodule PasswordSetResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "PasswordSetResponse",
+      type: :object,
+      properties: %{
+        ok: %Schema{type: :boolean},
+        session_id: %Schema{type: :string, format: :uuid}
+      },
+      required: [:ok, :session_id]
+    })
+  end
 
   defmodule PasswordSetRequest do
     require OpenApiSpex
@@ -573,7 +593,16 @@ defmodule RefMDWeb.Schemas do
         created_at: %Schema{type: :string, format: :"date-time"},
         expires_at: %Schema{type: :string, format: :"date-time"}
       },
-      required: [:id, :name, :device_type, :ecdh_public_key, :signing_public_key, :client_nonce]
+      required: [
+        :id,
+        :name,
+        :device_type,
+        :ecdh_public_key,
+        :signing_public_key,
+        :client_nonce,
+        :created_at,
+        :expires_at
+      ]
     })
   end
 
@@ -885,6 +914,29 @@ defmodule RefMDWeb.Schemas do
     })
   end
 
+  defmodule WorkspaceMemberKeysResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "WorkspaceMemberKeysResponse",
+      type: :object,
+      properties: %{
+        members: %Schema{
+          type: :array,
+          items: %Schema{
+            type: :object,
+            properties: %{
+              user_id: %Schema{type: :string, format: :uuid},
+              ecdh_public_key: %Schema{type: :string}
+            },
+            required: [:user_id, :ecdh_public_key]
+          }
+        }
+      },
+      required: [:members]
+    })
+  end
+
   defmodule MemberEnvelopeResponse do
     require OpenApiSpex
 
@@ -933,7 +985,9 @@ defmodule RefMDWeb.Schemas do
         key_version: %Schema{type: :integer},
         encrypted_kek: %Schema{type: :string},
         nonce: %Schema{type: :string},
-        sender_device_id: %Schema{type: :string, format: :uuid}
+        sender_device_id: %Schema{type: :string, format: :uuid},
+        sender_ecdh_public_key: %Schema{type: :string, nullable: true},
+        sender_signing_public_key: %Schema{type: :string, nullable: true}
       },
       required: [:key_version, :encrypted_kek, :nonce, :sender_device_id]
     })

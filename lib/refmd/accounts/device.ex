@@ -46,5 +46,6 @@ defmodule RefMD.Accounts.Device do
     ])
     |> validate_inclusion(:device_type, ~w(browser desktop mobile))
     |> unique_constraint(:signing_public_key)
+    |> unique_constraint(:ecdh_public_key)
   end
 end

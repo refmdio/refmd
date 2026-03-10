@@ -41,6 +41,7 @@ export {
   loadPdkWrappedDeviceKeys,
   clearPdkWrappedKeys,
 } from "./pdk";
+export { isValidX25519PublicKey, isValidEd25519PublicKey } from "./key-validation";
 export { computeSas } from "./sas";
 export type { SasResult } from "./sas";
 export { calculateFingerprint, formatFingerprint } from "./fingerprint";
@@ -49,6 +50,8 @@ export {
   trustDevice,
   updateDeviceLastSeen,
   handleTofuResult,
+  verifyAllDeviceTofu,
+  TofuHardFailError,
 } from "./tofu";
 export type { TofuStatus, TofuVerifyResult } from "./tofu";
 export {

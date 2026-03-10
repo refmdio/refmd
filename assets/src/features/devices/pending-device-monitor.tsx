@@ -11,12 +11,19 @@ import {
 import type { PendingDeviceInfo } from "@/shared/api/devices";
 import { devicesApi } from "@/shared/api";
 import { deviceState } from "@/shared/lib/auth-state";
+import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { ApproveDeviceDialog } from "./approve-dialog";
+
+export interface KekRotationNeeded {
+  workspace_id: string;
+  current_kek_version: number;
+}
 
 export interface PendingDeviceContextValue {
   pendingDevices: Accessor<PendingDeviceInfo[]>;
   pendingCount: Accessor<number>;
   transferNonces: Accessor<Record<string, string>>;
+  kekRotationsNeeded: Accessor<KekRotationNeeded[]>;
   showApprovalDialog: (device: PendingDeviceInfo) => void;
   refetchPending: () => Promise<void>;
 }
@@ -34,7 +41,9 @@ export function usePendingDevices(): PendingDeviceContextValue {
 export const PendingDeviceMonitor: ParentComponent = (props) => {
   const [pendingDevices, setPendingDevices] = createSignal<PendingDeviceInfo[]>([]);
   const [currentDialog, setCurrentDialog] = createSignal<PendingDeviceInfo | null>(null);
+  const [approvalError, setApprovalError] = createSignal<string | null>(null);
   const [transferNonces, setTransferNonces] = createSignal<Record<string, string>>({});
+  const [kekRotationsNeeded, setKekRotationsNeeded] = createSignal<KekRotationNeeded[]>([]);
   const dismissed = new Set<string>();
   const seen = new Set<string>();
 
@@ -76,6 +85,20 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
 
       eventSource.addEventListener("pending_device_removed", () => {
         refetchPending();
+      });
+
+      eventSource.addEventListener("kek_rotation_needed", (event) => {
+        try {
+          const data = JSON.parse((event as MessageEvent).data);
+          if (data.workspace_id) {
+            setKekRotationsNeeded((prev) => {
+              if (prev.some((r) => r.workspace_id === data.workspace_id)) return prev;
+              return [...prev, { workspace_id: data.workspace_id, current_kek_version: data.current_kek_version }];
+            });
+          }
+        } catch {
+          // Parse error
+        }
       });
 
       eventSource.addEventListener("trust_transfer_nonce_ready", (event) => {
@@ -179,6 +202,7 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
     pendingDevices,
     pendingCount,
     transferNonces,
+    kekRotationsNeeded,
     showApprovalDialog,
     refetchPending,
   };
@@ -193,9 +217,19 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
             transferNonce={transferNonces()[target().id] ?? null}
             onClose={handleDialogClose}
             onApproved={handleApproved}
-            onError={() => {}}
+            onError={(msg) => {
+              setCurrentDialog(null);
+              setApprovalError(msg);
+            }}
           />
         )}
+      </Show>
+      <Show when={approvalError()}>
+        <div class="fixed bottom-4 right-4 z-50 max-w-md">
+          <Alert variant="destructive">
+            <AlertDescription>{approvalError()}</AlertDescription>
+          </Alert>
+        </div>
       </Show>
     </PendingDeviceContext.Provider>
   );

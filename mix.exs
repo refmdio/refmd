@@ -58,6 +58,7 @@ defmodule RefMD.MixProject do
       {:hammer, "~> 7.0"},
       {:plug_attack, "~> 0.4"},
       {:oban, "~> 2.19"},
+      {:swoosh, "~> 1.17"},
 
       # Dev/test tools
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

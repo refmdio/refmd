@@ -1,4 +1,5 @@
-import { createSignal, createResource, createEffect, on, Show, For } from "solid-js";
+import { createSignal, createEffect, on, Show, For } from "solid-js";
+import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -17,7 +18,7 @@ import {
 } from "lucide-solid";
 import { devicesApi } from "@/shared/api";
 import type { DeviceInfo } from "@/shared/api/devices";
-import { authState, deviceState } from "@/shared/lib/auth-state";
+import { authState, deviceState, setTofuErrors as setGlobalTofuErrors } from "@/shared/lib/auth-state";
 import { base64UrlDecode, verifyTofu, handleTofuResult, verifyDeviceIdentitySignature } from "@/shared/lib/crypto";
 import { RevokeDeviceDialog } from "@/features/devices/revoke-dialog";
 import { usePendingDevices } from "@/features/devices/pending-device-monitor";
@@ -34,8 +35,13 @@ function DeviceIcon(props: { type: string }) {
 }
 
 export default function DevicesPage() {
-  const [devices, { refetch }] = createResource(() => devicesApi.list());
-  const { pendingDevices, showApprovalDialog } = usePendingDevices();
+  const queryClient = useQueryClient();
+  const devices = createQuery(() => ({
+    queryKey: ["devices"],
+    queryFn: () => devicesApi.list(),
+  }));
+  const refetch = () => queryClient.invalidateQueries({ queryKey: ["devices"] });
+  const { pendingDevices, showApprovalDialog, kekRotationsNeeded } = usePendingDevices();
   const [revokeTarget, setRevokeTarget] = createSignal<DeviceInfo | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [editingId, setEditingId] = createSignal<string | null>(null);
@@ -43,15 +49,17 @@ export default function DevicesPage() {
 
   const currentDeviceId = () => deviceState()?.deviceId;
 
-  // TOFU verification for all devices on load (design: trust.md)
-  const [tofuErrors, setTofuErrors] = createSignal<string[]>([]);
+  // TOFU verification for all devices on load
+  // Hard-fail errors block the entire app; warnings are displayed locally only
+  const [tofuHardFail, setTofuHardFail] = createSignal(false);
+  const [tofuWarnings, setTofuWarnings] = createSignal<string[]>([]);
   createEffect(() => {
-    const deviceList = devices()?.devices;
+    const deviceList = devices.data?.devices;
     const auth = authState();
     if (!deviceList || !auth) return;
 
     (async () => {
-      const errors: string[] = [];
+      const warnings: string[] = [];
       const identitySigningPublic = auth.identityKeys?.signingPublic;
 
       for (const d of deviceList) {
@@ -61,14 +69,16 @@ export default function DevicesPage() {
           const ecdhPk = base64UrlDecode(d.ecdh_public_key);
           const result = await verifyTofu(auth.user.id, d.id, signingPk, ecdhPk);
 
-          if (result.status === "identity_key_changed") {
-            errors.push(`${d.name}: Identity key changed — possible key compromise`);
-          } else if (result.status === "ecdh_key_mismatch") {
-            errors.push(`${d.name}: ECDH key mismatch — possible key compromise`);
+          if (result.status === "identity_key_changed" || result.status === "ecdh_key_mismatch") {
+            const msg = result.status === "identity_key_changed"
+              ? `${d.name}: Identity key changed — possible key compromise`
+              : `${d.name}: ECDH key mismatch — possible key compromise`;
+            setTofuHardFail(true);
+            setGlobalTofuErrors([msg]);
+            return;
           } else {
-            // Verify identity_signature before trusting (design: device.md)
             if (!d.identity_signature || !d.client_nonce) {
-              errors.push(`${d.name}: Missing identity signature — device approval cannot be verified`);
+              warnings.push(`${d.name}: Missing identity signature — device approval cannot be verified`);
               continue;
             }
             if (!identitySigningPublic) {
@@ -80,16 +90,16 @@ export default function DevicesPage() {
               signingPk, ecdhPk, nonce, sig, identitySigningPublic,
             );
             if (!sigValid) {
-              errors.push(`${d.name}: Invalid identity signature — device approval not verified`);
+              warnings.push(`${d.name}: Invalid identity signature — device approval not verified`);
               continue;
             }
             await handleTofuResult(result);
           }
         } catch {
-          errors.push(`${d.name}: Key verification unavailable`);
+          warnings.push(`${d.name}: Key verification unavailable`);
         }
       }
-      setTofuErrors(errors);
+      setTofuWarnings(warnings);
     })();
   });
 
@@ -124,6 +134,17 @@ export default function DevicesPage() {
 
   return (
     <main class="max-w-2xl mx-auto p-6 space-y-4">
+      {/* KEK rotation reminder notification */}
+      <Show when={kekRotationsNeeded().length > 0}>
+        <Alert variant="destructive">
+          <ShieldAlertIcon />
+          <AlertDescription>
+            {kekRotationsNeeded().length} workspace(s) require encryption key rotation.
+            Please revoke or re-approve the affected device to complete the rotation.
+          </AlertDescription>
+        </Alert>
+      </Show>
+
       {/* Pending device approval requests */}
       <Show when={pendingDevices().length > 0}>
         <Card>
@@ -148,7 +169,7 @@ export default function DevicesPage() {
                         </div>
                       </div>
                     </div>
-                    <Button size="sm" onClick={() => showApprovalDialog(pd)}>
+                    <Button size="sm" onClick={() => showApprovalDialog(pd)} disabled={tofuHardFail()}>
                       Review
                     </Button>
                   </div>
@@ -168,13 +189,13 @@ export default function DevicesPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Show when={tofuErrors().length > 0}>
-            <Alert variant="destructive" class="mb-4">
+          <Show when={tofuWarnings().length > 0}>
+            <Alert variant="default" class="mb-4">
               <ShieldAlertIcon class="size-4" />
               <AlertDescription>
-                Key verification failed (device operations blocked):
+                Key verification warnings:
                 <ul class="mt-1 list-disc list-inside">
-                  <For each={tofuErrors()}>
+                  <For each={tofuWarnings()}>
                     {(e) => <li>{e}</li>}
                   </For>
                 </ul>
@@ -191,7 +212,7 @@ export default function DevicesPage() {
           </Show>
 
           <Show
-            when={!devices.loading}
+            when={!devices.isLoading}
             fallback={
               <div class="flex justify-center py-8">
                 <Spinner class="size-6" />
@@ -199,7 +220,7 @@ export default function DevicesPage() {
             }
           >
             <Show
-              when={devices()?.devices.length}
+              when={devices.data?.devices.length}
               fallback={
                 <p class="text-muted-foreground text-center py-8">
                   No devices found
@@ -207,7 +228,7 @@ export default function DevicesPage() {
               }
             >
               <div class="space-y-3">
-                <For each={devices()?.devices}>
+                <For each={devices.data?.devices}>
                   {(device) => {
                     const isCurrent = () => device.id === currentDeviceId();
                     const isEditing = () => editingId() === device.id;
@@ -259,7 +280,7 @@ export default function DevicesPage() {
                             </Show>
                             <div class="text-sm text-muted-foreground">
                               {device.device_type} &middot; Last seen{" "}
-                              {new Date(device.last_seen_at).toLocaleDateString()}
+                              {device.last_seen_at ? new Date(device.last_seen_at).toLocaleDateString() : "Unknown"}
                             </div>
                           </div>
                         </div>
@@ -268,7 +289,7 @@ export default function DevicesPage() {
                             variant="ghost"
                             size="icon"
                             title="Rename device"
-                            disabled={tofuErrors().length > 0}
+                            disabled={tofuHardFail()}
                             onClick={() => startEditing(device)}
                           >
                             <PencilIcon class="size-4" />
@@ -276,7 +297,7 @@ export default function DevicesPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            disabled={isCurrent() || tofuErrors().length > 0}
+                            disabled={isCurrent() || tofuHardFail()}
                             title={
                               isCurrent()
                                 ? "Cannot remove current device"

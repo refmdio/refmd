@@ -140,6 +140,16 @@ defmodule RefMDWeb.Router do
     get "/encryption/workspaces/:workspace_id/member-envelope",
         EncryptionController,
         :get_member_envelope
+
+    get "/encryption/workspaces/:workspace_id/member-keys",
+        EncryptionController,
+        :get_workspace_member_keys
+  end
+
+  if Application.compile_env(:refmd, :dev_routes) do
+    scope "/dev" do
+      forward "/mailbox", Plug.Swoosh.MailboxPreview
+    end
   end
 
   # SPA fallback: serve index.html for all non-API routes

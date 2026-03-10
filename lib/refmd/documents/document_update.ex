@@ -53,6 +53,28 @@ defmodule RefMD.Documents.DocumentUpdate do
       :update_hash,
       :timestamp
     ])
+    |> validate_signature_mac_exclusivity()
     |> unique_constraint(:update_hash)
+  end
+
+  defp validate_signature_mac_exclusivity(changeset) do
+    sig = get_field(changeset, :signature)
+    mac = get_field(changeset, :mac)
+
+    case {sig, mac} do
+      {nil, nil} ->
+        add_error(changeset, :signature, "either signature or mac is required")
+
+      {_, nil} when not is_nil(sig) ->
+        changeset
+        |> validate_required([:clock, :device_signing_pub_key])
+
+      {nil, _} when not is_nil(mac) ->
+        changeset
+        |> validate_required([:share_id])
+
+      {_, _} ->
+        add_error(changeset, :signature, "signature and mac are mutually exclusive")
+    end
   end
 end

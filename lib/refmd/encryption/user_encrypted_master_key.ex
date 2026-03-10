@@ -17,7 +17,7 @@ defmodule RefMD.Encryption.UserEncryptedMasterKey do
     field :recovery_encrypted_umk, :binary
     field :recovery_nonce, :binary
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
   @type t :: %__MODULE__{}
@@ -39,5 +39,43 @@ defmodule RefMD.Encryption.UserEncryptedMasterKey do
     ])
     |> validate_required([:user_id, :auth_type, :recovery_encrypted_umk, :recovery_nonce])
     |> validate_inclusion(:auth_type, ~w(password oauth))
+    |> validate_auth_type_fields()
+  end
+
+  defp validate_auth_type_fields(changeset) do
+    case get_field(changeset, :auth_type) do
+      "password" ->
+        changeset
+        |> validate_required([
+          :encrypted_umk,
+          :umk_nonce,
+          :salt,
+          :kdf_type,
+          :kdf_params,
+          :auth_key_hash
+        ])
+        |> validate_inclusion(:kdf_type, ~w(argon2id))
+
+      "oauth" ->
+        changeset
+        |> reject_password_fields()
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp reject_password_fields(changeset) do
+    Enum.reduce(
+      [:encrypted_umk, :umk_nonce, :salt, :kdf_type, :kdf_params, :auth_key_hash],
+      changeset,
+      fn field, cs ->
+        if get_field(cs, field) do
+          add_error(cs, field, "must not be set for oauth auth_type")
+        else
+          cs
+        end
+      end
+    )
   end
 end

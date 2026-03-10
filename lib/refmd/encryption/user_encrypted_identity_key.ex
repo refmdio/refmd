@@ -12,7 +12,7 @@ defmodule RefMD.Encryption.UserEncryptedIdentityKey do
     field :encrypted_signing_private, :binary
     field :encrypted_signing_private_nonce, :binary
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
   @type t :: %__MODULE__{}

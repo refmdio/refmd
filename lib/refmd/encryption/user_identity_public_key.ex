@@ -10,7 +10,7 @@ defmodule RefMD.Encryption.UserIdentityPublicKey do
     field :ecdh_public_key, :binary
     field :signing_public_key, :binary
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
   end
 
   @type t :: %__MODULE__{}

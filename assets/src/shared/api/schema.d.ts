@@ -141,6 +141,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/encryption/workspaces/{workspace_id}/member-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Identity ECDH public keys for all workspace members */
+        get: operations["RefMDWeb.EncryptionController.get_workspace_member_keys"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/pop-challenge": {
         parameters: {
             query?: never;
@@ -596,11 +613,11 @@ export interface components {
         PendingDeviceInfo: {
             client_nonce: string;
             /** Format: date-time */
-            created_at?: string;
+            created_at: string;
             device_type: string;
             ecdh_public_key: string;
             /** Format: date-time */
-            expires_at?: string;
+            expires_at: string;
             /** Format: uuid */
             id: string;
             ip_address?: string | null;
@@ -656,6 +673,8 @@ export interface components {
             nonce: string;
             /** Format: uuid */
             sender_device_id: string;
+            sender_ecdh_public_key?: string | null;
+            sender_signing_public_key?: string | null;
         };
         /** TrustTransferNonceRequest */
         TrustTransferNonceRequest: {
@@ -717,24 +736,21 @@ export interface components {
             /** Format: uuid */
             device_id?: string | null;
             device_verified: boolean;
-            /** Format: date-time */
-            expires_at: string;
-            identity_signing_public_key?: string | null;
-            keys?: components["schemas"]["LoginKeys"];
-            remember_me?: boolean;
-            /** Format: uuid */
-            session_id: string;
-            user: components["schemas"]["UserInfoWithSetup"];
-        };
-        /** UserInfoWithSetup */
-        UserInfoWithSetup: {
             /** Format: email */
             email: string;
             /** Format: date-time */
             encryption_setup_at?: string | null;
-            /** Format: uuid */
-            id: string;
+            /** Format: date-time */
+            expires_at: string;
+            identity_signing_public_key?: string | null;
+            is_recovery?: boolean;
+            keys?: components["schemas"]["LoginKeys"];
             name: string;
+            remember_me?: boolean;
+            /** Format: uuid */
+            session_id: string;
+            /** Format: uuid */
+            user_id: string;
         };
         /** TrustTransferSendRequest */
         TrustTransferSendRequest: {
@@ -744,6 +760,14 @@ export interface components {
             /** Format: uuid */
             target_device_id: string;
             transfer_nonce: string;
+        };
+        /** WorkspaceMemberKeysResponse */
+        WorkspaceMemberKeysResponse: {
+            members: {
+                ecdh_public_key: string;
+                /** Format: uuid */
+                user_id: string;
+            }[];
         };
         /** DevicesResponse */
         DevicesResponse: {
@@ -788,6 +812,12 @@ export interface components {
         /** SaveMemberEnvelopesRequest */
         SaveMemberEnvelopesRequest: {
             envelopes: components["schemas"]["MemberEnvelopeItem"][];
+        };
+        /** PasswordSetResponse */
+        PasswordSetResponse: {
+            ok: boolean;
+            /** Format: uuid */
+            session_id: string;
         };
         /** LoginKeys */
         LoginKeys: {
@@ -871,11 +901,13 @@ export interface components {
         /** LoginResponse */
         LoginResponse: {
             device_verified: boolean;
+            encrypted_umk?: string;
             kdf_migration_required?: boolean;
             keys?: components["schemas"]["LoginKeys"];
             /** Format: uuid */
             session_id: string;
             target_kdf_params?: components["schemas"]["KdfParams"];
+            umk_nonce?: string;
             user: components["schemas"]["UserInfo"];
         };
         /** PendingDevicesResponse */
@@ -1279,7 +1311,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OkResponse"];
+                    "application/json": components["schemas"]["PasswordSetResponse"];
                 };
             };
             /** @description Not a recovery session */
@@ -1327,6 +1359,37 @@ export interface operations {
             };
             /** @description Invalid credentials */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.EncryptionController.get_workspace_member_keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMemberKeysResponse"];
+                };
+            };
+            /** @description Not a member */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1460,6 +1523,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreatePendingDeviceResponse"];
+                };
+            };
+            /** @description Re-authentication required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation error */

@@ -6,9 +6,9 @@ defmodule RefMD.Encryption.WorkspaceMemberEnvelope do
   @foreign_key_type :binary_id
 
   schema "workspace_member_envelopes" do
-    field :workspace_id, :binary_id
-    field :target_user_id, :binary_id
-    field :key_version, :integer
+    field :workspace_id, :binary_id, primary_key: true
+    field :target_user_id, :binary_id, primary_key: true
+    field :key_version, :integer, primary_key: true
     field :sender_device_id, :binary_id
     field :encrypted_kek, :binary
     field :nonce, :binary

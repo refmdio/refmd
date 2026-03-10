@@ -9,18 +9,18 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   @spec init(keyword()) :: keyword()
   def init(opts), do: opts
 
-  @touch_interval_seconds 5 * 60
-
   @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     with token when is_binary(token) <- get_session_token(conn),
          {:ok, session} <- Accounts.get_valid_session_by_token_base64(token) do
-      maybe_touch_session(session)
+      Accounts.touch_session(session.id)
+
+      device_verified = device_verified?(session)
 
       conn
       |> assign(:current_user_id, session.user_id)
       |> assign(:current_session, session)
-      |> assign(:device_verified, session.device_id != nil)
+      |> assign(:device_verified, device_verified)
     else
       _ ->
         conn
@@ -49,11 +49,12 @@ defmodule RefMDWeb.Plugs.RequireAuth do
 
   defp parse_session_cookie(_), do: nil
 
-  defp maybe_touch_session(session) do
-    elapsed = DateTime.diff(DateTime.utc_now(), session.last_seen_at, :second)
+  defp device_verified?(%{device_id: nil}), do: false
 
-    if elapsed >= @touch_interval_seconds do
-      Accounts.touch_session(session.id)
+  defp device_verified?(%{device_id: device_id, user_id: user_id}) do
+    case Accounts.get_device(device_id) do
+      %{user_id: ^user_id, revoked_at: nil} -> true
+      _ -> false
     end
   end
 end

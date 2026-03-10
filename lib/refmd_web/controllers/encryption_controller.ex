@@ -385,6 +385,38 @@ defmodule RefMDWeb.EncryptionController do
     json(conn, %{workspace_ids: ids})
   end
 
+  operation(:get_workspace_member_keys,
+    summary: "Get Identity ECDH public keys for all workspace members",
+    parameters: [
+      workspace_id: [in: :path, type: :string, required: true]
+    ],
+    responses: [
+      ok: {"Member keys", "application/json", Schemas.WorkspaceMemberKeysResponse},
+      forbidden: {"Not a member", "application/json", Schemas.ErrorResponse}
+    ]
+  )
+
+  @spec get_workspace_member_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def get_workspace_member_keys(conn, %{"workspace_id" => workspace_id}) do
+    user_id = conn.assigns.current_user_id
+
+    if Workspaces.get_member_role(workspace_id, user_id) == nil do
+      conn |> put_status(:forbidden) |> json(%{error: "not_a_member"})
+    else
+      members = Encryption.get_workspace_member_identity_keys(workspace_id)
+
+      json(conn, %{
+        members:
+          Enum.map(members, fn m ->
+            %{
+              user_id: m.user_id,
+              ecdh_public_key: encode_binary(m.ecdh_public_key)
+            }
+          end)
+      })
+    end
+  end
+
   operation(:setup_complete,
     summary: "Mark encryption setup as complete",
     responses: [
@@ -478,6 +510,9 @@ defmodule RefMDWeb.EncryptionController do
 
   defp validate_key_version_range(key_version, workspace) when is_integer(key_version) do
     cond do
+      key_version < 1 ->
+        {:error, :unprocessable_entity, "key_version_must_be_positive"}
+
       key_version < workspace.min_kek_version ->
         {:error, :unprocessable_entity, "key_version_below_minimum"}
 
@@ -562,12 +597,11 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp validate_user_has_active_kek(workspace, workspace_id, user_id) do
-    if workspace.current_kek_version > 0 and
-         not Encryption.user_has_active_kek?(workspace_id, user_id) do
-      {:error, :forbidden, "no_active_kek_for_user"}
-    else
+  defp validate_user_has_active_kek(_workspace, workspace_id, user_id) do
+    if Encryption.user_has_active_kek?(workspace_id, user_id) do
       :ok
+    else
+      {:error, :forbidden, "no_active_kek_for_user"}
     end
   end
 

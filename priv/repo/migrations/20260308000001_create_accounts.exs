@@ -7,8 +7,9 @@ defmodule RefMD.Repo.Migrations.CreateAccounts do
       add :email, :text, null: false
       add :name, :text, null: false
       add :encryption_setup_at, :utc_datetime_usec
+      add :password_reset_requested_at, :utc_datetime_usec
 
-      timestamps(type: :utc_datetime_usec)
+      timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
     end
 
     create unique_index(:users, [:email])
@@ -41,6 +42,7 @@ defmodule RefMD.Repo.Migrations.CreateAccounts do
 
     create index(:devices, [:user_id])
     create unique_index(:devices, [:signing_public_key])
+    create unique_index(:devices, [:ecdh_public_key])
 
     create table(:sessions, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -53,6 +55,7 @@ defmodule RefMD.Repo.Migrations.CreateAccounts do
       add :user_agent, :text
       add :expires_at, :utc_datetime_usec, null: false
       add :last_seen_at, :utc_datetime_usec, null: false
+      add :last_verified_at, :utc_datetime_usec
       add :created_at, :utc_datetime_usec, null: false
     end
 

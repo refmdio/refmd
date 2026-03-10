@@ -6,7 +6,7 @@ defmodule RefMD.Workspaces.WorkspaceRolePermission do
   @foreign_key_type :binary_id
 
   schema "workspace_role_permissions" do
-    belongs_to :role, RefMD.Workspaces.WorkspaceRole
+    belongs_to :role, RefMD.Workspaces.WorkspaceRole, primary_key: true
     field :permission, :string, primary_key: true
     field :granted, :boolean
   end

@@ -94,7 +94,7 @@ export default function RegisterPage() {
   const handleConfirmMnemonic = () => {
     setPassword("");
     setConfirmPassword("");
-    navigate("/");
+    navigate("/dashboard");
   };
 
   return (

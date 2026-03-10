@@ -25,6 +25,7 @@ import {
   wrapKekWithUmk,
   verifyTofu,
   handleTofuResult,
+  verifyDeviceIdentitySignature,
 } from "@/shared/lib/crypto";
 
 interface Props {
@@ -184,7 +185,8 @@ async function performKekRotation(
 ): Promise<void> {
   const activeDevices = await devicesApi.list();
 
-  // TOFU re-verification before key distribution (consistent with approve flow Step 9)
+  // TOFU + identity_signature re-verification before key distribution
+  const identitySigningPublic = auth.identityKeys.signingPublic;
   for (const d of activeDevices.devices) {
     const signingPk = base64UrlDecode(d.signing_public_key);
     const ecdhPk = base64UrlDecode(d.ecdh_public_key);
@@ -193,6 +195,16 @@ async function performKekRotation(
       throw new Error("Device key verification failed. Aborting KEK rotation.");
     }
     await handleTofuResult(tofuResult);
+
+    if (!d.identity_signature || !d.client_nonce) {
+      throw new Error(`Device ${d.name}: Missing identity signature. Aborting KEK rotation.`);
+    }
+    const sig = base64UrlDecode(d.identity_signature);
+    const nonce = base64UrlDecode(d.client_nonce);
+    const sigValid = verifyDeviceIdentitySignature(signingPk, ecdhPk, nonce, sig, identitySigningPublic);
+    if (!sigValid) {
+      throw new Error(`Device ${d.name}: Invalid identity signature. Aborting KEK rotation.`);
+    }
   }
 
   const failedWorkspaces: string[] = [];
@@ -229,25 +241,28 @@ async function performKekRotation(
       }
 
       // Step 2: Member envelopes for all workspace members
-      const memberEnvelope = encryptKekForMember(
-        newKek,
-        device.deviceEcdhPrivate,
-        auth.identityKeys.ecdhPublic,
-        workspaceId,
-        auth.user.id,
-        device.deviceId,
-        newVersion,
-      );
-
-      await encryptionApi.saveMemberEnvelopes(workspaceId, [
-        {
-          target_user_id: auth.user.id,
+      const { members } = await encryptionApi.getWorkspaceMemberKeys(workspaceId);
+      const envelopes = members.map((member) => {
+        const targetEcdhPublic = base64UrlDecode(member.ecdh_public_key);
+        const envelope = encryptKekForMember(
+          newKek,
+          device.deviceEcdhPrivate,
+          targetEcdhPublic,
+          workspaceId,
+          member.user_id,
+          device.deviceId,
+          newVersion,
+        );
+        return {
+          target_user_id: member.user_id,
           key_version: newVersion,
           sender_device_id: device.deviceId,
-          encrypted_kek: base64UrlEncode(memberEnvelope.ciphertext),
-          nonce: base64UrlEncode(memberEnvelope.nonce),
-        },
-      ]);
+          encrypted_kek: base64UrlEncode(envelope.ciphertext),
+          nonce: base64UrlEncode(envelope.nonce),
+        };
+      });
+
+      await encryptionApi.saveMemberEnvelopes(workspaceId, envelopes);
 
       // Step 3: UMK backup with new KEK
       const kekBackup = wrapKekWithUmk(newKek, auth.umk, workspaceId, auth.user.id, newVersion);

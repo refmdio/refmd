@@ -1,4 +1,4 @@
-import { createSignal, Show, Match, Switch } from "solid-js";
+import { createSignal, onMount, Show, Match, Switch } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -8,6 +8,7 @@ import { Field, FieldLabel } from "@/shared/ui/field";
 import { Spinner } from "@/shared/ui/spinner";
 import { KeyRoundIcon, AlertTriangleIcon, CheckCircleIcon } from "lucide-solid";
 import { setAuthState } from "@/shared/lib/auth-state";
+import { authApi } from "@/shared/api";
 
 type Phase = "request" | "sent" | "verifying" | "error";
 
@@ -19,29 +20,17 @@ export default function PasswordResetPage() {
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
 
-  // Auto-verify if token is in URL
-  const tokenParam = Array.isArray(searchParams.token) ? searchParams.token[0] : searchParams.token;
-  if (tokenParam) {
-    verifyToken(tokenParam);
-  }
+  onMount(() => {
+    const tokenParam = Array.isArray(searchParams.token) ? searchParams.token[0] : searchParams.token;
+    if (tokenParam) {
+      verifyToken(tokenParam);
+    }
+  });
 
   async function verifyToken(token: string) {
     setPhase("verifying");
     try {
-      const res = await fetch("/api/auth/password-reset/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        setError("Invalid or expired reset link. Please request a new one.");
-        setPhase("error");
-        return;
-      }
-
-      const data = await res.json();
+      const data = await authApi.passwordResetVerify(token);
 
       setAuthState({
         user: data.user,
@@ -53,7 +42,7 @@ export default function PasswordResetPage() {
 
       navigate("/auth/recovery?password_reset=true");
     } catch {
-      setError("Verification failed. Please try again.");
+      setError("Invalid or expired reset link. Please request a new one.");
       setPhase("error");
     }
   }
@@ -64,20 +53,10 @@ export default function PasswordResetPage() {
     setError(null);
 
     try {
-      const res = await fetch("/api/auth/password-reset/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email().trim().toLowerCase() }),
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        setPhase("sent");
-      } else {
-        setError("Request failed. Please try again.");
-      }
+      await authApi.passwordResetRequest(email().trim().toLowerCase());
+      setPhase("sent");
     } catch {
-      setError("Network error. Please try again.");
+      setError("Request failed. Please try again.");
     } finally {
       setLoading(false);
     }

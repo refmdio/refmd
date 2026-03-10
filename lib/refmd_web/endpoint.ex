@@ -45,5 +45,6 @@ defmodule RefMDWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
+  plug RefMDWeb.Plugs.ClientIP
   plug RefMDWeb.Router
 end

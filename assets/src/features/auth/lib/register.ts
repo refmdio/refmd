@@ -66,7 +66,13 @@ export async function register(
   const identityKeys = generateIdentityKeyPair();
   const encryptedIdentity = encryptIdentityKeys(identityKeys, umk, userId);
 
-  // Step 6: Register with server
+  // Step 6: Generate device keys and persist with DSK early (before server registration)
+  const deviceKeys = generateDeviceKeyPair();
+  persistSessionPdk(derived.pdk);
+  await persistDeviceKeysOnly(deviceKeys.ecdhPrivate, deviceKeys.signingPrivate, userId);
+  const clientNonce = generateClientNonce();
+
+  // Step 7: Register with server
   const registerRes = await authApi.register({
     user_id: userId,
     email,
@@ -85,12 +91,6 @@ export async function register(
     encrypted_signing_private: base64UrlEncode(encryptedIdentity.encryptedSigningPrivate),
     encrypted_signing_private_nonce: base64UrlEncode(encryptedIdentity.signingPrivateNonce),
   });
-
-  // Step 6: Generate device keys and persist early (design: DSK early persistence)
-  const deviceKeys = generateDeviceKeyPair();
-  persistSessionPdk(derived.pdk);
-  await persistDeviceKeysOnly(deviceKeys.ecdhPrivate, deviceKeys.signingPrivate, userId);
-  const clientNonce = generateClientNonce();
   const identitySignature = signDeviceRegistration(
     deviceKeys.signingPublic,
     deviceKeys.ecdhPublic,

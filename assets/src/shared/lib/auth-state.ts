@@ -24,8 +24,9 @@ export interface DeviceState {
 
 const [authState, setAuthStateRaw] = createSignal<AuthState | null>(null);
 const [deviceState, setDeviceStateRaw] = createSignal<DeviceState | null>(null);
+const [tofuErrors, setTofuErrors] = createSignal<string[]>([]);
 
-export { authState, deviceState };
+export { authState, deviceState, tofuErrors, setTofuErrors };
 
 export function setAuthState(state: AuthState | null): void {
   setAuthStateRaw(state);

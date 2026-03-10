@@ -153,6 +153,12 @@ defmodule RefMD.Accounts do
     |> Repo.update_all(set: [last_seen_at: DateTime.utc_now()])
   end
 
+  @spec update_session_verified_at(Ecto.UUID.t()) :: {non_neg_integer(), nil}
+  def update_session_verified_at(session_id) do
+    from(s in Session, where: s.id == ^session_id)
+    |> Repo.update_all(set: [last_verified_at: DateTime.utc_now()])
+  end
+
   @spec touch_device(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def touch_device(device_id) do
     from(d in Device, where: d.id == ^device_id and is_nil(d.revoked_at))
@@ -296,13 +302,7 @@ defmodule RefMD.Accounts do
   def get_pending_device_status(user_id, device_id) do
     case Repo.get(PendingDevice, device_id) do
       nil ->
-        case get_device(device_id) do
-          %{user_id: ^user_id} ->
-            {:ok, "approved"}
-
-          _ ->
-            {:error, :not_found}
-        end
+        resolve_device_status(user_id, device_id)
 
       %{user_id: ^user_id} = pd ->
         if DateTime.compare(pd.expires_at, DateTime.utc_now()) == :gt do
@@ -316,12 +316,27 @@ defmodule RefMD.Accounts do
     end
   end
 
+  defp resolve_device_status(user_id, device_id) do
+    case get_device(device_id) do
+      %{user_id: ^user_id, revoked_at: nil} ->
+        if RefMD.Encryption.get_device_encrypted_umk(user_id, device_id) != nil do
+          {:ok, "approved"}
+        else
+          {:ok, "pending"}
+        end
+
+      _ ->
+        {:ok, "expired"}
+    end
+  end
+
   @spec delete_pending_device(Ecto.UUID.t()) :: {non_neg_integer(), nil}
   def delete_pending_device(id) do
     from(pd in PendingDevice, where: pd.id == ^id)
     |> Repo.delete_all()
   end
 
+  @dialyzer {:nowarn_function, replace_user_pending_device: 3}
   @spec replace_user_pending_device(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
           {:ok, %{removed_ids: [Ecto.UUID.t()], pending: PendingDevice.t()}}
           | {:error, atom(), term(), map()}
@@ -916,27 +931,40 @@ defmodule RefMD.Accounts do
     token_hash = :crypto.hash(:sha256, token)
     now = DateTime.utc_now()
 
-    case %PasswordResetToken{created_at: now}
-         |> PasswordResetToken.changeset(%{
-           user_id: user_id,
-           token_hash: token_hash,
-           expires_at: DateTime.add(now, @password_reset_ttl, :second)
-         })
-         |> Repo.insert() do
-      {:ok, _} -> {:ok, token}
-      {:error, changeset} -> {:error, changeset}
-    end
+    Repo.transaction(fn ->
+      case %PasswordResetToken{created_at: now}
+           |> PasswordResetToken.changeset(%{
+             user_id: user_id,
+             token_hash: token_hash,
+             expires_at: DateTime.add(now, @password_reset_ttl, :second)
+           })
+           |> Repo.insert() do
+        {:ok, _} ->
+          from(u in User, where: u.id == ^user_id)
+          |> Repo.update_all(set: [password_reset_requested_at: now])
+
+          token
+
+        {:error, changeset} ->
+          Repo.rollback(changeset)
+      end
+    end)
   end
 
   @spec can_send_password_reset?(Ecto.UUID.t()) :: boolean()
   def can_send_password_reset?(user_id) do
     cutoff = DateTime.add(DateTime.utc_now(), -@password_reset_rate_limit, :second)
 
-    not Repo.exists?(
-      from(t in PasswordResetToken,
-        where: t.user_id == ^user_id and t.created_at > ^cutoff
-      )
-    )
+    case Repo.get(User, user_id) do
+      %{password_reset_requested_at: nil} ->
+        true
+
+      %{password_reset_requested_at: requested_at} ->
+        DateTime.compare(requested_at, cutoff) != :gt
+
+      nil ->
+        true
+    end
   end
 
   @spec verify_password_reset_token(binary()) :: {:ok, Ecto.UUID.t()} | {:error, :invalid_token}
@@ -956,10 +984,7 @@ defmodule RefMD.Accounts do
           Repo.rollback(:invalid_token)
 
         token ->
-          # Invalidate token (single-use) but keep row for rate limiting (5-minute interval)
-          from(t in PasswordResetToken, where: t.id == ^token.id)
-          |> Repo.update_all(set: [token_hash: nil])
-
+          Repo.delete!(token)
           token.user_id
       end
     end)

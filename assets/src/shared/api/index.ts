@@ -1,4 +1,4 @@
-export { client, ApiError, throwIfError } from "./core";
+export { client, ApiError, throwIfError, withPopDevice } from "./core";
 export { authApi } from "./auth";
 export { devicesApi } from "./devices";
 export { encryptionApi } from "./encryption";

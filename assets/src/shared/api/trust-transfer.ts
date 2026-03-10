@@ -1,18 +1,12 @@
-import { fetchWithPop } from "@/shared/lib/pop";
+import { client, throwIfError } from "./core";
 
 export const trustTransferApi = {
-  requestNonce: async (
-    deviceId: string,
-  ): Promise<{ nonce: string; expires_at: string }> => {
-    const res = await fetch("/api/trust-transfer/nonce", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ device_id: deviceId }),
-    });
-    if (!res.ok) throw new Error(`request nonce failed: ${res.status}`);
-    return res.json();
-  },
+  requestNonce: async (deviceId: string) =>
+    throwIfError(
+      await client.POST("/api/trust-transfer/nonce", {
+        body: { device_id: deviceId },
+      }),
+    ),
 
   submitState: async (body: {
     target_device_id: string;
@@ -20,32 +14,18 @@ export const trustTransferApi = {
     ciphertext: string;
     nonce: string;
     signature: string;
-  }): Promise<void> => {
-    const res = await fetchWithPop("/api/trust-transfer/state", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`submit trust state failed: ${res.status}`);
+  }) => {
+    throwIfError(
+      await client.POST("/api/trust-transfer/state", {
+        body,
+      }),
+    );
   },
 
-  retrieveState: async (
-    deviceId: string,
-  ): Promise<{
-    sender_device_id: string;
-    sender_ecdh_public_key: string;
-    sender_signing_public_key: string;
-    ciphertext: string;
-    nonce: string;
-    signature: string;
-  }> => {
-    const res = await fetch(
-      `/api/trust-transfer/state?device_id=${encodeURIComponent(deviceId)}`,
-      {
-        method: "GET",
-        credentials: "include",
-      },
-    );
-    if (!res.ok) throw new Error(`retrieve trust state failed: ${res.status}`);
-    return res.json();
-  },
+  retrieveState: async (deviceId: string) =>
+    throwIfError(
+      await client.GET("/api/trust-transfer/state", {
+        params: { query: { device_id: deviceId } },
+      }),
+    ),
 };

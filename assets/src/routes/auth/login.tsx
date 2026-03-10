@@ -10,7 +10,7 @@ import { Checkbox } from "@/shared/ui/checkbox";
 import { Spinner } from "@/shared/ui/spinner";
 import { AlertTriangleIcon } from "lucide-solid";
 import { login } from "@/features/auth";
-import { setFullSession, setAuthState } from "@/shared/lib/auth-state";
+import { setFullSession, setAuthState, setTofuErrors } from "@/shared/lib/auth-state";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -54,7 +54,12 @@ export default function LoginPage() {
           deviceSigningPrivate: result.deviceSigningPrivate,
         },
       );
-      navigate("/");
+
+      if (result.tofuWarnings.length > 0) {
+        setTofuErrors(result.tofuWarnings);
+      }
+
+      navigate("/dashboard");
     } catch (err) {
       if (err instanceof Error && err.message.includes("invalid_credentials")) {
         setError("Invalid email or password");

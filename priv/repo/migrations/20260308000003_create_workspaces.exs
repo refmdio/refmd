@@ -14,7 +14,7 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
       add :needs_kek_rotation, :boolean, null: false, default: false
       add :kek_rotation_initiator_user_id, :binary_id
 
-      timestamps(type: :utc_datetime_usec)
+      timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
     end
 
     create unique_index(:workspaces, [:slug])
@@ -28,7 +28,7 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaces do
       add :name, :text, null: false
       add :base_role, :text, null: false
       add :is_default, :boolean, null: false, default: false
-      add :catalog_version, :integer, null: false, default: 1
+      add :catalog_version, :integer
       add :created_at, :utc_datetime_usec, null: false
     end
 

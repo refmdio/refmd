@@ -117,6 +117,19 @@ defmodule RefMD.Encryption do
     Repo.get(UserIdentityPublicKey, user_id)
   end
 
+  @spec get_workspace_member_identity_keys(Ecto.UUID.t()) :: [
+          %{user_id: Ecto.UUID.t(), ecdh_public_key: binary()}
+        ]
+  def get_workspace_member_identity_keys(workspace_id) do
+    from(wm in RefMD.Workspaces.WorkspaceMember,
+      join: ipk in UserIdentityPublicKey,
+      on: ipk.user_id == wm.user_id,
+      where: wm.workspace_id == ^workspace_id,
+      select: %{user_id: wm.user_id, ecdh_public_key: ipk.ecdh_public_key}
+    )
+    |> Repo.all()
+  end
+
   # ── Device Keys ────────────────────────────────
 
   @spec create_device_encrypted_umk(map()) ::
@@ -302,25 +315,27 @@ defmodule RefMD.Encryption do
 
   @spec all_user_devices_have_key?(Ecto.UUID.t(), Ecto.UUID.t(), integer()) :: boolean()
   def all_user_devices_have_key?(workspace_id, user_id, key_version) do
-    active_device_count =
+    active_device_ids =
       from(d in RefMD.Accounts.Device,
         where: d.user_id == ^user_id and is_nil(d.revoked_at),
-        select: count()
+        select: d.id
       )
-      |> Repo.one()
+      |> Repo.all()
+      |> MapSet.new()
 
-    device_key_count =
+    covered_device_ids =
       from(k in WorkspaceEncryptedKey,
         where:
           k.workspace_id == ^workspace_id and
             k.user_id == ^user_id and
             k.key_version == ^key_version and
             k.is_active == true,
-        select: count()
+        select: k.device_id
       )
-      |> Repo.one()
+      |> Repo.all()
+      |> MapSet.new()
 
-    device_key_count >= active_device_count
+    MapSet.subset?(active_device_ids, covered_device_ids)
   end
 
   @spec all_members_have_envelope?(Ecto.UUID.t(), integer()) :: boolean()
@@ -362,13 +377,13 @@ defmodule RefMD.Encryption do
 
   # ── Login Keys Response ────────────────────────
 
-  @spec get_login_keys(Ecto.UUID.t(), Ecto.UUID.t()) :: map()
+  @spec get_login_keys(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: map()
   def get_login_keys(user_id, device_id) do
     %{
       encrypted_master_key: get_user_encrypted_master_key(user_id),
       encrypted_identity_key: get_user_encrypted_identity_key(user_id),
       identity_public_key: get_user_identity_public_key(user_id),
-      device_encrypted_umk: get_device_encrypted_umk(user_id, device_id)
+      device_encrypted_umk: if(device_id, do: get_device_encrypted_umk(user_id, device_id))
     }
   end
 end

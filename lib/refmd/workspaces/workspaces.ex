@@ -208,6 +208,15 @@ defmodule RefMD.Workspaces do
   defp apply_rotation_completion(workspace_id, new_kek_version, envelope_checks) do
     case envelope_checks.() do
       :ok ->
+        # Deactivate old KEK version keys (min_kek_version = new version rejects old KEK)
+        from(k in RefMD.Encryption.WorkspaceEncryptedKey,
+          where:
+            k.workspace_id == ^workspace_id and
+              k.key_version < ^new_kek_version and
+              k.is_active == true
+        )
+        |> Repo.update_all(set: [is_active: false])
+
         from(w in Workspace, where: w.id == ^workspace_id)
         |> Repo.update_all(
           set: [

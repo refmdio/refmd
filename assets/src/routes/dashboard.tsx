@@ -5,7 +5,7 @@ import { authState, clearSession } from "@/shared/lib/auth-state";
 import { authApi } from "@/shared/api";
 import { clearSessionData } from "@/features/auth";
 
-export default function HomePage() {
+export default function DashboardPage() {
   const navigate = useNavigate();
 
   const handleLogout = async () => {

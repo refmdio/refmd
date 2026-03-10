@@ -48,58 +48,54 @@ export const authApi = {
       await client.GET("/api/auth/recovery"),
     ),
 
-  recoveryChallenge: async (email: string): Promise<{ challenge: string }> => {
-    const res = await fetch("/api/auth/recovery/challenge", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-      credentials: "include",
-    });
-    if (!res.ok) throw new Error("Recovery challenge failed");
-    return res.json();
-  },
+  recoveryChallenge: async (email: string) =>
+    throwIfError(
+      await client.POST("/api/auth/recovery/challenge", {
+        body: { email },
+      }),
+    ),
 
   recoverySession: async (body: {
     email: string;
     challenge: string;
     signature: string;
     timestamp: number;
-  }): Promise<{ user: { id: string; email: string; name: string }; session_id: string; is_recovery: boolean }> => {
-    const res = await fetch("/api/auth/recovery/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      credentials: "include",
-    });
-    if (!res.ok) throw new Error("Recovery session failed");
-    return res.json();
-  },
+  }) =>
+    throwIfError(
+      await client.POST("/api/auth/recovery/session", { body }),
+    ),
 
   passwordSet: async (body: {
     new_auth_key: string;
     new_salt: string;
     new_encrypted_umk: string;
     new_umk_nonce: string;
-  }): Promise<{ ok: boolean; session_id: string }> => {
-    const res = await fetch("/api/auth/password-set", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      credentials: "include",
-    });
-    if (!res.ok) throw new Error("Password set failed");
-    return res.json();
+  }) =>
+    throwIfError(
+      await client.POST("/api/auth/password-set", { body }),
+    ),
+
+  verifyKey: async (authKey: string) => {
+    throwIfError(
+      await client.POST("/api/auth/verify-key", {
+        body: { auth_key: authKey },
+      }),
+    );
   },
 
-  verifyKey: async (authKey: string): Promise<void> => {
-    const res = await fetch("/api/auth/verify-key", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ auth_key: authKey }),
-      credentials: "include",
-    });
-    if (!res.ok) throw new Error("Invalid password");
-  },
+  passwordResetRequest: async (email: string) =>
+    throwIfError(
+      await client.POST("/api/auth/password-reset/request", {
+        body: { email },
+      }),
+    ),
+
+  passwordResetVerify: async (token: string) =>
+    throwIfError(
+      await client.POST("/api/auth/password-reset/verify", {
+        body: { token },
+      }),
+    ),
 
   popChallenge: async (deviceId: string): Promise<{ challenge: string }> => {
     const res = await fetch("/api/auth/pop-challenge", {

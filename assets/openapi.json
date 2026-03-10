@@ -42,7 +42,9 @@
           "device_type",
           "ecdh_public_key",
           "signing_public_key",
-          "client_nonce"
+          "client_nonce",
+          "created_at",
+          "expires_at"
         ],
         "title": "PendingDeviceInfo",
         "type": "object"
@@ -189,6 +191,14 @@
           },
           "sender_device_id": {
             "format": "uuid",
+            "type": "string"
+          },
+          "sender_ecdh_public_key": {
+            "nullable": true,
+            "type": "string"
+          },
+          "sender_signing_public_key": {
+            "nullable": true,
             "type": "string"
           }
         },
@@ -375,39 +385,6 @@
           "device_verified": {
             "type": "boolean"
           },
-          "expires_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "identity_signing_public_key": {
-            "nullable": true,
-            "type": "string"
-          },
-          "keys": {
-            "$ref": "#/components/schemas/LoginKeys"
-          },
-          "remember_me": {
-            "type": "boolean"
-          },
-          "session_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "user": {
-            "$ref": "#/components/schemas/UserInfoWithSetup"
-          }
-        },
-        "required": [
-          "user",
-          "session_id",
-          "device_verified",
-          "expires_at"
-        ],
-        "title": "MeResponse",
-        "type": "object"
-      },
-      "UserInfoWithSetup": {
-        "properties": {
           "email": {
             "format": "email",
             "type": "string"
@@ -417,20 +394,44 @@
             "nullable": true,
             "type": "string"
           },
-          "id": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "identity_signing_public_key": {
+            "nullable": true,
+            "type": "string"
+          },
+          "is_recovery": {
+            "type": "boolean"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/LoginKeys"
+          },
+          "name": {
+            "type": "string"
+          },
+          "remember_me": {
+            "type": "boolean"
+          },
+          "session_id": {
             "format": "uuid",
             "type": "string"
           },
-          "name": {
+          "user_id": {
+            "format": "uuid",
             "type": "string"
           }
         },
         "required": [
-          "id",
+          "user_id",
           "email",
-          "name"
+          "name",
+          "session_id",
+          "device_verified",
+          "expires_at"
         ],
-        "title": "UserInfoWithSetup",
+        "title": "MeResponse",
         "type": "object"
       },
       "TrustTransferSendRequest": {
@@ -460,6 +461,34 @@
           "signature"
         ],
         "title": "TrustTransferSendRequest",
+        "type": "object"
+      },
+      "WorkspaceMemberKeysResponse": {
+        "properties": {
+          "members": {
+            "items": {
+              "properties": {
+                "ecdh_public_key": {
+                  "type": "string"
+                },
+                "user_id": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "user_id",
+                "ecdh_public_key"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "title": "WorkspaceMemberKeysResponse",
         "type": "object"
       },
       "DevicesResponse": {
@@ -599,6 +628,23 @@
           "envelopes"
         ],
         "title": "SaveMemberEnvelopesRequest",
+        "type": "object"
+      },
+      "PasswordSetResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "session_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "session_id"
+        ],
+        "title": "PasswordSetResponse",
         "type": "object"
       },
       "LoginKeys": {
@@ -859,6 +905,9 @@
           "device_verified": {
             "type": "boolean"
           },
+          "encrypted_umk": {
+            "type": "string"
+          },
           "kdf_migration_required": {
             "type": "boolean"
           },
@@ -871,6 +920,9 @@
           },
           "target_kdf_params": {
             "$ref": "#/components/schemas/KdfParams"
+          },
+          "umk_nonce": {
+            "type": "string"
           },
           "user": {
             "$ref": "#/components/schemas/UserInfo"
@@ -1638,7 +1690,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OkResponse"
+                  "$ref": "#/components/schemas/PasswordSetResponse"
                 }
               }
             },
@@ -1708,6 +1760,47 @@
           }
         },
         "summary": "Login with credentials",
+        "tags": []
+      }
+    },
+    "/api/encryption/workspaces/{workspace_id}/member-keys": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.EncryptionController.get_workspace_member_keys",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceMemberKeysResponse"
+                }
+              }
+            },
+            "description": "Member keys"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not a member"
+          }
+        },
+        "summary": "Get Identity ECDH public keys for all workspace members",
         "tags": []
       }
     },
@@ -1859,6 +1952,16 @@
               }
             },
             "description": "Pending device"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Re-authentication required"
           },
           "422": {
             "content": {

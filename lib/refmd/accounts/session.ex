@@ -16,6 +16,7 @@ defmodule RefMD.Accounts.Session do
     field :user_agent, :string
     field :expires_at, :utc_datetime_usec
     field :last_seen_at, :utc_datetime_usec
+    field :last_verified_at, :utc_datetime_usec
     field :created_at, :utc_datetime_usec
   end
 

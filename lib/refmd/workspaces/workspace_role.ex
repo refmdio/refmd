@@ -10,7 +10,7 @@ defmodule RefMD.Workspaces.WorkspaceRole do
     field :name, :string
     field :base_role, :string
     field :is_default, :boolean, default: false
-    field :catalog_version, :integer, default: 1
+    field :catalog_version, :integer
     field :created_at, :utc_datetime_usec
 
     has_many :permissions, RefMD.Workspaces.WorkspaceRolePermission, foreign_key: :role_id

@@ -13,42 +13,34 @@ export interface PopHeaders {
   "X-PoP-Signature": string;
 }
 
-export async function getPopHeaders(): Promise<PopHeaders> {
-  const device = deviceState();
-  if (!device?.deviceId || !device.deviceSigningPrivate) {
+export interface ExplicitDeviceKeys {
+  deviceId: string;
+  deviceSigningPrivate: Uint8Array;
+}
+
+export async function getPopHeaders(
+  explicitDevice?: ExplicitDeviceKeys,
+): Promise<PopHeaders> {
+  const deviceId = explicitDevice?.deviceId ?? deviceState()?.deviceId;
+  const signingPrivate = explicitDevice?.deviceSigningPrivate ?? deviceState()?.deviceSigningPrivate;
+
+  if (!deviceId || !signingPrivate) {
     throw new Error("Device not available for PoP");
   }
 
-  const { challenge } = await authApi.popChallenge(device.deviceId);
+  const { challenge } = await authApi.popChallenge(deviceId);
 
   const message = buildSignatureMessage(SIGNATURE_ACTION.POP_CHALLENGE, {
     challenge: challenge,
-    device_id: device.deviceId,
+    device_id: deviceId,
   });
 
-  const signature = sign(message, device.deviceSigningPrivate);
+  const signature = sign(message, signingPrivate);
 
   return {
-    "X-PoP-Device-Id": device.deviceId,
+    "X-PoP-Device-Id": deviceId,
     "X-PoP-Challenge": challenge,
     "X-PoP-Signature": base64UrlEncode(signature),
   };
 }
 
-export async function fetchWithPop(
-  url: string,
-  options: RequestInit = {},
-): Promise<Response> {
-  const popHeaders = await getPopHeaders();
-  const headers = new Headers(options.headers);
-  headers.set("X-PoP-Device-Id", popHeaders["X-PoP-Device-Id"]);
-  headers.set("X-PoP-Challenge", popHeaders["X-PoP-Challenge"]);
-  headers.set("X-PoP-Signature", popHeaders["X-PoP-Signature"]);
-  headers.set("Content-Type", "application/json");
-
-  return fetch(url, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
-}

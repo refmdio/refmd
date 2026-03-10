@@ -10,6 +10,7 @@ import { ShieldCheckIcon, AlertTriangleIcon, CheckCircleIcon } from "lucide-soli
 import { SafetyNumber } from "@/features/devices/safety-number";
 import { authState, setFullSession, setDeviceState } from "@/shared/lib/auth-state";
 import { authApi, devicesApi, encryptionApi, trustTransferApi } from "@/shared/api";
+import { ApiError } from "@/shared/api/core";
 import { persistDeviceId } from "@/features/auth";
 import { persistDeviceKeysOnly, persistUmkForLogin, restoreSessionPdk, persistSessionPdk } from "@/features/auth/lib/key-persistence";
 import {
@@ -34,12 +35,12 @@ import type { IdentityKeyPair } from "@/shared/lib/crypto";
 import { importTofuEntries } from "@/shared/lib/trust-store";
 import { buildDeviceUmkDistributionAad } from "@/shared/lib/crypto/aad";
 
-type Phase = "generating" | "waiting" | "restoring" | "done" | "error" | "expired" | "needs_password";
+type Phase = "generating" | "waiting" | "restoring" | "done" | "error" | "expired" | "needs_password" | "reauth";
 
 export default function DeviceRegisterPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const isRecoveryMode = () => (location.state as Record<string, unknown>)?.recovery === true;
+  const isRecoveryFromState = () => (location.state as Record<string, unknown>)?.recovery === true;
   const [phase, setPhase] = createSignal<Phase>("generating");
   const [error, setError] = createSignal<string | null>(null);
   const [deviceKeys, setDeviceKeys] = createSignal<{
@@ -62,6 +63,16 @@ export default function DeviceRegisterPage() {
   const [pdkLoading, setPdkLoading] = createSignal(false);
   const [pdkError, setPdkError] = createSignal<string | null>(null);
   const [statusMessage, setStatusMessage] = createSignal("");
+  const [isRecoveryMode, setIsRecoveryMode] = createSignal(false);
+  const [reauthPassword, setReauthPassword] = createSignal("");
+  const [reauthLoading, setReauthLoading] = createSignal(false);
+  const [reauthError, setReauthError] = createSignal<string | null>(null);
+  const [reauthPendingKeys, setReauthPendingKeys] = createSignal<{
+    ecdhPrivate: Uint8Array;
+    ecdhPublic: Uint8Array;
+    signingPrivate: Uint8Array;
+    signingPublic: Uint8Array;
+  } | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let eventSource: EventSource | undefined;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -84,7 +95,16 @@ export default function DeviceRegisterPage() {
     }
 
     try {
-      if (isRecoveryMode()) {
+      // Check recovery mode from location state (initial navigation) or server session (page refresh)
+      let isRecovery = isRecoveryFromState();
+      if (!isRecovery) {
+        const me = await authApi.me();
+        isRecovery = me.is_recovery === true;
+      }
+
+      setIsRecoveryMode(isRecovery);
+
+      if (isRecovery) {
         await startRecoveryRegistration(auth);
       } else {
         await startNormalRegistration(auth);
@@ -124,14 +144,24 @@ export default function DeviceRegisterPage() {
     const nonce = generateClientNonce();
     setClientNonce(nonce);
 
-    const res = await devicesApi.createPending({
-      name: getDeviceName(),
-      device_type: getDeviceType(),
-      device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
-      device_signing_public_key: base64UrlEncode(keys.signingPublic),
-      client_nonce: base64UrlEncode(nonce),
-      identity_signing_public_key: base64UrlEncode(identitySigningPublic()!),
-    });
+    let res;
+    try {
+      res = await devicesApi.createPending({
+        name: getDeviceName(),
+        device_type: getDeviceType(),
+        device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
+        device_signing_public_key: base64UrlEncode(keys.signingPublic),
+        client_nonce: base64UrlEncode(nonce),
+        identity_signing_public_key: base64UrlEncode(identitySigningPublic()!),
+      });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403 && err.body?.error === "reauth_required") {
+        setReauthPendingKeys(keys);
+        setPhase("reauth");
+        return;
+      }
+      throw err;
+    }
 
     setPendingDeviceId(res.device_id);
     setPhase("waiting");
@@ -163,35 +193,44 @@ export default function DeviceRegisterPage() {
       }, 5000);
     };
 
-    // SSE for approval notification
-    try {
-      eventSource = new EventSource(`/api/devices/pending/${res.device_id}/events`);
-      eventSource.addEventListener("pending_approved", async () => {
-        if (eventSource) eventSource.close();
-        if (pollTimer) clearInterval(pollTimer);
-        await handleApproved(res.device_id, keys);
-      });
-      eventSource.addEventListener("expired", () => {
-        if (eventSource) eventSource.close();
-        if (pollTimer) clearInterval(pollTimer);
-        setPhase("expired");
-      });
-      eventSource.addEventListener("pending_rejected", () => {
-        if (eventSource) eventSource.close();
-        if (pollTimer) clearInterval(pollTimer);
-        setError("Device registration was rejected by an existing device.");
-        setPhase("error");
-      });
-      eventSource.onerror = () => {
-        if (eventSource) {
-          eventSource.close();
-          eventSource = undefined;
-        }
+    const connectSse = () => {
+      try {
+        eventSource = new EventSource(`/api/devices/pending/${res.device_id}/events`);
+        eventSource.addEventListener("pending_approved", async () => {
+          if (eventSource) eventSource.close();
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+          await handleApproved(res.device_id, keys);
+        });
+        eventSource.addEventListener("expired", () => {
+          if (eventSource) eventSource.close();
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+          setPhase("expired");
+        });
+        eventSource.addEventListener("pending_rejected", () => {
+          if (eventSource) eventSource.close();
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+          setError("Device registration was rejected by an existing device.");
+          setPhase("error");
+        });
+        eventSource.onopen = () => {
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+        };
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = undefined;
+          }
+          startPollingFallback();
+          setTimeout(() => {
+            if (phase() === "waiting" && !eventSource) connectSse();
+          }, 5000);
+        };
+      } catch {
         startPollingFallback();
-      };
-    } catch {
-      startPollingFallback();
-    }
+      }
+    };
+
+    connectSse();
 
     // Expiry timer: pending devices have a 5-minute TTL
     expiryTimer = setTimeout(() => {
@@ -234,7 +273,7 @@ export default function DeviceRegisterPage() {
       identity_signing_public_key: base64UrlEncode(identityKeys.signingPublic),
     });
 
-    const approveRes = await devicesApi.approveWithoutPop(pendingRes.device_id, {
+    const approveRes = await devicesApi.approve(pendingRes.device_id, {
       identity_signature: base64UrlEncode(deviceSignature),
     });
 
@@ -264,22 +303,30 @@ export default function DeviceRegisterPage() {
     );
 
     setStatusMessage("Restoring workspace keys\u2026");
-    try {
-      await restoreWorkspaceKeks(
-        auth.user.id,
-        deviceId,
-        umk,
-        identityKeys,
-        keys.ecdhPrivate,
-        keys.ecdhPublic,
-      );
-    } catch {
-      // KEK restoration is best-effort
+    const kekResults = await restoreWorkspaceKeks(
+      auth.user.id,
+      deviceId,
+      umk,
+      identityKeys,
+      keys.ecdhPrivate,
+      keys.ecdhPublic,
+    );
+
+    if (kekResults.backupDecryptFailed) {
+      setPhase("error");
+      setError("KEK backup decryption failed. This may indicate data corruption. Some workspaces may require key distribution from an existing device.");
+      return;
     }
 
     setPhase("done");
-    setStatusMessage("Recovery complete!");
-    redirectTimer = setTimeout(() => navigate("/"), 1500);
+    if (kekResults.needsDistribution.length > 0) {
+      setStatusMessage(
+        `Recovery complete. ${kekResults.needsDistribution.length} workspace(s) require key distribution from an existing device.`,
+      );
+    } else {
+      setStatusMessage("Recovery complete!");
+    }
+    redirectTimer = setTimeout(() => navigate("/"), 3000);
   };
 
   const handlePdkReentry = async (e: Event) => {
@@ -306,6 +353,30 @@ export default function DeviceRegisterPage() {
       setPdkError(err instanceof Error ? err.message : "Password verification failed");
     } finally {
       setPdkLoading(false);
+    }
+  };
+
+  const handleReauth = async (e: Event) => {
+    e.preventDefault();
+    setReauthError(null);
+    setReauthLoading(true);
+
+    try {
+      const auth = authState();
+      if (!auth) throw new Error("No session");
+
+      const saltRes = await authApi.getSalt(auth.user.email);
+      const derived = await deriveAuthKeys(reauthPassword(), saltRes.salt, saltRes.kdf_params);
+      await authApi.verifyKey(derived.authKeyBase64);
+
+      const keys = reauthPendingKeys();
+      if (!keys) throw new Error("No pending keys");
+      setReauthPendingKeys(null);
+      await createPendingAndWait(keys);
+    } catch (err) {
+      setReauthError(err instanceof Error ? err.message : "Password verification failed");
+    } finally {
+      setReauthLoading(false);
     }
   };
 
@@ -340,11 +411,11 @@ export default function DeviceRegisterPage() {
           keys.ecdhPrivate,
         );
       } catch (err) {
-        // identity_key_changed / ecdh_key_mismatch are hard failures per trust.md
+        // identity_key_changed / ecdh_key_mismatch are hard failures
         if (err instanceof Error && err.message.includes("key verification failed")) {
           throw err;
         }
-        // Other failures (404, network, decryption) are best-effort per design
+        // Other failures (404, network, decryption) are best-effort
       }
 
       // Establish PoP credential before accessing PoP-required endpoints
@@ -355,10 +426,12 @@ export default function DeviceRegisterPage() {
       });
 
       // Get UMK from server (distributed by existing device, PoP required)
-      // Polling may report "approved" before UMK distribution completes, so retry
       const umkData = await retryGetUmk(deviceId, 10, 2000);
 
-      // TOFU verification on UMK sender (design step 14)
+      // TOFU verification on UMK sender
+      if (!umkData.sender_signing_public_key || !umkData.sender_ecdh_public_key) {
+        throw new Error("UMK response missing sender keys");
+      }
       const senderSigningPk = base64UrlDecode(umkData.sender_signing_public_key);
       const senderEcdhPk = base64UrlDecode(umkData.sender_ecdh_public_key);
       const senderTofuResult = await verifyTofu(
@@ -379,7 +452,7 @@ export default function DeviceRegisterPage() {
       await handleTofuResult(senderTofuResult);
 
       // Decrypt UMK using ECDH
-      const senderEcdhPublic = base64UrlDecode(umkData.sender_ecdh_public_key);
+      const senderEcdhPublic = base64UrlDecode(umkData.sender_ecdh_public_key!);
       const aad = buildDeviceUmkDistributionAad(
         auth.user.id,
         umkData.sender_device_id,
@@ -436,8 +509,24 @@ export default function DeviceRegisterPage() {
         },
       );
 
+      // Restore any workspace KEKs not distributed by the existing device (best-effort fallback)
+      if (identityKeys) {
+        try {
+          await restoreWorkspaceKeks(
+            auth.user.id,
+            deviceId,
+            umk,
+            identityKeys,
+            keys.ecdhPrivate,
+            keys.ecdhPublic,
+          );
+        } catch {
+          // KEK restoration is best-effort
+        }
+      }
+
       setPhase("done");
-      navigate("/");
+      navigate("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Key restoration failed");
       setPhase("error");
@@ -559,6 +648,44 @@ export default function DeviceRegisterPage() {
               </form>
             </Match>
 
+            <Match when={phase() === "reauth"}>
+              <form onSubmit={handleReauth} class="space-y-4">
+                <p class="text-sm text-muted-foreground">
+                  Re-enter your password to authorize device registration.
+                </p>
+                <Show when={reauthError()}>
+                  {(err) => (
+                    <Alert variant="destructive">
+                      <AlertTriangleIcon />
+                      <AlertDescription>{err()}</AlertDescription>
+                    </Alert>
+                  )}
+                </Show>
+                <Field>
+                  <FieldLabel for="reauth-password">Password</FieldLabel>
+                  <Input
+                    id="reauth-password"
+                    type="password"
+                    placeholder="--------"
+                    value={reauthPassword()}
+                    onInput={(e) => setReauthPassword(e.currentTarget.value)}
+                    required
+                    disabled={reauthLoading()}
+                    autocomplete="current-password"
+                  />
+                </Field>
+                <Button type="submit" class="w-full" disabled={reauthLoading()}>
+                  {reauthLoading() ? (
+                    <span class="flex items-center gap-2">
+                      <Spinner class="size-3" /> Verifying...
+                    </span>
+                  ) : (
+                    "Continue"
+                  )}
+                </Button>
+              </form>
+            </Match>
+
             <Match when={phase() === "expired"}>
               <div class="space-y-4">
                 <Alert variant="destructive">
@@ -664,6 +791,18 @@ async function retrieveAndImportTrustState(
   sessionStorage.removeItem(`refmd-transfer-nonce-${deviceId}`);
 }
 
+interface KekRestoreResults {
+  needsDistribution: string[];
+  backupDecryptFailed: boolean;
+}
+
+class BackupDecryptError extends Error {
+  constructor(workspaceId: string) {
+    super(`KEK backup decryption failed for workspace ${workspaceId}`);
+    this.name = "BackupDecryptError";
+  }
+}
+
 async function restoreWorkspaceKeks(
   userId: string,
   deviceId: string,
@@ -671,12 +810,13 @@ async function restoreWorkspaceKeks(
   identityKeys: IdentityKeyPair,
   deviceEcdhPrivate: Uint8Array,
   deviceEcdhPublic: Uint8Array,
-): Promise<void> {
+): Promise<KekRestoreResults> {
+  const result: KekRestoreResults = { needsDistribution: [], backupDecryptFailed: false };
   const { workspace_ids } = await encryptionApi.getWorkspaceIds();
 
   for (const workspaceId of workspace_ids) {
     try {
-      await restoreKekForWorkspace(
+      const status = await restoreKekForWorkspace(
         workspaceId,
         userId,
         deviceId,
@@ -685,10 +825,18 @@ async function restoreWorkspaceKeks(
         deviceEcdhPrivate,
         deviceEcdhPublic,
       );
-    } catch {
-      // Per-workspace best-effort
+      if (status === "needs_distribution") {
+        result.needsDistribution.push(workspaceId);
+      }
+    } catch (err) {
+      if (err instanceof BackupDecryptError) {
+        result.backupDecryptFailed = true;
+      }
+      // Other errors (network, etc.) are non-fatal per-workspace
     }
   }
+
+  return result;
 }
 
 async function restoreKekForWorkspace(
@@ -699,9 +847,9 @@ async function restoreKekForWorkspace(
   identityKeys: IdentityKeyPair,
   deviceEcdhPrivate: Uint8Array,
   deviceEcdhPublic: Uint8Array,
-): Promise<void> {
+): Promise<"restored" | "needs_distribution"> {
   const existing = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
-  if (existing.keys.length > 0) return;
+  if (existing.keys.length > 0) return "restored";
   const currentKekVersion = existing.current_kek_version;
 
   const memberEnvelope = await encryptionApi.getMemberEnvelopeWithPop(workspaceId);
@@ -752,7 +900,7 @@ async function restoreKekForWorkspace(
       nonce: base64UrlEncode(backup.nonce),
     });
 
-    return;
+    return "restored";
   }
 
   let backupData: { encrypted_kek: string; nonce: string; key_version: number } | null = null;
@@ -763,14 +911,20 @@ async function restoreKekForWorkspace(
   }
 
   if (backupData) {
-    const kek = unwrapKekFromBackup(
-      base64UrlDecode(backupData.encrypted_kek),
-      base64UrlDecode(backupData.nonce),
-      umk,
-      workspaceId,
-      userId,
-      backupData.key_version,
-    );
+    // If backup exists but UMK decrypt fails, surface the error
+    let kek: Uint8Array;
+    try {
+      kek = unwrapKekFromBackup(
+        base64UrlDecode(backupData.encrypted_kek),
+        base64UrlDecode(backupData.nonce),
+        umk,
+        workspaceId,
+        userId,
+        backupData.key_version,
+      );
+    } catch {
+      throw new BackupDecryptError(workspaceId);
+    }
 
     const deviceEnvelope = encryptKekForDevice(
       kek,
@@ -791,11 +945,13 @@ async function restoreKekForWorkspace(
       nonce: base64UrlEncode(deviceEnvelope.nonce),
     });
 
-    return;
+    return "restored";
   }
 
-  if (currentKekVersion > 0) return;
+  // No member envelope and no backup: check if KEK already exists in workspace
+  if (currentKekVersion > 0) return "needs_distribution";
 
+  // Fresh workspace: generate new KEK (only succeeds for key_version 1, first creator)
   const freshKek = generateKek();
   const freshEnvelope = encryptKekForDevice(
     freshKek,
@@ -825,8 +981,11 @@ async function restoreKekForWorkspace(
       encrypted_kek: base64UrlEncode(freshBackup.encryptedKek),
       nonce: base64UrlEncode(freshBackup.nonce),
     });
+
+    return "restored";
   } catch {
-    // 409 Conflict: KEK already exists
+    // 409 Conflict: KEK exists but not obtainable through any path
+    return "needs_distribution";
   }
 }
 

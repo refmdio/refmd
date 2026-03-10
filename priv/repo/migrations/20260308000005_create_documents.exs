@@ -23,7 +23,7 @@ defmodule RefMD.Repo.Migrations.CreateDocuments do
       add :created_by, references(:users, type: :binary_id, on_delete: :nilify_all)
       add :archived_at, :utc_datetime_usec
 
-      timestamps(type: :utc_datetime_usec)
+      timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
     end
 
     # active_snapshot_id added after document_snapshots table is created

@@ -6,9 +6,9 @@ defmodule RefMD.Encryption.WorkspaceEncryptedKey do
   @foreign_key_type :binary_id
 
   schema "workspace_encrypted_keys" do
-    belongs_to :workspace, RefMD.Workspaces.Workspace
-    belongs_to :user, RefMD.Accounts.User
-    belongs_to :device, RefMD.Accounts.Device
+    belongs_to :workspace, RefMD.Workspaces.Workspace, primary_key: true
+    belongs_to :user, RefMD.Accounts.User, primary_key: true
+    belongs_to :device, RefMD.Accounts.Device, primary_key: true
     field :key_version, :integer, primary_key: true
     field :sender_device_id, :binary_id
     field :encrypted_kek, :binary

@@ -5,21 +5,26 @@ import {
   unwrapUmk,
   wrapUmk,
   decryptIdentityPrivateKeys,
+  verifyAllDeviceTofu,
+  TofuHardFailError,
 } from "@/shared/lib/crypto";
 import type { IdentityKeyPair } from "@/shared/lib/crypto";
-import { authApi } from "@/shared/api";
+import { authApi, devicesApi, withPopDevice } from "@/shared/api";
 import type { LoginResponse } from "@/shared/api/auth";
 import {
   persistUmkForLogin,
   getPersistedDeviceId,
+  restoreKeysFromDsk,
   restoreDeviceKeysFromDsk,
   restoreDeviceKeysFromPdk,
   persistSessionPdk,
+  hasPdkData,
 } from "./key-persistence";
 import {
   storePdkWrappedUmk,
   storePdkWrappedDeviceKeys,
 } from "@/shared/lib/crypto/pdk";
+
 
 export type LoginResult =
   | {
@@ -33,6 +38,7 @@ export type LoginResult =
       deviceId: string;
       deviceEcdhPrivate: Uint8Array | null;
       deviceSigningPrivate: Uint8Array | null;
+      tofuWarnings: string[];
     }
   | {
       type: "device_required";
@@ -53,7 +59,7 @@ export async function login(
   // Step 2: Derive keys
   let derived = await deriveAuthKeys(password, saltRes.salt, saltRes.kdf_params);
 
-  // Step 3: Authenticate (send device_id if available)
+  // Step 3: Authenticate (always send device_id if present — PUK fallback is always available during login)
   const deviceId = getPersistedDeviceId();
   const loginRes = await authApi.login({
     email,
@@ -62,8 +68,10 @@ export async function login(
     ...(deviceId ? { device_id: deviceId } : {}),
   });
 
-  // Step 4: Handle KDF migration if needed
-  if (loginRes.kdf_migration_required && loginRes.target_kdf_params) {
+  // Step 4: Handle KDF migration if needed (requires UMK access for re-encryption)
+  // encrypted_umk is available at top level when kdf_migration_required=true (regardless of device_verified)
+  const migrationUmk = loginRes.encrypted_umk ?? loginRes.keys?.encrypted_umk;
+  if (loginRes.kdf_migration_required && loginRes.target_kdf_params && migrationUmk) {
     const newDerived = await handleKdfMigration(password, loginRes, derived.puk, derived.pdk);
     derived = newDerived;
   }
@@ -80,17 +88,29 @@ export async function login(
     };
   }
 
-  // Step 6: Decrypt keys (flat keys structure per design doc)
   const userId = loginRes.user.id;
   const keys = loginRes.keys;
 
-  const umk = unwrapUmk(
-    base64UrlDecode(keys.encrypted_umk!),
-    base64UrlDecode(keys.umk_nonce!),
-    derived.puk,
-    userId,
-  );
+  // Step 6: Decrypt UMK — DSK-first, PUK-fallback
+  let umk: Uint8Array;
+  let deviceEcdhPrivate: Uint8Array | null = null;
+  let deviceSigningPrivate: Uint8Array | null = null;
 
+  const dskKeys = await restoreKeysFromDsk(userId);
+  if (dskKeys) {
+    umk = dskKeys.umk;
+    deviceEcdhPrivate = dskKeys.deviceEcdhPrivate;
+    deviceSigningPrivate = dskKeys.deviceSigningPrivate;
+  } else {
+    umk = unwrapUmk(
+      base64UrlDecode(keys.encrypted_umk!),
+      base64UrlDecode(keys.umk_nonce!),
+      derived.puk,
+      userId,
+    );
+  }
+
+  // Step 7: Decrypt identity keys
   const identityKeys = decryptIdentityPrivateKeys(
     {
       encryptedEcdhPrivate: base64UrlDecode(keys.encrypted_ecdh_private),
@@ -102,7 +122,7 @@ export async function login(
     userId,
   );
 
-  // Step 7: Persist UMK only (don't overwrite existing device keys)
+  // Step 8: Persist UMK
   await persistUmkForLogin({
     umk,
     pdk: derived.pdk,
@@ -110,27 +130,23 @@ export async function login(
     userId,
   });
 
-  // Store PDK in sessionStorage for device-register PDK fallback
   persistSessionPdk(derived.pdk);
 
-  // Step 8: Restore device keys from local storage
-  let deviceEcdhPrivate: Uint8Array | null = null;
-  let deviceSigningPrivate: Uint8Array | null = null;
-
-  const dskDeviceKeys = await restoreDeviceKeysFromDsk(userId);
-  if (dskDeviceKeys) {
-    deviceEcdhPrivate = dskDeviceKeys.ecdhPrivate;
-    deviceSigningPrivate = dskDeviceKeys.signingPrivate;
-  } else {
-    // PDK fallback — we have the password so we can derive PDK
-    const pdkDeviceKeys = restoreDeviceKeysFromPdk(derived.pdk, userId);
-    if (pdkDeviceKeys) {
-      deviceEcdhPrivate = pdkDeviceKeys.ecdhPrivate;
-      deviceSigningPrivate = pdkDeviceKeys.signingPrivate;
+  // Step 9: Restore device keys if not already obtained from DSK
+  if (!deviceSigningPrivate) {
+    const dskDeviceKeys = await restoreDeviceKeysFromDsk(userId);
+    if (dskDeviceKeys) {
+      deviceEcdhPrivate = dskDeviceKeys.ecdhPrivate;
+      deviceSigningPrivate = dskDeviceKeys.signingPrivate;
+    } else {
+      const pdkDeviceKeys = restoreDeviceKeysFromPdk(derived.pdk, userId);
+      if (pdkDeviceKeys) {
+        deviceEcdhPrivate = pdkDeviceKeys.ecdhPrivate;
+        deviceSigningPrivate = pdkDeviceKeys.signingPrivate;
+      }
     }
   }
 
-  // If device keys could not be restored, PoP is not possible — treat as device_required
   if (!deviceSigningPrivate) {
     persistSessionPdk(derived.pdk);
     return {
@@ -140,6 +156,18 @@ export async function login(
       name: loginRes.user.name,
       sessionId: loginRes.session_id,
     };
+  }
+
+  // Step 10: TOFU verification for all devices (pass explicit device keys for PoP since device state isn't set yet)
+  let tofuWarnings: string[] = [];
+  try {
+    const { devices } = await withPopDevice(
+      { deviceId: deviceId!, deviceSigningPrivate },
+      () => devicesApi.list(),
+    );
+    tofuWarnings = await verifyAllDeviceTofu(userId, devices, identityKeys.signingPublic ?? null);
+  } catch (e) {
+    if (e instanceof TofuHardFailError) throw e;
   }
 
   return {
@@ -153,6 +181,7 @@ export async function login(
     deviceId: deviceId ?? "",
     deviceEcdhPrivate,
     deviceSigningPrivate,
+    tofuWarnings,
   };
 }
 
@@ -163,18 +192,21 @@ async function handleKdfMigration(
   oldPdk: Uint8Array,
 ): Promise<Awaited<ReturnType<typeof deriveAuthKeys>>> {
   const targetParams = loginRes.target_kdf_params!;
-  const keys = loginRes.keys;
   const userId = loginRes.user.id;
+
+  // encrypted_umk available at top level (kdf_migration_required=true) or in keys (device_verified=true)
+  const encryptedUmk = loginRes.encrypted_umk ?? loginRes.keys?.encrypted_umk;
+  const umkNonce = loginRes.umk_nonce ?? loginRes.keys?.umk_nonce;
 
   // Re-derive with new params
   const saltRes = await authApi.getSalt(loginRes.user.email);
   const newDerived = await deriveAuthKeys(password, saltRes.salt, targetParams);
 
-  if (keys?.encrypted_umk) {
+  if (encryptedUmk && umkNonce) {
     // Decrypt UMK with old PUK, re-encrypt with new PUK
     const umk = unwrapUmk(
-      base64UrlDecode(keys.encrypted_umk),
-      base64UrlDecode(keys.umk_nonce!),
+      base64UrlDecode(encryptedUmk),
+      base64UrlDecode(umkNonce),
       oldPuk,
       userId,
     );
@@ -188,17 +220,19 @@ async function handleKdfMigration(
       new_kdf_params: targetParams,
     });
 
-    // Re-wrap local PDK data with new PDK (PDK changes after KDF migration)
-    storePdkWrappedUmk(newDerived.pdk, umk, userId);
+    // Re-wrap local PDK data with new PDK only if device uses PDK fallback (not DSK-capable)
+    if (hasPdkData()) {
+      storePdkWrappedUmk(newDerived.pdk, umk, userId);
 
-    const oldDeviceKeys = restoreDeviceKeysFromPdk(oldPdk, userId);
-    if (oldDeviceKeys) {
-      storePdkWrappedDeviceKeys(
-        newDerived.pdk,
-        oldDeviceKeys.ecdhPrivate,
-        oldDeviceKeys.signingPrivate,
-        userId,
-      );
+      const oldDeviceKeys = restoreDeviceKeysFromPdk(oldPdk, userId);
+      if (oldDeviceKeys) {
+        storePdkWrappedDeviceKeys(
+          newDerived.pdk,
+          oldDeviceKeys.ecdhPrivate,
+          oldDeviceKeys.signingPrivate,
+          userId,
+        );
+      }
     }
   }
 

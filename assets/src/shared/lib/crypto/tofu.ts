@@ -5,7 +5,10 @@ import {
   updateLastSeen,
 } from "../trust-store";
 import { calculateFingerprint, formatFingerprint } from "./fingerprint";
-import { constantTimeEqual } from "./encoding";
+import { constantTimeEqual, base64UrlDecode } from "./encoding";
+import { verifyDeviceIdentitySignature } from "./device";
+import { isValidEd25519PublicKey, isValidX25519PublicKey } from "./key-validation";
+import type { DeviceInfo } from "@/shared/api/devices";
 
 export type TofuStatus =
   | "first_seen"
@@ -27,11 +30,11 @@ export async function verifyTofu(
   signingPublicKey: Uint8Array,
   ecdhPublicKey: Uint8Array,
 ): Promise<TofuVerifyResult> {
-  if (signingPublicKey.length !== 32) {
-    throw new Error("Signing public key must be 32 bytes");
+  if (!isValidEd25519PublicKey(signingPublicKey)) {
+    throw new Error("Invalid Ed25519 signing public key");
   }
-  if (ecdhPublicKey.length !== 32) {
-    throw new Error("ECDH public key must be 32 bytes");
+  if (!isValidX25519PublicKey(ecdhPublicKey)) {
+    throw new Error("Invalid X25519 ECDH public key");
   }
 
   const now = Date.now();
@@ -110,4 +113,61 @@ export async function handleTofuResult(
       break;
   }
   return result;
+}
+
+export class TofuHardFailError extends Error {
+  deviceName: string;
+  status: "identity_key_changed" | "ecdh_key_mismatch";
+  constructor(deviceName: string, status: "identity_key_changed" | "ecdh_key_mismatch") {
+    const msg = status === "identity_key_changed"
+      ? `${deviceName}: Identity key changed`
+      : `${deviceName}: ECDH key mismatch`;
+    super(msg);
+    this.name = "TofuHardFailError";
+    this.deviceName = deviceName;
+    this.status = status;
+  }
+}
+
+export async function verifyAllDeviceTofu(
+  userId: string,
+  devices: DeviceInfo[],
+  identitySigningPublic: Uint8Array | null,
+): Promise<string[]> {
+  const warnings: string[] = [];
+  for (const d of devices) {
+    if (!d.signing_public_key || !d.ecdh_public_key) continue;
+    try {
+      const signingPk = base64UrlDecode(d.signing_public_key);
+      const ecdhPk = base64UrlDecode(d.ecdh_public_key);
+      const result = await verifyTofu(userId, d.id, signingPk, ecdhPk);
+
+      if (result.status === "identity_key_changed" || result.status === "ecdh_key_mismatch") {
+        throw new TofuHardFailError(d.name, result.status);
+      }
+
+      if (!d.identity_signature || !d.client_nonce) {
+        warnings.push(`${d.name}: Missing identity signature`);
+        continue;
+      }
+      if (!identitySigningPublic) {
+        await handleTofuResult(result);
+        continue;
+      }
+      const sig = base64UrlDecode(d.identity_signature);
+      const nonce = base64UrlDecode(d.client_nonce);
+      const sigValid = verifyDeviceIdentitySignature(
+        signingPk, ecdhPk, nonce, sig, identitySigningPublic,
+      );
+      if (!sigValid) {
+        warnings.push(`${d.name}: Invalid identity signature`);
+        continue;
+      }
+      await handleTofuResult(result);
+    } catch (e) {
+      if (e instanceof TofuHardFailError) throw e;
+      warnings.push(`${d.name}: Key verification unavailable`);
+    }
+  }
+  return warnings;
 }

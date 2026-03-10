@@ -25,6 +25,7 @@ import {
   trustDevice,
   handleTofuResult,
   encryptTrustState,
+  verifyDeviceIdentitySignature,
 } from "@/shared/lib/crypto";
 import { getAllTofuEntries } from "@/shared/lib/trust-store";
 import { buildDeviceUmkDistributionAad } from "@/shared/lib/crypto/aad";
@@ -48,7 +49,7 @@ export function ApproveDeviceDialog(props: Props) {
     return auth?.identityKeys?.signingPublic ?? null;
   };
 
-  // TOFU check: verify pending device keys before SAS display (design step 4.5)
+  // TOFU check: verify pending device keys before SAS display
   const checkInitialTofu = async () => {
     const auth = authState();
     if (!auth) {
@@ -103,32 +104,50 @@ export function ApproveDeviceDialog(props: Props) {
 
       const newDeviceId = approveRes.device.id;
 
-      // TOFU: trust device after SAS verification + approval (design step 4.5)
-      const signingPk = base64UrlDecode(props.device.signing_public_key);
-      const ecdhPk = base64UrlDecode(props.device.ecdh_public_key);
-      const tofuResult = await verifyTofu(auth.user.id, newDeviceId, signingPk, ecdhPk);
-      if (tofuResult.status === "first_seen") {
-        await trustDevice(tofuResult.newEntry);
-      }
-
-      // Step 9: TOFU re-verify with FRESH keys from server before distribution
+      // Anchor SAS-verified keys: compare fresh server keys against SAS-verified keys
+      // to detect server-side key substitution between SAS display and post-approval fetch
       const { devices: freshDevices } = await devicesApi.list();
       const freshTarget = freshDevices.find(d => d.id === newDeviceId);
       if (!freshTarget) {
         props.onError("Approved device not found on server");
         return;
       }
+      if (freshTarget.signing_public_key !== props.device.signing_public_key ||
+          freshTarget.ecdh_public_key !== props.device.ecdh_public_key) {
+        props.onError("Server returned different keys after approval. Possible key substitution. Aborting.");
+        return;
+      }
       const verifiedEcdhPublic = base64UrlDecode(freshTarget.ecdh_public_key);
       const verifiedSigningPublic = base64UrlDecode(freshTarget.signing_public_key);
-      const recheck = await verifyTofu(auth.user.id, newDeviceId, verifiedSigningPublic, verifiedEcdhPublic);
-      if (recheck.status === "ecdh_key_mismatch" || recheck.status === "identity_key_changed") {
+
+      // Verify identity_signature on freshly fetched device
+      if (!freshTarget.identity_signature || !freshTarget.client_nonce) {
+        props.onError("Approved device missing identity signature. Aborting.");
+        return;
+      }
+      const freshSig = base64UrlDecode(freshTarget.identity_signature);
+      const freshNonce = base64UrlDecode(freshTarget.client_nonce);
+      const sigValid = verifyDeviceIdentitySignature(
+        verifiedSigningPublic, verifiedEcdhPublic, freshNonce, freshSig, auth.identityKeys.signingPublic,
+      );
+      if (!sigValid) {
+        props.onError("Identity signature verification failed. Possible server-side tampering. Aborting.");
+        return;
+      }
+
+      // TOFU: persist trust for SAS-verified + server-confirmed keys
+      const tofuResult = await verifyTofu(auth.user.id, newDeviceId, verifiedSigningPublic, verifiedEcdhPublic);
+      if (tofuResult.status === "ecdh_key_mismatch" || tofuResult.status === "identity_key_changed") {
         props.onError("Key verification failed before key distribution. Aborting.");
         return;
+      }
+      if (tofuResult.status === "first_seen") {
+        await trustDevice(tofuResult.newEntry);
       }
 
       setStep("distributing");
 
-      // Step 2: Trust state transfer (before KEK/UMK per design, best-effort)
+      // Step 2: Trust state transfer (before KEK/UMK, best-effort)
       try {
         await transferTrustState(
           auth.user.id,
@@ -140,10 +159,10 @@ export function ApproveDeviceDialog(props: Props) {
           props.transferNonce,
         );
       } catch {
-        // Trust state transfer is best-effort per design
+        // Trust state transfer is best-effort
       }
 
-      // Step 3: Distribute KEK for each workspace (before UMK per design)
+      // Step 3: Distribute KEK for each workspace (before UMK)
       try {
         await distributeKeks(
           device.deviceId,
@@ -153,7 +172,7 @@ export function ApproveDeviceDialog(props: Props) {
           auth.user.id,
         );
       } catch {
-        // KEK distribution is best-effort per design
+        // KEK distribution is best-effort
       }
 
       // Step 4: Distribute UMK (triggers pending_approved SSE)

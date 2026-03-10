@@ -6,8 +6,8 @@ defmodule RefMD.Encryption.DeviceEncryptedUMK do
   @foreign_key_type :binary_id
 
   schema "device_encrypted_umks" do
-    belongs_to :user, RefMD.Accounts.User
-    belongs_to :device, RefMD.Accounts.Device
+    belongs_to :user, RefMD.Accounts.User, primary_key: true
+    belongs_to :device, RefMD.Accounts.Device, primary_key: true
     field :sender_device_id, :binary_id
     field :encrypted_umk, :binary
     field :nonce, :binary

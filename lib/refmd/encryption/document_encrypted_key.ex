@@ -6,7 +6,7 @@ defmodule RefMD.Encryption.DocumentEncryptedKey do
   @foreign_key_type :binary_id
 
   schema "document_encrypted_keys" do
-    belongs_to :document, RefMD.Documents.Document
+    belongs_to :document, RefMD.Documents.Document, primary_key: true
     field :key_version, :integer, primary_key: true
     field :encrypted_dek, :binary
     field :nonce, :binary

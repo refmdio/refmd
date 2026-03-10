@@ -13,14 +13,14 @@ import { Field, FieldLabel } from "@/shared/ui/field";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Spinner } from "@/shared/ui/spinner";
 import { AlertTriangleIcon } from "lucide-solid";
-import { deriveAuthKeys, base64UrlDecode, decryptIdentityPrivateKeys } from "@/shared/lib/crypto";
-import { authApi } from "@/shared/api";
+import { deriveAuthKeys, base64UrlDecode, decryptIdentityPrivateKeys, verifyAllDeviceTofu, TofuHardFailError } from "@/shared/lib/crypto";
+import { authApi, devicesApi, withPopDevice } from "@/shared/api";
 import {
   restoreKeysFromPdk,
   persistSessionPdk,
   persistUmkForLogin,
 } from "./lib/key-persistence";
-import { authState, setFullSession, deviceState } from "@/shared/lib/auth-state";
+import { authState, setFullSession, deviceState, setTofuErrors } from "@/shared/lib/auth-state";
 
 export default function PasswordReentryDialog(props: {
   open: boolean;
@@ -75,6 +75,8 @@ export default function PasswordReentryDialog(props: {
       }
 
       const device = deviceState();
+      const resolvedDeviceId = device?.deviceId ?? meRes.device_id ?? "";
+
       setFullSession(
         {
           user: auth.user,
@@ -84,11 +86,34 @@ export default function PasswordReentryDialog(props: {
           expiresAt: auth.expiresAt,
         },
         {
-          deviceId: device?.deviceId ?? meRes.device_id ?? "",
+          deviceId: resolvedDeviceId,
           deviceEcdhPrivate: restored.deviceEcdhPrivate,
           deviceSigningPrivate: restored.deviceSigningPrivate,
         },
       );
+
+      // TOFU verification after key restoration
+      if (resolvedDeviceId && restored.deviceSigningPrivate) {
+        try {
+          const { devices } = await withPopDevice(
+            { deviceId: resolvedDeviceId, deviceSigningPrivate: restored.deviceSigningPrivate },
+            () => devicesApi.list(),
+          );
+          const warnings = await verifyAllDeviceTofu(
+            auth.user.id,
+            devices,
+            identityKeys?.signingPublic ?? null,
+          );
+          if (warnings.length > 0) {
+            setTofuErrors(warnings);
+          }
+        } catch (e) {
+          if (e instanceof TofuHardFailError) {
+            setError(e.message);
+            return;
+          }
+        }
+      }
 
       props.onComplete();
     } catch (err) {

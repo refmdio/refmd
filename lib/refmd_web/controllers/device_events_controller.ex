@@ -8,33 +8,26 @@ defmodule RefMDWeb.DeviceEventsController do
 
   @spec existing_device_events(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def existing_device_events(conn, _params) do
-    # Only existing (device-bound) sessions may subscribe (device.md: SSE endpoints)
-    if conn.assigns.device_verified do
-      user_id = conn.assigns.current_user_id
+    user_id = conn.assigns.current_user_id
 
-      conn =
-        conn
-        |> put_resp_header("content-type", "text/event-stream")
-        |> put_resp_header("cache-control", "no-cache")
-        |> put_resp_header("connection", "keep-alive")
-        |> send_chunked(200)
-
-      PubSub.subscribe(RefMD.PubSub, "device_events:user:#{user_id}")
-
-      heartbeat_ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
-      loop(conn, heartbeat_ref)
-    else
+    conn =
       conn
-      |> put_status(:forbidden)
-      |> json(%{error: "device_not_bound"})
-    end
+      |> put_resp_header("content-type", "text/event-stream")
+      |> put_resp_header("cache-control", "no-cache")
+      |> put_resp_header("connection", "keep-alive")
+      |> send_chunked(200)
+
+    PubSub.subscribe(RefMD.PubSub, "device_events:user:#{user_id}")
+
+    heartbeat_ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
+    loop(conn, heartbeat_ref)
   end
 
   @spec pending_device_events(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def pending_device_events(conn, %{"device_id" => device_id}) do
     user_id = conn.assigns.current_user_id
 
-    # Verify the pending device belongs to this user, or was recently approved (device.md: SSE endpoints)
+    # Verify the pending device belongs to this user, or was recently approved
     authorized =
       Accounts.user_owns_pending_device?(user_id, device_id) or
         Accounts.user_owns_active_device?(user_id, device_id)

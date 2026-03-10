@@ -23,6 +23,9 @@ config :refmd, RefMDWeb.Endpoint,
 # Dummy salt secret for consistent fake salts (non-existent users)
 config :refmd, dummy_salt_secret: "test-dummy-salt-secret"
 
+# Use Swoosh test adapter for in-process assertions
+config :refmd, RefMD.Mailer, adapter: Swoosh.Adapters.Test
+
 # Disable Oban in tests (no queues, no plugins)
 config :refmd, Oban, testing: :manual
 

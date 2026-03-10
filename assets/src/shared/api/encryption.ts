@@ -1,102 +1,91 @@
 import { client, throwIfError } from "./core";
-import { fetchWithPop } from "@/shared/lib/pop";
+import type { components } from "./schema";
 
 export const encryptionApi = {
-  getWorkspaceIds: async (): Promise<{ workspace_ids: string[] }> => {
-    const res = await fetchWithPop("/api/workspaces/ids");
-    if (!res.ok) throw new Error(`get workspace ids failed: ${res.status}`);
-    return res.json();
-  },
+  getWorkspaceIds: async () =>
+    throwIfError(
+      await client.GET("/api/workspaces/ids"),
+    ),
 
-  getWorkspaceKeysWithPop: async (workspaceId: string, deviceId: string): Promise<{
-    current_kek_version: number;
-    keys: Array<{
-      key_version: number;
-      encrypted_kek: string;
-      nonce: string;
-      sender_device_id: string;
-      sender_ecdh_public_key: string;
-      sender_signing_public_key: string;
-    }>;
-  }> => {
-    const res = await fetchWithPop(`/api/encryption/workspaces/${workspaceId}/keys?device_id=${encodeURIComponent(deviceId)}`);
-    if (!res.ok) throw new Error(`get workspace keys failed: ${res.status}`);
-    return res.json();
-  },
+  getWorkspaceKeysWithPop: async (workspaceId: string, deviceId: string) =>
+    throwIfError(
+      await client.GET("/api/encryption/workspaces/{workspace_id}/keys", {
+        params: {
+          path: { workspace_id: workspaceId },
+          query: { device_id: deviceId },
+        },
+      }),
+    ),
 
-  getKekBackupWithPop: async (workspaceId: string): Promise<{
-    key_version: number;
-    encrypted_kek: string;
-    nonce: string;
-  }> => {
-    const res = await fetchWithPop(`/api/encryption/workspaces/${workspaceId}/kek-backup`);
-    if (!res.ok) throw new Error(`get kek backup failed: ${res.status}`);
-    return res.json();
-  },
+  getKekBackupWithPop: async (workspaceId: string) =>
+    throwIfError(
+      await client.GET("/api/encryption/workspaces/{workspace_id}/kek-backup", {
+        params: { path: { workspace_id: workspaceId } },
+      }),
+    ),
 
   createWorkspaceKeyWithPop: async (
     workspaceId: string,
-    body: Record<string, unknown>,
-  ): Promise<void> => {
-    const res = await fetchWithPop(`/api/encryption/workspaces/${workspaceId}/keys`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`create workspace key failed: ${res.status}`);
+    body: components["schemas"]["CreateWorkspaceKeyRequest"],
+  ) => {
+    throwIfError(
+      await client.POST("/api/encryption/workspaces/{workspace_id}/keys", {
+        params: { path: { workspace_id: workspaceId } },
+        body,
+      }),
+    );
   },
 
   createKekBackupWithPop: async (
     workspaceId: string,
-    body: Record<string, unknown>,
-  ): Promise<void> => {
-    const res = await fetchWithPop(`/api/encryption/workspaces/${workspaceId}/kek-backup`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`create kek backup failed: ${res.status}`);
+    body: components["schemas"]["CreateKekBackupRequest"],
+  ) => {
+    throwIfError(
+      await client.POST("/api/encryption/workspaces/{workspace_id}/kek-backup", {
+        params: { path: { workspace_id: workspaceId } },
+        body,
+      }),
+    );
   },
 
   saveMemberEnvelopes: async (
     workspaceId: string,
-    envelopes: Array<{
-      target_user_id: string;
-      key_version: number;
-      sender_device_id: string;
-      encrypted_kek: string;
-      nonce: string;
-    }>,
-  ): Promise<void> => {
-    const res = await fetchWithPop(`/api/encryption/workspaces/${workspaceId}/member-envelopes`, {
-      method: "POST",
-      body: JSON.stringify({ envelopes }),
-    });
-    if (!res.ok) throw new Error(`save member envelopes failed: ${res.status}`);
+    envelopes: components["schemas"]["MemberEnvelopeItem"][],
+  ) => {
+    throwIfError(
+      await client.POST("/api/encryption/workspaces/{workspace_id}/member-envelopes", {
+        params: { path: { workspace_id: workspaceId } },
+        body: { envelopes },
+      }),
+    );
   },
 
   completeKekRotation: async (
     workspaceId: string,
     newKekVersion: number,
-  ): Promise<void> => {
-    const res = await fetchWithPop(`/api/encryption/workspaces/${workspaceId}/kek-rotation/complete`, {
-      method: "POST",
-      body: JSON.stringify({ new_kek_version: newKekVersion }),
-    });
-    if (!res.ok) throw new Error(`complete kek rotation failed: ${res.status}`);
+  ) => {
+    throwIfError(
+      await client.POST("/api/encryption/workspaces/{workspace_id}/kek-rotation/complete", {
+        params: { path: { workspace_id: workspaceId } },
+        body: { new_kek_version: newKekVersion },
+      }),
+    );
   },
 
-  getMemberEnvelopeWithPop: async (workspaceId: string): Promise<{
-    key_version: number;
-    encrypted_kek: string;
-    nonce: string;
-    sender_device_id: string;
-    sender_ecdh_public_key: string;
-    sender_signing_public_key: string | null;
-  } | null> => {
-    const res = await fetchWithPop(`/api/encryption/workspaces/${workspaceId}/member-envelope`);
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`get member envelope failed: ${res.status}`);
-    return res.json();
+  getMemberEnvelopeWithPop: async (workspaceId: string) => {
+    const result = await client.GET("/api/encryption/workspaces/{workspace_id}/member-envelope", {
+      params: { path: { workspace_id: workspaceId } },
+    });
+    if (result.response.status === 404) return null;
+    return throwIfError(result);
   },
+
+  getWorkspaceMemberKeys: async (workspaceId: string) =>
+    throwIfError(
+      await client.GET("/api/encryption/workspaces/{workspace_id}/member-keys", {
+        params: { path: { workspace_id: workspaceId } },
+      }),
+    ),
 
   setupComplete: async () =>
     throwIfError(
