@@ -7,12 +7,11 @@ import { Spinner } from "@/shared/ui/spinner";
 import { Input } from "@/shared/ui/input";
 import { Field, FieldLabel } from "@/shared/ui/field";
 import { ShieldCheckIcon, AlertTriangleIcon, CheckCircleIcon } from "lucide-solid";
-import { SafetyNumber } from "@/features/devices/safety-number";
+import { SafetyNumber } from "@/features/devices";
 import { authState, setFullSession, setDeviceState } from "@/shared/lib/auth-state";
 import { authApi, devicesApi, encryptionApi, trustTransferApi } from "@/shared/api";
 import { ApiError } from "@/shared/api/core";
-import { persistDeviceId } from "@/features/auth";
-import { persistDeviceKeysOnly, persistUmkForLogin, restoreSessionPdk, persistSessionPdk } from "@/features/auth/lib/key-persistence";
+import { persistDeviceId, persistDeviceKeysOnly, persistUmkForLogin, restoreSessionPdk, persistSessionPdk } from "@/features/auth";
 import {
   base64UrlEncode,
   base64UrlDecode,

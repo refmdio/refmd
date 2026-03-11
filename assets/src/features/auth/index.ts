@@ -1,3 +1,4 @@
+export { default as PasswordReentryDialog } from "./password-reentry-dialog";
 export { register } from "./lib/register";
 export type { RegisterResult } from "./lib/register";
 export { login } from "./lib/login";

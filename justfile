@@ -60,6 +60,7 @@ check:
     mix compile --warnings-as-errors
     mix format --check-formatted
     cd assets && npx tsc -p tsconfig.app.json --noEmit
+    cd assets && npx eslint src/
     mix specs.check
     mix credo --strict
     mix test

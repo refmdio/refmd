@@ -20,8 +20,7 @@ import { devicesApi } from "@/shared/api";
 import type { DeviceInfo } from "@/shared/api/devices";
 import { authState, deviceState, setTofuErrors as setGlobalTofuErrors } from "@/shared/lib/auth-state";
 import { base64UrlDecode, verifyTofu, handleTofuResult, verifyDeviceIdentitySignature } from "@/shared/lib/crypto";
-import { RevokeDeviceDialog } from "@/features/devices/revoke-dialog";
-import { usePendingDevices } from "@/features/devices/pending-device-monitor";
+import { RevokeDeviceDialog, usePendingDevices } from "@/features/devices";
 
 function DeviceIcon(props: { type: string }) {
   switch (props.type) {

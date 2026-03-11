@@ -54,7 +54,7 @@ export default function RecoveryPage() {
   const [recoveredUmk, setRecoveredUmk] = createSignal<Uint8Array | null>(null);
   const [recoveredIdentityKeys, setRecoveredIdentityKeys] = createSignal<ReturnType<typeof decryptIdentityPrivateKeys> | null>(null);
 
-  let inputRefs: (HTMLInputElement | undefined)[] = [];
+  const inputRefs: (HTMLInputElement | undefined)[] = [];
   let fileInputRef: HTMLInputElement | undefined;
 
   const handleWordChange = (index: number, value: string) => {
