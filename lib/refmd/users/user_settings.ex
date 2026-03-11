@@ -1,4 +1,4 @@
-defmodule RefMD.Accounts.UserSettings do
+defmodule RefMD.Users.UserSettings do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -6,7 +6,7 @@ defmodule RefMD.Accounts.UserSettings do
   @foreign_key_type :binary_id
 
   schema "user_settings" do
-    belongs_to :user, RefMD.Accounts.User, primary_key: true
+    belongs_to :user, RefMD.Users.User, primary_key: true
     field :theme, :string, default: "system"
     field :locale, :string, default: "en"
     field :editor_vim_mode, :boolean, default: false

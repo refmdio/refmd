@@ -498,11 +498,11 @@ defmodule RefMDWeb.Schemas do
     })
   end
 
-  defmodule CreatePendingDeviceRequest do
+  defmodule CreateDeviceRegistrationRequest do
     require OpenApiSpex
 
     OpenApiSpex.schema(%{
-      title: "CreatePendingDeviceRequest",
+      title: "CreateDeviceRegistrationRequest",
       type: :object,
       properties: %{
         name: %Schema{type: :string},
@@ -521,11 +521,11 @@ defmodule RefMDWeb.Schemas do
     })
   end
 
-  defmodule CreatePendingDeviceResponse do
+  defmodule CreateDeviceRegistrationResponse do
     require OpenApiSpex
 
     OpenApiSpex.schema(%{
-      title: "CreatePendingDeviceResponse",
+      title: "CreateDeviceRegistrationResponse",
       type: :object,
       properties: %{
         device_id: %Schema{type: :string, format: :uuid},
@@ -576,11 +576,11 @@ defmodule RefMDWeb.Schemas do
     })
   end
 
-  defmodule PendingDeviceInfo do
+  defmodule DeviceRegistrationInfo do
     require OpenApiSpex
 
     OpenApiSpex.schema(%{
-      title: "PendingDeviceInfo",
+      title: "DeviceRegistrationInfo",
       type: :object,
       properties: %{
         id: %Schema{type: :string, format: :uuid},
@@ -606,24 +606,24 @@ defmodule RefMDWeb.Schemas do
     })
   end
 
-  defmodule PendingDevicesResponse do
+  defmodule DeviceRegistrationsResponse do
     require OpenApiSpex
 
     OpenApiSpex.schema(%{
-      title: "PendingDevicesResponse",
+      title: "DeviceRegistrationsResponse",
       type: :object,
       properties: %{
-        devices: %Schema{type: :array, items: PendingDeviceInfo}
+        devices: %Schema{type: :array, items: DeviceRegistrationInfo}
       },
       required: [:devices]
     })
   end
 
-  defmodule PendingDeviceStatusResponse do
+  defmodule DeviceRegistrationStatusResponse do
     require OpenApiSpex
 
     OpenApiSpex.schema(%{
-      title: "PendingDeviceStatusResponse",
+      title: "DeviceRegistrationStatusResponse",
       type: :object,
       properties: %{
         status: %Schema{type: :string, enum: ["pending", "approved", "expired"]}

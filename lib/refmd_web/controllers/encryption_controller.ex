@@ -2,7 +2,7 @@ defmodule RefMDWeb.EncryptionController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.{Accounts, Encryption, Workspaces}
+  alias RefMD.{Devices, Encryption, Users, Workspaces}
   alias RefMDWeb.{DeviceEventsController, Schemas}
 
   operation(:create_workspace_key,
@@ -36,7 +36,7 @@ defmodule RefMDWeb.EncryptionController do
         sender_device_id: sender_device_id,
         encrypted_kek: decode_binary!(params["encrypted_kek"]),
         nonce: decode_binary!(params["nonce"]),
-        is_active: params["is_active"] || true
+        is_active: Map.get(params, "is_active", true)
       })
     else
       {:error, status, error} ->
@@ -56,7 +56,8 @@ defmodule RefMDWeb.EncryptionController do
     responses: [
       ok: {"Workspace keys", "application/json", Schemas.WorkspaceKeysResponse},
       bad_request: {"Bad request", "application/json", Schemas.ErrorResponse},
-      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse}
+      forbidden: {"Forbidden", "application/json", Schemas.ErrorResponse},
+      not_found: {"Not found", "application/json", Schemas.ErrorResponse}
     ]
   )
 
@@ -73,10 +74,19 @@ defmodule RefMDWeb.EncryptionController do
       workspace = Workspaces.get_workspace(workspace_id)
       keys = Encryption.get_workspace_encrypted_keys(workspace_id, user_id, device_id)
 
-      json(conn, %{
-        current_kek_version: workspace && workspace.current_kek_version,
-        keys: Enum.map(keys, &format_workspace_key/1)
-      })
+      if keys == [] do
+        conn
+        |> put_status(:not_found)
+        |> json(%{
+          error: "not_found",
+          details: %{current_kek_version: workspace && workspace.current_kek_version}
+        })
+      else
+        json(conn, %{
+          current_kek_version: workspace && workspace.current_kek_version,
+          keys: Enum.map(keys, &format_workspace_key/1)
+        })
+      end
     else
       {:error, status, error} ->
         conn |> put_status(status) |> json(%{error: error})
@@ -208,16 +218,16 @@ defmodule RefMDWeb.EncryptionController do
       pop_device_id != nil and pop_device_id != device_id ->
         conn |> put_status(:forbidden) |> json(%{error: "device_mismatch"})
 
-      not Accounts.user_owns_active_device?(user_id, device_id) ->
+      not Devices.user_owns_active_device?(user_id, device_id) ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
 
       true ->
-        case Encryption.get_device_encrypted_umk(user_id, device_id) do
+        case Devices.get_device_encrypted_umk(user_id, device_id) do
           nil ->
             conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
           umk_data ->
-            sender = Accounts.get_device(umk_data.sender_device_id)
+            sender = Devices.get_device(umk_data.sender_device_id)
 
             json(conn, %{
               encrypted_umk: encode_binary(umk_data.encrypted_umk),
@@ -357,7 +367,7 @@ defmodule RefMDWeb.EncryptionController do
           conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
         envelope ->
-          sender = Accounts.get_device(envelope.sender_device_id)
+          sender = Devices.get_device(envelope.sender_device_id)
 
           json(conn, %{
             key_version: envelope.key_version,
@@ -430,7 +440,7 @@ defmodule RefMDWeb.EncryptionController do
     workspace_ids = Workspaces.get_user_workspace_ids(user_id)
 
     cond do
-      not Accounts.user_has_devices?(user_id) ->
+      not Devices.user_has_devices?(user_id) ->
         conn |> put_status(:unprocessable_entity) |> json(%{error: "no_device"})
 
       workspace_ids == [] ->
@@ -445,7 +455,7 @@ defmodule RefMDWeb.EncryptionController do
         conn |> put_status(:unprocessable_entity) |> json(%{error: "missing_kek_backup"})
 
       true ->
-        Accounts.update_encryption_setup(user_id)
+        Users.update_encryption_setup(user_id)
         json(conn, %{ok: true})
     end
   end
@@ -485,7 +495,7 @@ defmodule RefMDWeb.EncryptionController do
   defp validate_device_ownership(_user_id, nil), do: :ok
 
   defp validate_device_ownership(user_id, device_id) do
-    if Accounts.user_owns_active_device?(user_id, device_id) do
+    if Devices.user_owns_active_device?(user_id, device_id) do
       :ok
     else
       {:error, :forbidden, "invalid_device"}
@@ -493,7 +503,7 @@ defmodule RefMDWeb.EncryptionController do
   end
 
   defp validate_active_device_ownership(user_id, device_id) do
-    if Accounts.user_owns_active_device?(user_id, device_id) do
+    if Devices.user_owns_active_device?(user_id, device_id) do
       :ok
     else
       {:error, :forbidden, "invalid_device"}
@@ -501,7 +511,7 @@ defmodule RefMDWeb.EncryptionController do
   end
 
   defp validate_device_owned(user_id, device_id) do
-    if Accounts.user_owns_active_device?(user_id, device_id) do
+    if Devices.user_owns_active_device?(user_id, device_id) do
       :ok
     else
       {:error, :forbidden, "device_not_owned"}
@@ -668,7 +678,7 @@ defmodule RefMDWeb.EncryptionController do
   end
 
   defp execute_distribute_umk(conn, user_id, target_device_id, sender_device_id, params) do
-    case Encryption.create_device_encrypted_umk(%{
+    case Devices.create_device_encrypted_umk(%{
            user_id: user_id,
            device_id: target_device_id,
            sender_device_id: sender_device_id,
@@ -676,7 +686,7 @@ defmodule RefMDWeb.EncryptionController do
            nonce: decode_binary!(params["nonce"])
          }) do
       {:ok, _} ->
-        DeviceEventsController.broadcast_pending_approved(user_id, target_device_id)
+        DeviceEventsController.broadcast_registration_approved(user_id, target_device_id)
         conn |> put_status(:created) |> json(%{ok: true})
 
       {:error, %Ecto.Changeset{} = changeset} when changeset.errors != [] ->
@@ -695,7 +705,7 @@ defmodule RefMDWeb.EncryptionController do
   end
 
   defp format_workspace_key(key) do
-    sender = if key.sender_device_id, do: Accounts.get_device(key.sender_device_id)
+    sender = if key.sender_device_id, do: Devices.get_device(key.sender_device_id)
 
     %{
       key_version: key.key_version,

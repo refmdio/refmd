@@ -2,8 +2,9 @@ defmodule RefMDWeb.AuthController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.{Accounts, Encryption, Workspaces}
-  alias RefMDWeb.{CryptoValidation, Schemas}
+  alias RefMD.{Auth, Devices, Encryption, Users, Workspaces}
+  alias RefMD.Crypto
+  alias RefMDWeb.Schemas
 
   @target_kdf_params %{
     "algorithm" => "argon2id",
@@ -26,7 +27,7 @@ defmodule RefMDWeb.AuthController do
   @spec salt(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def salt(conn, %{"email" => email}) do
     {master_key, salt} =
-      case Accounts.get_salt_for_email(email) do
+      case Auth.get_salt_for_email(email) do
         {:ok, nil, dummy_salt} -> {nil, dummy_salt}
         {:ok, master_key, salt} -> {master_key, salt}
       end
@@ -66,7 +67,7 @@ defmodule RefMDWeb.AuthController do
           |> put_status(:unprocessable_entity)
           |> json(%{error: "invalid_ecdh_public_key_size"})
 
-        not CryptoValidation.valid_x25519_public_key?(ecdh_public_key) ->
+        not Crypto.valid_x25519_public_key?(ecdh_public_key) ->
           conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_ecdh_public_key"})
 
         byte_size(signing_public_key) != 32 ->
@@ -74,7 +75,7 @@ defmodule RefMDWeb.AuthController do
           |> put_status(:unprocessable_entity)
           |> json(%{error: "invalid_signing_public_key_size"})
 
-        not CryptoValidation.valid_ed25519_public_key?(signing_public_key) ->
+        not Crypto.valid_ed25519_public_key?(signing_public_key) ->
           conn
           |> put_status(:unprocessable_entity)
           |> json(%{error: "invalid_signing_public_key"})
@@ -101,10 +102,10 @@ defmodule RefMDWeb.AuthController do
   defp register_with_validated_keys(conn, params, user_id, ecdh_public_key, signing_public_key) do
     RefMD.Repo.transaction(fn ->
       user_attrs = %{email: String.downcase(params["email"]), name: params["name"]}
-      user_struct = %RefMD.Accounts.User{id: user_id}
+      user_struct = %RefMD.Users.User{id: user_id}
 
-      with {:ok, user} <- Accounts.create_user_with_struct(user_struct, user_attrs),
-           {:ok, _settings} <- Accounts.create_user_settings(user.id),
+      with {:ok, user} <- Users.create_user_with_struct(user_struct, user_attrs),
+           {:ok, _settings} <- Users.create_user_settings(user.id),
            {:ok, _identity_pub} <-
              Encryption.create_user_identity_public_key(%{
                user_id: user.id,
@@ -140,7 +141,7 @@ defmodule RefMDWeb.AuthController do
                "#{params["name"] || "My"}'s Workspace"
              ),
            {:ok, session, token} <-
-             Accounts.create_session(user.id, %{
+             Auth.create_session(user.id, %{
                remember_me: false,
                ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
                user_agent: get_req_header(conn, "user-agent") |> List.first()
@@ -189,7 +190,7 @@ defmodule RefMDWeb.AuthController do
 
   @spec login(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def login(conn, %{"auth_key" => auth_key, "email" => email} = params) do
-    case Accounts.verify_auth_key(email, auth_key) do
+    case Auth.verify_auth_key(email, auth_key) do
       {:ok, user} ->
         handle_successful_login(conn, user, params)
 
@@ -210,7 +211,7 @@ defmodule RefMDWeb.AuthController do
 
   @spec me(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def me(conn, _params) do
-    user = Accounts.get_user(conn.assigns.current_user_id)
+    user = Users.get_user(conn.assigns.current_user_id)
     session = conn.assigns.current_session
     device_verified = conn.assigns.device_verified
 
@@ -297,12 +298,12 @@ defmodule RefMDWeb.AuthController do
 
   @spec verify_key(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def verify_key(conn, %{"auth_key" => auth_key}) do
-    user = Accounts.get_user(conn.assigns.current_user_id)
+    user = Users.get_user(conn.assigns.current_user_id)
     session = conn.assigns.current_session
 
-    case Accounts.verify_auth_key(user.email, auth_key) do
+    case Auth.verify_auth_key(user.email, auth_key) do
       {:ok, _} ->
-        Accounts.update_session_verified_at(session.id)
+        Auth.update_session_verified_at(session.id)
         json(conn, %{ok: true})
 
       {:error, :invalid_credentials} ->
@@ -327,11 +328,11 @@ defmodule RefMDWeb.AuthController do
       device_id == nil ->
         conn |> put_status(:forbidden) |> json(%{error: "missing_device_id"})
 
-      not Accounts.user_owns_active_device?(user_id, device_id) ->
+      not Devices.user_owns_active_device?(user_id, device_id) ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
 
       true ->
-        case Accounts.create_pop_challenge(user_id, device_id) do
+        case Auth.create_pop_challenge(user_id, device_id) do
           {:ok, challenge} ->
             json(conn, %{challenge: Base.url_encode64(challenge, padding: false)})
 
@@ -353,7 +354,7 @@ defmodule RefMDWeb.AuthController do
   @spec logout(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def logout(conn, _params) do
     session = conn.assigns.current_session
-    Accounts.delete_session(session.id)
+    Auth.delete_session(session.id)
 
     conn
     |> delete_session_cookie()
@@ -407,14 +408,14 @@ defmodule RefMDWeb.AuthController do
 
   @spec recovery_challenge(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def recovery_challenge(conn, %{"email" => email}) do
-    case Accounts.get_user_by_email(email) do
+    case Users.get_user_by_email(email) do
       nil ->
         # Anti-enumeration: return a dummy challenge
         dummy = :crypto.strong_rand_bytes(32)
         json(conn, %{challenge: Base.url_encode64(dummy, padding: false)})
 
       user ->
-        case Accounts.create_recovery_challenge(user.id) do
+        case Auth.create_recovery_challenge(user.id) do
           {:ok, challenge} ->
             json(conn, %{challenge: Base.url_encode64(challenge, padding: false)})
 
@@ -444,10 +445,10 @@ defmodule RefMDWeb.AuthController do
     with true <- is_integer(timestamp),
          {:ok, challenge} <- decode_binary(params["challenge"]),
          {:ok, signature} <- decode_binary(params["signature"]),
-         %{} = user <- Accounts.get_user_by_email(email),
-         :ok <- Accounts.verify_recovery_session(user.id, challenge, signature, timestamp) do
+         %{} = user <- Users.get_user_by_email(email),
+         :ok <- Auth.verify_recovery_session(user.id, challenge, signature, timestamp) do
       {:ok, session, token} =
-        Accounts.create_session(user.id, %{
+        Auth.create_session(user.id, %{
           is_recovery: true,
           ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
           user_agent: get_req_header(conn, "user-agent") |> List.first()
@@ -491,10 +492,10 @@ defmodule RefMDWeb.AuthController do
              kdf_params: @target_kdf_params
            }) do
         {:ok, _} ->
-          Accounts.delete_all_sessions(user_id)
+          Auth.delete_all_sessions(user_id)
 
           {:ok, new_session, token} =
-            Accounts.create_session(user_id, %{
+            Auth.create_session(user_id, %{
               is_recovery: true,
               ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
               user_agent: get_req_header(conn, "user-agent") |> List.first()
@@ -528,10 +529,10 @@ defmodule RefMDWeb.AuthController do
   @spec change_password(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def change_password(conn, params) do
     user_id = conn.assigns.current_user_id
-    user = Accounts.get_user(user_id)
+    user = Users.get_user(user_id)
     session = conn.assigns.current_session
 
-    case Accounts.verify_auth_key(user.email, params["current_auth_key"]) do
+    case Auth.verify_auth_key(user.email, params["current_auth_key"]) do
       {:error, :invalid_credentials} ->
         conn |> put_status(:unauthorized) |> json(%{error: "invalid_credentials"})
 
@@ -544,7 +545,7 @@ defmodule RefMDWeb.AuthController do
                kdf_params: @target_kdf_params
              }) do
           {:ok, _} ->
-            Accounts.delete_other_sessions(user_id, session.id)
+            Auth.delete_other_sessions(user_id, session.id)
             json(conn, %{ok: true})
 
           {:error, _} ->
@@ -595,7 +596,7 @@ defmodule RefMDWeb.AuthController do
 
   @spec password_reset_request(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def password_reset_request(conn, %{"email" => email}) do
-    case Accounts.get_user_by_email(email) do
+    case Users.get_user_by_email(email) do
       nil ->
         :ok
 
@@ -622,11 +623,11 @@ defmodule RefMDWeb.AuthController do
   @spec password_reset_verify(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def password_reset_verify(conn, %{"token" => token_b64}) do
     with {:ok, raw_token} <- Base.url_decode64(token_b64, padding: false),
-         {:ok, user_id} <- Accounts.verify_password_reset_token(raw_token) do
-      user = Accounts.get_user(user_id)
+         {:ok, user_id} <- Auth.verify_password_reset_token(raw_token) do
+      user = Users.get_user(user_id)
 
       {:ok, session, token} =
-        Accounts.create_session(user_id, %{
+        Auth.create_session(user_id, %{
           ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
           user_agent: get_req_header(conn, "user-agent") |> List.first()
         })
@@ -654,7 +655,7 @@ defmodule RefMDWeb.AuthController do
     device_verified = check_device_verified(user.id, device_id)
 
     {:ok, session, token} =
-      Accounts.create_session(user.id, %{
+      Auth.create_session(user.id, %{
         device_id: if(device_verified, do: device_id),
         remember_me: remember_me,
         ip_address: to_string(:inet_parse.ntoa(conn.remote_ip)),
@@ -672,7 +673,7 @@ defmodule RefMDWeb.AuthController do
   defp check_device_verified(_user_id, nil), do: false
 
   defp check_device_verified(user_id, device_id) do
-    case Accounts.get_device(device_id) do
+    case Devices.get_device(device_id) do
       %{user_id: ^user_id, revoked_at: nil} -> true
       _ -> false
     end
@@ -716,8 +717,8 @@ defmodule RefMDWeb.AuthController do
   end
 
   defp maybe_send_password_reset(user) do
-    if Accounts.can_send_password_reset?(user.id) do
-      case Accounts.create_password_reset_token(user.id) do
+    if Auth.can_send_password_reset?(user.id) do
+      case Auth.create_password_reset_token(user.id) do
         {:ok, token} -> RefMD.Mailer.send_password_reset(user.email, token)
         _ -> :ok
       end

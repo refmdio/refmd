@@ -2,7 +2,8 @@ defmodule RefMDWeb.TrustTransferController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.Accounts
+  alias RefMD.Auth
+  alias RefMD.Devices
   alias RefMDWeb.{DeviceEventsController, Schemas}
 
   operation(:create_nonce,
@@ -23,12 +24,12 @@ defmodule RefMDWeb.TrustTransferController do
       session.device_id != nil ->
         conn |> put_status(:forbidden) |> json(%{error: "bound_session"})
 
-      not (Accounts.user_owns_active_device?(user_id, device_id) or
-               Accounts.user_owns_pending_device?(user_id, device_id)) ->
+      not (Devices.user_owns_active_device?(user_id, device_id) or
+               Devices.user_owns_device_registration?(user_id, device_id)) ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
 
       true ->
-        case Accounts.create_trust_transfer_nonce(user_id, device_id) do
+        case Auth.create_trust_transfer_nonce(user_id, device_id) do
           {:ok, nonce, expires_at} ->
             DeviceEventsController.broadcast_trust_transfer_nonce_ready(user_id, device_id, nonce)
 
@@ -59,12 +60,12 @@ defmodule RefMDWeb.TrustTransferController do
     target_device_id = params["target_device_id"]
 
     target_valid =
-      case Accounts.get_device(target_device_id) do
+      case Devices.get_device(target_device_id) do
         %{user_id: ^user_id, revoked_at: nil} ->
           true
 
         _ ->
-          case Accounts.get_valid_pending_device(target_device_id) do
+          case Devices.get_valid_device_registration(target_device_id) do
             %{user_id: ^user_id} -> true
             _ -> false
           end
@@ -98,14 +99,14 @@ defmodule RefMDWeb.TrustTransferController do
       session.device_id != nil ->
         conn |> put_status(:forbidden) |> json(%{error: "bound_session"})
 
-      not (Accounts.user_owns_active_device?(user_id, device_id) or
-               Accounts.user_owns_pending_device?(user_id, device_id)) ->
+      not (Devices.user_owns_active_device?(user_id, device_id) or
+               Devices.user_owns_device_registration?(user_id, device_id)) ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
 
       true ->
-        case Accounts.consume_trust_transfer_state(user_id, device_id) do
+        case Auth.consume_trust_transfer_state(user_id, device_id) do
           {:ok, state} ->
-            sender = Accounts.get_device(state.sender_device_id)
+            sender = Devices.get_device(state.sender_device_id)
 
             json(conn, %{
               sender_device_id: state.sender_device_id,
@@ -127,7 +128,7 @@ defmodule RefMDWeb.TrustTransferController do
          {:ok, ciphertext} <- decode_binary(params["ciphertext"]),
          {:ok, nonce} <- decode_binary(params["nonce"]),
          {:ok, signature} <- decode_binary(params["signature"]) do
-      if byte_size(ciphertext) > Accounts.trust_transfer_max_payload_bytes() do
+      if byte_size(ciphertext) > Auth.trust_transfer_max_payload_bytes() do
         conn |> put_status(:request_entity_too_large) |> json(%{error: "payload_too_large"})
       else
         consume_nonce_and_save(
@@ -155,11 +156,11 @@ defmodule RefMDWeb.TrustTransferController do
          nonce,
          signature
        ) do
-    case Accounts.consume_trust_transfer_nonce(user_id, target_device_id, transfer_nonce) do
+    case Auth.consume_trust_transfer_nonce(user_id, target_device_id, transfer_nonce) do
       :ok ->
-        case Accounts.save_trust_transfer_state(%{
+        case Auth.save_trust_transfer_state(%{
                user_id: user_id,
-               target_device_id: target_device_id,
+               device_id: target_device_id,
                sender_device_id: conn.assigns[:pop_device_id],
                ciphertext: ciphertext,
                nonce: nonce,

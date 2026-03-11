@@ -18,8 +18,8 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
   // Device: bootstrap
   if (path === "/api/devices/bootstrap") return true;
 
-  // Device: pending endpoints (session-only), EXCEPT POST .../approve (Recovery-or-PoP)
-  if (path.startsWith("/api/devices/pending")) {
+  // Device: registration endpoints (session-only), EXCEPT POST .../approve (Recovery-or-PoP)
+  if (path.startsWith("/api/devices/registrations")) {
     if (method === "POST" && path.endsWith("/approve")) return false;
     return true;
   }

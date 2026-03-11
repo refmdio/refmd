@@ -1,4 +1,4 @@
-defmodule RefMD.Accounts.PasswordResetToken do
+defmodule RefMD.Auth.PasswordResetToken do
   use Ecto.Schema
   import Ecto.Changeset
 

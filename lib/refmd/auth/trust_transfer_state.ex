@@ -1,13 +1,13 @@
-defmodule RefMD.Accounts.TrustTransferState do
+defmodule RefMD.Auth.TrustTransferState do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key false
   @foreign_key_type :binary_id
 
   schema "trust_transfer_states" do
-    belongs_to :user, RefMD.Accounts.User
-    field :target_device_id, :binary_id
+    field :device_id, :binary_id, primary_key: true
+    belongs_to :user, RefMD.Users.User
     field :sender_device_id, :binary_id
     field :ciphertext, :binary
     field :nonce, :binary
@@ -21,21 +21,20 @@ defmodule RefMD.Accounts.TrustTransferState do
   def changeset(record, attrs) do
     record
     |> cast(attrs, [
+      :device_id,
       :user_id,
-      :target_device_id,
       :sender_device_id,
       :ciphertext,
       :nonce,
       :signature
     ])
     |> validate_required([
+      :device_id,
       :user_id,
-      :target_device_id,
       :sender_device_id,
       :ciphertext,
       :nonce,
       :signature
     ])
-    |> unique_constraint([:user_id, :target_device_id])
   end
 end

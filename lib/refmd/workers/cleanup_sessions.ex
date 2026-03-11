@@ -7,7 +7,7 @@ defmodule RefMD.Workers.CleanupSessions do
 
   @impl Oban.Worker
   def perform(_job) do
-    {count, _} = RefMD.Accounts.delete_expired_sessions()
+    {count, _} = RefMD.Auth.delete_expired_sessions()
 
     if count > 0 do
       require Logger

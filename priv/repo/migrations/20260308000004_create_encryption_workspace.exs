@@ -26,5 +26,16 @@ defmodule RefMD.Repo.Migrations.CreateEncryptionWorkspace do
       add :is_active, :boolean, null: false
       add :created_at, :utc_datetime_usec, null: false
     end
+
+    create table(:workspace_tag_index_keys, primary_key: false) do
+      add :workspace_id,
+          references(:workspaces, type: :binary_id, on_delete: :delete_all),
+          primary_key: true
+
+      add :encrypted_key, :binary, null: false
+      add :nonce, :binary, null: false
+      add :kek_version, :integer, null: false
+      add :created_at, :utc_datetime_usec, null: false
+    end
   end
 end

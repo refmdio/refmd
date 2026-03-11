@@ -10,7 +10,7 @@ defmodule RefMD.Workspaces.Workspace do
     field :slug, :string
     field :description, :string
     field :icon, :string
-    belongs_to :owner, RefMD.Accounts.User
+    belongs_to :owner, RefMD.Users.User
     field :current_kek_version, :integer, default: 0
     field :min_kek_version, :integer, default: 0
     field :needs_kek_rotation, :boolean, default: false

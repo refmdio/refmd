@@ -75,14 +75,12 @@ export default function DeviceRegisterPage() {
   } | null>(null);
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let eventSource: EventSource | undefined;
-  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   let nonceRefreshTimer: ReturnType<typeof setInterval> | undefined;
   let redirectTimer: ReturnType<typeof setTimeout> | undefined;
 
   onCleanup(() => {
     if (pollTimer) clearInterval(pollTimer);
     if (eventSource) eventSource.close();
-    if (expiryTimer) clearTimeout(expiryTimer);
     if (nonceRefreshTimer) clearInterval(nonceRefreshTimer);
     if (redirectTimer) clearTimeout(redirectTimer);
   });
@@ -134,11 +132,11 @@ export default function DeviceRegisterPage() {
       return;
     }
 
-    await createPendingAndWait(keys);
+    await createRegistrationAndWait(keys);
   };
 
   // Create pending device and set up SSE/polling for approval
-  const createPendingAndWait = async (
+  const createRegistrationAndWait = async (
     keys: { ecdhPrivate: Uint8Array; ecdhPublic: Uint8Array; signingPrivate: Uint8Array; signingPublic: Uint8Array },
   ) => {
     const nonce = generateClientNonce();
@@ -146,7 +144,7 @@ export default function DeviceRegisterPage() {
 
     let res;
     try {
-      res = await devicesApi.createPending({
+      res = await devicesApi.createRegistration({
         name: getDeviceName(),
         device_type: getDeviceType(),
         device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
@@ -179,7 +177,7 @@ export default function DeviceRegisterPage() {
       if (pollTimer) return;
       pollTimer = setInterval(async () => {
         try {
-          const status = await devicesApi.getPendingStatus(res.device_id);
+          const status = await devicesApi.getRegistrationSas(res.device_id);
           if (status.status === "approved") {
             if (pollTimer) clearInterval(pollTimer);
             await handleApproved(res.device_id, keys);
@@ -195,7 +193,7 @@ export default function DeviceRegisterPage() {
 
     const connectSse = () => {
       try {
-        eventSource = new EventSource(`/api/devices/pending/${res.device_id}/events`);
+        eventSource = new EventSource(`/api/devices/registrations/${res.device_id}/events`);
         eventSource.addEventListener("pending_approved", async () => {
           if (eventSource) eventSource.close();
           if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
@@ -231,15 +229,6 @@ export default function DeviceRegisterPage() {
     };
 
     connectSse();
-
-    // Expiry timer: pending devices have a 5-minute TTL
-    expiryTimer = setTimeout(() => {
-      if (phase() === "waiting") {
-        if (eventSource) eventSource.close();
-        if (pollTimer) clearInterval(pollTimer);
-        setPhase("expired");
-      }
-    }, 5 * 60 * 1000);
   };
 
   // Recovery flow: self-approve with identity signature
@@ -264,7 +253,7 @@ export default function DeviceRegisterPage() {
       identityKeys.signingPrivate,
     );
 
-    const pendingRes = await devicesApi.createPending({
+    const pendingRes = await devicesApi.createRegistration({
       name: getDeviceName(),
       device_type: getDeviceType(),
       device_ecdh_public_key: base64UrlEncode(keys.ecdhPublic),
@@ -348,7 +337,7 @@ export default function DeviceRegisterPage() {
       await persistDeviceKeysOnly(keys.ecdhPrivate, keys.signingPrivate, auth.user.id);
       setPendingKeys(null);
       setDeviceKeys(keys);
-      await createPendingAndWait(keys);
+      await createRegistrationAndWait(keys);
     } catch (err) {
       setPdkError(err instanceof Error ? err.message : "Password verification failed");
     } finally {
@@ -372,7 +361,7 @@ export default function DeviceRegisterPage() {
       const keys = reauthPendingKeys();
       if (!keys) throw new Error("No pending keys");
       setReauthPendingKeys(null);
-      await createPendingAndWait(keys);
+      await createRegistrationAndWait(keys);
     } catch (err) {
       setReauthError(err instanceof Error ? err.message : "Password verification failed");
     } finally {
@@ -848,9 +837,18 @@ async function restoreKekForWorkspace(
   deviceEcdhPrivate: Uint8Array,
   deviceEcdhPublic: Uint8Array,
 ): Promise<"restored" | "needs_distribution"> {
-  const existing = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
-  if (existing.keys.length > 0) return "restored";
-  const currentKekVersion = existing.current_kek_version;
+  let currentKekVersion = 0;
+  try {
+    const existing = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, deviceId);
+    if (existing.keys.length > 0) return "restored";
+    currentKekVersion = existing.current_kek_version;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      currentKekVersion = (e.body.details as { current_kek_version?: number })?.current_kek_version ?? 0;
+    } else {
+      throw e;
+    }
+  }
 
   const memberEnvelope = await encryptionApi.getMemberEnvelopeWithPop(workspaceId);
   if (memberEnvelope && memberEnvelope.sender_ecdh_public_key && memberEnvelope.sender_signing_public_key) {

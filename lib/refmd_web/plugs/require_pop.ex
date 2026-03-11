@@ -8,7 +8,8 @@ defmodule RefMDWeb.Plugs.RequirePoP do
   """
 
   import Plug.Conn
-  alias RefMD.Accounts
+  alias RefMD.Auth
+  alias RefMD.Devices
 
   @touch_interval_seconds 5 * 60
 
@@ -23,7 +24,7 @@ defmodule RefMDWeb.Plugs.RequirePoP do
          user_id = conn.assigns.current_user_id,
          {:ok, device} <- verify_device_ownership(user_id, device_id),
          :ok <- verify_pop_signature(challenge, signature, device, user_id),
-         :ok <- Accounts.consume_pop_challenge(challenge, user_id, device_id),
+         :ok <- Auth.consume_pop_challenge(challenge, user_id, device_id),
          {:ok, conn} <- maybe_bind_session(conn, device_id) do
       maybe_touch_device(device)
 
@@ -73,46 +74,25 @@ defmodule RefMDWeb.Plugs.RequirePoP do
   end
 
   defp verify_device_ownership(user_id, device_id) do
-    case Accounts.get_device(device_id) do
+    case Devices.get_device(device_id) do
       %{user_id: ^user_id, revoked_at: nil} = device -> {:ok, device}
       _ -> {:error, :invalid_device}
     end
   end
 
   defp verify_pop_signature(challenge, signature, device, _user_id) do
-    message = build_pop_message(challenge, device.id)
+    message =
+      RefMD.Crypto.build_signature_message("pop_challenge", %{
+        "challenge" => Base.url_encode64(challenge, padding: false),
+        "device_id" => device.id
+      })
 
-    if :crypto.verify(:eddsa, :none, message, signature, [device.signing_public_key, :ed25519]) do
+    if RefMD.Crypto.verify_ed25519_signature(message, signature, device.signing_public_key) do
       :ok
     else
       {:error, :invalid_signature}
     end
   end
-
-  defp build_pop_message(challenge, device_id) do
-    # JCS canonicalization: sorted keys, no whitespace
-    challenge_b64 = Base.url_encode64(challenge, padding: false)
-
-    fields = %{
-      "action" => "pop_challenge",
-      "challenge" => challenge_b64,
-      "device_id" => device_id,
-      "protocol" => "refmd",
-      "version" => 1
-    }
-
-    pairs =
-      fields
-      |> Enum.sort_by(fn {k, _} -> k end)
-      |> Enum.map(fn {k, v} ->
-        Jason.encode!(k) <> ":" <> encode_jcs_value(v)
-      end)
-
-    "{" <> Enum.join(pairs, ",") <> "}"
-  end
-
-  defp encode_jcs_value(v) when is_binary(v), do: Jason.encode!(v)
-  defp encode_jcs_value(v) when is_integer(v), do: Integer.to_string(v)
 
   defp maybe_bind_session(conn, device_id) do
     session = conn.assigns.current_session
@@ -130,7 +110,7 @@ defmodule RefMDWeb.Plugs.RequirePoP do
   end
 
   defp bind_unbound_session(conn, session, device_id) do
-    case Accounts.bind_session_to_device(session.id, device_id) do
+    case Auth.bind_session_to_device(session.id, device_id) do
       {1, _} ->
         {:ok, assign_bound_session(conn, session, device_id)}
 
@@ -140,7 +120,7 @@ defmodule RefMDWeb.Plugs.RequirePoP do
   end
 
   defp handle_bind_race_condition(conn, session, device_id) do
-    case Accounts.get_session(session.id) do
+    case Auth.get_session(session.id) do
       %{device_id: ^device_id} ->
         {:ok, assign_bound_session(conn, session, device_id)}
 
@@ -169,7 +149,7 @@ defmodule RefMDWeb.Plugs.RequirePoP do
     elapsed = DateTime.diff(DateTime.utc_now(), device.last_seen_at, :second)
 
     if elapsed >= @touch_interval_seconds do
-      Accounts.touch_device(device.id)
+      Devices.touch_device(device.id)
     end
   end
 end

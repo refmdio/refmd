@@ -6,7 +6,6 @@ defmodule RefMD.Encryption do
   import Ecto.Query
 
   alias RefMD.Encryption.{
-    DeviceEncryptedUMK,
     DocumentEncryptedKey,
     UserEncryptedIdentityKey,
     UserEncryptedMasterKey,
@@ -130,24 +129,6 @@ defmodule RefMD.Encryption do
     |> Repo.all()
   end
 
-  # ── Device Keys ────────────────────────────────
-
-  @spec create_device_encrypted_umk(map()) ::
-          {:ok, DeviceEncryptedUMK.t()} | {:error, Ecto.Changeset.t()}
-  def create_device_encrypted_umk(attrs) do
-    %DeviceEncryptedUMK{created_at: DateTime.utc_now()}
-    |> DeviceEncryptedUMK.changeset(attrs)
-    |> Repo.insert()
-  end
-
-  @spec get_device_encrypted_umk(Ecto.UUID.t(), Ecto.UUID.t()) :: DeviceEncryptedUMK.t() | nil
-  def get_device_encrypted_umk(user_id, device_id) do
-    from(d in DeviceEncryptedUMK,
-      where: d.user_id == ^user_id and d.device_id == ^device_id
-    )
-    |> Repo.one()
-  end
-
   # ── Workspace Keys ─────────────────────────────
 
   @spec create_workspace_encrypted_key(map()) ::
@@ -157,7 +138,7 @@ defmodule RefMD.Encryption do
     sender_device_id = attrs[:sender_device_id] || attrs["sender_device_id"]
 
     if sender_device_id != nil and
-         not RefMD.Accounts.user_owns_active_device?(user_id, sender_device_id) do
+         not RefMD.Devices.user_owns_active_device?(user_id, sender_device_id) do
       {:error, :invalid_sender_device}
     else
       %WorkspaceEncryptedKey{created_at: DateTime.utc_now()}
@@ -316,7 +297,7 @@ defmodule RefMD.Encryption do
   @spec all_user_devices_have_key?(Ecto.UUID.t(), Ecto.UUID.t(), integer()) :: boolean()
   def all_user_devices_have_key?(workspace_id, user_id, key_version) do
     active_device_ids =
-      from(d in RefMD.Accounts.Device,
+      from(d in RefMD.Devices.Device,
         where: d.user_id == ^user_id and is_nil(d.revoked_at),
         select: d.id
       )
@@ -383,7 +364,8 @@ defmodule RefMD.Encryption do
       encrypted_master_key: get_user_encrypted_master_key(user_id),
       encrypted_identity_key: get_user_encrypted_identity_key(user_id),
       identity_public_key: get_user_identity_public_key(user_id),
-      device_encrypted_umk: if(device_id, do: get_device_encrypted_umk(user_id, device_id))
+      device_encrypted_umk:
+        if(device_id, do: RefMD.Devices.get_device_encrypted_umk(user_id, device_id))
     }
   end
 end

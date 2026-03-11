@@ -6,7 +6,7 @@ defmodule RefMD.Encryption.UserEncryptedMasterKey do
   @foreign_key_type :binary_id
 
   schema "user_encrypted_master_keys" do
-    belongs_to :user, RefMD.Accounts.User, primary_key: true
+    belongs_to :user, RefMD.Users.User, primary_key: true
     field :auth_type, :string
     field :encrypted_umk, :binary
     field :umk_nonce, :binary

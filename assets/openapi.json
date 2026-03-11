@@ -2,53 +2,6 @@
   "components": {
     "responses": {},
     "schemas": {
-      "PendingDeviceInfo": {
-        "properties": {
-          "client_nonce": {
-            "type": "string"
-          },
-          "created_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "device_type": {
-            "type": "string"
-          },
-          "ecdh_public_key": {
-            "type": "string"
-          },
-          "expires_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "ip_address": {
-            "nullable": true,
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "signing_public_key": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "device_type",
-          "ecdh_public_key",
-          "signing_public_key",
-          "client_nonce",
-          "created_at",
-          "expires_at"
-        ],
-        "title": "PendingDeviceInfo",
-        "type": "object"
-      },
       "DeviceInfo": {
         "properties": {
           "device_type": {
@@ -143,6 +96,23 @@
           "encrypted_signing_private_nonce"
         ],
         "title": "RegisterRequest",
+        "type": "object"
+      },
+      "DeviceRegistrationStatusResponse": {
+        "properties": {
+          "status": {
+            "enum": [
+              "pending",
+              "approved",
+              "expired"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "DeviceRegistrationStatusResponse",
         "type": "object"
       },
       "CreateWorkspaceKeyRequest": {
@@ -327,6 +297,36 @@
         "title": "TrustTransferGetResponse",
         "type": "object"
       },
+      "CreateDeviceRegistrationRequest": {
+        "properties": {
+          "client_nonce": {
+            "type": "string"
+          },
+          "device_ecdh_public_key": {
+            "type": "string"
+          },
+          "device_signing_public_key": {
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "identity_signing_public_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identity_signing_public_key",
+          "device_signing_public_key",
+          "device_ecdh_public_key",
+          "client_nonce"
+        ],
+        "title": "CreateDeviceRegistrationRequest",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "auth_key": {
@@ -461,6 +461,21 @@
           "signature"
         ],
         "title": "TrustTransferSendRequest",
+        "type": "object"
+      },
+      "DeviceRegistrationsResponse": {
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceRegistrationInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "title": "DeviceRegistrationsResponse",
         "type": "object"
       },
       "WorkspaceMemberKeysResponse": {
@@ -936,19 +951,51 @@
         "title": "LoginResponse",
         "type": "object"
       },
-      "PendingDevicesResponse": {
+      "DeviceRegistrationInfo": {
         "properties": {
-          "devices": {
-            "items": {
-              "$ref": "#/components/schemas/PendingDeviceInfo"
-            },
-            "type": "array"
+          "client_nonce": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "device_type": {
+            "type": "string"
+          },
+          "ecdh_public_key": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ip_address": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "signing_public_key": {
+            "type": "string"
           }
         },
         "required": [
-          "devices"
+          "id",
+          "name",
+          "device_type",
+          "ecdh_public_key",
+          "signing_public_key",
+          "client_nonce",
+          "created_at",
+          "expires_at"
         ],
-        "title": "PendingDevicesResponse",
+        "title": "DeviceRegistrationInfo",
         "type": "object"
       },
       "GetUmkResponse": {
@@ -1092,23 +1139,6 @@
         "title": "ErrorResponse",
         "type": "object"
       },
-      "PendingDeviceStatusResponse": {
-        "properties": {
-          "status": {
-            "enum": [
-              "pending",
-              "approved",
-              "expired"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "PendingDeviceStatusResponse",
-        "type": "object"
-      },
       "WorkspaceKeysResponse": {
         "properties": {
           "current_kek_version": {
@@ -1126,53 +1156,6 @@
           "keys"
         ],
         "title": "WorkspaceKeysResponse",
-        "type": "object"
-      },
-      "CreatePendingDeviceRequest": {
-        "properties": {
-          "client_nonce": {
-            "type": "string"
-          },
-          "device_ecdh_public_key": {
-            "type": "string"
-          },
-          "device_signing_public_key": {
-            "type": "string"
-          },
-          "device_type": {
-            "type": "string"
-          },
-          "identity_signing_public_key": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "identity_signing_public_key",
-          "device_signing_public_key",
-          "device_ecdh_public_key",
-          "client_nonce"
-        ],
-        "title": "CreatePendingDeviceRequest",
-        "type": "object"
-      },
-      "CreatePendingDeviceResponse": {
-        "properties": {
-          "device_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "device_id",
-          "status"
-        ],
-        "title": "CreatePendingDeviceResponse",
         "type": "object"
       },
       "TrustTransferNonceResponse": {
@@ -1381,6 +1364,23 @@
         ],
         "title": "RecoveryChallengeRequest",
         "type": "object"
+      },
+      "CreateDeviceRegistrationResponse": {
+        "properties": {
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "status"
+        ],
+        "title": "CreateDeviceRegistrationResponse",
+        "type": "object"
       }
     }
   },
@@ -1561,6 +1561,78 @@
           }
         },
         "summary": "Regenerate recovery key (PoP required)",
+        "tags": []
+      }
+    },
+    "/api/devices/registrations/{id}/approve": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DeviceController.approve",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveDeviceRequest"
+              }
+            }
+          },
+          "description": "Approval params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApproveDeviceResponse"
+                }
+              }
+            },
+            "description": "Approved device"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Approval failed"
+          }
+        },
+        "summary": "Approve a pending device",
         "tags": []
       }
     },
@@ -1763,6 +1835,47 @@
         "tags": []
       }
     },
+    "/api/devices/registrations/{id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DeviceController.reject_registration",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Rejection result"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Reject (delete) a device registration",
+        "tags": []
+      }
+    },
     "/api/encryption/workspaces/{workspace_id}/member-keys": {
       "get": {
         "callbacks": {},
@@ -1835,149 +1948,6 @@
         "tags": []
       }
     },
-    "/api/devices/pending/{id}/approve": {
-      "post": {
-        "callbacks": {},
-        "operationId": "RefMDWeb.DeviceController.approve",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApproveDeviceRequest"
-              }
-            }
-          },
-          "description": "Approval params",
-          "required": false
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApproveDeviceResponse"
-                }
-              }
-            },
-            "description": "Approved device"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Approval failed"
-          }
-        },
-        "summary": "Approve a pending device",
-        "tags": []
-      }
-    },
-    "/api/devices/pending": {
-      "get": {
-        "callbacks": {},
-        "operationId": "RefMDWeb.DeviceController.list_pending",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PendingDevicesResponse"
-                }
-              }
-            },
-            "description": "Pending devices"
-          }
-        },
-        "summary": "List pending devices for current user",
-        "tags": []
-      },
-      "post": {
-        "callbacks": {},
-        "operationId": "RefMDWeb.DeviceController.create_pending",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePendingDeviceRequest"
-              }
-            }
-          },
-          "description": "Device params",
-          "required": false
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreatePendingDeviceResponse"
-                }
-              }
-            },
-            "description": "Pending device"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Re-authentication required"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Validation error"
-          }
-        },
-        "summary": "Create a pending device (2nd+ devices only)",
-        "tags": []
-      }
-    },
     "/api/auth/register": {
       "post": {
         "callbacks": {},
@@ -2017,47 +1987,6 @@
           }
         },
         "summary": "Register a new user",
-        "tags": []
-      }
-    },
-    "/api/devices/pending/{id}": {
-      "delete": {
-        "callbacks": {},
-        "operationId": "RefMDWeb.DeviceController.reject_pending",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OkResponse"
-                }
-              }
-            },
-            "description": "Rejection result"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Reject (delete) a pending device",
         "tags": []
       }
     },
@@ -2115,6 +2044,16 @@
               }
             },
             "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
           }
         },
         "summary": "Get workspace encryption keys",
@@ -2210,47 +2149,6 @@
           }
         },
         "summary": "Verify auth key without creating a session",
-        "tags": []
-      }
-    },
-    "/api/devices/pending/{id}/sas": {
-      "get": {
-        "callbacks": {},
-        "operationId": "RefMDWeb.DeviceController.get_pending_status",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PendingDeviceStatusResponse"
-                }
-              }
-            },
-            "description": "Status"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Get pending device status (polling fallback for SSE)",
         "tags": []
       }
     },
@@ -2414,6 +2312,77 @@
           }
         },
         "summary": "Mark encryption setup as complete",
+        "tags": []
+      }
+    },
+    "/api/devices/registrations": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DeviceController.list_registrations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceRegistrationsResponse"
+                }
+              }
+            },
+            "description": "Device registrations"
+          }
+        },
+        "summary": "List device registrations for current user",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DeviceController.create_registration",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeviceRegistrationRequest"
+              }
+            }
+          },
+          "description": "Device params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDeviceRegistrationResponse"
+                }
+              }
+            },
+            "description": "Device registration"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Re-authentication required"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a device registration (2nd+ devices only)",
         "tags": []
       }
     },
@@ -2583,6 +2552,47 @@
         "tags": []
       }
     },
+    "/api/devices/registrations/{id}/sas": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.DeviceController.get_registration_sas",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceRegistrationStatusResponse"
+                }
+              }
+            },
+            "description": "Status"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get device registration status (polling fallback for SSE)",
+        "tags": []
+      }
+    },
     "/api/encryption/workspaces/{workspace_id}/kek-rotation/complete": {
       "post": {
         "callbacks": {},
@@ -2697,7 +2707,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreatePendingDeviceResponse"
+                  "$ref": "#/components/schemas/CreateDeviceRegistrationResponse"
                 }
               }
             },

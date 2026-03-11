@@ -1,4 +1,4 @@
-defmodule RefMD.Accounts.DeviceRevocationEvent do
+defmodule RefMD.Devices.DeviceRevocationEvent do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -6,7 +6,7 @@ defmodule RefMD.Accounts.DeviceRevocationEvent do
   @foreign_key_type :binary_id
 
   schema "device_revocation_events" do
-    belongs_to :user, RefMD.Accounts.User, primary_key: true
+    belongs_to :user, RefMD.Users.User, primary_key: true
     field :device_id, :binary_id, primary_key: true
     field :revoked_by_device_id, :binary_id
     field :revocation_mode, :string

@@ -8,7 +8,7 @@ defmodule RefMD.Documents.DocumentSnapshotArchive do
   schema "document_snapshot_archives" do
     belongs_to :document, RefMD.Documents.Document
     belongs_to :snapshot, RefMD.Documents.DocumentSnapshot
-    belongs_to :created_by_user, RefMD.Accounts.User, foreign_key: :created_by
+    belongs_to :created_by_user, RefMD.Users.User, foreign_key: :created_by
 
     field :label, :string
     field :notes, :string

@@ -1,4 +1,4 @@
-defmodule RefMD.Accounts.PopChallenge do
+defmodule RefMD.Auth.PopChallenge do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -6,8 +6,8 @@ defmodule RefMD.Accounts.PopChallenge do
   @foreign_key_type :binary_id
 
   schema "pop_challenges" do
-    belongs_to :user, RefMD.Accounts.User
-    belongs_to :device, RefMD.Accounts.Device
+    belongs_to :user, RefMD.Users.User
+    belongs_to :device, RefMD.Devices.Device
     field :challenge_hash, :binary
     field :expires_at, :utc_datetime_usec
     field :created_at, :utc_datetime_usec

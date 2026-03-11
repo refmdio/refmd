@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Spinner } from "@/shared/ui/spinner";
 import { SafetyNumber } from "./safety-number";
 import { devicesApi, encryptionApi, trustTransferApi } from "@/shared/api";
-import type { PendingDeviceInfo } from "@/shared/api/devices";
+import type { DeviceRegistrationInfo } from "@/shared/api/devices";
 import { authState, deviceState } from "@/shared/lib/auth-state";
 import {
   base64UrlEncode,
@@ -31,7 +31,7 @@ import { getAllTofuEntries } from "@/shared/lib/trust-store";
 import { buildDeviceUmkDistributionAad } from "@/shared/lib/crypto/aad";
 
 interface Props {
-  device: PendingDeviceInfo;
+  device: DeviceRegistrationInfo;
   transferNonce: string | null;
   onClose: () => void;
   onApproved: () => void;
@@ -252,7 +252,7 @@ export function ApproveDeviceDialog(props: Props) {
             variant="destructive"
             onClick={async () => {
               try {
-                await devicesApi.rejectPending(props.device.id);
+                await devicesApi.rejectRegistration(props.device.id);
               } catch {
                 // Already deleted or expired
               }

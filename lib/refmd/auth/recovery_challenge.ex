@@ -1,4 +1,4 @@
-defmodule RefMD.Accounts.RecoveryChallenge do
+defmodule RefMD.Auth.RecoveryChallenge do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -6,7 +6,7 @@ defmodule RefMD.Accounts.RecoveryChallenge do
   @foreign_key_type :binary_id
 
   schema "recovery_challenges" do
-    belongs_to :user, RefMD.Accounts.User
+    belongs_to :user, RefMD.Users.User
     field :challenge_hash, :binary
     field :expires_at, :utc_datetime_usec
     field :created_at, :utc_datetime_usec

@@ -1,12 +1,13 @@
 import { client, throwIfError } from "./core";
 import type { components } from "./schema";
 
-export type CreatePendingDeviceRequest = components["schemas"]["CreatePendingDeviceRequest"];
+export type CreateDeviceRegistrationRequest =
+  components["schemas"]["CreateDeviceRegistrationRequest"];
 export type ApproveDeviceRequest = components["schemas"]["ApproveDeviceRequest"];
 
 export type DeviceInfo = components["schemas"]["DeviceFullInfo"];
 
-export interface PendingDeviceInfo {
+export interface DeviceRegistrationInfo {
   id: string;
   name: string;
   device_type: string;
@@ -35,14 +36,14 @@ export const devicesApi = {
       await client.POST("/api/devices/bootstrap", { body }),
     ),
 
-  createPending: async (body: CreatePendingDeviceRequest) =>
+  createRegistration: async (body: CreateDeviceRegistrationRequest) =>
     throwIfError(
-      await client.POST("/api/devices/pending", { body }),
+      await client.POST("/api/devices/registrations", { body }),
     ),
 
   approve: async (id: string, body: ApproveDeviceRequest) =>
     throwIfError(
-      await client.POST("/api/devices/pending/{id}/approve", {
+      await client.POST("/api/devices/registrations/{id}/approve", {
         params: { path: { id } },
         body,
       }),
@@ -53,9 +54,9 @@ export const devicesApi = {
       await client.GET("/api/devices"),
     ),
 
-  listPending: async () =>
+  listRegistrations: async () =>
     throwIfError(
-      await client.GET("/api/devices/pending"),
+      await client.GET("/api/devices/registrations"),
     ),
 
   revoke: async (
@@ -84,17 +85,17 @@ export const devicesApi = {
     );
   },
 
-  rejectPending: async (id: string) => {
+  rejectRegistration: async (id: string) => {
     throwIfError(
-      await client.DELETE("/api/devices/pending/{id}", {
+      await client.DELETE("/api/devices/registrations/{id}", {
         params: { path: { id } },
       }),
     );
   },
 
-  getPendingStatus: async (id: string) =>
+  getRegistrationSas: async (id: string) =>
     throwIfError(
-      await client.GET("/api/devices/pending/{id}/sas", {
+      await client.GET("/api/devices/registrations/{id}/sas", {
         params: { path: { id } },
       }),
     ),

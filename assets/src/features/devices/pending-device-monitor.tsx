@@ -8,7 +8,7 @@ import {
   type ParentComponent,
   type Accessor,
 } from "solid-js";
-import type { PendingDeviceInfo } from "@/shared/api/devices";
+import type { DeviceRegistrationInfo } from "@/shared/api/devices";
 import { devicesApi } from "@/shared/api";
 import { deviceState } from "@/shared/lib/auth-state";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
@@ -20,11 +20,11 @@ export interface KekRotationNeeded {
 }
 
 export interface PendingDeviceContextValue {
-  pendingDevices: Accessor<PendingDeviceInfo[]>;
+  pendingDevices: Accessor<DeviceRegistrationInfo[]>;
   pendingCount: Accessor<number>;
   transferNonces: Accessor<Record<string, string>>;
   kekRotationsNeeded: Accessor<KekRotationNeeded[]>;
-  showApprovalDialog: (device: PendingDeviceInfo) => void;
+  showApprovalDialog: (device: DeviceRegistrationInfo) => void;
   refetchPending: () => Promise<void>;
 }
 
@@ -39,8 +39,8 @@ export function usePendingDevices(): PendingDeviceContextValue {
 }
 
 export const PendingDeviceMonitor: ParentComponent = (props) => {
-  const [pendingDevices, setPendingDevices] = createSignal<PendingDeviceInfo[]>([]);
-  const [currentDialog, setCurrentDialog] = createSignal<PendingDeviceInfo | null>(null);
+  const [pendingDevices, setPendingDevices] = createSignal<DeviceRegistrationInfo[]>([]);
+  const [currentDialog, setCurrentDialog] = createSignal<DeviceRegistrationInfo | null>(null);
   const [approvalError, setApprovalError] = createSignal<string | null>(null);
   const [transferNonces, setTransferNonces] = createSignal<Record<string, string>>({});
   const [kekRotationsNeeded, setKekRotationsNeeded] = createSignal<KekRotationNeeded[]>([]);
@@ -55,14 +55,14 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
 
   const refetchPending = async () => {
     try {
-      const res = await devicesApi.listPending();
+      const res = await devicesApi.listRegistrations();
       setPendingDevices(res.devices);
     } catch {
       // Silently ignore — SSE will keep state updated
     }
   };
 
-  const showApprovalDialog = (device: PendingDeviceInfo) => {
+  const showApprovalDialog = (device: DeviceRegistrationInfo) => {
     setCurrentDialog(device);
   };
 

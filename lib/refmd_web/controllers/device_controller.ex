@@ -2,14 +2,16 @@ defmodule RefMDWeb.DeviceController do
   use RefMDWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias RefMD.Accounts
-  alias RefMDWeb.{CryptoValidation, DeviceEventsController, Schemas}
+  alias RefMD.Crypto
+  alias RefMD.Devices
+  alias RefMDWeb.{DeviceEventsController, Schemas}
 
   operation(:bootstrap,
     summary: "Bootstrap first device (first device only)",
     request_body: {"Bootstrap params", "application/json", Schemas.BootstrapDeviceRequest},
     responses: [
-      created: {"Bootstrapped device", "application/json", Schemas.CreatePendingDeviceResponse},
+      created:
+        {"Bootstrapped device", "application/json", Schemas.CreateDeviceRegistrationResponse},
       conflict: {"Already has devices", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
     ]
@@ -28,7 +30,7 @@ defmodule RefMDWeb.DeviceController do
 
     with :ok <- validate_identity_key(stored_identity, identity_signing_public_key),
          :ok <- validate_device_keys(ecdh_public_key, signing_public_key, client_nonce) do
-      if Accounts.user_has_any_device_records?(user_id) do
+      if Devices.user_has_any_device_records?(user_id) do
         conn |> put_status(:conflict) |> json(%{error: "already_has_devices"})
       else
         bootstrap_first_device(
@@ -60,7 +62,7 @@ defmodule RefMDWeb.DeviceController do
          client_nonce,
          identity_signature
        ) do
-    case Accounts.bootstrap_first_device(
+    case Devices.bootstrap_first_device(
            %{
              user_id: user_id,
              name: params["name"],
@@ -92,11 +94,12 @@ defmodule RefMDWeb.DeviceController do
       conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
 
-  operation(:create_pending,
-    summary: "Create a pending device (2nd+ devices only)",
-    request_body: {"Device params", "application/json", Schemas.CreatePendingDeviceRequest},
+  operation(:create_registration,
+    summary: "Create a device registration (2nd+ devices only)",
+    request_body: {"Device params", "application/json", Schemas.CreateDeviceRegistrationRequest},
     responses: [
-      created: {"Pending device", "application/json", Schemas.CreatePendingDeviceResponse},
+      created:
+        {"Device registration", "application/json", Schemas.CreateDeviceRegistrationResponse},
       forbidden: {"Re-authentication required", "application/json", Schemas.ErrorResponse},
       unprocessable_entity: {"Validation error", "application/json", Schemas.ErrorResponse}
     ]
@@ -105,8 +108,8 @@ defmodule RefMDWeb.DeviceController do
   # Re-authentication threshold for sensitive operations (5 minutes)
   @reauth_max_age_seconds 300
 
-  @spec create_pending(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def create_pending(conn, params) do
+  @spec create_registration(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def create_registration(conn, params) do
     session = conn.assigns.current_session
 
     if requires_reauth?(session) do
@@ -118,6 +121,7 @@ defmodule RefMDWeb.DeviceController do
 
   defp create_pending_after_reauth(conn, params) do
     user_id = conn.assigns.current_user_id
+    session = conn.assigns.current_session
     ecdh_public_key = decode_binary!(params["device_ecdh_public_key"])
     signing_public_key = decode_binary!(params["device_signing_public_key"])
     client_nonce = decode_binary!(params["client_nonce"])
@@ -127,8 +131,8 @@ defmodule RefMDWeb.DeviceController do
 
     with :ok <- validate_identity_key(stored_identity, identity_signing_public_key),
          :ok <- validate_device_keys(ecdh_public_key, signing_public_key, client_nonce) do
-      if Accounts.user_has_any_device_records?(user_id) do
-        create_pending_device(
+      if session.is_recovery or Devices.user_has_any_device_records?(user_id) do
+        create_device_registration(
           conn,
           params,
           user_id,
@@ -151,7 +155,7 @@ defmodule RefMDWeb.DeviceController do
       conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid_base64_encoding"})
   end
 
-  defp create_pending_device(
+  defp create_device_registration(
          conn,
          params,
          user_id,
@@ -162,7 +166,7 @@ defmodule RefMDWeb.DeviceController do
     ua = get_req_header(conn, "user-agent") |> List.first() || ""
     session = conn.assigns.current_session
 
-    case Accounts.replace_user_pending_device(user_id, session.id, %{
+    case Devices.replace_user_device_registration(user_id, session.id, %{
            user_id: user_id,
            name: params["name"] || device_name_from_ua(ua),
            device_type: params["device_type"] || device_type_from_ua(ua),
@@ -171,16 +175,16 @@ defmodule RefMDWeb.DeviceController do
            client_nonce: client_nonce,
            ip_address: to_string(:inet_parse.ntoa(conn.remote_ip))
          }) do
-      {:ok, %{removed_ids: removed_ids, pending: pending}} ->
+      {:ok, %{removed_ids: removed_ids, pending: device_registration}} ->
         for removed_id <- removed_ids do
-          DeviceEventsController.broadcast_pending_device_removed(user_id, removed_id)
+          DeviceEventsController.broadcast_device_registration_removed(user_id, removed_id)
         end
 
-        DeviceEventsController.broadcast_pending_device_created(user_id, pending)
+        DeviceEventsController.broadcast_device_registration_created(user_id, device_registration)
 
         conn
         |> put_status(:created)
-        |> json(%{device_id: pending.id, status: "pending"})
+        |> json(%{device_id: device_registration.id, status: "pending"})
 
       {:error, _step, changeset, _} ->
         conn
@@ -189,21 +193,21 @@ defmodule RefMDWeb.DeviceController do
     end
   end
 
-  operation(:list_pending,
-    summary: "List pending devices for current user",
+  operation(:list_registrations,
+    summary: "List device registrations for current user",
     responses: [
-      ok: {"Pending devices", "application/json", Schemas.PendingDevicesResponse}
+      ok: {"Device registrations", "application/json", Schemas.DeviceRegistrationsResponse}
     ]
   )
 
-  @spec list_pending(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def list_pending(conn, _params) do
+  @spec list_registrations(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def list_registrations(conn, _params) do
     user_id = conn.assigns.current_user_id
-    pending_devices = Accounts.get_user_pending_devices(user_id)
+    device_registrations = Devices.get_user_device_registrations(user_id)
 
     json(conn, %{
       devices:
-        Enum.map(pending_devices, fn pd ->
+        Enum.map(device_registrations, fn pd ->
           %{
             id: pd.id,
             name: pd.name,
@@ -219,8 +223,8 @@ defmodule RefMDWeb.DeviceController do
     })
   end
 
-  operation(:reject_pending,
-    summary: "Reject (delete) a pending device",
+  operation(:reject_registration,
+    summary: "Reject (delete) a device registration",
     parameters: [
       id: [in: :path, type: :string, required: true]
     ],
@@ -230,15 +234,15 @@ defmodule RefMDWeb.DeviceController do
     ]
   )
 
-  @spec reject_pending(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def reject_pending(conn, %{"id" => id}) do
+  @spec reject_registration(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def reject_registration(conn, %{"id" => id}) do
     user_id = conn.assigns.current_user_id
 
-    case Accounts.get_valid_pending_device(id) do
+    case Devices.get_valid_device_registration(id) do
       %{user_id: ^user_id} ->
-        Accounts.delete_pending_device(id)
-        DeviceEventsController.broadcast_pending_device_removed(user_id, id)
-        DeviceEventsController.broadcast_pending_rejected(user_id, id)
+        Devices.delete_device_registration(id)
+        DeviceEventsController.broadcast_device_registration_removed(user_id, id)
+        DeviceEventsController.broadcast_registration_rejected(user_id, id)
         json(conn, %{ok: true})
 
       _ ->
@@ -246,22 +250,22 @@ defmodule RefMDWeb.DeviceController do
     end
   end
 
-  operation(:get_pending_status,
-    summary: "Get pending device status (polling fallback for SSE)",
+  operation(:get_registration_sas,
+    summary: "Get device registration status (polling fallback for SSE)",
     parameters: [
       id: [in: :path, type: :string, required: true]
     ],
     responses: [
-      ok: {"Status", "application/json", Schemas.PendingDeviceStatusResponse},
+      ok: {"Status", "application/json", Schemas.DeviceRegistrationStatusResponse},
       not_found: {"Not found", "application/json", Schemas.ErrorResponse}
     ]
   )
 
-  @spec get_pending_status(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def get_pending_status(conn, %{"id" => id}) do
+  @spec get_registration_sas(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def get_registration_sas(conn, %{"id" => id}) do
     user_id = conn.assigns.current_user_id
 
-    case Accounts.get_pending_device_status(user_id, id) do
+    case Devices.get_device_registration_status(user_id, id) do
       {:ok, status} -> json(conn, %{status: status})
       {:error, :not_found} -> conn |> put_status(:not_found) |> json(%{error: "not_found"})
     end
@@ -285,12 +289,12 @@ defmodule RefMDWeb.DeviceController do
   def approve(conn, %{"id" => id} = params) do
     user_id = conn.assigns.current_user_id
 
-    case Accounts.get_valid_pending_device(id) do
+    case Devices.get_valid_device_registration(id) do
       nil ->
         conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
-      %{user_id: ^user_id} = pending ->
-        approve_owned_pending_device(conn, pending, id, params)
+      %{user_id: ^user_id} = device_registration ->
+        approve_owned_device_registration(conn, device_registration, id, params)
 
       _ ->
         conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
@@ -310,7 +314,7 @@ defmodule RefMDWeb.DeviceController do
   @spec list(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def list(conn, _params) do
     user_id = conn.assigns.current_user_id
-    devices = Accounts.get_user_devices(user_id)
+    devices = Devices.get_user_devices(user_id)
 
     json(conn, %{
       devices:
@@ -357,7 +361,7 @@ defmodule RefMDWeb.DeviceController do
       device_id == pop_device_id ->
         conn |> put_status(:forbidden) |> json(%{error: "cannot_revoke_current_device"})
 
-      not Accounts.user_owns_active_device?(user_id, device_id) ->
+      not Devices.user_owns_active_device?(user_id, device_id) ->
         conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
       not is_integer(params["revoked_at"]) ->
@@ -368,7 +372,7 @@ defmodule RefMDWeb.DeviceController do
         revoked_at_ms = params["revoked_at"]
 
         with true <-
-               Accounts.verify_revocation_signature(
+               Devices.verify_revocation_signature(
                  user_id,
                  device_id,
                  revocation_mode,
@@ -377,7 +381,7 @@ defmodule RefMDWeb.DeviceController do
                  identity_signature
                ),
              {:ok, result} <-
-               Accounts.revoke_device(
+               Devices.revoke_device(
                  user_id,
                  device_id,
                  pop_device_id,
@@ -424,7 +428,7 @@ defmodule RefMDWeb.DeviceController do
     user_id = conn.assigns.current_user_id
     name = params["name"]
 
-    case Accounts.rename_device(user_id, device_id, name) do
+    case Devices.rename_device(user_id, device_id, name) do
       {:ok, _device} ->
         json(conn, %{ok: true})
 
@@ -455,13 +459,13 @@ defmodule RefMDWeb.DeviceController do
       byte_size(ecdh_public_key) != 32 ->
         {:error, :invalid_ecdh_public_key_size}
 
-      not CryptoValidation.valid_x25519_public_key?(ecdh_public_key) ->
+      not Crypto.valid_x25519_public_key?(ecdh_public_key) ->
         {:error, :invalid_ecdh_public_key}
 
       byte_size(signing_public_key) != 32 ->
         {:error, :invalid_signing_public_key_size}
 
-      not CryptoValidation.valid_ed25519_public_key?(signing_public_key) ->
+      not Crypto.valid_ed25519_public_key?(signing_public_key) ->
         {:error, :invalid_signing_public_key}
 
       byte_size(client_nonce) != 16 ->
@@ -476,14 +480,14 @@ defmodule RefMDWeb.DeviceController do
     {:unprocessable_entity, Atom.to_string(error)}
   end
 
-  defp approve_owned_pending_device(conn, pending, id, params) do
+  defp approve_owned_device_registration(conn, device_registration, id, params) do
     identity_signature = decode_binary!(params["identity_signature"])
     session = conn.assigns.current_session
 
-    if session.is_recovery and session.pending_device_id != id do
+    if session.is_recovery and session.device_registration_id != id do
       conn |> put_status(:forbidden) |> json(%{error: "recovery_self_approval_only"})
     else
-      case Accounts.approve_pending_device(pending, identity_signature,
+      case Devices.approve_device_registration(device_registration, identity_signature,
              is_recovery: session.is_recovery
            ) do
         {:ok, device} ->

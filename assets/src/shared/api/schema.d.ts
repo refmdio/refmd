@@ -56,6 +56,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/registrations/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a pending device */
+        post: operations["RefMDWeb.DeviceController.approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/workspaces/{workspace_id}/member-envelopes": {
         parameters: {
             query?: never;
@@ -141,6 +158,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/registrations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Reject (delete) a device registration */
+        delete: operations["RefMDWeb.DeviceController.reject_registration"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/workspaces/{workspace_id}/member-keys": {
         parameters: {
             query?: never;
@@ -175,41 +209,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/devices/pending/{id}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Approve a pending device */
-        post: operations["RefMDWeb.DeviceController.approve"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/pending": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List pending devices for current user */
-        get: operations["RefMDWeb.DeviceController.list_pending"];
-        put?: never;
-        /** Create a pending device (2nd+ devices only) */
-        post: operations["RefMDWeb.DeviceController.create_pending"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/auth/register": {
         parameters: {
             query?: never;
@@ -222,23 +221,6 @@ export interface paths {
         /** Register a new user */
         post: operations["RefMDWeb.AuthController.register"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/pending/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Reject (delete) a pending device */
-        delete: operations["RefMDWeb.DeviceController.reject_pending"];
         options?: never;
         head?: never;
         patch?: never;
@@ -273,23 +255,6 @@ export interface paths {
         put?: never;
         /** Verify auth key without creating a session */
         post: operations["RefMDWeb.AuthController.verify_key"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/pending/{id}/sas": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get pending device status (polling fallback for SSE) */
-        get: operations["RefMDWeb.DeviceController.get_pending_status"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -342,6 +307,24 @@ export interface paths {
         put?: never;
         /** Mark encryption setup as complete */
         post: operations["RefMDWeb.EncryptionController.setup_complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List device registrations for current user */
+        get: operations["RefMDWeb.DeviceController.list_registrations"];
+        put?: never;
+        /** Create a device registration (2nd+ devices only) */
+        post: operations["RefMDWeb.DeviceController.create_registration"];
         delete?: never;
         options?: never;
         head?: never;
@@ -408,6 +391,23 @@ export interface paths {
         };
         /** List active devices for current user */
         get: operations["RefMDWeb.DeviceController.list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/registrations/{id}/sas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get device registration status (polling fallback for SSE) */
+        get: operations["RefMDWeb.DeviceController.get_registration_sas"];
         put?: never;
         post?: never;
         delete?: never;
@@ -609,21 +609,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** PendingDeviceInfo */
-        PendingDeviceInfo: {
-            client_nonce: string;
-            /** Format: date-time */
-            created_at: string;
-            device_type: string;
-            ecdh_public_key: string;
-            /** Format: date-time */
-            expires_at: string;
-            /** Format: uuid */
-            id: string;
-            ip_address?: string | null;
-            name: string;
-            signing_public_key: string;
-        };
         /** DeviceInfo */
         DeviceInfo: {
             device_type: string;
@@ -654,6 +639,11 @@ export interface components {
              * @description Client-generated UUID for AAD binding
              */
             user_id: string;
+        };
+        /** DeviceRegistrationStatusResponse */
+        DeviceRegistrationStatusResponse: {
+            /** @enum {string} */
+            status: "pending" | "approved" | "expired";
         };
         /** CreateWorkspaceKeyRequest */
         CreateWorkspaceKeyRequest: {
@@ -715,6 +705,15 @@ export interface components {
             sender_signing_public_key?: string;
             signature: string;
         };
+        /** CreateDeviceRegistrationRequest */
+        CreateDeviceRegistrationRequest: {
+            client_nonce: string;
+            device_ecdh_public_key: string;
+            device_signing_public_key: string;
+            device_type?: string;
+            identity_signing_public_key: string;
+            name?: string;
+        };
         /** LoginRequest */
         LoginRequest: {
             auth_key: string;
@@ -760,6 +759,10 @@ export interface components {
             /** Format: uuid */
             target_device_id: string;
             transfer_nonce: string;
+        };
+        /** DeviceRegistrationsResponse */
+        DeviceRegistrationsResponse: {
+            devices: components["schemas"]["DeviceRegistrationInfo"][];
         };
         /** WorkspaceMemberKeysResponse */
         WorkspaceMemberKeysResponse: {
@@ -910,9 +913,20 @@ export interface components {
             umk_nonce?: string;
             user: components["schemas"]["UserInfo"];
         };
-        /** PendingDevicesResponse */
-        PendingDevicesResponse: {
-            devices: components["schemas"]["PendingDeviceInfo"][];
+        /** DeviceRegistrationInfo */
+        DeviceRegistrationInfo: {
+            client_nonce: string;
+            /** Format: date-time */
+            created_at: string;
+            device_type: string;
+            ecdh_public_key: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            ip_address?: string | null;
+            name: string;
+            signing_public_key: string;
         };
         /** GetUmkResponse */
         GetUmkResponse: {
@@ -961,30 +975,10 @@ export interface components {
             };
             error: string;
         };
-        /** PendingDeviceStatusResponse */
-        PendingDeviceStatusResponse: {
-            /** @enum {string} */
-            status: "pending" | "approved" | "expired";
-        };
         /** WorkspaceKeysResponse */
         WorkspaceKeysResponse: {
             current_kek_version: number;
             keys: components["schemas"]["WorkspaceKeyItem"][];
-        };
-        /** CreatePendingDeviceRequest */
-        CreatePendingDeviceRequest: {
-            client_nonce: string;
-            device_ecdh_public_key: string;
-            device_signing_public_key: string;
-            device_type?: string;
-            identity_signing_public_key: string;
-            name?: string;
-        };
-        /** CreatePendingDeviceResponse */
-        CreatePendingDeviceResponse: {
-            /** Format: uuid */
-            device_id: string;
-            status: string;
         };
         /** TrustTransferNonceResponse */
         TrustTransferNonceResponse: {
@@ -1054,6 +1048,12 @@ export interface components {
         RecoveryChallengeRequest: {
             /** Format: email */
             email: string;
+        };
+        /** CreateDeviceRegistrationResponse */
+        CreateDeviceRegistrationResponse: {
+            /** Format: uuid */
+            device_id: string;
+            status: string;
         };
     };
     responses: never;
@@ -1200,6 +1200,60 @@ export interface operations {
                 };
             };
             /** @description Update failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Approval params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApproveDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved device */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApproveDeviceResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Approval failed */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -1368,6 +1422,37 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.DeviceController.reject_registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rejection result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.EncryptionController.get_workspace_member_keys": {
         parameters: {
             query?: never;
@@ -1428,123 +1513,6 @@ export interface operations {
             };
         };
     };
-    "RefMDWeb.DeviceController.approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Approval params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ApproveDeviceRequest"];
-            };
-        };
-        responses: {
-            /** @description Approved device */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApproveDeviceResponse"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Approval failed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.list_pending": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Pending devices */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PendingDevicesResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.create_pending": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Device params */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["CreatePendingDeviceRequest"];
-            };
-        };
-        responses: {
-            /** @description Pending device */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CreatePendingDeviceResponse"];
-                };
-            };
-            /** @description Re-authentication required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     "RefMDWeb.AuthController.register": {
         parameters: {
             query?: never;
@@ -1570,37 +1538,6 @@ export interface operations {
             };
             /** @description Validation error */
             422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.reject_pending": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Rejection result */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OkResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1643,6 +1580,15 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1713,37 +1659,6 @@ export interface operations {
             };
             /** @description Invalid credentials */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.DeviceController.get_pending_status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PendingDeviceStatusResponse"];
-                };
-            };
-            /** @description Not found */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1887,6 +1802,69 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.DeviceController.list_registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Device registrations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceRegistrationsResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.DeviceController.create_registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Device params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateDeviceRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Device registration */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateDeviceRegistrationResponse"];
+                };
+            };
+            /** @description Re-authentication required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.recovery_session": {
         parameters: {
             query?: never;
@@ -2024,6 +2002,37 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.DeviceController.get_registration_sas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceRegistrationStatusResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.EncryptionController.complete_kek_rotation": {
         parameters: {
             query?: never;
@@ -2111,7 +2120,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CreatePendingDeviceResponse"];
+                    "application/json": components["schemas"]["CreateDeviceRegistrationResponse"];
                 };
             };
             /** @description Already has devices */

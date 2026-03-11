@@ -8,7 +8,7 @@ defmodule RefMD.Documents.Document do
   schema "documents" do
     belongs_to :workspace, RefMD.Workspaces.Workspace
     belongs_to :parent, RefMD.Documents.Document
-    belongs_to :created_by_user, RefMD.Accounts.User, foreign_key: :created_by
+    belongs_to :created_by_user, RefMD.Users.User, foreign_key: :created_by
     belongs_to :active_snapshot, RefMD.Documents.DocumentSnapshot
 
     field :position, :integer, default: 0

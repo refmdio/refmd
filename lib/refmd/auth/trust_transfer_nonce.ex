@@ -1,4 +1,4 @@
-defmodule RefMD.Accounts.TrustTransferNonce do
+defmodule RefMD.Auth.TrustTransferNonce do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -6,7 +6,7 @@ defmodule RefMD.Accounts.TrustTransferNonce do
   @foreign_key_type :binary_id
 
   schema "trust_transfer_nonces" do
-    belongs_to :user, RefMD.Accounts.User
+    belongs_to :user, RefMD.Users.User
     field :device_id, :binary_id
     field :nonce, :binary
     field :expires_at, :utc_datetime_usec

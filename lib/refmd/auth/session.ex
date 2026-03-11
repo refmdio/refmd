@@ -1,4 +1,4 @@
-defmodule RefMD.Accounts.Session do
+defmodule RefMD.Auth.Session do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -6,12 +6,12 @@ defmodule RefMD.Accounts.Session do
   @foreign_key_type :binary_id
 
   schema "sessions" do
-    belongs_to :user, RefMD.Accounts.User
-    belongs_to :device, RefMD.Accounts.Device
+    belongs_to :user, RefMD.Users.User
+    belongs_to :device, RefMD.Devices.Device
     field :token_hash, :string
     field :remember_me, :boolean
     field :is_recovery, :boolean, default: false
-    field :pending_device_id, :binary_id
+    belongs_to :device_registration, RefMD.Devices.DeviceRegistration
     field :ip_address, :string
     field :user_agent, :string
     field :expires_at, :utc_datetime_usec
@@ -31,7 +31,7 @@ defmodule RefMD.Accounts.Session do
       :token_hash,
       :remember_me,
       :is_recovery,
-      :pending_device_id,
+      :device_registration_id,
       :ip_address,
       :user_agent,
       :expires_at,

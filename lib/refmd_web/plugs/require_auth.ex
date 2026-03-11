@@ -4,7 +4,8 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   """
 
   import Plug.Conn
-  alias RefMD.Accounts
+  alias RefMD.Auth
+  alias RefMD.Devices
 
   @spec init(keyword()) :: keyword()
   def init(opts), do: opts
@@ -12,8 +13,8 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
     with token when is_binary(token) <- get_session_token(conn),
-         {:ok, session} <- Accounts.get_valid_session_by_token_base64(token) do
-      Accounts.touch_session(session.id)
+         {:ok, session} <- Auth.get_valid_session_by_token_base64(token) do
+      Auth.touch_session(session.id)
 
       device_verified = device_verified?(session)
 
@@ -52,7 +53,7 @@ defmodule RefMDWeb.Plugs.RequireAuth do
   defp device_verified?(%{device_id: nil}), do: false
 
   defp device_verified?(%{device_id: device_id, user_id: user_id}) do
-    case Accounts.get_device(device_id) do
+    case Devices.get_device(device_id) do
       %{user_id: ^user_id, revoked_at: nil} -> true
       _ -> false
     end

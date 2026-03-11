@@ -7,7 +7,6 @@ defmodule RefMD.Repo.Migrations.CreateAccounts do
       add :email, :text, null: false
       add :name, :text, null: false
       add :encryption_setup_at, :utc_datetime_usec
-      add :password_reset_requested_at, :utc_datetime_usec
 
       timestamps(type: :utc_datetime_usec, inserted_at: :created_at)
     end
@@ -25,6 +24,30 @@ defmodule RefMD.Repo.Migrations.CreateAccounts do
 
       add :updated_at, :utc_datetime_usec, null: false
     end
+
+    create table(:user_external_accounts, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
+      add :provider, :text, null: false
+      add :provider_user_id, :text, null: false
+      add :email, :text
+
+      add :created_at, :utc_datetime_usec, null: false
+    end
+
+    create unique_index(:user_external_accounts, [:provider, :provider_user_id])
+    create index(:user_external_accounts, [:user_id])
+
+    create table(:user_shortcuts, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
+      add :action, :text, null: false
+      add :keys, :text, null: false
+
+      add :created_at, :utc_datetime_usec, null: false
+    end
+
+    create unique_index(:user_shortcuts, [:user_id, :action])
 
     create table(:devices, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -62,7 +85,7 @@ defmodule RefMD.Repo.Migrations.CreateAccounts do
     create index(:sessions, [:user_id])
     create unique_index(:sessions, [:token_hash])
 
-    create table(:pending_devices, primary_key: false) do
+    create table(:device_registrations, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
       add :name, :text, null: false
@@ -75,6 +98,6 @@ defmodule RefMD.Repo.Migrations.CreateAccounts do
       add :expires_at, :utc_datetime_usec, null: false
     end
 
-    create index(:pending_devices, [:user_id])
+    create index(:device_registrations, [:user_id])
   end
 end

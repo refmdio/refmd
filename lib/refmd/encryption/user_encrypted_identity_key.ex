@@ -6,7 +6,7 @@ defmodule RefMD.Encryption.UserEncryptedIdentityKey do
   @foreign_key_type :binary_id
 
   schema "user_encrypted_identity_keys" do
-    belongs_to :user, RefMD.Accounts.User, primary_key: true
+    belongs_to :user, RefMD.Users.User, primary_key: true
     field :encrypted_ecdh_private, :binary
     field :encrypted_ecdh_private_nonce, :binary
     field :encrypted_signing_private, :binary

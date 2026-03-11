@@ -53,7 +53,7 @@ defmodule RefMDWeb.Router do
     pipe_through [:sse, :authenticated]
 
     get "/devices/events", DeviceEventsController, :existing_device_events
-    get "/devices/pending/:device_id/events", DeviceEventsController, :pending_device_events
+    get "/devices/registrations/:device_id/events", DeviceEventsController, :pending_device_events
   end
 
   # Session-only endpoints (no PoP required, Origin-verified for CSRF defense)
@@ -69,12 +69,12 @@ defmodule RefMDWeb.Router do
     get "/auth/recovery", AuthController, :get_recovery
     post "/auth/password-set", AuthController, :password_set
 
-    # Device (bootstrap, pending registration, listing, status polling)
+    # Device (bootstrap, registration, listing, status polling)
     post "/devices/bootstrap", DeviceController, :bootstrap
-    post "/devices/pending", DeviceController, :create_pending
-    get "/devices/pending", DeviceController, :list_pending
-    get "/devices/pending/:id/sas", DeviceController, :get_pending_status
-    delete "/devices/pending/:id", DeviceController, :reject_pending
+    post "/devices/registrations", DeviceController, :create_registration
+    get "/devices/registrations", DeviceController, :list_registrations
+    get "/devices/registrations/:id/sas", DeviceController, :get_registration_sas
+    delete "/devices/registrations/:id", DeviceController, :reject_registration
 
     # Trust transfer (session-only: nonce request, state retrieval)
     post "/trust-transfer/nonce", TrustTransferController, :create_nonce
@@ -88,7 +88,7 @@ defmodule RefMDWeb.Router do
   scope "/api", RefMDWeb do
     pipe_through [:api, :require_recovery_or_pop, :verify_origin]
 
-    post "/devices/pending/:id/approve", DeviceController, :approve
+    post "/devices/registrations/:id/approve", DeviceController, :approve
   end
 
   # PoP-required endpoints

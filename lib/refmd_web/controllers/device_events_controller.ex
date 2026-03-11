@@ -2,7 +2,7 @@ defmodule RefMDWeb.DeviceEventsController do
   use RefMDWeb, :controller
 
   alias Phoenix.PubSub
-  alias RefMD.Accounts
+  alias RefMD.Devices
 
   @heartbeat_interval 30_000
 
@@ -29,8 +29,8 @@ defmodule RefMDWeb.DeviceEventsController do
 
     # Verify the pending device belongs to this user, or was recently approved
     authorized =
-      Accounts.user_owns_pending_device?(user_id, device_id) or
-        Accounts.user_owns_active_device?(user_id, device_id)
+      Devices.user_owns_device_registration?(user_id, device_id) or
+        Devices.user_owns_active_device?(user_id, device_id)
 
     if authorized do
       conn =
@@ -103,22 +103,22 @@ defmodule RefMDWeb.DeviceEventsController do
   end
 
   defp schedule_pending_expiry(user_id, device_id) do
-    case Accounts.get_valid_pending_device(device_id) do
+    case Devices.get_valid_device_registration(device_id) do
       %{expires_at: expires_at} ->
         ms = max(DateTime.diff(expires_at, DateTime.utc_now(), :millisecond), 0)
         Process.send_after(self(), {:pending_expired, device_id}, ms)
 
       nil ->
-        resolve_missing_pending_device(user_id, device_id)
+        resolve_missing_device_registration(user_id, device_id)
     end
   end
 
-  defp resolve_missing_pending_device(user_id, device_id) do
+  defp resolve_missing_device_registration(user_id, device_id) do
     cond do
-      RefMD.Encryption.get_device_encrypted_umk(user_id, device_id) != nil ->
+      Devices.get_device_encrypted_umk(user_id, device_id) != nil ->
         Process.send_after(self(), {:pending_approved_late, device_id}, 0)
 
-      Accounts.device_exists?(device_id) ->
+      Devices.get_device(device_id) != nil ->
         nil
 
       true ->
@@ -128,22 +128,22 @@ defmodule RefMDWeb.DeviceEventsController do
 
   # Broadcasting helpers called from other controllers
 
-  @spec broadcast_pending_device_created(Ecto.UUID.t(), RefMD.Accounts.PendingDevice.t()) ::
+  @spec broadcast_device_registration_created(Ecto.UUID.t(), RefMD.Devices.DeviceRegistration.t()) ::
           :ok | {:error, term()}
-  def broadcast_pending_device_created(user_id, pending_device) do
+  def broadcast_device_registration_created(user_id, device_registration) do
     PubSub.broadcast(RefMD.PubSub, "device_events:user:#{user_id}", {
       :sse_event,
       "pending_device_created",
       %{
-        device_id: pending_device.id,
-        name: pending_device.name,
-        device_type: pending_device.device_type
+        device_id: device_registration.id,
+        name: device_registration.name,
+        device_type: device_registration.device_type
       }
     })
   end
 
-  @spec broadcast_pending_approved(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
-  def broadcast_pending_approved(user_id, device_id) do
+  @spec broadcast_registration_approved(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
+  def broadcast_registration_approved(user_id, device_id) do
     PubSub.broadcast(RefMD.PubSub, "device_events:pending:#{user_id}:#{device_id}", {
       :sse_event,
       "pending_approved",
@@ -151,9 +151,9 @@ defmodule RefMDWeb.DeviceEventsController do
     })
   end
 
-  @spec broadcast_pending_device_removed(Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec broadcast_device_registration_removed(Ecto.UUID.t(), Ecto.UUID.t()) ::
           :ok | {:error, term()}
-  def broadcast_pending_device_removed(user_id, device_id) do
+  def broadcast_device_registration_removed(user_id, device_id) do
     PubSub.broadcast(RefMD.PubSub, "device_events:user:#{user_id}", {
       :sse_event,
       "pending_device_removed",
@@ -161,9 +161,9 @@ defmodule RefMDWeb.DeviceEventsController do
     })
   end
 
-  @spec broadcast_pending_rejected(Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec broadcast_registration_rejected(Ecto.UUID.t(), Ecto.UUID.t()) ::
           :ok | {:error, term()}
-  def broadcast_pending_rejected(user_id, device_id) do
+  def broadcast_registration_rejected(user_id, device_id) do
     PubSub.broadcast(
       RefMD.PubSub,
       "device_events:pending:#{user_id}:#{device_id}",
