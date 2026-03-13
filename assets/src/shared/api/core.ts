@@ -8,10 +8,15 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
   const path = new URL(url, "http://localhost").pathname;
 
   // Auth: session-only subset (excludes PATCH /auth/password, PUT /auth/recovery-key)
-  if (path === "/api/auth/me" || path === "/api/auth/logout"
-    || path === "/api/auth/verify-key" || path === "/api/auth/pop-challenge"
-    || path === "/api/auth/kdf-migration" || path === "/api/auth/recovery"
-    || path === "/api/auth/password-set") {
+  if (
+    path === "/api/auth/me" ||
+    path === "/api/auth/logout" ||
+    path === "/api/auth/verify-key" ||
+    path === "/api/auth/pop-challenge" ||
+    path === "/api/auth/kdf-migration" ||
+    path === "/api/auth/recovery" ||
+    path === "/api/auth/password-set"
+  ) {
     return true;
   }
 
@@ -64,8 +69,7 @@ client.use({
     const override = popDeviceOverride;
     const state = deviceState();
     const deviceId = override?.deviceId ?? state?.deviceId;
-    const signingPrivate =
-      override?.deviceSigningPrivate ?? state?.deviceSigningPrivate;
+    const signingPrivate = override?.deviceSigningPrivate ?? state?.deviceSigningPrivate;
 
     if (!deviceId || !signingPrivate) {
       return undefined;

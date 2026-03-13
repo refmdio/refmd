@@ -1,8 +1,8 @@
-import { type JSX, splitProps } from "solid-js"
-import { cva, type VariantProps } from "class-variance-authority"
+import { type JSX, splitProps } from "solid-js";
+import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@/shared/lib/utils"
-import { toneVarDefaults, toneVarOverrides } from "@/shared/lib/tone"
+import { cn } from "@/shared/lib/utils";
+import { toneVarDefaults, toneVarOverrides } from "@/shared/lib/tone";
 
 const alertVariants = cva(
   [
@@ -25,15 +25,14 @@ const alertVariants = cva(
     defaultVariants: {
       variant: "default",
     },
-  }
-)
+  },
+);
 
-type AlertProps = JSX.HTMLAttributes<HTMLDivElement> &
-  VariantProps<typeof alertVariants>
+type AlertProps = JSX.HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>;
 
 function Alert(props: AlertProps) {
-  const [local, rest] = splitProps(props, ["class", "variant"])
-  const tone = () => local.variant ?? "default"
+  const [local, rest] = splitProps(props, ["class", "variant"]);
+  const tone = () => local.variant ?? "default";
 
   return (
     <div
@@ -43,49 +42,49 @@ function Alert(props: AlertProps) {
       class={cn(alertVariants({ variant: tone() }), local.class)}
       {...rest}
     />
-  )
+  );
 }
 
 function AlertTitle(props: JSX.HTMLAttributes<HTMLDivElement>) {
-  const [local, rest] = splitProps(props, ["class"])
+  const [local, rest] = splitProps(props, ["class"]);
   return (
     <div
       data-slot="alert-title"
       class={cn(
         "col-start-2 font-mono text-[10px] uppercase tracking-[0.32em] text-[color:var(--tone-title)]",
-        local.class
+        local.class,
       )}
       {...rest}
     />
-  )
+  );
 }
 
 function AlertDescription(props: JSX.HTMLAttributes<HTMLDivElement>) {
-  const [local, rest] = splitProps(props, ["class"])
+  const [local, rest] = splitProps(props, ["class"]);
   return (
     <div
       data-slot="alert-description"
       class={cn(
         "col-start-2 grid justify-items-start gap-2 text-left text-sm text-[color:var(--tone-description)] [&_p]:leading-relaxed",
-        local.class
+        local.class,
       )}
       {...rest}
     />
-  )
+  );
 }
 
 function AlertActions(props: JSX.HTMLAttributes<HTMLDivElement>) {
-  const [local, rest] = splitProps(props, ["class"])
+  const [local, rest] = splitProps(props, ["class"]);
   return (
     <div
       data-slot="alert-actions"
       class={cn(
         "col-start-2 flex flex-wrap items-center gap-2 pt-1 text-[10px] font-mono uppercase tracking-[0.32em] text-[color:var(--tone-title)]",
-        local.class
+        local.class,
       )}
       {...rest}
     />
-  )
+  );
 }
 
-export { Alert, AlertActions, AlertDescription, AlertTitle, alertVariants }
+export { Alert, AlertActions, AlertDescription, AlertTitle, alertVariants };

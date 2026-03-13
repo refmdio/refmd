@@ -20,11 +20,7 @@ import {
   persistSessionPdk,
   hasPdkData,
 } from "./key-persistence";
-import {
-  storePdkWrappedUmk,
-  storePdkWrappedDeviceKeys,
-} from "@/shared/lib/crypto/pdk";
-
+import { storePdkWrappedUmk, storePdkWrappedDeviceKeys } from "@/shared/lib/crypto/pdk";
 
 export type LoginResult =
   | {
@@ -161,9 +157,8 @@ export async function login(
   // Step 10: TOFU verification for all devices (pass explicit device keys for PoP since device state isn't set yet)
   let tofuWarnings: string[] = [];
   try {
-    const { devices } = await withPopDevice(
-      { deviceId: deviceId!, deviceSigningPrivate },
-      () => devicesApi.list(),
+    const { devices } = await withPopDevice({ deviceId: deviceId!, deviceSigningPrivate }, () =>
+      devicesApi.list(),
     );
     tofuWarnings = await verifyAllDeviceTofu(userId, devices, identityKeys.signingPublic ?? null);
   } catch (e) {
@@ -204,12 +199,7 @@ async function handleKdfMigration(
 
   if (encryptedUmk && umkNonce) {
     // Decrypt UMK with old PUK, re-encrypt with new PUK
-    const umk = unwrapUmk(
-      base64UrlDecode(encryptedUmk),
-      base64UrlDecode(umkNonce),
-      oldPuk,
-      userId,
-    );
+    const umk = unwrapUmk(base64UrlDecode(encryptedUmk), base64UrlDecode(umkNonce), oldPuk, userId);
 
     const newWrapped = wrapUmk(umk, newDerived.puk, userId);
 

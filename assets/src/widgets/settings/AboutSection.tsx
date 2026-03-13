@@ -3,9 +3,7 @@ export function AboutSection() {
     <div class="p-6 space-y-6">
       <div>
         <h3 class="text-lg font-semibold mb-1">RefMD</h3>
-        <p class="text-sm text-muted-foreground">
-          End-to-end encrypted markdown editor for teams.
-        </p>
+        <p class="text-sm text-muted-foreground">End-to-end encrypted markdown editor for teams.</p>
       </div>
 
       <div class="space-y-4">
@@ -35,9 +33,9 @@ export function AboutSection() {
       <div class="pt-4 border-t border-border/60">
         <h4 class="text-sm font-medium mb-2">Security</h4>
         <p class="text-sm text-muted-foreground leading-relaxed">
-          RefMD uses end-to-end encryption to protect your documents. Your data
-          is encrypted on your device before being sent to the server, and only
-          you and your team members have the keys to decrypt it.
+          RefMD uses end-to-end encryption to protect your documents. Your data is encrypted on your
+          device before being sent to the server, and only you and your team members have the keys
+          to decrypt it.
         </p>
       </div>
     </div>

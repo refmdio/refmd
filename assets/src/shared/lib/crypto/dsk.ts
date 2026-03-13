@@ -57,11 +57,10 @@ interface WrappedBlob {
 }
 
 export async function generateDsk(): Promise<CryptoKey> {
-  const dsk = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
+  const dsk = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
+    "encrypt",
+    "decrypt",
+  ]);
   const db = await openDB();
   await idbPut(db, DSK_KEY, dsk);
   db.close();
@@ -79,7 +78,11 @@ export async function loadDsk(): Promise<CryptoKey | null> {
   }
 }
 
-async function wrapWithDsk(dsk: CryptoKey, plaintext: Uint8Array, aad: Uint8Array): Promise<WrappedBlob> {
+async function wrapWithDsk(
+  dsk: CryptoKey,
+  plaintext: Uint8Array,
+  aad: Uint8Array,
+): Promise<WrappedBlob> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const aadBuffer = new Uint8Array(aad).buffer;
   const ciphertext = await crypto.subtle.encrypt(
@@ -90,7 +93,11 @@ async function wrapWithDsk(dsk: CryptoKey, plaintext: Uint8Array, aad: Uint8Arra
   return { ciphertext, iv: iv.buffer };
 }
 
-async function unwrapWithDsk(dsk: CryptoKey, blob: WrappedBlob, aad: Uint8Array): Promise<Uint8Array> {
+async function unwrapWithDsk(
+  dsk: CryptoKey,
+  blob: WrappedBlob,
+  aad: Uint8Array,
+): Promise<Uint8Array> {
   const aadBuffer = new Uint8Array(aad).buffer;
   const plaintext = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: blob.iv, additionalData: aadBuffer },
@@ -100,7 +107,11 @@ async function unwrapWithDsk(dsk: CryptoKey, blob: WrappedBlob, aad: Uint8Array)
   return new Uint8Array(plaintext);
 }
 
-export async function storeWrappedUmk(dsk: CryptoKey, umk: Uint8Array, aad: Uint8Array): Promise<void> {
+export async function storeWrappedUmk(
+  dsk: CryptoKey,
+  umk: Uint8Array,
+  aad: Uint8Array,
+): Promise<void> {
   const wrapped = await wrapWithDsk(dsk, umk, aad);
   const db = await openDB();
   await idbPut(db, WRAPPED_UMK_KEY, wrapped);

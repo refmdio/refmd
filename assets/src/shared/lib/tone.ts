@@ -10,7 +10,7 @@ export const toneVarDefaults = [
   "[--tone-icon-bg:var(--tone-default-icon-bg)]",
   "[--tone-icon-fg:var(--tone-default-icon-fg)]",
   "bg-[color:var(--tone-bg)]",
-].join(" ")
+].join(" ");
 
 export const toneVarOverrides = {
   default: "",
@@ -62,4 +62,4 @@ export const toneVarOverrides = {
     "[--tone-icon-bg:var(--tone-destructive-icon-bg)]",
     "[--tone-icon-fg:var(--tone-destructive-icon-fg)]",
   ].join(" "),
-} as const
+} as const;

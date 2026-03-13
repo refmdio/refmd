@@ -10,9 +10,7 @@ function loadWorkspaceId(): string | null {
   }
 }
 
-const [currentWorkspaceId, _setCurrentWorkspaceId] = createSignal<string | null>(
-  loadWorkspaceId(),
-);
+const [currentWorkspaceId, _setCurrentWorkspaceId] = createSignal<string | null>(loadWorkspaceId());
 
 export function setCurrentWorkspaceId(id: string | null) {
   _setCurrentWorkspaceId(id);

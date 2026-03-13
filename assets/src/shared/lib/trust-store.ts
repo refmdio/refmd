@@ -64,23 +64,13 @@ export async function saveTofuEntry(entry: TofuEntry): Promise<void> {
   await idbPut(db, STORE_NAME, serialize(entry));
 }
 
-export async function getTofuEntry(
-  userId: string,
-  deviceId: string,
-): Promise<TofuEntry | null> {
+export async function getTofuEntry(userId: string, deviceId: string): Promise<TofuEntry | null> {
   const db = await openDb();
-  const result = await idbGet<SerializedTofuEntry>(
-    db,
-    STORE_NAME,
-    compositeKey(userId, deviceId),
-  );
+  const result = await idbGet<SerializedTofuEntry>(db, STORE_NAME, compositeKey(userId, deviceId));
   return result ? deserialize(result) : null;
 }
 
-export async function updateLastSeen(
-  userId: string,
-  deviceId: string,
-): Promise<boolean> {
+export async function updateLastSeen(userId: string, deviceId: string): Promise<boolean> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
@@ -104,9 +94,7 @@ export async function updateLastSeen(
   });
 }
 
-export async function getAllTofuEntriesForUser(
-  userId: string,
-): Promise<TofuEntry[]> {
+export async function getAllTofuEntriesForUser(userId: string): Promise<TofuEntry[]> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");

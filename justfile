@@ -8,7 +8,7 @@ default:
 # Initial project setup
 setup:
     mix setup
-    cd assets && pnpm install
+    cd assets && vp install
 
 clean:
     rm -rf _build deps
@@ -35,7 +35,7 @@ dev:
     mix ecto.migrate --quiet
     @trap 'kill 0' EXIT; \
     mix phx.server & \
-    cd assets && pnpm dev & \
+    cd assets && vp dev & \
     wait
 
 # API only
@@ -45,7 +45,7 @@ dev-api:
 
 # Frontend only
 dev-web:
-    cd assets && pnpm dev
+    cd assets && vp dev
 
 # ── Test & Quality ───────────────────────────────
 
@@ -59,8 +59,8 @@ test-verbose:
 check:
     mix compile --warnings-as-errors
     mix format --check-formatted
-    cd assets && npx tsc -p tsconfig.app.json --noEmit
-    cd assets && npx eslint src/
+    cd assets && vp check
+    cd assets && vp exec tsc -p tsconfig.app.json --noEmit
     mix specs.check
     mix credo --strict
     mix test
@@ -68,7 +68,7 @@ check:
 
 fmt:
     mix format
-    cd assets && pnpm exec prettier --write src/
+    cd assets && vp fmt
 
 fmt-check:
     mix format --check-formatted
@@ -90,12 +90,12 @@ db-reset:
 # ── Frontend ─────────────────────────────────────
 
 web-install:
-    cd assets && pnpm install
+    cd assets && vp install
 
 web-build:
-    cd assets && pnpm build
+    cd assets && vp build
 
 # Generate OpenAPI types (schema.d.ts)
 web-gen:
     mix openapi.gen
-    cd assets && npx openapi-typescript openapi.json -o src/shared/api/schema.d.ts
+    cd assets && vp exec openapi-typescript openapi.json -o src/shared/api/schema.d.ts

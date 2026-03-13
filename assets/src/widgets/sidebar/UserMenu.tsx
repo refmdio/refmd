@@ -50,8 +50,7 @@ export function UserMenu(props: UserMenuProps) {
   const [createIcon, setCreateIcon] = createSignal("");
   const [creating, setCreating] = createSignal(false);
 
-  const currentWorkspace = () =>
-    props.workspaces.find((w) => w.id === props.currentWorkspaceId);
+  const currentWorkspace = () => props.workspaces.find((w) => w.id === props.currentWorkspaceId);
 
   const displayName = () => {
     const ws = currentWorkspace();
@@ -103,9 +102,7 @@ export function UserMenu(props: UserMenuProps) {
                   onSelect={() => props.onSelectWorkspace(ws.id)}
                   class="font-sans text-sm normal-case tracking-normal"
                 >
-                  <span class="flex-1 truncate">
-                    {formatWorkspaceName(ws.name)}
-                  </span>
+                  <span class="flex-1 truncate">{formatWorkspaceName(ws.name)}</span>
                   <Show when={ws.id === props.currentWorkspaceId}>
                     <CheckIcon class="size-4 shrink-0" />
                   </Show>
@@ -178,10 +175,7 @@ export function UserMenu(props: UserMenuProps) {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={creating() || !createName().trim()}
-            >
+            <Button onClick={handleCreate} disabled={creating() || !createName().trim()}>
               {creating() ? "Creating..." : "Create"}
             </Button>
           </DialogFooter>

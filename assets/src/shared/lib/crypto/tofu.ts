@@ -1,9 +1,4 @@
-import {
-  type TofuEntry,
-  getTofuEntry,
-  saveTofuEntry,
-  updateLastSeen,
-} from "../trust-store";
+import { type TofuEntry, getTofuEntry, saveTofuEntry, updateLastSeen } from "../trust-store";
 import { calculateFingerprint, formatFingerprint } from "./fingerprint";
 import { constantTimeEqual, base64UrlDecode } from "./encoding";
 import { verifyDeviceIdentitySignature } from "./device";
@@ -53,14 +48,8 @@ export async function verifyTofu(
     return { status: "first_seen", newEntry };
   }
 
-  const signingKeyMatches = constantTimeEqual(
-    storedEntry.signingPublicKey,
-    signingPublicKey,
-  );
-  const ecdhKeyMatches = constantTimeEqual(
-    storedEntry.ecdhPublicKey,
-    ecdhPublicKey,
-  );
+  const signingKeyMatches = constantTimeEqual(storedEntry.signingPublicKey, signingPublicKey);
+  const ecdhKeyMatches = constantTimeEqual(storedEntry.ecdhPublicKey, ecdhPublicKey);
 
   if (signingKeyMatches && ecdhKeyMatches) {
     return {
@@ -71,9 +60,7 @@ export async function verifyTofu(
   }
 
   if (!signingKeyMatches) {
-    const oldFp = formatFingerprint(
-      calculateFingerprint(storedEntry.signingPublicKey),
-    );
+    const oldFp = formatFingerprint(calculateFingerprint(storedEntry.signingPublicKey));
     const newFp = formatFingerprint(calculateFingerprint(signingPublicKey));
     return {
       status: "identity_key_changed",
@@ -91,16 +78,11 @@ export async function trustDevice(entry: TofuEntry): Promise<void> {
   await saveTofuEntry(entry);
 }
 
-export async function updateDeviceLastSeen(
-  userId: string,
-  deviceId: string,
-): Promise<void> {
+export async function updateDeviceLastSeen(userId: string, deviceId: string): Promise<void> {
   await updateLastSeen(userId, deviceId);
 }
 
-export async function handleTofuResult(
-  result: TofuVerifyResult,
-): Promise<TofuVerifyResult> {
+export async function handleTofuResult(result: TofuVerifyResult): Promise<TofuVerifyResult> {
   switch (result.status) {
     case "first_seen":
       await trustDevice(result.newEntry);
@@ -119,9 +101,10 @@ export class TofuHardFailError extends Error {
   deviceName: string;
   status: "identity_key_changed" | "ecdh_key_mismatch";
   constructor(deviceName: string, status: "identity_key_changed" | "ecdh_key_mismatch") {
-    const msg = status === "identity_key_changed"
-      ? `${deviceName}: Identity key changed`
-      : `${deviceName}: ECDH key mismatch`;
+    const msg =
+      status === "identity_key_changed"
+        ? `${deviceName}: Identity key changed`
+        : `${deviceName}: ECDH key mismatch`;
     super(msg);
     this.name = "TofuHardFailError";
     this.deviceName = deviceName;
@@ -157,7 +140,11 @@ export async function verifyAllDeviceTofu(
       const sig = base64UrlDecode(d.identity_signature);
       const nonce = base64UrlDecode(d.client_nonce);
       const sigValid = verifyDeviceIdentitySignature(
-        signingPk, ecdhPk, nonce, sig, identitySigningPublic,
+        signingPk,
+        ecdhPk,
+        nonce,
+        sig,
+        identitySigningPublic,
       );
       if (!sigValid) {
         warnings.push(`${d.name}: Invalid identity signature`);

@@ -52,7 +52,9 @@ export default function RecoveryPage() {
   const [confirmPassword, setConfirmPassword] = createSignal("");
 
   const [recoveredUmk, setRecoveredUmk] = createSignal<Uint8Array | null>(null);
-  const [recoveredIdentityKeys, setRecoveredIdentityKeys] = createSignal<ReturnType<typeof decryptIdentityPrivateKeys> | null>(null);
+  const [recoveredIdentityKeys, setRecoveredIdentityKeys] = createSignal<ReturnType<
+    typeof decryptIdentityPrivateKeys
+  > | null>(null);
 
   const inputRefs: (HTMLInputElement | undefined)[] = [];
   let fileInputRef: HTMLInputElement | undefined;
@@ -321,7 +323,12 @@ export default function RecoveryPage() {
               </div>
             </Match>
 
-            <Match when={phase() === "password_set" || (phase() === "error" && isPasswordReset() && recoveredUmk() != null)}>
+            <Match
+              when={
+                phase() === "password_set" ||
+                (phase() === "error" && isPasswordReset() && recoveredUmk() != null)
+              }
+            >
               <form onSubmit={handlePasswordSet} class="space-y-4">
                 <Show when={error()}>
                   {(err) => (
@@ -367,7 +374,12 @@ export default function RecoveryPage() {
               </form>
             </Match>
 
-            <Match when={phase() === "input" || (phase() === "error" && !(isPasswordReset() && recoveredUmk()))}>
+            <Match
+              when={
+                phase() === "input" ||
+                (phase() === "error" && !(isPasswordReset() && recoveredUmk()))
+              }
+            >
               <form onSubmit={handleRecover} class="space-y-6">
                 <Show when={error()}>
                   {(err) => (
@@ -391,7 +403,7 @@ export default function RecoveryPage() {
                       Upload File
                     </Button>
                     <input
-                      ref={fileInputRef}
+                      ref={(el) => (fileInputRef = el)}
                       type="file"
                       accept=".txt"
                       onChange={handleFileUpload}
@@ -399,7 +411,8 @@ export default function RecoveryPage() {
                     />
                   </div>
                   <p class="text-xs text-muted-foreground mb-4">
-                    Upload your recovery key file or enter each word manually. You can also paste the full 24-word phrase into the first field.
+                    Upload your recovery key file or enter each word manually. You can also paste
+                    the full 24-word phrase into the first field.
                   </p>
 
                   <div class="grid grid-cols-4 gap-2">
@@ -410,7 +423,9 @@ export default function RecoveryPage() {
                             {index() + 1}.
                           </span>
                           <Input
-                            ref={(el) => { inputRefs[index()] = el; }}
+                            ref={(el) => {
+                              inputRefs[index()] = el;
+                            }}
                             type="text"
                             value={word}
                             onInput={(e) => handleWordChange(index(), e.currentTarget.value)}
@@ -435,12 +450,21 @@ export default function RecoveryPage() {
                       <span class="flex items-center gap-2">
                         <Spinner class="size-3" /> Recovering...
                       </span>
+                    ) : isPasswordReset() ? (
+                      "Verify Recovery Phrase"
                     ) : (
-                      isPasswordReset() ? "Verify Recovery Phrase" : "Recover Account"
+                      "Recover Account"
                     )}
                   </Button>
                   <Show when={phase() === "error"}>
-                    <Button type="button" variant="outline" onClick={() => { setPhase("input"); setError(null); }}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setPhase("input");
+                        setError(null);
+                      }}
+                    >
                       Try Again
                     </Button>
                   </Show>

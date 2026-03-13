@@ -1,10 +1,10 @@
-import { splitProps, type ParentProps } from "solid-js"
-import * as CheckboxPrimitive from "@kobalte/core/checkbox"
-import { CheckIcon } from "lucide-solid"
-import { cn } from "@/shared/lib/utils"
+import { splitProps, type ParentProps } from "solid-js";
+import * as CheckboxPrimitive from "@kobalte/core/checkbox";
+import { CheckIcon } from "lucide-solid";
+import { cn } from "@/shared/lib/utils";
 
 function Checkbox(props: ParentProps<{ class?: string; [key: string]: any }>) {
-  const [local, rest] = splitProps(props, ["class", "children", "id"])
+  const [local, rest] = splitProps(props, ["class", "children", "id"]);
   return (
     <CheckboxPrimitive.Root data-slot="checkbox" {...rest}>
       <CheckboxPrimitive.Input id={local.id} />
@@ -17,7 +17,7 @@ function Checkbox(props: ParentProps<{ class?: string; [key: string]: any }>) {
           "data-[checked]:bg-foreground data-[checked]:text-background",
           "disabled:cursor-not-allowed disabled:opacity-40",
           "rounded-none",
-          local.class
+          local.class,
         )}
       >
         <CheckboxPrimitive.Indicator
@@ -29,7 +29,7 @@ function Checkbox(props: ParentProps<{ class?: string; [key: string]: any }>) {
       </CheckboxPrimitive.Control>
       {local.children}
     </CheckboxPrimitive.Root>
-  )
+  );
 }
 
-export { Checkbox }
+export { Checkbox };

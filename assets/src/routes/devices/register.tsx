@@ -11,7 +11,13 @@ import { SafetyNumber } from "@/features/devices";
 import { authState, setFullSession, setDeviceState } from "@/shared/lib/auth-state";
 import { authApi, devicesApi, encryptionApi, trustTransferApi } from "@/shared/api";
 import { ApiError } from "@/shared/api/core";
-import { persistDeviceId, persistDeviceKeysOnly, persistUmkForLogin, restoreSessionPdk, persistSessionPdk } from "@/features/auth";
+import {
+  persistDeviceId,
+  persistDeviceKeysOnly,
+  persistUmkForLogin,
+  restoreSessionPdk,
+  persistSessionPdk,
+} from "@/features/auth";
 import {
   base64UrlEncode,
   base64UrlDecode,
@@ -34,7 +40,15 @@ import type { IdentityKeyPair } from "@/shared/lib/crypto";
 import { importTofuEntries } from "@/shared/lib/trust-store";
 import { buildDeviceUmkDistributionAad } from "@/shared/lib/crypto/aad";
 
-type Phase = "generating" | "waiting" | "restoring" | "done" | "error" | "expired" | "needs_password" | "reauth";
+type Phase =
+  | "generating"
+  | "waiting"
+  | "restoring"
+  | "done"
+  | "error"
+  | "expired"
+  | "needs_password"
+  | "reauth";
 
 export default function DeviceRegisterPage() {
   const navigate = useNavigate();
@@ -135,9 +149,12 @@ export default function DeviceRegisterPage() {
   };
 
   // Create pending device and set up SSE/polling for approval
-  const createRegistrationAndWait = async (
-    keys: { ecdhPrivate: Uint8Array; ecdhPublic: Uint8Array; signingPrivate: Uint8Array; signingPublic: Uint8Array },
-  ) => {
+  const createRegistrationAndWait = async (keys: {
+    ecdhPrivate: Uint8Array;
+    ecdhPublic: Uint8Array;
+    signingPrivate: Uint8Array;
+    signingPublic: Uint8Array;
+  }) => {
     const nonce = generateClientNonce();
     setClientNonce(nonce);
 
@@ -166,11 +183,14 @@ export default function DeviceRegisterPage() {
     // Request trust transfer nonce (best-effort, non-blocking)
     // Refresh every 4 minutes to stay within the 5-minute server TTL
     requestTrustTransferNonce(res.device_id);
-    nonceRefreshTimer = setInterval(() => {
-      if (phase() === "waiting") {
-        requestTrustTransferNonce(res.device_id);
-      }
-    }, 4 * 60 * 1000);
+    nonceRefreshTimer = setInterval(
+      () => {
+        if (phase() === "waiting") {
+          requestTrustTransferNonce(res.device_id);
+        }
+      },
+      4 * 60 * 1000,
+    );
 
     const startPollingFallback = () => {
       if (pollTimer) return;
@@ -195,22 +215,34 @@ export default function DeviceRegisterPage() {
         eventSource = new EventSource(`/api/devices/registrations/${res.device_id}/events`);
         eventSource.addEventListener("pending_approved", async () => {
           if (eventSource) eventSource.close();
-          if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = undefined;
+          }
           await handleApproved(res.device_id, keys);
         });
         eventSource.addEventListener("expired", () => {
           if (eventSource) eventSource.close();
-          if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = undefined;
+          }
           setPhase("expired");
         });
         eventSource.addEventListener("pending_rejected", () => {
           if (eventSource) eventSource.close();
-          if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = undefined;
+          }
           setError("Device registration was rejected by an existing device.");
           setPhase("error");
         });
         eventSource.onopen = () => {
-          if (pollTimer) { clearInterval(pollTimer); pollTimer = undefined; }
+          if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = undefined;
+          }
         };
         eventSource.onerror = () => {
           if (eventSource) {
@@ -302,7 +334,9 @@ export default function DeviceRegisterPage() {
 
     if (kekResults.backupDecryptFailed) {
       setPhase("error");
-      setError("KEK backup decryption failed. This may indicate data corruption. Some workspaces may require key distribution from an existing device.");
+      setError(
+        "KEK backup decryption failed. This may indicate data corruption. Some workspaces may require key distribution from an existing device.",
+      );
       return;
     }
 
@@ -381,7 +415,12 @@ export default function DeviceRegisterPage() {
 
   const handleApproved = async (
     deviceId: string,
-    keys: { ecdhPrivate: Uint8Array; ecdhPublic: Uint8Array; signingPrivate: Uint8Array; signingPublic: Uint8Array },
+    keys: {
+      ecdhPrivate: Uint8Array;
+      ecdhPublic: Uint8Array;
+      signingPrivate: Uint8Array;
+      signingPublic: Uint8Array;
+    },
   ) => {
     setPhase("restoring");
     const auth = authState();
@@ -394,11 +433,7 @@ export default function DeviceRegisterPage() {
       // Must happen before any PoP call because PoP auto-binds the session,
       // and trust-transfer endpoints reject bound sessions.
       try {
-        await retrieveAndImportTrustState(
-          auth.user.id,
-          deviceId,
-          keys.ecdhPrivate,
-        );
+        await retrieveAndImportTrustState(auth.user.id, deviceId, keys.ecdhPrivate);
       } catch (err) {
         // identity_key_changed / ecdh_key_mismatch are hard failures
         if (err instanceof Error && err.message.includes("key verification failed")) {
@@ -442,11 +477,7 @@ export default function DeviceRegisterPage() {
 
       // Decrypt UMK using ECDH
       const senderEcdhPublic = base64UrlDecode(umkData.sender_ecdh_public_key!);
-      const aad = buildDeviceUmkDistributionAad(
-        auth.user.id,
-        umkData.sender_device_id,
-        deviceId,
-      );
+      const aad = buildDeviceUmkDistributionAad(auth.user.id, umkData.sender_device_id, deviceId);
       const umk = ecdhDecrypt(
         base64UrlDecode(umkData.encrypted_umk),
         base64UrlDecode(umkData.nonce),
@@ -532,15 +563,17 @@ export default function DeviceRegisterPage() {
             New Device
           </CardTitle>
           <CardDescription>
-            {isRecoveryMode()
-              ? "Setting up your recovered device\u2026"
-              : <>
-                  Verify this device from an existing device, or{" "}
-                  <A href="/auth/recovery" class="text-primary underline underline-offset-4">
-                    use your recovery key
-                  </A>.
-                </>
-            }
+            {isRecoveryMode() ? (
+              "Setting up your recovered device\u2026"
+            ) : (
+              <>
+                Verify this device from an existing device, or{" "}
+                <A href="/auth/recovery" class="text-primary underline underline-offset-4">
+                  use your recovery key
+                </A>
+                .
+              </>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -744,9 +777,17 @@ async function retrieveAndImportTrustState(
 
   // TOFU check: reject if sender keys have changed (indicates tampering).
   // first_seen is accepted because trust transfer is protected by AEAD + signature verification.
-  const senderTofuResult = await verifyTofu(userId, state.sender_device_id, senderSigningPk, senderEcdhPublic);
+  const senderTofuResult = await verifyTofu(
+    userId,
+    state.sender_device_id,
+    senderSigningPk,
+    senderEcdhPublic,
+  );
 
-  if (senderTofuResult.status === "identity_key_changed" || senderTofuResult.status === "ecdh_key_mismatch") {
+  if (
+    senderTofuResult.status === "identity_key_changed" ||
+    senderTofuResult.status === "ecdh_key_mismatch"
+  ) {
     throw new Error("Trust state sender key verification failed");
   }
 
@@ -845,18 +886,28 @@ async function restoreKekForWorkspace(
     currentKekVersion = existing.current_kek_version;
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {
-      currentKekVersion = (e.body.details as { current_kek_version?: number })?.current_kek_version ?? 0;
+      currentKekVersion =
+        (e.body.details as { current_kek_version?: number })?.current_kek_version ?? 0;
     } else {
       throw e;
     }
   }
 
   const memberEnvelope = await encryptionApi.getMemberEnvelopeWithPop(workspaceId);
-  if (memberEnvelope && memberEnvelope.sender_ecdh_public_key && memberEnvelope.sender_signing_public_key) {
+  if (
+    memberEnvelope &&
+    memberEnvelope.sender_ecdh_public_key &&
+    memberEnvelope.sender_signing_public_key
+  ) {
     const senderEcdhPk = base64UrlDecode(memberEnvelope.sender_ecdh_public_key);
     const senderSigningPk = base64UrlDecode(memberEnvelope.sender_signing_public_key);
 
-    const tofuResult = await verifyTofu(memberEnvelope.sender_user_id, memberEnvelope.sender_device_id, senderSigningPk, senderEcdhPk);
+    const tofuResult = await verifyTofu(
+      memberEnvelope.sender_user_id,
+      memberEnvelope.sender_device_id,
+      senderSigningPk,
+      senderEcdhPk,
+    );
     if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
       throw new Error("Key verification failed for member envelope sender. Aborting KEK recovery.");
     }

@@ -2,11 +2,7 @@ import { Show, createEffect, createSignal, type ParentProps } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { Sidebar } from "@/widgets/sidebar";
 import { SettingsDialog } from "@/widgets/settings";
-import {
-  currentWorkspaceId,
-  setCurrentWorkspaceId,
-  useWorkspaces,
-} from "@/entities/workspace";
+import { currentWorkspaceId, setCurrentWorkspaceId, useWorkspaces } from "@/entities/workspace";
 import { workspacesApi, encryptionApi } from "@/shared/api";
 import { authState, deviceState } from "@/shared/lib/auth-state";
 import {
@@ -47,14 +43,18 @@ export function AppShell(props: ParentProps) {
       rotationAttempted.add(ws.workspace_id);
     }
 
-    performKekRotation(initiatorWorkspaces, {
-      user: auth.user,
-      umk: auth.umk,
-      identityKeys: auth.identityKeys,
-    }, {
-      deviceId: device.deviceId,
-      deviceEcdhPrivate: device.deviceEcdhPrivate,
-    })
+    performKekRotation(
+      initiatorWorkspaces,
+      {
+        user: auth.user,
+        umk: auth.umk,
+        identityKeys: auth.identityKeys,
+      },
+      {
+        deviceId: device.deviceId,
+        deviceEcdhPrivate: device.deviceEcdhPrivate,
+      },
+    )
       .then(() => {
         for (const ws of initiatorWorkspaces) {
           rotationAttempted.delete(ws.workspace_id);
@@ -72,7 +72,11 @@ export function AppShell(props: ParentProps) {
     setCurrentWorkspaceId(id);
   };
 
-  const handleCreateWorkspace = async (data: { name: string; description?: string; icon?: string }) => {
+  const handleCreateWorkspace = async (data: {
+    name: string;
+    description?: string;
+    icon?: string;
+  }) => {
     const result = await workspacesApi.create(data);
     if (!result.id) return;
 

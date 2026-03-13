@@ -33,8 +33,7 @@ export function parseRecoveryKeyFile(
   const hasHeader = lines.some((line) => line.includes(HEADER));
   if (!hasHeader) {
     return {
-      error:
-        "File format not recognized. Please upload a RefMD recovery key file.",
+      error: "File format not recognized. Please upload a RefMD recovery key file.",
     };
   }
 

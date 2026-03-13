@@ -77,9 +77,7 @@ export default function LoginPage() {
       <Card class="w-full max-w-md">
         <CardHeader class="space-y-1">
           <CardTitle class="text-2xl font-bold">Login</CardTitle>
-          <CardDescription>
-            Enter your credentials to access your account
-          </CardDescription>
+          <CardDescription>Enter your credentials to access your account</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} class="space-y-4">
@@ -127,10 +125,7 @@ export default function LoginPage() {
                 onChange={(checked: boolean) => setRememberMe(checked)}
                 disabled={loading()}
               />
-              <Label
-                for="remember"
-                class="text-xs font-sans normal-case tracking-normal"
-              >
+              <Label for="remember" class="text-xs font-sans normal-case tracking-normal">
                 Keep me signed in
               </Label>
             </div>

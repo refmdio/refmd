@@ -43,9 +43,7 @@ export function AccountSection() {
     <div class="p-6 space-y-6">
       <div>
         <h3 class="text-lg font-semibold mb-1">Account</h3>
-        <p class="text-sm text-muted-foreground">
-          Manage your account settings.
-        </p>
+        <p class="text-sm text-muted-foreground">Manage your account settings.</p>
       </div>
 
       <Show when={authState()}>
@@ -59,9 +57,7 @@ export function AccountSection() {
               </div>
               <div>
                 <p class="text-xs text-muted-foreground">User ID</p>
-                <p class="text-sm font-mono text-muted-foreground">
-                  {auth().user.id}
-                </p>
+                <p class="text-sm font-mono text-muted-foreground">{auth().user.id}</p>
               </div>
             </div>
           </section>
@@ -78,18 +74,14 @@ export function AccountSection() {
           <LogOutIcon class="size-4 mr-2" />
           Log out
         </Button>
-        <p class="text-xs text-muted-foreground mt-2">
-          You will be signed out of this device.
-        </p>
+        <p class="text-xs text-muted-foreground mt-2">You will be signed out of this device.</p>
       </section>
 
       <Dialog open={showLogoutDialog()} onOpenChange={setShowLogoutDialog}>
         <DialogContent class="max-w-sm">
           <DialogHeader>
             <DialogTitle>Log out</DialogTitle>
-            <DialogDescription class="sr-only">
-              Logout confirmation dialog
-            </DialogDescription>
+            <DialogDescription class="sr-only">Logout confirmation dialog</DialogDescription>
           </DialogHeader>
 
           <div class="space-y-4">
@@ -101,15 +93,11 @@ export function AccountSection() {
                 disabled={isLoggingOut()}
               />
               <div class="space-y-1">
-                <Label
-                  for="keep-credentials"
-                  class="text-sm font-medium cursor-pointer"
-                >
+                <Label for="keep-credentials" class="text-sm font-medium cursor-pointer">
                   Keep credentials on this device
                 </Label>
                 <p class="text-xs text-muted-foreground">
-                  If unchecked, you will need to enter your password next time
-                  you log in.
+                  If unchecked, you will need to enter your password next time you log in.
                 </p>
               </div>
             </div>
@@ -123,11 +111,7 @@ export function AccountSection() {
             >
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleLogout}
-              disabled={isLoggingOut()}
-            >
+            <Button variant="destructive" onClick={handleLogout} disabled={isLoggingOut()}>
               {isLoggingOut() ? "Logging out..." : "Log out"}
             </Button>
           </DialogFooter>

@@ -1,4 +1,9 @@
-import { base64UrlDecode, decryptIdentityPrivateKeys, verifyAllDeviceTofu, TofuHardFailError } from "@/shared/lib/crypto";
+import {
+  base64UrlDecode,
+  decryptIdentityPrivateKeys,
+  verifyAllDeviceTofu,
+  TofuHardFailError,
+} from "@/shared/lib/crypto";
 import type { IdentityKeyPair } from "@/shared/lib/crypto";
 import { authApi, ApiError, devicesApi, withPopDevice } from "@/shared/api";
 import {
@@ -88,9 +93,8 @@ export async function restoreSession(): Promise<SessionRestoreResult | null> {
     let tofuWarnings: string[] = [];
     if (me.device_verified && deviceId && deviceSigningPrivate) {
       try {
-        const { devices } = await withPopDevice(
-          { deviceId, deviceSigningPrivate },
-          () => devicesApi.list(),
+        const { devices } = await withPopDevice({ deviceId, deviceSigningPrivate }, () =>
+          devicesApi.list(),
         );
         tofuWarnings = await verifyAllDeviceTofu(
           me.user_id,

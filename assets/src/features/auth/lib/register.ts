@@ -17,7 +17,12 @@ import {
 } from "@/shared/lib/crypto";
 import type { KdfParams, IdentityKeyPair, DeviceKeyPair } from "@/shared/lib/crypto";
 import { authApi, devicesApi, encryptionApi } from "@/shared/api";
-import { persistKeys, persistDeviceId, persistDeviceKeysOnly, persistSessionPdk } from "./key-persistence";
+import {
+  persistKeys,
+  persistDeviceId,
+  persistDeviceKeysOnly,
+  persistSessionPdk,
+} from "./key-persistence";
 import { setDeviceState } from "@/shared/lib/auth-state";
 
 const TARGET_KDF_PARAMS: KdfParams = {

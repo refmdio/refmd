@@ -18,11 +18,10 @@ export interface ExplicitDeviceKeys {
   deviceSigningPrivate: Uint8Array;
 }
 
-export async function getPopHeaders(
-  explicitDevice?: ExplicitDeviceKeys,
-): Promise<PopHeaders> {
+export async function getPopHeaders(explicitDevice?: ExplicitDeviceKeys): Promise<PopHeaders> {
   const deviceId = explicitDevice?.deviceId ?? deviceState()?.deviceId;
-  const signingPrivate = explicitDevice?.deviceSigningPrivate ?? deviceState()?.deviceSigningPrivate;
+  const signingPrivate =
+    explicitDevice?.deviceSigningPrivate ?? deviceState()?.deviceSigningPrivate;
 
   if (!deviceId || !signingPrivate) {
     throw new Error("Device not available for PoP");
@@ -43,4 +42,3 @@ export async function getPopHeaders(
     "X-PoP-Signature": base64UrlEncode(signature),
   };
 }
-

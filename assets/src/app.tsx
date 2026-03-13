@@ -70,9 +70,7 @@ export default function App() {
         if (!result.deviceVerified && !result.needsPasswordReentry) {
           const path = window.location.pathname;
           const isPublicPath =
-            path.startsWith("/auth/") ||
-            path === "/devices/register" ||
-            path.startsWith("/invite");
+            path.startsWith("/auth/") || path === "/devices/register" || path.startsWith("/invite");
           if (!isPublicPath) {
             window.location.replace("/devices/register");
             return;
@@ -100,17 +98,12 @@ export default function App() {
       <Show when={tofuErrors().length > 0}>
         <main class="min-h-screen flex items-center justify-center p-6">
           <div class="max-w-md w-full space-y-4 text-center">
-            <h1 class="text-xl font-bold text-destructive">
-              Key Verification Failed
-            </h1>
+            <h1 class="text-xl font-bold text-destructive">Key Verification Failed</h1>
             <p class="text-muted-foreground">
-              Device key integrity check failed. Operations are blocked for
-              security.
+              Device key integrity check failed. Operations are blocked for security.
             </p>
             <ul class="text-sm text-left space-y-1">
-              <For each={tofuErrors()}>
-                {(e) => <li class="text-destructive">{e}</li>}
-              </For>
+              <For each={tofuErrors()}>{(e) => <li class="text-destructive">{e}</li>}</For>
             </ul>
           </div>
         </main>

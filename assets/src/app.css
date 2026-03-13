@@ -5,10 +5,12 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -71,7 +73,12 @@
   --tone-destructive-bar: rgba(239, 68, 68, 0.7);
   --tone-destructive-bg: rgba(239, 68, 68, 0.08);
   --tone-destructive-border: rgba(239, 68, 68, 0.45);
-  --tone-destructive-gradient: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.5), transparent);
+  --tone-destructive-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(239, 68, 68, 0.5),
+    transparent
+  );
   --tone-destructive-icon-bg: rgba(239, 68, 68, 0.15);
   --tone-destructive-icon-border: rgba(239, 68, 68, 0.5);
   --tone-info-bar: rgba(56, 189, 248, 0.7);
@@ -83,13 +90,23 @@
   --tone-success-bar: rgba(52, 211, 153, 0.7);
   --tone-success-bg: rgba(16, 185, 129, 0.1);
   --tone-success-border: rgba(16, 185, 129, 0.4);
-  --tone-success-gradient: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.5), transparent);
+  --tone-success-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(52, 211, 153, 0.5),
+    transparent
+  );
   --tone-success-icon-bg: rgba(16, 185, 129, 0.15);
   --tone-success-icon-border: rgba(52, 211, 153, 0.5);
   --tone-warning-bar: rgba(251, 191, 36, 0.7);
   --tone-warning-bg: rgba(245, 158, 11, 0.1);
   --tone-warning-border: rgba(245, 158, 11, 0.4);
-  --tone-warning-gradient: linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.5), transparent);
+  --tone-warning-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(251, 191, 36, 0.5),
+    transparent
+  );
   --tone-warning-icon-bg: rgba(245, 158, 11, 0.15);
   --tone-warning-icon-border: rgba(251, 191, 36, 0.5);
   --color-tone-warning-title: var(----tone-warning-title);
@@ -148,19 +165,29 @@
   --glass-shadow-outline-heavy: 0 0 0 1px rgba(15, 23, 42, 0.2);
   --glass-shadow-outline-faint: 0 0 0 1px rgba(15, 23, 42, 0.06);
   --glass-shadow-inset: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
-  --glass-shadow-card-inner-dark: 0 0 0 1px rgba(255, 255, 255, 0.14),
-    inset 0 0 0 0.3px rgba(255, 255, 255, 0.04);
+  --glass-shadow-card-inner-dark:
+    0 0 0 1px rgba(255, 255, 255, 0.14), inset 0 0 0 0.3px rgba(255, 255, 255, 0.04);
   --glass-highlight-subtle: rgba(255, 255, 255, 0.03);
   --glass-highlight-soft: rgba(255, 255, 255, 0.04);
   --glass-drop-shadow-subtle: 0 0 10px rgba(15, 23, 42, 0.08);
-  --glass-gradient-card-light: linear-gradient(180deg, rgba(32, 34, 40, 0.18) 0%, rgba(32, 34, 40, 0.05) 70%, rgba(32, 34, 40, 0) 100%);
-  --glass-gradient-card-dark: linear-gradient(180deg, rgba(63, 63, 70, 0.78) 0%, rgba(31, 31, 44, 0.55) 48%, rgba(9, 9, 11, 0.35) 100%);
+  --glass-gradient-card-light: linear-gradient(
+    180deg,
+    rgba(32, 34, 40, 0.18) 0%,
+    rgba(32, 34, 40, 0.05) 70%,
+    rgba(32, 34, 40, 0) 100%
+  );
+  --glass-gradient-card-dark: linear-gradient(
+    180deg,
+    rgba(63, 63, 70, 0.78) 0%,
+    rgba(31, 31, 44, 0.55) 48%,
+    rgba(9, 9, 11, 0.35) 100%
+  );
   --glass-highlight-bright: rgba(255, 255, 255, 0.14);
   --glass-highlight-strong: rgba(255, 255, 255, 0.12);
   --glass-shadow-card: 0 0 4px rgba(0, 0, 0, 0.08);
   --glass-shadow-card-dark: 0 0 10px rgba(0, 0, 0, 0.45);
-  --glass-shadow-card-inner-light: 0 0 0 1px rgba(15, 23, 42, 0.06),
-    inset 0 0 0 0.8px rgba(255, 255, 255, 0.03);
+  --glass-shadow-card-inner-light:
+    0 0 0 1px rgba(15, 23, 42, 0.06), inset 0 0 0 0.8px rgba(255, 255, 255, 0.03);
   --glass-shadow-outline: 0 0 0 1px rgba(15, 23, 42, 0.12);
   --glass-shadow-outline-strong: 0 0 0 1px rgba(15, 23, 42, 0.18);
   --glass-shadow-outline-subtle: 0 0 0 1px rgba(15, 23, 42, 0.08);
@@ -173,7 +200,12 @@
   --tone-default-body: rgba(15, 23, 42, 0.85);
   --tone-default-border: rgba(15, 23, 42, 0.12);
   --tone-default-description: rgba(30, 41, 59, 0.85);
-  --tone-default-gradient: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.5), transparent);
+  --tone-default-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.5),
+    transparent
+  );
   --tone-default-icon-bg: rgba(148, 163, 184, 0.12);
   --tone-default-icon-border: rgba(148, 163, 184, 0.5);
   --tone-default-icon-fg: rgba(100, 116, 139, 0.8);
@@ -275,7 +307,12 @@
   --tone-default-body: rgba(226, 232, 240, 0.85);
   --tone-default-border: rgba(255, 255, 255, 0.12);
   --tone-default-description: rgba(148, 163, 184, 0.85);
-  --tone-default-gradient: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.35), transparent);
+  --tone-default-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.35),
+    transparent
+  );
   --tone-default-icon-bg: rgba(148, 163, 184, 0.18);
   --tone-default-icon-border: rgba(148, 163, 184, 0.35);
   --tone-default-icon-fg: rgba(226, 232, 240, 0.85);
@@ -305,7 +342,7 @@
   body {
     @apply bg-background text-foreground;
   }
-  input[type='checkbox'] {
+  input[type="checkbox"] {
     @apply cursor-pointer;
     accent-color: var(--primary);
   }

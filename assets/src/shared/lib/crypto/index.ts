@@ -13,10 +13,26 @@ export {
 } from "./identity";
 export type { IdentityKeyPair, EncryptedIdentityKeys } from "./identity";
 export { generateUmk, wrapUmk, unwrapUmk } from "./umk";
-export { generateRecoveryKey, deriveRukFromMnemonic, wrapUmkWithRuk, unwrapUmkWithRuk, isValidMnemonic } from "./recovery";
+export {
+  generateRecoveryKey,
+  deriveRukFromMnemonic,
+  wrapUmkWithRuk,
+  unwrapUmkWithRuk,
+  isValidMnemonic,
+} from "./recovery";
 export type { RecoveryKeyData } from "./recovery";
 export { ecdhEncrypt, ecdhDecrypt } from "./ecdh-cipher";
-export { generateKek, encryptKekForDevice, decryptKekFromDeviceEnvelope, encryptKekForMember, decryptKekFromMemberEnvelope, unwrapKekFromBackup, wrapKekWithUmk, encryptKekForInvitation, decryptKekFromInvitation } from "./kek";
+export {
+  generateKek,
+  encryptKekForDevice,
+  decryptKekFromDeviceEnvelope,
+  encryptKekForMember,
+  decryptKekFromMemberEnvelope,
+  unwrapKekFromBackup,
+  wrapKekWithUmk,
+  encryptKekForInvitation,
+  decryptKekFromInvitation,
+} from "./kek";
 export {
   generateDeviceKeyPair,
   generateClientNonce,
@@ -54,10 +70,7 @@ export {
   TofuHardFailError,
 } from "./tofu";
 export type { TofuStatus, TofuVerifyResult } from "./tofu";
-export {
-  encryptTrustState,
-  decryptTrustState,
-} from "./trust-transfer";
+export { encryptTrustState, decryptTrustState } from "./trust-transfer";
 export type {
   TrustStateSnapshot,
   EncryptedTrustState,

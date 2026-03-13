@@ -53,8 +53,16 @@ export function decryptIdentityPrivateKeys(
   umk: Uint8Array,
   userId: string,
 ): IdentityKeyPair {
-  const ecdhCipher = xchacha20poly1305(umk, encrypted.ecdhPrivateNonce, buildIdentityEcdhAad(userId));
-  const signingCipher = xchacha20poly1305(umk, encrypted.signingPrivateNonce, buildIdentitySigningAad(userId));
+  const ecdhCipher = xchacha20poly1305(
+    umk,
+    encrypted.ecdhPrivateNonce,
+    buildIdentityEcdhAad(userId),
+  );
+  const signingCipher = xchacha20poly1305(
+    umk,
+    encrypted.signingPrivateNonce,
+    buildIdentitySigningAad(userId),
+  );
 
   const ecdhPrivate = ecdhCipher.decrypt(encrypted.encryptedEcdhPrivate);
   const signingPrivate = signingCipher.decrypt(encrypted.encryptedSigningPrivate);
@@ -79,10 +87,7 @@ export function verify(
   return ed25519.verify(signature, message, signingPublic);
 }
 
-export function ecdhSharedSecret(
-  myPrivate: Uint8Array,
-  theirPublic: Uint8Array,
-): Uint8Array {
+export function ecdhSharedSecret(myPrivate: Uint8Array, theirPublic: Uint8Array): Uint8Array {
   if (!isValidX25519PublicKey(theirPublic)) {
     throw new Error("Invalid X25519 public key: low-order point");
   }

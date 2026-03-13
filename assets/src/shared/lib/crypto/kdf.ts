@@ -32,10 +32,16 @@ function validateKdfParams(params: KdfParams): void {
   if (params.memory < KDF_BOUNDS.memory.min || params.memory > KDF_BOUNDS.memory.max) {
     throw new Error("KDF memory out of bounds");
   }
-  if (params.iterations < KDF_BOUNDS.iterations.min || params.iterations > KDF_BOUNDS.iterations.max) {
+  if (
+    params.iterations < KDF_BOUNDS.iterations.min ||
+    params.iterations > KDF_BOUNDS.iterations.max
+  ) {
     throw new Error("KDF iterations out of bounds");
   }
-  if (params.parallelism < KDF_BOUNDS.parallelism.min || params.parallelism > KDF_BOUNDS.parallelism.max) {
+  if (
+    params.parallelism < KDF_BOUNDS.parallelism.min ||
+    params.parallelism > KDF_BOUNDS.parallelism.max
+  ) {
     throw new Error("KDF parallelism out of bounds");
   }
 }

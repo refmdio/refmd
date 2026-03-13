@@ -93,7 +93,10 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
           if (data.workspace_id) {
             setKekRotationsNeeded((prev) => {
               if (prev.some((r) => r.workspace_id === data.workspace_id)) return prev;
-              return [...prev, { workspace_id: data.workspace_id, current_kek_version: data.current_kek_version }];
+              return [
+                ...prev,
+                { workspace_id: data.workspace_id, current_kek_version: data.current_kek_version },
+              ];
             });
           }
         } catch {
@@ -178,9 +181,7 @@ export const PendingDeviceMonitor: ParentComponent = (props) => {
     const devices = pendingDevices();
     if (devices.length === 0 || currentDialog()) return;
 
-    const newDevice = devices.find(
-      (d) => !seen.has(d.id) && !dismissed.has(d.id),
-    );
+    const newDevice = devices.find((d) => !seen.has(d.id) && !dismissed.has(d.id));
     if (newDevice) {
       seen.add(newDevice.id);
       setCurrentDialog(newDevice);

@@ -21,7 +21,9 @@ export default function PasswordResetPage() {
   const [loading, setLoading] = createSignal(false);
 
   onMount(() => {
-    const tokenParam = Array.isArray(searchParams.token) ? searchParams.token[0] : searchParams.token;
+    const tokenParam = Array.isArray(searchParams.token)
+      ? searchParams.token[0]
+      : searchParams.token;
     if (tokenParam) {
       verifyToken(tokenParam);
     }
@@ -70,9 +72,7 @@ export default function PasswordResetPage() {
             <KeyRoundIcon class="size-6" />
             Reset Password
           </CardTitle>
-          <CardDescription>
-            Enter your email to receive a password reset link.
-          </CardDescription>
+          <CardDescription>Enter your email to receive a password reset link.</CardDescription>
         </CardHeader>
         <CardContent>
           <Switch>
@@ -123,8 +123,8 @@ export default function PasswordResetPage() {
               <div class="flex flex-col items-center gap-4 py-8">
                 <CheckCircleIcon class="size-10 text-green-500" />
                 <p class="text-sm text-muted-foreground text-center">
-                  If an account exists with that email, we sent a password reset link.
-                  Check your inbox and click the link to continue.
+                  If an account exists with that email, we sent a password reset link. Check your
+                  inbox and click the link to continue.
                 </p>
                 <Button variant="outline" onClick={() => navigate("/auth/login")}>
                   Back to Login
@@ -135,9 +135,7 @@ export default function PasswordResetPage() {
             <Match when={phase() === "verifying"}>
               <div class="flex flex-col items-center gap-4 py-8">
                 <Spinner class="size-6" />
-                <p class="text-sm text-muted-foreground">
-                  Verifying your reset link...
-                </p>
+                <p class="text-sm text-muted-foreground">Verifying your reset link...</p>
               </div>
             </Match>
           </Switch>

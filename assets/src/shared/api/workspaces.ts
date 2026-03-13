@@ -1,10 +1,7 @@
 import { client, throwIfError } from "./core";
 
 export const workspacesApi = {
-  list: async () =>
-    throwIfError(
-      await client.GET("/api/workspaces"),
-    ),
+  list: async () => throwIfError(await client.GET("/api/workspaces")),
 
   get: async (workspaceId: string) =>
     throwIfError(
@@ -138,14 +135,11 @@ export const workspacesApi = {
 
   revokeInvitation: async (workspaceId: string, invitationId: string) =>
     throwIfError(
-      await client.DELETE(
-        "/api/workspaces/{workspace_id}/invitations/{invitation_id}",
-        {
-          params: {
-            path: { workspace_id: workspaceId, invitation_id: invitationId },
-          },
+      await client.DELETE("/api/workspaces/{workspace_id}/invitations/{invitation_id}", {
+        params: {
+          path: { workspace_id: workspaceId, invitation_id: invitationId },
         },
-      ),
+      }),
     ),
 
   acceptInvitation: async (token: string) =>

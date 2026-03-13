@@ -101,10 +101,7 @@ export function encryptTrustState(
     aad,
   );
 
-  const signatureMessage = buildTransferSignatureMessage(
-    encryptedState,
-    snapshot.transferNonce,
-  );
+  const signatureMessage = buildTransferSignatureMessage(encryptedState, snapshot.transferNonce);
   const signature = sign(signatureMessage, signingPrivate);
 
   return { encryptedState, nonce, signature };
@@ -118,10 +115,7 @@ export function decryptTrustState(
   expectedNonce: Uint8Array,
   aadParams: TrustTransferAadParams,
 ): TrustStateSnapshot {
-  const signatureMessage = buildTransferSignatureMessage(
-    encrypted.encryptedState,
-    expectedNonce,
-  );
+  const signatureMessage = buildTransferSignatureMessage(encrypted.encryptedState, expectedNonce);
   if (!verify(signatureMessage, encrypted.signature, senderSigningPublic)) {
     throw new Error("Trust state signature verification failed");
   }

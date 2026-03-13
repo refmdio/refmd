@@ -107,8 +107,8 @@ export default function RegisterPage() {
             <CardHeader class="space-y-1">
               <CardTitle class="text-2xl font-bold">Recovery Key</CardTitle>
               <CardDescription>
-                Save this recovery key in a safe place. You will need it for{" "}
-                account recovery if you lose access to all your devices.
+                Save this recovery key in a safe place. You will need it for account recovery if you
+                lose access to all your devices.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -128,9 +128,7 @@ export default function RegisterPage() {
                     <For each={recoveryMnemonic()!.split(" ")}>
                       {(word, index) => (
                         <div class="flex items-center gap-2">
-                          <span class="text-muted-foreground w-5 text-right">
-                            {index() + 1}.
-                          </span>
+                          <span class="text-muted-foreground w-5 text-right">{index() + 1}.</span>
                           <span>{showMnemonic() ? word : "------"}</span>
                         </div>
                       )}
@@ -139,18 +137,10 @@ export default function RegisterPage() {
                 </div>
 
                 <div class="flex gap-2">
-                  <Button
-                    onClick={handleCopyRecoveryKey}
-                    variant="outline"
-                    class="flex-1"
-                  >
+                  <Button onClick={handleCopyRecoveryKey} variant="outline" class="flex-1">
                     Copy
                   </Button>
-                  <Button
-                    onClick={handleDownloadRecoveryKey}
-                    variant="outline"
-                    class="flex-1"
-                  >
+                  <Button onClick={handleDownloadRecoveryKey} variant="outline" class="flex-1">
                     Download
                   </Button>
                 </div>
@@ -159,8 +149,8 @@ export default function RegisterPage() {
                   <AlertTriangleIcon />
                   <AlertTitle>Warning</AlertTitle>
                   <AlertDescription>
-                    If you lose this recovery key and forget your password, you
-                    will permanently lose access to your encrypted data.
+                    If you lose this recovery key and forget your password, you will permanently
+                    lose access to your encrypted data.
                   </AlertDescription>
                 </Alert>
 
@@ -179,9 +169,7 @@ export default function RegisterPage() {
         <Card class="w-full max-w-md">
           <CardHeader class="space-y-1">
             <CardTitle class="text-2xl font-bold">Create Account</CardTitle>
-            <CardDescription>
-              Enter your details to create a new account
-            </CardDescription>
+            <CardDescription>Enter your details to create a new account</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} class="space-y-4">

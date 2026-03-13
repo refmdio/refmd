@@ -118,15 +118,10 @@ export function checkEffectivePermission(
   const ceiling = CEILING[perm];
   if (ceiling && !isAtOrAbove(baseRole, ceiling)) return false;
 
-  const override = role.permissions?.find(
-    (o) => o.permission === permission,
-  );
+  const override = role.permissions?.find((o) => o.permission === permission);
   if (override !== undefined) return override.granted;
 
-  if (
-    role.catalog_version != null &&
-    SINCE_VERSION[perm] > role.catalog_version
-  ) {
+  if (role.catalog_version != null && SINCE_VERSION[perm] > role.catalog_version) {
     return false;
   }
 

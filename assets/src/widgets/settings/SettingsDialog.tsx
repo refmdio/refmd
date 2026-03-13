@@ -2,11 +2,7 @@ import { createSignal, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { cn } from "@/shared/lib/utils";
 import { InfoIcon, ShieldIcon, UsersIcon, UserIcon } from "lucide-solid";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/shared/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/shared/ui/dialog";
 import {
   AboutSection,
   SecuritySection,

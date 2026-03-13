@@ -16,10 +16,7 @@ export default function DashboardPage() {
             <p class="text-muted-foreground">Not signed in</p>
             <div class="flex gap-2">
               <Button onClick={() => navigate("/auth/login")}>Sign In</Button>
-              <Button
-                variant="outline"
-                onClick={() => navigate("/auth/register")}
-              >
+              <Button variant="outline" onClick={() => navigate("/auth/register")}>
                 Create Account
               </Button>
             </div>

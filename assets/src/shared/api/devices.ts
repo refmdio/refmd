@@ -32,14 +32,10 @@ export interface RevokeDeviceResult {
 
 export const devicesApi = {
   bootstrap: async (body: components["schemas"]["BootstrapDeviceRequest"]) =>
-    throwIfError(
-      await client.POST("/api/devices/bootstrap", { body }),
-    ),
+    throwIfError(await client.POST("/api/devices/bootstrap", { body })),
 
   createRegistration: async (body: CreateDeviceRegistrationRequest) =>
-    throwIfError(
-      await client.POST("/api/devices/registrations", { body }),
-    ),
+    throwIfError(await client.POST("/api/devices/registrations", { body })),
 
   approve: async (id: string, body: ApproveDeviceRequest) =>
     throwIfError(
@@ -49,15 +45,9 @@ export const devicesApi = {
       }),
     ),
 
-  list: async () =>
-    throwIfError(
-      await client.GET("/api/devices"),
-    ),
+  list: async () => throwIfError(await client.GET("/api/devices")),
 
-  listRegistrations: async () =>
-    throwIfError(
-      await client.GET("/api/devices/registrations"),
-    ),
+  listRegistrations: async () => throwIfError(await client.GET("/api/devices/registrations")),
 
   revoke: async (
     deviceId: string,

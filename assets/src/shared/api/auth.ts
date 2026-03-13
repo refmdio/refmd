@@ -19,34 +19,18 @@ export const authApi = {
     ),
 
   register: async (body: RegisterRequest) =>
-    throwIfError(
-      await client.POST("/api/auth/register", { body }),
-    ),
+    throwIfError(await client.POST("/api/auth/register", { body })),
 
-  login: async (body: LoginRequest) =>
-    throwIfError(
-      await client.POST("/api/auth/login", { body }),
-    ),
+  login: async (body: LoginRequest) => throwIfError(await client.POST("/api/auth/login", { body })),
 
-  me: async () =>
-    throwIfError(
-      await client.GET("/api/auth/me"),
-    ),
+  me: async () => throwIfError(await client.GET("/api/auth/me")),
 
-  logout: async () =>
-    throwIfError(
-      await client.POST("/api/auth/logout"),
-    ),
+  logout: async () => throwIfError(await client.POST("/api/auth/logout")),
 
   kdfMigration: async (body: components["schemas"]["KdfMigrationRequest"]) =>
-    throwIfError(
-      await client.POST("/api/auth/kdf-migration", { body }),
-    ),
+    throwIfError(await client.POST("/api/auth/kdf-migration", { body })),
 
-  getRecovery: async () =>
-    throwIfError(
-      await client.GET("/api/auth/recovery"),
-    ),
+  getRecovery: async () => throwIfError(await client.GET("/api/auth/recovery")),
 
   recoveryChallenge: async (email: string) =>
     throwIfError(
@@ -60,20 +44,14 @@ export const authApi = {
     challenge: string;
     signature: string;
     timestamp: number;
-  }) =>
-    throwIfError(
-      await client.POST("/api/auth/recovery/session", { body }),
-    ),
+  }) => throwIfError(await client.POST("/api/auth/recovery/session", { body })),
 
   passwordSet: async (body: {
     new_auth_key: string;
     new_salt: string;
     new_encrypted_umk: string;
     new_umk_nonce: string;
-  }) =>
-    throwIfError(
-      await client.POST("/api/auth/password-set", { body }),
-    ),
+  }) => throwIfError(await client.POST("/api/auth/password-set", { body })),
 
   verifyKey: async (authKey: string) => {
     throwIfError(

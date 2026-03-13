@@ -47,10 +47,8 @@ export function SecuritySection() {
     queryKey: ["devices"],
     queryFn: () => devicesApi.list(),
   }));
-  const refetch = () =>
-    queryClient.invalidateQueries({ queryKey: ["devices"] });
-  const { pendingDevices, showApprovalDialog, kekRotationsNeeded } =
-    usePendingDevices();
+  const refetch = () => queryClient.invalidateQueries({ queryKey: ["devices"] });
+  const { pendingDevices, showApprovalDialog, kekRotationsNeeded } = usePendingDevices();
   const [revokeTarget, setRevokeTarget] = createSignal<DeviceInfo | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [editingId, setEditingId] = createSignal<string | null>(null);
@@ -76,10 +74,7 @@ export function SecuritySection() {
           const ecdhPk = base64UrlDecode(d.ecdh_public_key);
           const result = await verifyTofu(auth.user.id, d.id, signingPk, ecdhPk);
 
-          if (
-            result.status === "identity_key_changed" ||
-            result.status === "ecdh_key_mismatch"
-          ) {
+          if (result.status === "identity_key_changed" || result.status === "ecdh_key_mismatch") {
             const msg =
               result.status === "identity_key_changed"
                 ? `${d.name}: Identity key changed — possible key compromise`
@@ -107,9 +102,7 @@ export function SecuritySection() {
               identitySigningPublic,
             );
             if (!sigValid) {
-              warnings.push(
-                `${d.name}: Invalid identity signature — device approval not verified`,
-              );
+              warnings.push(`${d.name}: Invalid identity signature — device approval not verified`);
               continue;
             }
             await handleTofuResult(result);
@@ -165,9 +158,8 @@ export function SecuritySection() {
         <Alert variant="destructive">
           <ShieldAlertIcon />
           <AlertDescription>
-            {kekRotationsNeeded().length} workspace(s) require encryption key
-            rotation. Please revoke or re-approve the affected device to
-            complete the rotation.
+            {kekRotationsNeeded().length} workspace(s) require encryption key rotation. Please
+            revoke or re-approve the affected device to complete the rotation.
           </AlertDescription>
         </Alert>
       </Show>
@@ -218,9 +210,7 @@ export function SecuritySection() {
             <AlertDescription>
               Key verification warnings:
               <ul class="mt-1 list-disc list-inside">
-                <For each={tofuWarnings()}>
-                  {(e) => <li>{e}</li>}
-                </For>
+                <For each={tofuWarnings()}>{(e) => <li>{e}</li>}</For>
               </ul>
             </AlertDescription>
           </Alert>
@@ -244,11 +234,7 @@ export function SecuritySection() {
         >
           <Show
             when={devices.data?.devices.length}
-            fallback={
-              <p class="text-muted-foreground text-center py-8">
-                No devices found
-              </p>
-            }
+            fallback={<p class="text-muted-foreground text-center py-8">No devices found</p>}
           >
             <div class="space-y-3">
               <For each={devices.data?.devices}>
@@ -266,13 +252,10 @@ export function SecuritySection() {
                               <div class="flex items-center gap-2">
                                 <Input
                                   value={editName()}
-                                  onInput={(e) =>
-                                    setEditName(e.currentTarget.value)
-                                  }
+                                  onInput={(e) => setEditName(e.currentTarget.value)}
                                   class="h-7 text-sm"
                                   onKeyDown={(e) => {
-                                    if (e.key === "Enter")
-                                      handleRename(device.id);
+                                    if (e.key === "Enter") handleRename(device.id);
                                     if (e.key === "Escape") setEditingId(null);
                                   }}
                                 />
@@ -307,9 +290,7 @@ export function SecuritySection() {
                           <div class="text-sm text-muted-foreground">
                             {device.device_type} &middot; Last seen{" "}
                             {device.last_seen_at
-                              ? new Date(
-                                  device.last_seen_at,
-                                ).toLocaleDateString()
+                              ? new Date(device.last_seen_at).toLocaleDateString()
                               : "Unknown"}
                           </div>
                         </div>
@@ -328,11 +309,7 @@ export function SecuritySection() {
                           variant="ghost"
                           size="icon"
                           disabled={isCurrent() || tofuHardFail()}
-                          title={
-                            isCurrent()
-                              ? "Cannot remove current device"
-                              : "Remove device"
-                          }
+                          title={isCurrent() ? "Cannot remove current device" : "Remove device"}
                           onClick={() => setRevokeTarget(device)}
                         >
                           <TrashIcon class="size-4" />

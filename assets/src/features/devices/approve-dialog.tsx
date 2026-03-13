@@ -81,7 +81,13 @@ export function ApproveDeviceDialog(props: Props) {
     try {
       const auth = authState();
       const device = deviceState();
-      if (!auth?.identityKeys || !auth.umk || !device?.deviceId || !device.deviceEcdhPrivate || !device.deviceSigningPrivate) {
+      if (
+        !auth?.identityKeys ||
+        !auth.umk ||
+        !device?.deviceId ||
+        !device.deviceEcdhPrivate ||
+        !device.deviceSigningPrivate
+      ) {
         props.onError("Identity keys or device not available");
         return;
       }
@@ -107,14 +113,18 @@ export function ApproveDeviceDialog(props: Props) {
       // Anchor SAS-verified keys: compare fresh server keys against SAS-verified keys
       // to detect server-side key substitution between SAS display and post-approval fetch
       const { devices: freshDevices } = await devicesApi.list();
-      const freshTarget = freshDevices.find(d => d.id === newDeviceId);
+      const freshTarget = freshDevices.find((d) => d.id === newDeviceId);
       if (!freshTarget) {
         props.onError("Approved device not found on server");
         return;
       }
-      if (freshTarget.signing_public_key !== props.device.signing_public_key ||
-          freshTarget.ecdh_public_key !== props.device.ecdh_public_key) {
-        props.onError("Server returned different keys after approval. Possible key substitution. Aborting.");
+      if (
+        freshTarget.signing_public_key !== props.device.signing_public_key ||
+        freshTarget.ecdh_public_key !== props.device.ecdh_public_key
+      ) {
+        props.onError(
+          "Server returned different keys after approval. Possible key substitution. Aborting.",
+        );
         return;
       }
       const verifiedEcdhPublic = base64UrlDecode(freshTarget.ecdh_public_key);
@@ -128,16 +138,30 @@ export function ApproveDeviceDialog(props: Props) {
       const freshSig = base64UrlDecode(freshTarget.identity_signature);
       const freshNonce = base64UrlDecode(freshTarget.client_nonce);
       const sigValid = verifyDeviceIdentitySignature(
-        verifiedSigningPublic, verifiedEcdhPublic, freshNonce, freshSig, auth.identityKeys.signingPublic,
+        verifiedSigningPublic,
+        verifiedEcdhPublic,
+        freshNonce,
+        freshSig,
+        auth.identityKeys.signingPublic,
       );
       if (!sigValid) {
-        props.onError("Identity signature verification failed. Possible server-side tampering. Aborting.");
+        props.onError(
+          "Identity signature verification failed. Possible server-side tampering. Aborting.",
+        );
         return;
       }
 
       // TOFU: persist trust for SAS-verified + server-confirmed keys
-      const tofuResult = await verifyTofu(auth.user.id, newDeviceId, verifiedSigningPublic, verifiedEcdhPublic);
-      if (tofuResult.status === "ecdh_key_mismatch" || tofuResult.status === "identity_key_changed") {
+      const tofuResult = await verifyTofu(
+        auth.user.id,
+        newDeviceId,
+        verifiedSigningPublic,
+        verifiedEcdhPublic,
+      );
+      if (
+        tofuResult.status === "ecdh_key_mismatch" ||
+        tofuResult.status === "identity_key_changed"
+      ) {
         props.onError("Key verification failed before key distribution. Aborting.");
         return;
       }
@@ -176,11 +200,7 @@ export function ApproveDeviceDialog(props: Props) {
       }
 
       // Step 4: Distribute UMK (triggers pending_approved SSE)
-      const aad = buildDeviceUmkDistributionAad(
-        auth.user.id,
-        device.deviceId,
-        newDeviceId,
-      );
+      const aad = buildDeviceUmkDistributionAad(auth.user.id, device.deviceId, newDeviceId);
       const encrypted = ecdhEncrypt(
         auth.umk,
         device.deviceEcdhPrivate,
@@ -205,13 +225,18 @@ export function ApproveDeviceDialog(props: Props) {
   };
 
   return (
-    <Dialog open onOpenChange={(open: boolean) => { if (!open) props.onClose(); }}>
+    <Dialog
+      open
+      onOpenChange={(open: boolean) => {
+        if (!open) props.onClose();
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Approve New Device</DialogTitle>
           <DialogDescription>
-            "{props.device.name}" ({props.device.device_type}) is requesting access.
-            Verify that the emojis below match the ones shown on the new device.
+            "{props.device.name}" ({props.device.device_type}) is requesting access. Verify that the
+            emojis below match the ones shown on the new device.
           </DialogDescription>
         </DialogHeader>
 
@@ -289,17 +314,28 @@ async function distributeKeks(
 
   for (const workspaceId of workspace_ids) {
     try {
-      const { keys, current_kek_version } = await encryptionApi.getWorkspaceKeysWithPop(workspaceId, senderDeviceId);
+      const { keys, current_kek_version } = await encryptionApi.getWorkspaceKeysWithPop(
+        workspaceId,
+        senderDeviceId,
+      );
       if (keys.length === 0 || current_kek_version === 0) continue;
 
-      const activeKey = keys.find(k => k.key_version === current_kek_version);
+      const activeKey = keys.find((k) => k.key_version === current_kek_version);
       if (!activeKey?.sender_ecdh_public_key || !activeKey.sender_signing_public_key) continue;
 
       const senderSigningPk = base64UrlDecode(activeKey.sender_signing_public_key);
       const senderEcdhPk = base64UrlDecode(activeKey.sender_ecdh_public_key);
 
-      const tofuResult = await verifyTofu(userId, activeKey.sender_device_id, senderSigningPk, senderEcdhPk);
-      if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
+      const tofuResult = await verifyTofu(
+        userId,
+        activeKey.sender_device_id,
+        senderSigningPk,
+        senderEcdhPk,
+      );
+      if (
+        tofuResult.status === "identity_key_changed" ||
+        tofuResult.status === "ecdh_key_mismatch"
+      ) {
         throw new Error("Key verification failed for KEK sender device. Aborting distribution.");
       }
       await handleTofuResult(tofuResult);
@@ -381,9 +417,7 @@ async function transferTrustState(
   });
 }
 
-function waitForTrustTransferNonce(
-  targetDeviceId: string,
-): Promise<string | null> {
+function waitForTrustTransferNonce(targetDeviceId: string): Promise<string | null> {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       es.close();

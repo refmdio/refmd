@@ -2,10 +2,7 @@ import { client, throwIfError } from "./core";
 import type { components } from "./schema";
 
 export const encryptionApi = {
-  getWorkspaceIds: async () =>
-    throwIfError(
-      await client.GET("/api/workspaces/ids"),
-    ),
+  getWorkspaceIds: async () => throwIfError(await client.GET("/api/workspaces/ids")),
 
   getWorkspaceKeysWithPop: async (workspaceId: string, deviceId: string) =>
     throwIfError(
@@ -60,10 +57,7 @@ export const encryptionApi = {
     );
   },
 
-  completeKekRotation: async (
-    workspaceId: string,
-    newKekVersion: number,
-  ) => {
+  completeKekRotation: async (workspaceId: string, newKekVersion: number) => {
     throwIfError(
       await client.POST("/api/encryption/workspaces/{workspace_id}/kek-rotation/complete", {
         params: { path: { workspace_id: workspaceId } },
@@ -87,8 +81,5 @@ export const encryptionApi = {
       }),
     ),
 
-  setupComplete: async () =>
-    throwIfError(
-      await client.POST("/api/encryption/setup-complete"),
-    ),
+  setupComplete: async () => throwIfError(await client.POST("/api/encryption/setup-complete")),
 };

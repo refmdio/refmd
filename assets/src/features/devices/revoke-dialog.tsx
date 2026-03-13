@@ -44,7 +44,12 @@ export function RevokeDeviceDialog(props: Props) {
     try {
       const authSnapshot = authState();
       const deviceSnapshot = deviceState();
-      if (!authSnapshot?.identityKeys || !authSnapshot.umk || !deviceSnapshot?.deviceId || !deviceSnapshot.deviceEcdhPrivate) {
+      if (
+        !authSnapshot?.identityKeys ||
+        !authSnapshot.umk ||
+        !deviceSnapshot?.deviceId ||
+        !deviceSnapshot.deviceEcdhPrivate
+      ) {
         props.onError("Identity keys or device not available");
         return;
       }
@@ -80,11 +85,7 @@ export function RevokeDeviceDialog(props: Props) {
 
       if (mode() === "security" && result.workspaces_needing_kek_rotation.length > 0) {
         try {
-          await performKekRotation(
-            result.workspaces_needing_kek_rotation,
-            auth,
-            device,
-          );
+          await performKekRotation(result.workspaces_needing_kek_rotation, auth, device);
         } catch (rotationErr) {
           props.onRevoked();
           props.onError(
@@ -103,13 +104,16 @@ export function RevokeDeviceDialog(props: Props) {
   };
 
   return (
-    <Dialog open onOpenChange={(open: boolean) => { if (!open) props.onClose(); }}>
+    <Dialog
+      open
+      onOpenChange={(open: boolean) => {
+        if (!open) props.onClose();
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Remove Device</DialogTitle>
-          <DialogDescription>
-            Removing "{props.device.name}". Choose the reason:
-          </DialogDescription>
+          <DialogDescription>Removing "{props.device.name}". Choose the reason:</DialogDescription>
         </DialogHeader>
 
         <RadioGroup value={mode()} onChange={(v: string) => setMode(v as "security" | "retire")}>
@@ -117,12 +121,10 @@ export function RevokeDeviceDialog(props: Props) {
             <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-accent/50 transition-colors">
               <RadioGroupItem value="security" />
               <div>
-                <span class="font-medium">
-                  Lost or compromised
-                </span>
+                <span class="font-medium">Lost or compromised</span>
                 <p class="text-sm text-muted-foreground mt-1">
-                  This device was lost, stolen, or may have been accessed by
-                  someone else. All workspace keys will be regenerated.
+                  This device was lost, stolen, or may have been accessed by someone else. All
+                  workspace keys will be regenerated.
                 </p>
               </div>
             </label>
@@ -130,12 +132,10 @@ export function RevokeDeviceDialog(props: Props) {
             <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-accent/50 transition-colors">
               <RadioGroupItem value="retire" />
               <div>
-                <span class="font-medium">
-                  Safely retiring
-                </span>
+                <span class="font-medium">Safely retiring</span>
                 <p class="text-sm text-muted-foreground mt-1">
-                  This device is in your possession and will be wiped or
-                  factory-reset. No key regeneration needed.
+                  This device is in your possession and will be wiped or factory-reset. No key
+                  regeneration needed.
                 </p>
               </div>
             </label>
@@ -201,7 +201,13 @@ export async function performKekRotation(
     }
     const sig = base64UrlDecode(d.identity_signature);
     const nonce = base64UrlDecode(d.client_nonce);
-    const sigValid = verifyDeviceIdentitySignature(signingPk, ecdhPk, nonce, sig, identitySigningPublic);
+    const sigValid = verifyDeviceIdentitySignature(
+      signingPk,
+      ecdhPk,
+      nonce,
+      sig,
+      identitySigningPublic,
+    );
     if (!sigValid) {
       throw new Error(`Device ${d.name}: Invalid identity signature. Aborting KEK rotation.`);
     }

@@ -68,7 +68,13 @@ export async function persistKeys(params: PersistKeysParams): Promise<void> {
     if (kmsi) {
       await storeWrappedUmk(dsk, umk, buildDskUmkCacheAad(userId));
     }
-    await storeWrappedDeviceKeys(dsk, deviceEcdhPrivate, deviceSigningPrivate, buildDskDeviceEcdhAad(userId), buildDskDeviceSigningAad(userId));
+    await storeWrappedDeviceKeys(
+      dsk,
+      deviceEcdhPrivate,
+      deviceSigningPrivate,
+      buildDskDeviceEcdhAad(userId),
+      buildDskDeviceSigningAad(userId),
+    );
   } else if (pdk) {
     // DSK unavailable: PDK fallback (localStorage + XChaCha20-Poly1305)
     // PDK-wrapped UMK is always stored regardless of KMSI (frontend.md: PDK fallback section)
@@ -130,7 +136,11 @@ export async function restoreKeysFromDsk(userId: string): Promise<RestoredKeys |
   if (!dsk) return null;
 
   const umk = await loadWrappedUmk(dsk, buildDskUmkCacheAad(userId));
-  const deviceKeys = await loadWrappedDeviceKeys(dsk, buildDskDeviceEcdhAad(userId), buildDskDeviceSigningAad(userId));
+  const deviceKeys = await loadWrappedDeviceKeys(
+    dsk,
+    buildDskDeviceEcdhAad(userId),
+    buildDskDeviceSigningAad(userId),
+  );
 
   if (!umk || !deviceKeys) return null;
 
@@ -147,13 +157,14 @@ export async function restoreDeviceKeysFromDsk(userId: string): Promise<{
 } | null> {
   const dsk = await loadDsk();
   if (!dsk) return null;
-  return loadWrappedDeviceKeys(dsk, buildDskDeviceEcdhAad(userId), buildDskDeviceSigningAad(userId));
+  return loadWrappedDeviceKeys(
+    dsk,
+    buildDskDeviceEcdhAad(userId),
+    buildDskDeviceSigningAad(userId),
+  );
 }
 
-export function restoreKeysFromPdk(
-  pdk: Uint8Array,
-  userId: string,
-): RestoredKeys | null {
+export function restoreKeysFromPdk(pdk: Uint8Array, userId: string): RestoredKeys | null {
   const umk = loadPdkWrappedUmk(pdk, userId);
   const deviceKeys = loadPdkWrappedDeviceKeys(pdk, userId);
 
@@ -218,7 +229,13 @@ export async function persistDeviceKeysOnly(
   }
 
   if (dsk) {
-    await storeWrappedDeviceKeys(dsk, deviceEcdhPrivate, deviceSigningPrivate, buildDskDeviceEcdhAad(userId), buildDskDeviceSigningAad(userId));
+    await storeWrappedDeviceKeys(
+      dsk,
+      deviceEcdhPrivate,
+      deviceSigningPrivate,
+      buildDskDeviceEcdhAad(userId),
+      buildDskDeviceSigningAad(userId),
+    );
   } else {
     const pdkToUse = pdk ?? restoreSessionPdk();
     if (pdkToUse) {

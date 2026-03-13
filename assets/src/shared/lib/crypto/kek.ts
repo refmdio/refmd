@@ -27,7 +27,13 @@ export function encryptKekForDevice(
   targetDeviceId: string,
   keyVersion: number,
 ): { ciphertext: Uint8Array; nonce: Uint8Array } {
-  const aad = buildDeviceKekDistributionAad(workspaceId, userId, senderDeviceId, targetDeviceId, keyVersion);
+  const aad = buildDeviceKekDistributionAad(
+    workspaceId,
+    userId,
+    senderDeviceId,
+    targetDeviceId,
+    keyVersion,
+  );
   return ecdhEncrypt(kek, senderEcdhPrivate, targetEcdhPublic, "kek_wrap", aad);
 }
 
@@ -82,7 +88,13 @@ export function decryptKekFromDeviceEnvelope(
   receiverDeviceId: string,
   keyVersion: number,
 ): Uint8Array {
-  const aad = buildDeviceKekDistributionAad(workspaceId, userId, senderDeviceId, receiverDeviceId, keyVersion);
+  const aad = buildDeviceKekDistributionAad(
+    workspaceId,
+    userId,
+    senderDeviceId,
+    receiverDeviceId,
+    keyVersion,
+  );
   return ecdhDecrypt(encryptedKek, nonce, receiverEcdhPrivate, senderEcdhPublic, "kek_wrap", aad);
 }
 

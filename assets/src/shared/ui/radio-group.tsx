@@ -1,21 +1,21 @@
-import { splitProps, type ParentProps } from "solid-js"
-import * as RadioGroupPrimitive from "@kobalte/core/radio-group"
-import { CircleIcon } from "lucide-solid"
-import { cn } from "@/shared/lib/utils"
+import { splitProps, type ParentProps } from "solid-js";
+import * as RadioGroupPrimitive from "@kobalte/core/radio-group";
+import { CircleIcon } from "lucide-solid";
+import { cn } from "@/shared/lib/utils";
 
 function RadioGroup(props: ParentProps<{ class?: string; [key: string]: any }>) {
-  const [local, rest] = splitProps(props, ["class"])
+  const [local, rest] = splitProps(props, ["class"]);
   return (
     <RadioGroupPrimitive.Root
       data-slot="radio-group"
       class={cn("grid gap-3", local.class)}
       {...rest}
     />
-  )
+  );
 }
 
 function RadioGroupItem(props: ParentProps<{ class?: string; value: string; [key: string]: any }>) {
-  const [local, rest] = splitProps(props, ["class", "children", "value", "id"])
+  const [local, rest] = splitProps(props, ["class", "children", "value", "id"]);
   return (
     <RadioGroupPrimitive.Item value={local.value} {...rest}>
       <RadioGroupPrimitive.ItemInput id={local.id} />
@@ -27,7 +27,7 @@ function RadioGroupItem(props: ParentProps<{ class?: string; value: string; [key
           "aria-invalid:border-destructive aria-invalid:focus-visible:ring-destructive/30 dark:aria-invalid:focus-visible:ring-destructive/40",
           "data-[checked]:border-foreground",
           "disabled:cursor-not-allowed disabled:opacity-40",
-          local.class
+          local.class,
         )}
       >
         <RadioGroupPrimitive.ItemIndicator
@@ -39,7 +39,7 @@ function RadioGroupItem(props: ParentProps<{ class?: string; value: string; [key
       </RadioGroupPrimitive.ItemControl>
       {local.children}
     </RadioGroupPrimitive.Item>
-  )
+  );
 }
 
-export { RadioGroup, RadioGroupItem }
+export { RadioGroup, RadioGroupItem };

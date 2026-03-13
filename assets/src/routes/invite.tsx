@@ -1,13 +1,7 @@
 import { onMount, onCleanup, createEffect, createSignal, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { x25519 } from "@noble/curves/ed25519.js";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
 import { workspacesApi, encryptionApi, ApiError } from "@/shared/api";
@@ -40,7 +34,13 @@ async function retryAsync<T>(fn: () => Promise<T>, retries: number): Promise<T> 
 }
 
 function decryptKek(
-  acceptResult: { encrypted_kek: string; kek_nonce: string; workspace_id: string; invitation_id: string; kek_version: number },
+  acceptResult: {
+    encrypted_kek: string;
+    kek_nonce: string;
+    workspace_id: string;
+    invitation_id: string;
+    kek_version: number;
+  },
   tokenBytes: Uint8Array,
 ): Uint8Array {
   return decryptKekFromInvitation(
@@ -174,7 +174,14 @@ async function recoverFromMemberEnvelope(
 export default function InvitePage() {
   const navigate = useNavigate();
   const [status, setStatus] = createSignal<
-    "loading" | "need_auth" | "confirm" | "accepting" | "saving_keys" | "success" | "partial" | "error"
+    | "loading"
+    | "need_auth"
+    | "confirm"
+    | "accepting"
+    | "saving_keys"
+    | "success"
+    | "partial"
+    | "error"
   >("loading");
   const [error, setError] = createSignal<string | null>(null);
   const [retryable, setRetryable] = createSignal(false);
@@ -185,7 +192,9 @@ export default function InvitePage() {
     role_name: string | null;
   } | null>(null);
   let redirectTimer: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => { if (redirectTimer) clearTimeout(redirectTimer); });
+  onCleanup(() => {
+    if (redirectTimer) clearTimeout(redirectTimer);
+  });
 
   const trySaves = async (
     kek: Uint8Array,
@@ -198,10 +207,11 @@ export default function InvitePage() {
     if (!deviceSaved) {
       try {
         await retryAsync(
-          () => saveDeviceEnvelope(kek, acceptResult, auth, {
-            deviceId: device.deviceId,
-            deviceEcdhPrivate: device.deviceEcdhPrivate!,
-          }),
+          () =>
+            saveDeviceEnvelope(kek, acceptResult, auth, {
+              deviceId: device.deviceId,
+              deviceEcdhPrivate: device.deviceEcdhPrivate!,
+            }),
           KEK_SAVE_MAX_RETRIES,
         );
         deviceSaved = true;
@@ -213,10 +223,11 @@ export default function InvitePage() {
     if (!umkSaved && auth.umk) {
       try {
         await retryAsync(
-          () => saveUmkBackup(kek, acceptResult, {
-            user: auth.user,
-            umk: auth.umk!,
-          }),
+          () =>
+            saveUmkBackup(kek, acceptResult, {
+              user: auth.user,
+              umk: auth.umk!,
+            }),
           KEK_SAVE_MAX_RETRIES,
         );
         umkSaved = true;
@@ -246,8 +257,11 @@ export default function InvitePage() {
       try {
         acceptResult = await workspacesApi.acceptInvitation(token);
       } catch (err) {
-        if (err instanceof ApiError && err.status === 410 &&
-            err.body.error === "invitation_kek_outdated") {
+        if (
+          err instanceof ApiError &&
+          err.status === 410 &&
+          err.body.error === "invitation_kek_outdated"
+        ) {
           const bodyWsId = typeof err.body.workspace_id === "string" ? err.body.workspace_id : null;
           const recoveryWorkspaceId = savedWorkspaceId || bodyWsId;
           if (recoveryWorkspaceId) {
@@ -267,8 +281,11 @@ export default function InvitePage() {
             "This invitation uses an outdated encryption key. Please request a new invitation from the workspace administrator.",
           );
         }
-        if (err instanceof ApiError && err.status === 409 &&
-            err.body.error === "kek_rotation_in_progress") {
+        if (
+          err instanceof ApiError &&
+          err.status === 409 &&
+          err.body.error === "kek_rotation_in_progress"
+        ) {
           if (savedWorkspaceId) {
             setStatus("partial");
             setKekWarning(
@@ -424,26 +441,17 @@ export default function InvitePage() {
       <Show when={status() === "need_auth"}>
         <Card class="w-full max-w-md">
           <CardHeader class="space-y-1 text-center">
-            <CardTitle class="text-2xl font-bold">
-              You've been invited
-            </CardTitle>
+            <CardTitle class="text-2xl font-bold">You've been invited</CardTitle>
             <CardDescription>
-              Someone invited you to collaborate on a workspace.
-              Create an account or sign in to accept.
+              Someone invited you to collaborate on a workspace. Create an account or sign in to
+              accept.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-3">
-            <Button
-              class="w-full"
-              onClick={() => navigate("/auth/register")}
-            >
+            <Button class="w-full" onClick={() => navigate("/auth/register")}>
               Create Account
             </Button>
-            <Button
-              variant="outline"
-              class="w-full"
-              onClick={() => navigate("/auth/login")}
-            >
+            <Button variant="outline" class="w-full" onClick={() => navigate("/auth/login")}>
               Sign In
             </Button>
           </CardContent>
@@ -454,15 +462,10 @@ export default function InvitePage() {
       <Show when={status() === "confirm"}>
         <Card class="w-full max-w-md">
           <CardHeader class="space-y-1 text-center">
-            <CardTitle class="text-2xl font-bold">
-              Accept Invitation
-            </CardTitle>
+            <CardTitle class="text-2xl font-bold">Accept Invitation</CardTitle>
             <CardDescription>
               Accept this workspace invitation as{" "}
-              <span class="font-medium text-foreground">
-                {authState()?.user.email}
-              </span>
-              ?
+              <span class="font-medium text-foreground">{authState()?.user.email}</span>?
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-3">
@@ -508,7 +511,8 @@ export default function InvitePage() {
                 <Show when={r().role_name}>
                   {(role) => (
                     <span>
-                      {" "}as <span class="font-medium text-foreground">{role()}</span>
+                      {" "}
+                      as <span class="font-medium text-foreground">{role()}</span>
                     </span>
                   )}
                 </Show>

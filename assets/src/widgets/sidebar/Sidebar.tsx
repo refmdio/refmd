@@ -23,12 +23,7 @@ export function Sidebar(props: SidebarProps) {
     <aside class="w-64 border-r border-border h-full flex flex-col bg-sidebar">
       <Show when={props.currentWorkspaceId}>
         <div class="px-2 py-1 border-b border-border flex items-center justify-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            class="size-7"
-            onClick={props.onCreateDocument}
-          >
+          <Button variant="ghost" size="icon" class="size-7" onClick={props.onCreateDocument}>
             <FilePlusIcon class="size-4" />
           </Button>
         </div>

@@ -14,13 +14,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Field, FieldLabel, FieldDescription } from "@/shared/ui/field";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import {
   UserPlusIcon,
   UserMinusIcon,
@@ -103,7 +97,11 @@ export function WorkspaceSection() {
     if (fromList) return fromList;
     const ws = workspace.data;
     if (ws?.current_user_role_id) {
-      return { role_id: ws.current_user_role_id, base_role: ws.current_user_base_role ?? "", user_id: currentUserId() ?? "" };
+      return {
+        role_id: ws.current_user_role_id,
+        base_role: ws.current_user_base_role ?? "",
+        user_id: currentUserId() ?? "",
+      };
     }
     return undefined;
   };
@@ -130,9 +128,7 @@ export function WorkspaceSection() {
     if (!member || !roleList) return [];
     const actorPower = PRIVILEGE_LEVEL[member.base_role as BaseRole] ?? 0;
     const actorPerms = new Set(
-      ALL_PERMISSIONS.filter((p) =>
-        checkEffectivePermission(roleList, member.role_id, p),
-      ),
+      ALL_PERMISSIONS.filter((p) => checkEffectivePermission(roleList, member.role_id, p)),
     );
     return roleList.filter((r: any) => {
       if (PRIVILEGE_LEVEL[r.base_role as BaseRole] > actorPower) return false;
@@ -276,9 +272,7 @@ export function WorkspaceSection() {
   } | null>(null);
   const [removing, setRemoving] = createSignal(false);
 
-  const triggerKekRotation = async (
-    rotationList: WorkspaceRotationInfo[],
-  ) => {
+  const triggerKekRotation = async (rotationList: WorkspaceRotationInfo[]) => {
     if (rotationList.length === 0) return;
     const auth = authState();
     const device = deviceState();
@@ -387,15 +381,14 @@ export function WorkspaceSection() {
       let keys: KeysResponse["keys"] = [];
       let current_kek_version = 0;
       try {
-        const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(
-          id,
-          deviceId,
-        );
+        const keysResponse = await encryptionApi.getWorkspaceKeysWithPop(id, deviceId);
         keys = keysResponse.keys;
         current_kek_version = keysResponse.current_kek_version;
       } catch (e) {
         if (e instanceof ApiError && e.status === 404) {
-          const details = (e.body as Record<string, unknown>)?.details as Record<string, unknown> | undefined;
+          const details = (e.body as Record<string, unknown>)?.details as
+            | Record<string, unknown>
+            | undefined;
           current_kek_version = (details?.current_kek_version as number) ?? 0;
         } else {
           throw e;
@@ -409,9 +402,7 @@ export function WorkspaceSection() {
         throw new Error("Device ECDH private key not available");
       }
 
-      const activeKey = keys.find(
-        (k) => k.key_version === current_kek_version,
-      );
+      const activeKey = keys.find((k) => k.key_version === current_kek_version);
 
       let kek: Uint8Array;
 
@@ -425,7 +416,10 @@ export function WorkspaceSection() {
           senderSigningPk,
           senderEcdhPk,
         );
-        if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
+        if (
+          tofuResult.status === "identity_key_changed" ||
+          tofuResult.status === "ecdh_key_mismatch"
+        ) {
           throw new Error("Key verification failed for KEK sender device.");
         }
         await handleTofuResult(tofuResult);
@@ -450,14 +444,20 @@ export function WorkspaceSection() {
             } catch {
               try {
                 const backup = wrapKekWithUmk(
-                  kekRef, auth.umk!, id, auth.user.id, current_kek_version,
+                  kekRef,
+                  auth.umk!,
+                  id,
+                  auth.user.id,
+                  current_kek_version,
                 );
                 await encryptionApi.createKekBackupWithPop(id, {
                   key_version: current_kek_version,
                   encrypted_kek: base64UrlEncode(backup.encryptedKek),
                   nonce: base64UrlEncode(backup.nonce),
                 });
-              } catch { /* fire-and-forget */ }
+              } catch {
+                /* fire-and-forget */
+              }
             }
           })();
         }
@@ -477,7 +477,10 @@ export function WorkspaceSection() {
             meSenderSigningPk,
             meSenderEcdhPk,
           );
-          if (meTofuResult.status === "identity_key_changed" || meTofuResult.status === "ecdh_key_mismatch") {
+          if (
+            meTofuResult.status === "identity_key_changed" ||
+            meTofuResult.status === "ecdh_key_mismatch"
+          ) {
             throw new Error("Key verification failed for member envelope sender.");
           }
           await handleTofuResult(meTofuResult);
@@ -523,7 +526,9 @@ export function WorkspaceSection() {
           try {
             backupData = await encryptionApi.getKekBackupWithPop(id);
           } catch {
-            throw new Error("KEK recovery not available. No device envelope, member envelope, or UMK backup found.");
+            throw new Error(
+              "KEK recovery not available. No device envelope, member envelope, or UMK backup found.",
+            );
           }
 
           kek = unwrapKekFromBackup(
@@ -595,9 +600,7 @@ export function WorkspaceSection() {
         queryKey: ["workspace-invitations", id],
       });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create invitation",
-      );
+      setError(err instanceof Error ? err.message : "Failed to create invitation");
     } finally {
       setInviting(false);
     }
@@ -630,18 +633,14 @@ export function WorkspaceSection() {
         queryKey: ["workspace-invitations", id],
       });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to revoke invitation",
-      );
+      setError(err instanceof Error ? err.message : "Failed to revoke invitation");
     }
   };
 
   // ─── Roles CRUD ──────────────────────────────────────────────
   const [showCreateRole, setShowCreateRole] = createSignal(false);
   const [createRoleName, setCreateRoleName] = createSignal("");
-  const [createBaseRole, setCreateBaseRole] = createSignal<
-    "admin" | "editor" | "viewer"
-  >("editor");
+  const [createBaseRole, setCreateBaseRole] = createSignal<"admin" | "editor" | "viewer">("editor");
   const [creatingRole, setCreatingRole] = createSignal(false);
 
   const [editRoleTarget, setEditRoleTarget] = createSignal<{
@@ -652,9 +651,7 @@ export function WorkspaceSection() {
     permissions: PermissionOverride[];
   } | null>(null);
   const [editRoleName, setEditRoleName] = createSignal("");
-  const [editPermissions, setEditPermissions] = createSignal<
-    Record<string, boolean | null>
-  >({});
+  const [editPermissions, setEditPermissions] = createSignal<Record<string, boolean | null>>({});
   const [savingRole, setSavingRole] = createSignal(false);
 
   const [deleteRoleTarget, setDeleteRoleTarget] = createSignal<{
@@ -773,9 +770,7 @@ export function WorkspaceSection() {
       await workspacesApi.updateRole(id, roleId, { is_default: true });
       queryClient.invalidateQueries({ queryKey: ["workspace-roles", id] });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to set default role",
-      );
+      setError(err instanceof Error ? err.message : "Failed to set default role");
     }
   };
 
@@ -793,19 +788,14 @@ export function WorkspaceSection() {
     }
   };
 
-  const permissionState = (
-    permKey: string,
-  ): "default" | "granted" | "denied" => {
+  const permissionState = (permKey: string): "default" | "granted" | "denied" => {
     const val = editPermissions()[permKey];
     if (val === true) return "granted";
     if (val === false) return "denied";
     return "default";
   };
 
-  const canEditPermission = (
-    ceiling: string,
-    roleBaseRole: string,
-  ): boolean => {
+  const canEditPermission = (ceiling: string, roleBaseRole: string): boolean => {
     return isAtOrAbove(roleBaseRole as BaseRole, ceiling as BaseRole);
   };
 
@@ -835,9 +825,7 @@ export function WorkspaceSection() {
 
       <Show
         when={wsId()}
-        fallback={
-          <p class="text-sm text-muted-foreground">No workspace selected.</p>
-        }
+        fallback={<p class="text-sm text-muted-foreground">No workspace selected.</p>}
       >
         <Show when={error()}>
           {(err) => (
@@ -880,18 +868,10 @@ export function WorkspaceSection() {
                       }}
                       class="flex-1"
                     />
-                    <Button
-                      size="sm"
-                      onClick={handleUpdateName}
-                      disabled={updating()}
-                    >
+                    <Button size="sm" onClick={handleUpdateName} disabled={updating()}>
                       Save
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setEditingName(false)}
-                    >
+                    <Button size="sm" variant="outline" onClick={() => setEditingName(false)}>
                       Cancel
                     </Button>
                   </div>
@@ -900,9 +880,7 @@ export function WorkspaceSection() {
                 <div class="flex items-center justify-between">
                   <div>
                     <p class="text-xs text-muted-foreground">Name</p>
-                    <p class="text-sm font-medium">
-                      {workspace.data?.name ?? "—"}
-                    </p>
+                    <p class="text-sm font-medium">{workspace.data?.name ?? "—"}</p>
                   </div>
                   <Show when={canUpdateWorkspace()}>
                     <Button
@@ -920,117 +898,107 @@ export function WorkspaceSection() {
               </Show>
               {/* Description */}
               <div>
-              <Show
-                when={editingDescription()}
-                fallback={
-                  <div class="flex items-center justify-between">
-                    <div>
-                      <p class="text-xs text-muted-foreground">Description</p>
-                      <p class="text-sm text-muted-foreground">
-                        {workspace.data?.description || "No description"}
-                      </p>
+                <Show
+                  when={editingDescription()}
+                  fallback={
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <p class="text-xs text-muted-foreground">Description</p>
+                        <p class="text-sm text-muted-foreground">
+                          {workspace.data?.description || "No description"}
+                        </p>
+                      </div>
+                      <Show when={canUpdateWorkspace()}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setNewDescription(workspace.data?.description ?? "");
+                            setEditingDescription(true);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      </Show>
                     </div>
-                    <Show when={canUpdateWorkspace()}>
+                  }
+                >
+                  <div class="space-y-2">
+                    <Field>
+                      <FieldLabel>Description</FieldLabel>
+                      <Input
+                        value={newDescription()}
+                        onInput={(e) => setNewDescription(e.currentTarget.value)}
+                        placeholder="Workspace description"
+                      />
+                    </Field>
+                    <div class="flex gap-2">
+                      <Button size="sm" onClick={handleUpdateDescription} disabled={updating()}>
+                        Save
+                      </Button>
                       <Button
                         size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setNewDescription(workspace.data?.description ?? "");
-                          setEditingDescription(true);
-                        }}
+                        variant="outline"
+                        onClick={() => setEditingDescription(false)}
                       >
-                        Edit
+                        Cancel
                       </Button>
-                    </Show>
+                    </div>
                   </div>
-                }
-              >
-                <div class="space-y-2">
-                  <Field>
-                    <FieldLabel>Description</FieldLabel>
-                    <Input
-                      value={newDescription()}
-                      onInput={(e) => setNewDescription(e.currentTarget.value)}
-                      placeholder="Workspace description"
-                    />
-                  </Field>
-                  <div class="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={handleUpdateDescription}
-                      disabled={updating()}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setEditingDescription(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              </Show>
-            </div>
+                </Show>
+              </div>
 
-            {/* Slug */}
-            <div>
-              <Show
-                when={editingSlug()}
-                fallback={
-                  <div class="flex items-center justify-between">
-                    <div>
-                      <p class="text-xs text-muted-foreground">Slug</p>
-                      <p class="text-sm font-mono">
-                        {workspace.data?.slug ?? "—"}
-                      </p>
+              {/* Slug */}
+              <div>
+                <Show
+                  when={editingSlug()}
+                  fallback={
+                    <div class="flex items-center justify-between">
+                      <div>
+                        <p class="text-xs text-muted-foreground">Slug</p>
+                        <p class="text-sm font-mono">{workspace.data?.slug ?? "—"}</p>
+                      </div>
+                      <Show when={canUpdateWorkspace()}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setNewSlug(workspace.data?.slug ?? "");
+                            setEditingSlug(true);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      </Show>
                     </div>
-                    <Show when={canUpdateWorkspace()}>
+                  }
+                >
+                  <div class="space-y-2">
+                    <Field>
+                      <FieldLabel>Slug</FieldLabel>
+                      <FieldDescription>
+                        URL-safe identifier (lowercase letters, numbers, hyphens)
+                      </FieldDescription>
+                      <Input
+                        value={newSlug()}
+                        onInput={(e) => setNewSlug(e.currentTarget.value)}
+                        placeholder="workspace-slug"
+                      />
+                    </Field>
+                    <div class="flex gap-2">
                       <Button
                         size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setNewSlug(workspace.data?.slug ?? "");
-                          setEditingSlug(true);
-                        }}
+                        onClick={handleUpdateSlug}
+                        disabled={updating() || !newSlug().trim()}
                       >
-                        Edit
+                        Save
                       </Button>
-                    </Show>
+                      <Button size="sm" variant="outline" onClick={() => setEditingSlug(false)}>
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
-                }
-              >
-                <div class="space-y-2">
-                  <Field>
-                    <FieldLabel>Slug</FieldLabel>
-                    <FieldDescription>
-                      URL-safe identifier (lowercase letters, numbers, hyphens)
-                    </FieldDescription>
-                    <Input
-                      value={newSlug()}
-                      onInput={(e) => setNewSlug(e.currentTarget.value)}
-                      placeholder="workspace-slug"
-                    />
-                  </Field>
-                  <div class="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={handleUpdateSlug}
-                      disabled={updating() || !newSlug().trim()}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setEditingSlug(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              </Show>
+                </Show>
               </div>
             </div>
           </section>
@@ -1039,98 +1007,97 @@ export function WorkspaceSection() {
 
           {/* ─── Members ────────────────────────────────────── */}
           <section>
-              <div class="flex items-center justify-between mb-3">
-                <h4 class="text-sm font-medium">
-                  Members {!memberPermissionDenied() && `(${members.data?.members?.length ?? 0})`}
-                </h4>
-                <Show when={canInvite() && !workspace.data?.needs_kek_rotation}>
-                  <Button size="sm" onClick={() => setShowInvite(true)}>
-                    <UserPlusIcon class="size-3 mr-1" />
-                    Invite
-                  </Button>
-                </Show>
-              </div>
-              <Show
-                when={!memberPermissionDenied() && !members.isLoading}
-                fallback={
-                  <Show when={!memberPermissionDenied()}>
-                    <div class="flex justify-center py-4">
-                      <Spinner class="size-4" />
-                    </div>
-                  </Show>
-                }
-              >
-                <div class="space-y-2">
-                  <For each={members.data?.members}>
-                    {(member) => {
-                      const isSelf = () => member.user_id === currentUserId();
-                      return (
-                        <div class="flex items-center justify-between p-2 border border-border/40">
-                          <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-2">
-                              <span class="text-sm font-medium truncate">
-                                {member.name}
-                              </span>
-                              <Show when={isSelf()}>
-                                <span class="text-xs text-muted-foreground">
-                                  (you)
-                                </span>
-                              </Show>
-                              <span
-                                class={`text-xs px-1.5 py-0.5 rounded-full ${roleBadgeClass(member.base_role)}`}
-                              >
-                                {member.role_name}
-                              </span>
-                            </div>
-                            <div class="text-xs text-muted-foreground truncate">
-                              {member.email}
-                            </div>
-                          </div>
-                          <div class="flex items-center gap-1">
-                            <Show when={canChangeRole() && (member.base_role !== "owner" || isOwner())}>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                class="size-7"
-                                title="Change role"
-                                onClick={() => {
-                                  setRoleChangeTarget({
-                                    user_id: member.user_id,
-                                    name: member.name,
-                                    current_role_id: member.role_id,
-                                  });
-                                  setSelectedRoleId(member.role_id);
-                                }}
-                              >
-                                <ShieldIcon class="size-3" />
-                              </Button>
-                            </Show>
-                            <Show when={isSelf() || (canRemoveMember() && (member.base_role !== "owner" || isOwner()))}>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                class="size-7"
-                                title={
-                                  isSelf() ? "Leave workspace" : "Remove member"
-                                }
-                                onClick={() =>
-                                  setRemoveTarget({
-                                    user_id: member.user_id,
-                                    name: member.name,
-                                  })
-                                }
-                              >
-                                <UserMinusIcon class="size-3" />
-                              </Button>
-                            </Show>
-                          </div>
-                        </div>
-                      );
-                    }}
-                  </For>
-                </div>
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="text-sm font-medium">
+                Members {!memberPermissionDenied() && `(${members.data?.members?.length ?? 0})`}
+              </h4>
+              <Show when={canInvite() && !workspace.data?.needs_kek_rotation}>
+                <Button size="sm" onClick={() => setShowInvite(true)}>
+                  <UserPlusIcon class="size-3 mr-1" />
+                  Invite
+                </Button>
               </Show>
-            </section>
+            </div>
+            <Show
+              when={!memberPermissionDenied() && !members.isLoading}
+              fallback={
+                <Show when={!memberPermissionDenied()}>
+                  <div class="flex justify-center py-4">
+                    <Spinner class="size-4" />
+                  </div>
+                </Show>
+              }
+            >
+              <div class="space-y-2">
+                <For each={members.data?.members}>
+                  {(member) => {
+                    const isSelf = () => member.user_id === currentUserId();
+                    return (
+                      <div class="flex items-center justify-between p-2 border border-border/40">
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="text-sm font-medium truncate">{member.name}</span>
+                            <Show when={isSelf()}>
+                              <span class="text-xs text-muted-foreground">(you)</span>
+                            </Show>
+                            <span
+                              class={`text-xs px-1.5 py-0.5 rounded-full ${roleBadgeClass(member.base_role)}`}
+                            >
+                              {member.role_name}
+                            </span>
+                          </div>
+                          <div class="text-xs text-muted-foreground truncate">{member.email}</div>
+                        </div>
+                        <div class="flex items-center gap-1">
+                          <Show
+                            when={canChangeRole() && (member.base_role !== "owner" || isOwner())}
+                          >
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              class="size-7"
+                              title="Change role"
+                              onClick={() => {
+                                setRoleChangeTarget({
+                                  user_id: member.user_id,
+                                  name: member.name,
+                                  current_role_id: member.role_id,
+                                });
+                                setSelectedRoleId(member.role_id);
+                              }}
+                            >
+                              <ShieldIcon class="size-3" />
+                            </Button>
+                          </Show>
+                          <Show
+                            when={
+                              isSelf() ||
+                              (canRemoveMember() && (member.base_role !== "owner" || isOwner()))
+                            }
+                          >
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              class="size-7"
+                              title={isSelf() ? "Leave workspace" : "Remove member"}
+                              onClick={() =>
+                                setRemoveTarget({
+                                  user_id: member.user_id,
+                                  name: member.name,
+                                })
+                              }
+                            >
+                              <UserMinusIcon class="size-3" />
+                            </Button>
+                          </Show>
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
+          </section>
 
           <div class="border-t border-border/40" />
 
@@ -1201,11 +1168,11 @@ export function WorkspaceSection() {
                               title="Delete role"
                               onClick={() =>
                                 setDeleteRoleTarget({
-                                id: role.id,
-                                name: role.name,
-                              })
-                            }
-                          >
+                                  id: role.id,
+                                  name: role.name,
+                                })
+                              }
+                            >
                               <TrashIcon class="size-3" />
                             </Button>
                           </Show>
@@ -1248,9 +1215,7 @@ export function WorkspaceSection() {
                         size="icon"
                         class="size-7"
                         title="Revoke invitation"
-                        onClick={() =>
-                          handleRevokeInvitation(inv.invitation_id)
-                        }
+                        onClick={() => handleRevokeInvitation(inv.invitation_id)}
                       >
                         <TrashIcon class="size-3" />
                       </Button>
@@ -1269,25 +1234,15 @@ export function WorkspaceSection() {
               <Show
                 when={
                   !isOwner() ||
-                  (members.data?.members?.filter(
-                    (m) => m.base_role === "owner",
-                  ).length ?? 0) > 1
+                  (members.data?.members?.filter((m) => m.base_role === "owner").length ?? 0) > 1
                 }
               >
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowLeave(true)}
-                >
+                <Button size="sm" variant="outline" onClick={() => setShowLeave(true)}>
                   Leave Workspace
                 </Button>
               </Show>
               <Show when={isOwner()}>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => setShowDelete(true)}
-                >
+                <Button size="sm" variant="destructive" onClick={() => setShowDelete(true)}>
                   Delete Workspace
                 </Button>
               </Show>
@@ -1308,9 +1263,7 @@ export function WorkspaceSection() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Invite Member</DialogTitle>
-            <DialogDescription>
-              Send an invitation to join this workspace.
-            </DialogDescription>
+            <DialogDescription>Send an invitation to join this workspace.</DialogDescription>
           </DialogHeader>
           <Show
             when={!inviteLink()}
@@ -1320,16 +1273,9 @@ export function WorkspaceSection() {
                   Invitation created. Share this link with the invitee:
                 </p>
                 <div class="flex items-center gap-2">
-                  <Input
-                    value={inviteLink() ?? ""}
-                    readOnly
-                    class="font-mono text-xs"
-                  />
+                  <Input value={inviteLink() ?? ""} readOnly class="font-mono text-xs" />
                   <Button variant="outline" size="icon" onClick={handleCopyLink}>
-                    <Show
-                      when={copied()}
-                      fallback={<CopyIcon class="size-4" />}
-                    >
+                    <Show when={copied()} fallback={<CopyIcon class="size-4" />}>
                       <CheckIcon class="size-4" />
                     </Show>
                   </Button>
@@ -1358,34 +1304,32 @@ export function WorkspaceSection() {
                 <Field>
                   <FieldLabel for="invite-role">Role</FieldLabel>
                   <Show when={defaultRoleAssignable()}>
-                    <FieldDescription>
-                      Leave empty for the default role.
-                    </FieldDescription>
+                    <FieldDescription>Leave empty for the default role.</FieldDescription>
                   </Show>
                   <Select
                     options={assignableRoles()}
                     optionValue="id"
                     optionTextValue="name"
                     value={assignableRoles().find((r: any) => r.id === inviteRoleId()) ?? null}
-                      onChange={(val: any) => setInviteRoleId(val?.id ?? "")}
-                      placeholder={defaultRoleAssignable() ? "Default role" : "Select a role"}
-                      itemComponent={(itemProps: any) => (
-                        <SelectItem item={itemProps.item}>
-                          {itemProps.item.rawValue.name} ({itemProps.item.rawValue.base_role})
-                        </SelectItem>
-                      )}
-                    >
-                      <SelectTrigger>
-                        <SelectValue>
-                          {(state: any) => {
-                            const opt = state.selectedOption();
-                            return opt ? `${opt.name} (${opt.base_role})` : "";
-                          }}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent />
-                    </Select>
-                  </Field>
+                    onChange={(val: any) => setInviteRoleId(val?.id ?? "")}
+                    placeholder={defaultRoleAssignable() ? "Default role" : "Select a role"}
+                    itemComponent={(itemProps: any) => (
+                      <SelectItem item={itemProps.item}>
+                        {itemProps.item.rawValue.name} ({itemProps.item.rawValue.base_role})
+                      </SelectItem>
+                    )}
+                  >
+                    <SelectTrigger>
+                      <SelectValue>
+                        {(state: any) => {
+                          const opt = state.selectedOption();
+                          return opt ? `${opt.name} (${opt.base_role})` : "";
+                        }}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent />
+                  </Select>
+                </Field>
               </Show>
               <Field>
                 <FieldLabel for="invite-expiry">Expires in</FieldLabel>
@@ -1409,7 +1353,11 @@ export function WorkspaceSection() {
               </Button>
               <Button
                 onClick={handleInvite}
-                disabled={inviting() || !inviteEmail().trim() || (!defaultRoleAssignable() && !inviteRoleId())}
+                disabled={
+                  inviting() ||
+                  !inviteEmail().trim() ||
+                  (!defaultRoleAssignable() && !inviteRoleId())
+                }
               >
                 {inviting() ? "Creating..." : "Create Invitation"}
               </Button>
@@ -1428,9 +1376,7 @@ export function WorkspaceSection() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {removeTarget()?.user_id === currentUserId()
-                ? "Leave Workspace"
-                : "Remove Member"}
+              {removeTarget()?.user_id === currentUserId() ? "Leave Workspace" : "Remove Member"}
             </DialogTitle>
             <DialogDescription>
               {removeTarget()?.user_id === currentUserId()
@@ -1442,11 +1388,7 @@ export function WorkspaceSection() {
             <Button variant="outline" onClick={() => setRemoveTarget(null)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleRemoveMember}
-              disabled={removing()}
-            >
+            <Button variant="destructive" onClick={handleRemoveMember} disabled={removing()}>
               {removing()
                 ? "Removing..."
                 : removeTarget()?.user_id === currentUserId()
@@ -1467,9 +1409,7 @@ export function WorkspaceSection() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Change Role</DialogTitle>
-            <DialogDescription>
-              Select a new role for {roleChangeTarget()?.name}.
-            </DialogDescription>
+            <DialogDescription>Select a new role for {roleChangeTarget()?.name}.</DialogDescription>
           </DialogHeader>
           <Show when={assignableRoles().length > 0}>
             <Field>
@@ -1479,39 +1419,33 @@ export function WorkspaceSection() {
                 optionValue="id"
                 optionTextValue="name"
                 value={assignableRoles().find((r: any) => r.id === selectedRoleId()) ?? null}
-                  onChange={(val: any) => setSelectedRoleId(val?.id ?? "")}
-                  disallowEmptySelection
-                  itemComponent={(itemProps: any) => (
-                    <SelectItem item={itemProps.item}>
-                      {itemProps.item.rawValue.name} ({itemProps.item.rawValue.base_role})
-                    </SelectItem>
-                  )}
-                >
-                  <SelectTrigger>
-                    <SelectValue>
-                      {(state: any) => {
-                        const opt = state.selectedOption();
-                        return opt ? `${opt.name} (${opt.base_role})` : "";
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent />
-                </Select>
+                onChange={(val: any) => setSelectedRoleId(val?.id ?? "")}
+                disallowEmptySelection
+                itemComponent={(itemProps: any) => (
+                  <SelectItem item={itemProps.item}>
+                    {itemProps.item.rawValue.name} ({itemProps.item.rawValue.base_role})
+                  </SelectItem>
+                )}
+              >
+                <SelectTrigger>
+                  <SelectValue>
+                    {(state: any) => {
+                      const opt = state.selectedOption();
+                      return opt ? `${opt.name} (${opt.base_role})` : "";
+                    }}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent />
+              </Select>
             </Field>
           </Show>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRoleChangeTarget(null)}
-            >
+            <Button variant="outline" onClick={() => setRoleChangeTarget(null)}>
               Cancel
             </Button>
             <Button
               onClick={handleChangeRole}
-              disabled={
-                changingRole() ||
-                selectedRoleId() === roleChangeTarget()?.current_role_id
-              }
+              disabled={changingRole() || selectedRoleId() === roleChangeTarget()?.current_role_id}
             >
               {changingRole() ? "Changing..." : "Change Role"}
             </Button>
@@ -1524,9 +1458,7 @@ export function WorkspaceSection() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Role</DialogTitle>
-            <DialogDescription>
-              Create a new custom role for this workspace.
-            </DialogDescription>
+            <DialogDescription>Create a new custom role for this workspace.</DialogDescription>
           </DialogHeader>
           <div class="space-y-4">
             <Field>
@@ -1546,9 +1478,7 @@ export function WorkspaceSection() {
               <Select
                 options={["admin", "editor", "viewer"]}
                 value={createBaseRole()}
-                onChange={(val: any) =>
-                  setCreateBaseRole(val as "admin" | "editor" | "viewer")
-                }
+                onChange={(val: any) => setCreateBaseRole(val as "admin" | "editor" | "viewer")}
                 disallowEmptySelection
                 itemComponent={(itemProps: any) => (
                   <SelectItem item={itemProps.item}>
@@ -1561,9 +1491,7 @@ export function WorkspaceSection() {
                   <SelectValue>
                     {(state: any) => {
                       const opt = state.selectedOption();
-                      return opt
-                        ? opt.charAt(0).toUpperCase() + opt.slice(1)
-                        : "";
+                      return opt ? opt.charAt(0).toUpperCase() + opt.slice(1) : "";
                     }}
                   </SelectValue>
                 </SelectTrigger>
@@ -1572,10 +1500,7 @@ export function WorkspaceSection() {
             </Field>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowCreateRole(false)}
-            >
+            <Button variant="outline" onClick={() => setShowCreateRole(false)}>
               Cancel
             </Button>
             <Button
@@ -1599,8 +1524,8 @@ export function WorkspaceSection() {
           <DialogHeader>
             <DialogTitle>Edit Role: {editRoleTarget()?.name}</DialogTitle>
             <DialogDescription>
-              Modify role name and permissions. Click a permission to cycle:
-              default, granted, denied.
+              Modify role name and permissions. Click a permission to cycle: default, granted,
+              denied.
             </DialogDescription>
           </DialogHeader>
           <div class="space-y-4">
@@ -1618,10 +1543,7 @@ export function WorkspaceSection() {
                 <For each={[...ALL_PERMISSIONS]}>
                   {(permKey) => {
                     const editable = () =>
-                      canEditPermission(
-                        CEILING[permKey],
-                        editRoleTarget()?.base_role ?? "viewer",
-                      );
+                      canEditPermission(CEILING[permKey], editRoleTarget()?.base_role ?? "viewer");
                     const state = () => permissionState(permKey);
                     return (
                       <button
@@ -1656,10 +1578,7 @@ export function WorkspaceSection() {
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditRoleTarget(null)}
-            >
+            <Button variant="outline" onClick={() => setEditRoleTarget(null)}>
               Cancel
             </Button>
             <Button onClick={handleSaveRole} disabled={savingRole()}>
@@ -1680,22 +1599,15 @@ export function WorkspaceSection() {
           <DialogHeader>
             <DialogTitle>Delete Role</DialogTitle>
             <DialogDescription>
-              Delete the role &ldquo;{deleteRoleTarget()?.name}&rdquo;? Members
-              using this role will need to be reassigned first.
+              Delete the role &ldquo;{deleteRoleTarget()?.name}&rdquo;? Members using this role will
+              need to be reassigned first.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteRoleTarget(null)}
-            >
+            <Button variant="outline" onClick={() => setDeleteRoleTarget(null)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteRole}
-              disabled={deletingRole()}
-            >
+            <Button variant="destructive" onClick={handleDeleteRole} disabled={deletingRole()}>
               {deletingRole() ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
@@ -1708,19 +1620,15 @@ export function WorkspaceSection() {
           <DialogHeader>
             <DialogTitle>Delete Workspace</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. All documents and data in this
-              workspace will be permanently deleted.
+              This action cannot be undone. All documents and data in this workspace will be
+              permanently deleted.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowDelete(false)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting()}
-            >
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting()}>
               {deleting() ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
@@ -1740,11 +1648,7 @@ export function WorkspaceSection() {
             <Button variant="outline" onClick={() => setShowLeave(false)}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleLeave}
-              disabled={leaving()}
-            >
+            <Button variant="destructive" onClick={handleLeave} disabled={leaving()}>
               {leaving() ? "Leaving..." : "Leave"}
             </Button>
           </DialogFooter>

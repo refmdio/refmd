@@ -13,19 +13,18 @@ import { Field, FieldLabel } from "@/shared/ui/field";
 import { Alert, AlertDescription } from "@/shared/ui/alert";
 import { Spinner } from "@/shared/ui/spinner";
 import { AlertTriangleIcon } from "lucide-solid";
-import { deriveAuthKeys, base64UrlDecode, decryptIdentityPrivateKeys, verifyAllDeviceTofu, TofuHardFailError } from "@/shared/lib/crypto";
-import { authApi, devicesApi, withPopDevice } from "@/shared/api";
 import {
-  restoreKeysFromPdk,
-  persistSessionPdk,
-  persistUmkForLogin,
-} from "./lib/key-persistence";
+  deriveAuthKeys,
+  base64UrlDecode,
+  decryptIdentityPrivateKeys,
+  verifyAllDeviceTofu,
+  TofuHardFailError,
+} from "@/shared/lib/crypto";
+import { authApi, devicesApi, withPopDevice } from "@/shared/api";
+import { restoreKeysFromPdk, persistSessionPdk, persistUmkForLogin } from "./lib/key-persistence";
 import { authState, setFullSession, deviceState, setTofuErrors } from "@/shared/lib/auth-state";
 
-export default function PasswordReentryDialog(props: {
-  open: boolean;
-  onComplete: () => void;
-}) {
+export default function PasswordReentryDialog(props: { open: boolean; onComplete: () => void }) {
   const [password, setPassword] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
