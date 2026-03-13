@@ -7,7 +7,7 @@ defmodule RefMD.Auth.PasswordResetToken do
 
   schema "password_reset_tokens" do
     field :user_id, :binary_id
-    field :token_hash, :binary
+    field :token_hash, :string
     field :expires_at, :utc_datetime_usec
     field :created_at, :utc_datetime_usec
   end

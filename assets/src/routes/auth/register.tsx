@@ -94,7 +94,8 @@ export default function RegisterPage() {
   const handleConfirmMnemonic = () => {
     setPassword("");
     setConfirmPassword("");
-    navigate("/dashboard");
+    const pendingInvite = sessionStorage.getItem("refmd_invite_token");
+    navigate(pendingInvite ? "/invite" : "/dashboard");
   };
 
   return (

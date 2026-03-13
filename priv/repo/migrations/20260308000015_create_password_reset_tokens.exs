@@ -5,7 +5,7 @@ defmodule RefMD.Repo.Migrations.CreatePasswordResetTokens do
     create table(:password_reset_tokens, primary_key: false) do
       add :id, :binary_id, primary_key: true, default: fragment("gen_random_uuid()")
       add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
-      add :token_hash, :binary, null: false
+      add :token_hash, :text, null: false
       add :expires_at, :utc_datetime_usec, null: false
       add :created_at, :utc_datetime_usec, null: false
     end

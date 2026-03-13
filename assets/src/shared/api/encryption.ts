@@ -82,7 +82,7 @@ export const encryptionApi = {
 
   getWorkspaceMemberKeys: async (workspaceId: string) =>
     throwIfError(
-      await client.GET("/api/encryption/workspaces/{workspace_id}/member-keys", {
+      await client.GET("/api/workspaces/{workspace_id}/member-keys", {
         params: { path: { workspace_id: workspaceId } },
       }),
     ),

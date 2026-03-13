@@ -314,7 +314,8 @@ export default function DeviceRegisterPage() {
     } else {
       setStatusMessage("Recovery complete!");
     }
-    redirectTimer = setTimeout(() => navigate("/"), 3000);
+    const pendingInvite = sessionStorage.getItem("refmd_invite_token");
+    redirectTimer = setTimeout(() => navigate(pendingInvite ? "/invite" : "/"), 3000);
   };
 
   const handlePdkReentry = async (e: Event) => {
@@ -514,7 +515,8 @@ export default function DeviceRegisterPage() {
       }
 
       setPhase("done");
-      navigate("/dashboard");
+      const pendingInvite = sessionStorage.getItem("refmd_invite_token");
+      navigate(pendingInvite ? "/invite" : "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Key restoration failed");
       setPhase("error");
@@ -854,7 +856,7 @@ async function restoreKekForWorkspace(
     const senderEcdhPk = base64UrlDecode(memberEnvelope.sender_ecdh_public_key);
     const senderSigningPk = base64UrlDecode(memberEnvelope.sender_signing_public_key);
 
-    const tofuResult = await verifyTofu(userId, memberEnvelope.sender_device_id, senderSigningPk, senderEcdhPk);
+    const tofuResult = await verifyTofu(memberEnvelope.sender_user_id, memberEnvelope.sender_device_id, senderSigningPk, senderEcdhPk);
     if (tofuResult.status === "identity_key_changed" || tofuResult.status === "ecdh_key_mismatch") {
       throw new Error("Key verification failed for member envelope sender. Aborting KEK recovery.");
     }

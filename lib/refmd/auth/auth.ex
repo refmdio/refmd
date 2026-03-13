@@ -389,7 +389,7 @@ defmodule RefMD.Auth do
           {:ok, binary()} | {:error, Ecto.Changeset.t()}
   def create_password_reset_token(user_id) do
     token = :crypto.strong_rand_bytes(32)
-    token_hash = :crypto.hash(:sha256, token)
+    token_hash = Base.url_encode64(:crypto.hash(:sha256, token), padding: false)
     now = DateTime.utc_now()
 
     case %PasswordResetToken{created_at: now}
@@ -417,7 +417,7 @@ defmodule RefMD.Auth do
 
   @spec verify_password_reset_token(binary()) :: {:ok, Ecto.UUID.t()} | {:error, :invalid_token}
   def verify_password_reset_token(raw_token) do
-    token_hash = :crypto.hash(:sha256, raw_token)
+    token_hash = Base.url_encode64(:crypto.hash(:sha256, raw_token), padding: false)
     now = DateTime.utc_now()
 
     Repo.transaction(fn ->

@@ -5,5 +5,10 @@ export {
   type PendingDeviceContextValue,
 } from "./pending-device-monitor";
 export { ApproveDeviceDialog } from "./approve-dialog";
-export { RevokeDeviceDialog } from "./revoke-dialog";
+export {
+  RevokeDeviceDialog,
+  performKekRotation,
+  type AuthWithKeys,
+  type DeviceWithKeys,
+} from "./revoke-dialog";
 export { SafetyNumber } from "./safety-number";

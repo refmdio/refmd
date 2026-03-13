@@ -10,7 +10,8 @@ import Config
 config :refmd,
   namespace: RefMD,
   ecto_repos: [RefMD.Repo],
-  generators: [timestamp_type: :utc_datetime, binary_id: true]
+  generators: [timestamp_type: :utc_datetime, binary_id: true],
+  expected_cluster_size: 1
 
 # Configure the endpoint
 config :refmd, RefMDWeb.Endpoint,
@@ -38,7 +39,8 @@ config :refmd, Oban,
      crontab: [
        {"*/5 * * * *", RefMD.Workers.CleanupPopChallenges},
        {"*/15 * * * *", RefMD.Workers.CleanupSessions},
-       {"0 * * * *", RefMD.Workers.KekRotationReminder}
+       {"0 * * * *", RefMD.Workers.KekRotationReminder},
+       {"0 3 * * *", RefMD.Workers.CleanupInvitations}
      ]}
   ]
 

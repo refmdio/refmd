@@ -59,7 +59,8 @@ export default function LoginPage() {
         setTofuErrors(result.tofuWarnings);
       }
 
-      navigate("/dashboard");
+      const pendingInvite = sessionStorage.getItem("refmd_invite_token");
+      navigate(pendingInvite ? "/invite" : "/dashboard");
     } catch (err) {
       if (err instanceof Error && err.message.includes("invalid_credentials")) {
         setError("Invalid email or password");

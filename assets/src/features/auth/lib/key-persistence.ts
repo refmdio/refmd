@@ -21,6 +21,7 @@ import {
   buildDskDeviceEcdhAad,
   buildDskDeviceSigningAad,
 } from "@/shared/lib/crypto/aad";
+import { clearAllTofuEntries } from "@/shared/lib/trust-store";
 
 const SESSION_UMK_KEY = "refmd-session-umk";
 const DEVICE_ID_KEY = "refmd-device-id";
@@ -243,4 +244,5 @@ export async function clearAllPersistedKeys(): Promise<void> {
   clearSessionUmk();
   inMemoryPdk = null;
   localStorage.removeItem(DEVICE_ID_KEY);
+  await clearAllTofuEntries().catch(() => {});
 }

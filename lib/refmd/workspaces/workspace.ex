@@ -29,6 +29,31 @@ defmodule RefMD.Workspaces.Workspace do
     workspace
     |> cast(attrs, [:name, :slug, :description, :icon, :owner_id])
     |> validate_required([:name, :slug, :owner_id])
+    |> validate_slug()
     |> unique_constraint(:slug)
+  end
+
+  @spec update_changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+  def update_changeset(workspace, attrs) do
+    workspace
+    |> cast(attrs, [:name, :slug, :description, :icon])
+    |> validate_length(:name, min: 1, max: 100)
+    |> validate_length(:description, max: 500)
+    |> validate_slug()
+    |> unique_constraint(:slug)
+  end
+
+  defp validate_slug(changeset) do
+    case get_change(changeset, :slug) do
+      nil ->
+        changeset
+
+      slug ->
+        if Regex.match?(~r/\A[a-z0-9]([a-z0-9-]*[a-z0-9])?\z/, slug) do
+          changeset
+        else
+          add_error(changeset, :slug, "must contain only lowercase letters, numbers, and hyphens")
+        end
+    end
   end
 end

@@ -55,5 +55,15 @@ defmodule RefMD.Repo.Migrations.CreateEncryptionIdentity do
       add :nonce, :binary, null: false
       add :created_at, :utc_datetime_usec, null: false
     end
+
+    execute(
+      "ALTER TABLE device_encrypted_umks ADD CONSTRAINT umk_nonce_size CHECK (octet_length(nonce) = 24)",
+      "ALTER TABLE device_encrypted_umks DROP CONSTRAINT umk_nonce_size"
+    )
+
+    execute(
+      "ALTER TABLE device_encrypted_umks ADD CONSTRAINT umk_ciphertext_size CHECK (octet_length(encrypted_umk) = 48)",
+      "ALTER TABLE device_encrypted_umks DROP CONSTRAINT umk_ciphertext_size"
+    )
   end
 end

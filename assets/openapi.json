@@ -98,6 +98,21 @@
         "title": "RegisterRequest",
         "type": "object"
       },
+      "MemberDevicesResponse": {
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/MemberDeviceInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "title": "MemberDevicesResponse",
+        "type": "object"
+      },
       "DeviceRegistrationStatusResponse": {
         "properties": {
           "status": {
@@ -148,6 +163,79 @@
         "title": "CreateWorkspaceKeyRequest",
         "type": "object"
       },
+      "RoleDeleteResponse": {
+        "properties": {
+          "invalidated_invitation_count": {
+            "type": "integer"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "invalidated_invitation_count"
+        ],
+        "title": "RoleDeleteResponse",
+        "type": "object"
+      },
+      "RolesListResponse": {
+        "properties": {
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/RoleResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "roles"
+        ],
+        "title": "RolesListResponse",
+        "type": "object"
+      },
+      "MembersListResponse": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "title": "MembersListResponse",
+        "type": "object"
+      },
+      "AcceptInvitationRequest": {
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "AcceptInvitationRequest",
+        "type": "object"
+      },
+      "InvitationsListResponse": {
+        "properties": {
+          "invitations": {
+            "items": {
+              "$ref": "#/components/schemas/InvitationListItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "invitations"
+        ],
+        "title": "InvitationsListResponse",
+        "type": "object"
+      },
       "WorkspaceKeyItem": {
         "properties": {
           "encrypted_kek": {
@@ -194,6 +282,57 @@
         "title": "TrustTransferNonceRequest",
         "type": "object"
       },
+      "RoleResponse": {
+        "properties": {
+          "base_role": {
+            "enum": [
+              "owner",
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "catalog_version": {
+            "nullable": true,
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/PermissionOverride"
+            },
+            "type": "array"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "name",
+          "base_role",
+          "is_default",
+          "created_at"
+        ],
+        "title": "RoleResponse",
+        "type": "object"
+      },
       "RecoveryDataResponse": {
         "properties": {
           "ecdh_public_key": {
@@ -226,6 +365,58 @@
           "recovery_nonce"
         ],
         "title": "RecoveryDataResponse",
+        "type": "object"
+      },
+      "CreateWorkspaceRequest": {
+        "properties": {
+          "description": {
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "icon": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CreateWorkspaceRequest",
+        "type": "object"
+      },
+      "CreateRoleRequest": {
+        "properties": {
+          "base_role": {
+            "enum": [
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/PermissionOverride"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "base_role"
+        ],
+        "title": "CreateRoleRequest",
         "type": "object"
       },
       "WorkspaceRotationInfo": {
@@ -290,6 +481,8 @@
         },
         "required": [
           "sender_device_id",
+          "sender_ecdh_public_key",
+          "sender_signing_public_key",
           "ciphertext",
           "nonce",
           "signature"
@@ -325,6 +518,26 @@
           "client_nonce"
         ],
         "title": "CreateDeviceRegistrationRequest",
+        "type": "object"
+      },
+      "UpdateRoleRequest": {
+        "properties": {
+          "is_default": {
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "$ref": "#/components/schemas/PermissionOverride"
+            },
+            "type": "array"
+          }
+        },
+        "title": "UpdateRoleRequest",
         "type": "object"
       },
       "LoginRequest": {
@@ -369,6 +582,22 @@
           "nonce"
         ],
         "title": "CreateKekBackupRequest",
+        "type": "object"
+      },
+      "PermissionOverride": {
+        "properties": {
+          "granted": {
+            "type": "boolean"
+          },
+          "permission": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "permission",
+          "granted"
+        ],
+        "title": "PermissionOverride",
         "type": "object"
       },
       "MeResponse": {
@@ -434,6 +663,74 @@
         "title": "MeResponse",
         "type": "object"
       },
+      "MemberInfo": {
+        "properties": {
+          "base_role": {
+            "enum": [
+              "owner",
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "type": "string"
+          },
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "joined_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "role_name": {
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "name",
+          "role_id",
+          "role_name",
+          "base_role",
+          "joined_at"
+        ],
+        "title": "MemberInfo",
+        "type": "object"
+      },
+      "RemoveMemberResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "workspaces_needing_kek_rotation": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceRotationInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "workspaces_needing_kek_rotation"
+        ],
+        "title": "RemoveMemberResponse",
+        "type": "object"
+      },
       "TrustTransferSendRequest": {
         "properties": {
           "ciphertext": {
@@ -478,6 +775,54 @@
         "title": "DeviceRegistrationsResponse",
         "type": "object"
       },
+      "CreateInvitationRequest": {
+        "properties": {
+          "encrypted_kek": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invited_email": {
+            "format": "email",
+            "type": "string"
+          },
+          "kek_nonce": {
+            "type": "string"
+          },
+          "kek_version": {
+            "type": "integer"
+          },
+          "role_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "token_hash": {
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "token_hash",
+          "token_prefix",
+          "encrypted_kek",
+          "kek_nonce",
+          "kek_version",
+          "invited_email"
+        ],
+        "title": "CreateInvitationRequest",
+        "type": "object"
+      },
       "WorkspaceMemberKeysResponse": {
         "properties": {
           "members": {
@@ -504,6 +849,21 @@
           "members"
         ],
         "title": "WorkspaceMemberKeysResponse",
+        "type": "object"
+      },
+      "WorkspacesListResponse": {
+        "properties": {
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "workspaces"
+        ],
+        "title": "WorkspacesListResponse",
         "type": "object"
       },
       "DevicesResponse": {
@@ -786,6 +1146,36 @@
         "title": "VerifyKeyRequest",
         "type": "object"
       },
+      "MemberDeviceInfo": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "device_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "ecdh_public_key": {
+            "type": "string"
+          },
+          "identity_signature": {
+            "type": "string"
+          },
+          "signing_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "signing_public_key",
+          "ecdh_public_key",
+          "identity_signature",
+          "created_at"
+        ],
+        "title": "MemberDeviceInfo",
+        "type": "object"
+      },
       "KekBackupResponse": {
         "properties": {
           "encrypted_kek": {
@@ -804,6 +1194,30 @@
           "nonce"
         ],
         "title": "KekBackupResponse",
+        "type": "object"
+      },
+      "UpdateWorkspaceRequest": {
+        "properties": {
+          "description": {
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "icon": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+            "type": "string"
+          }
+        },
+        "title": "UpdateWorkspaceRequest",
         "type": "object"
       },
       "UserInfo": {
@@ -951,6 +1365,101 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "AcceptInvitationResponse": {
+        "properties": {
+          "encrypted_kek": {
+            "type": "string"
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kek_nonce": {
+            "type": "string"
+          },
+          "kek_version": {
+            "type": "integer"
+          },
+          "role_name": {
+            "nullable": true,
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "workspace_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "workspace_name",
+          "invitation_id",
+          "encrypted_kek",
+          "kek_nonce",
+          "kek_version"
+        ],
+        "title": "AcceptInvitationResponse",
+        "type": "object"
+      },
+      "InvitationListItem": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invited_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invited_email": {
+            "format": "email",
+            "type": "string"
+          },
+          "is_used": {
+            "type": "boolean"
+          },
+          "kek_version": {
+            "type": "integer"
+          },
+          "role_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "role_name": {
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "workspace_id",
+          "token_prefix",
+          "invited_by",
+          "invited_email",
+          "kek_version",
+          "is_used",
+          "expires_at",
+          "created_at"
+        ],
+        "title": "InvitationListItem",
+        "type": "object"
+      },
       "DeviceRegistrationInfo": {
         "properties": {
           "client_nonce": {
@@ -1020,7 +1529,9 @@
         "required": [
           "encrypted_umk",
           "nonce",
-          "sender_device_id"
+          "sender_device_id",
+          "sender_ecdh_public_key",
+          "sender_signing_public_key"
         ],
         "title": "GetUmkResponse",
         "type": "object"
@@ -1099,6 +1610,56 @@
         "title": "RegisterResponse",
         "type": "object"
       },
+      "InvitationResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "invitation_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "invited_email": {
+            "format": "email",
+            "type": "string"
+          },
+          "is_used": {
+            "type": "boolean"
+          },
+          "kek_version": {
+            "type": "integer"
+          },
+          "role_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "token_prefix": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation_id",
+          "workspace_id",
+          "token_prefix",
+          "invited_email",
+          "kek_version",
+          "is_used",
+          "expires_at",
+          "created_at"
+        ],
+        "title": "InvitationResponse",
+        "type": "object"
+      },
       "KekRotationCompleteRequest": {
         "properties": {
           "new_kek_version": {
@@ -1137,6 +1698,76 @@
           "error"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "WorkspaceResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "current_kek_version": {
+            "type": "integer"
+          },
+          "current_user_base_role": {
+            "nullable": true,
+            "type": "string"
+          },
+          "current_user_role_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "description": {
+            "nullable": true,
+            "type": "string"
+          },
+          "icon": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_default": {
+            "nullable": true,
+            "type": "boolean"
+          },
+          "kek_rotation_initiator_user_id": {
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs_kek_rotation": {
+            "type": "boolean"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "owner_id",
+          "current_kek_version",
+          "needs_kek_rotation",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WorkspaceResponse",
         "type": "object"
       },
       "WorkspaceKeysResponse": {
@@ -1207,11 +1838,16 @@
           },
           "sender_signing_public_key": {
             "type": "string"
+          },
+          "sender_user_id": {
+            "format": "uuid",
+            "type": "string"
           }
         },
         "required": [
           "key_version",
           "sender_device_id",
+          "sender_user_id",
           "encrypted_kek",
           "nonce"
         ],
@@ -1260,6 +1896,19 @@
           "signing_public_key"
         ],
         "title": "DeviceFullInfo",
+        "type": "object"
+      },
+      "ChangeMemberRoleRequest": {
+        "properties": {
+          "role_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id"
+        ],
+        "title": "ChangeMemberRoleRequest",
         "type": "object"
       },
       "OkResponse": {
@@ -1390,6 +2039,107 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/api/workspaces/{workspace_id}/roles": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.RoleController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolesListResponse"
+                }
+              }
+            },
+            "description": "Role list"
+          }
+        },
+        "summary": "List workspace roles",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.RoleController.create",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleRequest"
+              }
+            }
+          },
+          "description": "Role params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponse"
+                }
+              }
+            },
+            "description": "Created role"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a custom role",
+        "tags": []
+      }
+    },
     "/api/auth/recovery": {
       "get": {
         "callbacks": {},
@@ -1741,6 +2491,88 @@
         "tags": []
       }
     },
+    "/api/workspaces/invitations/accept": {
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.InvitationController.accept",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvitationRequest"
+              }
+            }
+          },
+          "description": "Accept params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptInvitationResponse"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Gone"
+          }
+        },
+        "summary": "Accept an invitation",
+        "tags": []
+      }
+    },
     "/api/auth/password-set": {
       "post": {
         "callbacks": {},
@@ -1873,47 +2705,6 @@
           }
         },
         "summary": "Reject (delete) a device registration",
-        "tags": []
-      }
-    },
-    "/api/encryption/workspaces/{workspace_id}/member-keys": {
-      "get": {
-        "callbacks": {},
-        "operationId": "RefMDWeb.EncryptionController.get_workspace_member_keys",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkspaceMemberKeysResponse"
-                }
-              }
-            },
-            "description": "Member keys"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not a member"
-          }
-        },
-        "summary": "Get Identity ECDH public keys for all workspace members",
         "tags": []
       }
     },
@@ -2110,6 +2901,56 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/members/{user_id}/devices": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.MemberController.devices",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDevicesResponse"
+                }
+              }
+            },
+            "description": "Member devices"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List a member's active devices",
+        "tags": []
+      }
+    },
     "/api/auth/verify-key": {
       "post": {
         "callbacks": {},
@@ -2209,6 +3050,16 @@
             },
             "description": "KEK backup"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not a member"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2291,6 +3142,67 @@
           }
         },
         "summary": "Create a KEK backup",
+        "tags": []
+      }
+    },
+    "/api/workspaces": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.WorkspaceController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspacesListResponse"
+                }
+              }
+            },
+            "description": "Workspace list"
+          }
+        },
+        "summary": "List workspaces the current user belongs to",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.WorkspaceController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceRequest"
+              }
+            }
+          },
+          "description": "Workspace params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Created workspace"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a new workspace",
         "tags": []
       }
     },
@@ -2383,6 +3295,137 @@
           }
         },
         "summary": "Create a device registration (2nd+ devices only)",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/invitations": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.InvitationController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationsListResponse"
+                }
+              }
+            },
+            "description": "Invitation list"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List active invitations",
+        "tags": []
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.InvitationController.create",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvitationRequest"
+              }
+            }
+          },
+          "description": "Invitation params",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationResponse"
+                }
+              }
+            },
+            "description": "Created invitation"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create an invitation",
         "tags": []
       }
     },
@@ -2738,6 +3781,165 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/roles/{role_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.RoleController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "role_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleDeleteResponse"
+                }
+              }
+            },
+            "description": "Deleted"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Cannot delete"
+          }
+        },
+        "summary": "Delete a custom role",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.RoleController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "role_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleRequest"
+              }
+            }
+          },
+          "description": "Update params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponse"
+                }
+              }
+            },
+            "description": "Updated role"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid permission"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update a role",
+        "tags": []
+      }
+    },
     "/api/devices/{device_id}": {
       "delete": {
         "callbacks": {},
@@ -2912,6 +4114,72 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}/invitations/{invitation_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.InvitationController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "content": {
+              "application/json": {}
+            },
+            "description": "Revoked"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid ID format"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Revoke an invitation",
+        "tags": []
+      }
+    },
     "/api/auth/kdf-migration": {
       "post": {
         "callbacks": {},
@@ -2954,6 +4222,275 @@
         "tags": []
       }
     },
+    "/api/workspaces/{workspace_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.WorkspaceController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Deleted"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Delete a workspace",
+        "tags": []
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.WorkspaceController.show",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Workspace details"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not a member"
+          }
+        },
+        "summary": "Get workspace details",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.WorkspaceController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceRequest"
+              }
+            }
+          },
+          "description": "Update params",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Updated workspace"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update workspace name, description, or icon",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/members/{user_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.MemberController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveMemberResponse"
+                }
+              }
+            },
+            "description": "Removed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Last owner"
+          }
+        },
+        "summary": "Remove a member or leave workspace",
+        "tags": []
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.MemberController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeMemberRoleRequest"
+              }
+            }
+          },
+          "description": "Role change",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            },
+            "description": "Updated member"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Change a member's role",
+        "tags": []
+      }
+    },
     "/api/auth/recovery/challenge": {
       "post": {
         "callbacks": {},
@@ -2983,6 +4520,88 @@
           }
         },
         "summary": "Request a recovery challenge",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/members": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.MemberController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembersListResponse"
+                }
+              }
+            },
+            "description": "Member list"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List workspace members",
+        "tags": []
+      }
+    },
+    "/api/workspaces/{workspace_id}/member-keys": {
+      "get": {
+        "callbacks": {},
+        "operationId": "RefMDWeb.MemberController.identity_keys",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceMemberKeysResponse"
+                }
+              }
+            },
+            "description": "Member keys"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Get Identity ECDH public keys for all workspace members",
         "tags": []
       }
     },
@@ -3205,6 +4824,16 @@
               }
             },
             "description": "Member envelope"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not a member"
           },
           "404": {
             "content": {

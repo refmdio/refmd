@@ -32,5 +32,10 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceKekBackups do
       "ALTER TABLE workspace_kek_backups ADD CONSTRAINT workspace_kek_backups_nonce_length CHECK (length(nonce) = 24)",
       "ALTER TABLE workspace_kek_backups DROP CONSTRAINT workspace_kek_backups_nonce_length"
     )
+
+    execute(
+      "ALTER TABLE workspace_kek_backups ADD CONSTRAINT workspace_kek_backups_ciphertext_size CHECK (octet_length(encrypted_kek) = 48)",
+      "ALTER TABLE workspace_kek_backups DROP CONSTRAINT workspace_kek_backups_ciphertext_size"
+    )
   end
 end

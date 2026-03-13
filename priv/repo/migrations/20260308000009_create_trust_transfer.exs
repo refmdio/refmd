@@ -15,6 +15,7 @@ defmodule RefMD.Repo.Migrations.CreateTrustTransfer do
 
     create table(:trust_transfer_states, primary_key: false) do
       add :device_id, :binary_id, primary_key: true
+
       add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
 
       add :sender_device_id, references(:devices, type: :binary_id, on_delete: :delete_all),

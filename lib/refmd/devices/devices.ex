@@ -367,6 +367,7 @@ defmodule RefMD.Devices do
     ws_with_versions = RefMD.Workspaces.get_user_workspace_ids_with_kek_version(user_id)
     ws_ids = Enum.map(ws_with_versions, &elem(&1, 0))
 
+    RefMD.Workspaces.revoke_all_active_invitations(ws_ids)
     RefMD.Workspaces.mark_kek_rotation_needed(ws_ids, user_id)
     RefMD.Workspaces.mark_dek_rotation_needed(ws_ids)
 

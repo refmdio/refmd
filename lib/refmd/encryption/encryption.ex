@@ -203,7 +203,10 @@ defmodule RefMD.Encryption do
 
       case %WorkspaceKekBackup{created_at: DateTime.utc_now()}
            |> WorkspaceKekBackup.changeset(attrs)
-           |> Repo.insert() do
+           |> Repo.insert(
+             on_conflict: {:replace, [:encrypted_kek, :nonce, :is_active, :created_at]},
+             conflict_target: [:workspace_id, :user_id, :key_version]
+           ) do
         {:ok, backup} -> backup
         {:error, changeset} -> Repo.rollback(changeset)
       end
@@ -273,8 +276,22 @@ defmodule RefMD.Encryption do
            on_conflict: {:replace, [:encrypted_kek, :nonce, :sender_device_id, :created_at]},
            conflict_target: [:workspace_id, :target_user_id, :key_version]
          ) do
-      {:ok, _} -> :ok
-      {:error, changeset} -> Repo.rollback({:invalid_envelope, changeset})
+      {:ok, _} ->
+        :ok
+
+      {:error, %Ecto.Changeset{errors: errors} = cs} ->
+        if member_removed_during_rotation?(errors) do
+          :ok
+        else
+          Repo.rollback({:invalid_envelope, cs})
+        end
+    end
+  end
+
+  defp member_removed_during_rotation?(errors) do
+    case Keyword.get(errors, :target_user_id) do
+      {_msg, opts} -> opts[:constraint] == :foreign
+      _ -> false
     end
   end
 

@@ -1,7 +1,17 @@
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { randomBytes } from "./encoding";
-import { buildDeviceKekDistributionAad, buildUmkKekBackupAad, buildMemberEnvelopeKekAad } from "./aad";
+import {
+  buildDeviceKekDistributionAad,
+  buildUmkKekBackupAad,
+  buildMemberEnvelopeKekAad,
+  buildInvitationKekWrapAad,
+} from "./aad";
 import { ecdhEncrypt, ecdhDecrypt } from "./ecdh-cipher";
+
+const HKDF_ZERO_SALT = new Uint8Array(32);
+const INVITATION_KEK_WRAP_INFO = new TextEncoder().encode("invitation_kek_wrap");
 
 export function generateKek(): Uint8Array {
   return randomBytes(32);
@@ -87,4 +97,32 @@ export function wrapKekWithUmk(
   const aad = buildUmkKekBackupAad(workspaceId, userId, keyVersion);
   const cipher = xchacha20poly1305(umk, nonce, aad);
   return { encryptedKek: cipher.encrypt(kek), nonce };
+}
+
+export function encryptKekForInvitation(
+  kek: Uint8Array,
+  tokenBytes: Uint8Array,
+  workspaceId: string,
+  invitationId: string,
+  keyVersion: number,
+): { encryptedKek: Uint8Array; nonce: Uint8Array } {
+  const tokenKey = hkdf(sha256, tokenBytes, HKDF_ZERO_SALT, INVITATION_KEK_WRAP_INFO, 32);
+  const nonce = randomBytes(24);
+  const aad = buildInvitationKekWrapAad(workspaceId, invitationId, keyVersion);
+  const cipher = xchacha20poly1305(tokenKey, nonce, aad);
+  return { encryptedKek: cipher.encrypt(kek), nonce };
+}
+
+export function decryptKekFromInvitation(
+  encryptedKek: Uint8Array,
+  nonce: Uint8Array,
+  tokenBytes: Uint8Array,
+  workspaceId: string,
+  invitationId: string,
+  keyVersion: number,
+): Uint8Array {
+  const tokenKey = hkdf(sha256, tokenBytes, HKDF_ZERO_SALT, INVITATION_KEK_WRAP_INFO, 32);
+  const aad = buildInvitationKekWrapAad(workspaceId, invitationId, keyVersion);
+  const cipher = xchacha20poly1305(tokenKey, nonce, aad);
+  return cipher.decrypt(encryptedKek);
 }

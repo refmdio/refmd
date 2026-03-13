@@ -499,6 +499,9 @@ defmodule RefMDWeb.DeviceController do
             }
           })
 
+        {:error, :invalid_signature} ->
+          conn |> put_status(:forbidden) |> json(%{error: "invalid_signature"})
+
         {:error, _} ->
           conn |> put_status(:unprocessable_entity) |> json(%{error: "approval_failed"})
       end

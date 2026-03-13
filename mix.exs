@@ -14,6 +14,11 @@ defmodule RefMD.MixProject do
       dialyzer: [
         plt_add_apps: [:mix, :ex_unit],
         plt_core_path: "_build/#{Mix.env()}"
+      ],
+      releases: [
+        refmd: [
+          overlays: ["rel/inet_tls.conf"]
+        ]
       ]
     ]
   end
@@ -59,6 +64,7 @@ defmodule RefMD.MixProject do
       {:plug_attack, "~> 0.4"},
       {:oban, "~> 2.19"},
       {:swoosh, "~> 1.17"},
+      {:libcluster, "~> 3.4"},
 
       # Dev/test tools
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

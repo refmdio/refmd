@@ -15,6 +15,16 @@ defmodule RefMD.Repo.Migrations.CreateWorkspaceMemberEnvelopes do
       add :created_at, :utc_datetime_usec, null: false
     end
 
+    execute(
+      "ALTER TABLE workspace_member_envelopes ADD CONSTRAINT member_envelope_nonce_size CHECK (octet_length(nonce) = 24)",
+      "ALTER TABLE workspace_member_envelopes DROP CONSTRAINT member_envelope_nonce_size"
+    )
+
+    execute(
+      "ALTER TABLE workspace_member_envelopes ADD CONSTRAINT member_envelope_ciphertext_size CHECK (octet_length(encrypted_kek) = 48)",
+      "ALTER TABLE workspace_member_envelopes DROP CONSTRAINT member_envelope_ciphertext_size"
+    )
+
     # Composite FK: (workspace_id, target_user_id) → workspace_members(workspace_id, user_id)
     execute(
       """

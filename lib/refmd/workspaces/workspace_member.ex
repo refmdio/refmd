@@ -20,5 +20,8 @@ defmodule RefMD.Workspaces.WorkspaceMember do
     member
     |> cast(attrs, [:workspace_id, :user_id, :role_id, :is_default, :joined_at])
     |> validate_required([:workspace_id, :user_id, :role_id, :joined_at])
+    |> unique_constraint([:workspace_id, :user_id], name: :workspace_members_pkey)
+    |> foreign_key_constraint(:role_id, name: :workspace_members_role_fk)
+    |> foreign_key_constraint(:workspace_id, name: :workspace_members_workspace_id_fkey)
   end
 end

@@ -15,6 +15,7 @@ export const AAD_PURPOSE = {
   DSK_UMK_CACHE: "dsk_umk_cache",
   DSK_DEVICE_ECDH_PRIVATE: "dsk_device_ecdh_private",
   DSK_DEVICE_SIGNING_PRIVATE: "dsk_device_signing_private",
+  INVITATION_KEK_WRAP: "invitation_kek_wrap",
   PDK_UMK_WRAP: "pdk_umk_wrap",
   PDK_DEVICE_ECDH_PRIVATE: "pdk_device_ecdh_private",
   PDK_DEVICE_SIGNING_PRIVATE: "pdk_device_signing_private",
@@ -131,6 +132,19 @@ export function buildPdkDeviceEcdhAad(userId: string): Uint8Array {
 
 export function buildPdkDeviceSigningAad(userId: string): Uint8Array {
   return buildAad({ purpose: AAD_PURPOSE.PDK_DEVICE_SIGNING_PRIVATE, user_id: userId });
+}
+
+export function buildInvitationKekWrapAad(
+  workspaceId: string,
+  invitationId: string,
+  keyVersion: number,
+): Uint8Array {
+  return buildAad({
+    purpose: AAD_PURPOSE.INVITATION_KEK_WRAP,
+    workspace_id: workspaceId,
+    invitation_id: invitationId,
+    key_version: keyVersion,
+  });
 }
 
 export function buildMemberEnvelopeKekAad(

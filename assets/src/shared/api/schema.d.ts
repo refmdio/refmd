@@ -4,6 +4,24 @@
  */
 
 export interface paths {
+    "/api/workspaces/{workspace_id}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspace roles */
+        get: operations["RefMDWeb.RoleController.index"];
+        put?: never;
+        /** Create a custom role */
+        post: operations["RefMDWeb.RoleController.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/recovery": {
         parameters: {
             query?: never;
@@ -124,6 +142,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an invitation */
+        post: operations["RefMDWeb.InvitationController.accept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password-set": {
         parameters: {
             query?: never;
@@ -175,23 +210,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/encryption/workspaces/{workspace_id}/member-keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Identity ECDH public keys for all workspace members */
-        get: operations["RefMDWeb.EncryptionController.get_workspace_member_keys"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/auth/pop-challenge": {
         parameters: {
             query?: never;
@@ -238,6 +256,23 @@ export interface paths {
         put?: never;
         /** Create a workspace encryption key */
         post: operations["RefMDWeb.EncryptionController.create_workspace_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members/{user_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a member's active devices */
+        get: operations["RefMDWeb.MemberController.devices"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -296,6 +331,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspaces the current user belongs to */
+        get: operations["RefMDWeb.WorkspaceController.index"];
+        put?: never;
+        /** Create a new workspace */
+        post: operations["RefMDWeb.WorkspaceController.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/encryption/setup-complete": {
         parameters: {
             query?: never;
@@ -325,6 +378,24 @@ export interface paths {
         put?: never;
         /** Create a device registration (2nd+ devices only) */
         post: operations["RefMDWeb.DeviceController.create_registration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List active invitations */
+        get: operations["RefMDWeb.InvitationController.index"];
+        put?: never;
+        /** Create an invitation */
+        post: operations["RefMDWeb.InvitationController.create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -467,6 +538,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/roles/{role_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a custom role */
+        delete: operations["RefMDWeb.RoleController.delete"];
+        options?: never;
+        head?: never;
+        /** Update a role */
+        patch: operations["RefMDWeb.RoleController.update"];
+        trace?: never;
+    };
     "/api/devices/{device_id}": {
         parameters: {
             query?: never;
@@ -502,6 +591,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/invitations/{invitation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an invitation */
+        delete: operations["RefMDWeb.InvitationController.delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/kdf-migration": {
         parameters: {
             query?: never;
@@ -519,6 +625,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get workspace details */
+        get: operations["RefMDWeb.WorkspaceController.show"];
+        put?: never;
+        post?: never;
+        /** Delete a workspace */
+        delete: operations["RefMDWeb.WorkspaceController.delete"];
+        options?: never;
+        head?: never;
+        /** Update workspace name, description, or icon */
+        patch: operations["RefMDWeb.WorkspaceController.update"];
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a member or leave workspace */
+        delete: operations["RefMDWeb.MemberController.delete"];
+        options?: never;
+        head?: never;
+        /** Change a member's role */
+        patch: operations["RefMDWeb.MemberController.update"];
+        trace?: never;
+    };
     "/api/auth/recovery/challenge": {
         parameters: {
             query?: never;
@@ -530,6 +673,40 @@ export interface paths {
         put?: never;
         /** Request a recovery challenge */
         post: operations["RefMDWeb.AuthController.recovery_challenge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspace members */
+        get: operations["RefMDWeb.MemberController.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{workspace_id}/member-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Identity ECDH public keys for all workspace members */
+        get: operations["RefMDWeb.MemberController.identity_keys"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -640,6 +817,10 @@ export interface components {
              */
             user_id: string;
         };
+        /** MemberDevicesResponse */
+        MemberDevicesResponse: {
+            devices: components["schemas"]["MemberDeviceInfo"][];
+        };
         /** DeviceRegistrationStatusResponse */
         DeviceRegistrationStatusResponse: {
             /** @enum {string} */
@@ -656,6 +837,27 @@ export interface components {
             /** Format: uuid */
             sender_device_id: string;
         };
+        /** RoleDeleteResponse */
+        RoleDeleteResponse: {
+            invalidated_invitation_count: number;
+            ok: boolean;
+        };
+        /** RolesListResponse */
+        RolesListResponse: {
+            roles: components["schemas"]["RoleResponse"][];
+        };
+        /** MembersListResponse */
+        MembersListResponse: {
+            members: components["schemas"]["MemberInfo"][];
+        };
+        /** AcceptInvitationRequest */
+        AcceptInvitationRequest: {
+            token: string;
+        };
+        /** InvitationsListResponse */
+        InvitationsListResponse: {
+            invitations: components["schemas"]["InvitationListItem"][];
+        };
         /** WorkspaceKeyItem */
         WorkspaceKeyItem: {
             encrypted_kek: string;
@@ -671,6 +873,21 @@ export interface components {
             /** Format: uuid */
             device_id: string;
         };
+        /** RoleResponse */
+        RoleResponse: {
+            /** @enum {string} */
+            base_role: "owner" | "admin" | "editor" | "viewer";
+            catalog_version?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            is_default: boolean;
+            name: string;
+            permissions?: components["schemas"]["PermissionOverride"][];
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** RecoveryDataResponse */
         RecoveryDataResponse: {
             ecdh_public_key?: string;
@@ -681,6 +898,19 @@ export interface components {
             recovery_encrypted_umk: string;
             recovery_nonce: string;
             signing_public_key?: string;
+        };
+        /** CreateWorkspaceRequest */
+        CreateWorkspaceRequest: {
+            description?: string | null;
+            icon?: string | null;
+            name: string;
+        };
+        /** CreateRoleRequest */
+        CreateRoleRequest: {
+            /** @enum {string} */
+            base_role: "admin" | "editor" | "viewer";
+            name: string;
+            permissions?: components["schemas"]["PermissionOverride"][];
         };
         /** WorkspaceRotationInfo */
         WorkspaceRotationInfo: {
@@ -701,8 +931,8 @@ export interface components {
             nonce: string;
             /** Format: uuid */
             sender_device_id: string;
-            sender_ecdh_public_key?: string;
-            sender_signing_public_key?: string;
+            sender_ecdh_public_key: string;
+            sender_signing_public_key: string;
             signature: string;
         };
         /** CreateDeviceRegistrationRequest */
@@ -713,6 +943,12 @@ export interface components {
             device_type?: string;
             identity_signing_public_key: string;
             name?: string;
+        };
+        /** UpdateRoleRequest */
+        UpdateRoleRequest: {
+            is_default?: boolean;
+            name?: string;
+            permissions?: components["schemas"]["PermissionOverride"][];
         };
         /** LoginRequest */
         LoginRequest: {
@@ -728,6 +964,11 @@ export interface components {
             encrypted_kek: string;
             key_version: number;
             nonce: string;
+        };
+        /** PermissionOverride */
+        PermissionOverride: {
+            granted: boolean;
+            permission: string;
         };
         /** MeResponse */
         MeResponse: {
@@ -751,6 +992,27 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
+        /** MemberInfo */
+        MemberInfo: {
+            /** @enum {string} */
+            base_role: "owner" | "admin" | "editor" | "viewer";
+            /** Format: email */
+            email: string;
+            is_default?: boolean;
+            /** Format: date-time */
+            joined_at: string;
+            name: string;
+            /** Format: uuid */
+            role_id: string;
+            role_name: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /** RemoveMemberResponse */
+        RemoveMemberResponse: {
+            ok: boolean;
+            workspaces_needing_kek_rotation: components["schemas"]["WorkspaceRotationInfo"][];
+        };
         /** TrustTransferSendRequest */
         TrustTransferSendRequest: {
             ciphertext: string;
@@ -764,6 +1026,22 @@ export interface components {
         DeviceRegistrationsResponse: {
             devices: components["schemas"]["DeviceRegistrationInfo"][];
         };
+        /** CreateInvitationRequest */
+        CreateInvitationRequest: {
+            encrypted_kek: string;
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: uuid */
+            invitation_id: string;
+            /** Format: email */
+            invited_email: string;
+            kek_nonce: string;
+            kek_version: number;
+            /** Format: uuid */
+            role_id?: string | null;
+            token_hash: string;
+            token_prefix: string;
+        };
         /** WorkspaceMemberKeysResponse */
         WorkspaceMemberKeysResponse: {
             members: {
@@ -771,6 +1049,10 @@ export interface components {
                 /** Format: uuid */
                 user_id: string;
             }[];
+        };
+        /** WorkspacesListResponse */
+        WorkspacesListResponse: {
+            workspaces: components["schemas"]["WorkspaceResponse"][];
         };
         /** DevicesResponse */
         DevicesResponse: {
@@ -859,11 +1141,28 @@ export interface components {
         VerifyKeyRequest: {
             auth_key: string;
         };
+        /** MemberDeviceInfo */
+        MemberDeviceInfo: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            device_id: string;
+            ecdh_public_key: string;
+            identity_signature: string;
+            signing_public_key: string;
+        };
         /** KekBackupResponse */
         KekBackupResponse: {
             encrypted_kek: string;
             key_version: number;
             nonce: string;
+        };
+        /** UpdateWorkspaceRequest */
+        UpdateWorkspaceRequest: {
+            description?: string | null;
+            icon?: string | null;
+            name?: string;
+            slug?: string;
         };
         /** UserInfo */
         UserInfo: {
@@ -913,6 +1212,39 @@ export interface components {
             umk_nonce?: string;
             user: components["schemas"]["UserInfo"];
         };
+        /** AcceptInvitationResponse */
+        AcceptInvitationResponse: {
+            encrypted_kek: string;
+            /** Format: uuid */
+            invitation_id: string;
+            kek_nonce: string;
+            kek_version: number;
+            role_name?: string | null;
+            /** Format: uuid */
+            workspace_id: string;
+            workspace_name: string;
+        };
+        /** InvitationListItem */
+        InvitationListItem: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            invitation_id: string;
+            /** Format: uuid */
+            invited_by: string;
+            /** Format: email */
+            invited_email: string;
+            is_used: boolean;
+            kek_version: number;
+            /** Format: uuid */
+            role_id?: string;
+            role_name?: string;
+            token_prefix: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** DeviceRegistrationInfo */
         DeviceRegistrationInfo: {
             client_nonce: string;
@@ -934,8 +1266,8 @@ export interface components {
             nonce: string;
             /** Format: uuid */
             sender_device_id: string;
-            sender_ecdh_public_key?: string;
-            sender_signing_public_key?: string;
+            sender_ecdh_public_key: string;
+            sender_signing_public_key: string;
         };
         /** KdfMigrationRequest */
         KdfMigrationRequest: {
@@ -960,6 +1292,24 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
         };
+        /** InvitationResponse */
+        InvitationResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            invitation_id: string;
+            /** Format: email */
+            invited_email: string;
+            is_used: boolean;
+            kek_version: number;
+            /** Format: uuid */
+            role_id?: string | null;
+            token_prefix: string;
+            /** Format: uuid */
+            workspace_id: string;
+        };
         /** KekRotationCompleteRequest */
         KekRotationCompleteRequest: {
             new_kek_version: number;
@@ -974,6 +1324,29 @@ export interface components {
                 [key: string]: unknown;
             };
             error: string;
+        };
+        /** WorkspaceResponse */
+        WorkspaceResponse: {
+            /** Format: date-time */
+            created_at: string;
+            current_kek_version: number;
+            current_user_base_role?: string | null;
+            /** Format: uuid */
+            current_user_role_id?: string | null;
+            description?: string | null;
+            icon?: string | null;
+            /** Format: uuid */
+            id: string;
+            is_default?: boolean | null;
+            /** Format: uuid */
+            kek_rotation_initiator_user_id?: string | null;
+            name: string;
+            needs_kek_rotation: boolean;
+            /** Format: uuid */
+            owner_id: string;
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         /** WorkspaceKeysResponse */
         WorkspaceKeysResponse: {
@@ -999,6 +1372,8 @@ export interface components {
             sender_device_id: string;
             sender_ecdh_public_key?: string;
             sender_signing_public_key?: string;
+            /** Format: uuid */
+            sender_user_id: string;
         };
         /** DeviceFullInfo */
         DeviceFullInfo: {
@@ -1015,6 +1390,11 @@ export interface components {
             last_seen_at?: string;
             name: string;
             signing_public_key: string;
+        };
+        /** ChangeMemberRoleRequest */
+        ChangeMemberRoleRequest: {
+            /** Format: uuid */
+            role_id: string;
         };
         /** OkResponse */
         OkResponse: {
@@ -1064,6 +1444,82 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "RefMDWeb.RoleController.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Role list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RolesListResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.RoleController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Role params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created role */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.get_recovery": {
         parameters: {
             query?: never;
@@ -1345,6 +1801,76 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.InvitationController.accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Accept params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptInvitationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.password_set": {
         parameters: {
             query?: never;
@@ -1444,37 +1970,6 @@ export interface operations {
             };
             /** @description Not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    "RefMDWeb.EncryptionController.get_workspace_member_keys": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Member keys */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkspaceMemberKeysResponse"];
-                };
-            };
-            /** @description Not a member */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1634,6 +2129,38 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.MemberController.devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member devices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberDevicesResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.verify_key": {
         parameters: {
             query?: never;
@@ -1717,6 +2244,15 @@ export interface operations {
                     "application/json": components["schemas"]["KekBackupResponse"];
                 };
             };
+            /** @description Not a member */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Not found */
             404: {
                 headers: {
@@ -1769,6 +2305,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.WorkspaceController.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspacesListResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.WorkspaceController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Workspace params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Created workspace */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
                 };
             };
             /** @description Validation error */
@@ -1847,6 +2437,109 @@ export interface operations {
             };
             /** @description Re-authentication required */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.InvitationController.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationsListResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.InvitationController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Invitation params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateInvitationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created invitation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationResponse"];
+                };
+            };
+            /** @description Invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2143,6 +2836,120 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.RoleController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                role_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDeleteResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Cannot delete */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.RoleController.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                role_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Update params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated role */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleResponse"];
+                };
+            };
+            /** @description Invalid permission */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.DeviceController.revoke": {
         parameters: {
             query?: never;
@@ -2276,6 +3083,56 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.InvitationController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Invalid ID format */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.kdf_migration": {
         parameters: {
             query?: never;
@@ -2310,6 +3167,200 @@ export interface operations {
             };
         };
     };
+    "RefMDWeb.WorkspaceController.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Not a member */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.WorkspaceController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.WorkspaceController.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Update params */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.MemberController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoveMemberResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Last owner */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.MemberController.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Role change */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ChangeMemberRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated member */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     "RefMDWeb.AuthController.recovery_challenge": {
         parameters: {
             query?: never;
@@ -2331,6 +3382,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecoveryChallengeResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.MemberController.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MembersListResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    "RefMDWeb.MemberController.identity_keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMemberKeysResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -2510,6 +3623,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberEnvelopeResponse"];
+                };
+            };
+            /** @description Not a member */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Not found */

@@ -24,6 +24,9 @@ defmodule RefMDWeb.TrustTransferController do
       session.device_id != nil ->
         conn |> put_status(:forbidden) |> json(%{error: "bound_session"})
 
+      session.device_registration_id != device_id ->
+        conn |> put_status(:forbidden) |> json(%{error: "device_mismatch"})
+
       not (Devices.user_owns_active_device?(user_id, device_id) or
                Devices.user_owns_device_registration?(user_id, device_id)) ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
@@ -99,27 +102,42 @@ defmodule RefMDWeb.TrustTransferController do
       session.device_id != nil ->
         conn |> put_status(:forbidden) |> json(%{error: "bound_session"})
 
+      session.device_registration_id != device_id ->
+        conn |> put_status(:forbidden) |> json(%{error: "device_mismatch"})
+
       not (Devices.user_owns_active_device?(user_id, device_id) or
                Devices.user_owns_device_registration?(user_id, device_id)) ->
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
 
       true ->
-        case Auth.consume_trust_transfer_state(user_id, device_id) do
-          {:ok, state} ->
-            sender = Devices.get_device(state.sender_device_id)
+        consume_and_respond(conn, user_id, device_id)
+    end
+  end
 
-            json(conn, %{
-              sender_device_id: state.sender_device_id,
-              sender_ecdh_public_key: sender && encode_binary(sender.ecdh_public_key),
-              sender_signing_public_key: sender && encode_binary(sender.signing_public_key),
-              ciphertext: encode_binary(state.ciphertext),
-              nonce: encode_binary(state.nonce),
-              signature: encode_binary(state.signature)
-            })
+  defp consume_and_respond(conn, user_id, device_id) do
+    case Auth.consume_trust_transfer_state(user_id, device_id) do
+      {:ok, state} ->
+        respond_with_trust_state(conn, state)
 
-          {:error, :not_found} ->
-            conn |> put_status(:not_found) |> json(%{error: "not_found"})
-        end
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "not_found"})
+    end
+  end
+
+  defp respond_with_trust_state(conn, state) do
+    case Devices.get_device(state.sender_device_id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "sender_device_not_found"})
+
+      sender ->
+        json(conn, %{
+          sender_device_id: state.sender_device_id,
+          sender_ecdh_public_key: encode_binary(sender.ecdh_public_key),
+          sender_signing_public_key: encode_binary(sender.signing_public_key),
+          ciphertext: encode_binary(state.ciphertext),
+          nonce: encode_binary(state.nonce),
+          signature: encode_binary(state.signature)
+        })
     end
   end
 

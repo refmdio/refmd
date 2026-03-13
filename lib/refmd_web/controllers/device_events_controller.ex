@@ -8,8 +8,16 @@ defmodule RefMDWeb.DeviceEventsController do
 
   @spec existing_device_events(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def existing_device_events(conn, _params) do
-    user_id = conn.assigns.current_user_id
+    session = conn.assigns.current_session
 
+    if session.device_id == nil or session.is_recovery do
+      conn |> put_status(:forbidden) |> json(%{error: "existing_device_required"})
+    else
+      start_existing_device_stream(conn, conn.assigns.current_user_id)
+    end
+  end
+
+  defp start_existing_device_stream(conn, user_id) do
     conn =
       conn
       |> put_resp_header("content-type", "text/event-stream")

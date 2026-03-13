@@ -76,7 +76,21 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "example.com"
 
-  config :refmd, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :refmd,
+    expected_cluster_size: System.get_env("EXPECTED_CLUSTER_SIZE", "1") |> String.to_integer()
+
+  if cluster_service = System.get_env("CLUSTER_SERVICE_NAME") do
+    config :libcluster,
+      topologies: [
+        refmd: [
+          strategy: Cluster.Strategy.Kubernetes.DNS,
+          config: [
+            service: cluster_service,
+            application_name: "refmd"
+          ]
+        ]
+      ]
+  end
 
   config :refmd, RefMDWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

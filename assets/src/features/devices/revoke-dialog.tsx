@@ -162,7 +162,7 @@ export function RevokeDeviceDialog(props: Props) {
   );
 }
 
-interface AuthWithKeys {
+export interface AuthWithKeys {
   user: { id: string };
   umk: Uint8Array;
   identityKeys: {
@@ -173,12 +173,12 @@ interface AuthWithKeys {
   };
 }
 
-interface DeviceWithKeys {
+export interface DeviceWithKeys {
   deviceId: string;
   deviceEcdhPrivate: Uint8Array;
 }
 
-async function performKekRotation(
+export async function performKekRotation(
   workspaces: WorkspaceRotationInfo[],
   auth: AuthWithKeys,
   device: DeviceWithKeys,

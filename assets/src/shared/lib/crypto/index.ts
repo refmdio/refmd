@@ -16,7 +16,7 @@ export { generateUmk, wrapUmk, unwrapUmk } from "./umk";
 export { generateRecoveryKey, deriveRukFromMnemonic, wrapUmkWithRuk, unwrapUmkWithRuk, isValidMnemonic } from "./recovery";
 export type { RecoveryKeyData } from "./recovery";
 export { ecdhEncrypt, ecdhDecrypt } from "./ecdh-cipher";
-export { generateKek, encryptKekForDevice, decryptKekFromDeviceEnvelope, encryptKekForMember, decryptKekFromMemberEnvelope, unwrapKekFromBackup, wrapKekWithUmk } from "./kek";
+export { generateKek, encryptKekForDevice, decryptKekFromDeviceEnvelope, encryptKekForMember, decryptKekFromMemberEnvelope, unwrapKekFromBackup, wrapKekWithUmk, encryptKekForInvitation, decryptKekFromInvitation } from "./kek";
 export {
   generateDeviceKeyPair,
   generateClientNonce,

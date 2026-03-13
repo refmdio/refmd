@@ -34,6 +34,9 @@ function isSessionOnlyEndpoint(url: string, method: string): boolean {
   // Encryption setup (initial, before PoP is possible)
   if (path === "/api/encryption/setup-complete") return true;
 
+  // Workspace creation (session-only, no PoP)
+  if (path === "/api/workspaces" && method === "POST") return true;
+
   return false;
 }
 

@@ -82,6 +82,9 @@ defmodule RefMDWeb.Router do
 
     # Encryption setup (initial, before PoP is possible)
     post "/encryption/setup-complete", EncryptionController, :setup_complete
+
+    # Workspace creation (session only, no PoP)
+    post "/workspaces", WorkspaceController, :create
   end
 
   # Recovery-or-PoP endpoints
@@ -102,8 +105,31 @@ defmodule RefMDWeb.Router do
     # Trust transfer (PoP required: state sending)
     post "/trust-transfer/state", TrustTransferController, :send_state
 
-    # Workspaces (PoP required, minimal for Phase 2)
+    # Workspaces
     get "/workspaces/ids", EncryptionController, :workspace_ids
+    get "/workspaces", WorkspaceController, :index
+    get "/workspaces/:workspace_id", WorkspaceController, :show
+    patch "/workspaces/:workspace_id", WorkspaceController, :update
+    delete "/workspaces/:workspace_id", WorkspaceController, :delete
+
+    # Members
+    get "/workspaces/:workspace_id/members", MemberController, :index
+    get "/workspaces/:workspace_id/members/:user_id/devices", MemberController, :devices
+    get "/workspaces/:workspace_id/member-keys", MemberController, :identity_keys
+    patch "/workspaces/:workspace_id/members/:user_id", MemberController, :update
+    delete "/workspaces/:workspace_id/members/:user_id", MemberController, :delete
+
+    # Invitations
+    post "/workspaces/invitations/accept", InvitationController, :accept
+    get "/workspaces/:workspace_id/invitations", InvitationController, :index
+    post "/workspaces/:workspace_id/invitations", InvitationController, :create
+    delete "/workspaces/:workspace_id/invitations/:invitation_id", InvitationController, :delete
+
+    # Roles
+    get "/workspaces/:workspace_id/roles", RoleController, :index
+    post "/workspaces/:workspace_id/roles", RoleController, :create
+    patch "/workspaces/:workspace_id/roles/:role_id", RoleController, :update
+    delete "/workspaces/:workspace_id/roles/:role_id", RoleController, :delete
 
     # Devices (PoP required)
     get "/devices", DeviceController, :list
@@ -140,16 +166,16 @@ defmodule RefMDWeb.Router do
     get "/encryption/workspaces/:workspace_id/member-envelope",
         EncryptionController,
         :get_member_envelope
-
-    get "/encryption/workspaces/:workspace_id/member-keys",
-        EncryptionController,
-        :get_workspace_member_keys
   end
 
   if Application.compile_env(:refmd, :dev_routes) do
     scope "/dev" do
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
+  end
+
+  scope "/" do
+    get "/health", RefMDWeb.HealthController, :index
   end
 
   # SPA fallback: serve index.html for all non-API routes

@@ -1,0 +1,12 @@
+## Erlang VM arguments
+## Node name and cookie are managed by RELEASE_NODE and RELEASE_COOKIE
+## environment variables (set in env.sh.eex or deployment config).
+
+## Increase number of concurrent ports/sockets
+## +Q 65536
+
+## Tweak GC to run more often
+## +K true
+
+## EPMD port range for cluster communication
+## -kernel inet_dist_listen_min 9100 inet_dist_listen_max 9155

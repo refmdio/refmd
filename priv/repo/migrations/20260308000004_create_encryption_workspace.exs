@@ -27,6 +27,16 @@ defmodule RefMD.Repo.Migrations.CreateEncryptionWorkspace do
       add :created_at, :utc_datetime_usec, null: false
     end
 
+    execute(
+      "ALTER TABLE workspace_encrypted_keys ADD CONSTRAINT kek_nonce_size CHECK (octet_length(nonce) = 24)",
+      "ALTER TABLE workspace_encrypted_keys DROP CONSTRAINT kek_nonce_size"
+    )
+
+    execute(
+      "ALTER TABLE workspace_encrypted_keys ADD CONSTRAINT kek_ciphertext_size CHECK (octet_length(encrypted_kek) = 48)",
+      "ALTER TABLE workspace_encrypted_keys DROP CONSTRAINT kek_ciphertext_size"
+    )
+
     create table(:workspace_tag_index_keys, primary_key: false) do
       add :workspace_id,
           references(:workspaces, type: :binary_id, on_delete: :delete_all),

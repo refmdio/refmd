@@ -7,11 +7,13 @@ defmodule RefMD.Application do
 
   @impl true
   def start(_type, _args) do
+    topologies = Application.get_env(:libcluster, :topologies, [])
+
     children = [
       RefMDWeb.Telemetry,
       RefMD.Repo,
       {PlugAttack.Storage.Ets, name: RefMDWeb.Plugs.RateLimit.Storage, clean_period: 60_000},
-      {DNSCluster, query: Application.get_env(:refmd, :dns_cluster_query) || :ignore},
+      {Cluster.Supervisor, [topologies, [name: RefMD.ClusterSupervisor]]},
       {Phoenix.PubSub, name: RefMD.PubSub},
       {Oban, Application.fetch_env!(:refmd, Oban)},
       # Start to serve requests, typically the last entry

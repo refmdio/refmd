@@ -742,7 +742,14 @@ defmodule RefMDWeb.Schemas do
         nonce: %Schema{type: :string},
         signature: %Schema{type: :string}
       },
-      required: [:sender_device_id, :ciphertext, :nonce, :signature]
+      required: [
+        :sender_device_id,
+        :sender_ecdh_public_key,
+        :sender_signing_public_key,
+        :ciphertext,
+        :nonce,
+        :signature
+      ]
     })
   end
 
@@ -776,7 +783,13 @@ defmodule RefMDWeb.Schemas do
         sender_ecdh_public_key: %Schema{type: :string},
         sender_signing_public_key: %Schema{type: :string}
       },
-      required: [:encrypted_umk, :nonce, :sender_device_id]
+      required: [
+        :encrypted_umk,
+        :nonce,
+        :sender_device_id,
+        :sender_ecdh_public_key,
+        :sender_signing_public_key
+      ]
     })
   end
 
@@ -821,6 +834,23 @@ defmodule RefMDWeb.Schemas do
         current_kek_version: %Schema{type: :integer}
       },
       required: [:workspace_id, :current_kek_version]
+    })
+  end
+
+  defmodule RemoveMemberResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "RemoveMemberResponse",
+      type: :object,
+      properties: %{
+        ok: %Schema{type: :boolean},
+        workspaces_needing_kek_rotation: %Schema{
+          type: :array,
+          items: WorkspaceRotationInfo
+        }
+      },
+      required: [:ok, :workspaces_needing_kek_rotation]
     })
   end
 
@@ -946,12 +976,13 @@ defmodule RefMDWeb.Schemas do
       properties: %{
         key_version: %Schema{type: :integer},
         sender_device_id: %Schema{type: :string, format: :uuid},
+        sender_user_id: %Schema{type: :string, format: :uuid},
         sender_ecdh_public_key: %Schema{type: :string},
         sender_signing_public_key: %Schema{type: :string},
         encrypted_kek: %Schema{type: :string},
         nonce: %Schema{type: :string}
       },
-      required: [:key_version, :sender_device_id, :encrypted_kek, :nonce]
+      required: [:key_version, :sender_device_id, :sender_user_id, :encrypted_kek, :nonce]
     })
   end
 
@@ -1034,6 +1065,415 @@ defmodule RefMDWeb.Schemas do
         nonce: %Schema{type: :string}
       },
       required: [:key_version, :encrypted_kek, :nonce]
+    })
+  end
+
+  # ── Workspace ──────────────────────────────────
+
+  defmodule WorkspaceResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "WorkspaceResponse",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        name: %Schema{type: :string},
+        slug: %Schema{type: :string},
+        description: %Schema{type: :string, nullable: true},
+        icon: %Schema{type: :string, nullable: true},
+        owner_id: %Schema{type: :string, format: :uuid},
+        current_kek_version: %Schema{type: :integer},
+        needs_kek_rotation: %Schema{type: :boolean},
+        kek_rotation_initiator_user_id: %Schema{type: :string, format: :uuid, nullable: true},
+        current_user_role_id: %Schema{type: :string, format: :uuid, nullable: true},
+        current_user_base_role: %Schema{type: :string, nullable: true},
+        is_default: %Schema{type: :boolean, nullable: true},
+        created_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [
+        :id,
+        :name,
+        :slug,
+        :owner_id,
+        :current_kek_version,
+        :needs_kek_rotation,
+        :created_at,
+        :updated_at
+      ]
+    })
+  end
+
+  defmodule WorkspacesListResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "WorkspacesListResponse",
+      type: :object,
+      properties: %{
+        workspaces: %Schema{type: :array, items: WorkspaceResponse}
+      },
+      required: [:workspaces]
+    })
+  end
+
+  defmodule CreateWorkspaceRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CreateWorkspaceRequest",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 100},
+        description: %Schema{type: :string, maxLength: 500, nullable: true},
+        icon: %Schema{type: :string, nullable: true}
+      },
+      required: [:name]
+    })
+  end
+
+  defmodule UpdateWorkspaceRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "UpdateWorkspaceRequest",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 100},
+        slug: %Schema{type: :string, pattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
+        description: %Schema{type: :string, maxLength: 500, nullable: true},
+        icon: %Schema{type: :string, nullable: true}
+      }
+    })
+  end
+
+  # ── Members ────────────────────────────────────
+
+  defmodule MemberInfo do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "MemberInfo",
+      type: :object,
+      properties: %{
+        user_id: %Schema{type: :string, format: :uuid},
+        email: %Schema{type: :string, format: :email},
+        name: %Schema{type: :string},
+        role_id: %Schema{type: :string, format: :uuid},
+        role_name: %Schema{type: :string},
+        base_role: %Schema{type: :string, enum: ["owner", "admin", "editor", "viewer"]},
+        is_default: %Schema{type: :boolean},
+        joined_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [:user_id, :email, :name, :role_id, :role_name, :base_role, :joined_at]
+    })
+  end
+
+  defmodule MembersListResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "MembersListResponse",
+      type: :object,
+      properties: %{
+        members: %Schema{type: :array, items: MemberInfo}
+      },
+      required: [:members]
+    })
+  end
+
+  defmodule MemberDeviceInfo do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "MemberDeviceInfo",
+      type: :object,
+      properties: %{
+        device_id: %Schema{type: :string, format: :uuid},
+        signing_public_key: %Schema{type: :string},
+        ecdh_public_key: %Schema{type: :string},
+        identity_signature: %Schema{type: :string},
+        created_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [
+        :device_id,
+        :signing_public_key,
+        :ecdh_public_key,
+        :identity_signature,
+        :created_at
+      ]
+    })
+  end
+
+  defmodule MemberDevicesResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "MemberDevicesResponse",
+      type: :object,
+      properties: %{
+        devices: %Schema{type: :array, items: MemberDeviceInfo}
+      },
+      required: [:devices]
+    })
+  end
+
+  defmodule ChangeMemberRoleRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ChangeMemberRoleRequest",
+      type: :object,
+      properties: %{
+        role_id: %Schema{type: :string, format: :uuid}
+      },
+      required: [:role_id]
+    })
+  end
+
+  # ── Roles ──────────────────────────────────────
+
+  defmodule PermissionOverride do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "PermissionOverride",
+      type: :object,
+      properties: %{
+        permission: %Schema{type: :string},
+        granted: %Schema{type: :boolean}
+      },
+      required: [:permission, :granted]
+    })
+  end
+
+  defmodule RoleResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "RoleResponse",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        workspace_id: %Schema{type: :string, format: :uuid},
+        name: %Schema{type: :string},
+        base_role: %Schema{type: :string, enum: ["owner", "admin", "editor", "viewer"]},
+        is_default: %Schema{type: :boolean},
+        catalog_version: %Schema{type: :integer, nullable: true},
+        created_at: %Schema{type: :string, format: :"date-time"},
+        permissions: %Schema{type: :array, items: PermissionOverride}
+      },
+      required: [
+        :id,
+        :workspace_id,
+        :name,
+        :base_role,
+        :is_default,
+        :created_at
+      ]
+    })
+  end
+
+  defmodule RolesListResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "RolesListResponse",
+      type: :object,
+      properties: %{
+        roles: %Schema{type: :array, items: RoleResponse}
+      },
+      required: [:roles]
+    })
+  end
+
+  defmodule CreateRoleRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CreateRoleRequest",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 100},
+        base_role: %Schema{type: :string, enum: ["admin", "editor", "viewer"]},
+        permissions: %Schema{type: :array, items: PermissionOverride}
+      },
+      required: [:name, :base_role]
+    })
+  end
+
+  defmodule UpdateRoleRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "UpdateRoleRequest",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 100},
+        is_default: %Schema{type: :boolean},
+        permissions: %Schema{type: :array, items: PermissionOverride}
+      }
+    })
+  end
+
+  defmodule RoleDeleteResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "RoleDeleteResponse",
+      type: :object,
+      properties: %{
+        ok: %Schema{type: :boolean},
+        invalidated_invitation_count: %Schema{type: :integer}
+      },
+      required: [:ok, :invalidated_invitation_count]
+    })
+  end
+
+  # ── Invitations ─────────────────────────────────
+
+  defmodule CreateInvitationRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "CreateInvitationRequest",
+      type: :object,
+      properties: %{
+        invitation_id: %Schema{type: :string, format: :uuid},
+        token_hash: %Schema{type: :string},
+        token_prefix: %Schema{type: :string},
+        encrypted_kek: %Schema{type: :string},
+        kek_nonce: %Schema{type: :string},
+        kek_version: %Schema{type: :integer},
+        role_id: %Schema{type: :string, format: :uuid, nullable: true},
+        invited_email: %Schema{type: :string, format: :email},
+        expires_at: %Schema{type: :string, format: :"date-time", nullable: true}
+      },
+      required: [
+        :invitation_id,
+        :token_hash,
+        :token_prefix,
+        :encrypted_kek,
+        :kek_nonce,
+        :kek_version,
+        :invited_email
+      ]
+    })
+  end
+
+  defmodule InvitationResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "InvitationResponse",
+      type: :object,
+      properties: %{
+        invitation_id: %Schema{type: :string, format: :uuid},
+        workspace_id: %Schema{type: :string, format: :uuid},
+        token_prefix: %Schema{type: :string},
+        role_id: %Schema{type: :string, format: :uuid, nullable: true},
+        invited_email: %Schema{type: :string, format: :email},
+        kek_version: %Schema{type: :integer},
+        is_used: %Schema{type: :boolean},
+        expires_at: %Schema{type: :string, format: :"date-time"},
+        created_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [
+        :invitation_id,
+        :workspace_id,
+        :token_prefix,
+        :invited_email,
+        :kek_version,
+        :is_used,
+        :expires_at,
+        :created_at
+      ]
+    })
+  end
+
+  defmodule InvitationListItem do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "InvitationListItem",
+      type: :object,
+      properties: %{
+        invitation_id: %Schema{type: :string, format: :uuid},
+        workspace_id: %Schema{type: :string, format: :uuid},
+        token_prefix: %Schema{type: :string},
+        role_id: %Schema{type: :string, format: :uuid},
+        role_name: %Schema{type: :string},
+        invited_by: %Schema{type: :string, format: :uuid},
+        invited_email: %Schema{type: :string, format: :email},
+        kek_version: %Schema{type: :integer},
+        is_used: %Schema{type: :boolean},
+        expires_at: %Schema{type: :string, format: :"date-time"},
+        created_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [
+        :invitation_id,
+        :workspace_id,
+        :token_prefix,
+        :invited_by,
+        :invited_email,
+        :kek_version,
+        :is_used,
+        :expires_at,
+        :created_at
+      ]
+    })
+  end
+
+  defmodule InvitationsListResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "InvitationsListResponse",
+      type: :object,
+      properties: %{
+        invitations: %Schema{type: :array, items: InvitationListItem}
+      },
+      required: [:invitations]
+    })
+  end
+
+  defmodule AcceptInvitationRequest do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AcceptInvitationRequest",
+      type: :object,
+      properties: %{
+        token: %Schema{type: :string}
+      },
+      required: [:token]
+    })
+  end
+
+  defmodule AcceptInvitationResponse do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AcceptInvitationResponse",
+      type: :object,
+      properties: %{
+        workspace_id: %Schema{type: :string, format: :uuid},
+        workspace_name: %Schema{type: :string},
+        role_name: %Schema{type: :string, nullable: true},
+        invitation_id: %Schema{type: :string, format: :uuid},
+        encrypted_kek: %Schema{type: :string},
+        kek_nonce: %Schema{type: :string},
+        kek_version: %Schema{type: :integer}
+      },
+      required: [
+        :workspace_id,
+        :workspace_name,
+        :invitation_id,
+        :encrypted_kek,
+        :kek_nonce,
+        :kek_version
+      ]
     })
   end
 end

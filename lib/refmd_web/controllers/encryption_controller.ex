@@ -27,7 +27,7 @@ defmodule RefMDWeb.EncryptionController do
          {:ok, workspace} <- fetch_workspace(workspace_id),
          :ok <- require_membership(workspace_id, user_id),
          :ok <- validate_device_ownership(user_id, params["device_id"]),
-         :ok <- validate_key_version_range(params["key_version"], workspace) do
+         :ok <- validate_key_version_range(params["key_version"], workspace, user_id) do
       execute_create_workspace_key(conn, workspace, %{
         workspace_id: workspace_id,
         user_id: user_id,
@@ -141,6 +141,7 @@ defmodule RefMDWeb.EncryptionController do
     ],
     responses: [
       ok: {"KEK backup", "application/json", Schemas.KekBackupResponse},
+      forbidden: {"Not a member", "application/json", Schemas.ErrorResponse},
       not_found: {"Not found", "application/json", Schemas.ErrorResponse}
     ]
   )
@@ -222,21 +223,7 @@ defmodule RefMDWeb.EncryptionController do
         conn |> put_status(:forbidden) |> json(%{error: "invalid_device"})
 
       true ->
-        case Devices.get_device_encrypted_umk(user_id, device_id) do
-          nil ->
-            conn |> put_status(:not_found) |> json(%{error: "not_found"})
-
-          umk_data ->
-            sender = Devices.get_device(umk_data.sender_device_id)
-
-            json(conn, %{
-              encrypted_umk: encode_binary(umk_data.encrypted_umk),
-              nonce: encode_binary(umk_data.nonce),
-              sender_device_id: umk_data.sender_device_id,
-              sender_ecdh_public_key: sender && encode_binary(sender.ecdh_public_key),
-              sender_signing_public_key: sender && encode_binary(sender.signing_public_key)
-            })
-        end
+        respond_with_umk(conn, user_id, device_id)
     end
   end
 
@@ -292,19 +279,23 @@ defmodule RefMDWeb.EncryptionController do
     user_id = conn.assigns.current_user_id
     new_kek_version = params["new_kek_version"]
 
-    with {:ok, workspace} <- fetch_workspace(workspace_id, "workspace_not_found"),
-         {:ok, base_role} <- fetch_membership(workspace_id, user_id),
-         :ok <- require_rotation_in_progress(workspace),
-         :ok <- require_rotation_authority(workspace, user_id, base_role) do
-      envelope_checks = build_envelope_checks(workspace_id, user_id, new_kek_version)
-
-      Workspaces.complete_kek_rotation(workspace_id, new_kek_version,
-        envelope_checks: envelope_checks
-      )
-      |> handle_rotation_completion(conn)
+    if not is_integer(new_kek_version) or new_kek_version <= 0 do
+      conn |> put_status(:bad_request) |> json(%{error: "invalid_kek_version"})
     else
-      {:error, status, error} ->
-        conn |> put_status(status) |> json(%{error: error})
+      with {:ok, workspace} <- fetch_workspace(workspace_id, "workspace_not_found"),
+           {:ok, base_role} <- fetch_membership(workspace_id, user_id),
+           :ok <- require_rotation_in_progress(workspace),
+           :ok <- require_rotation_authority(workspace, user_id, base_role) do
+        envelope_checks = build_envelope_checks(workspace_id, user_id, new_kek_version)
+
+        Workspaces.complete_kek_rotation(workspace_id, new_kek_version,
+          envelope_checks: envelope_checks
+        )
+        |> handle_rotation_completion(conn)
+      else
+        {:error, status, error} ->
+          conn |> put_status(status) |> json(%{error: error})
+      end
     end
   end
 
@@ -351,6 +342,7 @@ defmodule RefMDWeb.EncryptionController do
     ],
     responses: [
       ok: {"Member envelope", "application/json", Schemas.MemberEnvelopeResponse},
+      forbidden: {"Not a member", "application/json", Schemas.ErrorResponse},
       not_found: {"Not found", "application/json", Schemas.ErrorResponse}
     ]
   )
@@ -362,22 +354,31 @@ defmodule RefMDWeb.EncryptionController do
     if Workspaces.get_member_role(workspace_id, user_id) == nil do
       conn |> put_status(:forbidden) |> json(%{error: "not_a_member"})
     else
-      case Encryption.get_member_envelope(workspace_id, user_id) do
-        nil ->
-          conn |> put_status(:not_found) |> json(%{error: "not_found"})
+      render_member_envelope(conn, workspace_id, user_id)
+    end
+  end
 
-        envelope ->
-          sender = Devices.get_device(envelope.sender_device_id)
+  defp render_member_envelope(conn, workspace_id, user_id) do
+    case Encryption.get_member_envelope(workspace_id, user_id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
-          json(conn, %{
-            key_version: envelope.key_version,
-            sender_device_id: envelope.sender_device_id,
-            sender_ecdh_public_key: sender && encode_binary(sender.ecdh_public_key),
-            sender_signing_public_key: sender && encode_binary(sender.signing_public_key),
-            encrypted_kek: encode_binary(envelope.encrypted_kek),
-            nonce: encode_binary(envelope.nonce)
-          })
-      end
+      envelope ->
+        case Devices.get_device(envelope.sender_device_id) do
+          nil ->
+            conn |> put_status(:not_found) |> json(%{error: "not_found"})
+
+          sender ->
+            json(conn, %{
+              key_version: envelope.key_version,
+              sender_device_id: envelope.sender_device_id,
+              sender_user_id: sender.user_id,
+              sender_ecdh_public_key: encode_binary(sender.ecdh_public_key),
+              sender_signing_public_key: encode_binary(sender.signing_public_key),
+              encrypted_kek: encode_binary(envelope.encrypted_kek),
+              nonce: encode_binary(envelope.nonce)
+            })
+        end
     end
   end
 
@@ -393,38 +394,6 @@ defmodule RefMDWeb.EncryptionController do
     user_id = conn.assigns.current_user_id
     ids = Workspaces.get_user_workspace_ids(user_id)
     json(conn, %{workspace_ids: ids})
-  end
-
-  operation(:get_workspace_member_keys,
-    summary: "Get Identity ECDH public keys for all workspace members",
-    parameters: [
-      workspace_id: [in: :path, type: :string, required: true]
-    ],
-    responses: [
-      ok: {"Member keys", "application/json", Schemas.WorkspaceMemberKeysResponse},
-      forbidden: {"Not a member", "application/json", Schemas.ErrorResponse}
-    ]
-  )
-
-  @spec get_workspace_member_keys(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def get_workspace_member_keys(conn, %{"workspace_id" => workspace_id}) do
-    user_id = conn.assigns.current_user_id
-
-    if Workspaces.get_member_role(workspace_id, user_id) == nil do
-      conn |> put_status(:forbidden) |> json(%{error: "not_a_member"})
-    else
-      members = Encryption.get_workspace_member_identity_keys(workspace_id)
-
-      json(conn, %{
-        members:
-          Enum.map(members, fn m ->
-            %{
-              user_id: m.user_id,
-              ecdh_public_key: encode_binary(m.ecdh_public_key)
-            }
-          end)
-      })
-    end
   end
 
   operation(:setup_complete,
@@ -518,7 +487,10 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp validate_key_version_range(key_version, workspace) when is_integer(key_version) do
+  defp validate_key_version_range(key_version, workspace, user_id)
+       when is_integer(key_version) do
+    max = max_allowed_key_version(workspace, user_id, key_version)
+
     cond do
       key_version < 1 ->
         {:error, :unprocessable_entity, "key_version_must_be_positive"}
@@ -526,7 +498,7 @@ defmodule RefMDWeb.EncryptionController do
       key_version < workspace.min_kek_version ->
         {:error, :unprocessable_entity, "key_version_below_minimum"}
 
-      key_version > workspace.current_kek_version + 1 ->
+      key_version > max ->
         {:error, :unprocessable_entity, "key_version_too_high"}
 
       true ->
@@ -534,7 +506,19 @@ defmodule RefMDWeb.EncryptionController do
     end
   end
 
-  defp validate_key_version_range(_key_version, _workspace), do: :ok
+  defp validate_key_version_range(_key_version, _workspace, _user_id), do: :ok
+
+  defp max_allowed_key_version(%{current_kek_version: 0}, _user_id, _key_version), do: 1
+
+  defp max_allowed_key_version(workspace, user_id, key_version) do
+    if workspace.needs_kek_rotation and
+         workspace.kek_rotation_initiator_user_id == user_id and
+         key_version == workspace.current_kek_version + 1 do
+      workspace.current_kek_version + 1
+    else
+      workspace.current_kek_version
+    end
+  end
 
   defp require_device_id(device_id) do
     if is_nil(device_id) or device_id == "" do
@@ -761,6 +745,32 @@ defmodule RefMDWeb.EncryptionController do
   end
 
   defp decode_binary!(_), do: raise(ArgumentError, "missing required binary field")
+
+  defp respond_with_umk(conn, user_id, device_id) do
+    case Devices.get_device_encrypted_umk(user_id, device_id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "not_found"})
+
+      umk_data ->
+        format_umk_response(conn, umk_data)
+    end
+  end
+
+  defp format_umk_response(conn, umk_data) do
+    case Devices.get_device(umk_data.sender_device_id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "sender_device_not_found"})
+
+      sender ->
+        json(conn, %{
+          encrypted_umk: encode_binary(umk_data.encrypted_umk),
+          nonce: encode_binary(umk_data.nonce),
+          sender_device_id: umk_data.sender_device_id,
+          sender_ecdh_public_key: encode_binary(sender.ecdh_public_key),
+          sender_signing_public_key: encode_binary(sender.signing_public_key)
+        })
+    end
+  end
 
   defp encode_binary(nil), do: nil
   defp encode_binary(bin), do: Base.url_encode64(bin, padding: false)
